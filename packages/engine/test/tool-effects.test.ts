@@ -60,7 +60,7 @@ describe("files a run's tools leave for its reply", () => {
           postedCount: 0,
           deltaSeq: 0,
           bridgeEffects: kept,
-          bridgeCallIds: ["call-1", "call-2"],
+          bridgeCalls: 2,
         },
       })
       .returning();
@@ -78,10 +78,10 @@ describe("files a run's tools leave for its reply", () => {
     // A save of the engine's copy (which knows nothing of it) keeps what the bridge left.
     await save({ system: [], messages: [{ role: "user", content: "x" }], postedUpTo: 1, postedCount: 0, deltaSeq: 0 });
     expect((await stored()).bridgeEffects).toEqual(kept);
-    expect((await stored()).bridgeCallIds).toEqual(["call-1", "call-2"]);
+    expect((await stored()).bridgeCalls).toBe(2);
     expect((await stored()).postedUpTo).toBe(1);
     // Taken once; a later save of a stale copy that still has it doesn't bring it back.
-    expect(await takeBridgeResult(fx.db, run.id)).toEqual({ effects: kept, calls: ["call-1", "call-2"] });
+    expect(await takeBridgeResult(fx.db, run.id)).toEqual({ effects: kept, calls: 2 });
     await save({
       system: [],
       messages: [],
@@ -89,10 +89,10 @@ describe("files a run's tools leave for its reply", () => {
       postedCount: 0,
       deltaSeq: 0,
       bridgeEffects: kept,
-      bridgeCallIds: ["call-1", "call-2"],
+      bridgeCalls: 2,
     });
     expect((await stored()).bridgeEffects).toBeUndefined();
-    expect((await stored()).bridgeCallIds).toBeUndefined();
+    expect((await stored()).bridgeCalls).toBeUndefined();
     expect(await takeBridgeEffects(fx.db, run.id)).toBeNull();
   });
 });

@@ -4504,7 +4504,11 @@ async function executeRunInner(
           // Before anything reads the inbox again (the next step, a failure's redispatch): what the turn
           // was handed and never confirmed reading goes back there.
         ).finally(() => live.endTurn());
-        transcript.executedCalls = (transcript.executedCalls ?? 0) + result.toolCalls.length + result.executedCount;
+        const ownExecuted =
+          turnPlan.kind === "model"
+            ? result.executedCount
+            : executedNow.filter((c) => !turnTools.some((t) => t.name === c.name)).length;
+        transcript.executedCalls = (transcript.executedCalls ?? 0) + result.toolCalls.length + ownExecuted;
         callsCounted = true;
         // A turn ran: a later limit is a new wait, with its own note.
         if (transcript.usageWait || USAGE_WAIT_CODES.has(transcript.brainNotice ?? "")) {
@@ -4582,11 +4586,13 @@ async function executeRunInner(
         }
         if (turnPlan.kind !== "model") {
           // What the bridge kept during this turn (cards, a reaction) is the engine's now.
-          const bridged = await takeBridgeResult(db, run.id).catch(() => ({ effects: null, calls: [] }));
+          const bridged = await takeBridgeResult(db, run.id).catch(() => ({ effects: null, calls: 0 }));
           mergeToolEffects(transcript, bridged.effects);
-          const replayed = new Set(executedNow.map((c) => c.id));
-          if (!callsCounted) transcript.executedCalls = (transcript.executedCalls ?? 0) + executedNow.length;
-          transcript.executedCalls = (transcript.executedCalls ?? 0) + bridged.calls.filter((id) => !replayed.has(id)).length;
+          if (!callsCounted)
+            transcript.executedCalls =
+              (transcript.executedCalls ?? 0) +
+              executedNow.filter((c) => !turnTools.some((t) => t.name === c.name)).length;
+          transcript.executedCalls = (transcript.executedCalls ?? 0) + bridged.calls;
           // A bridged call paused the run before the brain failed: the run waits for the person, with the
           // pending calls the bridge wrote (no fallback, no failure; the decision resumes the session).
           const [row] = await db.select({ status: agentRuns.status }).from(agentRuns).where(eq(agentRuns.id, run.id));
@@ -4771,8 +4777,7 @@ async function executeRunInner(
       if (turnPlan.kind !== "model") {
         const bridged = await takeBridgeResult(db, run.id);
         mergeToolEffects(transcript, bridged.effects);
-        const replayed = new Set(executedNow.map((c) => c.id));
-        transcript.executedCalls = (transcript.executedCalls ?? 0) + bridged.calls.filter((id) => !replayed.has(id)).length;
+        transcript.executedCalls = (transcript.executedCalls ?? 0) + bridged.calls;
       }
       // A computer brain's turn with nothing to say (its tools ran through the bridge) adds no empty message.
       if (result.content.length > 0) transcript.messages.push({ role: "assistant", content: result.content });

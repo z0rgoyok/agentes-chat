@@ -323,8 +323,8 @@ const hasEffects = (e: ToolSideEffects) =>
 
 /** The transcript key where the bridge leaves a computer-brain turn's side effects for the engine. */
 const BRIDGE_EFFECTS = "bridgeEffects";
-/** The calls the runner made through the bridge during the turn. */
-const BRIDGE_CALLS = "bridgeCallIds";
+/** How many calls the runner made through the bridge during the turn. */
+const BRIDGE_CALLS = "bridgeCalls";
 
 /**
  * A bridged call's side effects (a computer brain's tool through the runner
@@ -356,17 +356,14 @@ async function recordBridgeEffects(
     if (!t) return;
     const kept = { ...((t[BRIDGE_EFFECTS] ?? {}) as ToolSideEffects) };
     mergeToolEffects(kept, effects);
-    const before = Array.isArray(t[BRIDGE_CALLS])
-      ? t[BRIDGE_CALLS].filter((id): id is string => typeof id === "string")
-      : [];
-    const calls = executed === 0 ? before : [...new Set([...before, call.id])];
+    const calls = (typeof t[BRIDGE_CALLS] === "number" ? t[BRIDGE_CALLS] : 0) + executed;
     await tx
       .update(agentRuns)
       .set({
         transcript: {
           ...t,
           ...(hasEffects(kept) ? { [BRIDGE_EFFECTS]: kept } : {}),
-          ...(calls.length > 0 ? { [BRIDGE_CALLS]: calls } : {}),
+          ...(calls > 0 ? { [BRIDGE_CALLS]: calls } : {}),
         },
         updatedAt: new Date(),
       })
@@ -393,7 +390,7 @@ export function storedTranscript(t: object): SQL {
 /** What the bridge kept on a run while the engine held its own copy. */
 export interface BridgeResult {
   effects: ToolSideEffects | null;
-  calls: string[];
+  calls: number;
 }
 
 /** Takes (and clears) both the calls and side effects the bridge kept for this run. */
@@ -406,10 +403,8 @@ export async function takeBridgeResult(db: Database, runId: string): Promise<Bri
       .for("update");
     const t = row?.transcript as Record<string, unknown> | null | undefined;
     const kept = t?.[BRIDGE_EFFECTS] as ToolSideEffects | undefined;
-    const calls = Array.isArray(t?.[BRIDGE_CALLS])
-      ? t[BRIDGE_CALLS].filter((id): id is string => typeof id === "string")
-      : [];
-    if (!t || (!kept && calls.length === 0)) return { effects: null, calls: [] };
+    const calls = typeof t?.[BRIDGE_CALLS] === "number" ? t[BRIDGE_CALLS] : 0;
+    if (!t || (!kept && calls === 0)) return { effects: null, calls: 0 };
     const { [BRIDGE_EFFECTS]: _taken, [BRIDGE_CALLS]: _counted, ...rest } = t;
     await tx.update(agentRuns).set({ transcript: rest, updatedAt: new Date() }).where(eq(agentRuns.id, runId));
     return { effects: kept ?? null, calls };
