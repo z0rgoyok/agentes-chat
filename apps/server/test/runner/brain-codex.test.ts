@@ -91,6 +91,7 @@ test("command line: first turn with instructions, resume by id without them, opt
   expect(first.join(" ")).not.toContain("network_access=true");
   expect(first[first.indexOf("sandbox_workspace_write.writable_roots=[]") - 1]).toBe("-c");
   expect(first).toContain(`developer_instructions=${JSON.stringify('Be "brief".\nUse tools.')}`);
+  expect(first).toContain(`features.code_mode.direct_only_tool_namespaces=["mcp__${CODEX_MCP_SERVER}"]`);
   expect(first.slice(-5)).toEqual(["-m", "gpt-5.5", "-o", "/r/last.txt", "-"]);
   expect(first).not.toContain("resume");
   expect(first).not.toContain("--full-auto");

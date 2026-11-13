@@ -9,6 +9,7 @@ import type { CommandProfile, CommandScope } from "@agenteschat/adapters/command
 import { type BrainSteerReply, type BrainSteerRequest, isBrainEffort } from "@agenteschat/adapters/machine-protocol";
 import { accountEnv, withoutContainers, yieldRoute } from "./accounts";
 import {
+  CODEX_DIRECT_MCP_CONFIG,
   CODEX_NO_NETWORK,
   type CodexAppRunner,
   type CodexBrainEvent,
@@ -196,7 +197,12 @@ export function codexAppServerArgs(input: {
     codexWritableRoots(input.writableRoots ?? []),
     ...(input.windows ? CODEX_WINDOWS_CONFIG.flatMap((c) => ["-c", c]) : []),
     ...codexContextOverride(input.contextTokens),
-    ...(input.mcp ? codexBridgeOverrides({ runId: input.processId, ...input.mcp }).flatMap((o) => ["-c", o]) : []),
+    ...(input.mcp
+      ? [CODEX_DIRECT_MCP_CONFIG, ...codexBridgeOverrides({ runId: input.processId, ...input.mcp })].flatMap((o) => [
+          "-c",
+          o,
+        ])
+      : []),
   ];
 }
 
