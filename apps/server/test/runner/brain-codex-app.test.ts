@@ -148,6 +148,7 @@ test("version gate and the app-server command line: our overrides, our bridge pe
   expect(args[args.indexOf("sandbox_workspace_write.network_access=false") - 1]).toBe("-c");
   expect(args.join(" ")).not.toContain("network_access=true");
   expect(args).toContain('sandbox_workspace_write.writable_roots=["/w/shared"]');
+  expect(args).toContain(`features.code_mode.direct_only_tool_namespaces=["mcp__${CODEX_MCP_SERVER}"]`);
   expect(args).toContain(`mcp_servers.${CODEX_MCP_SERVER}.args=["/r/runner.js","mcp","--run","proc-0001"]`);
   expect(args).toContain(`mcp_servers.${CODEX_MCP_SERVER}.default_tools_approval_mode="approve"`);
   expect(args.some((a) => a.startsWith("model_auto_compact_token_limit"))).toBe(false);
