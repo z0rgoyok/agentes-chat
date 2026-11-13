@@ -323,11 +323,13 @@ const hasEffects = (e: ToolSideEffects) =>
 
 /** The transcript key where the bridge leaves a computer-brain turn's side effects for the engine. */
 const BRIDGE_EFFECTS = "bridgeEffects";
+/** How many calls the runner made through the bridge during the turn. */
+const BRIDGE_CALLS = "bridgeCalls";
 
 /**
  * A bridged call's side effects (a computer brain's tool through the runner
  * bridge): kept on the run (`transcript.bridgeEffects`) until the engine ends
- * the turn and takes them (`takeBridgeEffects`), exactly as the loop keeps its
+ * the turn and takes them (`takeBridgeResult`), exactly as the loop keeps its
  * own (`absorbToolData`): the reply carries the cards, and a `react` closes the
  * turn silently. The memory update is announced now.
  */
@@ -335,13 +337,14 @@ async function recordBridgeEffects(
   deps: RunToolsDeps,
   run: AgentRun,
   where: RunWhere,
-  call: { name: string; input: unknown },
+  call: { id: string; name: string; input: unknown },
   outcome: InvokeResult,
 ) {
   const effects: ToolSideEffects = {};
   absorbBrowserCall(effects, call, outcome.type === "result" && outcome.output.isError === true);
   const update = outcome.type === "result" ? absorbToolData(effects, outcome.output.data) : null;
-  if (!hasEffects(effects)) return;
+  const executed = outcome.type === "result" ? 1 : 0;
+  if (!hasEffects(effects) && executed === 0) return;
   await deps.db.transaction(async (tx) => {
     const [row] = await tx
       .select({ transcript: agentRuns.transcript })
@@ -353,9 +356,17 @@ async function recordBridgeEffects(
     if (!t) return;
     const kept = { ...((t[BRIDGE_EFFECTS] ?? {}) as ToolSideEffects) };
     mergeToolEffects(kept, effects);
+    const calls = (typeof t[BRIDGE_CALLS] === "number" ? t[BRIDGE_CALLS] : 0) + executed;
     await tx
       .update(agentRuns)
-      .set({ transcript: { ...t, [BRIDGE_EFFECTS]: kept }, updatedAt: new Date() })
+      .set({
+        transcript: {
+          ...t,
+          ...(hasEffects(kept) ? { [BRIDGE_EFFECTS]: kept } : {}),
+          ...(calls > 0 ? { [BRIDGE_CALLS]: calls } : {}),
+        },
+        updatedAt: new Date(),
+      })
       .where(eq(agentRuns.id, run.id));
   });
   if (update) await publishChannelEvent(deps.pubsub, { type: "memory.updated", ...where, update });
@@ -369,12 +380,21 @@ async function recordBridgeEffects(
  * drop ones kept since. The row's value stays as it is.
  */
 export function storedTranscript(t: object): SQL {
-  const { [BRIDGE_EFFECTS]: _kept, ...rest } = t as Record<string, unknown>;
-  return sql`(${pgSafeStringify(rest)}::jsonb || jsonb_strip_nulls(jsonb_build_object(${BRIDGE_EFFECTS}::text, ${agentRuns.transcript} -> ${BRIDGE_EFFECTS}::text)))`;
+  const { [BRIDGE_EFFECTS]: _kept, [BRIDGE_CALLS]: _calls, ...rest } = t as Record<string, unknown>;
+  return sql`(${pgSafeStringify(rest)}::jsonb || jsonb_strip_nulls(jsonb_build_object(
+    ${BRIDGE_EFFECTS}::text, ${agentRuns.transcript} -> ${BRIDGE_EFFECTS}::text,
+    ${BRIDGE_CALLS}::text, ${agentRuns.transcript} -> ${BRIDGE_CALLS}::text
+  )))`;
 }
 
-/** Takes (and clears) the side effects the bridge kept for this run (`recordBridgeEffects`). */
-export async function takeBridgeEffects(db: Database, runId: string): Promise<ToolSideEffects | null> {
+/** What the bridge kept on a run while the engine held its own copy. */
+export interface BridgeResult {
+  effects: ToolSideEffects | null;
+  calls: number;
+}
+
+/** Takes (and clears) both the calls and side effects the bridge kept for this run. */
+export async function takeBridgeResult(db: Database, runId: string): Promise<BridgeResult> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ transcript: agentRuns.transcript })
@@ -383,11 +403,17 @@ export async function takeBridgeEffects(db: Database, runId: string): Promise<To
       .for("update");
     const t = row?.transcript as Record<string, unknown> | null | undefined;
     const kept = t?.[BRIDGE_EFFECTS] as ToolSideEffects | undefined;
-    if (!t || !kept) return null;
-    const { [BRIDGE_EFFECTS]: _taken, ...rest } = t;
+    const calls = typeof t?.[BRIDGE_CALLS] === "number" ? t[BRIDGE_CALLS] : 0;
+    if (!t || (!kept && calls === 0)) return { effects: null, calls: 0 };
+    const { [BRIDGE_EFFECTS]: _taken, [BRIDGE_CALLS]: _counted, ...rest } = t;
     await tx.update(agentRuns).set({ transcript: rest, updatedAt: new Date() }).where(eq(agentRuns.id, runId));
-    return kept;
+    return { effects: kept ?? null, calls };
   });
+}
+
+/** Takes (and clears) the side effects the bridge kept for this run. */
+export async function takeBridgeEffects(db: Database, runId: string): Promise<ToolSideEffects | null> {
+  return (await takeBridgeResult(db, runId)).effects;
 }
 
 // ── Calls ────────────────────────────────────────────────────────────────────

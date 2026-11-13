@@ -2693,6 +2693,57 @@ test("bridged side effects reach the engine: a bridged react ends the turn silen
   expect(JSON.stringify(run?.transcript)).not.toContain("bridgeEffects");
 });
 
+test("a bridged call the brain doesn't replay still counts as executed", async () => {
+  const fx = effectTools(() => f as Fixture);
+  const fixture = (f = await setup({ toolSources: [fx.source] }));
+  const machineId = await computerAgent(f);
+  const { brain } = scriptedComputerBrain(async function* (_n, turn) {
+    await executeToolForRun(
+      fixture.jobDeps,
+      { orgId: turn.orgId, agentId: turn.agentId, runId: turn.runId, machineId },
+      { id: "check-1", name: "check_env", input: {} },
+    );
+    // Codex app-server calls our bridge directly and doesn't replay it as a tool_call event.
+    yield { type: "done", text: "go: not found" };
+  });
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev confere o ambiente");
+  await drainOutbox(f.db, handlers);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  expect((run?.transcript as { executedCalls?: number } | null)?.executedCalls).toBe(1);
+  expect(run?.transcript).not.toHaveProperty("bridgeCalls");
+  const reply = (await timeline(f)).at(-1);
+  expect(reply?.body).toBe("go: not found");
+});
+
+test("a bridged call replayed with another id is counted once", async () => {
+  const fx = effectTools(() => f as Fixture);
+  const fixture = (f = await setup({ toolSources: [fx.source] }));
+  const machineId = await computerAgent(f);
+  const { brain } = scriptedComputerBrain(async function* (_n, turn) {
+    const result = await executeToolForRun(
+      fixture.jobDeps,
+      { orgId: turn.orgId, agentId: turn.agentId, runId: turn.runId, machineId },
+      { id: "check-1", name: "check_env", input: {} },
+    );
+    yield { type: "tool_call", id: "different-replay-id", name: "check_env", input: {}, executed: result };
+    yield { type: "done", text: "go: not found" };
+  });
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev confere o ambiente");
+  await drainOutbox(f.db, handlers);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  expect((run?.transcript as { executedCalls?: number } | null)?.executedCalls).toBe(1);
+});
+
 test("a bridged react followed by the emoji as text posts nothing (no 👍 message); a real reply still posts", async () => {
   const fx = effectTools(() => f);
   f = await setup({ toolSources: [fx.source] });
@@ -2832,6 +2883,7 @@ test("a computer brain that fails after a bridged tool ran: no fallback, what it
   expect(checks).toBe(1);
   const [run] = await f.db.select().from(schema.agentRuns);
   expect(run?.status).toBe("done");
+  expect((run?.transcript as { executedCalls?: number } | null)?.executedCalls).toBe(1);
   // The model brain never redid the turn.
   const usage = await f.db
     .select()
