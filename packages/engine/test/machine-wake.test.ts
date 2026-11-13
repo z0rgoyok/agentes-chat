@@ -396,7 +396,7 @@ describe("what the operator decides with", () => {
 
     // As the operator reads it: the workspace's own computer only.
     const paired = await pairMachine(deps(), f.owner.id, f.org.id, { name: "Laptop" });
-    const listed = await operatorMachines(f.db, f.org.id);
+    const listed = (await operatorMachines(f.db, f.org.id))?.machines;
     expect(listed?.find((x) => x.id === machineId)).toMatchObject({
       managed: true,
       standby: false,

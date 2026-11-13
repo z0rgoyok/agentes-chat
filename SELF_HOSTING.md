@@ -889,6 +889,36 @@ then a second listener on `OPERATOR_API_PORT` (3001) serves `/api/operator/v1`, 
 `Authorization: Bearer <token>`, and its OpenAPI document is at `/api/operator/v1/openapi.json`. That
 port reaches every workspace, so never publish it or put it behind your proxy: the compose file
 doesn't publish it, and containers on the same Docker network reach it as `http://agentes:3001`.
+For a caller that only looks things up, set `OPERATOR_API_READ_TOKEN` too (a different value, same
+length): it is accepted for `GET` requests alone and never for `GET /review/...`, and anything else
+it asks for is refused (403). It still reads names, emails and IP addresses, so keep it as private.
+`GET /users?q=` finds an account by part of its address or name, `GET /resolve?ref=` says what a
+pasted link, an `@handle` or an id names, and `GET /orgs/{orgId}/members`, `/channels` and `/agents`
+list who and what is in a workspace, never what was written there.
+`GET /orgs/{orgId}/runs` lists a workspace's runs with what each waits for or failed with,
+`GET /runs/{runId}/trace` shows one run step by step, `GET /orgs/{orgId}/timeline` puts a conversation's
+messages, routing decisions and runs in order, and `GET /messages/{messageId}/explain` says why a message
+did or did not start a run: ids, codes, times and sizes, never a message's text or what a tool was given
+or answered. `GET /orgs/{orgId}/tool-calls` lists the tools a workspace's agents called (`?groupBy=tool`
+for counts): which tool, whether it is the server's own or a connected app's, and how each call ended.
+`GET /orgs/{orgId}/connections` lists what a workspace connected (apps, mailboxes, databases) with each
+one's state and last error, `GET /orgs/{orgId}/audit` its audit log without the entries' details,
+`GET /orgs/{orgId}/asks` what its agents asked of people and of each other (`?open=true` for what still
+waits) and `GET /orgs/{orgId}/routines` its routines with their latest firings: never a credential, what
+was asked or answered, or a routine's name or instructions. A connection's `label` is what its workspace
+calls it, which is a mailbox's address or a database's host when nobody named it; an audit entry's
+`targetId` is a name where the target has no id (a tool, a repository, a wiki folder).
+`GET /orgs/{orgId}/notifications?userId=` lists what one person was notified of and the pushes that
+carried it, never a notification's words; `GET /orgs/{orgId}/access?userId=&targetKind=&targetId=` says
+whether a person reaches an agent, a channel, a task, a file or a computer, and the rule that decides;
+`GET /orgs/{orgId}/unanswered` lists people's messages no run answered, each with why (`?summary=true`
+for counts); and `GET /email-jobs?to=` lists the emails queued to one address with their state, never
+the address, a subject or a link.
+`GET /jobs` lists the job queue without the jobs' payloads (`?stuck=true` for the ones nobody took,
+`?summary=true` for counts by kind and status), `GET /usage` adds up the tokens and cost of model calls
+for the instance, a workspace, an agent or a run, and `GET /orgs/{orgId}/machines` and
+`GET /machines/{machineId}` say what is on a computer and what waits for it: its runner and CLI versions,
+its AI accounts, open tasks and waiting runs, never a token, a hostname or an address.
 With the token set, the server also keeps 90 days of events for it to read (`GET /events`: sign-ups
 with their email, sign-ins with their IP address and browser, workspaces, invitations, agents, emails
 sent and runs finished, as metadata), and `GET /review/...` shows what one run or task did, with

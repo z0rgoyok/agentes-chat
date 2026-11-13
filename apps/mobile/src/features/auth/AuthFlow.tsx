@@ -30,6 +30,7 @@ import { Shake } from "@/ui/auth/Shake";
 import { LastUsed, lastSignIn, rememberSignIn, SocialButtons, useSocialProviders } from "@/ui/auth/SocialButtons";
 import { Button } from "@/ui/Button";
 import { haptics } from "@/ui/haptics";
+import { LineIcon } from "@/ui/LineIcon";
 import { Locked } from "@/ui/Locked";
 import { router } from "@/ui/navigation";
 import { Text } from "@/ui/Text";
@@ -62,7 +63,7 @@ export const LAST_EMAIL = "last-email";
 /** How often the e-mail's lookup tries again while there is no connection. */
 const OFFLINE_RETRY_MS = 5000;
 /** The no-connection line: the orbit on the first line of its words. */
-const OFFLINE_LINE = { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 } as const;
+const OFFLINE_LINE = { flexDirection: "row", alignItems: "flex-start", justifyContent: "center", gap: 8 } as const;
 
 type Step =
   | "email"
@@ -532,7 +533,9 @@ export function AuthFlow({
 
       {offline && step === "email" ? (
         <View style={OFFLINE_LINE} accessibilityLiveRegion="polite">
-          <PixelOrbit color="sky" size={16} />
+          <LineIcon variant="subhead" size={16} mark>
+            <PixelOrbit color="sky" size={16} />
+          </LineIcon>
           <Text variant="subhead" tone="muted" style={{ flexShrink: 1 }}>
             {t("mobile.auth.errors.offlineRetry")}
           </Text>

@@ -11457,6 +11457,7 @@
       "not_installed": "{{program}} n'est pas installé sur {{computer}}.",
       "not_reported": "{{computer}} vérifie encore quels programmes il a. Ceci change tout seul une fois terminé.",
       "outdated": "La version sur {{computer}} est ancienne. Mettez à jour Codex pour l'utiliser.",
+      "system": "{{program}} ne fonctionne pas encore sur le système de {{computer}}.",
       "no_computerCloud": "Prêt dès que {{computer}} l'est."
     },
     "notAvailableNow": "Choisi, mais indisponible pour le moment.",

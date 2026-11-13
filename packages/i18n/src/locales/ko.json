@@ -10619,6 +10619,7 @@
       "not_installed": "{{computer}}에 {{program}}이(가) 설치되어 있지 않아요.",
       "not_reported": "{{computer}}에 어떤 프로그램이 있는지 아직 확인하는 중이에요. 끝나면 저절로 바뀌어요.",
       "outdated": "{{computer}}의 버전이 오래됐어요. 사용하려면 Codex를 업데이트하세요.",
+      "system": "{{program}}은(는) 아직 {{computer}}의 시스템에서 실행되지 않아요.",
       "no_computerCloud": "{{computer}}이(가) 준비되면 바로 쓸 수 있어요."
     },
     "notAvailableNow": "선택했지만 지금은 사용할 수 없어요.",

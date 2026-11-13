@@ -79,3 +79,11 @@ A coordinator delegated to three agents in their private conversations. The comp
 - **Stopping one helper.** Its asker is told who stopped it and not to ask again or hand it on unless a person asks (`endedWhy`), and wakes with that. The task's panel says so before the stop.
 - **The line's rows.** Each carries `canOpen` and `canStop`. A row opens the task (`?task=` on the web, its screen on the phone) and stops it; `where.agents` replaces "uma conversa privada" for who may see that work. The dialog says what fills the computer (`queueFillText`).
 - **No run holds room while it waits for a helper.** `ask_agent` and `tell_agent` return at once and the turn ends with the run `done` (`wakesLater`): what's left is a warm CLI, which closes when a turn needs the room.
+
+## Addendum (2026-11-13): one line a row
+
+Long titles and long contexts made the table's rows three to five lines tall. Every row is now one line, in every section, on the web and the phone: the title, then what it is about in quiet type, cut with "…" at its end.
+
+- **What leaves the row.** A wait's second line ("Volta sáb às 18:00") and what a task does in its program ("Terminal · bun test"). `taskWaitWords` keeps both lines for a task's panel and its screen, not for the table's row.
+- **Where it is whole.** On the web, in the row's tip (the kit's `Tip`: a resting pointer, the keys' focus, a long press, never the browser's `title`) and in its button's description for screen readers. The row's click still picks it. On the phone, a tap opens the task's screen, which says the title and its context whole.
+- **No room for the columns** (the table narrower than 761 px): a row keeps its words, its time and its stop. A task's mark says how it stands, an agent's row and one that ended show theirs as a mark. Estado and Usando agora are in the row's tip, Ver passos in the toolbar for the row picked.

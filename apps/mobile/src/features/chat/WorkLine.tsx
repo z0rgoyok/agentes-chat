@@ -162,7 +162,7 @@ function Line({
       {/* On the first line's reading middle. */}
       <View style={styles.mark}>
         {view.tone === "working" ? (
-          <LineIcon variant="small" size={12}>
+          <LineIcon variant="small" size={12} mark>
             <PixelOrbit color="sky" size={12} />
           </LineIcon>
         ) : (

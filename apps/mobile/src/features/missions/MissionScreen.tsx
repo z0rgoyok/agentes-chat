@@ -296,8 +296,8 @@ function Mission({ id }: { id: string }) {
                       i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
                     ]}
                   >
-                    {/* On the item's first line, however many lines it takes. */}
-                    <LineIcon variant="body" size={18}>
+                    {/* On the item's first line, however many lines it takes; the orbit on its capitals. */}
+                    <LineIcon variant="body" size={18} mark={it.status === "doing"}>
                       {/* Keyed by the step's state: a step moving on cross-fades its mark. */}
                       <Animated.View key={it.status} {...fade} style={styles.st}>
                         {it.status === "done" ? (

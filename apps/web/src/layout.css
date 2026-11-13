@@ -1186,11 +1186,9 @@ html:not([data-pointer]) .sidebar__user:focus-visible {
   color: var(--ink2);
 }
 /* An agent at work: its pixel orbit beside its name, inside the name's line (what it is on is the orbit's label and
-   the row's title), so the row keeps its height. */
+   the row's title), so the row keeps its height. On the name's capitals' middle by the kit's own rule (`.ac-pixspin`). */
 .sidebar__item-spin {
-  display: inline-block;
   margin-left: 6px;
-  vertical-align: -2px;
 }
 .sidebar[data-rail="true"] .sidebar__item-spin {
   display: none;

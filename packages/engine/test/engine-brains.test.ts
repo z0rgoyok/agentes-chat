@@ -4,6 +4,7 @@ import {
   CODEX_WINDOWS_PROTOCOL,
   channelTopic,
   MACHINE_PROTOCOL_VERSION,
+  OPENCODE_ACP_PROTOCOL,
   orgTopic,
 } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
@@ -235,6 +236,19 @@ test("availability: no computer, offline, old runner, not logged in, Codex missi
     statusOf("m2", { os: "windows", protocol, executors: { codex: { version: "0.170.0" } } });
   expect(computerBrainUnavailable("codex", "m2", windows(CODEX_WINDOWS_PROTOCOL - 1))?.code).toBe("runner_outdated");
   expect(computerBrainUnavailable("codex", "m2", windows(CODEX_WINDOWS_PROTOCOL))).toBeNull();
+  // The same for OpenCode before OPENCODE_ACP_PROTOCOL.
+  const opencodeOn = (os: string, protocol: number) =>
+    statusOf("m2", {
+      os,
+      protocol,
+      executors: { opencode: { version: "1.19.5" }, detectedAt: new Date().toISOString() },
+    });
+  expect(computerBrainUnavailable("opencode", "m2", opencodeOn("windows", OPENCODE_ACP_PROTOCOL - 1))).toMatchObject({
+    code: "runner_outdated",
+    message: expect.stringContaining("on Windows"),
+  });
+  expect(computerBrainUnavailable("opencode", "m2", opencodeOn("windows", OPENCODE_ACP_PROTOCOL))).toBeNull();
+  expect(computerBrainUnavailable("opencode", "m2", opencodeOn("linux", OPENCODE_ACP_PROTOCOL - 1))).toBeNull();
   expect(
     computerBrainUnavailable(
       "codex",
@@ -2681,7 +2695,8 @@ test("bridged side effects reach the engine: a bridged react ends the turn silen
 
 test("a bridged call the brain doesn't replay still counts as executed", async () => {
   const fx = effectTools(() => f as Fixture);
-  const fixture = (f = await setup({ toolSources: [fx.source] }));
+  f = await setup({ toolSources: [fx.source] });
+  const fixture = f;
   const machineId = await computerAgent(f);
   const { brain } = scriptedComputerBrain(async function* (_n, turn) {
     await executeToolForRun(
@@ -2708,7 +2723,8 @@ test("a bridged call the brain doesn't replay still counts as executed", async (
 
 test("a bridged call replayed with another id is counted once", async () => {
   const fx = effectTools(() => f as Fixture);
-  const fixture = (f = await setup({ toolSources: [fx.source] }));
+  f = await setup({ toolSources: [fx.source] });
+  const fixture = f;
   const machineId = await computerAgent(f);
   const { brain } = scriptedComputerBrain(async function* (_n, turn) {
     const result = await executeToolForRun(

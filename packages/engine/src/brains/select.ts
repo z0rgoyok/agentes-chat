@@ -6,6 +6,7 @@ import {
   CURSOR_PROTOCOL,
   GROK_PROTOCOL,
   isBrainEffort,
+  OPENCODE_ACP_PROTOCOL,
   OPENCODE_PROTOCOL,
   type PlanUsage,
 } from "@agenteschat/adapters";
@@ -424,6 +425,13 @@ export function computerBrainUnavailable(
       return {
         code: "runner_outdated",
         message: `The runner on ${status.name} is too old for ${name} agents. ${runnerUpdateWay(status)}`,
+      };
+    }
+    // On Windows a runner before `OPENCODE_ACP_PROTOCOL` refuses every OpenCode turn.
+    if (kind === "opencode" && status.os === "windows" && status.protocol < OPENCODE_ACP_PROTOCOL) {
+      return {
+        code: "runner_outdated",
+        message: `The runner on ${status.name} is too old for ${name} agents on Windows. ${runnerUpdateWay(status)}`,
       };
     }
     if (status.executors?.detectedAt && !status.executors[kind]) {

@@ -968,6 +968,17 @@ export const envVars = {
     example: "<output of openssl rand -base64 48>",
     secret: true,
   },
+  OPERATOR_API_READ_TOKEN: {
+    schema: z
+      .string()
+      .min(32, "must be at least 32 characters. Generate one with `openssl rand -base64 48`")
+      .optional(),
+    description:
+      "A second token for the operator API that only reads, for a caller that looks things up and changes nothing: accepted for `GET` requests alone, and never under `/review` (what a run or task did). Anything else it asks for is refused (403). It still reads every workspace's and account's names, emails and IP addresses, so keep it as private as the other. Needs `OPERATOR_API_TOKEN` and must differ from it. Unset (default): only `OPERATOR_API_TOKEN` is accepted. Generate with `openssl rand -base64 48`.",
+    section: "Operator",
+    example: "<output of openssl rand -base64 48>",
+    secret: true,
+  },
   OPERATOR_API_PORT: {
     schema: z.coerce.number().int().min(1).max(65535).default(3001),
     description:

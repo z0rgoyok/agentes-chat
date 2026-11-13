@@ -30,7 +30,7 @@ const RADIUS = 10;
 const CUT = 3;
 
 export interface EventPillProps {
-  /** The event's mark, quiet: an icon's name (drawn faint), or a node of its own (a pixel mark). */
+  /** The event's mark, quiet: an icon's name (drawn faint), or a node of its own (a pixel mark, on the capitals). */
   mark: IconName | ReactNode;
   /** The mark's color when it is an icon (faint by default; a decided request's check in green). */
   markColor?: string;
@@ -70,7 +70,7 @@ export function EventPill({ mark, markColor, children, time, actions, below, wai
     typeof mark === "string" ? (
       <LineIcon name={mark as IconName} size={MARK} color={markColor ?? c.faint} variant="small" />
     ) : (
-      <LineIcon size={MARK} variant="small">
+      <LineIcon size={MARK} variant="small" mark>
         {mark}
       </LineIcon>
     );

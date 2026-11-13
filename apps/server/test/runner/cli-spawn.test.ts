@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { cliSpawn, envValue, findOnWindowsPath, windowsShell, winQuote } from "../../runner/executors";
+import {
+  cliSpawn,
+  envValue,
+  findOnWindowsPath,
+  npmNativeLauncher,
+  windowsShell,
+  winQuote,
+} from "../../runner/executors";
 
 /**
  * How a Windows program splits its command line back into argv (the C runtime's rules, as `claude.exe` and `node.exe`
@@ -133,4 +140,65 @@ test("the Windows lookup: PATHEXT's runnable extensions in its order, quoted and
   expect(envValue({ Path: "C:\\x" }, "PATH", "win32")).toBe("C:\\x");
   expect(envValue({ Path: "C:\\x", PATH: "C:\\y" }, "PATH", "win32")).toBe("C:\\y");
   expect(envValue({ Path: "/x" }, "PATH", "linux")).toBeUndefined();
+});
+
+/** npm's launcher for a package whose `bin` is a native binary (OpenCode's `bin/opencode.exe`), as npm writes it. */
+const NATIVE_SHIM = [
+  "@ECHO off",
+  "GOTO start",
+  ":find_dp0",
+  "SET dp0=%~dp0",
+  "EXIT /b",
+  ":start",
+  "SETLOCAL",
+  "CALL :find_dp0",
+  '"%dp0%\\node_modules\\opencode-ai\\bin\\opencode.exe"   %*',
+  "",
+].join("\r\n");
+
+test("npm's launcher for a native binary starts that binary directly; a Node script's still runs through cmd.exe", () => {
+  const dir = "C:\\Users\\p\\AppData\\Roaming\\npm";
+  const shim = `${dir}\\opencode.cmd`;
+  const exe = `${dir}\\node_modules\\opencode-ai\\bin\\opencode.exe`;
+  const read = (file: string) => (file === shim ? NATIVE_SHIM : null);
+  expect(npmNativeLauncher(shim, read, (f) => f === exe)).toBe(exe);
+  // The binary it names isn't there (a broken install): cmd.exe, which says so.
+  expect(npmNativeLauncher(shim, read, () => false)).toBeNull();
+  // Out of its folder, not npm's preamble, a Node script's launcher, not a .cmd: never.
+  const outside = NATIVE_SHIM.replace("node_modules\\opencode-ai", "..\\..\\evil");
+  expect(
+    npmNativeLauncher(
+      shim,
+      () => outside,
+      () => true,
+    ),
+  ).toBeNull();
+  expect(
+    npmNativeLauncher(
+      shim,
+      () => NATIVE_SHIM.replace("@ECHO off", "@echo on"),
+      () => true,
+    ),
+  ).toBeNull();
+  const nodeScript = NATIVE_SHIM.replace(/"%dp0%.*$/m, '"%_prog%"  "%dp0%\\node_modules\\codex\\bin\\codex.js" %*');
+  expect(
+    npmNativeLauncher(
+      shim,
+      () => nodeScript,
+      () => true,
+    ),
+  ).toBeNull();
+  expect(npmNativeLauncher(`${dir}\\opencode.bat`, read, () => true)).toBeNull();
+
+  // On the PATH: OpenCode starts as its binary, its argv as given, no shell between.
+  const path = `${dir};C:\\Windows\\System32`;
+  expect(cliSpawn(["opencode"], ["acp"], path, "win32", { exists: (f) => f === shim || f === exe, read })).toEqual({
+    file: exe,
+    args: ["acp"],
+    env: { NoDefaultCurrentDirectoryInExePath: "1" },
+  });
+  expect(
+    cliSpawn(["codex"], ["exec"], path, "win32", { exists: (f) => f === `${dir}\\codex.cmd`, read: () => nodeScript })
+      .file,
+  ).toBe(windowsShell());
 });

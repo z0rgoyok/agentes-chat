@@ -5585,7 +5585,9 @@ export type BrainUnavailable =
   | "not_installed"
   | "outdated"
   /** Its runner hasn't said which CLIs it has yet. */
-  | "not_reported";
+  | "not_reported"
+  /** Its runner doesn't run this CLI on the computer's system (Cursor on Windows, for one). */
+  | "system";
 
 export interface BrainModelOption {
   /** What is stored (`opus`, `sonnet`, `haiku`, a Codex model). */

@@ -193,7 +193,7 @@ function WaitCard({ title, sub }: { title: string; sub: string }) {
   return (
     <Card>
       <View style={styles.wait}>
-        <LineIcon variant="subhead" size={16}>
+        <LineIcon variant="subhead" size={16} mark>
           <PixelOrbit color="sky" size={16} />
         </LineIcon>
         <View style={styles.grow}>

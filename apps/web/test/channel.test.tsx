@@ -137,7 +137,8 @@ describe("Canal", () => {
     expect(screen().getByText("Os 401 no Sentry caíram de 312 para 4.")).toBeTruthy();
   });
 
-  test("a failed run explains why", async () => {
+  /** Atlas's run in #engenharia failing with `failure` (the stored error and what the server derives from it). */
+  const failRun = async (failure: Record<string, unknown>) => {
     const { socket } = await open();
     await act(async () =>
       socket.push({
@@ -150,12 +151,30 @@ describe("Canal", () => {
           runId: "r-x",
           agentId: ATLAS_ID,
           status: "failed",
-          error: "budget_exceeded",
+          ...failure,
         },
       }),
     );
     await settle();
-    expect(screen().getByRole("alert").textContent).toContain("Atlas não conseguiu responder: budget_exceeded");
+    return screen().getByRole("alert").textContent ?? "";
+  };
+
+  test("a failed run explains why", async () => {
+    // As the server sends it: the stored code and the stable one the app words.
+    expect(await failRun({ error: "budget_exceeded", errorCode: "run.budget_exceeded" })).toContain(
+      "Atlas não conseguiu responder: o orçamento do mês acabou",
+    );
+  });
+
+  test("a failed run whose reason is a bare code says it couldn't answer, never the code", async () => {
+    // What a code the server doesn't know becomes: a generic failure with the code as its detail.
+    const line = await failRun({
+      error: "unsupported",
+      errorCode: "run.failed",
+      errorParams: { detail: "unsupported" },
+    });
+    expect(line).toContain("Atlas não conseguiu responder. Tente de novo.");
+    expect(line).not.toContain("unsupported");
   });
 
   test("a connector's request says its values in words, waiting and decided, so two calls of one tool differ", async () => {

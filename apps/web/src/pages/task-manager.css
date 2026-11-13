@@ -165,15 +165,14 @@ html:not([data-pointer]) .tm-card:has(.tm-card__text:focus-visible) {
   list-style: none;
 }
 .tm-row {
-  /* Where the name starts (a task under its agent starts its mark under the agent's face) and how wide its mark is
-     with its gap (the lines under it align, stacked). */
+  /* Where the name starts: a task under its agent starts its mark under the agent's face. */
   --tm-indent: var(--space-3);
-  --tm-lead: 22px;
   position: relative;
   display: grid;
-  /* Estado gets the room its words need first (whole on one line from 950px), then Tarefa and Usando agora share
-     what's left. Short of that the words wrap; under the sum of the minimums the rows stack (below). The buttons have
-     a column of their own (two 32px squares, 8 apart and 8 from the edge), so they never cover the time. */
+  /* Every row is one line. Estado gets the room its words need first (whole from 950px), then Tarefa and Usando agora
+     share what's left; short of that each ends in "…" (the row's tip has them whole), and under the sum of the
+     minimums the row keeps its words, its time and its buttons (below). The buttons have a column of their own (two
+     32px squares, 8 apart and 8 from the edge), so they never cover the time. */
   grid-template-columns: minmax(200px, 3fr) minmax(136px, 256px) minmax(120px, 2fr) 84px 80px;
   align-items: stretch;
   /* A 32px button, the kit's row air (`--row-py`) above and below it, and the hairline over it. */
@@ -185,25 +184,6 @@ html:not([data-pointer]) .tm-card:has(.tm-card__text:focus-visible) {
 .tm-row[data-look="grouped"] {
   /* The agent's row: 12 + its chevron (16) + 8 to its face (18), whose middle the mark's (14) sits under. */
   --tm-indent: 38px;
-}
-.tm-row[data-look="flat"] {
-  --tm-lead: 26px;
-}
-.tm-row--agent {
-  --tm-lead: 50px;
-}
-/* An agent's chevron, face and count on its name's first line, however many lines a long name takes: the group sits
-   in the row's middle, each of them on that line's capitals as an `.ac-iconline` lead is. */
-.tm-who {
-  --tm-line: calc(13.5px * 1.35);
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.tm-who > :not(.tm-name) {
-  flex: none;
-  translate: 0 calc(var(--tm-line) / 2 - var(--cap-mid) - 50%);
 }
 .tm-row--head {
   min-height: 0;
@@ -239,22 +219,34 @@ html:not([data-pointer]) .tm-row:has(.tm-hit:focus-visible) {
   gap: var(--space-2);
   padding-left: var(--tm-indent);
 }
+/* The mark, the face, the chevron and the count keep their size: the words give way. */
+.tm-cell--name > :not(.tm-hit) {
+  flex: none;
+}
 .tm-cell--time {
   justify-content: flex-end;
   white-space: nowrap;
   background: color-mix(in srgb, var(--tm-heat) calc(var(--h, 0) * 100%), transparent);
 }
-.tm-cell--state {
-  overflow-wrap: anywhere;
+/* A wait's words and a program's name end in "…" too: the row's tip has them whole. */
+.tm-cell--state .tm-state__text b,
+.tm-cell--use .tm-use__text b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-/* A chip here wraps like the waits beside it, never cut. */
-.tm-cell--state .ac-chip {
-  height: auto;
-  min-height: 22px;
-  white-space: normal;
+/* The program's one line on the row's middle with the other cells' words: its logo, taller than the line, centres on
+   it, rather than the line rising to the logo's top. */
+.tm-cell--use .tm-use {
+  align-items: center;
 }
-.tm-cell--state .ac-chip__text {
-  overflow: visible;
+.tm-cell--use .tm-use > :first-child {
+  translate: none;
+}
+/* How an agent stands, how a task ended or how one its face leads stands, as a mark alone: only with no room for the
+   columns (below). */
+.tm-cell--state > .tm-mark {
+  display: none;
 }
 /* Ver passos and Parar, as squares (their words on hover and for screen readers), a button's clear from the edge. */
 .tm-cell--act {
@@ -263,24 +255,31 @@ html:not([data-pointer]) .tm-row:has(.tm-hit:focus-visible) {
   padding-inline: 0 var(--action-clear);
 }
 
-/* A row's name: the whole row picks it (its button reaches every edge); the buttons on it stay on top. */
-.tm-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
+/*
+ * A row's words and its press (`RowName`): the title, then what it is about in quiet type, on one line that ends in "…"
+ * when it doesn't fit. The whole row picks it (its button reaches every edge); the buttons on it stay on top.
+ */
 .tm-hit {
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
   font-weight: 500;
+  line-height: 1.35;
   color: var(--ink);
+  white-space: nowrap;
   text-align: left;
+  text-overflow: ellipsis;
   cursor: pointer;
+}
+.tm-hit > small {
+  margin-left: var(--space-2);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
 }
 .tm-hit::after {
   content: "";
@@ -293,9 +292,17 @@ html:not([data-pointer]) .tm-hit:focus-visible {
 .tm-row--agent .tm-hit {
   font-weight: 650;
 }
-.tm-name small {
-  font-size: 12px;
-  color: var(--faint);
+/* A row's tip: the title, then one fact a line. */
+.tm-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tm-tip > b {
+  font-weight: 600;
+}
+.tm-tip > span {
+  color: var(--ink2);
 }
 .tm-cell--act > * {
   position: relative;
@@ -419,70 +426,42 @@ html:not([data-pointer]) .tm-more:focus-visible {
   }
 }
 
-/* No room for the columns (a phone, a small window beside the sidebar): no column names; each row stacks its name,
-   state and what it uses, its time at the name's end (one right edge, as a list's times), Ver passos and Parar beside
-   the lines under it. */
+/* No room for the columns (a phone, a small window beside the sidebar): no column names, and each row is still one
+   line: its words, its time and its stop. A task's mark says how it stands; an agent's row, one that ended and one its
+   agent's face leads (`flat`) show theirs as a mark after the words. Estado and Usando agora are in the row's tip, and
+   Ver passos in the toolbar, for the row chosen: the words keep the room. */
 @container tm (max-width: 760px) {
   .tm-row--head {
     display: none;
   }
-  /* 12 above the name and below the last line: the cells give up the room they keep beside the columns. */
-  .tm-row,
+  .tm-row {
+    grid-template-columns: minmax(0, 1fr) auto 40px;
+  }
+  .tm-row--agent,
+  .tm-row[data-look="flat"] {
+    grid-template-columns: minmax(0, 1fr) auto auto 40px;
+  }
+  .tm-cell--act > .tm-steps {
+    display: none;
+  }
   .tm-row--ended {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: var(--space-1);
-    min-height: 0;
-    padding-block: var(--space-3);
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
   .tm-row[data-look="grouped"] {
     --tm-indent: 26px;
   }
-  .tm-cell {
-    padding-block: 0;
-  }
-  .tm-cell--name {
-    grid-row: 1;
-    grid-column: 1;
-  }
-  .tm-cell--time {
-    grid-row: 1;
-    grid-column: 2;
-    align-items: flex-start;
-    background: none;
-  }
-  .tm-cell--state {
-    grid-row: 2;
-    grid-column: 1;
-  }
-  .tm-cell--use {
-    grid-row: 3;
-    grid-column: 1;
-  }
-  .tm-cell--state,
-  .tm-cell--use {
-    padding-left: calc(var(--tm-indent) + var(--tm-lead));
-  }
-  /* Beside the state's line: spanning the lines under it too would add a row (and its gap) when nothing is in use. */
-  .tm-cell--act {
-    grid-row: 2;
-    grid-column: 2;
-  }
-  /* Nothing in use is a column's dash beside the others; stacked it would be a line of its own saying nothing. */
-  .tm-cell--use:empty,
-  .tm-cell--use:has(> .tm-use--none),
-  .tm-cell--act:empty {
+  .tm-row:not(.tm-row--agent, .tm-row--ended, [data-look="flat"]) > .tm-cell--state,
+  .tm-cell--use,
+  .tm-cell--state > :not(.tm-mark) {
     display: none;
   }
-  .tm-row--ended > .tm-cell--time {
-    grid-row: 1 / span 2;
+  .tm-cell--state > .tm-mark {
+    display: inline-grid;
   }
-}
-
-/* On a phone what it uses takes the row's width under the state and its buttons: beside them it was left a few
-   characters a line. */
-@container tm (max-width: 480px) {
-  .tm-row:not(.tm-row--ended) > .tm-cell--use {
-    grid-column: 1 / -1;
+  .tm-row--agent > .tm-cell--state,
+  .tm-row--ended > .tm-cell--state,
+  .tm-row[data-look="flat"] > .tm-cell--state {
+    padding-inline: var(--space-1) 0;
   }
 }
 
@@ -520,23 +499,15 @@ html:not([data-pointer]) .tm-more:focus-visible {
   box-shadow: var(--card-well-shadow);
   color: var(--muted);
 }
+/* Its name, then whether it has room in quiet type, on one line that ends in "…" (its tip has them whole), "Ver fila"
+   at the row's end. */
 .tm-computer__text {
-  display: flex;
   flex: 1;
-  flex-direction: column;
   min-width: 0;
+  overflow: hidden;
   line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-/* On a phone its words take the line beside the icon, a line each, and "Ver fila" goes under them all from the row's
-   start, as a MediaRow puts its controls. */
-@media (max-width: 760px) {
-  .tm-computer {
-    flex-wrap: wrap;
-  }
-  .tm-computer__text {
-    flex-basis: calc(100% - 32px - var(--space-3));
-  }
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .tm-computer__text b {
   font-size: 14px;
@@ -544,6 +515,10 @@ html:not([data-pointer]) .tm-more:focus-visible {
   color: var(--ink);
 }
 .tm-computer__text small {
+  margin-left: var(--space-2);
   font-size: 12.5px;
   color: var(--muted);
+}
+.tm-computer > .ac-btn {
+  flex: none;
 }

@@ -5,6 +5,7 @@ import {
   CODEX_WINDOWS_PROTOCOL,
   CONTEXT_LIMIT_PROTOCOL,
   MISSION_PROTOCOL,
+  OPENCODE_ACP_PROTOCOL,
   SPEED_PROTOCOL,
 } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
@@ -127,6 +128,44 @@ describe("brain settings", () => {
       true,
       null,
     ]);
+  });
+
+  test("options: on Windows OpenCode needs a runner that speaks ACP; a CLI that doesn't run on the computer's system says so", () => {
+    const executors = {
+      claude: { version: "2" },
+      cursor: { version: "2026.11.01" },
+      opencode: { version: "1.19.5" },
+      grok: { version: "1.0.80" },
+      antigravity: { version: "1.2.3" },
+      detectedAt: "x",
+    };
+    const reasons = (m: ReturnType<typeof mac>) =>
+      Object.fromEntries(
+        brainOptions(m)
+          .slice(3)
+          .map((o) => [o.kind, o.reason ?? null]),
+      );
+    // An older Windows runner refuses every OpenCode turn; Cursor and Grok Build don't run on Windows; the Antigravity
+    // CLI only on Linux.
+    expect(reasons(mac({ os: "windows", protocol: OPENCODE_ACP_PROTOCOL - 1, executors }))).toEqual({
+      cursor: "system",
+      opencode: "runner_old",
+      grok: "system",
+      antigravity: "system",
+    });
+    expect(reasons(mac({ os: "windows", protocol: OPENCODE_ACP_PROTOCOL, executors })).opencode).toBeNull();
+    expect(reasons(mac({ os: "darwin", protocol: OPENCODE_ACP_PROTOCOL - 1, executors }))).toEqual({
+      cursor: null,
+      opencode: null,
+      grok: null,
+      antigravity: "system",
+    });
+    expect(reasons(mac({ os: "linux", protocol: OPENCODE_ACP_PROTOCOL, executors }))).toEqual({
+      cursor: null,
+      opencode: null,
+      grok: null,
+      antigravity: null,
+    });
   });
 
   test("options: only what the computer has; why the rest can't be chosen", () => {

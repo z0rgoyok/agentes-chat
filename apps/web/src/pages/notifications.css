@@ -183,10 +183,8 @@ html:not([data-pointer]) .nt-item:focus-visible {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* Its spinner on the first line's capitals when the words wrap (`.ac-iconline`). */
 .nt-resolved {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink2);

@@ -167,6 +167,14 @@ export function initialText(size: number, fontSize = size * 0.42) {
  */
 export const readingMiddle = (fontSize: number, lineHeight: number) => lineHeight / 2 + 0.08 * fontSize;
 
+/**
+ * Where a line's capitals' middle sits, from the top of its line box (points). Both platforms centre the font's own
+ * line in a set line height, and the system fonts' capitals sit within 0.2 pt of that middle (SF Pro, Roboto). A mark
+ * beside words (a working orbit, the waiting mark, a spinner) centres here, as the web's marks do (`--cap-mid`): on
+ * `readingMiddle` the words read higher than it.
+ */
+export const capsMiddle = (lineHeight: number) => lineHeight / 2;
+
 /** The box that sets a lead `size` tall (an icon, a maker's mark) on a line's reading middle, never above its top. */
 export function leadBox(line: { height: number; middle: number }, size: number) {
   const paddingTop = Math.max(0, line.middle - size / 2);

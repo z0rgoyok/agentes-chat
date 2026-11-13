@@ -221,11 +221,9 @@
   gap: 12px;
   padding: 6px 6px 6px 12px;
 }
+/* The agent's orbit on the question's first line, however many it takes on a phone (`.ac-iconline`). */
 .tm-cfm__text {
-  display: flex;
   flex: 0 1 auto;
-  align-items: center;
-  gap: 9px;
   min-width: 0;
   max-width: 52%;
 }

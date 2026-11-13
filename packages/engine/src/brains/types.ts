@@ -24,6 +24,18 @@ export const BRAIN_NAMES: Readonly<Record<ComputerBrainKind, string>> = {
   antigravity: "Antigravity CLI",
 };
 
+/**
+ * Whether a computer brain runs on a computer's system (`hello.os`), as its runner allows: Cursor and Grok Build not on
+ * Windows yet, the Antigravity CLI on Linux only (ADR 0143: elsewhere it keeps its sign-in in the computer user's one
+ * keychain). A system nobody reported passes: the runner says.
+ */
+export function brainRunsOn(kind: ComputerBrainKind, os: string | null | undefined): boolean {
+  if (!os) return true;
+  if (kind === "antigravity") return os === "linux";
+  if (kind === "cursor" || kind === "grok") return os !== "windows";
+  return true;
+}
+
 /** The plan each computer brain thinks with, as people buy it. */
 export const BRAIN_PLAN_NAMES: Readonly<Record<ComputerBrainKind, string>> = {
   claude_code: "Claude",

@@ -135,6 +135,24 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...valid, HOST_COMPUTER_TOKEN: "h".repeat(32) }).HOST_COMPUTER_TOKEN).toBe("h".repeat(32));
   });
 
+  test("the operator API's read-only token: optional, long, secret, only with the full token and never equal to it", () => {
+    const full = "o".repeat(32);
+    const read = "r".repeat(32);
+    expect(loadConfig({ ...valid, OPERATOR_API_TOKEN: full }).OPERATOR_API_READ_TOKEN).toBeUndefined();
+    const both = loadConfig({ ...valid, OPERATOR_API_TOKEN: full, OPERATOR_API_READ_TOKEN: read });
+    expect(both.OPERATOR_API_READ_TOKEN).toBe(read);
+    expect(redactConfig(both).OPERATOR_API_READ_TOKEN).toBe("********");
+    expect(() => loadConfig({ ...valid, OPERATOR_API_TOKEN: full, OPERATOR_API_READ_TOKEN: full })).toThrow(
+      /OPERATOR_API_READ_TOKEN must differ from OPERATOR_API_TOKEN/,
+    );
+    expect(() => loadConfig({ ...valid, OPERATOR_API_READ_TOKEN: read })).toThrow(
+      /OPERATOR_API_READ_TOKEN needs OPERATOR_API_TOKEN/,
+    );
+    expect(() => loadConfig({ ...valid, OPERATOR_API_TOKEN: full, OPERATOR_API_READ_TOKEN: "short" })).toThrow(
+      /OPERATOR_API_READ_TOKEN: must be at least 32 characters/,
+    );
+  });
+
   test("billing: the address and the link's secret together, the hold on new workspaces only with them and the operator API", () => {
     const off = loadConfig(valid);
     expect([off.BILLING_URL, off.BILLING_LINK_SECRET, off.BILLING_HOLD_NEW_WORKSPACES]).toEqual([

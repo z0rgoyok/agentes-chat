@@ -724,10 +724,9 @@ html:not([data-pointer]) .brw-ac__page.is-control:focus-visible {
 .brw-dim__box {
   flex-direction: column;
 }
+/* Its spinner or icon on the first line's capitals, however many lines the words take (`.ac-iconline`). */
 .brw-dim__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: center;
 }
 .brw-dim__box small {
   font-weight: 400;

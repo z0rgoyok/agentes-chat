@@ -215,7 +215,24 @@ export * from "./notifications";
 export * from "./open-requests";
 export * from "./operator";
 export * from "./operator-events";
+export {
+  OPERATOR_JOB_COUNTS,
+  OPERATOR_JOB_ERROR_MAX,
+  OPERATOR_JOB_STUCK_MS,
+  OPERATOR_USAGE_DAYS,
+  OPERATOR_USAGE_GROUPS,
+  OPERATOR_USAGE_MAX_DAYS,
+  operatorEmailJobs,
+  operatorJobSummary,
+  operatorJobs,
+  operatorUsage,
+} from "./operator-jobs";
+export * from "./operator-lookups";
+export * from "./operator-machines";
+export * from "./operator-people";
 export * from "./operator-review";
+export * from "./operator-runs";
+export * from "./operator-workspace";
 export * from "./organizations";
 export * from "./out-of-office";
 export * from "./outbound";

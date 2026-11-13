@@ -262,6 +262,12 @@ const serverGitTool = (tool: Pick<ToolDefinition, "name" | "scope">) =>
   (tool.name === "git_clone" && tool.scope === "github:git.read") ||
   (tool.name === "open_pull_request" && tool.scope === "github:pr.write") ||
   ((tool.name === "delete_branches" || tool.name === "request_branch_push") && tool.scope === "github:git.write");
+/**
+ * One of the server's own tools, never a connected app's: its name is written here, not by a workspace or by the
+ * server it connected.
+ */
+const ownTool = (tool: Pick<ToolDefinition, "name" | "scope" | "connectionId">) =>
+  !tool.connectionId || serverGitTool(tool);
 
 /**
  * An `external` tool's output (an MCP server's answer) reaches the model inside the one envelope for
@@ -511,8 +517,7 @@ export function createToolGateway(deps: {
         const current = byName.get(tool.name);
         // A connected MCP server must not shadow one of our own tools just
         // because its source appears earlier in the list.
-        if (!current || (current.connectionId && (!tool.connectionId || serverGitTool(tool))))
-          byName.set(tool.name, tool);
+        if (!current || (current.connectionId && ownTool(tool))) byName.set(tool.name, tool);
       }
     }
     return byName;
@@ -1059,6 +1064,8 @@ export function createToolGateway(deps: {
         input: call.input,
         ...(detail ? { detail } : {}),
         ...(command ? { command } : {}),
+        // What the name was resolved to, kept with the call: the same name may be a connected server's another day.
+        ...(tool && ownTool(tool) ? { builtIn: true } : {}),
         ...(tool?.connectorLabel ? { connector: tool.connectorLabel } : {}),
         ...(tool?.service ? { service: tool.service } : {}),
         ...(tool?.serviceIcon ? { serviceIcon: tool.serviceIcon } : {}),

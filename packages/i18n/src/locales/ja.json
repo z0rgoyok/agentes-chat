@@ -10625,6 +10625,7 @@
       "not_installed": "{{computer}}に{{program}}がインストールされていません。",
       "not_reported": "{{computer}}は、入っているプログラムをまだ確認しています。終わりしだい自動で切り替わります。",
       "outdated": "{{computer}}のバージョンが古くなっています。使うにはCodexをアップデートしてください。",
+      "system": "{{program}}は{{computer}}のシステムではまだ動きません。",
       "no_computerCloud": "{{computer}}の準備ができ次第使えます。"
     },
     "notAvailableNow": "選択済みですが、現在は利用できません。",
