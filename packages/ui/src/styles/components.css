@@ -4890,11 +4890,13 @@ html:not([data-pointer]) .ac-switch:focus-visible {
 }
 /*
  * In a line of text the pixel marks centre on the capitals, as an `.ac-iconline` lead does (a flex or grid item
- * ignores vertical-align): their box's bottom is their baseline (the spinner is a canvas, the others draw in an
- * absolute child), raised by half the capitals' height less half their size (`--mark-size`, set by each).
+ * ignores vertical-align): their box's bottom is their baseline (the spinner is a canvas, the others draw in absolute
+ * children: an in-flow one would set the baseline at its own foot), raised by half the capitals' height less half
+ * their size (`--mark-size`, set by each).
  */
 .ac-pixspin,
 .ac-pixdone,
+.ac-pixfail,
 .ac-pixstop {
   vertical-align: calc(var(--cap-top) - var(--cap-mid) - var(--mark-size, 14px) / 2);
 }
@@ -8945,25 +8947,29 @@ html:not([data-pointer]) button.ac-tools__row:focus-visible {
     background-position: -100% 0;
   }
 }
-/* Failed: an exclamation of two pixels (PixelFail). */
+/* Failed: an exclamation of two pixels (PixelFail): the tall one, the gap and the short one centred in the box as
+   one. */
 .ac-pixfail {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--px-gap, 1px);
+  display: inline-block;
+  position: relative;
   flex: none;
-  vertical-align: middle;
 }
 .ac-pixfail::before,
 .ac-pixfail::after {
   content: "";
+  position: absolute;
+  inset-inline: 0;
+  margin-inline: auto;
   width: var(--px, 4px);
   height: var(--px, 4px);
   background: var(--danger);
 }
 .ac-pixfail::before {
+  top: calc(50% - (3 * var(--px, 4px) + var(--px-gap, 1px)) / 2);
   height: calc(var(--px, 4px) * 2);
+}
+.ac-pixfail::after {
+  top: calc(50% + (var(--px, 4px) + var(--px-gap, 1px)) / 2);
 }
 .ac-tick--pending {
   background: transparent;

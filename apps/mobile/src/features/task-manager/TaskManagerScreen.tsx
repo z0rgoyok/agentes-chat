@@ -29,8 +29,6 @@ import {
   Count,
   EmptyState,
   Icon,
-  MEDIA_ROW,
-  MediaRow,
   PixelDone,
   PixelFail,
   PixelStopped,
@@ -38,6 +36,7 @@ import {
   SectionHeader,
   SkeletonList,
   Text,
+  type TextVariant,
   useReducedMotion,
   weights,
 } from "@/ui";
@@ -62,7 +61,7 @@ import {
   taskStateWords,
   taskSubline,
 } from "./logic";
-import { StateLine, TaskMark, WaitLines } from "./parts";
+import { TaskMark, useAgentColor, WaitLines } from "./parts";
 
 /** Rows whose agent moves (a long list stays light). */
 const LIVE_ROWS = 8;
@@ -87,9 +86,10 @@ function useRowMotion() {
 /**
  * The task manager (ADR 0128), pushed from Agentes: what the agents are doing now, under a line that counts it
  * ("2 trabalhando · 1 espera você"). The tasks people asked for, by agent (its row says how its tasks stand and is
- * one tap: folded until opened), each a row with its state as text (the orbit while it runs, amber while it waits on
- * you) and a chevron: stopping is done on the task's own screen, never from a button in the list. Then the routines'
- * work in the background and what ended today. Above them, the computers with work, each opening its line in a sheet.
+ * one tap: folded until opened), each a row with its state as a mark (the orbit while it runs, amber while it waits on
+ * you), its time and a chevron: stopping is done on the task's own screen, never from a button in the list. Then the
+ * routines' work in the background and what ended today. Above them, the computers with work, each opening its line
+ * in a sheet. Every row is one line that ends in "…": a task's own screen says it whole.
  */
 export function TaskManagerScreen() {
   return (
@@ -267,9 +267,9 @@ function TaskManager() {
 }
 
 /**
- * An agent's row and, open, its tasks under it: its face (running while it works), its name with the count beside
- * it (unless the line under it says it), how its tasks stand ("1 trabalhando · 1 espera você") and the chevron that
- * folds them. One tap, the whole row.
+ * An agent's row and, open, its tasks under it, one line: its face (running while it works), its name with the count
+ * beside it (unless its words say it), how its tasks stand ("1 trabalhando · 1 espera você") cut at the end, the mark
+ * and time of the task that says it, and the chevron that folds them. One tap, the whole row.
  */
 function AgentGroup({
   group,
@@ -306,7 +306,7 @@ function AgentGroup({
     transform: [{ rotate: withTiming(open ? "0deg" : "-90deg", { duration: 200 }) }],
   }));
   const { fade, layout } = useRowMotion();
-  // All working or all waiting on you: the line under the name already says how many ("2 working").
+  // All working or all waiting on you: its words already say how many ("2 working").
   const counted = group.tasks.length === group.working || group.tasks.length === group.waiting;
   return (
     <Animated.View {...fade} layout={layout}>
@@ -319,30 +319,24 @@ function AgentGroup({
       >
         {divider ? <View style={[styles.divider, styles.agentDivider, { backgroundColor: c.line2 }]} /> : null}
         <OpensAgent agentId={group.agentId}>
-          <AgentFace
-            agentId={group.agentId}
-            size={GROUP_FACE}
-            mode={line.mark === "working" ? "run" : "idle"}
-            live={live}
-          />
+          <AgentFace agentId={group.agentId} size={LEAD} mode={line.mark === "working" ? "run" : "idle"} live={live} />
         </OpensAgent>
-        <View style={styles.grow}>
-          <View style={styles.nameRow}>
-            <Text variant="title" numberOfLines={1} style={styles.shrink}>
-              {name}
-            </Text>
-            {counted ? null : <Count value={group.tasks.length} size={13} weight={weights.regular} color={c.faint} />}
-          </View>
-          <View style={styles.row}>
-            <TaskMark state={mark} color={color} />
-            <Text variant="footnote" style={[styles.shrink, { color: line.mark === "waiting" ? c.amber : c.muted }]}>
-              {line.text}
-            </Text>
-            <Text variant="caption" tone="faint" style={styles.num}>
-              · {time}
-            </Text>
-          </View>
-        </View>
+        <Text variant="title" numberOfLines={1} style={styles.grow}>
+          {name}
+          {counted ? null : (
+            <>
+              {" "}
+              <Count value={group.tasks.length} size={13} weight={weights.regular} color={c.faint} />
+            </>
+          )}
+          <Text variant="footnote" style={{ color: line.mark === "waiting" ? c.amber : c.muted }}>
+            {`${GAP}${line.text}`}
+          </Text>
+        </Text>
+        <TaskMark state={mark} color={color} />
+        <Text variant="caption" tone="faint" style={styles.num}>
+          {time}
+        </Text>
         <Animated.View style={chevron}>
           <Icon name="down" size={CHEVRON} color={c.faint} />
         </Animated.View>
@@ -359,10 +353,9 @@ function AgentGroup({
 }
 
 /**
- * A task, a 60-point row: its title, whole, its state under it (the orbit while it runs, the time; amber while it
- * waits on you) and a chevron, since it opens its own screen, where it is stopped. Under its agent's row it starts
- * at the name's column; a routine's (`flat`) is a MediaRow: its agent's face, name, where and who asked on one
- * line, the title and state under them at the row's width.
+ * A task, one line: its state's mark (the orbit while it runs, amber while it waits on you) under its agent's face, its
+ * title and what it is about in quiet type, cut at the end, its time and a chevron, since it opens its own screen,
+ * where it is said whole and where it is stopped. A routine's or another agent's (`flat`) says whose it is first.
  */
 function TaskRow({
   task,
@@ -382,6 +375,7 @@ function TaskRow({
   const { t, i18n } = useTranslation();
   const c = useColors();
   const dir = useDirectory();
+  const color = useAgentColor(task.agentId);
   const title = taskTitle(t, task);
   const sub = taskSubline(t, task, meId, title, (id) => dir.anyAgent(id)?.name);
   const words = taskStateWords(t, i18n.language, task, state, now);
@@ -392,39 +386,30 @@ function TaskRow({
       onPress={() => router.push(taskHref(task.runId))}
       accessibilityRole="button"
       accessibilityLabel={[title, line, words.state, words.next].filter(Boolean).join(", ")}
-      style={({ pressed }) => [
-        flat ? styles.flatTask : [styles.task, styles.indented],
-        pressed && { backgroundColor: c.sunken },
-      ]}
+      style={({ pressed }) => [styles.task, pressed && { backgroundColor: c.sunken }]}
     >
-      {divider ? (
-        <View
-          style={[styles.divider, flat ? styles.flatTaskDivider : styles.taskDivider, { backgroundColor: c.line2 }]}
-        />
-      ) : null}
-      {flat ? (
-        <View style={styles.taskText}>
-          <MediaRow
-            face={
-              <OpensAgent agentId={task.agentId}>
-                <AgentFace agentId={task.agentId} size={MEDIA_ROW.card.face} live={false} />
-              </OpensAgent>
-            }
-            name={agent}
-            meta={sub || undefined}
-          >
-            <Text variant="body">{title}</Text>
-            <StateLine task={task} state={state} now={now} />
-          </MediaRow>
-        </View>
-      ) : (
-        <View style={styles.taskText}>
-          <Text variant="body">{title}</Text>
-          <StateLine task={task} state={state} now={now} />
-        </View>
+      {divider ? <View style={[styles.divider, styles.textDivider, { backgroundColor: c.line2 }]} /> : null}
+      <View style={styles.lead}>
+        <TaskMark state={state} color={color} />
+      </View>
+      <OneLine title={title} line={line} />
+      {state === "stopping" ? null : (
+        <Text variant="caption" tone="faint" style={styles.num}>
+          {taskTime(t, task, now)}
+        </Text>
       )}
       <Icon name="right" size={15} color={c.faint} />
     </Pressable>
+  );
+}
+
+/** A row's words on one line: the title, then what it is about in quiet type, cut at the end ("…"). */
+function OneLine({ title, line, variant = "body" }: { title: string; line?: string | null; variant?: TextVariant }) {
+  return (
+    <Text variant={variant} numberOfLines={1} style={styles.grow}>
+      {title}
+      {line ? <Text variant="footnote" tone="muted">{`${GAP}${line}`}</Text> : null}
+    </Text>
   );
 }
 
@@ -443,26 +428,22 @@ function ComputerRow({ computer, divider }: { computer: ComputerSummary; divider
       onPress={() => openQueue(computer.id)}
       accessibilityRole="button"
       accessibilityLabel={`${computer.name}, ${line}`}
-      style={({ pressed }) => [styles.computer, pressed && { backgroundColor: c.sunken }]}
+      style={({ pressed }) => [styles.task, pressed && { backgroundColor: c.sunken }]}
     >
-      {divider ? <View style={[styles.divider, styles.computerDivider, { backgroundColor: c.line2 }]} /> : null}
-      <Tile size={30}>
+      {divider ? <View style={[styles.divider, styles.textDivider, { backgroundColor: c.line2 }]} /> : null}
+      <Tile size={LEAD}>
         <ComputerIcon kind={kind} size={16} color={c.muted} />
       </Tile>
-      <View style={styles.taskText}>
-        <Text variant="subhead" numberOfLines={1} style={styles.medium}>
-          {computer.name}
-        </Text>
-        <Text variant="footnote" tone="muted" numberOfLines={1}>
-          {line}
-        </Text>
-      </View>
+      <OneLine title={computer.name} line={line} variant="subhead" />
       <Icon name="right" size={15} color={c.faint} />
     </Pressable>
   );
 }
 
-/** One that ended today: its agent, title and place, how it ended and when. It opens its screen too. */
+/**
+ * One that ended today, one line: its agent's face, its title and where, how it ended as a mark (in words on its
+ * screen) and when. It opens its screen too.
+ */
 function EndedRow({ task, divider, meId }: { task: EndedTask; divider: boolean; meId: string | null }) {
   const { t } = useTranslation();
   const c = useColors();
@@ -478,88 +459,65 @@ function EndedRow({ task, divider, meId }: { task: EndedTask; divider: boolean; 
       onPress={() => router.push(taskHref(task.runId))}
       accessibilityRole="button"
       accessibilityLabel={[title, line, how, when.time(task.finishedAt)].filter(Boolean).join(", ")}
-      style={({ pressed }) => [styles.task, styles.flat, pressed && { backgroundColor: c.sunken }]}
+      style={({ pressed }) => [styles.task, pressed && { backgroundColor: c.sunken }]}
     >
-      {divider ? <View style={[styles.divider, styles.flatDivider, { backgroundColor: c.line2 }]} /> : null}
+      {divider ? <View style={[styles.divider, styles.textDivider, { backgroundColor: c.line2 }]} /> : null}
       <OpensAgent agentId={task.agentId}>
-        <AgentFace agentId={task.agentId} size={30} live={false} />
+        <AgentFace agentId={task.agentId} size={LEAD} live={false} />
       </OpensAgent>
-      <View style={styles.taskText}>
-        <Text variant="subhead" style={styles.medium}>
-          {title}
-        </Text>
-        <Text variant="footnote" tone="muted" numberOfLines={1}>
-          {line}
-        </Text>
-      </View>
-      <View style={styles.end}>
-        <View style={styles.row}>
-          {state === "done" ? (
-            <PixelDone size={12} />
-          ) : state === "failed" ? (
-            <PixelFail size={12} />
-          ) : (
-            <PixelStopped size={10} />
-          )}
-          <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.shrink}>
-            {how}
-          </Text>
-        </View>
-        <Text variant="caption" tone="faint" style={styles.num}>
-          {when.time(task.finishedAt)}
-        </Text>
-      </View>
+      <OneLine title={title} line={line} />
+      {state === "done" ? (
+        <PixelDone size={12} />
+      ) : state === "failed" ? (
+        <PixelFail size={12} />
+      ) : (
+        <PixelStopped size={10} />
+      )}
+      <Text variant="caption" tone="faint" style={styles.num}>
+        {when.time(task.finishedAt)}
+      </Text>
     </Pressable>
   );
 }
 
-/** An agent row's folding chevron (at its right) and face. */
+/** An agent row's folding chevron (at its right). */
 const CHEVRON = 16;
-const GROUP_FACE = 36;
-/** Where a task's words start under its agent's row: the name's column (16 + face + 12). */
-const TASK_INSET = 16 + GROUP_FACE + 12;
-/** An ended task's words: after the face (16 + 30 + 12). */
-const FLAT_INSET = 58;
+/**
+ * What leads a row: an agent's face, a computer's tile, or a task's mark centred in as wide a box, so a task's mark
+ * sits under its agent's face and every row's words start on one column (16 + 28 + 12).
+ */
+const LEAD = 28;
+/** Between a row's title and what it is about, on its one line. */
+const GAP = "  ";
 
 const styles = StyleSheet.create({
   center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
   centerText: { textAlign: "center" },
   // Under the large title's words, as Equipe's line.
   summary: { paddingHorizontal: SCREEN_X, marginTop: -4, paddingBottom: 4 },
+  // One line each: the touch rows' 12 above and below it, the lead (28) at most as tall as that.
   agent: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 60,
+    minHeight: 52,
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-  row: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-  grow: { flex: 1, minWidth: 0, gap: 2 },
-  shrink: { flexShrink: 1 },
-  medium: { fontWeight: weights.medium },
-  num: { fontVariant: ["tabular-nums"] },
   task: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 60,
-    paddingVertical: 8,
-    paddingRight: 16,
+    minHeight: 52,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  indented: { paddingLeft: TASK_INSET },
-  flat: { paddingLeft: 16 },
-  // A routine's task (a MediaRow): its words under the face at the row's width, so its hairline starts there too.
-  flatTask: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16 },
-  flatTaskDivider: { left: 16 },
-  taskText: { flex: 1, minWidth: 0, gap: 2 },
+  lead: { width: LEAD, alignItems: "center" },
+  grow: { flex: 1, minWidth: 0 },
+  num: { fontVariant: ["tabular-nums"] },
   divider: { position: "absolute", top: 0, right: 0, height: StyleSheet.hairlineWidth },
   agentDivider: { left: 16 },
-  taskDivider: { left: TASK_INSET },
-  flatDivider: { left: FLAT_INSET },
+  // Under the words, past the lead: the rows under an agent read as its own.
+  textDivider: { left: 16 + LEAD + 12 },
   none: { paddingHorizontal: SCREEN_X, paddingBottom: 12 },
-  end: { alignItems: "flex-end", gap: 2, maxWidth: 130 },
-  computer: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 16 },
-  computerDivider: { left: FLAT_INSET },
 });

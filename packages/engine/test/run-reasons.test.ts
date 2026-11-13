@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { ProviderError } from "@agenteschat/providers";
 import { routineFailureCode } from "../src/routine-ledger";
 import {
+  brainFailureText,
   cliFailureText,
   OUR_ERROR,
   providerFailure,
@@ -234,4 +235,34 @@ test("what a CLI said is safe to show anyone: no secrets, no sign-ins, no folder
   for (const leak of ["hunter2", "FAKEFAKEFAKEFAKE1234", "ghp_", "eyJFAKE", "/home", "Users", "acme"])
     expect(more).not.toContain(leak);
   expect(more).toContain(".claude.json");
+});
+
+test("a computer brain's failure under a code the apps don't word reads as its program's error, never the bare code", () => {
+  const unsupported = { code: "unsupported", message: "The Cursor brain isn't supported on Windows yet." };
+  expect(brainFailureText(unsupported, "cursor")).toBe(
+    "cli_failed: Cursor: The Cursor brain isn't supported on Windows yet.",
+  );
+  expect(runErrorDetail(brainFailureText(unsupported, "cursor"))).toEqual({
+    errorCode: "run.cli_failed",
+    errorParams: { brain: "Cursor", detail: "The Cursor brain isn't supported on Windows yet." },
+  });
+  expect(brainFailureText({ code: "not_allowed", message: "" }, "opencode")).toBe("cli_failed: OpenCode");
+  // A code the apps word stays as it is.
+  expect(brainFailureText({ code: "windows_sandbox", message: "x" }, "codex")).toBeNull();
+  expect(brainFailureText({ code: "account_missing", message: "x" }, "opencode")).toBeNull();
+  expect(brainFailureText({ code: "model_refused", message: "x" }, "opencode")).toBeNull();
+});
+
+test("a key from another provider's model reads in linear time, whatever the stored text", () => {
+  expect(runErrorDetail("This agent's model is from Claude, but the chosen key is from OpenAI")).toEqual({
+    errorCode: "run.credential_wrong_provider",
+    errorParams: { modelProvider: "Claude", keyProvider: "OpenAI" },
+  });
+  expect(runErrorDetail("O modelo deste agente é da Claude, mas a chave escolhida é da OpenAI")).toMatchObject({
+    errorCode: "run.credential_wrong_provider",
+  });
+  const started = performance.now();
+  runErrorDetail(`This agent's model is from a${", but the chosen key is from a".repeat(20_000)}`);
+  runErrorDetail(`O modelo deste agente é da a${", mas a chave escolhida é da a".repeat(20_000)}`);
+  expect(performance.now() - started).toBeLessThan(1000);
 });

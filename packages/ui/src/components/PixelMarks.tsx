@@ -44,7 +44,15 @@ export function PixelFail({ size = 14, label, className }: PixelDoneProps) {
   return (
     <span
       className={cx("ac-pixfail", className)}
-      style={{ width: size, height: size, "--px": `${inner}px`, "--px-gap": `${gap}px` } as CSSProperties}
+      style={
+        {
+          width: size,
+          height: size,
+          "--mark-size": `${size}px`,
+          "--px": `${inner}px`,
+          "--px-gap": `${gap}px`,
+        } as CSSProperties
+      }
       {...a11y(label)}
     />
   );

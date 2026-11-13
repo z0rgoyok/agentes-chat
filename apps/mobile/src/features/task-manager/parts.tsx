@@ -9,6 +9,7 @@ import {
   Button,
   fieldText,
   Icon,
+  LineIcon,
   MEDIA_ROW,
   MediaRow,
   PixelOrbit,
@@ -59,8 +60,9 @@ export function useAgentColor(agentId: string): AgentColorName {
 }
 
 /**
- * "Trabalhando · 6:12", "Espera seu ok · 18 min" (amber: it waits on a person), "Parando…"; a wait wraps whole, with
- * what comes next under it ("Volta sáb às 18:00", or when it should start in the computer's line).
+ * "Trabalhando · 6:12", "Espera seu ok · 18 min" (amber: it waits on a person), "Parando…"; a wait wraps whole, its
+ * mark on its first line's capitals, with what comes next under it ("Volta sáb às 18:00", or when it should start in
+ * the computer's line). A task's screen says it so; the lists' rows show only the mark.
  */
 export function StateLine({ task, state, now }: { task: ManagedTask; state: RowState; now: number }) {
   const { t, i18n } = useTranslation();
@@ -69,16 +71,18 @@ export function StateLine({ task, state, now }: { task: ManagedTask; state: RowS
   const waits = state === "ok" || state === "answer";
   const words = taskStateWords(t, i18n.language, task, state, now);
   const line = (
-    <View style={styles.row}>
-      <TaskMark state={state} color={color} />
+    <View style={styles.first}>
+      <LineIcon variant="footnote" size={MARK + 4} mark>
+        <TaskMark state={state} color={color} />
+      </LineIcon>
       <Text variant="footnote" style={[styles.semibold, styles.shrink, { color: waits ? c.amber : c.ink2 }]}>
         {words.state}
+        {state === "stopping" ? null : (
+          <Text variant="caption" tone="faint" style={[styles.num, styles.regular]}>
+            {` · ${taskTime(t, task, now)}`}
+          </Text>
+        )}
       </Text>
-      {state === "stopping" ? null : (
-        <Text variant="caption" tone="faint" style={styles.num}>
-          · {taskTime(t, task, now)}
-        </Text>
-      )}
     </View>
   );
   if (!words.next) return line;
@@ -263,8 +267,10 @@ export function StopConfirm({
 
 const styles = StyleSheet.create({
   mark: { alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  row: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+  // The mark on the words' first line however many they take (`LineIcon`).
+  first: { flexDirection: "row", alignItems: "flex-start", gap: 6, minWidth: 0 },
   semibold: { fontWeight: weights.semibold },
+  regular: { fontWeight: weights.regular },
   shrink: { flexShrink: 1 },
   grow: { flex: 1, minWidth: 0 },
   num: { fontVariant: ["tabular-nums"], flexShrink: 0 },

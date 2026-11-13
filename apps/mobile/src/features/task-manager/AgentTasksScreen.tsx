@@ -4,18 +4,15 @@ import {
   agentCardLine,
   helpersOf,
   hiddenCount,
-  linePlace,
   taskPlace,
+  taskTime,
   taskTitle,
-  taskWaitGroups,
 } from "@agenteschat/client/lib/task-manager";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import { EmptyState, haptics, Icon, SCREEN_X, SkeletonList, Text, useReducedMotion } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useOpenQueue } from "../queue/QueueSheet";
 import { AgentFace, OpensAgent } from "../shared/Face";
 import { useColors, useDirectory, useNow, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
@@ -23,16 +20,16 @@ import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { SheetHostProvider } from "../shared/SheetHost";
 import { RetryLine } from "../shared/TeamSkyEmpty";
 import { useAgentTasks, useStopper } from "./hooks";
-import { type Place, type RowState, rowState } from "./logic";
-import { StateLine, WaitLines } from "./parts";
+import { type Place, type RowState, rowState, taskStateWords } from "./logic";
+import { TaskMark, useAgentColor, WaitLines } from "./parts";
 
 /**
  * An agent's tasks (ADR 0128), pushed from its DM's header the way a thread opens, in the task manager's language: one
  * line under the title says how its work stands ("6 trabalhando · 1 espera você · 2 feitas hoje"); a reason several
- * tasks share (a plan at its limit until Wednesday) is said once, under it; then one 60-point row per task with its
- * title, its own state or place in words and a chevron, since a task opens its own screen, where it is stopped. At
- * the end, "Abrir no gerenciador" and, with more than one to stop, "Parar todas" in red, which asks with the system's
- * alert. A task waiting for room on its computer keeps "Ver fila", as the conversation's bar has it.
+ * tasks share (a plan at its limit until Wednesday) is said once, under it; then one line per task with its state's
+ * mark, its title and place and a chevron, since a task opens its own screen, where it is said whole, its computer's
+ * line opens ("Ver fila") and it is stopped. At the end, "Abrir no gerenciador" and, with more than one to stop,
+ * "Parar todas" in red, which asks with the system's alert.
  */
 export function AgentTasksScreen({ agentId, from }: { agentId: string; from: Place | null }) {
   return (
@@ -59,11 +56,6 @@ function AgentTasks({ agentId, from }: { agentId: string; from: Place | null }) 
   const hidden = hiddenCount(query.data?.hidden, agentId);
   const stoppable = view?.stoppable ?? [];
   const helpers = helpersOf(rows.map((r) => r.task).filter((task) => stoppable.includes(task.runId)));
-  // The tasks whose wait is said once over them: their rows say only what is their own.
-  const shared = useMemo(
-    () => new Set(taskWaitGroups(rows.map((r) => r.task)).flatMap((g) => g.tasks.map((task) => task.runId))),
-    [rows],
-  );
   const summary =
     [
       view && view.working > 0 ? t("taskManager.working", { count: view.working }) : null,
@@ -117,14 +109,7 @@ function AgentTasks({ agentId, from }: { agentId: string; from: Place | null }) 
                 <WaitLines tasks={rows.map((r) => r.task)} now={now} />
                 {rows.map(({ task, here }, i) => (
                   <Animated.View key={task.runId} {...fade} layout={layout}>
-                    <TaskRow
-                      task={task}
-                      here={here}
-                      shared={shared.has(task.runId)}
-                      state={rowState(task, stopping)}
-                      now={now}
-                      divider={i > 0}
-                    />
+                    <TaskRow task={task} here={here} state={rowState(task, stopping)} now={now} divider={i > 0} />
                   </Animated.View>
                 ))}
               </>
@@ -150,68 +135,48 @@ function AgentTasks({ agentId, from }: { agentId: string; from: Place | null }) 
 }
 
 /**
- * A task, a 60-point row on the 16 margin: its title on one line and, under it, what is its own: its state in words
- * (the orbit while it runs, amber while it waits on you, the time), or, when its wait is the one said over the list,
- * only where it comes from (the conversation, a channel, a routine that isn't its title). A chevron, since it opens
- * the task's screen, where it is stopped.
+ * A task, one line on the 16 margin: its state's mark (the orbit while it runs, amber while it waits on you), its
+ * title and where it comes from in quiet type (the conversation, a channel, a routine that isn't its title), cut at
+ * the end, its time and a chevron, since it opens the task's screen, where it is said whole, its computer's line
+ * opens and it is stopped.
  */
 function TaskRow({
   task,
   here,
-  shared,
   state,
   now,
   divider,
 }: {
   task: ManagedTask;
   here: boolean;
-  shared: boolean;
   state: RowState;
   now: number;
   divider: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const c = useColors();
-  const openQueue = useOpenQueue();
+  const color = useAgentColor(task.agentId);
   const title = taskTitle(t, task);
   const place = here ? t("taskManager.where.here") : taskPlace(t, task);
-  const inLine = state === "stopping" ? null : linePlace(task);
-  const quiet = shared && state !== "stopping";
+  const words = taskStateWords(t, i18n.language, task, state, now);
   return (
     <Pressable
       onPress={() => router.push(`/task-manager/${task.runId}`)}
       accessibilityRole="button"
-      accessibilityLabel={[title, place].filter(Boolean).join(", ")}
+      accessibilityLabel={[title, place, words.state, words.next].filter(Boolean).join(", ")}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.sunken }]}
     >
       {divider ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
-      <View style={styles.text}>
-        <Text variant="body" numberOfLines={1}>
-          {title}
+      <TaskMark state={state} color={color} />
+      <Text variant="body" numberOfLines={1} style={styles.grow}>
+        {title}
+        {place ? <Text variant="footnote" tone="muted">{`  ${place}`}</Text> : null}
+      </Text>
+      {state === "stopping" ? null : (
+        <Text variant="caption" tone="faint" style={styles.num}>
+          {taskTime(t, task, now)}
         </Text>
-        {quiet ? (
-          place ? (
-            <Text variant="subhead" tone="muted" numberOfLines={1}>
-              {place}
-            </Text>
-          ) : null
-        ) : (
-          <StateLine task={task} state={state} now={now} />
-        )}
-        {inLine ? (
-          <Pressable
-            onPress={() => openQueue(inLine.machineId)}
-            accessibilityRole="button"
-            hitSlop={12}
-            style={({ pressed }) => [styles.see, pressed && styles.pressed]}
-          >
-            <Text variant="footnote" tone="muted">
-              {t("taskManager.queue.see")}
-            </Text>
-            <Icon name="right" size={13} color={c.muted} />
-          </Pressable>
-        ) : null}
-      </View>
+      )}
       <Icon name="right" size={15} color={c.faint} />
     </Pressable>
   );
@@ -248,20 +213,19 @@ function ActionRow({
 const styles = StyleSheet.create({
   // Under the large title's words, as the manager's line.
   summary: { paddingHorizontal: SCREEN_X, marginTop: -4, paddingBottom: 8 },
+  // One line: the touch rows' 12 above and below it.
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 60,
-    paddingVertical: 10,
+    minHeight: 48,
+    paddingVertical: 12,
     paddingHorizontal: 16,
   },
   divider: { position: "absolute", top: 0, left: 16, right: 0, height: StyleSheet.hairlineWidth },
-  text: { flex: 1, minWidth: 0, gap: 2 },
   grow: { flex: 1, minWidth: 0 },
+  num: { fontVariant: ["tabular-nums"] },
   // The way out and Parar todas: a section of their own, 24 under the tasks.
   actions: { marginTop: 24 },
   action: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingHorizontal: 16 },
-  pressed: { opacity: 0.6 },
-  see: { flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start", paddingVertical: 2 },
 });

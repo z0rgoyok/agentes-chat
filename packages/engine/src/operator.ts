@@ -85,9 +85,12 @@ export async function operatorListOrgs(db: Database, query: OperatorOrgQuery) {
  * One workspace: its owners and admins, how much is in it, its limits (ADR 0079) with what it uses of them, and its
  * deletion and the operator's deletion hold, each null when there is none. Null when there is none with that id.
  */
-/** The operator API's role names (its contract): an owner, someone holding `administrator` (ADR 0085), a member. */
-const operatorRole = (orgId: unknown, userId: unknown) =>
-  sql<"owner" | "admin" | "member">`case when ${organizationMembers.role} = 'owner' then 'owner'
+/**
+ * The operator API's role names (its contract): an owner, someone holding `administrator` (ADR 0085), a member.
+ * `role`: the membership's own role column, when the query reads `organization_members` under an alias.
+ */
+export const operatorRole = (orgId: unknown, userId: unknown, role: unknown = organizationMembers.role) =>
+  sql<"owner" | "admin" | "member">`case when ${role} = 'owner' then 'owner'
     when ${maySql(orgId, userId, "administrator")} then 'admin' else 'member' end`;
 
 export async function operatorOrg(db: Database, orgId: string) {

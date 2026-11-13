@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { resources } from "@agenteschat/i18n";
 import i18next, { type TFunction } from "i18next";
 import type { Message } from "../src/api/types";
-import { failedRunFix, filesTextOnlyOf, runFailureLine } from "../src/lib/errors";
+import { failedRunFix, filesTextOnlyOf, runErrorWords, runFailureLine } from "../src/lib/errors";
 import { serverBody } from "../src/lib/message-body";
 import { applyReceiptEvent, seedReceipt } from "../src/realtime/receipts";
 
@@ -128,4 +128,12 @@ describe("a failed run as one line (runFailureLine)", () => {
     expect(runFailureLine(real, "Ada", { code: "run.failed", params: { detail: "x" } })).toBeNull();
     expect(runFailureLine(real, "Ada", {})).toBeNull();
   });
+});
+
+test("a failed run's stored text stands as its reason only when it's words, never a bare code", () => {
+  expect(runErrorWords("unsupported")).toBeNull();
+  expect(runErrorWords("tools_not_locked")).toBeNull();
+  expect(runErrorWords("run.cli_failed")).toBeNull();
+  expect(runErrorWords(null)).toBeNull();
+  expect(runErrorWords("OpenCode stopped the turn by itself.")).toBe("OpenCode stopped the turn by itself.");
 });

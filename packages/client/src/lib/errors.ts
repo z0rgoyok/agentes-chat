@@ -1059,6 +1059,13 @@ export function runErrorText(t: TFunction, code: string | null | undefined, para
 }
 
 /**
+ * A failed run's stored text when it can stand as its reason: never a bare code (`unsupported`, `not_allowed`), which
+ * says nothing to a person; null then, and the line says only that it couldn't answer.
+ */
+export const runErrorWords = (error: string | null | undefined): string | null =>
+  error && !/^[a-z][a-z0-9]*(?:[_.][a-z0-9]+)*$/.test(error.trim()) ? error : null;
+
+/**
  * A failed run as one line for the conversation: a restriction in its words, a computer that stayed busy, else
  * "couldn't answer" with the reason going on as part of the sentence. Null when no reason has words.
  */

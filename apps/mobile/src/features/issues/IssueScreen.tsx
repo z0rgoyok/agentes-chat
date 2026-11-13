@@ -545,7 +545,7 @@ function WorkCard({ issue: i }: { issue: Issue }) {
               >
                 {/* On the step's first line: a step that wraps had its mark centred between its lines. */}
                 {l.going ? (
-                  <LineIcon variant="small" size={12}>
+                  <LineIcon variant="small" size={12} mark>
                     <PixelOrbit color={color} size={12} />
                   </LineIcon>
                 ) : (

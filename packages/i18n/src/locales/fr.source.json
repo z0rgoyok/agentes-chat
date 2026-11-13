@@ -26959,6 +26959,9 @@
   "brain.reasons.outdated": {
     "value": "The version on {{computer}} is old. Update Codex to use it."
   },
+  "brain.reasons.system": {
+    "value": "{{program}} doesn't run on {{computer}}'s system yet."
+  },
   "brain.reasons.no_computerCloud": {
     "value": "Ready as soon as {{computer}} is."
   },

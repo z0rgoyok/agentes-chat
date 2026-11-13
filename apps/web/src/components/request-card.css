@@ -556,15 +556,21 @@ html:not([data-pointer]) .rq__choice:focus-visible {
   white-space: pre-wrap;
 }
 
-/* Waiting for you: a pixel square outline in the warning tone, pulsing. */
+/* Waiting for you: a pixel square outline in the warning tone, pulsing. In a line of words, on their capitals' middle,
+   as the kit's pixel marks are (`.ac-pixspin`): the square is an absolute child, so the box's bottom is its
+   baseline. */
 .rq-wait {
   flex: none;
-  display: inline-grid;
-  place-items: center;
+  display: inline-block;
+  position: relative;
   width: 12px;
   height: 12px;
+  vertical-align: calc(var(--cap-top) - var(--cap-mid) - 6px);
 }
 .rq-wait > span {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   width: 8px;
   height: 8px;
   border-radius: 2px;

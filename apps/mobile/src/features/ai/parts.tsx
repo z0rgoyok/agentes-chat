@@ -93,11 +93,11 @@ export function Note({
   const c = useColors();
   return (
     <View style={styles.note} accessibilityLiveRegion={live ? "polite" : undefined}>
-      {/* On the words' first line, where the eye reads it, never at the line's top. */}
+      {/* On the words' first line, where the eye reads it, never at the line's top; a mark on its capitals. */}
       {typeof icon === "string" ? (
         <LineIcon name={icon} variant="small" size={15} color={icon === "x" ? c.danger : c.muted} />
       ) : (
-        <LineIcon variant="small" size={15}>
+        <LineIcon variant="small" size={15} mark>
           {icon}
         </LineIcon>
       )}

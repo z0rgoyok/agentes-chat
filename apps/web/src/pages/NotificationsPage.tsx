@@ -1064,7 +1064,7 @@ function WaitCard({
               </p>
             )}
             {resolving ? (
-              <div className="nt-resolved">
+              <div className="nt-resolved ac-iconline">
                 <Spinner size={14} />
                 {t("notifications.wait.resolved", { context: g.context, name })}
               </div>

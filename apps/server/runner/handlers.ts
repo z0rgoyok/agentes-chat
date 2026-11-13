@@ -29,7 +29,7 @@ import { type CodexBrainEvent, type CodexBrainTurnRequest, handleCodexBrainTurn 
 import type { CodexAppServers } from "./brain-codex-app";
 import { type CursorBrainTurnRequest, handleCursorBrainTurn } from "./brain-cursor";
 import { type GrokBrainTurnRequest, handleGrokBrainTurn } from "./brain-grok";
-import { handleOpencodeBrainTurn, type OpencodeBrainTurnRequest } from "./brain-opencode";
+import { handleOpencodeBrainTurn, type OpencodeBrainTurnRequest, steerOpencodeTurn } from "./brain-opencode";
 import { routeWithPlan } from "./brain-route";
 import { type BrowserManager, browserSetupText } from "./browser";
 import type { BrowserViews } from "./browser-views";
@@ -1257,18 +1257,22 @@ async function doHostedTurn(
 }
 
 /**
- * Cursor, OpenCode, Grok and Antigravity turns in progress, by run: `brain.steer` answers `unsupported` for them
- * (`agent -p`, `opencode run`, `grok -p` and `agy -p` take nothing mid-turn).
+ * Cursor, Grok and Antigravity turns in progress, by run: `brain.steer` answers `unsupported` for them (`agent -p`,
+ * `grok -p` and `agy -p` take nothing mid-turn).
  */
-const turnOnlyRuns = new Map<string, "Cursor" | "OpenCode" | "Grok Build" | "Antigravity CLI">();
+const turnOnlyRuns = new Map<string, "Cursor" | "Grok Build" | "Antigravity CLI">();
+
+/** OpenCode turns in progress, by run: `no_turn` until the turn can take messages (`steerOpencodeTurn`). */
+const opencodeRuns = new Set<string>();
 
 const STEER_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
  * `brain.steer` (protocol 15): messages for the request's agent's turn of
  * `runId` in progress (Claude Code reads them at its next tool boundary; a
- * Codex turn on its app-server at its next model request, `turn/steer`).
- * A Codex turn run by `codex exec` can't take any: `unsupported`.
+ * Codex turn on its app-server at its next model request, `turn/steer`; an
+ * OpenCode 2 turn at its next model step, `_session/steering`). A Codex turn
+ * run by `codex exec` and an OpenCode 1 turn can't take any: `unsupported`.
  */
 function doBrainSteer(
   ctx: HandlerContext,
@@ -1287,6 +1291,9 @@ function doBrainSteer(
   });
   const turnOnly = turnOnlyRuns.get(runId);
   if (turnOnly) return { status: "unsupported", reason: `${turnOnly} reads messages only between turns` };
+  if (opencodeRuns.has(runId)) {
+    return steerOpencodeTurn(String(req.agent.id), { runId, session, messages }) ?? { status: "no_turn" };
+  }
   if (ctx.codex?.runs.has(runId)) {
     return ctx.codex.app
       ? ctx.codex.app.steer(String(req.agent.id), { runId, session, messages })
@@ -1377,9 +1384,8 @@ async function doCodexTurn(
     }
     scope.emit?.({ type: "brain.event", runId, event });
   };
-  if (cursor || opencode || grok || agy) {
-    turnOnlyRuns.set(runId, cursor ? "Cursor" : opencode ? "OpenCode" : grok ? "Grok Build" : "Antigravity CLI");
-  }
+  if (opencode) opencodeRuns.add(runId);
+  else if (cursor || grok || agy) turnOnlyRuns.set(runId, cursor ? "Cursor" : grok ? "Grok Build" : "Antigravity CLI");
   try {
     if (agy) {
       await handleAntigravityBrainTurn(
@@ -1462,6 +1468,7 @@ async function doCodexTurn(
   } finally {
     codex.runs.delete(runId);
     turnOnlyRuns.delete(runId);
+    opencodeRuns.delete(runId);
   }
   signedOut(ctx, req, final);
   scope.emit?.({ type: "brain.done", runId });

@@ -124,24 +124,45 @@ describe("a task's row (ADR 0128)", () => {
   });
 });
 
-describe("rows with a face (#41)", () => {
+describe("one line a row", () => {
   const read = (f: string) => readFileSync(join(import.meta.dir, "../../src/features/task-manager", f), "utf8");
 
-  test("a routine's task is a MediaRow: its agent, where and who asked on the face's line, the rest under them", () => {
+  test("a task's row: its mark under its agent's face, its title and what it is about cut at the end, its time", () => {
     const screen = read("TaskManagerScreen.tsx");
-    expect(screen).toContain("<AgentFace agentId={task.agentId} size={MEDIA_ROW.card.face} live={false} />");
-    expect(screen).toMatch(/name=\{agent\}\s*meta=\{sub \|\| undefined\}\s*>/);
-    // The row opens the task (stopping lives on its screen): the title whole, never cut, its state as words under it,
-    // and a chevron, never a stop button squeezing the title.
+    // One Text, one line: the title, then what it is about in quiet type; "…" at the end when it doesn't fit.
     expect(screen).toMatch(
-      /<Text variant="body">\{title\}<\/Text>\s*<StateLine task=\{task\} state=\{state\} now=\{now\} \/>\s*<\/MediaRow>/,
+      /<Text variant=\{variant\} numberOfLines=\{1\} style=\{styles\.grow\}>\s*\{title\}\s*\{line \? <Text variant="footnote" tone="muted">/,
     );
-    expect(screen).not.toMatch(/numberOfLines=\{\d\}[^>]*>\s*\{(title|line\.text)\}/);
+    expect(screen).toContain("<OneLine title={title} line={line} />");
+    // Its state is its mark, in a box as wide as the agent's face above it; the words stay on its screen.
+    expect(screen).toMatch(/<View style=\{styles\.lead\}>\s*<TaskMark state=\{state\} color=\{color\} \/>/);
+    expect(screen).toContain('lead: { width: LEAD, alignItems: "center" }');
+    expect(screen).not.toContain("<StateLine");
+    expect(screen).not.toContain("MediaRow");
+    // Every row opens what says it whole (a task's screen, its agent's tasks, a computer's line): a chevron, never a
+    // stop button squeezing the title.
     expect(screen).not.toContain("end={stop}");
     expect(screen).toContain('<Icon name="right" size={15} color={c.faint} />');
-    expect(screen).toContain(
-      'flatTask: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16 }',
+    for (const row of ["computer.name", "title"]) expect(screen).toContain(`<OneLine title={${row}}`);
+  });
+
+  test("its screen says it whole: the title and what it is about with no limit of lines, the state's words", () => {
+    const page = read("TaskScreen.tsx");
+    expect(page).toMatch(
+      /label=\{title\}\s*labelLines=\{0\}\s*\{\.\.\.\(request \? \{ sub: request, subLines: 0 \} : \{\}\)\}/,
     );
+    expect(page).toContain("state={<StateLine task={task} state={state} now={now} />}");
+    // 0 lines is as many as the words need, and such a row puts its lead on the first line.
+    const grouped = readFileSync(join(import.meta.dir, "../../src/ui/Grouped.tsx"), "utf8");
+    expect(grouped).toContain("labelLines !== 1 || subLines !== 1");
+  });
+
+  test("an agent's tasks from its DM: one line each too, its computer's line opened from the task's screen", () => {
+    const list = read("AgentTasksScreen.tsx");
+    expect(list).toMatch(/<Text variant="body" numberOfLines=\{1\} style=\{styles\.grow\}>\s*\{title\}/);
+    expect(list).not.toContain("<StateLine");
+    expect(list).not.toContain("openQueue(");
+    expect(read("TaskScreen.tsx")).toContain("onPress={() => openQueue(line)}");
   });
 
   test("an agent's tasks stay folded under its row until it is tapped; the row says how long, as its tasks do", () => {

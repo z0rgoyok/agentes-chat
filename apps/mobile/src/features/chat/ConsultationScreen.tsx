@@ -119,7 +119,7 @@ function Consultation({ consultationId, channelId }: { consultationId: string; c
         {q && state && state !== "answered" ? (
           <View style={[styles.line, styles.pad]} accessibilityLiveRegion="polite">
             {state === "working" ? (
-              <LineIcon variant="caption" size={12}>
+              <LineIcon variant="caption" size={12} mark>
                 <PixelOrbit color={agentLook(consulted).color} size={12} />
               </LineIcon>
             ) : (

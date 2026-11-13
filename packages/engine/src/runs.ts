@@ -245,6 +245,19 @@ export function cliFailureText(
   return of.ended ? `cli_closed: ${of.brain}: ${of.ended}` : `cli_failed: ${of.brain}`;
 }
 
+/**
+ * A computer brain's failure under a code the apps don't word (a runner's `unsupported`, `not_allowed`…): what its
+ * runner said, as that brain's program's error (`cli_failed: OpenCode: …`), so a person never reads a bare code. Null
+ * for a code the apps word (`runErrorDetail` gives it a code of its own, not the plain `run.failed` with the code as
+ * its detail), which is stored as it is.
+ */
+export function brainFailureText(failure: CliFailure, kind: ComputerBrainKind): string | null {
+  const known = runErrorDetail(failure.code);
+  if (known && known.errorCode !== "run.failed") return null;
+  const words = cliErrorWords(failure.message);
+  return words ? `cli_failed: ${BRAIN_NAMES[kind]}: ${words}` : `cli_failed: ${BRAIN_NAMES[kind]}`;
+}
+
 /** `cli_failed: Claude Code: what it said` (`cliFailureText`); `cli_closed` when it ended without a word. */
 const CLI_FAILURE = /^cli_(failed|closed): ([^:]+?)(?:: ([\s\S]*))?$/;
 
@@ -366,8 +379,9 @@ export function runErrorDetail(error: string | null | undefined): {
   )
     return { errorCode: "run.credential_revoked" };
   const wrong =
-    /^This agent's model is from (.+), but the chosen key is from (.+)$/.exec(error) ??
-    /^O modelo deste agente é da (.+), mas a chave escolhida é da (.+)$/.exec(error);
+    // A provider's name has no comma: one way to split the sentence, never a quadratic search for it.
+    /^This agent's model is from ([^,]+), but the chosen key is from (.+)$/.exec(error) ??
+    /^O modelo deste agente é da ([^,]+), mas a chave escolhida é da (.+)$/.exec(error);
   if (wrong) {
     return {
       errorCode: "run.credential_wrong_provider",

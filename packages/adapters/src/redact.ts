@@ -29,8 +29,12 @@ export function withoutTokens(value: unknown): unknown {
   );
 }
 
-/** A crash's stack frame (`at fn (/x/y.js:1:2)`, `at /x/y.js:1:2`) or the Node.js version line it ends with. */
-const STACK_FRAME = /\s*\bat (?:async |new )?(?:[^\s()]+ \([^)]*\)|\/\S+|file:\/\/\S+|node:\S+)|\s*\bNode\.js v[\d.]+/g;
+/**
+ * A crash's stack frame (`at fn (/x/y.js:1:2)`, `at /x/y.js:1:2`) or the Node.js version line it ends with. No
+ * leading `\s*`: before a word boundary it backtracks over every run of spaces (quadratic on output full of them),
+ * and what it would take is trimmed with the line anyway.
+ */
+const STACK_FRAME = /\bat (?:async |new )?(?:[^\s()]+ \([^)]*\)|\/\S+|file:\/\/\S+|node:\S+)|\bNode\.js v[\d.]+/g;
 /** A line that names what went wrong (`Error: …`, `TypeError: …`, `ENOSPC: …`, `error: …`). */
 const ERROR_LINE = /(?:\w*Error|\bE[A-Z]{3,}|\berror)\b:/;
 

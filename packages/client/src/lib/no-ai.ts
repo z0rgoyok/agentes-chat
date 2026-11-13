@@ -562,6 +562,8 @@ const CLOUD_REASON = {
   outdated: "updating",
   // Said only past the wait: before it, the line says the computer is still looking.
   not_reported: "stuck",
+  // The Cloud's computers run Linux, where every CLI runs: never said there.
+  system: "stuck",
 } as const satisfies Record<BrainUnavailable | "keys", string>;
 
 /**

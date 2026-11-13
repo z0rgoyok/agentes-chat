@@ -111,6 +111,7 @@ import {
   filesTextOnlyOf,
   restrictionLine,
   runErrorText,
+  runErrorWords,
   runFailureLine,
   sendFailureText,
   sendNeedsEdit,
@@ -4526,7 +4527,7 @@ export const TimelineMessage = memo(function TimelineMessage({
                       words already say what it said. */}
                   <span title={!refusal && failedWhy && !live.errorParams?.detail ? live.error : undefined}>
                     {runFailureLine(t, name, { code: live.errorCode, params: live.errorParams }, i18n.language) ??
-                      (live.error
+                      (runErrorWords(live.error)
                         ? t("channel.runFailed", { agent: name, reason: live.error })
                         : t("channel.runFailedNoReason", { agent: name }))}
                   </span>

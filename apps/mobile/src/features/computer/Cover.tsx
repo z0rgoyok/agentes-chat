@@ -1,7 +1,7 @@
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { CARD_PAD, ComputerSky, Glass, Icon, type IconName, PixelOrbit, Text, useTheme } from "@/ui";
+import { CARD_PAD, ComputerSky, Glass, type IconName, LineIcon, PixelOrbit, Text, useTheme } from "@/ui";
 import { withAlpha } from "@/ui/palette";
 import { DOCK_HANG, EdgeDock } from "./EdgeDock";
 import { DEFAULT_DESKTOP } from "./screen-view";
@@ -45,10 +45,13 @@ export function Cover({
   clear?: boolean;
 }) {
   const { colors: c, shadows } = useTheme();
+  // On the words' first line, however many a long name makes them.
   const lead = spinner ? (
-    <PixelOrbit color={color} size={16} />
+    <LineIcon variant="subhead" size={16} mark>
+      <PixelOrbit color={color} size={16} />
+    </LineIcon>
   ) : icon ? (
-    <Icon name={icon} size={16} color={clear || sky ? c.ink : ON_SCREEN.ink} />
+    <LineIcon variant="subhead" name={icon} size={16} color={clear || sky ? c.ink : ON_SCREEN.ink} />
   ) : null;
 
   if (clear) {
@@ -126,6 +129,6 @@ const styles = StyleSheet.create({
   say: { alignItems: "center", gap: 8, maxWidth: 300 },
   lift: { maxWidth: "100%", borderRadius: 14 },
   card: { alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: 8, flexShrink: 1 },
   text: { flexShrink: 1, fontWeight: "600", textAlign: "center" },
 });

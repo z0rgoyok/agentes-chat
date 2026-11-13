@@ -141,9 +141,10 @@ export function SayWhy({
 
 /**
  * A wait: what holds the task and what comes next, in as many lines as they take ("Pausada: plano a 95% da semana",
- * "Volta sáb às 18:00"). Amber only for what waits on a person; a computer, a plan or a budget stay grey.
+ * "Volta sáb às 18:00"). Amber only for what waits on a person; a computer, a plan or a budget stay grey. `line`: only
+ * what holds it, on one line (a table's row, whose tip says what comes next).
  */
-function WaitState({ task }: { task: ManagedTask }) {
+function WaitState({ task, line = false }: { task: ManagedTask; line?: boolean }) {
   const { t, i18n } = useTranslation();
   const now = useNow(30_000);
   const words = taskWaitWords(t, i18n.language, task, now);
@@ -154,21 +155,55 @@ function WaitState({ task }: { task: ManagedTask }) {
       {person ? <WaitMark /> : <Icon name={task.wait?.code === "usage_pause" ? "pause" : "clock"} size={14} />}
       <span className="tm-state__text">
         <b>{words.state}</b>
-        {words.next && <small>{words.next}</small>}
+        {words.next && !line && <small>{words.next}</small>}
       </span>
     </span>
   );
 }
 
-/** "Trabalhando" (the orbit in the agent's color), a wait in its words (`WaitState`), "Na fila", "Parando…". */
-export function TaskStateChip({ task, stopping = false }: { task: ManagedTask; stopping?: boolean }) {
+/**
+ * "Trabalhando" (the orbit in the agent's color), a wait in its words (`WaitState`), "Na fila", "Parando…". `line`: one
+ * line, for a table's row.
+ */
+export function TaskStateChip({
+  task,
+  stopping = false,
+  line = false,
+}: {
+  task: ManagedTask;
+  stopping?: boolean;
+  line?: boolean;
+}) {
   const { t } = useTranslation();
   if (stopping) return <Chip lead={<Spinner size={14} />}>{t("taskManager.state.stopping")}</Chip>;
   const state = taskState(task);
   if (state === "working")
     return <Chip lead={<AgentSpinner agentId={task.agentId} size={14} />}>{t("taskManager.state.working")}</Chip>;
-  if (state === "waiting") return <WaitState task={task} />;
+  if (state === "waiting") return <WaitState task={task} line={line} />;
   return <Chip icon="clock">{t("taskManager.state.queued")}</Chip>;
+}
+
+/**
+ * A task's state and what it uses now, in words and whole: what a table's one-line row leaves to its tip ("Pausada:
+ * plano a 95% da semana · Volta sáb às 18:00", "Claude Code · Terminal · bun test").
+ */
+export function useTaskStatus() {
+  const { t, i18n } = useTranslation();
+  const now = useNow(30_000);
+  const programText = useProgramText();
+  return (task: ManagedTask, stopping = false): string[] => {
+    const state = taskState(task);
+    const wait = taskWaitWords(t, i18n.language, task, now);
+    const words = stopping
+      ? t("taskManager.state.stopping")
+      : state === "waiting"
+        ? [wait?.state, wait?.next].filter(Boolean).join(" · ")
+        : t(state === "working" ? "taskManager.state.working" : "taskManager.state.queued");
+    const using = linePlace(task) ? null : programText(task);
+    return [words, using ? [using.name, using.detail].filter(Boolean).join(" · ") : null].filter((s): s is string =>
+      Boolean(s),
+    );
+  };
 }
 
 /** The lines over several tasks waiting on the same limit. */
@@ -282,8 +317,11 @@ export function ProgramLogo({ program }: { program: TaskProgram }) {
   return <span className="tm-logo">{logo(program.activity)}</span>;
 }
 
-/** "Usando agora": the logo, the program and what it does in it, whole; a dash queued or in a computer's line. */
-export function UsingNow({ task }: { task: ManagedTask }) {
+/**
+ * "Usando agora": the logo, the program and what it does in it, whole; a dash queued or in a computer's line. `line`:
+ * the logo and the program on one line (a table's row, whose tip says what it does in it).
+ */
+export function UsingNow({ task, line = false }: { task: ManagedTask; line?: boolean }) {
   const text = useProgramText()(task);
   if (!text || linePlace(task)) return <span className="tm-use tm-use--none">—</span>;
   return (
@@ -291,7 +329,7 @@ export function UsingNow({ task }: { task: ManagedTask }) {
       <ProgramLogo program={taskProgram(task)} />
       <span className="tm-use__text">
         <b>{text.name}</b>
-        {text.detail && <small>{softBreaks(text.detail)}</small>}
+        {text.detail && !line && <small>{softBreaks(text.detail)}</small>}
       </span>
     </span>
   );
@@ -549,7 +587,7 @@ export function StopAllInline({
   const confirm = () => onStop(runIds, reason);
   return (
     <div className="tm-cfm" role="alertdialog" aria-label={title}>
-      <span className="tm-cfm__text">
+      <span className="tm-cfm__text ac-iconline">
         <AgentSpinner agentId={agentId} size={14} />
         <span>
           <b>{title}</b> {helpers ? t("taskManager.confirm.chainBody") : t("taskManager.confirm.short", { name })}

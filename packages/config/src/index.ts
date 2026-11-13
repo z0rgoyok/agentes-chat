@@ -57,6 +57,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (config.SESSION_SCREENING && !config.OPERATOR_API_TOKEN) {
     throw new ConfigError(["SESSION_SCREENING needs OPERATOR_API_TOKEN"]);
   }
+  // The listener exists only with the full token: alone, the read-only one would open nothing, in silence.
+  if (config.OPERATOR_API_READ_TOKEN && !config.OPERATOR_API_TOKEN) {
+    throw new ConfigError(["OPERATOR_API_READ_TOKEN needs OPERATOR_API_TOKEN"]);
+  }
+  // Equal, the token that should only read would hold every operator power.
+  if (config.OPERATOR_API_READ_TOKEN && config.OPERATOR_API_READ_TOKEN === config.OPERATOR_API_TOKEN) {
+    throw new ConfigError(["OPERATOR_API_READ_TOKEN must differ from OPERATOR_API_TOKEN"]);
+  }
   if (config.MACHINE_PROVISIONING === "external" && config.HOST_COMPUTER_TOKEN) {
     throw new ConfigError([
       "HOST_COMPUTER_TOKEN can't be set with MACHINE_PROVISIONING=external: every workspace gets its own computer, and no other computer joins it",

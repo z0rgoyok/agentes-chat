@@ -302,6 +302,7 @@ import {
 import {
   type AgentRun,
   addRunStep,
+  brainFailureText,
   cliFailureOf,
   cliFailureText,
   cliRefusedStart,
@@ -4719,9 +4720,11 @@ async function executeRunInner(
         if (paused) return fail(paused.message);
         // A CLI's failure says who failed it and what it said; the computer only ran it. One that refused to start
         // would fail every retry the same way: it ends here too.
+        // A code the apps don't word (a runner's `unsupported`) reads as that brain's program's error, never bare.
         const cli =
           error instanceof BrainFailure && (!error.retryable || cliRefusedStart(error))
-            ? cliFailureText(error, turnPlan.account)
+            ? (cliFailureText(error, turnPlan.account) ??
+              (!error.retryable && isComputerBrain(turnPlan.kind) ? brainFailureText(error, turnPlan.kind) : null))
             : null;
         const reason = cli ?? userFacing(error);
         if (reason) {
