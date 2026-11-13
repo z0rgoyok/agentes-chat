@@ -2701,12 +2701,12 @@ test("a bridged call the brain doesn't replay still counts as executed", async (
   await drainOutbox(f.db, handlers);
   const [run] = await f.db.select().from(schema.agentRuns);
   expect((run?.transcript as { executedCalls?: number } | null)?.executedCalls).toBe(1);
-  expect(run?.transcript).not.toHaveProperty("bridgeCallIds");
+  expect(run?.transcript).not.toHaveProperty("bridgeCalls");
   const reply = (await timeline(f)).at(-1);
   expect(reply?.body).toBe("go: not found");
 });
 
-test("a bridged call replayed as an executed tool_call is counted once", async () => {
+test("a bridged call replayed with another id is counted once", async () => {
   const fx = effectTools(() => f as Fixture);
   const fixture = (f = await setup({ toolSources: [fx.source] }));
   const machineId = await computerAgent(f);
@@ -2716,7 +2716,7 @@ test("a bridged call replayed as an executed tool_call is counted once", async (
       { orgId: turn.orgId, agentId: turn.agentId, runId: turn.runId, machineId },
       { id: "check-1", name: "check_env", input: {} },
     );
-    yield { type: "tool_call", id: "check-1", name: "check_env", input: {}, executed: result };
+    yield { type: "tool_call", id: "different-replay-id", name: "check_env", input: {}, executed: result };
     yield { type: "done", text: "go: not found" };
   });
   const handlers = createJobHandlers({
