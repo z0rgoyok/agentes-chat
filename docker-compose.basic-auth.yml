@@ -3,7 +3,7 @@
 # The browser and static app sit behind Basic Auth. API, machine, MCP, webhook,
 # installer and public asset routes keep their own session, bearer or signature auth.
 # After replacing auth/users, reload Caddy:
-#   docker compose -f docker-compose.yml -f docker-compose.basic-auth.yml #     exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+#   docker compose -f docker-compose.yml -f docker-compose.basic-auth.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 # Verify a rotated old credential gets 401 and the new one gets 200.
 services:
   caddy:
