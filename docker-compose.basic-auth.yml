@@ -1,0 +1,35 @@
+# Optional ingress protection for managed self-hosted deployments.
+# It is separate from the base file so a clean upstream setup keeps working.
+# The browser and static app sit behind Basic Auth. API, machine, MCP, webhook,
+# installer and public asset routes keep their own session, bearer or signature auth.
+# After replacing auth/users, reload Caddy:
+#   docker compose -f docker-compose.yml -f docker-compose.basic-auth.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# Verify a rotated old credential gets 401 and the new one gets 200.
+services:
+  caddy:
+    volumes:
+      - ./auth:/etc/caddy/auth:ro
+
+configs:
+  caddyfile:
+    content: |
+      ${DOMAIN:-localhost} {
+        @basic_auth_protected {
+          not path /api/* /.well-known/* /mcp /mcp/* /install /install.sh /install/docker-compose.yml /i/* /runner/* /email/* /sw.js
+        }
+        basic_auth @basic_auth_protected {
+          import /etc/caddy/auth/users
+        }
+        request_body /mcp* {
+          max_size 128KiB
+        }
+        reverse_proxy agentes:3000
+        handle_errors 502 503 504 {
+          root * /etc/caddy/errors
+          rewrite * /unavailable.html
+          header Cache-Control no-store
+          file_server {
+            status 503
+          }
+        }
+      }
