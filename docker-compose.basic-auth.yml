@@ -1,0 +1,30 @@
+# Optional ingress protection for managed self-hosted deployments.
+# It is separate from the base file so a clean upstream setup keeps working.
+services:
+  caddy:
+    volumes:
+      - ./basic-auth.users:/etc/caddy/basic-auth.users:ro
+
+configs:
+  caddyfile:
+    content: |
+      ${DOMAIN:-localhost} {
+        @basic_auth_protected {
+          not path /api/health /api/ws /api/machines/connect /api/machines/stream /api/machines/connect-links/* /api/machines/install.sh /api/oauth/* /.well-known/* /api/webhooks/* /api/hooks/* /api/github-app/webhook /mcp /mcp/* /install /install.sh /install/docker-compose.yml /i/*
+        }
+        basic_auth @basic_auth_protected {
+          import /etc/caddy/basic-auth.users
+        }
+        request_body /mcp* {
+          max_size 128KiB
+        }
+        reverse_proxy agentes:3000
+        handle_errors 502 503 504 {
+          root * /etc/caddy/errors
+          rewrite * /unavailable.html
+          header Cache-Control no-store
+          file_server {
+            status 503
+          }
+        }
+      }
