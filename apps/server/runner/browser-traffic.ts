@@ -26,7 +26,8 @@ import { urlCarries } from "./vault";
  * there (`onCrash`), and asks Chrome to quit (`quit`), so each Chrome has one
  * socket of ours.
  *
- * It also holds the page size the agent asked for (`emulate`, protocol 52) on every tab.
+ * It also holds the page size the agent asked for (`emulate`, protocol 52) on every tab,
+ * and sends a person's pointer input to the active tab without waiting for Chrome.
  *
  * It also guards a password about to be typed (ADR 0144, `guard`): for a
  * while, every request of that Chrome pauses (`Fetch.enable` on each of its
@@ -88,6 +89,11 @@ export interface TrafficCounter {
   attached: Promise<void>;
   /** The bytes counted since the last call. */
   take(): { up: number; down: number };
+  /**
+   * Sends one CDP mouse event to the tab with `targetId`, fire-and-forget: a live view's hand must not wait for a
+   * renderer that is busy. False when that tab or this socket is gone.
+   */
+  inputMouse(targetId: string, params: Record<string, unknown>): boolean;
   /** Asks Chrome to quit as a person quits it (`Browser.close`): it writes what it holds to its profile first. */
   quit(): void;
   /**
@@ -487,6 +493,15 @@ export function countChromeTraffic(
       up = 0;
       down = 0;
       return out;
+    },
+    inputMouse(targetId, params) {
+      if (closed || !socket) return false;
+      for (const [sessionId, target] of pages) {
+        if (target !== targetId) continue;
+        send("Input.dispatchMouseEvent", params, sessionId);
+        return true;
+      }
+      return false;
     },
     quit() {
       send("Browser.close", {});
