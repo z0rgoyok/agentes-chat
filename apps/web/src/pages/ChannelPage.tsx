@@ -194,6 +194,7 @@ import {
   Field,
   FORMAT_KINDS,
   type FormatKind,
+  focusAtEnd,
   Icon,
   type IconName,
   Input,
@@ -207,6 +208,8 @@ import {
   Message,
   MessageLookContext,
   MessageText,
+  mayTakeFocus,
+  OPEN_LAYER,
   PixelSpinner,
   SavedNote,
   Skeleton,
@@ -409,9 +412,9 @@ import { onChannelDetails, takeChannelDetails } from "@/lib/channel-details";
 import { selectingIn } from "@/lib/context-menu";
 import { desktopPlatform, thisMac, useDocumentTitle } from "@/lib/desktop";
 import { holdOnScreen } from "@/lib/island";
-import { typingInField } from "@/lib/keys";
+import { composes, typingInField } from "@/lib/keys";
 import { lookOf } from "@/lib/look";
-import { threadSearch, useThreadPanel } from "@/lib/open-param";
+import { type AgentPanelPlace, agentPanelSearch, threadSearch, useAgentPanel, useThreadPanel } from "@/lib/open-param";
 import { reportPainted } from "@/lib/perf";
 import { useToast } from "@/lib/toast";
 import {
@@ -646,6 +649,7 @@ export function ChannelPage({
   if (dm) {
     const search = {
       ...threadSearch(router.state.location.search as Record<string, unknown>),
+      ...agentPanelSearch(router.state.location.search as Record<string, unknown>),
       ...(focusMessageId ? { m: focusMessageId } : {}),
     };
     return dm.with.type === "agent" ? (
@@ -887,7 +891,7 @@ function ChannelView({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || draftRef.current.trim()) return;
-      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      if (document.querySelector(OPEN_LAYER)) return;
       // An Esc in another field (the search, a card's answer) is that field's: the composer stops agents on its own.
       if (typingInField(e.target)) return;
       // An Esc from a panel is that panel's, and one from the conversation beside a thread isn't the thread's.
@@ -915,7 +919,7 @@ function ChannelView({
     if (!quote) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      if (document.querySelector(OPEN_LAYER)) return;
       // The composer's Esc lets go of the reply first; another field's (the search, a card's answer) is that field's.
       if (typingInField(e.target) && !(e.target as Element).closest('[id^="composer-"]')) return;
       e.preventDefault();
@@ -936,36 +940,56 @@ function ChannelView({
     };
   }, [searchOpen, carry, channel.id]);
   // "Ver perfil" (a DM's header, the profile card): the agent's page in the same place, at a tab when a card asks
-  // (its memory, at the item it names); one panel at a time. Its opener again closes it (`close`, counted, so unsaved
-  // edits ask first).
-  const [profile, setProfile] = useState<{ agentId: string; tab?: AgentTab; item?: string; close?: number } | null>(
-    null,
+  // (its memory, at the item it names); one panel at a time. The agent and its tab are the URL's, so Back, Forward and
+  // a reload keep it; the item and the opener asking again to close it (`close`, counted, so unsaved edits ask first)
+  // are this page's.
+  const [agentPlace, setAgentPlace] = useAgentPanel(!chrome?.panel);
+  const [profileAsk, setProfileAsk] = useState<{ agentId: string; item?: string; close?: number } | null>(null);
+  const profile = useMemo<(AgentPanelPlace & { item?: string; close?: number }) | null>(
+    () =>
+      agentPlace && {
+        ...agentPlace,
+        ...(profileAsk?.agentId === agentPlace.agentId ? { item: profileAsk.item, close: profileAsk.close } : {}),
+      },
+    [agentPlace, profileAsk],
   );
+  const profileNow = useRef(profile);
+  profileNow.current = profile;
+  // Closed by the URL (Back, a thread taking its place): a close asked before would close it again on Forward.
+  const profileShown = agentPlace?.agentId;
+  useEffect(() => {
+    if (!profileShown) setProfileAsk(null);
+  }, [profileShown]);
+  const askProfileClose = useCallback(() => {
+    const agentId = profileNow.current?.agentId;
+    if (!agentId) return;
+    setProfileAsk((ask) =>
+      ask?.agentId === agentId ? { ...ask, close: (ask.close ?? 0) + 1 } : { agentId, close: 1 },
+    );
+  }, []);
   // What had the focus when the profile opened: it gets it back when the panel closes.
   const profileOpener = useRef<HTMLElement | null>(null);
   const closeProfile = useCallback(() => {
-    setProfile(null);
+    setAgentPlace(null);
+    setProfileAsk(null);
     const opener = profileOpener.current;
     profileOpener.current = null;
     // After the frame: a closing "Descartar e sair" dialog hands focus back when it unmounts, to a page that's gone.
     requestAnimationFrame(() => {
       if (opener?.isConnected) opener.focus();
     });
-  }, []);
+  }, [setAgentPlace]);
   // The conversation stays in use beside the page: what would take the panel's place asks first over unsaved edits.
   const profileKeeps = useCallback(() => {
     if (!document.querySelector(".thread-panel [data-dirty]")) return false;
-    setProfile((open) => open && { ...open, close: (open.close ?? 0) + 1 });
+    askProfileClose();
     return true;
-  }, []);
-  // A thread the URL brings back (Back, Forward) takes the panel's place like one opened from here, unless unsaved
-  // edits hold it.
+  }, [askProfileClose]);
+  // A thread the URL brings back (Back, Forward) takes the search's place like one opened from here (the URL holds one
+  // panel: a thread or an agent's page).
   const panelId = panel?.id;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new thread; the rest close around it
   useEffect(() => {
-    if (!panelId || profileKeeps()) return;
-    setProfile(null);
-    if (panelId !== hitThread.current) setSearchOpen(false);
+    if (panelId && panelId !== hitThread.current) setSearchOpen(false);
   }, [panelId]);
   // A question an agent asked another from here, opened from its line in the reply ("Theo ⇄ Iris"): a dialog over
   // the conversation, whatever pane is open beside it.
@@ -978,25 +1002,24 @@ function ChannelView({
   const toggleTasks = useCallback(() => {
     if (profileKeeps()) return;
     setPanel(null);
-    setProfile(null);
+    setAgentPlace(null);
     setSearchOpen(false);
     setTasksOpen((open) => !open);
-  }, [profileKeeps, setPanel]);
+  }, [profileKeeps, setPanel, setAgentPlace]);
   const outerPanel = useOpenAgentPanel();
   const openAgentPanel = useCallback(
     (agentId: string, tab?: AgentTab, item?: string) => {
       if (profileKeeps()) return;
-      setPanel(null);
       setSearchOpen(false);
-      const from = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      setProfile((open) => {
-        if (open?.agentId === agentId && open.tab === tab && open.item === item)
-          return { ...open, close: (open.close ?? 0) + 1 };
-        profileOpener.current = from;
-        return { agentId, tab, item };
-      });
+      const open = profileNow.current;
+      // Its opener again (no tab, or the tab it is on) closes it.
+      if (open?.agentId === agentId && (!tab || tab === (open.tab ?? "overview")) && open.item === item)
+        return askProfileClose();
+      profileOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setProfileAsk({ agentId, item });
+      setAgentPlace({ agentId, tab });
     },
-    [profileKeeps, setPanel],
+    [profileKeeps, askProfileClose, setAgentPlace],
   );
   // A sidebar row's settings button, an agent's picture: its page beside this conversation, or beside its own once it
   // shows.
@@ -1017,16 +1040,37 @@ function ChannelView({
   // `/mission` with several agents and none named: "Nova missão" with the goal filled in.
   const [missionDraft, setMissionDraft] = useState<string | null>(null);
   draftRef.current = draft;
+  // Once per conversation (each one mounts its own view): the cursor waits in the box, at the end of a draft.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only on opening; a thread opened with it takes the focus
   useEffect(() => {
-    if (!draftKey) return;
-    // Text left here is for the person to finish: the caret waits at its end.
     const box = composer.current;
-    if (peekDraft(draftKey) && box) {
-      box.focus();
-      box.setSelectionRange(box.value.length, box.value.length);
+    if (draftKey && peekDraft(draftKey)) {
+      // Text handed here is for the person to finish, whatever else holds the focus.
+      if (box) focusAtEnd(box);
+    } else if (box && !panel && mayTakeFocus()) {
+      focusAtEnd(box);
     }
-    clearDraft(draftKey);
+    if (draftKey) clearDraft(draftKey);
   }, [draftKey]);
+  // A printable key typed on the conversation, outside any field, goes into its box. Space, Enter, the arrows and the
+  // page keys stay the list's, and a key with ⌘, Ctrl or Alt is a shortcut.
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const box = composer.current;
+      if (!box || box.disabled || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || composes(e)) return;
+      if (!/^\S$/u.test(e.key) || typingInField(e.target) || box.closest("[data-voice]")) return;
+      // The innermost conversation the key landed in (a thread's panel sits inside its channel); none: the page's.
+      const at = e.target instanceof Element ? e.target.closest(".shell__main--chat") : null;
+      if (at ? at !== root.current : chrome?.panel || e.target !== document.body) return;
+      // A side panel over it (an agent's page, the search's results, its tasks) is not the conversation.
+      const side = at && (e.target as Element).closest(".thread-panel");
+      if (side && at.contains(side)) return;
+      if (mayTakeFocus()) focusAtEnd(box);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chrome?.panel]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const membersColumn = useMembersColumn();
   const dmSidebar = useDmSidebar();
@@ -2254,7 +2298,7 @@ function ChannelView({
     if (!adjusting) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      if (document.querySelector(OPEN_LAYER)) return;
       adjust.cancel();
     };
     window.addEventListener("keydown", onKey);
@@ -2301,13 +2345,11 @@ function ChannelView({
         }
       : (message) => {
           if (profileKeeps()) return;
-          setProfile(null);
           setSearchOpen(false);
           setPanel({ id: message.threadId ?? message.id, reply: true });
         },
     openThread: (id, focus) => {
       if (profileKeeps()) return;
-      setProfile(null);
       setSearchOpen(false);
       setPanel({ id, reply: false, focus });
     },
@@ -2367,7 +2409,7 @@ function ChannelView({
   const openSearch = () => {
     if (profileKeeps()) return;
     setPanel(null);
-    setProfile(null);
+    setAgentPlace(null);
     setSearchOpen(true);
   };
   // Anything open in the column's place: its toggle closes that and shows the column.
@@ -2376,7 +2418,7 @@ function ChannelView({
     if (!paneOpen) return column.toggle();
     if (profileKeeps()) return;
     setPanel(null);
-    setProfile(null);
+    setAgentPlace(null);
     setSearchOpen(false);
     setTasksOpen(false);
     if (!column.open) column.toggle();
@@ -2403,6 +2445,7 @@ function ChannelView({
               {/* A DM with an agent reads as one centered column; channels, threads and DMs between people
             are a left-aligned team chat. */}
               <Tag
+                ref={root}
                 className={cx("shell__main shell__main--chat", chrome?.panel && "thread-panel__chat")}
                 data-continues={continues || undefined}
               >
@@ -2898,11 +2941,12 @@ function ChannelView({
                   at a time; the members column stays under it. */}
                   {profile ? (
                     <AgentPanel
-                      key={`${profile.agentId}:${profile.tab ?? ""}:${profile.item ?? ""}`}
+                      key={`${profile.agentId}:${profile.item ?? ""}`}
                       agentId={profile.agentId}
                       tab={profile.tab}
                       item={profile.item}
                       closeRequest={profile.close}
+                      onTab={(tab) => setAgentPlace({ agentId: profile.agentId, tab }, { replace: true })}
                       onClose={closeProfile}
                     />
                   ) : tasksOpen && tasksAgentId ? (
@@ -2916,6 +2960,7 @@ function ChannelView({
                     />
                   ) : panel || searchOpen ? (
                     <SidePanel
+                      inAddress={Boolean(panel)}
                       label={t(panel ? "threads.side.label" : "searchPage.panel.label")}
                       onClose={() => {
                         setPanel(null);

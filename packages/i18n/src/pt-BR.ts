@@ -32,6 +32,8 @@ export const ptBR = {
     retry: "Tentar de novo",
     soon: "Em breve",
     unknownError: "Algo deu errado. Tente de novo.",
+    /** Under a field whose text is past its limit: its size, the limit, then the way out. */
+    overLimit: "O texto tem {{length}} caracteres e o limite é {{max}}. Encurte o texto.",
     /** A server error (a 5xx of its own): nothing the person did, and nothing they can fix. */
     ourSide: "Algo deu errado do nosso lado. Tente de novo daqui a pouco.",
     signedOut: "Sua sessão terminou. Entre de novo para continuar.",
@@ -77,7 +79,8 @@ export const ptBR = {
     create: "Criar cargo",
     base: "Base",
     everyoneName: "Todos",
-    orderHint: "A ordem importa: quem está mais alto gerencia os cargos e as pessoas de baixo.",
+    orderHint:
+      "Quem está mais alto gerencia os cargos e as pessoas de baixo. A cor do nome de cada pessoa vem do cargo mais alto dela. Arraste para mudar a ordem.",
     reorder: "Mudar ordem",
     reorderDone: "Pronto",
     moveUp: "Subir {{name}}",
@@ -118,6 +121,26 @@ export const ptBR = {
         browser: "O navegador dos próprios agentes e os pedidos de login feitos à pessoa, nunca a tela inteira",
         full: "A tela inteira e o terminal dos próprios agentes e dos computadores que a pessoa conectou",
       },
+      /** The five steps of one choice, as the select shows the one chosen. */
+      steps: {
+        off: "Não usa",
+        ownBrowser: "Navegador dos próprios agentes",
+        ownComputer: "Computador dos próprios agentes",
+        anyBrowser: "Navegador de qualquer agente",
+        anyComputer: "Computador de qualquer agente",
+      },
+      /** The steps in the select's list, under its two groups. */
+      short: { browser: "Navegador", computer: "Computador" },
+      groupOwn: "Próprios agentes",
+      groupAny: "Qualquer agente",
+      hint: "Navegador: o navegador e os pedidos de login. Computador: também a tela inteira e o terminal. Próprios agentes: os de quem a pessoa é responsável e os computadores que ela conectou.",
+      /** A step as a sentence says it ("Quem fica com o computador dos próprios agentes"). */
+      with: {
+        ownBrowser: "o navegador dos próprios agentes",
+        ownComputer: "o computador dos próprios agentes",
+        anyBrowser: "o navegador de qualquer agente",
+        anyComputer: "o computador de qualquer agente",
+      },
     },
     everyoneNote: "Vale para toda pessoa do workspace. Os outros cargos só somam a isto.",
     summary: {
@@ -154,10 +177,10 @@ export const ptBR = {
     name: "Nome",
     nameDesc: "Como aparece para todos.",
     color: "Cor",
-    colorDesc: "Pinta o selo do cargo.",
+    colorDesc: "Pinta o selo do cargo e o nome de quem tem ele como o mais alto.",
     colorOf: "Cor {{color}}",
     hoist: "Mostrar separado na lista de membros",
-    hoistDesc: "Quem tem este cargo aparece num grupo próprio na coluna de membros.",
+    hoistDesc: "Quem tem este cargo aparece num grupo próprio na coluna de membros. Agentes ficam no grupo deles.",
     icon: "Ícone",
     iconDesc: "Aparece ao lado do nome.",
     more: "Mais opções",
@@ -176,7 +199,7 @@ export const ptBR = {
     },
     newTitle: "Criar cargo",
     newSub: "Depois dá para mudar tudo.",
-    namePlaceholder: "Ex.: Moderação",
+    namePlaceholder: "Ex.: Suporte",
     startFrom: "Começar de",
     templates: {
       blank: "Do zero",
@@ -201,6 +224,154 @@ export const ptBR = {
     rolesOf: "Cargos de {{name}}",
     rolesCta: "Cargos",
     aboveYou: "Acima do seu cargo",
+    /** Settings › Cargos (ADR 0085, addendum of 2026-11-13): the list, a cargo's page and its tabs. */
+    search: "Buscar cargo",
+    noneYet: "Nenhum cargo ainda. Crie um para dar mais a algumas pessoas.",
+    noMatch: "Nenhum cargo com “{{q}}”.",
+    full: "Este workspace já tem {{max}} cargos. Apague um para criar outro.",
+    loadError: "Não consegui carregar os cargos. {{cause}}",
+    move: "Mover {{name}}",
+    moveHint: "Arraste, ou use Espaço e as setas.",
+    /** What a cargo adds, in its row and its glance line: "+3 permissões · +2 canais · +1 agente". */
+    reach: {
+      permissions_one: "+{{count}} permissão",
+      permissions_other: "+{{count}} permissões",
+      channels_one: "+{{count}} canal",
+      channels_other: "+{{count}} canais",
+      agents_one: "+{{count}} agente",
+      agents_other: "+{{count}} agentes",
+      /** Todos: what everyone has, with no "+". */
+      basePermissions_one: "{{count}} permissão",
+      basePermissions_other: "{{count}} permissões",
+      baseChannels_one: "{{count}} canal",
+      baseChannels_other: "{{count}} canais",
+      baseAgents_one: "{{count}} agente",
+      baseAgents_other: "{{count}} agentes",
+      owner: "Pode tudo, sempre",
+      admin: "Pode tudo",
+      none: "Só o que Todos podem",
+      /** In the tip that names a cargo's channels: the ones the viewer doesn't see, counted. */
+      hidden_one: "{{count}} que você não vê",
+      hidden_other: "{{count}} que você não vê",
+    },
+    switchTo: "Ir para outro cargo",
+    look: "Mudar nome, cor e ícone",
+    lookColor: "Mudar a cor",
+    inviteWith: "Convidar com este cargo",
+    tabs: {
+      permissions: "Permissões",
+      channels: "Canais",
+      agents: "Agentes",
+      people: "Pessoas",
+    },
+    gone: "Alguém apagou este cargo.",
+    backToList: "Voltar aos cargos",
+    searchPermission: "Buscar permissão",
+    noPermissionMatch: "Nenhuma permissão com “{{q}}”.",
+    everyoneTip: "Todo mundo pode. Clique para escolher quem pode.",
+    /** Who has something, as a chip: "Só Suporte e Ana". */
+    only: "Só {{names}}",
+    notHeld: "Você não tem esta permissão.",
+    nowAbove: "Este cargo agora está acima do seu. Só quem está mais alto muda.",
+    agentsNote: "Cargos valem para pessoas. Cada agente tem as próprias permissões, na página dele.",
+    adminHint: "Pode tudo, menos o que é só do dono. Dê só a quem cuida do workspace.",
+    adminOn: "Com Administrador, {{name}} pode tudo, menos o que é só do dono.",
+    adminAsk: {
+      title: "Ligar Administrador em {{name}}?",
+      text_one: "Quem tem {{name}} passa a poder tudo, menos o que é só do dono. É {{count}} pessoa.",
+      text_other: "Quem tem {{name}} passa a poder tudo, menos o que é só do dono. São {{count}} pessoas.",
+      confirm: "Ligar Administrador",
+    },
+    /** "Quem pode…": who holds one permission, Todos or some cargos. Lines naming people end with their names. */
+    who: {
+      title: "Quem pode {{short}}",
+      everyoneDesc: "Toda pessoa do workspace",
+      some: "Só alguns cargos",
+      owners: "Donos sempre podem.",
+      losing: "Deixam de poder:",
+      gaining: "Passam a poder:",
+      everyoneGains: "Todo mundo passa a poder.",
+      nobody: "Ninguém perde.",
+      noRoles: "Ainda não há outros cargos.",
+      /** The agents' computers: who keeps a step when Todos goes below it. `what`: `computer.with.*`. */
+      computersTitle: "Quem fica com {{what}}",
+      computersLow: "Todos passam a ter {{what}}.",
+      computersNone: "Todos deixam de usar os computadores dos agentes.",
+    },
+    /** A cargo's Canais. */
+    channels: {
+      line: "Quem tem {{name}} vê os canais marcados e pode entrar.",
+      lineBase: "Todo mundo vê os canais marcados e pode entrar.",
+      hint: "Vale para pessoas. Um agente entra num canal quando alguém o adiciona.",
+      search: "Buscar canal",
+      general: "Todo mundo fica no #general.",
+      notYours: "Só quem criou o #{{channel}} ou organiza canais muda quem vê.",
+      removeTitle: "Tirar #{{channel}} de {{name}}?",
+      leave: "Saem do canal:",
+      openTitle: "Abrir #{{channel}} para {{name}}?",
+      openText: "Quem tem {{name}} vê o canal e todo o histórico, e pode entrar.",
+      open: "Abrir",
+      openAllTitle: "Abrir #{{channel}} para todos?",
+      openAllText: "Todo o histórico fica aberto para o workspace.",
+      admin: "Com Administrador, quem tem {{name}} vê todos os canais.",
+      onlyGeneral: "Só existe o #general por enquanto.",
+      noMatch: "Nenhum canal com “{{q}}”.",
+    },
+    /** "Quem vê #canal": the three words a channel's own details use. */
+    sees: {
+      title: "Quem vê #{{channel}}",
+      private: "Só quem for adicionado",
+      privateDesc: "Ninguém novo vê. Quem está continua.",
+      unsee: "Quem já está continua. Deixam de ver:",
+    },
+    /** A cargo's Agentes. */
+    agents: {
+      line: "Quem tem {{name}} conversa com os agentes marcados.",
+      lineBase: "Todo mundo conversa com os agentes marcados.",
+      hint: "Isto é sobre pessoas. O que cada agente faz fica na página dele.",
+      noTalk: "Quem só tem {{name}} não conversa com agentes.",
+      turnOnTalk: "Ligar Conversar com agentes",
+      search: "Buscar agente",
+      notYours: "Só {{owner}}, responsável pelo {{name}}, ou quem edita qualquer agente muda.",
+      notYours_female: "Só {{owner}}, responsável pela {{name}}, ou quem edita qualquer agente muda.",
+      notYoursNoOwner: "Só quem edita qualquer agente muda.",
+      none: "Ainda não há agentes.",
+      noMatch: "Nenhum agente com “{{q}}”.",
+    },
+    /** "Quem fala com Ada": the agent page's "Quem pode falar" in a dialog. */
+    talks: {
+      title: "Quem fala com {{name}}",
+      some: "Só alguns cargos e pessoas",
+      ownerDesc: "Quem é responsável pelo {{name}}",
+      ownerDesc_female: "Quem é responsável pela {{name}}",
+      losing: "Deixam de falar com o {{agent}}:",
+      losing_female: "Deixam de falar com a {{agent}}:",
+    },
+    /** A cargo's Pessoas. */
+    holders: {
+      agent: "{{name}} é um agente. Agentes não têm cargo.",
+      seeAgents: "Ver Agentes",
+      removed: "{{person}} não tem mais {{name}}",
+      undo: "Desfazer",
+      selfTitle: "Tirar você de {{name}}?",
+      selfText: "Você deixa de poder o que só {{name}} dá. Só alguém acima de você devolve.",
+      noMatch: "Ninguém com “{{q}}”.",
+    },
+    /** Giving a cargo that takes a mailbox from an agent asks first. */
+    mail: {
+      title: "{{agent}} perde a caixa de e-mail de {{owner}}",
+      titleMany: "Agentes perdem caixas de e-mail",
+      lead: "Com mais pessoas falando com eles, os agentes deixam de ler estas caixas.",
+      of: "Caixa de {{owner}} · {{agent}}",
+      again: "Só quem deu a caixa dá de novo.",
+      addAnyway: "Adicionar mesmo assim",
+      giveAnyway: "Dar mesmo assim",
+    },
+    previewWhere: "no chat",
+    sameAs: "Igual a",
+    deleteLeave: "Saem de canais que viam só por {{name}}:",
+    deleteReading: "Vendo quem sai de canais…",
+    ownerAdd: "Adicionar donos",
   },
   permissions: {
     areas: {
@@ -5540,12 +5711,21 @@ export const ptBR = {
         fallbackHint_female:
           "Responde pela API e conta no orçamento da {{name}}. Se não, a {{name}} avisa quem chamou e espera o computador voltar.",
         effort: "Esforço",
-        efforts: { auto: "Automático", low: "Baixo", medium: "Médio", high: "Alto", max: "Máximo" },
+        efforts: {
+          auto: "Automático",
+          none: "Padrão do modelo",
+          low: "Baixo",
+          medium: "Médio",
+          high: "Alto",
+          max: "Máximo",
+        },
         effortsLower: { auto: "automático", low: "baixo", medium: "médio", high: "alto", max: "máximo" },
         effortText: {
           auto: "O modelo Automático escolhe o esforço de cada tarefa. Escolha um modelo para fixar o esforço.",
           low: "Responde rápido. Bom para perguntas simples.",
           medium: "O padrão. Pensa o suficiente na maioria das vezes.",
+          mediumKey: "Pensa o suficiente na maioria das vezes.",
+          none: "O modelo pensa o quanto costuma. Escolha um nível para fixar o esforço.",
           high: "Pensa mais em tarefas difíceis. Demora e gasta mais.",
           max: "Pensa o máximo que puder. Bem mais lento e caro.",
         },
@@ -5573,9 +5753,10 @@ export const ptBR = {
           title: "Configuração avançada",
           answers: "Quem atende",
           defaults: "Voltar ao padrão",
-          /** The row's line: what the dialog holds. The effort shows only with a fixed model on a plan. */
+          /** The row's line: what the dialog holds. The effort shows only with a fixed model, on a plan or a key. */
           contents: {
             model: "Janela de contexto",
+            modelFixed: "Esforço e janela de contexto",
             auto: "Janela de contexto e quem atende",
             fixed: "Esforço, janela de contexto e quem atende",
             autoSpeed: "Velocidade, janela de contexto e quem atende",
@@ -5694,7 +5875,7 @@ export const ptBR = {
           expired: "O tempo para entrar acabou. Tente de novo.",
           /**
            * Why a sign-in ended on the computer, by its code (`loginFailureLine`). `brand`: the provider or the plan.
-           * `cli_exit` and `not_signed_in_after_login` show the CLI's own words under them.
+           * `cli_exit`, `not_signed_in_after_login` and `sandbox` show the CLI's own words under them.
            */
           why: {
             not_installed: "O {{brand}} não está instalado no {{computer}}. Tente de novo.",
@@ -5707,6 +5888,9 @@ export const ptBR = {
             status_unknown: "O {{brand}} não respondeu se a conta entrou. Tente de novo.",
             no_token: "O {{brand}} terminou sem mostrar o token da conta. Tente de novo.",
             not_kept: "A conta entrou, mas o {{computer}} não conseguiu guardar o login. Tente de novo.",
+            /** Grok Build signed in, but its sandbox doesn't start on the computer for an agent (runner `sandbox`). */
+            sandbox:
+              "O {{brand}} entrou, mas a sandbox dele não abre no {{computer}}, então nenhum agente conseguiria usá-lo. Use uma chave de API.",
           },
           geminiNotShared:
             "O Gemini entrou, mas o {{computer}} não consegue compartilhar esse login com todos os agentes. Use uma chave de API do Gemini.",
@@ -5762,6 +5946,11 @@ export const ptBR = {
           limitSoon: "{{account}} volta quando o plano renovar",
           limitHelp: "Enquanto isso o {{name}} pode pensar com outra conta que já está conectada.",
           limitHelp_female: "Enquanto isso a {{name}} pode pensar com outra conta que já está conectada.",
+          /** Under the list, with an account at its limit picked: the row above says until when. */
+          fullWait: "Nesta conta o {{name}} espera até o plano renovar.",
+          fullWait_female: "Nesta conta a {{name}} espera até o plano renovar.",
+          /** A link to the usage page, after `fullWait`. */
+          seeUsage: "Ver uso",
           wait: "Esperar",
           modelTitle: "Modelo do {{name}}",
           modelTitle_female: "Modelo da {{name}}",
@@ -6170,6 +6359,9 @@ export const ptBR = {
         cli_stopped: "O {{brain}} parou com um erro.",
         /** The agent's CLI ended without its answer and without a word (it crashed or was killed). */
         cli_closed: "O {{brain}} fechou de repente.",
+        /** The agent's CLI couldn't start its sandbox on its computer (bubblewrap refused), before the model was asked. */
+        cli_sandbox:
+          "O {{brain}} não consegue abrir a sandbox dele neste computador. Escolha outra IA nas configurações do agente.",
         account_missing:
           "A conta escolhida para este agente não está mais no computador dele. Escolha outra nas configurações do agente ou adicione de novo.",
         /** A Codex turn on a Windows computer where MXC can't hold its commands (runner `windows_sandbox`). */
@@ -7283,6 +7475,7 @@ export const ptBR = {
     everyoneNote: "Todos vale para toda pessoa do workspace.",
     everyoneNotePersonal: "Sem cargo, a pessoa usa os agentes. Com {{role}}, ajuda você a cuidar daqui.",
     noRolesToGive: "Nenhum cargo abaixo do seu para dar.",
+    rolesAbove: "Cargos acima do seu não aparecem.",
     roleFilter: "Cargo",
     rolesCount_one: "{{count}} cargo",
     rolesCount_other: "{{count}} cargos",
@@ -10010,7 +10203,16 @@ export const ptBR = {
     forAgent_one: "Fica ligada para {{agent}}",
     forAgent_other: "Ficam ligadas para {{agent}}",
     installedMany: "{{count}} skills instaladas.",
-    zipHelp: "Um .zip com o SKILL.md na raiz.",
+    zipHelp: "Um .zip da pasta da skill, até {{max}} MB.",
+    /** Behind the ⓘ beside `zipHelp`. */
+    zipAbout:
+      "O SKILL.md fica no topo do .zip, ou na única pasta dele. Uma skill guarda até {{text}} MB de texto e {{assets}} MB de imagens e outros arquivos.",
+    /** A .zip refused the moment it's picked, before anything is sent. */
+    zipTooLarge: "{{name}} tem {{size}}. O .zip de uma skill pode ter até {{max}} MB.",
+    /** The way out of `zipTooLarge`: the GitHub tab, which reads only the skill's folder. */
+    zipUseLink: "Usar um link do GitHub",
+    /** While the .zip goes to the server: how much of it has gone. */
+    zipSending: "Enviando o arquivo… {{percent}}",
     zipPick: "Escolher .zip",
     zipNone: "Nenhum arquivo escolhido",
     zipMissing: "Escolha um arquivo .zip.",
@@ -10664,6 +10866,7 @@ export const ptBR = {
   },
   palette: {
     newWikiKeywords: "wiki nova página criar",
+    roleKeywords: "cargo cargos criar novo permissões papel",
     actions: "Ações",
     inviteSub: "por e-mail ou link",
     inviteKeywords: "convidar convite convites membro membros pessoa pessoas equipe invite",
@@ -11953,6 +12156,8 @@ export const ptBR = {
     reopen: "Mostrar de novo",
     answeredBy: "{{name}} escolheu",
     failed: "Não deu para mandar sua escolha. Tente de novo.",
+    /** After the message's size and limit, when a written answer makes the reply too long. */
+    tooLongFix: "Encurte a resposta.",
   },
   drive: {
     title: "Drive",
@@ -13565,6 +13770,10 @@ export const ptBR = {
     },
   },
   errors: {
+    /** A request the server, or a proxy in front of it, refused for its size. */
+    tooLarge: "Isto é maior do que o servidor aceita.",
+    /** The same, from a screen that knows the most it may send. */
+    tooLargeMax: "Isto é maior do que o servidor aceita: até {{max}} MB.",
     /** A new-password link an owner can't make (ADR 0158). */
     passwordLink: {
       email: "Este servidor manda e-mail: a pessoa pede o link dela mesma em Esqueci a senha.",
@@ -13696,7 +13905,7 @@ export const ptBR = {
       aboveYou: "Só quem está acima deste cargo muda isso.",
       base: "Todo workspace mantém o cargo Todos.",
       unknown: "Esse cargo não existe mais.",
-      orderIncomplete: "A lista de cargos mudou. Recarregue e tente de novo.",
+      orderIncomplete: "A lista de cargos mudou enquanto você mexia. Recarregue e tente de novo.",
     },
     teamProposal: {
       undoExpired:
@@ -14701,6 +14910,22 @@ export const ptBR = {
       trustText: "Toque em Confiar no iPhone e digite o código dele.",
       devModeDone: "Ativado",
       devModeText: "Ative e toque em Reiniciar. Depois que reiniciar, toque em Ativar e digite seu código.",
+      devModeRestarting: "O iPhone está reiniciando. Quando ele voltar, desbloqueie e toque em Ativar.",
+      devModeBack: "O iPhone voltou. Desbloqueie, toque em Ativar e digite seu código.",
+      devModeCheck: "Já ativei, verificar de novo",
+      devModeStillOff: "O iPhone ainda diz que o Modo de Desenvolvedor está desligado.",
+      devModeMissing: {
+        title: "Não aparece essa opção?",
+        hidden: "O iPhone esconde a opção até o Xcode pedir para mostrar.",
+        hiddenOpen:
+          "O iPhone esconde a opção até o Xcode pedir para mostrar. Abra o Xcode em {{mac}} com o iPhone conectado.",
+        openXcode: "Abrir o Xcode",
+        opened: "O Xcode abriu em {{mac}}. Veja de novo nos Ajustes do iPhone e feche o Xcode depois.",
+        unlock: "Já ativou e o iPhone reiniciou? Desbloqueie. O aviso com Ativar só aparece depois disso.",
+        check: "Verificar de novo",
+        outdated:
+          "O app agentes.chat em {{mac}} está desatualizado. Atualize o app, ou rode isto no Terminal se instalou por lá.",
+      },
       uiAutomationText: "Em Ajustes\u00a0›\u00a0Desenvolvedor, depois de reiniciar.",
       helperText: "Criado e renovado pelo Mac a cada 7 dias. Uma Conta Apple gratuita no Xcode basta.",
       helperUntrustedText: "Toque no nome do desenvolvedor e em Confiar.",
@@ -14725,8 +14950,6 @@ export const ptBR = {
           "{{mac}} ainda não vê um iPhone. Use um cabo que passe dados, não só carga, desbloqueie o iPhone e toque em Confiar se ele pedir.",
         trust:
           "Não apareceu Confiar? Desconecte o iPhone, desbloqueie e conecte de novo, depois toque em Confiar e digite o código.",
-        developerMode:
-          "O Modo de Desenvolvedor só liga depois que o iPhone reinicia. Toque em Reiniciar e em Ativar quando ele voltar. Não tem a opção? Desconecte o iPhone e conecte de novo.",
         uiAutomation:
           "A opção aparece quando o Modo de Desenvolvedor está ativo e o iPhone reiniciou. Deixe desbloqueado enquanto procura.",
         helper:
@@ -15432,7 +15655,7 @@ export const ptBR = {
       general: "Nome, fuso e o que todo agente sabe do workspace.",
       right_hand: "O assistente que monta o time com cada pessoa, na DM dela.",
       members: "Quem está no workspace e os convites.",
-      roles: "O que cada pessoa pode fazer. Cargos se somam.",
+      roles: "Cada cargo soma permissões, canais e agentes.",
       vault: "Senhas, chaves e contatos dos agentes. Senhas eles nunca veem.",
       access: "O que cada agente pode usar: um nível por conector.",
       connectors: "Serviços e servidores MCP conectados uma vez para o workspace inteiro.",
@@ -15884,6 +16107,16 @@ export const ptBR = {
     logins_other: "{{count}} logins",
     noWindows: "O limite aparece depois do próximo uso desta conta.",
     unused: "Nenhum agente usa esta conta.",
+    /** The quota per model (OpenCode Go's caps): one line each, under the account's windows. */
+    models: {
+      /** A model out of quota: `when` is when it resets (`usageWhen`). */
+      exhausted: "Sem cota · renova {{when}}",
+      exhaustedUnknown: "Sem cota",
+      /** The plan refused the model for this key: it or the account is switched off there. */
+      off: "Desligado",
+      region: "Precisa da região Global",
+      inactive: "Sem assinatura ativa",
+    },
     usesNow: "usa agora",
     monthTokens: "{{tokens}} tokens este mês",
     tokens: "{{tokens}} tokens",
@@ -15955,6 +16188,8 @@ export const ptBR = {
   },
   format: {
     list: "{{names, list}}",
+    /** After the names a list shows, one per line: how many more it holds. */
+    andMore: "e mais {{count}}",
     usd: "US$ {{value}}",
     tokensMillions: "{{value}} mi",
     tokensThousands: "{{value}} mil",

@@ -12,8 +12,8 @@ afterEach(() => cleanup());
 
 const click = (el: Element) => act(async () => fireEvent.click(el));
 
-/** A workspace with a third role, "Suporte", holding nothing of the computers. */
-async function openRole(name: string) {
+/** A workspace with a third role, "Suporte", holding nothing of the computers; its page open on Permissões. */
+async function openRole(id: string) {
   const state = seedState();
   const [admin, everyone] = seedRoles() as [OrgRole, OrgRole];
   state.roles = [
@@ -22,105 +22,87 @@ async function openRole(name: string) {
     everyone,
   ];
   const api = createFakeApi(state);
-  await renderApp(`/org/${ORG_ID}/settings/roles`, { api });
+  await renderApp(`/org/${ORG_ID}/settings/roles/${id}`, { api });
   await settle(6);
-  const row = screen()
-    .getAllByRole("button")
-    .find((b) => b.className.includes("roles-row") && b.querySelector("b")?.textContent === name);
-  if (!row) throw new Error(`no row for ${name}`);
-  await click(row);
-  await settle(4);
   const saved = () =>
     state.calls
       .filter((c) => c.method === "roles.update")
       .map((c) => (c.args.at(-1) as { permissions: string[] }).permissions);
-  return { choice: () => screen().getByRole("radiogroup", { name: "Computadores dos agentes" }), saved, api, state };
+  const row = () =>
+    [...document.querySelectorAll<HTMLElement>(".roles-perm")].find(
+      (r) => r.querySelector(".settings-row__label")?.textContent === "Computadores dos agentes",
+    ) as HTMLElement;
+  const choice = () => within(row()).getByRole("combobox");
+  const open = async () => {
+    choice().focus();
+    await act(async () => fireEvent.keyDown(choice(), { key: "Enter" }));
+    await settle(2);
+    return screen().getAllByRole("option");
+  };
+  return { choice, row, open, saved, api, state };
 }
 
-const checked = (group: HTMLElement) =>
-  within(group)
-    .getAllByRole("radio")
-    .find((r) => r.getAttribute("aria-checked") === "true")?.textContent;
+describe("the agents' computers on a cargo's page: one choice of five steps", () => {
+  test("in two groups, the value said whole; Todos' step carries its chip", async () => {
+    const { choice, row, open } = await openRole("role-support");
+    expect(choice().textContent).toBe("Computador dos próprios agentes");
+    expect(within(row()).getByRole("button", { name: "Todos" })).toBeTruthy();
+    const options = await open();
+    expect(options.map((o) => o.textContent)).toEqual([
+      "Não usa",
+      "Navegador",
+      "Computador",
+      "Navegador",
+      "Computador",
+    ]);
+    expect([...document.querySelectorAll('[role="listbox"] .ac-menu__heading')].map((h) => h.textContent)).toEqual([
+      "Próprios agentes",
+      "Qualquer agente",
+    ]);
+  });
 
-describe("the agents' computers on a role's page: one choice of three", () => {
-  test("Todos: the whole computer of their own agents by default; Só o navegador and Nenhum save one key or none", async () => {
-    const { choice, saved } = await openRole("Todos");
-    expect(
-      within(choice())
-        .getAllByRole("radio")
-        .map((r) => r.textContent),
-    ).toEqual(["Nenhum", "Só o navegador", "Computador inteiro"]);
-    expect(checked(choice())).toBe("Computador inteiro");
-    expect(
-      screen().getByText("A tela inteira e o terminal dos próprios agentes e dos computadores que a pessoa conectou"),
-    ).toBeTruthy();
-    await click(within(choice()).getByRole("radio", { name: "Só o navegador" }));
+  test("a step above Todos' saves the cargo's own key, never the four one by one", async () => {
+    const { open, saved } = await openRole("role-support");
+    const options = await open();
+    await click(options[3] as HTMLElement);
     await settle(4);
-    expect(saved().at(-1)).toContain("own_browsers");
-    expect(saved().at(-1)).not.toContain("own_computers");
-    expect(checked(choice())).toBe("Só o navegador");
-    await click(within(choice()).getByRole("radio", { name: "Nenhum" }));
+    expect(saved().at(-1)).toEqual(["control_browsers"]);
+  });
+
+  test("Todos: raising its step saves it; lowering asks which cargos keep the step it had", async () => {
+    const { open, saved, state, choice } = await openRole("everyone");
+    expect(choice().textContent).toBe("Computador dos próprios agentes");
+    let options = await open();
+    await click(options[4] as HTMLElement);
     await settle(4);
     expect(
       saved()
         .at(-1)
-        ?.filter((k) => k.includes("browsers") || k.includes("computers")),
-    ).toEqual(["pair_computers"]);
-    expect(
-      screen().getByText("Ninguém vê nem usa os computadores ou navegadores dos agentes, nem os pedidos de login"),
-    ).toBeTruthy();
+        ?.filter((k) => /^(own|control)_/.test(k)),
+    ).toEqual(["control_computers"]);
+    options = await open();
+    await click(options[1] as HTMLElement);
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: "Quem fica com o computador de qualquer agente" });
+    expect(dialog.textContent).toContain("Todos passam a ter o navegador dos próprios agentes.");
+    expect(state.calls.some((c) => c.method === "roles.setRow")).toBe(false);
   });
 
-  test("another role chooses for every agent: Só o navegador is control_browsers, never the key one by one", async () => {
-    const { choice, saved } = await openRole("Suporte");
-    expect(checked(choice())).toBe("Nenhum");
-    await click(within(choice()).getByRole("radio", { name: "Só o navegador" }));
-    await settle(4);
-    expect(saved().at(-1)).toEqual(["control_browsers"]);
-    await click(within(choice()).getByRole("radio", { name: "Computador inteiro" }));
-    await settle(4);
-    expect(saved().at(-1)).toEqual(["control_computers"]);
-    expect(screen().getByText("A tela inteira, o controle e o terminal de qualquer agente")).toBeTruthy();
-    // Item by item, the tools show no separate switch for the computers.
-    await click(screen().getByRole("button", { name: /Ajustar Apps e computadores/ }));
-    await settle(2);
-    expect(screen().queryByText("Usar o navegador dos agentes")).toBeNull();
-  });
-
-  test("Admin: the whole computer, shown and not changed there", async () => {
-    const { choice } = await openRole("Admin");
-    expect(checked(choice())).toBe("Computador inteiro");
-    expect(choice().getAttribute("aria-disabled")).toBe("true");
+  test("Admin may everything: its groups fold into one line, with no step to pick", async () => {
+    const { row } = await openRole("role-admin");
+    expect(document.querySelector(".roles-adminnote")?.textContent).toBe(
+      "Com Administrador, Admin pode tudo, menos o que é só do dono.",
+    );
+    expect(row()).toBeUndefined();
   });
 });
 
-describe("Apps e computadores: no key for other people's plans (every plan serves the workspace, ADR 0059 §3)", () => {
-  test("no switch to use other people's plans", async () => {
-    await openRole("Suporte");
-    await click(screen().getByRole("button", { name: /Ajustar Apps e computadores/ }));
-    await settle(2);
-    expect(screen().getByText("Chaves de IA")).toBeTruthy();
-    expect(screen().queryByText("Usar planos de outras pessoas")).toBeNull();
-  });
-});
-
-describe("Mencionar todos (`@todos`): one key in Conversas", () => {
-  test("off for another role until it is turned on by itself", async () => {
-    const { saved } = await openRole("Suporte");
-    await click(screen().getByRole("button", { name: /Ajustar Conversas/ }));
-    await settle(2);
-    expect(screen().getByText("Usar @todos para avisar todo mundo de um canal, pessoas e agentes.")).toBeTruthy();
-    const toggle = screen().getByRole("switch", { name: /Mencionar todos/ });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    await click(toggle);
-    await settle(4);
-    expect(saved().at(-1)).toEqual(["mention_everyone"]);
-  });
-});
-
-describe("Adicionar pessoas to a role", () => {
+describe("Adicionar pessoas to a cargo", () => {
   test("the ones being added keep their rows, and nobody reads as having it, while it adds and closes", async () => {
-    const { api, state } = await openRole("Suporte");
+    const { api, state } = await openRole("role-support");
+    const tab = screen().getByRole("tab", { name: /^Pessoas/ });
+    await act(async () => fireEvent.mouseDown(tab));
+    await settle(6);
     const setFor = api.roles.setFor;
     let answer = () => {};
     const answered = new Promise<void>((resolve) => {
@@ -132,13 +114,13 @@ describe("Adicionar pessoas to a role", () => {
       return saved;
     };
     exitsLast();
-    await click(screen().getByRole("button", { name: "Adicionar pessoas" }));
+    await click(screen().getAllByRole("button", { name: "Adicionar pessoas" })[0] as HTMLElement);
     await settle(2);
     const dialog = screen().getByRole("dialog", { name: "Adicionar a Suporte" });
     const rows = () => [...dialog.querySelectorAll(".roles-pick__row")].map((r) => r.textContent);
     const listed = rows();
     expect(listed.length).toBeGreaterThan(0);
-    for (const row of dialog.querySelectorAll(".roles-pick__row")) await click(row);
+    for (const box of within(dialog).getAllByRole("checkbox")) await click(box);
     await click(within(dialog).getByRole("button", { name: `Adicionar ${listed.length}` }));
     await settle(4);
     expect(state.calls.some((c) => c.method === "roles.setFor")).toBe(true);

@@ -21,7 +21,7 @@ import {
   signInOf,
 } from "@agenteschat/client/lib/ai-accounts";
 import { thinksWith } from "@agenteschat/client/lib/brain";
-import { type Advanced, advancedParts } from "@agenteschat/client/lib/brain-advanced";
+import { type Advanced, advancedDefaults, advancedParts } from "@agenteschat/client/lib/brain-advanced";
 import {
   type BrainPick,
   brainPickInput,
@@ -39,8 +39,10 @@ import {
   planOfAccount,
   planOfKind,
 } from "@agenteschat/client/lib/no-ai";
+import { planWord } from "@agenteschat/client/lib/plan-usage";
 import { brainPlan } from "@agenteschat/client/lib/plans";
 import { AUTO, isAuto, keyLine } from "@agenteschat/client/lib/providers";
+import { planState } from "@agenteschat/ui/plan-state";
 import type { TFunction } from "i18next";
 
 /*
@@ -182,13 +184,21 @@ export function accountSaved(
     : t("aiAccounts.done.savedAgent", { agent: agentName, label: ownSignInLower(t, saved.brain) });
 }
 
-/** An account as the agent's AI lists it (its page and Connect an AI): its name and plan, the line under it, its mark. */
-export const accountRow = (t: TFunction, choice: AccountChoice<MachineAccount>, agentName: string) => ({
-  label: accountTitle(choice.login),
-  sub: accountAbout(t, choice, agentName),
-  mark: choice.login.provider ?? choice.login.kind,
-  off: signInOf(choice.login) === "signed_out",
-});
+/**
+ * An account as the agent's AI lists it (its page and Connect an AI): its name and plan, the line under it, how full
+ * its plan is on a line of its own (as the web's rows), its mark.
+ */
+export const accountRow = (t: TFunction, choice: AccountChoice<MachineAccount>, agentName: string, locale: string) => {
+  const usage = choice.login.usage;
+  const word = planWord(t, locale, usage ? planState(usage, Date.now()) : null);
+  return {
+    label: accountTitle(choice.login),
+    sub: accountAbout(t, choice, agentName),
+    ...(word ? { below: word } : {}),
+    mark: choice.login.provider ?? choice.login.kind,
+    off: signInOf(choice.login) === "signed_out",
+  };
+};
 
 /**
  * Connect an AI's first group: what the person already has for the agent (`existingAi`), each row as it reads, the
@@ -199,6 +209,7 @@ export function existingRows(
   view: Pick<AgentBrain, "accounts" | "account" | "canUseOthersPlans">,
   keys: readonly Credential[],
   agentName: string,
+  locale: string,
 ) {
   return existingAi(view, keys).map((row: ExistingAi) =>
     row.kind === "key"
@@ -211,7 +222,7 @@ export function existingRows(
           mark: row.key.provider,
           off: false,
         }
-      : { key: row.choice.login.id, row, ...accountRow(t, row.choice, agentName) },
+      : { key: row.choice.login.id, row, ...accountRow(t, row.choice, agentName, locale) },
   );
 }
 
@@ -230,10 +241,36 @@ export function setupWords(
     kind: view.brain,
     autoModel: isAuto(view.effectiveModel),
     apiKey: o.apiKey,
-    now: o.now,
+    // The workspace's setup for a key carries no effort yet (ADR 0041, amended 2026-11-12): its words name none.
+    now: view.brain === "model" ? { ...o.now, effort: null } : o.now,
   });
   const autonomy = view.autonomy ? autonomyWords(t, view.autonomy) : null;
   return [thinksNow(t, view), ...parts, autonomy].filter(Boolean).join(" · ");
+}
+
+/**
+ * What "Voltar ao padrão" saves (`advancedDefaults`). On a key a chosen effort goes back to none (`auto`, the
+ * provider's default), "Automático" too; on a computer "Automático" keeps picking its own.
+ */
+export function advancedResetInput(
+  view: Pick<AgentBrain, "brain" | "onlyOwner">,
+  now: Advanced,
+  autoModel: boolean,
+): AgentBrainInput {
+  const to = advancedDefaults(view.brain, now);
+  return {
+    contextTokens: to.contextTokens,
+    ...(view.brain === "model"
+      ? now.effort === null
+        ? {}
+        : { effort: AUTO }
+      : {
+          ...(autoModel ? {} : { effort: to.effort }),
+          ...(to.speed !== now.speed ? { speed: to.speed } : {}),
+          ...(to.onlyOwner !== view.onlyOwner ? { onlyOwner: to.onlyOwner } : {}),
+          fallback: to.fallback,
+        }),
+  };
 }
 
 /**

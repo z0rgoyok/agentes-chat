@@ -205,6 +205,10 @@ export function createFakeDevices(
       record("devices.xcodeFix", orgId, machineId);
       return clone(xcode);
     },
+    openXcode: async (orgId, machineId) => {
+      record("devices.openXcode", orgId, machineId);
+      return { opened: true };
+    },
     cancelXcodeFix: async (orgId, machineId) => {
       record("devices.cancelXcodeFix", orgId, machineId);
       if (xcode.fix) xcode = { fix: { ...xcode.fix, state: "canceled" } };

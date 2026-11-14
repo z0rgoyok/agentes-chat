@@ -79,8 +79,9 @@ describe("a reply's `meta.consulted`: the pair row before it", () => {
     expect(pair).not.toBeNull();
     expect([...pair.querySelectorAll(".consult-pair__name")].map((n) => n.textContent)).toEqual(["Ada", "Atlas"]);
     expect(pair.textContent).not.toContain("Staging");
-    // No times on `meta.consulted`: the row says nothing after the names.
-    expect(pair.querySelector(".consult-pair__sep")).toBeNull();
+    // `meta.consulted` carries no times: the row says what was asked, nothing about how long it took.
+    expect(pair.querySelector(".consult-pair__subject")?.textContent).toBe(QUESTION);
+    expect(pair.querySelector(".consult-pair__time")).toBeNull();
     const button = pairButton(pair);
     expect(button.getAttribute("aria-expanded")).toBeNull();
     expect(button.getAttribute("aria-pressed")).toBe("false");

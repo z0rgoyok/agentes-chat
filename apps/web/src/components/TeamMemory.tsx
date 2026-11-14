@@ -1,11 +1,13 @@
 import { useMemoryAction, useTeamMemories } from "@agenteschat/client";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { can } from "@agenteschat/client/lib/permissions";
 import { memoryLine } from "@agenteschat/client/lib/proposals";
-import { Button, Card, CardHeader, Field, Locked, Textarea } from "@agenteschat/ui";
+import { Button, Card, CardHeader, Field, Locked, overLimit, Textarea } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState, LoadingLine } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { useToast } from "@/lib/toast";
 import { memorySource } from "@/pages/MemoryPage";
 
@@ -21,10 +23,13 @@ export function TeamMemoryCard() {
   const act = useMemoryAction(org.id, "");
   const toast = useToast();
   const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
+  const limit = useTextLimit(FIELD_LIMITS.memory);
+  const tooLong = draft !== null && overLimit(draft.text, limit);
   const title = t("teamMemory.title");
   const items = list.data ?? [];
   const save = () =>
     draft &&
+    !tooLong &&
     act.mutate(
       { type: "edit", id: draft.id, text: draft.text },
       {
@@ -57,7 +62,7 @@ export function TeamMemoryCard() {
                   <Field label={t("agentPage.memory.edit")} id={`team-${m.id}`}>
                     <Textarea
                       rows={3}
-                      maxLength={8000}
+                      limit={limit}
                       value={draft.text}
                       onChange={(e) => setDraft({ id: m.id, text: e.target.value })}
                     />
@@ -74,7 +79,7 @@ export function TeamMemoryCard() {
                       <Button
                         size="sm"
                         variant="primary"
-                        disabled={!draft.text.trim()}
+                        disabled={!draft.text.trim() || tooLong}
                         loading={act.isPending}
                         onClick={save}
                       >

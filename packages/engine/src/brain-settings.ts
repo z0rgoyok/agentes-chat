@@ -100,7 +100,7 @@ import {
 import { planLentGroup, planModelDroppedGroup } from "./notification-producers";
 import { resolveNotifications } from "./notifications";
 import { can, getMembership, requirePermission } from "./organizations";
-import { isRightHand, personalBrain } from "./right-hand";
+import { isRightHand, personalBrain, personalModel } from "./right-hand";
 import { orgModelProvider } from "./router";
 import { readRefusal } from "./standing";
 import { wakeAgentUsageWaits } from "./usage-pause";
@@ -668,7 +668,7 @@ async function personalAgent(db: Database, agent: Agent, userId: string, account
   const mine: Agent = {
     ...agent,
     brain: own?.brain ?? "model",
-    brainModel: own?.brainModel ?? null,
+    brainModel: own ? personalModel(own, agent) : null,
     brainEffort: own?.brainEffort ?? null,
     brainAccountId: own?.brainAccountId ?? null,
     brainAccountLentBy: own?.brainAccountLentBy ?? null,

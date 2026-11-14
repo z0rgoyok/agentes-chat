@@ -541,6 +541,7 @@ export async function rotateCredential(
         }),
       );
   const sealed = await sealSecret(keyWrapper, apiKey, aadFor(orgId, credentialId));
+  const endpoint = current.options.endpoint;
   const [row] = await db
     .update(providerCredentials)
     .set({
@@ -549,9 +550,15 @@ export async function rotateCredential(
       kekId: sealed.kekId,
       keyHint: apiKey.slice(-4),
       ...values,
-      // An endpoint's address and models stay as they are.
-      ...(values.options && current.options.endpoint
-        ? { options: { ...values.options, endpoint: current.options.endpoint } }
+      // An endpoint's address and models stay as they are. Their test calls were made with the old key, and an endpoint
+      // key's check is read from them (`verifyStoredKey`), so they are cleared until the models are tested again.
+      ...(endpoint
+        ? {
+            options: {
+              ...(values.options ?? current.options),
+              endpoint: { ...endpoint, models: endpoint.models.map(({ check: _check, ...m }) => m) },
+            },
+          }
         : {}),
     })
     .where(

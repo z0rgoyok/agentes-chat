@@ -4,6 +4,7 @@ import { routineFailureCode } from "../src/routine-ledger";
 import {
   brainFailureText,
   cliFailureText,
+  cliRefusedStart,
   OUR_ERROR,
   providerFailure,
   providerFailureOf,
@@ -265,4 +266,20 @@ test("a key from another provider's model reads in linear time, whatever the sto
   runErrorDetail(`This agent's model is from a${", but the chosen key is from a".repeat(20_000)}`);
   runErrorDetail(`O modelo deste agente é da a${", mas a chave escolhida é da a".repeat(20_000)}`);
   expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("a CLI whose sandbox can't start on its computer: said as that, never as its words or the provider's", () => {
+  const said =
+    "Grok Build exited with code 1: bwrap: Can't mkdir parents for /var/lib/agentes-runner-agents/accounts: Permission denied";
+  for (const code of ["grok_failed", "codex_failed", "claude_failed"]) {
+    expect(cliRefusedStart({ code, message: said })).toBe(true);
+  }
+  expect(cliFailureText({ code: "grok_failed", message: said })).toBe("cli_sandbox: Grok Build");
+  expect(runErrorDetail("cli_sandbox: Grok Build")).toEqual({
+    errorCode: "run.cli_sandbox",
+    errorParams: { brain: "Grok Build" },
+  });
+  // Another program's words that only name bubblewrap stay that program's.
+  const other = "Grok Build exited with code 1: error: bwrap exec failed: No such file or directory";
+  expect(cliFailureText({ code: "grok_failed", message: other })).toStartWith("cli_failed: Grok Build: ");
 });

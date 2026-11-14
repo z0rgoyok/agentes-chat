@@ -22,8 +22,14 @@ import {
 import { cardInstallAgent, cardInstallOf } from "@agenteschat/client/lib/action-cards";
 import { fromConnection } from "@agenteschat/client/lib/connected";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { SKILL_ASSET_MB } from "@agenteschat/client/lib/files";
-import { relativeTime } from "@agenteschat/client/lib/format";
+import {
+  formatBytes,
+  SKILL_ASSET_MB,
+  SKILL_TEXT_MB,
+  SKILL_ZIP_BYTES,
+  SKILL_ZIP_MB,
+} from "@agenteschat/client/lib/files";
+import { formatPercent, relativeTime } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   changedByText,
@@ -411,7 +417,7 @@ export function InstallSkillDialog({
   returnTo?: (url: string) => string;
   forAgentId?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const toast = useToast();
   const action = useSkillAction(org.id, { silent: true });
@@ -423,14 +429,26 @@ export function InstallSkillDialog({
   const forName = forAgentId ? dir.agentById.get(forAgentId)?.name : undefined;
   /** "Fica ligada para Ada": on by default, shown (and sent) only while the link is the card's own. */
   const [turnOn, setTurnOn] = useState(true);
-  const installStep = useStepText(action.isPending, [
+  /** A .zip on its way: the share of it sent, from the moment it's read for sending until the server answers. */
+  const [sending, setSending] = useState<number | null>(null);
+  /** Stops the .zip on its way: Cancel, or the dialog closing. */
+  const stop = useRef<AbortController | null>(null);
+  const busy = action.isPending || sending !== null;
+  const timerStep = useStepText(action.isPending && sending === null, [
     t("skills.installStep.fetching"),
     t("skills.installStep.reading"),
     t("skills.installStep.saving"),
   ]);
+  const installStep =
+    sending === null
+      ? timerStep
+      : sending < 1
+        ? t("skills.zipSending", { percent: formatPercent(i18n.language, sending * 100) })
+        : t("skills.installStep.saving");
   const [tab, setTab] = useState<InstallTab>("github");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const tooBig = file !== null && file.size > SKILL_ZIP_BYTES;
   const [form, setForm] = useState({ name: "", description: "", body: "" });
   const unsaved = useEdited(open, form);
   const [error, setError] = useState<string | null>(null);
@@ -495,10 +513,12 @@ export function InstallSkillDialog({
   useEffect(() => {
     if (!open) {
       readAgain.current = undefined;
+      stop.current?.abort();
       return;
     }
     setUrl(initialUrl ?? "");
     setFile(null);
+    setSending(null);
     setForm({ name: "", description: "", body: "" });
     setError(null);
     setHidden(null);
@@ -510,6 +530,7 @@ export function InstallSkillDialog({
       read(initialUrl, true);
     }
   }, [open]);
+  useEffect(() => () => stop.current?.abort(), []);
   // Signed in on GitHub: its confirmation, as Conectores shows after signing in.
   const resumed = useRef(false);
   useEffect(() => {
@@ -546,8 +567,28 @@ export function InstallSkillDialog({
       );
     } else if (tab === "zip") {
       if (!file) return setError(t("skills.zipMissing"));
-      const zipBase64 = await fileToBase64(file);
-      action.mutate({ type: "import", input: { zipBase64 } }, { onSuccess: done, onError });
+      if (tooBig) return;
+      const stopper = new AbortController();
+      stop.current = stopper;
+      setSending(0);
+      let zipBase64: string;
+      try {
+        zipBase64 = await fileToBase64(file);
+      } catch {
+        setSending(null);
+        return setError(t("common.unknownError"));
+      }
+      if (stopper.signal.aborted) return setSending(null);
+      action.mutate(
+        { type: "import", input: { zipBase64 }, upload: { signal: stopper.signal, onProgress: setSending } },
+        {
+          onSuccess: done,
+          onError: (e) => {
+            if (!stopper.signal.aborted) setError(errorText(t, e, i18n.language, { maxMb: SKILL_ZIP_MB }));
+          },
+          onSettled: () => setSending(null),
+        },
+      );
     } else {
       if (!writeOk) return setError(t("skills.writeMissing"));
       action.mutate(
@@ -588,7 +629,7 @@ export function InstallSkillDialog({
             void submit();
           }}
         >
-          <Locked when={action.isPending}>
+          <Locked when={busy}>
             <DialogBody>
               <Tabs
                 value={tab}
@@ -706,7 +747,12 @@ export function InstallSkillDialog({
                   )}
                 </TabPanel>
                 <TabPanel value="zip">
-                  <span className="small muted">{t("skills.zipHelp")}</span>
+                  <span className="ac-hintline small muted">
+                    {t("skills.zipHelp", { max: SKILL_ZIP_MB })}
+                    <InfoHint name={t("common.about", { label: t("skills.tab.zip") })}>
+                      {t("skills.zipAbout", { text: SKILL_TEXT_MB, assets: SKILL_ASSET_MB })}
+                    </InfoHint>
+                  </span>
                   {/* Our button over a hidden file input: never the native control look. */}
                   <input
                     ref={fileInput}
@@ -714,14 +760,35 @@ export function InstallSkillDialog({
                     accept=".zip,application/zip"
                     className="ac-visually-hidden"
                     aria-label={t("skills.zipPick")}
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      setFile(e.target.files?.[0] ?? null);
+                      setError(null);
+                    }}
                   />
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
                     <Button type="button" icon="attach" onClick={() => fileInput.current?.click()}>
                       {t("skills.zipPick")}
                     </Button>
-                    <span className="small muted">{file ? file.name : t("skills.zipNone")}</span>
+                    <span className="small muted">
+                      {file ? `${file.name} · ${formatBytes(i18n.language, file.size)}` : t("skills.zipNone")}
+                    </span>
                   </div>
+                  {file && tooBig && (
+                    <div className="skill-hidden">
+                      <Alert>
+                        {t("skills.zipTooLarge", {
+                          name: file.name,
+                          size: formatBytes(i18n.language, file.size),
+                          max: SKILL_ZIP_MB,
+                        })}
+                      </Alert>
+                      <div className="row">
+                        <Button size="sm" icon="link" onClick={() => setTab("github")}>
+                          {t("skills.zipUseLink")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </TabPanel>
                 <TabPanel value="write">
                   <Field label={t("skills.name")} id="skill-name">
@@ -760,7 +827,7 @@ export function InstallSkillDialog({
             <Button type="button" onClick={() => onOpenChange(false)}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" variant="primary" disabled={action.isPending} loading={action.isPending}>
+            <Button type="submit" variant="primary" disabled={busy || (tab === "zip" && tooBig)} loading={busy}>
               {t("skills.installSubmit")}
             </Button>
           </DialogFooter>

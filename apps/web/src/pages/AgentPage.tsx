@@ -17,8 +17,10 @@ import { type Level, levelsOf, resourcesOf } from "@agenteschat/client/lib/acces
 import { groupOf, NO_GROUP } from "@agenteschat/client/lib/agent-groups";
 import { audienceOf, audiencePatch, seesDetails } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { overLimitText, tooLongToSend } from "@agenteschat/client/lib/message-length";
 import { can } from "@agenteschat/client/lib/permissions";
 import { pendingOnAgent } from "@agenteschat/client/lib/proposals";
 import { isAuto } from "@agenteschat/client/lib/providers";
@@ -79,6 +81,7 @@ import {
 } from "@/lib/agent-edit";
 import { fullLook, lookOf } from "@/lib/look";
 import { handleAfterRename, handleProblemText, readBudget, takenHandles } from "@/lib/new-agent";
+import { agentPanelSearch } from "@/lib/open-param";
 import { useToast } from "@/lib/toast";
 import { AccessTab } from "./agent/AccessTab";
 import { ActivityTab } from "./agent/ActivityTab";
@@ -439,8 +442,13 @@ function AgentProfile({
       fields.has("repos") && draft.repos?.mode === "some" && draft.repos.list.length === 0
         ? t("repos.emptyError")
         : undefined,
+    instructions:
+      fields.has("instructions") && tooLongToSend(draft.instructions, FIELD_LIMITS.instructions)
+        ? overLimitText(t, i18n.language, draft.instructions.trim().length, FIELD_LIMITS.instructions)
+        : undefined,
   };
-  const problem = errors.name ?? errors.handle ?? errors.budget ?? errors.audience ?? errors.repos;
+  const problem =
+    errors.name ?? errors.handle ?? errors.budget ?? errors.audience ?? errors.repos ?? errors.instructions;
   const dirty = changes.length > 0;
 
   /* ---------- Editing ---------- */
@@ -628,7 +636,11 @@ function AgentProfile({
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => dirtyRef.current && current.pathname !== next.pathname,
+    // In a conversation's panel the page is the URL's `?agent=` (`useAgentPanel`): Back to the conversation leaves it too.
+    shouldBlockFn: ({ current, next }) =>
+      dirtyRef.current &&
+      (current.pathname !== next.pathname ||
+        (Boolean(onClose) && agentPanelSearch(next.search as Record<string, unknown>).agent !== agent.id)),
     enableBeforeUnload: () => dirtyRef.current,
     withResolver: true,
   });
@@ -905,6 +917,7 @@ function AgentProfile({
               if (!closing) return blocker.proceed?.();
               setClosing(false);
               setEdits({});
+              dirtyRef.current = false;
               onClose?.();
             }}
           >

@@ -85,16 +85,20 @@ export function EffortPixels<V extends string>({
   steps,
   label,
   hint,
+  unset,
   color = "sky",
   disabled: off,
   className,
 }: {
-  value: V;
+  /** Null: nothing chosen yet, the ramp stays empty. */
+  value: V | null;
   onValueChange: (value: V) => void;
   steps: EffortStep<V>[];
   label: string;
-  /** What a step means, on the label's line; follows the finger while dragging. */
-  hint?: (value: V) => ReactNode;
+  /** What a step means (null: nothing chosen), on the label's line; follows the finger while dragging. */
+  hint?: (value: V | null) => ReactNode;
+  /** The ramp's name while nothing is chosen. */
+  unset?: string;
   color?: AgentColor;
   disabled?: boolean;
   className?: string;
@@ -103,10 +107,7 @@ export function EffortPixels<V extends string>({
   const disabled = off || locked;
   const canvas = useRef<HTMLCanvasElement>(null);
   const n = steps.length;
-  const index = Math.max(
-    0,
-    steps.findIndex((s) => s.value === value),
-  );
+  const index = steps.findIndex((s) => s.value === value);
   // While dragging: how far the fill reaches, in steps.
   const [drag, setDrag] = useState<number | null>(null);
   const shown = drag === null ? index : Math.min(n - 1, Math.max(0, Math.ceil(drag) - 1));
@@ -162,8 +163,8 @@ export function EffortPixels<V extends string>({
       aria-label={label}
       aria-valuemin={1}
       aria-valuemax={n}
-      aria-valuenow={shown + 1}
-      aria-valuetext={current?.label}
+      aria-valuenow={current ? shown + 1 : undefined}
+      aria-valuetext={current?.label ?? unset}
       aria-disabled={disabled || undefined}
       onKeyDown={(e) => {
         const by = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
@@ -174,7 +175,7 @@ export function EffortPixels<V extends string>({
     >
       <span className="ac-effort__head">
         <span>{label}</span>
-        {hint && current && <span className="ac-effort__hint">{hint(current.value)}</span>}
+        {hint && <span className="ac-effort__hint">{hint(current?.value ?? null)}</span>}
       </span>
       <canvas
         ref={canvas}

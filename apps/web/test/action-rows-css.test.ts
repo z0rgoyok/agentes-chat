@@ -67,7 +67,7 @@ function subject(selector: string) {
 test("an action row stays a row: no rule stacks an `.ac-actrow`, whose words' 24ch basis would become their height", async () => {
   const classes = await rowClasses();
   // Rows this reads today, so a change in how it reads them can't empty the list unseen.
-  for (const known of ["settings-row", "rh-guidance", "roles-key", "imp-row", "ac-access__row"])
+  for (const known of ["settings-row", "rh-guidance", "roles-perm", "imp-row", "ac-access__row"])
     expect([known, classes.has(known)]).toEqual([known, true]);
   const marks = [...classes].map((c) => new RegExp(`\\.${c}(?![\\w-])`));
   const stacked: string[] = [];

@@ -8,6 +8,7 @@ import {
   pagePoint,
   type ScreenKind,
 } from "@agenteschat/client";
+import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import type { TFunction } from "i18next";
 
 /**
@@ -96,8 +97,8 @@ export const keyPastDraft = (draft: string, key: string): LiveKey | null =>
 export const FAILED_REASONS = ["code", "password", "blocked"] as const;
 export type FailedReason = (typeof FAILED_REASONS)[number];
 
-/** The longest note the server takes on Pronto, Devolver or Não consegui. */
-export const NOTE_MAX = 1000;
+/** How much a note on Pronto, Devolver or Não consegui holds: the person's words to the agent, as a message's. */
+export const NOTE_LIMIT = { max: MAX_MESSAGE_LENGTH } as const;
 
 /** The agent may use its browser: `browser:use` granted to it ("all tools" doesn't cover it). */
 export const browserGranted = (access: Pick<AgentAccess, "builtins"> | null | undefined) =>

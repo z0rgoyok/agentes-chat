@@ -1,6 +1,8 @@
-import { Button, isApple, Locked, onScreenKeyboard, Textarea } from "@agenteschat/ui";
+import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
+import { Button, isApple, Locked, onScreenKeyboard, overLimit, Textarea } from "@agenteschat/ui";
 import { type PointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { aimsAtScreen } from "@/lib/keys";
 import { useDialogHead } from "./head";
 
@@ -165,8 +167,10 @@ export function HandBackFoot({
   const [writing, setWriting] = useState(noteFirst || Boolean(note?.trim()));
   const keysWere = useRef<HTMLElement | null>(null);
   const noted = writing && note !== undefined;
+  const limit = useTextLimit(MAX_MESSAGE_LENGTH);
+  const tooLong = noted && overLimit(note, limit);
   const back = () => {
-    if (!pending) onBack();
+    if (!pending && !tooLong) onBack();
   };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a press on the bar keeps the keys where they are
@@ -188,7 +192,7 @@ export function HandBackFoot({
               onChange={(e) => onNote?.(e.target.value)}
               placeholder={t("browser.inCard.backPlaceholder", grammar)}
               aria-label={t("browser.inCard.backLabel", grammar)}
-              maxLength={1000}
+              limit={limit}
               onKeyDown={(e) => {
                 if (e.key === "Escape" && !noteFirst && !note.trim()) {
                   setWriting(false);
@@ -218,7 +222,7 @@ export function HandBackFoot({
           )}
           <span className="brw-ac__ways">
             {other}
-            <Button size="sm" variant="primary" icon="check" loading={pending} onClick={back}>
+            <Button size="sm" variant="primary" icon="check" disabled={tooLong} loading={pending} onClick={back}>
               {label}
             </Button>
           </span>

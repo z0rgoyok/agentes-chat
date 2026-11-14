@@ -399,8 +399,9 @@ export function isNewWork(request: MachineRequest) {
     case "phone.wifi":
     // Letting go of what an agent kept running (its end, a person's Stop) must reach a paused computer too.
     case "keep.end":
-    // Its owner fixing the Mac's Xcode for an iPhone's setup.
+    // Its owner fixing the Mac's Xcode for an iPhone's setup, or opening it there.
     case "xcode.fix":
+    case "xcode.open":
       return false;
     case "secret":
       return request.action !== "discard" && request.action !== "remove" && request.action !== "activate";

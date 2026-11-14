@@ -5,7 +5,11 @@ import { brainLine, engineOfBrain, engineOfExecutor, engineStateOfOption, thinks
 import {
   ADVANCED_DEFAULTS,
   advancedContents,
+  advancedDefaults,
   advancedParts,
+  effortLevelsOf,
+  effortOf,
+  effortTextOf,
   isAdvancedDefault,
   viewSpeedFits,
 } from "../src/lib/brain-advanced";
@@ -140,5 +144,49 @@ describe("Velocidade (ADR 0149)", () => {
     expect(advancedContents(t, { kind: "codex", autoModel: false })).toBe(
       "agentPage.work.brain.advanced.contents.fixed",
     );
+  });
+
+  test("an API key with a fixed model has an effort; on Automático only its context", () => {
+    const high = { ...ADVANCED_DEFAULTS, effort: "high" as const };
+    expect(advancedContents(t, { kind: "model", autoModel: false })).toBe(
+      "agentPage.work.brain.advanced.contents.modelFixed",
+    );
+    expect(advancedContents(t, { kind: "model", autoModel: true })).toBe(
+      "agentPage.work.brain.advanced.contents.model",
+    );
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, apiKey: true, now: high })).toEqual([
+      "agentPage.work.brain.advanced.effort",
+    ]);
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: true, apiKey: true, now: high })).toEqual([]);
+    expect(isAdvancedDefault("model", high)).toBe(false);
+    // "Voltar ao padrão" on a key: no effort, the provider's default; a chosen medium is a level there, said as one.
+    expect(advancedDefaults("model", high).effort).toBeNull();
+    expect(isAdvancedDefault("model", { ...ADVANCED_DEFAULTS, effort: null })).toBe(true);
+    const medium = { ...ADVANCED_DEFAULTS, effort: "medium" as const };
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, apiKey: true, now: medium })).toEqual([
+      "agentPage.work.brain.advanced.effort",
+    ]);
+    expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, apiKey: true, now: medium })).toEqual([]);
+  });
+
+  test("a key offers the levels the API takes: none is the provider's default, a stored max or xhigh is high", () => {
+    expect(effortLevelsOf("model")).toEqual(["low", "medium", "high"]);
+    expect(effortLevelsOf("claude_code")).toEqual(["low", "medium", "high", "max"]);
+    expect([null, "auto", "low", "medium", "high", "xhigh", "max"].map((e) => effortOf("model", e))).toEqual([
+      null,
+      null,
+      "low",
+      "medium",
+      "high",
+      "high",
+      "high",
+    ]);
+    expect([null, "auto", "max"].map((e) => effortOf("codex", e))).toEqual(["medium", "medium", "max"]);
+    expect(([null, "medium", "high"] as const).map((e) => effortTextOf("model", e))).toEqual([
+      "none",
+      "mediumKey",
+      "high",
+    ]);
+    expect(effortTextOf("codex", "medium")).toBe("medium");
   });
 });

@@ -31,6 +31,8 @@ export const en = {
     /** A mark on something offered but not out yet (an app for a system, a store): it can't be pressed. */
     soon: "Soon",
     unknownError: "Something went wrong. Try again.",
+    /** Under a field whose text is past its limit: its size, the limit, then the way out. */
+    overLimit: "The text has {{length}} characters and the limit is {{max}}. Shorten it.",
     /** A server error (a 5xx of its own): nothing the person did, and nothing they can fix. */
     ourSide: "Something went wrong on our side. Try again in a little while.",
     signedOut: "Your session ended. Sign in again to continue.",
@@ -76,7 +78,8 @@ export const en = {
     create: "Create role",
     base: "Base",
     everyoneName: "Everyone",
-    orderHint: "Order matters: whoever is higher manages the roles and people below.",
+    orderHint:
+      "Whoever is higher manages the roles and the people below. Each person's name color comes from their highest role. Drag to change the order.",
     reorder: "Reorder",
     reorderDone: "Done",
     moveUp: "Move {{name}} up",
@@ -117,6 +120,26 @@ export const en = {
         browser: "Their own agents' browser and sign-in requests made to them, never the full screen",
         full: "The full screen and terminal of their own agents and of the computers they connected",
       },
+      /** The five steps of one choice, as the select shows the one chosen. */
+      steps: {
+        off: "No access",
+        ownBrowser: "Their own agents' browser",
+        ownComputer: "Their own agents' computer",
+        anyBrowser: "Any agent's browser",
+        anyComputer: "Any agent's computer",
+      },
+      /** The steps in the select's list, under its two groups. */
+      short: { browser: "Browser", computer: "Computer" },
+      groupOwn: "Their own agents",
+      groupAny: "Any agent",
+      hint: "Browser: the browser and sign-in requests. Computer: also the whole screen and the terminal. Their own agents: the ones the person is responsible for and the computers they connected.",
+      /** A step as a sentence says it ("Who keeps their own agents' computer"). */
+      with: {
+        ownBrowser: "their own agents' browser",
+        ownComputer: "their own agents' computer",
+        anyBrowser: "any agent's browser",
+        anyComputer: "any agent's computer",
+      },
     },
     everyoneNote: "Applies to every person in the workspace. Other roles only add to it.",
     summary: {
@@ -153,10 +176,10 @@ export const en = {
     name: "Name",
     nameDesc: "How everyone sees it.",
     color: "Color",
-    colorDesc: "Paints the role's mark.",
+    colorDesc: "Paints the role's mark and the name of whoever has it as their highest.",
     colorOf: "{{color}} color",
     hoist: "Show apart in the members list",
-    hoistDesc: "People with this role get a group of their own in the members column.",
+    hoistDesc: "People with this role get a group of their own in the members column. Agents stay in theirs.",
     icon: "Icon",
     iconDesc: "Shown next to the name.",
     more: "More options",
@@ -175,7 +198,7 @@ export const en = {
     },
     newTitle: "Create role",
     newSub: "You can change everything later.",
-    namePlaceholder: "E.g. Moderators",
+    namePlaceholder: "E.g. Support",
     startFrom: "Start from",
     templates: {
       blank: "Nothing",
@@ -200,6 +223,151 @@ export const en = {
     rolesOf: "{{name}}'s roles",
     rolesCta: "Roles",
     aboveYou: "Above your role",
+    /** Settings › Roles (ADR 0085, addendum of 2026-11-13): the list, a role's page and its tabs. */
+    search: "Search roles",
+    noneYet: "No roles yet. Create one to give some people more.",
+    noMatch: "No role matches “{{q}}”.",
+    full: "This workspace already has {{max}} roles. Delete one to create another.",
+    loadError: "Couldn't load the roles. {{cause}}",
+    move: "Move {{name}}",
+    moveHint: "Drag it, or use Space and the arrow keys.",
+    /** What a role adds, in its row and its glance line: "+3 permissions · +2 channels · +1 agent". */
+    reach: {
+      permissions_one: "+{{count}} permission",
+      permissions_other: "+{{count}} permissions",
+      channels_one: "+{{count}} channel",
+      channels_other: "+{{count}} channels",
+      agents_one: "+{{count}} agent",
+      agents_other: "+{{count}} agents",
+      /** Everyone: what everyone has, with no "+". */
+      basePermissions_one: "{{count}} permission",
+      basePermissions_other: "{{count}} permissions",
+      baseChannels_one: "{{count}} channel",
+      baseChannels_other: "{{count}} channels",
+      baseAgents_one: "{{count}} agent",
+      baseAgents_other: "{{count}} agents",
+      owner: "Can do everything, always",
+      admin: "Can do everything",
+      none: "Only what Everyone can",
+      /** In the tip that names a role's channels: the ones the viewer doesn't see, counted. */
+      hidden_one: "{{count}} you can't see",
+      hidden_other: "{{count}} you can't see",
+    },
+    switchTo: "Go to another role",
+    look: "Change name, color and icon",
+    lookColor: "Change the color",
+    inviteWith: "Invite with this role",
+    tabs: {
+      permissions: "Permissions",
+      channels: "Channels",
+      agents: "Agents",
+      people: "People",
+    },
+    gone: "Someone deleted this role.",
+    backToList: "Back to roles",
+    searchPermission: "Search permissions",
+    noPermissionMatch: "No permission matches “{{q}}”.",
+    everyoneTip: "Everyone can. Click to choose who can.",
+    /** Who has something, as a chip: "Only Support and Ana". */
+    only: "Only {{names}}",
+    notHeld: "You don't have this permission.",
+    nowAbove: "This role is now above yours. Only someone higher can change it.",
+    agentsNote: "Roles are for people. Each agent has its own permissions, on its page.",
+    adminHint: "Can do everything but what only the owner does. Give it only to whoever runs the workspace.",
+    adminOn: "With Administrator, {{name}} can do everything but what only the owner does.",
+    adminAsk: {
+      title: "Turn on Administrator in {{name}}?",
+      text_one: "People with {{name}} can then do everything but what only the owner does. That's {{count}} person.",
+      text_other: "People with {{name}} can then do everything but what only the owner does. That's {{count}} people.",
+      confirm: "Turn on Administrator",
+    },
+    /** "Who can…": who holds one permission, Everyone or some roles. Lines naming people end with their names. */
+    who: {
+      title: "Who can {{short}}",
+      everyoneDesc: "Every person in the workspace",
+      some: "Only some roles",
+      owners: "Owners always can.",
+      losing: "Losing it:",
+      gaining: "Getting it:",
+      everyoneGains: "Everyone gets it.",
+      nobody: "Nobody loses it.",
+      noRoles: "There are no other roles yet.",
+      /** The agents' computers: who keeps a step when Everyone goes below it. `what`: `computer.with.*`. */
+      computersTitle: "Who keeps {{what}}",
+      computersLow: "Everyone gets {{what}}.",
+      computersNone: "Everyone stops using the agents' computers.",
+    },
+    /** A role's Channels. */
+    channels: {
+      line: "People with {{name}} see the checked channels and can join them.",
+      lineBase: "Everyone sees the checked channels and can join them.",
+      hint: "This is for people. An agent joins a channel when someone adds it.",
+      search: "Search channels",
+      general: "Everyone stays in #general.",
+      notYours: "Only whoever created #{{channel}} or arranges channels changes who sees it.",
+      removeTitle: "Take #{{channel}} away from {{name}}?",
+      leave: "Leaving the channel:",
+      openTitle: "Open #{{channel}} to {{name}}?",
+      openText: "People with {{name}} see the channel and all its history, and can join it.",
+      open: "Open",
+      openAllTitle: "Open #{{channel}} to everyone?",
+      openAllText: "All its history opens to the workspace.",
+      admin: "With Administrator, people with {{name}} see every channel.",
+      onlyGeneral: "There's only #general for now.",
+      noMatch: "No channel matches “{{q}}”.",
+    },
+    /** "Who sees #channel": the three words a channel's own details use. */
+    sees: {
+      title: "Who sees #{{channel}}",
+      private: "Only who's added",
+      privateDesc: "Nobody new sees it. Whoever is in stays.",
+      unsee: "Whoever is in stays. No longer seeing it:",
+    },
+    /** A role's Agents. */
+    agents: {
+      line: "People with {{name}} talk to the checked agents.",
+      lineBase: "Everyone talks to the checked agents.",
+      hint: "This is about people. What each agent does is on its page.",
+      noTalk: "People with only {{name}} don't talk to agents.",
+      turnOnTalk: "Turn on Talk to agents",
+      search: "Search agents",
+      notYours: "Only {{owner}}, who is responsible for {{name}}, or someone who edits any agent changes it.",
+      notYoursNoOwner: "Only someone who edits any agent changes it.",
+      none: "There are no agents yet.",
+      noMatch: "No agent matches “{{q}}”.",
+    },
+    /** "Who talks to Ada": the agent page's "Who can talk" in a dialog. */
+    talks: {
+      title: "Who talks to {{name}}",
+      some: "Only some roles and people",
+      ownerDesc: "Whoever is responsible for {{name}}",
+      losing: "No longer talking to {{agent}}:",
+    },
+    /** A role's People. */
+    holders: {
+      agent: "{{name}} is an agent. Agents have no role.",
+      seeAgents: "See Agents",
+      removed: "{{person}} no longer has {{name}}",
+      undo: "Undo",
+      selfTitle: "Remove yourself from {{name}}?",
+      selfText: "You lose what only {{name}} gives. Only someone above you can give it back.",
+      noMatch: "Nobody matches “{{q}}”.",
+    },
+    /** Giving a role that takes a mailbox from an agent asks first. */
+    mail: {
+      title: "{{agent}} loses {{owner}}'s mailbox",
+      titleMany: "Agents lose mailboxes",
+      lead: "With more people talking to them, the agents stop reading these mailboxes.",
+      of: "{{owner}}'s mailbox · {{agent}}",
+      again: "Only whoever gave the mailbox can give it again.",
+      addAnyway: "Add anyway",
+      giveAnyway: "Give anyway",
+    },
+    previewWhere: "in chat",
+    sameAs: "Same as",
+    deleteLeave: "Leaving channels they saw only through {{name}}:",
+    deleteReading: "Checking who leaves channels…",
+    ownerAdd: "Add owners",
   },
   permissions: {
     areas: {
@@ -5626,12 +5794,23 @@ export const en = {
         fallbackHint:
           "It answers through the API and counts against {{name}}'s budget. Otherwise {{name}} tells whoever asked and waits for the computer to come back.",
         effort: "Effort",
-        efforts: { auto: "Automatic", low: "Low", medium: "Medium", high: "High", max: "Maximum" },
+        /** `none`: an API key with no effort chosen, which thinks as its provider does by default. */
+        efforts: {
+          auto: "Automatic",
+          none: "Model default",
+          low: "Low",
+          medium: "Medium",
+          high: "High",
+          max: "Maximum",
+        },
         effortsLower: { auto: "automatic", low: "low", medium: "medium", high: "high", max: "maximum" },
         effortText: {
           auto: "The Automatic model picks each task's effort. Pick a model to set the effort yourself.",
           low: "Answers fast. Good for simple questions.",
           medium: "The default. Thinks enough most of the time.",
+          /** On an API key, where medium is not the default. */
+          mediumKey: "Thinks enough most of the time.",
+          none: "The model thinks as much as it usually does. Pick a level to set the effort.",
           high: "Thinks more on hard tasks. Slower and costs more.",
           max: "Thinks as much as possible. Much slower and pricier.",
         },
@@ -5657,6 +5836,8 @@ export const en = {
           defaults: "Back to defaults",
           contents: {
             model: "Context window",
+            /** An API key with a fixed model: its effort too. */
+            modelFixed: "Effort and context window",
             auto: "Context window and who it answers",
             fixed: "Effort, context window and who it answers",
             autoSpeed: "Speed, context window and who it answers",
@@ -5778,6 +5959,12 @@ export const en = {
             status_unknown: "{{brand}} didn't say whether the account signed in. Try again.",
             no_token: "{{brand}} finished without showing the account's token. Try again.",
             not_kept: "The account signed in, but {{computer}} couldn't keep the sign-in. Try again.",
+            /**
+             * Grok Build signed in, but its sandbox doesn't start on the computer for an agent (runner `sandbox`). No
+             * "update the computer": on Cloud nobody in the workspace can.
+             */
+            sandbox:
+              "{{brand}} signed in, but its sandbox can't start on {{computer}}, so no agent could use it. Use an API key instead.",
           },
           /** Gemini signed in for all agents, but a copy of it doesn't work for each one: signing in again won't help. */
           geminiNotShared:
@@ -5828,6 +6015,10 @@ export const en = {
           /** When the time it's back isn't known. */
           limitSoon: "{{account}} is back when the plan renews",
           limitHelp: "Meanwhile {{name}} can think with another account that's already connected.",
+          /** Under the list, with an account at its limit picked: the row above says until when. */
+          fullWait: "On this account {{name}} waits until the plan renews.",
+          /** A link to the usage page, after `fullWait`. */
+          seeUsage: "See usage",
           wait: "Wait",
           modelTitle: "{{name}}'s model",
           moreTitle: "More options for {{name}}",
@@ -6224,6 +6415,12 @@ export const en = {
         cli_stopped: "The {{brain}} program stopped with an error.",
         /** The agent's CLI ended without its answer and without a word (it crashed or was killed). */
         cli_closed: "The {{brain}} program closed unexpectedly.",
+        /**
+         * The agent's CLI couldn't start its sandbox on its computer (bubblewrap refused), before the model was asked.
+         * No "update the computer": on Cloud nobody in the workspace can.
+         */
+        cli_sandbox:
+          "The {{brain}} program can't start its sandbox on this computer. Choose another AI in the agent's settings.",
         account_missing:
           "The account chosen for this agent isn't on its computer anymore. Choose another one in the agent's settings, or add it again.",
         /** A Codex turn on a Windows computer where MXC can't hold its commands (runner `windows_sandbox`). */
@@ -7273,6 +7470,7 @@ export const en = {
     /** A personal workspace (ADR 0159): `role` is its helper role's own name ("Admin"). */
     everyoneNotePersonal: "Without a role, they use the agents. With {{role}}, they help you run it.",
     noRolesToGive: "No roles below yours to give.",
+    rolesAbove: "Roles above yours don't show.",
     roleFilter: "Role",
     rolesCount_one: "{{count}} role",
     rolesCount_other: "{{count}} roles",
@@ -10000,7 +10198,16 @@ export const en = {
     forAgent_one: "Turn it on for {{agent}}",
     forAgent_other: "Turn them on for {{agent}}",
     installedMany: "{{count}} skills installed.",
-    zipHelp: "A .zip with SKILL.md at its root.",
+    zipHelp: "A .zip of the skill's folder, up to {{max}} MB.",
+    /** Behind the ⓘ beside `zipHelp`. */
+    zipAbout:
+      "SKILL.md goes at the top of the .zip, or in its one folder. A skill keeps up to {{text}} MB of text and {{assets}} MB of images and other files.",
+    /** A .zip refused the moment it's picked, before anything is sent. */
+    zipTooLarge: "{{name}} is {{size}}. A skill's .zip can be up to {{max}} MB.",
+    /** The way out of `zipTooLarge`: the GitHub tab, which reads only the skill's folder. */
+    zipUseLink: "Use a GitHub link",
+    /** While the .zip goes to the server: how much of it has gone. */
+    zipSending: "Uploading the file… {{percent}}",
     zipPick: "Choose .zip",
     zipNone: "No file chosen",
     zipMissing: "Choose a .zip file.",
@@ -10613,6 +10820,7 @@ export const en = {
     someone: "someone",
   },
   palette: {
+    roleKeywords: "role roles create new permissions cargo",
     newWikiKeywords: "wiki new page create",
     actions: "Actions",
     inviteSub: "by email or link",
@@ -11920,6 +12128,8 @@ export const en = {
     reopen: "Show again",
     answeredBy: "{{name}} picked",
     failed: "Your pick didn't go through. Try again.",
+    /** After the message's size and limit, when a written answer makes the reply too long. */
+    tooLongFix: "Shorten the answer.",
   },
   drive: {
     title: "Drive",
@@ -13542,6 +13752,10 @@ export const en = {
     },
   },
   errors: {
+    /** A request the server, or a proxy in front of it, refused for its size. */
+    tooLarge: "This is bigger than the server takes.",
+    /** The same, from a screen that knows the most it may send. */
+    tooLargeMax: "This is bigger than the server takes: up to {{max}} MB.",
     /** A new-password link an owner can't make (ADR 0158). */
     passwordLink: {
       email: "This server sends email: they ask for their own link in Forgot password.",
@@ -13671,7 +13885,7 @@ export const en = {
       aboveYou: "Only someone above this role changes it.",
       base: "Every workspace keeps the Everyone role.",
       unknown: "That role isn't there anymore.",
-      orderIncomplete: "The roles changed. Reload and try again.",
+      orderIncomplete: "The roles changed while you were moving them. Reload and try again.",
     },
     teamProposal: {
       undoExpired:
@@ -14712,6 +14926,28 @@ export const en = {
       trustText: "Tap Trust on the iPhone and enter its passcode.",
       devModeDone: "On",
       devModeText: "Turn it on and tap Restart. After the restart, tap Turn On and enter your passcode.",
+      /** The iPhone left the Mac's list while on Developer Mode: it restarts to turn it on. */
+      devModeRestarting: "The iPhone is restarting. When it's back, unlock it and tap Turn On.",
+      /** It came back from the restart and Developer Mode is still off: iOS asks only once it's unlocked. */
+      devModeBack: "The iPhone is back. Unlock it, tap Turn On and enter your passcode.",
+      /** A button: the Mac looks at the iPhone again now. */
+      devModeCheck: "I turned it on, check again",
+      devModeStillOff: "The iPhone still says Developer Mode is off.",
+      /** Opens under Developer Mode: each reason the switch may be missing, with its one way out. */
+      devModeMissing: {
+        title: "Don't see the option?",
+        hidden: "The iPhone hides the option until Xcode asks to show it.",
+        /** For who can't open Xcode from here: someone who doesn't manage the Mac, or a Mac whose app is too old. */
+        hiddenOpen:
+          "The iPhone hides the option until Xcode asks to show it. Open Xcode on {{mac}} with the iPhone plugged in.",
+        openXcode: "Open Xcode",
+        opened: "Xcode opened on {{mac}}. Look in the iPhone's Settings again, then close Xcode.",
+        unlock: "Turned it on and the iPhone restarted? Unlock it. The alert with Turn On shows only after that.",
+        check: "Check again",
+        /** A Terminal command (`agentes-runner update`) shows under it. */
+        outdated:
+          "The agentes.chat app on {{mac}} is out of date. Update the app, or run this in Terminal if you installed it there.",
+      },
       uiAutomationText: "In Settings\u00a0›\u00a0Developer, after the restart.",
       helperText: "Built and renewed by the Mac every 7 days. A free Apple Account in Xcode is enough.",
       helperUntrustedText: "Tap the developer's name, then Trust.",
@@ -14741,8 +14977,6 @@ export const en = {
           "{{mac}} doesn't see an iPhone yet. Use a cable that carries data, not only power, unlock the iPhone and tap Trust if it asks.",
         trust:
           "No Trust prompt? Unplug the iPhone, unlock it and plug it in again, then tap Trust and enter its passcode.",
-        developerMode:
-          "Developer Mode turns on only after the iPhone restarts. Tap Restart, then Turn On once it's back. No switch there? Unplug the iPhone and plug it in again.",
         uiAutomation:
           "The switch shows once Developer Mode is on and the iPhone restarted. Keep it unlocked while you look.",
         helper:
@@ -15428,7 +15662,7 @@ export const en = {
       general: "General",
       right_hand: "Right hand",
       members: "Members and invitations",
-      roles: "Roles and permissions",
+      roles: "Roles",
       /** The feature's name: it stays “Vault” in every language. */
       vault: "Vault",
       access: "Agents and access",
@@ -15463,7 +15697,7 @@ export const en = {
       general: "Name, time zone and what every agent knows about the workspace.",
       right_hand: "The assistant that builds the team with each person, in their DM.",
       members: "Who is in the workspace, and invitations.",
-      roles: "What each person can do. Roles add up.",
+      roles: "Each role adds permissions, channels and agents.",
       vault: "Your agents' passwords, keys and contacts. They never see a password.",
       access: "What each agent can use: one level per connector.",
       connectors: "Services and MCP servers connected once for the whole workspace.",
@@ -15923,6 +16157,16 @@ export const en = {
     logins_other: "{{count}} logins",
     noWindows: "The limit shows up after this account is used again.",
     unused: "No agent uses this account.",
+    /** The quota per model (OpenCode Go's caps): one line each, under the account's windows. */
+    models: {
+      /** A model out of quota: `when` is when it resets (`usageWhen`). */
+      exhausted: "No quota left · resets {{when}}",
+      exhaustedUnknown: "No quota left",
+      /** The plan refused the model for this key: it or the account is switched off there. */
+      off: "Turned off",
+      region: "Needs the Global region",
+      inactive: "No active subscription",
+    },
     usesNow: "uses it now",
     monthTokens: "{{tokens}} tokens this month",
     tokens: "{{tokens}} tokens",
@@ -15989,6 +16233,8 @@ export const en = {
   format: {
     // i18next's `list` format: Intl.ListFormat in the language ("Ada, Atlas, and Theo", "Ada、Atlas、Theo"). Keep as is.
     list: "{{names, list}}",
+    /** After the names a list shows, one per line: how many more it holds. */
+    andMore: "and {{count}} more",
     usd: "US$ {{value}}",
     tokensMillions: "{{value}}M",
     tokensThousands: "{{value}}k",

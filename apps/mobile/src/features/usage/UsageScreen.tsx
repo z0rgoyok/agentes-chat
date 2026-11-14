@@ -61,7 +61,7 @@ import { FirstUse } from "../shared/FirstUse";
 import { useColors, useDirectory, useErrorToast } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { Loaded, PushedHeader } from "../shared/parts";
-import { Meter, PlanMeter, Tag, UsageCard } from "./parts";
+import { Meter, PlanMeter, PlanModels, Tag, UsageCard } from "./parts";
 import { MyUsageCard, PeopleList } from "./people";
 
 /*
@@ -301,12 +301,15 @@ function AccountRow({
               {[brandOf(account), account.email, computer].filter(Boolean).join(" · ")}
             </Text>
             {account.usage ? (
-              <PlanMeter
-                plain
-                usage={splitUsage(account.usage, (id) => gradientOf(agentLook(dir.agentById.get(id)).color))}
-              >
-                {list}
-              </PlanMeter>
+              <>
+                <PlanMeter
+                  plain
+                  usage={splitUsage(account.usage, (id) => gradientOf(agentLook(dir.agentById.get(id)).color))}
+                >
+                  {list}
+                </PlanMeter>
+                <PlanModels usage={account.usage} provider={account.provider} />
+              </>
             ) : (
               <>
                 <Text variant="small" tone="muted">

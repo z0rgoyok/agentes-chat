@@ -132,3 +132,55 @@ test("an agent's code between backticks stays code: in the question and in the s
   await settle(6);
   expect(document.querySelector(".choices__asked code.ac-inlinecode")?.textContent).toBe("bun test");
 });
+
+test("a written answer is never cut: a counter near a message's limit, past it the field says so and Enviar waits", async () => {
+  const sent: unknown[] = [];
+  await card([QUESTIONS[0] as (typeof QUESTIONS)[number]], async (...args: unknown[]) => {
+    sent.push(args);
+    throw new ApiError(500, "internal", "not expected");
+  });
+  (document.querySelector(".choices__option") as HTMLElement).focus();
+  await key("c");
+  const field = document.querySelector(".choices__write textarea") as HTMLTextAreaElement;
+  expect(field.getAttribute("maxlength")).toBeNull();
+  const send = () => [...document.querySelectorAll(".choices__write button")].find((b) => b.textContent === "Enviar");
+  const type = async (value: string) => {
+    await act(async () => fireEvent.change(field, { target: { value } }));
+    await settle(2);
+  };
+  // A long dictation shows nothing new.
+  await type("Primeiro confirmamos o prazo com o time. ".repeat(60));
+  expect(document.querySelector(".ac-limit")).toBeNull();
+  expect(field.value.length).toBeGreaterThan(2000);
+  // From 90% of the limit, a quiet counter.
+  await type("a".repeat(90_120));
+  expect(document.querySelector(".ac-limit--count")?.textContent).toBe("90.120 / 100.000");
+  expect(field.getAttribute("aria-invalid")).toBeNull();
+  expect((send() as HTMLButtonElement).disabled).toBe(false);
+  // Past it: the field is invalid, the line names the limit and the way out, and nothing goes.
+  await type("a".repeat(100_840));
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  expect(document.querySelector(".ac-limit.ac-field__error")?.textContent).toBe(
+    "A mensagem tem 100.840 caracteres e o limite é 100.000. Encurte a resposta.",
+  );
+  expect((send() as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => fireEvent.keyDown(field, { key: "Enter" }));
+  await settle(4);
+  expect(sent).toEqual([]);
+  expect(document.querySelector(".choices__picked")).toBeNull();
+});
+
+test("answers that together pass a message's limit: the refusal says the sizes and to shorten the answer", async () => {
+  const one = [QUESTIONS[0] as (typeof QUESTIONS)[number]];
+  await card(one, async () => {
+    throw new ApiError(400, "message.too_long", "Message is longer than 100000 characters", {
+      length: 100_412,
+      max: 100_000,
+    });
+  });
+  await act(async () => fireEvent.click(document.querySelector(".choices__option") as HTMLElement));
+  await settle(6);
+  const toasts = [...document.querySelectorAll(".ac-toast")].map((t) => t.textContent);
+  expect(toasts).toHaveLength(1);
+  expect(toasts[0]).toContain("A mensagem tem 100.412 caracteres e o limite é 100.000. Encurte a resposta.");
+});

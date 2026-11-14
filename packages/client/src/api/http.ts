@@ -40,6 +40,16 @@ export interface RequestOptions {
   query?: Record<string, string | number | undefined | null>;
   /** This request's own, such as the bot check's token. */
   headers?: Record<string, string>;
+  /** Stops a write the caller can stop (a large upload's Cancel). */
+  signal?: AbortSignal;
+  /** The share of the body sent so far, 0 to 1. Sends by `XMLHttpRequest` where there is one: `fetch` can't tell. */
+  onUploadProgress?: (sent: number) => void;
+}
+
+/** A large write's Cancel and progress (`RequestOptions.signal`, `onUploadProgress`). */
+export interface UploadOptions {
+  signal?: AbortSignal;
+  onProgress?: (sent: number) => void;
 }
 
 /** Headers added to every request (the phone app's session cookie and client marker). */
@@ -64,6 +74,8 @@ export interface TransportOptions {
 
 interface Transport {
   fetch: FetchLike;
+  /** The caller gave its own `fetch`: everything goes through it. */
+  ownFetch: boolean;
   base: string;
   /** Same origin sends the browser cookie; another origin sends only what `headers` gives. */
   credentials: "omit" | "same-origin";
@@ -82,10 +94,57 @@ function transport(options: TransportOptions): Transport {
         throw error instanceof TypeError ? new NetworkError(error) : error;
       }
     },
+    ownFetch: Boolean(options.fetch),
     base,
     credentials: base ? "omit" : "same-origin",
     headers: options.headers,
   };
+}
+
+/** What an upload uses of the platform's `XMLHttpRequest`, the browser's or React Native's: this package has no DOM. */
+interface Xhr {
+  open(method: string, url: string): void;
+  setRequestHeader(name: string, value: string): void;
+  send(body: string): void;
+  abort(): void;
+  withCredentials: boolean;
+  readonly status: number;
+  readonly statusText: string;
+  readonly responseText: string;
+  readonly upload: { onprogress: ((e: { lengthComputable: boolean; loaded: number; total: number }) => void) | null };
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+  onabort: (() => void) | null;
+}
+const platformXhr = () => (globalThis as { XMLHttpRequest?: new () => Xhr }).XMLHttpRequest;
+
+/** A `POST` with the share of its body sent so far, as the platform's `XMLHttpRequest` reports it. */
+function sendWithProgress(
+  Request: new () => Xhr,
+  url: string,
+  init: { headers: Record<string, string>; body: string; credentials: Transport["credentials"]; signal?: AbortSignal },
+  onProgress: (sent: number) => void,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new Request();
+    xhr.open("POST", url);
+    xhr.withCredentials = init.credentials !== "omit";
+    for (const [k, v] of Object.entries(init.headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      resolve(
+        new Response(xhr.status === 204 ? null : xhr.responseText, { status: xhr.status, statusText: xhr.statusText }),
+      );
+    xhr.onerror = () => reject(new NetworkError(new TypeError("Network request failed")));
+    // An Error named as `fetch`'s: React Native has no DOMException.
+    const aborted = () => reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));
+    xhr.onabort = aborted;
+    if (init.signal?.aborted) return aborted();
+    init.signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(init.body);
+  });
 }
 
 export function createRequester(options: TransportOptions = {}) {
@@ -111,14 +170,25 @@ export function createRequester(options: TransportOptions = {}) {
     // Only reads: a write cut short may still have happened on the server.
     const deadline = method === "GET" ? new AbortController() : null;
     const timer = deadline ? setTimeout(() => deadline.abort(), readTimeoutMs) : null;
+    const signal = deadline?.signal ?? options.signal;
     try {
-      const res = await t.fetch(url, {
-        method,
-        headers,
-        credentials: t.credentials,
-        body: hasBody ? JSON.stringify(options.json ?? {}) : undefined,
-        ...(deadline ? { signal: deadline.signal } : {}),
-      });
+      const progress = options.onUploadProgress;
+      const xhr = progress && method === "POST" && !t.ownFetch ? platformXhr() : undefined;
+      const res =
+        progress && xhr
+          ? await sendWithProgress(
+              xhr,
+              url,
+              { headers, body: JSON.stringify(options.json ?? {}), credentials: t.credentials, signal },
+              progress,
+            )
+          : await t.fetch(url, {
+              method,
+              headers,
+              credentials: t.credentials,
+              body: hasBody ? JSON.stringify(options.json ?? {}) : undefined,
+              ...(signal ? { signal } : {}),
+            });
       return await parseResponse<T>(res);
     } catch (error) {
       if (deadline?.signal.aborted && !(error instanceof ApiError || error instanceof NetworkError))

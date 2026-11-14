@@ -38,9 +38,6 @@ export const emptyDraft = (questions: readonly ChoiceQuestion[]): ChoiceDraft =>
 /** The pick that is "Outra resposta" on a question: the one past its last option. */
 export const otherChoice = (q: ChoiceQuestion) => q.options.length;
 
-/** The longest written answer the server takes. Mirror: `ARTIFACT_LIMITS.choiceOtherChars` in packages/engine/src/artifacts.ts. */
-export const CHOICE_OTHER_MAX = 1000;
-
 /**
  * A pick on the current question (`written`: what was written for "Outra resposta"). It goes to the next question
  * still open, and `send` holds every pick once none is left: a one-question card answers on the first click.

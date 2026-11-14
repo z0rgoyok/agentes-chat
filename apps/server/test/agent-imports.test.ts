@@ -207,12 +207,14 @@ describe("reading a GitHub link for an import", () => {
       ["acme-brain-abc/src/run.sh", "echo"],
     ]);
     const sent: { url: string; auth: string | null }[] = [];
+    let pageLimited = false;
     // github.com hides acme/brain; the API's zipball answers only the connection's token.
     const http = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const auth = new Headers(init?.headers).get("authorization");
       sent.push({ url, auth });
       if (url === "https://github.com/acme/open") return new Response("<html>");
+      if (url === "https://github.com/acme/brain" && pageLimited) return new Response("slow down", { status: 403 });
       if (url.startsWith("https://api.github.com/repos/acme/brain/zipball") && auth === `Bearer ${token}`) {
         return new Response(null, {
           status: 302,
@@ -250,6 +252,9 @@ describe("reading a GitHub link for an import", () => {
     const file = await read("https://github.com/acme/brain/blob/main/agents/scout/AGENTS.md");
     expect(await file.json()).toEqual({ files: [{ path: "AGENTS.md", text: "# Scout" }] });
     expect((await read("https://github.com/acme/brain/blob/main/agents/none.md")).status).toBe(400);
+    // GitHub limiting the page check without credentials still leaves the read to the token.
+    pageLimited = true;
+    expect((await read("https://github.com/acme/brain")).status).toBe(200);
     // The token goes to api.github.com alone.
     expect(sent.filter((s) => s.auth && !s.url.startsWith("https://api.github.com/"))).toEqual([]);
   });

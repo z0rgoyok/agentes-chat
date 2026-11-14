@@ -1,0 +1,29 @@
+/*
+ * A plan's models at a limit of their own, under the account's windows (the usage views, "Quem pensa"): a name and
+ * where its quota stands on each line, the name at its row's edge and the words after it, wrapping whole. Danger ink
+ * on the state, as a window at its limit.
+ */
+.plan-models {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+.plan-model {
+  display: contents;
+}
+.plan-model__name {
+  color: var(--ink-muted);
+}
+.plan-model__text {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.plan-models__none {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}

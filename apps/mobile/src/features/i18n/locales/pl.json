@@ -58,7 +58,8 @@
     "closed": "{{title}} · zamknięte",
     "reopen": "Pokaż ponownie",
     "answeredBy": "Wybór: {{name}}",
-    "failed": "Twój wybór nie został wysłany. Spróbuj ponownie."
+    "failed": "Twój wybór nie został wysłany. Spróbuj ponownie.",
+    "tooLongFix": "Skróć odpowiedź."
   },
   "chart": {
     "table": "Tabela",
@@ -2178,8 +2179,21 @@
         "stopped": "{{name}} nie jest już używany przez Wi-Fi"
       },
       "stall": {
-        "plug": "{{host}} nie widzi jeszcze tego iPhone'a. Użyj kabla, który przesyła dane, a nie tylko ładuje, trzymaj ten iPhone odblokowany i stuknij Zaufaj, jeśli poprosi.",
-        "devmode": "Tryb dewelopera włącza się dopiero po ponownym uruchomieniu tego iPhone'a. Stuknij Uruchom ponownie, a po starcie Włącz. Nie ma przełącznika? Odłącz ten iPhone i podłącz go ponownie."
+        "plug": "{{host}} nie widzi jeszcze tego iPhone'a. Użyj kabla, który przesyła dane, a nie tylko ładuje, trzymaj ten iPhone odblokowany i stuknij Zaufaj, jeśli poprosi."
+      },
+      "devMode": {
+        "restarting": "{{host}} jeszcze nie widzi tego iPhone'a po ponownym uruchomieniu. Zostaw go podłączonego.",
+        "back": "Stuknij Włącz w alercie na tym iPhonie i wpisz kod.",
+        "check": "Już włączone, sprawdź ponownie",
+        "stillOff": "{{host}} nadal widzi tryb dewelopera jako wyłączony.",
+        "missing": "Nie widzisz tej opcji?",
+        "hidden": "Ten iPhone ukrywa tę opcję, dopóki Xcode nie poprosi o jej pokazanie.",
+        "hiddenOpen": "Ten iPhone ukrywa tę opcję, dopóki Xcode nie poprosi o jej pokazanie. Otwórz Xcode na {{host}} z podłączonym tym iPhone'em.",
+        "openXcode": "Otwórz Xcode",
+        "opened": "Xcode otworzył się na {{host}}. Zajrzyj jeszcze raz do Ustawień, a potem zamknij tam Xcode.",
+        "unlock": "Włączone i uruchomił się ponownie? Alert z Włącz pojawia się, gdy ten iPhone jest odblokowany.",
+        "checkAgain": "Sprawdź ponownie",
+        "outdated": "Aplikacja agentes.chat na {{host}} jest nieaktualna. Zaktualizuj ją na tym Macu."
       }
     },
     "notice": {

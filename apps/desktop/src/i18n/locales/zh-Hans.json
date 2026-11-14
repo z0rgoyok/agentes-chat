@@ -665,7 +665,8 @@
       "step3": "打开下载的文件，把新的 agentes.chat 拖到“应用程序”中。",
       "installerNote": "打开下载的文件：它会用新版本覆盖旧版本。",
       "keepNote": "你的服务器和设置都会保留。",
-      "whatsNew": "{{version}} 的新功能"
+      "whatsNew": "{{version}} 的新功能",
+      "systemDetails": "系统详情"
     },
     "activity": {
       "title": "动态",

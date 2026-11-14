@@ -11,7 +11,7 @@ import {
   readFileSync,
   statSync,
 } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,12 +25,15 @@ import {
   type AgentScope,
   agentBrowserUrl,
   BROWSER_LIMITS,
+  BROWSER_TABS_KEPT,
+  BROWSER_TABS_LISTED,
   BROWSER_VIEW,
   BROWSER_VIEWPORT_SIDE,
   type BrowserHandoffInfo,
   type BrowserInputEvent,
   type BrowserSetup,
   type BrowserStreamMode,
+  type BrowserTabs,
   type BrowserViewport,
   browserViewportOf,
   CHROME_FAILURES,
@@ -175,6 +178,8 @@ import {
 
 /** A session with no command for this long is closed (its Chrome stops; the profile stays). */
 export const BROWSER_IDLE_MS = 15 * 60_000;
+/** A browser its agent keeps that had no command for this long gets its duplicate and blank tabs closed. */
+const TIDY_IDLE_MS = 10 * 60_000;
 /** How often idle browsers are looked for. */
 const SWEEP_MS = 60_000;
 /**
@@ -191,6 +196,8 @@ const WINDOW_MS = 20_000;
  * after it, so the note the launcher shows meanwhile closes under Chrome's window rather than before it.
  */
 const WINDOW_DRAW_MS = 500;
+/** A Chrome whose process exits this soon after it answered was most likely a start handed to another Chrome. */
+const CHROME_HANDOFF_MS = 3000;
 /** A Chrome asked to quit that is still there after this is killed. */
 const CHROME_KILL_MS = 3000;
 /** How long a Chrome gets to close itself (`Browser.close`; it takes a tenth of a second) before it is signaled. */
@@ -786,6 +793,22 @@ export function prepareProfile(profile: string) {
  */
 export function forgetTabs(profile: string) {
   return rm(path.join(profile, "Default", "Sessions"), { recursive: true, force: true }).catch(() => undefined);
+}
+
+/** A process asked to stop, then killed when it is still there half a second later. */
+async function stopPid(pid: number) {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    process.kill(pid, 0);
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // gone
+  }
 }
 
 /** A Chrome the runner started for one agent. */
@@ -1522,6 +1545,12 @@ interface Session {
   heldAt?: number;
   /** The GET guard stopped a request carrying a typed password since the agent last heard (ADR 0144). */
   guardBlocked?: boolean;
+  /** Its tabs a tidy never closes, by target id: popups (sign-in windows) and the ones opened in a person's turn. */
+  keptTabs?: Set<string>;
+  /** What a tidy closed that the agent hasn't heard of yet (`tabLabel`). */
+  tabsClosed?: string[];
+  /** When a sweep last tidied its tabs while it was kept and idle. */
+  tidiedAt?: number;
 }
 
 /** One Chrome in `chromes.json`. */
@@ -1557,6 +1586,18 @@ const DOING: Record<string, ControlBrowserDoing> = {
   pdf: "capturing",
   tab: "tabs",
 };
+
+/** How a tidy closes tabs (`tidyTabs`). */
+type TabsClosing = "all" | "idle" | "none";
+
+/** A tab with nothing in it: the agent's start page, Chrome's new tab, a blank page. */
+const isEmptyTab = (url: string) => url === "about:blank" || isStartPage(url);
+
+/** A tab as the agent is told of it: its host, `blank` when empty, else its kind of address (`chrome:`). */
+export function tabLabel(url: string): string {
+  if (isEmptyTab(url)) return "blank";
+  return pageHost(url) ?? url.split(":")[0]?.slice(0, 20) ?? "";
+}
 
 /** `https://app.acme.example/trips` → `app.acme.example`; null for anything that isn't a web page. */
 export function pageHost(url: string): string | null {
@@ -1883,7 +1924,7 @@ export class BrowserManager {
     req: ActRequest,
     signal?: AbortSignal,
     actor: AgentScope = agent,
-  ): Promise<BrowserAnswer & { setup?: BrowserSetup }> {
+  ): Promise<BrowserAnswer & { setup?: BrowserSetup; tabs?: BrowserTabs }> {
     const allowed = allowedDomainsOf(req.allowedDomains);
     const prepared = this.checkCommand(req.command, req.args, req.timeoutSeconds, folder, allowed);
     const setup: BrowserSetup = {};
@@ -1902,7 +1943,9 @@ export class BrowserManager {
           actor,
           opening,
         });
-        return (acts ? (this.takeCrash(session, true) ?? this.takeBlocked(session)) : null) ?? done;
+        const told = (acts ? (this.takeCrash(session, true) ?? this.takeBlocked(session)) : null) ?? done;
+        // A tab command's numbers are the ones the agent was given: nothing closes under them.
+        return { ...told, ...(await this.tabsNow(session, prepared.command === "tab" ? "none" : "all")) };
       } finally {
         opening.close();
       }
@@ -1990,7 +2033,12 @@ export class BrowserManager {
         // Each Vault value this batch opened goes with it (ADR 0144).
         opening.close();
       }
-      return { answers, ...withSetup(setup), ...(session.viewport ? { emulated: session.viewport } : {}) };
+      return {
+        answers,
+        ...withSetup(setup),
+        ...(session.viewport ? { emulated: session.viewport } : {}),
+        ...(await this.tabsNow(session)),
+      };
     });
   }
 
@@ -2590,7 +2638,17 @@ export class BrowserManager {
         );
         try {
           const display = on && confinedChrome(exe) ? readableDisplay(on, session.folder) : on;
-          const started = await start(exe, args, profile, display ? chromeEnv(display) : undefined);
+          const env = display ? chromeEnv(display) : undefined;
+          const started = await start(exe, args, profile, env).catch(async (err: unknown) => {
+            // It exited at once, its start handed to a Chrome that took the profile meanwhile: that one stops, and
+            // this starts once more.
+            if (!(err instanceof ChromeStartError) || err.missing.length > 0 || !(await this.clearStaleLock(profile))) {
+              throw err;
+            }
+            this.opts.log(`the browser of ${agent.handle} started again: another Chrome on its profile took its start`);
+            await forgetTabs(profile);
+            return start(exe, args, profile, env);
+          });
           if (on) started.display = on.display;
           return started;
         } catch (err) {
@@ -2637,9 +2695,15 @@ export class BrowserManager {
       session.aliveAt = null;
       session.memory = this.memoryCounters();
       await this.rememberChrome(chrome.pid, profile, chrome.display);
+      const launchedAt = this.now();
       void chrome.exited.then(() => {
         void this.forgetChrome(chrome.pid);
         if (session.chrome !== chrome) return;
+        // With a fixed debugging port, a start handed to a Chrome already on the profile answers on that Chrome's
+        // port and its own process exits: the next start stops that Chrome first (`clearStaleLock`).
+        if (this.now() - launchedAt < CHROME_HANDOFF_MS) {
+          this.opts.log(`the browser of ${agent.handle} closed as it started: another Chrome may hold its profile`);
+        }
         // It closed under us (a crash, the person quit it): the next command starts it again.
         session.chrome = undefined;
         session.aliveAt = null;
@@ -2664,6 +2728,11 @@ export class BrowserManager {
       `ws://127.0.0.1:${chrome.port}${chrome.wsPath}`,
       this.opts.connectDevtools,
       (page) => this.pageCrashed(session, chrome, page),
+      (targetId, popup) => {
+        if (!popup && !this.personsTurn(session.agentId)) return;
+        session.keptTabs ??= new Set();
+        session.keptTabs.add(targetId);
+      },
     );
     this.counters.set(chrome, counter);
     if (session.viewport) counter.emulate(emulationCommands(session.viewport, session.version ?? null));
@@ -2853,6 +2922,12 @@ export class BrowserManager {
       if (s.stream || s.streamOpening || this.held(agentId)) {
         // Someone on the page holds an update off for a while after; its agent's own hold only as `updateDue` says.
         if (this.watched(s)) s.heldAt = this.now();
+        // Kept for good (ADR 0176), its tabs would pile up from run to run: once each idle spell, its duplicates and
+        // blank tabs close.
+        else if (s.chrome && (s.tidiedAt ?? 0) <= s.lastUsed && this.now() - s.lastUsed >= TIDY_IDLE_MS) {
+          s.tidiedAt = this.now();
+          void this.enqueue(s, () => this.tidyTabs(s, "idle")).catch(() => undefined);
+        }
         // `agent-browser` stops on its own idle timeout: a command keeps it up for whoever is still on the page.
         // Not a use: once nobody holds it, its idle time counts from the last real one.
         if (s.chrome && this.now() - (s.commandAt ?? 0) >= this.idleMs - 2 * SWEEP_MS) {
@@ -2994,17 +3069,34 @@ export class BrowserManager {
   }
 
   /**
-   * Before a launch, nothing holds the profile. A Chrome this runner recorded on it that still runs is held by no
-   * session (an overlapping runner's, a stop still under way): a Chrome started beside it hands it the start page as
-   * one more tab and exits, so a few restarts left a pile of start pages there. It is stopped first. Chrome's
-   * `Singleton*` files name the host and pid that holds a profile; restored onto another computer they make Chrome
-   * exit with 21 (in use elsewhere), so they go too.
+   * Before a launch, nothing holds the profile. A Chrome still running on it is held by no session (an overlapping
+   * runner's, a stop still under way, one started outside the runner): a Chrome started beside it hands it the start
+   * page as one more tab and exits, so a few restarts left a pile of start pages there. It is stopped first, whether
+   * `chromes.json` lists it or only the profile's lock names it. Chrome's `Singleton*` files name the host and pid that
+   * holds a profile; restored onto another computer they make Chrome exit with 21 (in use elsewhere), so they go too.
+   * True when a Chrome was stopped.
    */
-  private async clearStaleLock(profile: string) {
-    await this.killLeftovers(profile);
+  private async clearStaleLock(profile: string): Promise<boolean> {
+    const listed = await this.killLeftovers(profile);
+    const locked = await this.killLockHolder(profile);
     await Promise.all(
       ["SingletonLock", "SingletonCookie", "SingletonSocket"].map((f) => rm(path.join(profile, f), { force: true })),
     );
+    return listed || locked;
+  }
+
+  /** The Chrome the profile's `SingletonLock` (a link to `<host>-<pid>`) names, stopped when it still runs on it. */
+  private async killLockHolder(profile: string): Promise<boolean> {
+    const target = await readlink(path.join(profile, "SingletonLock")).catch(() => "");
+    const pid = Number(/-(\d+)$/.exec(target)?.[1]);
+    if (!Number.isInteger(pid) || pid <= 0 || this.livePids().has(pid)) return false;
+    if (!(await this.isOurChrome(pid, profile).catch(() => false))) return false;
+    await stopPid(pid);
+    return true;
+  }
+
+  private livePids() {
+    return new Set([...this.sessions.values()].map((s) => s.chrome?.pid).filter((p) => p !== undefined));
   }
 
   /** A browser profile's folder: under the runner's home, outside every agent's folder. */
@@ -3020,26 +3112,18 @@ export class BrowserManager {
   }
 
   /** Chromes a previous run of this runner home left (it crashed or was killed), or only `on` that profile: stopped. */
-  private async killLeftovers(on?: string) {
-    const live = new Set([...this.sessions.values()].map((s) => s.chrome?.pid).filter((p) => p !== undefined));
+  private async killLeftovers(on?: string): Promise<boolean> {
+    const live = this.livePids();
+    let stopped = false;
     for (const { pid, profile } of await this.readPids()) {
       if (live.has(pid) || (on !== undefined && profile !== on)) continue;
       if (await this.isOurChrome(pid, profile).catch(() => false)) {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {
-          // gone
-        }
-        await new Promise((r) => setTimeout(r, 500));
-        try {
-          process.kill(pid, 0);
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // gone
-        }
+        await stopPid(pid);
+        stopped = true;
       }
       await this.forgetChrome(pid);
     }
+    return stopped;
   }
 
   private enqueue<T>(session: Session, fn: () => Promise<T>): Promise<T> {
@@ -3122,6 +3206,80 @@ export class BrowserManager {
     const open = status.success && isRecord(status.data) && status.data.connected === true;
     session.aliveAt = open ? this.now() : null;
     return open;
+  }
+
+  /** The agent's tabs for its answer, tidied first (`tidyTabs`), with what was closed since it last heard. */
+  private async tabsNow(session: Session, close: TabsClosing = "all"): Promise<{ tabs?: BrowserTabs }> {
+    const tabs = await this.tidyTabs(session, close).catch(() => undefined);
+    if (!tabs) return {};
+    const closed = session.tabsClosed ?? [];
+    session.tabsClosed = undefined;
+    return { tabs: { ...tabs, ...(closed.length > 0 ? { closed } : {}) } };
+  }
+
+  /**
+   * The agent's tabs, most recently used first, after closing its empty tabs (start pages, blank ones) and, past
+   * `BROWSER_TABS_KEPT`, its least recently used ones; `idle` (a kept browser nobody used for a while): its empty tabs
+   * and the older copies of a page open twice, never more; `none`: only listed. Never closed: the tab its commands act on (every tab on that
+   * page, as which of them is its own isn't known), popups and the tabs a person opened (`keptTabs`), the tab shown to
+   * someone watching, and nothing at all while a person's turn is open (a sign-in may be under way). What closed goes
+   * in `tabsClosed`. Undefined when Chrome can't be asked, or without its DevTools connection (popups unknown).
+   */
+  private async tidyTabs(session: Session, close: TabsClosing): Promise<Omit<BrowserTabs, "closed"> | undefined> {
+    const chrome = session.chrome;
+    if (!chrome || !this.counters.has(chrome)) return undefined;
+    const call = (p: string) =>
+      (this.opts.fetch ?? fetch)(`http://127.0.0.1:${chrome.port}/json/${p}`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(QUICK_TIMEOUT_MS),
+      });
+    const listed = (await (await call("list")).json()) as unknown;
+    if (!Array.isArray(listed)) return undefined;
+    // Chrome lists its targets most recently active first.
+    const pages = listed.filter(
+      (t): t is { id: string; url: string; title?: unknown } =>
+        isRecord(t) && t.type === "page" && typeof t.id === "string" && typeof t.url === "string",
+    );
+    const current = pages.length > 1 ? await this.pageUrl(session, undefined, true) : (pages[0]?.url ?? null);
+    const shown = this.watched(session) ? pages[0]?.id : undefined;
+    const closable = (p: (typeof pages)[number]) =>
+      close !== "none" &&
+      current !== null &&
+      !this.personsTurn(session.agentId) &&
+      p.url !== current &&
+      p.id !== shown &&
+      p.url !== session.stream?.url &&
+      !session.keptTabs?.has(p.id);
+    const closing = new Set(pages.filter((p) => isEmptyTab(p.url) && closable(p)).map((p) => p.id));
+    if (close === "idle") {
+      const seen = new Set<string>();
+      for (const p of pages) {
+        if (seen.has(p.url) && closable(p)) closing.add(p.id);
+        seen.add(p.url);
+      }
+    } else if (close === "all") {
+      for (const p of [...pages].reverse()) {
+        if (pages.length - closing.size <= BROWSER_TABS_KEPT) break;
+        if (closable(p)) closing.add(p.id);
+      }
+    }
+    const closed = new Set<string>();
+    for (const p of pages) {
+      if (!closing.has(p.id)) continue;
+      if (!(await call(`close/${encodeURIComponent(p.id)}`).catch(() => null))?.ok) continue;
+      closed.add(p.id);
+      session.tabsClosed = [...(session.tabsClosed ?? []), tabLabel(p.url)];
+    }
+    const open = pages.filter((p) => !closed.has(p.id));
+    const own = open.findIndex((p) => p.url === current);
+    return {
+      count: open.length,
+      open: open.slice(0, BROWSER_TABS_LISTED).map((p, i) => ({
+        title: typeof p.title === "string" ? p.title.slice(0, BROWSER_LIMITS.title) : "",
+        host: tabLabel(p.url),
+        ...(i === own ? { current: true } : {}),
+      })),
+    };
   }
 
   /** The active tab's address, or null when the browser can't say. */

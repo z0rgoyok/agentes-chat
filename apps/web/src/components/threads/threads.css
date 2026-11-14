@@ -290,6 +290,11 @@ html:not([data-pointer]) .pins-pop__item:has(> .thread-pop__row:focus-visible) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* What two agents' conversation is about: its own line over the meta, wrapped whole (the meta never wraps). */
+.thread-head__subject {
+  display: block;
+  overflow-wrap: anywhere;
+}
 /* A phone: the back and the actions keep the top row, and the faces, the title and its line take the row under it,
    whole. Beside the back and three actions the line had 42px at 320 and cut its replies and time. */
 @media (max-width: 760px) {

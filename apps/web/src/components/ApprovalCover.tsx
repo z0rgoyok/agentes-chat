@@ -8,6 +8,7 @@ import {
   useSetRightHandApprovals,
 } from "@agenteschat/client";
 import { coveringLine } from "@agenteschat/client/lib/approval-words";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { endOfDay, toYmd } from "@agenteschat/client/lib/format";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import {
@@ -20,6 +21,7 @@ import {
   Checkbox,
   DatePicker,
   InfoHint,
+  overLimit,
   Select,
   Switch,
   Textarea,
@@ -33,6 +35,7 @@ import { PrefRow } from "@/components/NoticePrefs";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { usePersonalView } from "@/hooks/usePersonalView";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { useToast } from "@/lib/toast";
 
 /** "Ninguém" in the person list (Radix lists take no empty value). */
@@ -286,6 +289,7 @@ function RightHandCard({ view, name }: { view: RightHandApprovals; name: string 
   const set = useSetRightHandApprovals(org.id);
   const [budget, setBudget] = useState<string | null>(null);
   const [guidance, setGuidance] = useState<string | null>(null);
+  const guidanceLimit = useTextLimit(FIELD_LIMITS.rightHandGuidance);
   const save = (patch: RightHandApprovalsInput) =>
     set.mutate(patch, { onError: () => toast.show(t("approvalCover.failed"), "error") });
   const title = t("rightHandApprovals.title", { name });
@@ -298,7 +302,8 @@ function RightHandCard({ view, name }: { view: RightHandApprovals; name: string 
     if (nano !== view.budgetCapNanoUsd) save({ budgetCapNanoUsd: nano });
   };
   const saveGuidance = () => {
-    if (guidance === null) return;
+    // Past its limit it stays as typed, the line under it saying so: nothing is saved cut.
+    if (guidance === null || overLimit(guidance, guidanceLimit)) return;
     setGuidance(null);
     if (guidance.trim() !== view.guidance) save({ guidance: guidance.trim() });
   };
@@ -380,7 +385,7 @@ function RightHandCard({ view, name }: { view: RightHandApprovals; name: string 
             <Textarea
               id="rh-guidance"
               rows={3}
-              maxLength={2000}
+              limit={guidanceLimit}
               value={guidance ?? view.guidance}
               onChange={(e) => setGuidance(e.target.value)}
               onBlur={saveGuidance}

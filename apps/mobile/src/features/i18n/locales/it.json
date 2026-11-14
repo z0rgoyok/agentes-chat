@@ -56,7 +56,8 @@
     "closed": "{{title}} · chiuso",
     "reopen": "Mostra di nuovo",
     "answeredBy": "{{name}} ha scelto",
-    "failed": "La tua scelta non è stata inviata. Riprova."
+    "failed": "La tua scelta non è stata inviata. Riprova.",
+    "tooLongFix": "Accorcia la risposta."
   },
   "chart": {
     "table": "Tabella",
@@ -2075,8 +2076,21 @@
         "stopped": "{{name}} non è più usato via Wi-Fi"
       },
       "stall": {
-        "plug": "{{host}} non vede ancora questo iPhone. Usa un cavo che trasmette dati, non solo ricarica, tieni questo iPhone sbloccato e tocca Autorizza se lo chiede.",
-        "devmode": "La Modalità sviluppatore si attiva solo dopo il riavvio di questo iPhone. Tocca Riavvia, poi Attiva quando si riaccende. Nessun interruttore? Scollega questo iPhone e ricollegalo."
+        "plug": "{{host}} non vede ancora questo iPhone. Usa un cavo che trasmette dati, non solo ricarica, tieni questo iPhone sbloccato e tocca Autorizza se lo chiede."
+      },
+      "devMode": {
+        "restarting": "{{host}} non vede ancora questo iPhone dopo il riavvio. Lascialo collegato.",
+        "back": "Tocca Attiva nell'avviso su questo iPhone e inserisci il codice.",
+        "check": "L'ho attivata, controlla di nuovo",
+        "stillOff": "{{host}} vede ancora la modalità sviluppatore disattivata.",
+        "missing": "Non vedi l'opzione?",
+        "hidden": "Questo iPhone nasconde l'opzione finché Xcode non chiede di mostrarla.",
+        "hiddenOpen": "Questo iPhone nasconde l'opzione finché Xcode non chiede di mostrarla. Apri Xcode su {{host}} con questo iPhone collegato.",
+        "openXcode": "Apri Xcode",
+        "opened": "Xcode si è aperto su {{host}}. Guarda di nuovo in Impostazioni, poi chiudi Xcode lì.",
+        "unlock": "L'hai attivata e si è riavviato? L'avviso con Attiva compare quando questo iPhone è sbloccato.",
+        "checkAgain": "Controlla di nuovo",
+        "outdated": "L'app agentes.chat su {{host}} non è aggiornata. Aggiornala su quel Mac."
       }
     },
     "notice": {

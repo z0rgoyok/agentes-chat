@@ -56,6 +56,7 @@ import {
   listWorkingRuns,
   loadAgentStatuses,
   MAX_COMPUTER_DROPS,
+  MAX_EARLY_COMPUTER_DROPS,
   type MachineStatus,
   notePlanLimit,
   OUTAGE_PARK,
@@ -1599,6 +1600,13 @@ test("the agent's account and effort apply to its own brain; signed out or an ol
   // Another brain (a mission's choice): neither applies; an account of another kind is no account.
   expect(brainEffortFor(agent, "codex")).toBeUndefined();
   expect(brainEffortFor(agent, "claude_code")).toBe("low");
+  // On a key the effort holds too; a computer brain's fallback to the API sends none.
+  expect(brainEffortFor({ brain: "model", brainEffort: "high" }, "model")).toBe("high");
+  expect(brainEffortFor(agent, "model")).toBeUndefined();
+  expect(await resolveBrain({ db: f.db }, { ...agent, brain: "model" }, run, question.id)).toEqual({
+    kind: "model",
+    effort: "low",
+  });
   const codex = await resolveBrain({ db: f.db }, { ...agent, brain: "codex" }, run, question.id);
   expect(codex.account).toBeUndefined();
   // Signed out: the plan says so before the computer is asked.
@@ -2334,6 +2342,92 @@ test("drops caused by our own server stopping aren't the computer's: the turn re
   );
 });
 
+const offline = {
+  type: "error",
+  code: "machine_offline",
+  message: "The computer MacBook is offline.",
+  retryable: true,
+} as const;
+
+test("drops before the turn said or did anything don't use up the limit: the run goes on past it", async () => {
+  f = await setup();
+  await computerAgent(f);
+  const { brain, seen } = scriptedComputerBrain((n) =>
+    n <= MAX_COMPUTER_DROPS ? [offline] : [{ type: "done", text: "Pronto." }],
+  );
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev oi");
+  await drainOutbox(f.db, handlers);
+  expect((await f.db.select().from(schema.agentRuns))[0]?.status).toBe("done");
+  expect(seen.length).toBe(MAX_COMPUTER_DROPS + 2);
+  expect((await timeline(f)).map((m) => m.body)).toEqual(["@dev oi", "Pronto."]);
+});
+
+test("drops after the turn ran something still count: past the limit the run ends on what it did", async () => {
+  f = await setup();
+  await computerAgent(f);
+  const { brain, seen } = scriptedComputerBrain(async function* (n) {
+    yield {
+      type: "tool_call",
+      id: `b-${n}`,
+      name: "Bash",
+      input: { command: `step ${n}` },
+      executed: { content: "ok" },
+    };
+    yield offline;
+  });
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev publica");
+  await drainOutbox(f.db, handlers);
+  expect(seen.length).toBe(MAX_COMPUTER_DROPS + 1);
+  expect((await timeline(f)).at(-1)?.meta.brainInterrupted).toMatchObject({ code: "machine_offline" });
+});
+
+test("a computer that keeps dropping every turn before it starts: the run ends after the early drops' limit", async () => {
+  f = await setup();
+  await computerAgent(f);
+  // No key the API could answer with: nothing can stand in.
+  await f.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
+  const { brain, seen } = scriptedComputerBrain(() => [offline]);
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev oi");
+  await drainOutbox(f.db, handlers);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  expect(run?.status).toBe("failed");
+  expect(run?.error).toStartWith("brain_unavailable:");
+  expect(seen.length).toBe(MAX_EARLY_COMPUTER_DROPS + 1);
+});
+
+test("past the early drops' limit, the model brain stands in where it may", async () => {
+  f = await setup({ reply: () => ({ chunks: ["Respondi pela API."] }) });
+  await computerAgent(f);
+  const { brain, seen } = scriptedComputerBrain(() => [offline]);
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev oi");
+  await drainOutbox(f.db, handlers);
+  expect((await f.db.select().from(schema.agentRuns))[0]?.status).toBe("done");
+  expect(seen.length).toBe(MAX_EARLY_COMPUTER_DROPS + 1);
+  const reply = (await timeline(f)).at(-1);
+  expect(reply?.body).toBe("Respondi pela API.");
+  expect(reply?.meta.brainFallback).toMatchObject({ from: "claude_code", code: "machine_offline" });
+});
+
 test("a message to a run parked for its computer: looked at again now; resumes with it, or parks again quietly", async () => {
   f = await setup();
   const machineId = await computerAgent(f);
@@ -3016,6 +3110,97 @@ test("a CLI that refuses to start on its computer fails the run at once with wha
     (j) => j.kind === "agent_run.execute" && j.status === "pending",
   );
   expect(pending).toEqual([]);
+});
+
+test("a CLI whose sandbox can't start fails the run at once with that cause, whether the runner calls it retryable or not", async () => {
+  const said =
+    "Grok Build exited with code 1: bwrap: Can't mkdir parents for /var/lib/agentes-runner-agents/accounts: Permission denied";
+  for (const retryable of [true, undefined]) {
+    if (retryable === undefined) await f.close();
+    f = await setup();
+    await computerAgent(f, { brainFallback: false });
+    const { brain, seen } = scriptedComputerBrain(() => [
+      { type: "error", code: "grok_failed", message: said, ...(retryable ? { retryable } : {}) },
+    ]);
+    const handlers = createJobHandlers({
+      ...f.jobDeps,
+      brains: { claude_code: () => brain },
+      machines: { status: async (id) => statusOf(id) },
+    });
+    await post(f, "@dev roda os testes");
+    await drainOutbox(f.db, handlers);
+    await runJobsDue(f);
+    await drainOutbox(f.db, handlers);
+
+    expect(seen.length).toBe(1);
+    const [run] = await f.db.select().from(schema.agentRuns);
+    expect([retryable, run?.status, run?.error]).toEqual([retryable, "failed", "cli_sandbox: Grok Build"]);
+    const pending = (await f.db.select().from(schema.outbox)).filter(
+      (j) => j.kind === "agent_run.execute" && j.status === "pending",
+    );
+    expect(pending).toEqual([]);
+  }
+});
+
+test("woken before its resume, a run parked on its CLI's failure keeps one resume; a sign-in that never answered isn't woken by its computer", async () => {
+  f = await setup();
+  const machineId = await computerAgent(f, { brainFallback: false });
+  const { brain, seen } = scriptedComputerBrain((): BrainEvent[] => [
+    {
+      type: "error",
+      code: "grok_failed",
+      message: "Grok Build exited with code 1: error: connection reset by peer",
+      retryable: true,
+    },
+  ]);
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  const runRow = async () => (await f.db.select().from(schema.agentRuns))[0];
+  const parked = async () => ((await runRow())?.transcript as { outage?: { n: number } } | null)?.outage?.n ?? 0;
+  const resumes = async () =>
+    (await f.db.select().from(schema.outbox)).filter(
+      (j) => j.status === "pending" && j.dedupeKey?.includes(":outage:"),
+    );
+  await post(f, "@dev roda os testes");
+  await drainOutbox(f.db, handlers);
+  for (let i = 0; i < 8 && (await parked()) === 0; i++) {
+    await runJobsDue(f);
+    await drainOutbox(f.db, handlers);
+  }
+  expect(await parked()).toBe(1);
+  expect(await resumes()).toHaveLength(1);
+  const run = await runRow();
+
+  // Its agent's sign-in never answered a turn: the computer coming back changes nothing, its own resume stays.
+  const account = crypto.randomUUID();
+  await f.db.insert(schema.machineAccounts).values({
+    id: account,
+    orgId: f.org.id,
+    machineId,
+    kind: "grok",
+    label: "Grok",
+    status: "active",
+    createdBy: f.owner.id,
+  });
+  await f.db.update(schema.agents).set({ brainAccountId: account }).where(eq(schema.agents.id, f.agent.id));
+  expect(await resumeRunsWaitingForMachine(f.db, machineId)).toEqual([]);
+
+  // One that answered before (a row from before every CLI kept `lastSuccessAt`: `lastUsedAt` alone): woken, it fails
+  // again and parks with one resume, the earlier one replaced.
+  await f.db
+    .update(schema.machineAccounts)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(schema.machineAccounts.id, account));
+  expect(await resumeRunsWaitingForMachine(f.db, machineId)).toEqual([run?.id ?? ""]);
+  await f.db.update(schema.agents).set({ brainAccountId: null }).where(eq(schema.agents.id, f.agent.id));
+  const tries = seen.length;
+  await drainOutbox(f.db, handlers);
+  expect(seen.length).toBe(tries + 1);
+  expect(await parked()).toBe(2);
+  expect(await resumes()).toHaveLength(1);
 });
 
 test("a failure that keeps coming back parks after its tries in a row, though waits for room hand it new jobs", async () => {

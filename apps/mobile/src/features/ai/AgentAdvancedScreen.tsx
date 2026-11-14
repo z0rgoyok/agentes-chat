@@ -4,9 +4,8 @@ import { signInPlan } from "@agenteschat/client/lib/ai-accounts";
 import { EVERYONE_AUDIENCE } from "@agenteschat/client/lib/audience";
 import {
   type Advanced,
-  advancedDefaults,
   advancedSummary,
-  effortLevel,
+  effortOf,
   isAdvancedDefault,
   SPEEDS,
   viewSpeedFits,
@@ -30,7 +29,7 @@ import { useColors, useDirectory } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedHeader } from "../shared/parts";
 import { EffortRamp, useBrainChoice, useEffortChoice } from "./EffortRamp";
-import { accountKindOf, agentAccounts } from "./logic";
+import { accountKindOf, advancedResetInput, agentAccounts } from "./logic";
 import { Note, PlanReplies } from "./parts";
 
 /*
@@ -49,7 +48,7 @@ export const openAgentAdvanced = (agentId: string) => router.push(`/agent-advanc
 export const advancedOf = (view: AgentBrain, options?: readonly ContextLimit[]): Advanced => {
   const tokens = isContextLimit(view.contextTokens) ? view.contextTokens : null;
   return {
-    effort: effortLevel(view.effort),
+    effort: effortOf(view.brain, view.effort),
     speed: viewSpeedFits(view) ? view.speed : "standard",
     contextTokens: tokens !== null && (!options || options.includes(tokens)) ? tokens : null,
     onlyOwner: view.onlyOwner,
@@ -125,18 +124,7 @@ export function AgentAdvancedScreen({ agentId }: { agentId: string }) {
   };
   const putBack = () => {
     if (!view || !now) return;
-    const to = advancedDefaults(view.brain, now);
-    void save({
-      contextTokens: to.contextTokens,
-      ...(view.brain === "model"
-        ? {}
-        : {
-            ...(autoModel ? {} : { effort: to.effort }),
-            ...(to.speed !== now.speed ? { speed: to.speed } : {}),
-            ...(to.onlyOwner !== view.onlyOwner ? { onlyOwner: to.onlyOwner } : {}),
-            fallback: to.fallback,
-          }),
-    });
+    void save(advancedResetInput(view, now, autoModel));
   };
 
   return (
@@ -152,16 +140,17 @@ export function AgentAdvancedScreen({ agentId }: { agentId: string }) {
           <Note icon="x">{t("common.loadFailed")}</Note>
         ) : (
           <>
-            {kind ? (
+            {kind || view.brain === "model" ? (
               <View style={styles.gap}>
                 <GroupedList>
                   {autoModel ? (
-                    // "Automático" picks the effort too: the row says so and leads to a model, which brings the ramp.
+                    // "Automático" picks the effort too: the row says so and, on a plan, leads to a model, which
+                    // brings the ramp (a key's model is chosen on its AI's screen).
                     <GroupedRow
                       label={t("agentPage.work.brain.effort")}
                       sub={t("agentPage.work.brain.effortText.auto")}
-                      chevron
-                      onPress={() => router.push(`/agent-model/${agentId}` as never)}
+                      chevron={kind !== null}
+                      onPress={kind ? () => router.push(`/agent-model/${agentId}` as never) : undefined}
                     />
                   ) : (
                     <View style={styles.ramp}>
@@ -169,6 +158,7 @@ export function AgentAdvancedScreen({ agentId }: { agentId: string }) {
                         value={effort.value}
                         onChange={effort.change}
                         color={agentLook(agent).color}
+                        kind={view.brain}
                         disabled={!view.canEdit}
                       />
                     </View>

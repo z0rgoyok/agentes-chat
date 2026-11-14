@@ -384,25 +384,67 @@
   padding-bottom: var(--dialog-pad);
 }
 
-/* Whom it is for: two cards side by side, the faces over the name. */
+/* Whom it is for (`AudienceCard`): two cards side by side and as tall as each other, the faces over the title. The
+   picked one is marked by its border, as an account row is: the kit's corner check would sit on the faces. */
 .arrival-for {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-auto-rows: 1fr;
+  gap: var(--space-2);
   margin-bottom: 6px;
 }
 .arrival-for .ac-option {
   flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+  gap: var(--space-2);
 }
-.arrival-for .ac-option__text {
-  min-width: 0;
+.arrival-for .ac-option[aria-pressed="true"] {
+  --pressed: inset 0 0 0 2px var(--ink);
 }
-.arrival-for .ac-option__desc {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.arrival-for .ac-option[aria-pressed="true"]::after {
+  content: none;
+}
+.arrival-for .ac-option[aria-pressed="true"] .ac-option__title {
+  padding-right: 0;
+}
+/* On a phone the halves are too narrow for a name: one card over the other, the faces before the title. */
+@media (max-width: 640px) {
+  .arrival-for {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .arrival-for .ac-option {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .arrival-for .ac-option > :first-child {
+    flex: none;
+  }
+}
+/* A title in parts ("Lumen · Tradutora") breaks between its parts, never beside the dot. Each part after the
+   first draws its dot in room taken back from the gap before it, so a part that starts a line puts its dot before
+   the title's start, where the clip hides it. */
+.arrival-for__title {
+  --sep: 0.8em;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--sep);
+  min-width: 0;
+  overflow-x: clip;
+}
+.arrival-for__title > * + * {
+  margin-inline-start: calc(-1 * var(--sep));
+  padding-inline-start: var(--sep);
+}
+.arrival-for__title > * + *::before {
+  content: "·";
+  display: inline-block;
+  width: var(--sep);
+  margin-inline-start: calc(-1 * var(--sep));
+  text-align: center;
+}
+/* The agents it is for, one per line. */
+.arrival-for__tip {
+  white-space: pre-line;
 }
 
 /* For the whole team (ADR 0160, addendum): one line says for whom (their faces, how many, the way to pick), then the

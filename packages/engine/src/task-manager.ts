@@ -1,5 +1,6 @@
 import { and, type Database, eq, inArray, rowsOf, schema, sql } from "@agenteschat/db";
 import { planOf as codingPlan, PLAN_IDS, planModel } from "@agenteschat/providers/plans";
+import { CONSULT_SUBJECT_CHARS, consultSubject } from "@agenteschat/ui/agent-talk";
 import {
   type AgentWorkState,
   agentsOnlyIn,
@@ -136,6 +137,11 @@ export interface ManagedTask {
   requester: { userId: string; name: string } | null;
   /** Another agent asked it, in their private conversation. */
   delegation: TaskDelegation | null;
+  /**
+   * What the latest agent to ask it asked, one line (`consultSubject`): what its row is called by. Null unless the caller
+   * reads where it was handed off (`delegation.from`): the question's words come from a conversation they may not read.
+   */
+  subject: string | null;
   /** What it asked of other agents and is still on or not started, all the way down: they stop with it in one action. */
   helpers: number;
   /** The brain it thinks with (`model`, `claude_code`, `codex`, `cursor`); null before its first turn. */
@@ -259,6 +265,7 @@ type Row = {
   requester_id: string | null;
   requester_name: string | null;
   asker_agent_id: string | null;
+  question: string | null;
   routine_id: string | null;
   routine_name: string | null;
   work_title: string | null;
@@ -349,6 +356,7 @@ async function visibleRuns(
         array_to_json(r.pending_message_ids) as pending, r.background, r.brain,
         a.owner_user_id, a.machine_id, mc.name as machine_name,
         trig.author_user_id as requester_id, ru.name as requester_name, trig.author_agent_id as asker_agent_id,
+        ${which.active ? sql`consult.question` : sql`null`} as question,
         rt.id as routine_id, rt.name as routine_name, w.title as work_title, w.plan as work_plan,
         last.data as last_data, last.created_at as last_at,
         (select count(*) from ${agentRunSteps} s where s.run_id = r.id and s.kind = 'tool_call') as steps,
@@ -373,6 +381,15 @@ async function visibleRuns(
         where m.org_id = ${orgId}::uuid and m.id = r.trigger_message_id
         limit 1
       ) trig on true
+      ${
+        which.active
+          ? sql`left join lateral (
+        select left(ac.question, ${CONSULT_SUBJECT_CHARS * 8}::int) as question from ${agentConsultations} ac
+        where ac.org_id = ${orgId}::uuid and ac.target_run_id = r.id
+        order by ac.created_at desc limit 1
+      ) consult on true`
+          : sql``
+      }
       left join ${users} ru on ru.id = trig.author_user_id
       left join ${users} su on r.error like 'canceled_by:%' and su.id = substring(r.error from 13)
       left join ${routineRuns} rr on rr.org_id = ${orgId}::uuid and rr.agent_run_id = r.id
@@ -651,6 +668,7 @@ export async function taskManager(
     plan: planOf(r.work_plan),
     requester: r.requester_id ? { userId: r.requester_id, name: r.requester_name ?? "" } : null,
     delegation: delegations.get(r.id) ?? null,
+    subject: delegations.get(r.id)?.from ? consultSubject(r.question) || null : null,
     helpers: [...runsBelow(edges, r.id)].filter((id) => on.has(id)).length,
     brain: r.brain,
     machine: r.machine_id ? { id: r.machine_id, name: r.machine_name ?? "" } : null,

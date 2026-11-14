@@ -81,14 +81,14 @@ describe("a personal workspace's settings list", () => {
     await click(within(nav()).getByRole("button", { name: "Avançado" }));
     expect(within(nav()).getByRole("button", { name: "Avançado" }).getAttribute("aria-expanded")).toBe("true");
     const all = rows();
-    for (const name of ["Pessoas", "Auditoria", "Armazenamento"]) {
+    for (const name of ["Pessoas", "Cargos", "Auditoria", "Armazenamento"]) {
       expect(all).toContain(name);
       expect(all.indexOf(name)).toBeGreaterThan(all.indexOf("Avançado"));
     }
     expect(all.filter((name) => name === "Conectores e MCPs")).toHaveLength(1);
     expect(all.indexOf("Conectores e MCPs")).toBeLessThan(all.indexOf("Avançado"));
-    // Notifications are a tab of Your account, Skills of Connectors, Roles of People: not listed again.
-    for (const name of ["Notificações", "Skills", "Cargos"]) expect(all).not.toContain(name);
+    // Notifications are a tab of Your account, Skills of Connectors: not listed again.
+    for (const name of ["Notificações", "Skills"]) expect(all).not.toContain(name);
     cleanup();
     await go(alone(), "settings/skills");
     expect(marked()).toBe("Conectores e MCPs");
@@ -102,9 +102,9 @@ describe("a personal workspace's settings list", () => {
     expect(within(nav()).getByRole("button", { name: "Avançado" }).getAttribute("aria-expanded")).toBe("true");
     expect(marked()).toBe("Auditoria");
     cleanup();
-    // Roles is on People's page, alone under Advanced or in the list with someone else here.
+    // Cargos is a section of its own (ADR 0085 addendum of 2026-11-13), under Advanced in a personal workspace.
     await go(personal(), "settings/roles");
-    expect(marked()).toBe("Pessoas");
+    expect(marked()).toBe("Cargos");
   });
 
   test("the old address of AI accounts opens AI and usage, where the accounts and the keys are", async () => {

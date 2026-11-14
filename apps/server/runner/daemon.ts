@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { GROK_ACCOUNT_HOMES } from "@agenteschat/adapters/command-policy";
 import {
   cgroupCounters,
   diskFigures,
@@ -61,7 +62,7 @@ import {
 } from "./access";
 import { AccountBrains } from "./account-brains";
 import { accountSelfCheck, SELF_CHECK_EVERY_MS, SELF_CHECK_RETRY_MS } from "./account-check";
-import { AccountManager, lchownTree, SYSTEM_ACCOUNTS_ROOT } from "./accounts";
+import { AccountManager, grokSandboxFails, lchownTree, SYSTEM_ACCOUNTS_ROOT } from "./accounts";
 import { ActivityLog } from "./activity";
 import {
   AccountUsers,
@@ -374,11 +375,12 @@ export interface DaemonOptions {
   /** Tests (system mode): how agents' users are found and their workers started. */
   workers?: Pick<SupervisorOptions, "user" | "start">;
   /**
-   * Tests (system mode): where the account folders are, how one is handed to an agent's user, and what goes before
-   * root's Claude CLIs (none when left out).
+   * Tests (system mode): where the account folders are (Grok Build's under `root` too unless `grokRoot`), how one is
+   * handed to an agent's user, and what goes before root's Claude CLIs (none when left out).
    */
   systemAccounts?: {
     root: string;
+    grokRoot?: string;
     chown: (file: string, uid: number, gid: number) => Promise<void>;
     authEgress?: () => string[] | null;
   };
@@ -515,7 +517,12 @@ export class RunnerDaemon implements RequestObserver {
         ...(opts.executorRun ? { run: opts.executorRun } : {}),
         onChange: () => this.executorsChanged(),
       });
-    this.executors = () => exec() ?? {};
+    // Grok Build's models as an account signed in here lists them: the computer's own `grok models` is signed out.
+    this.executors = () => {
+      const found = exec() ?? {};
+      const models = this.accounts?.grokModels();
+      return found.grok && models ? { ...found, grok: { ...found.grok, models } } : found;
+    };
     this.executorsKnown = () => !("known" in exec) || exec.known === true;
     this.executorsFresh = (exec as { fresh?: () => Promise<unknown> }).fresh ?? (async () => this.executors());
     // System mode is set at install and kept through pairings: account folders are lent to agents' users.
@@ -526,13 +533,22 @@ export class RunnerDaemon implements RequestObserver {
       // an unreadable config starts unpaired
     }
     const lent = system
-      ? (opts.systemAccounts ?? { root: SYSTEM_ACCOUNTS_ROOT, chown: lchownTree, authEgress: () => authEgressPrefix() })
+      ? (opts.systemAccounts ?? {
+          root: SYSTEM_ACCOUNTS_ROOT,
+          grokRoot: GROK_ACCOUNT_HOMES,
+          chown: lchownTree,
+          authEgress: () => authEgressPrefix(),
+        })
       : null;
     const accountUsers = system ? (opts.accountUsers ?? new AccountUsers({ home: opts.home, log: opts.log })) : null;
     this.accountUsers = accountUsers;
     this.accounts = new AccountManager({
       root: lent?.root ?? path.join(opts.home, "accounts"),
       ...(lent ? { lending: { chown: lent.chown } } : {}),
+      ...(lent?.grokRoot ? { grokRoot: lent.grokRoot } : {}),
+      ...(lent && !opts.systemAccounts && process.platform === "linux"
+        ? { grokSandbox: (dir: string) => grokSandboxFails(dir) }
+        : {}),
       ...(lent?.authEgress ? { authEgress: lent.authEgress } : {}),
       ...(accountUsers
         ? {
@@ -551,6 +567,8 @@ export class RunnerDaemon implements RequestObserver {
         // The server learns at once (a sign-in or removal from the desktop app, a status or usage that changed).
         const accounts = this.accounts.snapshot();
         if (accounts) this.send({ type: "accounts.changed", accounts, ...this.ownUsage() });
+        // Grok Build's models come from its accounts' looks.
+        this.executorsChanged();
         // One removed: its agents' workers close what still runs with it.
         this.session?.supervisor?.stateChanged();
       },
@@ -1500,6 +1518,7 @@ export class RunnerDaemon implements RequestObserver {
       ...(this.phones ? { phones: this.phones } : {}),
       ...(this.holds && agentUser ? { keep: this.keepOps(this.holds, agentUser) } : {}),
       xcodeFix: (req) => this.xcodeFixer().handle(req),
+      xcodeOpen: () => this.iphoneSetup().open("xcode"),
     };
     // `hello` lists the accounts it already knows; a fresh look (each runs its CLI) never delays connecting:
     // it lands in `hello` if it finishes first, else comes after as `accounts.changed`. Nothing reaches the
@@ -2201,6 +2220,11 @@ export class RunnerDaemon implements RequestObserver {
     const out = await s.browser.stop({ id: agentId, handle: agent?.handle ?? "agent" });
     this.browsersChanged();
     return out;
+  }
+
+  /** The desktop app's iPhone setup asking to look at the iPhone again now (`phone.look`). */
+  async iphoneLook(): Promise<{ looking: boolean }> {
+    return { looking: (await this.phones?.look()) ?? false };
   }
 
   /** The desktop app's iPhone setup: what the Mac has, a download of the iOS platform, Xcode opened. */

@@ -52,7 +52,8 @@
     "closed": "{{title}} · 닫힘",
     "reopen": "다시 보기",
     "answeredBy": "{{name}}이(가) 선택함",
-    "failed": "선택이 전송되지 않았어요. 다시 시도해 주세요."
+    "failed": "선택이 전송되지 않았어요. 다시 시도해 주세요.",
+    "tooLongFix": "답변을 줄여 주세요."
   },
   "chart": {
     "table": "표",
@@ -1884,8 +1885,21 @@
         "stopped": "{{name}}을(를) 더 이상 Wi-Fi로 사용하지 않아요"
       },
       "stall": {
-        "plug": "{{host}}이(가) 아직 이 iPhone을 인식하지 못해요. 충전 전용이 아닌 데이터 케이블을 쓰고, 이 iPhone 잠금을 해제해 둔 채 요청하면 신뢰를 탭하세요.",
-        "devmode": "개발자 모드는 이 iPhone을 재시동한 뒤에만 켜져요. 재시동을 탭하고 다시 켜지면 켜기를 탭하세요. 스위치가 없나요? 이 iPhone을 뽑았다가 다시 연결하세요."
+        "plug": "{{host}}이(가) 아직 이 iPhone을 인식하지 못해요. 충전 전용이 아닌 데이터 케이블을 쓰고, 이 iPhone 잠금을 해제해 둔 채 요청하면 신뢰를 탭하세요."
+      },
+      "devMode": {
+        "restarting": "재시동 후 {{host}}가 아직 이 iPhone을 다시 보지 못해요. 연결한 채로 두세요.",
+        "back": "이 iPhone의 알림에서 켜기를 탭하고 암호를 입력하세요.",
+        "check": "켰어요, 다시 확인",
+        "stillOff": "{{host}}에서는 아직 개발자 모드가 꺼져 있어요.",
+        "missing": "항목이 보이지 않나요?",
+        "hidden": "이 iPhone은 Xcode가 보여 달라고 할 때까지 이 항목을 숨겨요.",
+        "hiddenOpen": "이 iPhone은 Xcode가 보여 달라고 할 때까지 이 항목을 숨겨요. 이 iPhone을 연결한 채로 {{host}}에서 Xcode를 여세요.",
+        "openXcode": "Xcode 열기",
+        "opened": "{{host}}에서 Xcode가 열렸어요. 설정을 다시 확인하고 나중에 그 Mac의 Xcode를 닫으세요.",
+        "unlock": "켰고 재시동됐나요? 켜기 알림은 이 iPhone의 잠금을 해제하면 나타나요.",
+        "checkAgain": "다시 확인",
+        "outdated": "{{host}}의 agentes.chat 앱이 오래됐어요. 그 Mac에서 업데이트하세요."
       }
     },
     "notice": {

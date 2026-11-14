@@ -529,6 +529,17 @@ a.dv-row__detail {
 .dv-slow__list .dv-links {
   margin-top: var(--space-1);
 }
+/* A cause's one line of words, and its bullet, stand on the middle of the small button beside it, as a dialog's title does. */
+.dv-slow__list .ac-actline > :first-child:not(:only-child) {
+  padding-block: calc((var(--control-h-sm) - 18px) / 2);
+}
+.dv-slow__list > li:has(> .ac-actline > :nth-child(2))::before {
+  top: calc((var(--control-h-sm) - 18px) / 2);
+}
+/* A cause's command under its action line, 8 below as the line's own rows stand. */
+.dv-slow__list .machine-command {
+  margin-top: var(--space-2);
+}
 
 /* A tiny drawing of the phone's own setting row, in the app's look: the row to find is ringed, with a
    tap count or the switch's state. Decorative: the step's words say the same thing. */

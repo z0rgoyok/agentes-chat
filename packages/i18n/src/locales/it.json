@@ -24,6 +24,7 @@
     "retry": "Riprova",
     "soon": "In arrivo",
     "unknownError": "Qualcosa è andato storto. Riprova.",
+    "overLimit": "Il testo ha {{length}} caratteri e il limite è {{max}}. Accorcialo.",
     "ourSide": "Qualcosa è andato storto da parte nostra. Riprova tra poco.",
     "signedOut": "La sessione è scaduta. Accedi di nuovo per continuare.",
     "newVersion": "È disponibile una nuova versione di agentes.chat.",
@@ -66,7 +67,7 @@
     "create": "Crea ruolo",
     "base": "Base",
     "everyoneName": "Tutti",
-    "orderHint": "L'ordine conta: chi sta più in alto gestisce i ruoli e le persone sotto.",
+    "orderHint": "Chi sta più in alto gestisce i ruoli e le persone sotto. Il colore del nome di ogni persona viene dal suo ruolo più alto. Trascina per cambiare l'ordine.",
     "reorder": "Riordina",
     "reorderDone": "Fatto",
     "moveUp": "Sposta {{name}} in su",
@@ -109,6 +110,26 @@
         "none": "Nessuno vede né usa i computer o i browser degli agenti, né le richieste di accesso",
         "browser": "Il browser dei propri agenti e le richieste di accesso fatte alla persona, mai lo schermo intero",
         "full": "Lo schermo intero e il terminale dei propri agenti e dei computer che la persona ha collegato"
+      },
+      "steps": {
+        "off": "Nessun accesso",
+        "ownBrowser": "Browser dei propri agenti",
+        "ownComputer": "Computer dei propri agenti",
+        "anyBrowser": "Browser di qualsiasi agente",
+        "anyComputer": "Computer di qualsiasi agente"
+      },
+      "short": {
+        "browser": "Browser",
+        "computer": "Computer"
+      },
+      "groupOwn": "Propri agenti",
+      "groupAny": "Qualsiasi agente",
+      "hint": "Browser: il browser e le richieste di accesso. Computer: anche lo schermo intero e il terminale. Propri agenti: quelli di cui la persona è responsabile e i computer che ha collegato.",
+      "with": {
+        "ownBrowser": "il browser dei propri agenti",
+        "ownComputer": "il computer dei propri agenti",
+        "anyBrowser": "il browser di qualsiasi agente",
+        "anyComputer": "il computer di qualsiasi agente"
       }
     },
     "everyoneNote": "Vale per ogni persona dello spazio di lavoro. Gli altri ruoli possono solo aggiungere.",
@@ -148,10 +169,10 @@
     "name": "Nome",
     "nameDesc": "Come lo vedono tutti.",
     "color": "Colore",
-    "colorDesc": "Colora il segno del ruolo.",
+    "colorDesc": "Colora il simbolo del ruolo e il nome di chi lo ha come ruolo più alto.",
     "colorOf": "Colore {{color}}",
     "hoist": "Mostra a parte nell'elenco dei membri",
-    "hoistDesc": "Chi ha questo ruolo ha un gruppo tutto suo nella colonna dei membri.",
+    "hoistDesc": "Chi ha questo ruolo compare in un gruppo a parte nella colonna dei membri. Gli agenti restano nel loro.",
     "icon": "Icona",
     "iconDesc": "Appare accanto al nome.",
     "more": "Altre opzioni",
@@ -170,7 +191,7 @@
     },
     "newTitle": "Crea ruolo",
     "newSub": "Puoi cambiare tutto in seguito.",
-    "namePlaceholder": "Es. Moderatori",
+    "namePlaceholder": "Es.: Supporto",
     "startFrom": "Parti da",
     "templates": {
       "blank": "Niente",
@@ -196,7 +217,147 @@
     "added_other": "{{count}} persone con {{name}}",
     "rolesOf": "Ruoli di {{name}}",
     "rolesCta": "Ruoli",
-    "aboveYou": "Sopra il tuo ruolo"
+    "aboveYou": "Sopra il tuo ruolo",
+    "search": "Cerca ruolo",
+    "noneYet": "Ancora nessun ruolo. Creane uno per dare di più ad alcune persone.",
+    "noMatch": "Nessun ruolo con “{{q}}”.",
+    "full": "Questo spazio di lavoro ha già {{max}} ruoli. Eliminane uno per crearne un altro.",
+    "loadError": "Non è stato possibile caricare i ruoli. {{cause}}",
+    "move": "Sposta {{name}}",
+    "moveHint": "Trascinalo, oppure usa la barra spaziatrice e le frecce.",
+    "reach": {
+      "permissions_one": "+{{count}} permesso",
+      "permissions_many": "+{{count}} permessi",
+      "permissions_other": "+{{count}} permessi",
+      "channels_one": "+{{count}} canale",
+      "channels_many": "+{{count}} canali",
+      "channels_other": "+{{count}} canali",
+      "agents_one": "+{{count}} agente",
+      "agents_many": "+{{count}} agenti",
+      "agents_other": "+{{count}} agenti",
+      "basePermissions_one": "{{count}} permesso",
+      "basePermissions_many": "{{count}} permessi",
+      "basePermissions_other": "{{count}} permessi",
+      "baseChannels_one": "{{count}} canale",
+      "baseChannels_many": "{{count}} canali",
+      "baseChannels_other": "{{count}} canali",
+      "baseAgents_one": "{{count}} agente",
+      "baseAgents_many": "{{count}} agenti",
+      "baseAgents_other": "{{count}} agenti",
+      "owner": "Può tutto, sempre",
+      "admin": "Può tutto",
+      "none": "Solo ciò che Tutti possono",
+      "hidden_one": "{{count}} che non vedi",
+      "hidden_many": "{{count}} che non vedi",
+      "hidden_other": "{{count}} che non vedi"
+    },
+    "switchTo": "Vai a un altro ruolo",
+    "look": "Cambia nome, colore e icona",
+    "lookColor": "Cambia il colore",
+    "inviteWith": "Invita con questo ruolo",
+    "tabs": {
+      "permissions": "Permessi",
+      "channels": "Canali",
+      "agents": "Agenti",
+      "people": "Persone"
+    },
+    "gone": "Qualcuno ha eliminato questo ruolo.",
+    "backToList": "Torna ai ruoli",
+    "searchPermission": "Cerca permesso",
+    "noPermissionMatch": "Nessun permesso con “{{q}}”.",
+    "everyoneTip": "Tutti possono. Fai clic per scegliere chi può.",
+    "only": "Solo {{names}}",
+    "notHeld": "Non hai questo permesso.",
+    "nowAbove": "Questo ruolo ora è sopra il tuo. Solo chi sta più in alto lo cambia.",
+    "agentsNote": "I ruoli valgono per le persone. Ogni agente ha i propri permessi, nella sua pagina.",
+    "adminHint": "Può tutto tranne ciò che spetta solo al proprietario. Dallo solo a chi si occupa dello spazio di lavoro.",
+    "adminOn": "Con Amministratore, {{name}} può tutto tranne ciò che spetta solo al proprietario.",
+    "adminAsk": {
+      "title": "Attivare Amministratore in {{name}}?",
+      "text_one": "Chi ha {{name}} potrà tutto tranne ciò che spetta solo al proprietario. È {{count}} persona.",
+      "text_many": "Chi ha {{name}} potrà tutto tranne ciò che spetta solo al proprietario. Sono {{count}} persone.",
+      "text_other": "Chi ha {{name}} potrà tutto tranne ciò che spetta solo al proprietario. Sono {{count}} persone.",
+      "confirm": "Attiva Amministratore"
+    },
+    "who": {
+      "title": "Chi può {{short}}",
+      "everyoneDesc": "Ogni persona dello spazio di lavoro",
+      "some": "Solo alcuni ruoli",
+      "owners": "I proprietari possono sempre.",
+      "losing": "Non potranno più:",
+      "gaining": "Potranno:",
+      "everyoneGains": "Tutti potranno.",
+      "nobody": "Nessuno lo perde.",
+      "noRoles": "Non ci sono ancora altri ruoli.",
+      "computersTitle": "Chi mantiene {{what}}",
+      "computersLow": "Tutti avranno {{what}}.",
+      "computersNone": "Tutti smettono di usare i computer degli agenti."
+    },
+    "channels": {
+      "line": "Chi ha {{name}} vede i canali selezionati e può entrare.",
+      "lineBase": "Tutti vedono i canali selezionati e possono entrare.",
+      "hint": "Vale per le persone. Un agente entra in un canale quando qualcuno lo aggiunge.",
+      "search": "Cerca canale",
+      "general": "Tutti restano in #general.",
+      "notYours": "Solo chi ha creato #{{channel}} o organizza i canali cambia chi lo vede.",
+      "removeTitle": "Togliere #{{channel}} da {{name}}?",
+      "leave": "Escono dal canale:",
+      "openTitle": "Aprire #{{channel}} a {{name}}?",
+      "openText": "Chi ha {{name}} vede il canale e tutta la cronologia, e può entrare.",
+      "open": "Apri",
+      "openAllTitle": "Aprire #{{channel}} a tutti?",
+      "openAllText": "Tutta la cronologia diventa aperta allo spazio di lavoro.",
+      "admin": "Con Amministratore, chi ha {{name}} vede tutti i canali.",
+      "onlyGeneral": "Per ora esiste solo #general.",
+      "noMatch": "Nessun canale con “{{q}}”."
+    },
+    "sees": {
+      "title": "Chi vede #{{channel}}",
+      "private": "Solo chi viene aggiunto",
+      "privateDesc": "Nessun nuovo lo vede. Chi c'è resta.",
+      "unsee": "Chi c'è già resta. Non lo vedono più:"
+    },
+    "agents": {
+      "line": "Chi ha {{name}} parla con gli agenti selezionati.",
+      "lineBase": "Tutti parlano con gli agenti selezionati.",
+      "hint": "Riguarda le persone. Ciò che fa ogni agente è nella sua pagina.",
+      "noTalk": "Chi ha solo {{name}} non parla con gli agenti.",
+      "turnOnTalk": "Attiva Parlare con gli agenti",
+      "search": "Cerca agente",
+      "notYours": "Solo {{owner}}, responsabile di {{name}}, o chi modifica qualsiasi agente lo cambia.",
+      "notYoursNoOwner": "Solo chi modifica qualsiasi agente lo cambia.",
+      "none": "Non ci sono ancora agenti.",
+      "noMatch": "Nessun agente con “{{q}}”."
+    },
+    "talks": {
+      "title": "Chi parla con {{name}}",
+      "some": "Solo alcuni ruoli e persone",
+      "ownerDesc": "Chi è responsabile di {{name}}",
+      "losing": "Non parlano più con {{agent}}:"
+    },
+    "holders": {
+      "agent": "{{name}} è un agente. Gli agenti non hanno ruolo.",
+      "seeAgents": "Vedi Agenti",
+      "removed": "{{person}} non ha più {{name}}",
+      "undo": "Annulla",
+      "selfTitle": "Toglierti da {{name}}?",
+      "selfText": "Non potrai più fare ciò che solo {{name}} dà. Solo qualcuno sopra di te te lo ridà.",
+      "noMatch": "Nessuno con “{{q}}”."
+    },
+    "mail": {
+      "title": "{{agent}} perde la casella di {{owner}}",
+      "titleMany": "Gli agenti perdono caselle di posta",
+      "lead": "Con più persone che parlano con loro, gli agenti smettono di leggere queste caselle.",
+      "of": "Casella di {{owner}} · {{agent}}",
+      "again": "Solo chi ha dato la casella la ridà.",
+      "addAnyway": "Aggiungi comunque",
+      "giveAnyway": "Dai comunque"
+    },
+    "previewWhere": "nella chat",
+    "sameAs": "Uguale a",
+    "deleteLeave": "Escono dai canali che vedevano solo tramite {{name}}:",
+    "deleteReading": "Controllo chi esce dai canali…",
+    "ownerAdd": "Aggiungi proprietari"
   },
   "permissions": {
     "areas": {
@@ -5445,6 +5606,7 @@
         "effort": "Impegno",
         "efforts": {
           "auto": "Automatico",
+          "none": "Predefinito del modello",
           "low": "Basso",
           "medium": "Medio",
           "high": "Alto",
@@ -5461,6 +5623,8 @@
           "auto": "Il modello Automatico sceglie l'impegno di ogni attività. Scegli un modello per fissare l'impegno.",
           "low": "Risponde in fretta. Adatto alle domande semplici.",
           "medium": "Il predefinito. Ragiona abbastanza quasi sempre.",
+          "mediumKey": "Ragiona abbastanza quasi sempre.",
+          "none": "Il modello ragiona quanto fa di solito. Scegli un livello per fissare l'impegno.",
           "high": "Ragiona di più sulle attività difficili. Più lento e costa di più.",
           "max": "Ragiona il più possibile. Molto più lento e più caro."
         },
@@ -5488,6 +5652,7 @@
           "defaults": "Ripristina i predefiniti",
           "contents": {
             "model": "Finestra di contesto",
+            "modelFixed": "Impegno e finestra di contesto",
             "auto": "Finestra di contesto e a chi risponde",
             "fixed": "Impegno, finestra di contesto e a chi risponde",
             "autoSpeed": "Velocità, finestra di contesto e a chi risponde",
@@ -5606,7 +5771,8 @@
             "not_signed_in_after_login": "{{brand}} ha accettato l'accesso, ma questo account non si può usare qui, forse il piano non lo include. Prova un altro account o una chiave API.",
             "status_unknown": "{{brand}} non ha indicato se l'account ha effettuato l'accesso. Riprova.",
             "no_token": "{{brand}} ha finito senza mostrare il token dell'account. Riprova.",
-            "not_kept": "L'account ha effettuato l'accesso, ma {{computer}} non è riuscito a conservarlo. Riprova."
+            "not_kept": "L'account ha effettuato l'accesso, ma {{computer}} non è riuscito a conservarlo. Riprova.",
+            "sandbox": "{{brand}} ha effettuato l'accesso, ma la sua sandbox non si avvia su {{computer}}, quindi nessun agente potrebbe usarlo. Usa invece una chiave API."
           },
           "geminiNotShared": "Gemini ha effettuato l'accesso, ma su {{computer}} questo accesso non si può condividere con tutti gli agenti. Usa invece una chiave API di Gemini.",
           "duplicate": {
@@ -5642,6 +5808,8 @@
           "limitBack": "{{account}} torna {{when}}",
           "limitSoon": "{{account}} torna quando il piano si rinnova",
           "limitHelp": "Nel frattempo {{name}} può pensare con un altro account già collegato.",
+          "fullWait": "Con questo account {{name}} aspetta che il piano si rinnovi.",
+          "seeUsage": "Vedi utilizzo",
           "wait": "Aspetta",
           "modelTitle": "Modello di {{name}}",
           "moreTitle": "Altre opzioni per {{name}}",
@@ -6047,6 +6215,7 @@
         "cli_failed": "Il programma {{brain}} si è fermato con un errore: {{detail}}",
         "cli_stopped": "Il programma {{brain}} si è fermato con un errore.",
         "cli_closed": "Il programma {{brain}} si è chiuso all'improvviso.",
+        "cli_sandbox": "Il programma {{brain}} non riesce ad avviare la sua sandbox su questo computer. Scegli un'altra IA nelle impostazioni dell'agente.",
         "account_missing": "L'account scelto per questo agente non è più sul suo computer. Scegline un altro nelle impostazioni dell'agente o aggiungilo di nuovo.",
         "windows_sandbox": "Questo computer Windows non riesce a isolare i comandi di Codex: serve Windows 11 24H2 o più recente.",
         "our_error": "Qualcosa è andato storto da parte nostra e l'attività si è fermata. Richiedilo tra poco.",
@@ -7134,6 +7303,7 @@
     "everyoneNote": "Tutti vale per ogni persona dello spazio di lavoro.",
     "everyoneNotePersonal": "Senza ruolo, usa gli agenti. Con {{role}}, ti aiuta a gestirlo.",
     "noRolesToGive": "Nessun ruolo sotto il tuo da assegnare.",
+    "rolesAbove": "I ruoli sopra il tuo non compaiono.",
     "roleFilter": "Ruolo",
     "rolesCount_one": "{{count}} ruolo",
     "rolesCount_many": "{{count}} ruoli",
@@ -10098,7 +10268,11 @@
     "forAgent_many": "Attivale per {{agent}}",
     "forAgent_other": "Attivale per {{agent}}",
     "installedMany": "{{count}} skill installate.",
-    "zipHelp": "Un .zip con SKILL.md nella cartella principale.",
+    "zipHelp": "Un .zip della cartella della skill, fino a {{max}} MB.",
+    "zipAbout": "SKILL.md sta in cima al .zip, o nella sua unica cartella. Una skill conserva fino a {{text}} MB di testo e {{assets}} MB di immagini e altri file.",
+    "zipTooLarge": "{{name}} pesa {{size}}. Lo .zip di una skill può arrivare a {{max}} MB.",
+    "zipUseLink": "Usa un link GitHub",
+    "zipSending": "Caricamento del file… {{percent}}",
     "zipPick": "Scegli .zip",
     "zipNone": "Nessun file scelto",
     "zipMissing": "Scegli un file .zip.",
@@ -10726,6 +10900,7 @@
     "someone": "qualcuno"
   },
   "palette": {
+    "roleKeywords": "ruolo ruoli crea nuovo permessi",
     "newWikiKeywords": "wiki nuova pagina crea new page create",
     "actions": "Azioni",
     "inviteSub": "per email o link",
@@ -12086,7 +12261,8 @@
     "closed": "{{title}} · chiuso",
     "reopen": "Mostra di nuovo",
     "answeredBy": "{{name}} ha scelto",
-    "failed": "La tua scelta non è stata inviata. Riprova."
+    "failed": "La tua scelta non è stata inviata. Riprova.",
+    "tooLongFix": "Accorcia la risposta."
   },
   "drive": {
     "title": "Drive",
@@ -13956,6 +14132,8 @@
     }
   },
   "errors": {
+    "tooLarge": "È più grande di quanto il server accetti.",
+    "tooLargeMax": "È più grande di quanto il server accetti: fino a {{max}} MB.",
     "passwordLink": {
       "email": "Questo server invia email: la persona chiede il proprio link in Password dimenticata.",
       "serverOwner": "Chi ha installato questo server accede dal computer dove gira, senza link.",
@@ -14072,7 +14250,7 @@
       "aboveYou": "Solo qualcuno sopra questo ruolo può modificarlo.",
       "base": "Ogni spazio di lavoro mantiene il ruolo Tutti.",
       "unknown": "Quel ruolo non esiste più.",
-      "orderIncomplete": "I ruoli sono cambiati. Ricarica e riprova."
+      "orderIncomplete": "I ruoli sono cambiati mentre li spostavi. Ricarica e riprova."
     },
     "teamProposal": {
       "undoExpired": "È passato più di un giorno da quando questo team è stato creato, quindi non si può annullare qui. Archivia gli agenti dalle loro pagine."
@@ -15056,6 +15234,20 @@
       "trustText": "Tocca Autorizza sull'iPhone e inserisci il suo codice.",
       "devModeDone": "Attiva",
       "devModeText": "Attivala e tocca Riavvia. Dopo il riavvio, tocca Attiva e inserisci il codice.",
+      "devModeRestarting": "L'iPhone si sta riavviando. Quando torna, sbloccalo e tocca Attiva.",
+      "devModeBack": "L'iPhone è tornato. Sbloccalo, tocca Attiva e inserisci il codice.",
+      "devModeCheck": "L'ho attivata, controlla di nuovo",
+      "devModeStillOff": "L'iPhone dice ancora che la modalità sviluppatore è disattivata.",
+      "devModeMissing": {
+        "title": "Non vedi l'opzione?",
+        "hidden": "L'iPhone nasconde l'opzione finché Xcode non chiede di mostrarla.",
+        "hiddenOpen": "L'iPhone nasconde l'opzione finché Xcode non chiede di mostrarla. Apri Xcode su {{mac}} con l'iPhone collegato.",
+        "openXcode": "Apri Xcode",
+        "opened": "Xcode si è aperto su {{mac}}. Guarda di nuovo nelle Impostazioni dell'iPhone, poi chiudi Xcode.",
+        "unlock": "L'hai attivata e l'iPhone si è riavviato? Sbloccalo. L'avviso con Attiva compare solo dopo.",
+        "check": "Controlla di nuovo",
+        "outdated": "L'app agentes.chat su {{mac}} non è aggiornata. Aggiorna l'app, oppure esegui questo nel Terminale se l'hai installata da lì."
+      },
       "uiAutomationText": "In Impostazioni › Sviluppatore, dopo il riavvio.",
       "helperText": "Creata e rinnovata dal Mac ogni 7 giorni. Basta un Apple Account gratuito in Xcode.",
       "helperUntrustedText": "Tocca il nome dello sviluppatore, poi Autorizza.",
@@ -15072,7 +15264,6 @@
         "account": "Accesso già fatto? In Xcode crea un'app iOS qualsiasi, scegli il tuo team in Signing & Capabilities ed eseguila una volta sull'iPhone.",
         "connected": "{{mac}} non vede ancora un iPhone. Usa un cavo che trasmette dati, non solo ricarica, sblocca l'iPhone e tocca Autorizza se lo chiede.",
         "trust": "Nessuna richiesta Autorizza? Scollega l'iPhone, sbloccalo e ricollegalo, poi tocca Autorizza e inserisci il suo codice.",
-        "developerMode": "La Modalità sviluppatore si attiva solo dopo il riavvio dell'iPhone. Tocca Riavvia, poi Attiva quando si riaccende. Nessun interruttore? Scollega l'iPhone e ricollegalo.",
         "uiAutomation": "L'interruttore compare quando la Modalità sviluppatore è attiva e l'iPhone si è riavviato. Tienilo sbloccato mentre cerchi.",
         "helper": "{{mac}} crea l'app di test e la avvia sull'iPhone, il che richiede qualche minuto la prima volta. Tieni l'iPhone sbloccato e collegato."
       },
@@ -15749,7 +15940,7 @@
       "general": "Generali",
       "right_hand": "Braccio destro",
       "members": "Membri e inviti",
-      "roles": "Ruoli e permessi",
+      "roles": "Ruoli",
       "vault": "Vault",
       "access": "Agenti e accessi",
       "connectors": "Connettori e MCP",
@@ -15780,7 +15971,7 @@
       "general": "Nome, fuso orario e ciò che ogni agente sa dello spazio di lavoro.",
       "right_hand": "L'assistente che costruisce il team con ogni persona, nella sua DM.",
       "members": "Chi fa parte dello spazio di lavoro, e gli inviti.",
-      "roles": "Cosa può fare ogni persona. I ruoli si sommano.",
+      "roles": "Ogni ruolo aggiunge permessi, canali e agenti.",
       "vault": "Password, chiavi e contatti dei tuoi agenti. Non vedono mai una password.",
       "access": "Cosa può usare ogni agente: un livello per connettore.",
       "connectors": "Servizi e server MCP collegati una sola volta per tutto lo spazio di lavoro.",
@@ -16259,6 +16450,13 @@
     "logins_other": "{{count}} accessi",
     "noWindows": "Il limite compare dopo che questo account viene usato di nuovo.",
     "unused": "Nessun agente usa questo account.",
+    "models": {
+      "exhausted": "Quota esaurita · si azzera {{when}}",
+      "exhaustedUnknown": "Quota esaurita",
+      "off": "Disattivato",
+      "region": "Serve la regione Global",
+      "inactive": "Nessun abbonamento attivo"
+    },
     "usesNow": "lo usa ora",
     "monthTokens": "{{tokens}} token questo mese",
     "tokens": "{{tokens}} token",
@@ -16319,6 +16517,7 @@
   },
   "format": {
     "list": "{{names, list}}",
+    "andMore": "e altri {{count}}",
     "usd": "{{value}} US$",
     "tokensMillions": "{{value}} Mln",
     "tokensThousands": "{{value}}k",

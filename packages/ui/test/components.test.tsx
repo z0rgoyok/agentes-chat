@@ -711,11 +711,13 @@ describe("Menu", () => {
     const menu = body().getByRole("menu");
     const box = within(menu).getByRole("menuitemcheckbox");
     expect(box.getAttribute("aria-checked")).toBe("false");
+    // A box that stays open is a multi-pick: the kit's checkbox at its end, ticked or not.
     expect([...box.children].map((c) => c.getAttribute("class"))).toEqual([
       "ac-menu__label",
       "ac-menu__hint",
-      "ac-menu__check",
+      "ac-check ac-menu__box",
     ]);
+    expect(box.querySelector(".ac-menu__box")?.getAttribute("data-state")).toBe("unchecked");
     const radios = within(menu).getAllByRole("menuitemradio");
     expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false"]);
     expect(radios.map((r) => [...r.children].map((c) => c.getAttribute("class")))).toEqual([
@@ -741,8 +743,9 @@ describe("Menu", () => {
     expect([...box.children].map((c) => c.getAttribute("class")?.split(" ")[0])).toEqual([
       "ac-icon",
       "ac-menu__label",
-      "ac-menu__check",
+      "ac-check",
     ]);
+    expect(box.querySelector(".ac-menu__box")?.getAttribute("data-state")).toBe("checked");
   });
 
   test("quick reactions end with a cell that opens every emoji", async () => {

@@ -35,6 +35,7 @@
     "./sky/avatar": "./src/sky/avatar.ts",
     "./sky/workspace": "./src/sky/workspace.ts",
     "./sky/team": "./src/sky/team.ts",
+    "./agent-talk": "./src/agent-talk.ts",
     "./channel-refs": "./src/channel-refs.ts",
     "./diff": "./src/diff.ts",
     "./format": "./src/format.ts",

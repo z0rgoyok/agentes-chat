@@ -596,6 +596,10 @@ export const machinePhones = pgTable(
     audienceUserIds: text().array().notNull().default(sql`'{}'::text[]`),
     audienceRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
     lastSeenAt: timestamp({ withTimezone: true }),
+    /** Since when `state` and `reason` hold as they are: every report bumps `updated_at`, a change only this. */
+    stateSince: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /** A setup step that stayed stuck since `state_since` was reported (once): cleared when the state or reason moves. */
+    stuckReportedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp({ withTimezone: true }),

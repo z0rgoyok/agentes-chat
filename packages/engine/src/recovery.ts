@@ -224,6 +224,7 @@ async function resume(db: Database, run: AgentRun, at: SweepTime, ran: string[])
         prompt: prev?.prompt ?? t.turnPrompt ?? (await getMessage(tx, run.orgId, run.triggerMessageId))?.body ?? "",
         executed: [...new Set([...(prev?.executed ?? []), ...ran])],
         drops: prev?.drops ?? 0,
+        ...(prev?.early ? { early: prev.early } : {}),
         cause: "restart",
       };
       await tx

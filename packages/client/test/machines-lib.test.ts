@@ -484,7 +484,7 @@ describe("the shared folder (ADR 0115)", () => {
     expect(sharedFolderFacts(t, "en", null)).toBe("machines.shared.measuring");
   });
 
-  test("why a sign-in ended: a line per code, the CLI's words under two of them, none when canceled", () => {
+  test("why a sign-in ended: a line per code, the CLI's words under three of them, none when canceled", () => {
     const add = "agentPage.work.brain.add";
     const worded = [
       "not_installed",
@@ -496,11 +496,12 @@ describe("the shared folder (ADR 0115)", () => {
       "status_unknown",
       "no_token",
       "not_kept",
+      "sandbox",
     ];
     for (const code of worded) {
       expect(loginFailureLine(code)).toEqual({
         key: `${add}.why.${code}`,
-        detail: code === "cli_exit" || code === "not_signed_in_after_login",
+        detail: code === "cli_exit" || code === "not_signed_in_after_login" || code === "sandbox",
       } as never);
     }
     // Too long is what an expired sign-in already says.

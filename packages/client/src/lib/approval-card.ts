@@ -2,6 +2,9 @@ import type { Approval } from "../api/types";
 import { approveAlwaysOffered } from "./approval-kind";
 import { approvalOriginShort, approvalWhy } from "./approval-origin";
 
+/** The longest reason a person gives with a decision. Mirror: `APPROVAL_REASON_MAX` in packages/engine approvals.ts. */
+export const APPROVAL_REASON_MAX = 1000;
+
 /** In the order the agent asked: by when, then by id (time-ordered), so two asked in the same instant keep theirs. */
 export const byAsked = (a: Pick<Approval, "createdAt" | "id">, b: Pick<Approval, "createdAt" | "id">) =>
   a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);

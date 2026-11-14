@@ -1,3 +1,4 @@
+import { type AgentTab, isAgentTab } from "@agenteschat/client/lib/agent-edit";
 import { projectFilterOf } from "@agenteschat/client/lib/issue-projects";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
@@ -82,8 +83,9 @@ export function threadSearch(search: Record<string, unknown>): { thread?: string
 /**
  * The thread in a conversation's panel, kept in the URL (`?thread=…`) so a reload, a shared link and Back and Forward
  * keep it. Unlike `useOpenParam` each change is a history entry, so Back closes what was just opened; `replace` is for
- * a thread found gone, which leaves nothing to come back to. `enabled` false (a thread view, which holds no panel of
- * its own but shares the URL with the conversation beside it): always empty.
+ * a thread found gone, which leaves nothing to come back to. One panel at a time: a thread takes the agent's page out.
+ * `enabled` false (a thread view, which holds no panel of its own but shares the URL with the conversation beside it):
+ * always empty.
  */
 export function useThreadPanel(
   enabled: boolean,
@@ -106,7 +108,7 @@ export function useThreadPanel(
           const { thread: _thread, reply: _reply, tm: _tm, ...rest } = prev;
           if (!next) return rest;
           return {
-            ...rest,
+            ...withoutAgentPanel(rest),
             thread: next.id,
             ...(next.reply ? { reply: true } : {}),
             ...(next.focus ? { tm: next.focus } : {}),
@@ -117,4 +119,61 @@ export function useThreadPanel(
     [enabled, navigate, router],
   );
   return [panel, set];
+}
+
+/** The agent's page open in the panel beside a conversation, at one of its tabs (none: Visão geral). */
+export interface AgentPanelPlace {
+  agentId: string;
+  tab?: AgentTab;
+}
+
+/** `validateSearch` for a conversation: the agent whose page is in its panel (`agent`) and that page's tab (`agentTab`). */
+export function agentPanelSearch(search: Record<string, unknown>): { agent?: string; agentTab?: AgentTab } {
+  if (typeof search.agent !== "string" || !search.agent) return {};
+  return { agent: search.agent, ...(isAgentTab(search.agentTab) ? { agentTab: search.agentTab } : {}) };
+}
+
+function withoutAgentPanel(search: Record<string, unknown>) {
+  const { agent: _agent, agentTab: _tab, ...rest } = search;
+  return rest;
+}
+
+/**
+ * The agent's page in a conversation's panel, kept in the URL (`?agent=…&agentTab=…`) as `useThreadPanel` keeps a
+ * thread: opening and closing it are history entries, so Back closes it and Back after another page brings it back;
+ * `replace` is for a tab picked inside it. Opening it takes the thread out. `enabled` false (a conversation inside a
+ * panel, sharing the URL with the one beside it): always empty.
+ */
+export function useAgentPanel(
+  enabled: boolean,
+): [AgentPanelPlace | null, (next: AgentPanelPlace | null, how?: { replace?: boolean }) => void] {
+  const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>;
+  const router = useRouter();
+  const navigate = useNavigate();
+  const place = useMemo<AgentPanelPlace | null>(() => {
+    const { agent, agentTab } = agentPanelSearch(search);
+    return enabled && agent ? { agentId: agent, ...(agentTab ? { tab: agentTab } : {}) } : null;
+  }, [enabled, search]);
+  const set = useCallback(
+    (next: AgentPanelPlace | null, how?: { replace?: boolean }) => {
+      if (!enabled) return;
+      if (!next && !agentPanelSearch(router.state.location.search as Record<string, unknown>).agent) return;
+      void navigate({
+        to: ".",
+        replace: how?.replace,
+        search: ((prev: Record<string, unknown>) => {
+          const rest = withoutAgentPanel(prev);
+          if (!next) return rest;
+          const { thread: _thread, reply: _reply, tm: _tm, ...others } = rest;
+          return {
+            ...others,
+            agent: next.agentId,
+            ...(next.tab && next.tab !== "overview" ? { agentTab: next.tab } : {}),
+          };
+        }) as never,
+      });
+    },
+    [enabled, navigate, router],
+  );
+  return [place, set];
 }

@@ -209,3 +209,16 @@ test("fixing a Mac's Xcode over HTTP: its owner only, a kind it knows; an old ap
   expect(await (await owner(path)).json()).toEqual({ fix: null, update: true });
   expect((await owner(path, { method: "DELETE" })).status).toBe(200);
 });
+
+test("opening Xcode on a Mac over HTTP: its owner only; an app too old opens nothing", async () => {
+  const { owner, rui } = await start();
+  const paired = await pairComputer(t, owner, { ...RUNNER, os: "darwin", exec: true }, { name: "MacBook" });
+  const path = `/devices/computers/${paired.machineId}/xcode-open`;
+  expect((await rui(path, { json: {} })).status).toBe(403);
+  // This Mac's app (protocol 54) predates it, and the list says so.
+  const old = await owner(path, { json: {} });
+  expect(old.status).toBe(200);
+  expect(await old.json()).toEqual({ opened: false });
+  const list = (await (await owner("/devices")).json()) as { devices: { id: string; opensXcode: boolean }[] };
+  expect(list.devices.find((d) => d.id === paired.machineId)?.opensXcode).toBe(false);
+});

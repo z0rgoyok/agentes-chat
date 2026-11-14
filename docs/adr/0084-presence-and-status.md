@@ -82,7 +82,9 @@ work; "Ausente" told people an agent due back later was gone.
     a neutral wait, queued, then the oldest; with since when and how many), in one more SQL statement whatever the number
     of agents. `GET …/active-runs` lists delegated runs at their anchor with `forAgentId`. A thread's `working` counts
     queued or running work anchored there (one hop of hand-offs), with `wait` and `since`, and its `needsYou` follows
-    `decidableBySql`. The task manager's delegated rows say where they were handed off (`delegation.from`). A computer
+    `decidableBySql`. The task manager's delegated rows say where they were handed off (`delegation.from`), and are
+    titled by what the latest consultation asked (`subject`, one line of at most 120 characters, `consultSubject`) for
+    the same viewers only: whoever doesn't read the anchor, admins included, never gets the question's words. A computer
     brain that parks mid-turn announces its status and its consultation at once (`suspendRunForTool`).
 20. **One set of words and one clock.** Lists say "ajudando a Ada · 22 min", "#vendas", "esperando você · 3 min",
     "esperando aprovação", "na fila"; chips "Trabalhando · 22 min"; the profile card "Trabalhando · ajudando a Ada". Work

@@ -12,6 +12,7 @@ import {
   lookForPhones,
   normalizeUserCode,
   openConnectLink,
+  openXcode,
   pickIphoneOverWifi,
   startWifiPairing,
   stopPhone,
@@ -120,6 +121,9 @@ const Computer = z
     status: Status,
     maxTasks: z.number().int().nullable(),
     toolchains: z.record(z.string(), z.string()),
+    opensXcode: z.boolean().openapi({
+      description: "A Mac whose agentes.chat opens Xcode and looks at its iPhone again for the iPhone guide.",
+    }),
     lastSeenAt: z.string().nullable(),
     mayUse: z.boolean(),
     mayManage: z.boolean(),
@@ -225,6 +229,8 @@ const LINK_LIMIT = { limit: 20, windowMs: 10 * 60_000 };
 const PAIR_LIMIT = { limit: 30, windowMs: 10 * 60_000 };
 /** Xcode fixes per person: each may open a password window on someone's Mac. */
 const XCODE_FIX_LIMIT = { limit: 10, windowMs: 10 * 60_000 };
+/** Xcode opened on a Mac per person: each puts a window on someone's screen. */
+const XCODE_OPEN_LIMIT = { limit: 10, windowMs: 10 * 60_000 };
 /** Installer fetches per address (`/i/{code}`): a person retrying, not someone guessing codes. */
 const SCRIPT_LIMIT = { limit: 30, windowMs: 60_000 };
 
@@ -497,6 +503,31 @@ export function deviceAppRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId, machineId } = c.req.valid("param");
       return c.json(await xcodeFix({ db, hub: hub() }, c.get("user").id, orgId, machineId, "cancel"), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/devices/computers/{machineId}/xcode-open",
+      tags,
+      security,
+      summary: "Open Xcode on this Mac (its owner or an admin)",
+      description:
+        "Xcode, open with an iPhone plugged in, shows the Developer Mode switch in the iPhone's Settings when it is hidden. `opened: false`: the Mac's agentes.chat is too old for it, or Xcode didn't open.",
+      request: { params: MachineParams },
+      responses: {
+        200: json(z.object({ opened: z.boolean() }).openapi("XcodeOpened")),
+        429: errorResponse("Too many tries"),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const { orgId, machineId } = c.req.valid("param");
+      const userId = c.get("user").id;
+      const limit = await deps.adapters.rateLimiter.consume(`xcode-open:user:${userId}`, XCODE_OPEN_LIMIT);
+      if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many tries. Try again in a few minutes.");
+      return c.json(await openXcode({ db, hub: hub() }, userId, orgId, machineId), 200);
     },
   );
 

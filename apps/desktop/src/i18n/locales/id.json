@@ -665,7 +665,8 @@
       "step3": "Buka file yang diunduh lalu seret agentes.chat yang baru ke Aplikasi.",
       "installerNote": "Buka file yang diunduh: file itu memasang versi baru di atas yang lama.",
       "keepNote": "Server dan pengaturanmu tetap ada.",
-      "whatsNew": "Yang baru di {{version}}"
+      "whatsNew": "Yang baru di {{version}}",
+      "systemDetails": "Detail sistem"
     },
     "activity": {
       "title": "Aktivitas",

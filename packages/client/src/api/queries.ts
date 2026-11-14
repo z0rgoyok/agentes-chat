@@ -68,7 +68,7 @@ import type { RealtimeConnection } from "../realtime/connection";
 import { readUnknownMembers, setOrgDeletion } from "../realtime/machines";
 import type { ApiClient } from "./client";
 import { type AgentReactionEffect, useAgentReaction, useApi, useCardVia } from "./context";
-import { ApiError } from "./http";
+import { ApiError, type UploadOptions } from "./http";
 import { keys } from "./keys";
 import { keepSending, outbox } from "./outbox";
 import type {
@@ -493,20 +493,26 @@ export const useRoles = (orgId: string) => {
   return useQuery({ queryKey: keys.roles(orgId), queryFn: () => api.roles.list(orgId), staleTime: 30_000 });
 };
 
-export function useCreateRole(orgId: string) {
+/** `silent`: the caller shows a failure itself (in its dialog). */
+export function useCreateRole(orgId: string, silent = false) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent },
     mutationFn: (input: RoleInput) => api.roles.create(orgId, input),
     onSettled: () => refreshRoles(qc, orgId),
   });
 }
 
-/** Changes a role at once on screen (the toggles save by themselves), then reads the truth back. */
-export function useUpdateRole(orgId: string) {
+/**
+ * Changes a role at once on screen (the toggles save by themselves), then reads the truth back. `silent`: the caller
+ * shows a failure itself.
+ */
+export function useUpdateRole(orgId: string, silent = false) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent },
     mutationFn: ({ roleId, patch }: { roleId: string; patch: Partial<RoleInput> }) =>
       api.roles.update(orgId, roleId, patch),
     onMutate: async ({ roleId, patch }) => {
@@ -526,10 +532,12 @@ export function useUpdateRole(orgId: string) {
   });
 }
 
-export function useDeleteRole(orgId: string) {
+/** `silent`: the caller shows a failure itself (in its dialog). */
+export function useDeleteRole(orgId: string, silent = false) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent },
     mutationFn: (roleId: string) => api.roles.remove(orgId, roleId),
     onSettled: () => refreshRoles(qc, orgId),
   });
@@ -565,12 +573,13 @@ export function useReorderRoles(orgId: string) {
 
 /**
  * "Quem pode…": who holds one row, `everyone` and the roles in one call (`PUT …/permissions/{row}`); the roles it
- * answers with replace the cached ones.
+ * answers with replace the cached ones. `silent`: the caller shows a failure itself.
  */
-export function useSetRowHolders(orgId: string) {
+export function useSetRowHolders(orgId: string, silent = false) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
+    meta: { silent },
     mutationFn: ({ row, holders }: { row: string; holders: RowHolders }) => api.roles.setRow(orgId, row, holders),
     onSuccess: (roles) => qc.setQueryData(keys.roles(orgId), roles),
     onSettled: () => refreshRoles(qc, orgId),
@@ -4742,7 +4751,11 @@ export function useSkillAction(orgId: string, { silent = false } = {}) {
     ...(silent ? { meta: { silent: true } } : {}),
     mutationFn: (
       action:
-        | { type: "import"; input: { url: string; list?: boolean; forAgentId?: string } | { zipBase64: string } }
+        | {
+            type: "import";
+            input: { url: string; list?: boolean; forAgentId?: string } | { zipBase64: string };
+            upload?: UploadOptions;
+          }
         | { type: "importPicked"; url: string; paths: string[]; forAgentId?: string }
         | { type: "create"; input: SkillInput }
         | { type: "update"; id: string; patch: SkillPatch }
@@ -4756,7 +4769,7 @@ export function useSkillAction(orgId: string, { silent = false } = {}) {
     ): Promise<unknown> => {
       switch (action.type) {
         case "import":
-          return api.skills.import(orgId, action.input);
+          return api.skills.import(orgId, action.input, action.upload);
         case "importPicked":
           return api.skills.importPicked(orgId, action.url, action.paths, action.forAgentId);
         case "create":
@@ -6774,6 +6787,25 @@ export function useWifiIphones(orgId: string, machineId: string | null, on: bool
     },
   });
   return { available: on ? (list.data?.available ?? []) : [], pick };
+}
+
+/**
+ * The iPhone guide's Developer Mode step asks its Mac: `look` reads the iPhone again now (the devices refetch once it
+ * answered), `openXcode` opens Xcode there, which shows the switch on a plugged iPhone that hides it.
+ */
+export function useIphoneDevMode(orgId: string, machineId: string | null) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const look = useMutation({
+    mutationFn: () => api.devices.lookForPhones(orgId, machineId ?? ""),
+    meta: { silent: true },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.devices(orgId) }),
+  });
+  const openXcode = useMutation({
+    mutationFn: () => api.devices.openXcode(orgId, machineId ?? ""),
+    meta: { silent: true },
+  });
+  return { look, openXcode };
 }
 
 /**

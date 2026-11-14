@@ -473,6 +473,7 @@ async function boot(
       : {}),
     outbox,
     builtInDatabase: !database.client,
+    errors,
     log,
   });
   const telemetry = worker ? null : startTelemetry({ db: database.db, config, log });

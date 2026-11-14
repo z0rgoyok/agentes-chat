@@ -50,10 +50,9 @@ import {
 import { can } from "@agenteschat/client/lib/permissions";
 import { geminiPersonal, isPlanId, planOf, providerFitsChoice, signInProviderOf } from "@agenteschat/client/lib/plans";
 import {
-  AUTO,
   keyLooksValid,
-  keyRuns,
   keyStepHint,
+  modelOnKey,
   PROVIDERS,
   providerLabel,
   providerOf,
@@ -264,7 +263,7 @@ export interface ConnectAiFlowProps {
  * already has (`existingRows`): an account used or moved in one tap, signed in once more on its plan's page, a key.
  */
 export function ConnectAiFlow(props: ConnectAiFlowProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors: c } = useTheme();
   const { orgId, org } = useAiOrg();
   const api = useApi();
@@ -292,7 +291,7 @@ export function ConnectAiFlow(props: ConnectAiFlowProps) {
       agentRows.data?.find((a) => a.id === forAgent.id),
       !hasAi(forAgent.id),
     )
-      ? existingRows(t, gates.view, credentials.data ?? [], forAgent.name)
+      ? existingRows(t, gates.view, credentials.data ?? [], forAgent.name, i18n.language)
       : [];
   const shownGate = gates.gateOf(view.page === "plan" ? view.choice : "claude");
   const shown = shownGate.state;
@@ -342,10 +341,10 @@ export function ConnectAiFlow(props: ConnectAiFlowProps) {
     const brain = gates.view.brain;
     if (row.kind === "key") {
       const k = row.key;
-      // The workspace's model on that key: the agent's model where the key runs it, else Automático.
+      // The workspace's model on that key: the agent's model where the key runs it, else one the key does (an endpoint's
+      // own for an endpoint key, Automático for a catalog one, which follows it).
       // Tried first: a key kept earlier may have run out of credit, and "now thinks with it" has to be true.
       const agentRow = agentRows.data?.find((a) => a.id === forAgent.id);
-      const fits = keyRuns(k, agentRow?.model, models.data?.models ?? []);
       const rightHand = gates.view?.scope === "mine" && agentRow;
       return void save(
         forAgent,
@@ -357,7 +356,10 @@ export function ConnectAiFlow(props: ConnectAiFlowProps) {
           // The team's right hand: a key is the workspace's AI, so everyone without their own thinks with it.
           if (rightHand) return rightHandOnKey(api, orgId, rightHand, k, models.data?.models ?? []);
           if (brain !== "model") await api.agents.setBrain(orgId, forAgent.id, { brain: "model" });
-          await api.agents.update(orgId, forAgent.id, { credentialId: k.id, ...(fits ? {} : { model: AUTO }) });
+          await api.agents.update(orgId, forAgent.id, {
+            credentialId: k.id,
+            ...modelOnKey(k, agentRow?.model, models.data?.models ?? []),
+          });
         },
         rightHand ? "workspace" : undefined,
       );

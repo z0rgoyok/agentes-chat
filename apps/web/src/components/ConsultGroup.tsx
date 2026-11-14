@@ -22,7 +22,7 @@ import {
   openableConsultation,
   pairItemOf,
 } from "@agenteschat/client/lib/consult-group";
-import { consultTimeText, withoutRelayLine } from "@agenteschat/client/lib/consultations";
+import { consultSubject, consultTimeText, withoutRelayLine } from "@agenteschat/client/lib/consultations";
 import { joinNames, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { cx, Icon } from "@agenteschat/ui";
@@ -192,6 +192,9 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
   const nameOf = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const from = nameOf(askerId);
   const names = pair.faces.map((f) => nameOf(f.agentId));
+  // The subject comes from the question a click opens, so a folded row of several is called by the one it shows.
+  const opened = items.find((c) => c.id === pair.opens) ?? items[0];
+  const subject = consultSubject(opened?.question);
   const title =
     names.length === 1
       ? t("chat.consultPanel.label", { from, to: names[0] })
@@ -238,7 +241,13 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
           </span>
           <span className="consult-pair__name">{names.length === 1 ? names[0] : namesText(t, names, 1)}</span>
         </span>
-        {(pair.word || pair.seconds !== null) && (
+        {(subject || pair.word || pair.seconds !== null) && (
+          <span className="consult-pair__sep" aria-hidden="true">
+            ·
+          </span>
+        )}{" "}
+        {subject && <span className="consult-pair__subject">{subject}</span>}
+        {subject && (pair.word || pair.seconds !== null) && (
           <span className="consult-pair__sep" aria-hidden="true">
             ·
           </span>

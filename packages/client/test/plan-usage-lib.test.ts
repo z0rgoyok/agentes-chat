@@ -6,8 +6,10 @@ import {
   accountShares,
   groupUsageAccounts,
   loginsText,
+  notSharedText,
   ownPlanLines,
   planMeterText,
+  planModelUsage,
   SHARES_SHOWN,
   servesText,
   shareFacts,
@@ -469,5 +471,74 @@ describe("the viewer's own logins of one account are one row (IA e uso › Conta
       'usageViews.serves.only {"name":"Bia"}',
     );
     expect(servesText(t, { serves: null, ownerName: "Bia", mine: false })).toBeNull();
+  });
+});
+
+describe("the quota per model of a plan whose models have limits of their own", () => {
+  const NOW = new Date("2026-11-13T12:00:00.000Z");
+  const LATER = "2026-11-14T18:00:00.000Z";
+  const words: Record<string, string> = {
+    "aiAccounts.usage.notShared": "{{maker}} doesn't share usage here.",
+    "usageViews.models.exhausted": "No quota left · resets {{when}}",
+    "usageViews.models.exhaustedUnknown": "No quota left",
+    "usageViews.models.off": "Turned off",
+    "usageViews.models.region": "Needs the Global region",
+    "usageViews.models.inactive": "No active subscription",
+    "chat.usageWhen.at": "at {{time}}",
+    "chat.usageWhen.on": "on {{day}} at {{time}}",
+    "chat.usageWhen.date": "on {{date}}",
+  };
+  const t = ((key: string, o?: Record<string, string>) =>
+    (words[key] ?? key).replace(/{{(\w+)}}/g, (_, k: string) => o?.[k] ?? "")) as unknown as TFunction;
+  const withModels = (models: PlanUsage["models"]): PlanUsage => ({
+    ...usage([{ kind: "monthly", usedPercent: 20 }]),
+    models,
+  });
+
+  test("one line per model at a limit of its own, in the plan's order, each with what remains", () => {
+    const rows = planModelUsage(
+      t,
+      "en",
+      withModels({
+        "minimax-m3": { at: NOW.toISOString(), off: true },
+        "glm-5.3": { at: NOW.toISOString(), until: LATER },
+        // Its reset already passed: no line, never a stale "no quota left".
+        "deepseek-v4.1-pro": { at: NOW.toISOString(), until: "2026-11-13T11:00:00.000Z" },
+      }),
+      "opencode",
+      NOW,
+    );
+    expect(rows.map((r) => r.label)).toEqual(["MiniMax M3", "GLM-5.3"]);
+    expect(rows[1]?.text).toContain("No quota left");
+    expect(rows[1]?.text).toContain("resets");
+  });
+
+  test("an exhausted or switched-off model is said so, never 0% or a made-up number", () => {
+    const rows = planModelUsage(
+      t,
+      "en",
+      withModels({
+        "glm-5.3": { at: NOW.toISOString(), until: LATER },
+        "minimax-m3": { at: NOW.toISOString(), off: true },
+      }),
+      "opencode",
+      NOW,
+    );
+    expect(rows.find((r) => r.id === "glm-5.3")?.text).toMatch(/^No quota left/);
+    expect(rows.find((r) => r.id === "minimax-m3")?.text).toBe("Turned off");
+    // No percentage at all: nobody read one.
+    expect(rows.map((r) => r.text).join(" ")).not.toContain("%");
+  });
+
+  test("a plan with no usage source names its maker; another plan or no plan invents nothing", () => {
+    // MiniMax publishes no usage endpoint (`plans.ts`): nothing to list, and the line says whose usage it is.
+    expect(notSharedText(t, "minimax")).toBe("MiniMax doesn't share usage here.");
+    expect(
+      planModelUsage(t, "en", withModels({ "glm-5.3": { at: NOW.toISOString(), off: true } }), "minimax", NOW),
+    ).toEqual([]);
+    // Plans we do read, and a computer's own sign-in (its CLI reports it), aren't "no reading".
+    expect(notSharedText(t, "opencode")).toBeNull();
+    expect(notSharedText(t, null)).toBeNull();
+    expect(planModelUsage(t, "en", withModels({ "glm-5.3": { at: NOW.toISOString() } }), null, NOW)).toEqual([]);
   });
 });

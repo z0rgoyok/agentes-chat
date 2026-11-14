@@ -68,11 +68,10 @@ import {
   signInProviderOf,
 } from "@agenteschat/client/lib/plans";
 import {
-  AUTO,
   keyLine,
   keyLooksValid,
-  keyRuns,
   keyStepHint,
+  modelOnKey,
   type ProviderId,
   providerLabel,
   providerOf,
@@ -359,7 +358,8 @@ export function useExistingAi({
         ...(next.scope ? { scope: next.scope } : {}),
       };
     });
-  // The workspace's model on that key: the agent's model where the key runs it, else Automático, which follows the key.
+  // The workspace's model on that key: the agent's model where the key runs it, else one the key does (an endpoint's
+  // own for an endpoint key, Automático for a catalog one, which follows it).
   // Tried first: a key kept earlier may have run out of credit, and "now thinks with it" has to be true.
   const pickKey = (key: Credential) =>
     save(async () => {
@@ -372,9 +372,11 @@ export function useExistingAi({
         await rightHandOnKey(api, org.id, row, key, models.data?.models ?? []);
         return { label: key.label, choice: "key", onlyOwner: false, scope: "workspace" };
       }
-      const fits = keyRuns(key, row?.model, models.data?.models ?? []);
       if (view?.brain !== "model") await api.agents.setBrain(org.id, agent.id, { brain: "model" });
-      await api.agents.update(org.id, agent.id, { credentialId: key.id, ...(fits ? {} : { model: AUTO }) });
+      await api.agents.update(org.id, agent.id, {
+        credentialId: key.id,
+        ...modelOnKey(key, row?.model, models.data?.models ?? []),
+      });
       return { label: key.label, choice: "key", onlyOwner: false };
     });
   return { rows, busy, refused, pickAccount, pickKey };
@@ -852,7 +854,7 @@ export function PlanPanel(props: PlanPanelProps) {
   );
 }
 
-/** "For [All agents ▾]": every agent of "All agents" first, with their faces and names, then each agent. */
+/** "For [All agents ▾]": "All agents" first, with their faces, then each agent. Every option one line tall. */
 function ForSelect({ agents, all, target, onTarget }: Pick<PlanPanelProps, "agents" | "all" | "target" | "onTarget">) {
   const { t } = useTranslation();
   const face = (a: PlanAgent, size: "xs" | "sm" = "xs") => (
@@ -873,11 +875,6 @@ function ForSelect({ agents, all, target, onTarget }: Pick<PlanPanelProps, "agen
                 {
                   value: ALL_AGENTS,
                   label: t("connectAi.all"),
-                  description: namesText(
-                    t,
-                    all.map((a) => a.name),
-                    NAMES_SHOWN,
-                  ),
                   leading: <AvatarStack>{all.slice(0, 3).map((a) => face(a))}</AvatarStack>,
                 },
               ]

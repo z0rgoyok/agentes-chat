@@ -12,7 +12,7 @@ import type {
   Model,
 } from "../api/types";
 import { agentGrammar } from "./grammar";
-import { AUTO, keyRuns, providerLabel } from "./providers";
+import { modelOnKey, providerLabel } from "./providers";
 import { answerAfter } from "./team-plan";
 
 /** The workspace's right hand (ADR 0137): every surface that treats it apart asks here. */
@@ -94,20 +94,20 @@ export const thinksWithLine = (t: TFunction, scope: BrainScope | undefined, agen
     : t("aiAccounts.done.savedAgent", { agent, label });
 
 /**
- * The right hand on a workspace key, web and phone: the workspace's AI goes to its API key, the key is pinned, with
- * Automático where the model chosen before can't run on it, and the person's own DM goes back to that AI. In that
- * order: someone the workspace's AI refuses keeps their own as it was.
+ * The right hand on a workspace key, web and phone: the workspace's AI goes to its API key, the key is pinned, with one
+ * of the key's own models where the model chosen before can't run on it (`modelOnKey`: an endpoint's own, since
+ * Automático there fails every run as no AI), and the person's own DM goes back to that AI. In that order: someone the
+ * workspace's AI refuses keeps their own as it was.
  */
 export async function rightHandOnKey(
   api: ApiClient,
   orgId: string,
   agent: Pick<Agent, "id" | "model">,
-  key: Pick<Credential, "id" | "provider">,
+  key: Pick<Credential, "id" | "provider"> & Partial<Pick<Credential, "endpoint">>,
   models: readonly Model[],
 ) {
   await api.agents.setBrain(orgId, agent.id, { scope: "workspace", brain: "model" });
-  const fits = keyRuns(key, agent.model, models);
-  await api.agents.update(orgId, agent.id, { credentialId: key.id, ...(fits ? {} : { model: AUTO }) });
+  await api.agents.update(orgId, agent.id, { credentialId: key.id, ...modelOnKey(key, agent.model, models) });
   await api.agents.setBrain(orgId, agent.id, { brain: "model" });
 }
 

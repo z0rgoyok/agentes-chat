@@ -15,7 +15,7 @@
 //   wait: recorders (scrcpy, simctl recordVideo, idevicesyslog) run until SIGINT instead of ending at once
 //   xcodebuild: build-for-testing writes an .xctestrun (wdaBuildFail: prints it, exit 65); test-without-building
 //   serves a fake WebDriverAgent on TEST_RUNNER_USE_PORT and its MJPEG stream on TEST_RUNNER_MJPEG_SERVER_PORT (a
-//   real iPhone's 8100 and 9100: $FAKE_WDA_PORT and $FAKE_MJPEG_PORT) until SIGTERM (wdaRunFail: prints it, exit 65). wdaTree: its screen tree
+//   real iPhone's 8100 and 9100: the Unix sockets $FAKE_WDA_SOCKET and $FAKE_MJPEG_SOCKET) until SIGTERM (wdaRunFail: prints it, exit 65). wdaTree: its screen tree
 //   (wdaTrees: one per `source` call, the last kept). Its requests are logged as ["wda", method, path, body].
 //   ffmpeg: reads stdin to its end, then writes MP4DATA to its last argument
 //   changing: each screen capture differs from the last (a live screen)   big: screen captures over 2 MB
@@ -25,7 +25,16 @@
 //   details: what `devicectl device info details` writes (an iPhone's tunnel); without it, it fails
 //   observeEnds: `devicectl device notification observe` (the tunnel's keeper) ends at once instead of waiting
 //   for SIGTERM. The fake WebDriverAgent listens on TEST_RUNNER_USE_IP, and logs ["wda-listen", ip, port]
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -199,13 +208,16 @@ else if (tool === "idevicesyslog") {
 
 /** WebDriverAgent as far as the runner talks to it, and its MJPEG stream (one tiny JPEG every 50 ms). */
 function fakeWda() {
-  // A real iPhone's ports (8100, 9100) are reached through the fake usbmuxd at $FAKE_WDA_PORT and $FAKE_MJPEG_PORT.
+  // A real iPhone's ports (8100, 9100) are reached through the fake usbmuxd at Unix sockets: a loopback port picked
+  // free when the test began can be another socket's by the time this listens, and this would end at once.
   const env = process.env;
-  const port = Number(env.TEST_RUNNER_USE_PORT === "8100" ? env.FAKE_WDA_PORT : env.TEST_RUNNER_USE_PORT);
-  const mjpeg = Number(
-    env.TEST_RUNNER_MJPEG_SERVER_PORT === "9100" ? env.FAKE_MJPEG_PORT : env.TEST_RUNNER_MJPEG_SERVER_PORT,
-  );
+  const port = env.TEST_RUNNER_USE_PORT === "8100" ? env.FAKE_WDA_SOCKET : Number(env.TEST_RUNNER_USE_PORT);
+  const mjpeg =
+    env.TEST_RUNNER_MJPEG_SERVER_PORT === "9100" ? env.FAKE_MJPEG_SOCKET : Number(env.TEST_RUNNER_MJPEG_SERVER_PORT);
   const ip = env.TEST_RUNNER_USE_IP || "127.0.0.1";
+  // A helper started again finds the socket files of the one stopped before it.
+  for (const at of [port, mjpeg]) if (typeof at === "string") rmSync(at, { force: true });
+  const where = (at) => (typeof at === "string" ? [at] : [at, ip]);
   appendFileSync(process.env.FAKE_PHONE_LOG, `${JSON.stringify(["wda-listen", ip, String(port)])}\n`);
   let sources = 0;
   http
@@ -241,7 +253,7 @@ function fakeWda() {
         } else send(null);
       });
     })
-    .listen(port, ip);
+    .listen(...where(port));
   const jpeg = Buffer.from("ffd8ffc0001108000a001403012200021101031101ffd9", "hex");
   net
     .createServer((sock) => {
@@ -255,7 +267,7 @@ function fakeWda() {
         sock.on("error", () => clearInterval(timer));
       });
     })
-    .listen(mjpeg, ip);
+    .listen(...where(mjpeg));
   process.stdout.write("ServerURLHere->http://127.0.0.1:8100<-ServerURLHere\n");
   process.on("SIGTERM", () => process.exit(0));
 }

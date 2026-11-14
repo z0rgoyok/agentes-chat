@@ -24,7 +24,7 @@ import { PromptForm } from "../shared/PromptForm";
 import { useSurface } from "../shared/parts";
 import { useSheet } from "../shared/SheetHost";
 import { BrowserCard } from "./BrowserCard";
-import { cardStateOf, NOTE_MAX } from "./logic";
+import { cardStateOf, NOTE_LIMIT } from "./logic";
 import { useOpenHandoffId } from "./open";
 import { FrameView, useLiveConnection } from "./parts";
 
@@ -270,10 +270,11 @@ export function useNotNow(h: BrowserHandoff | null, onDone?: () => void) {
         placeholder={t("mobile.browser.failed.placeholder")}
         submitLabel={t("mobile.browser.failed.send")}
         allowEmpty
+        limit={NOTE_LIMIT}
         onSubmit={async (text) => {
           sheet.close();
           try {
-            await actions.failed(h.id, text.trim().slice(0, NOTE_MAX) || undefined);
+            await actions.failed(h.id, text.trim() || undefined);
             onDone?.();
           } catch (err) {
             // It ended meanwhile: the card settles on its own (`useBrowserHandoffMutations`), with nothing to tell.

@@ -287,7 +287,7 @@
   "overlap@390 div.wg__head in div.wg__body",
   "overlap@390 div.wk-bars in div.wk-axis",
   "pad@1280 button.ac-btn.ac-btn--sm.cmp-take",
-  "pad@1280 button.ac-chip.nac__app",
+  "pad@1280 button.ac-chip.ac-chip--button.nac__app",
   "pad@1280 span.ac-chip at span.newag__chips",
   "pad@1280 span.ac-eventpill__frame at div.ac-eventpill.rq-done",
   "pad@1280 span.mi-pill.mi-pill--field",

@@ -25,7 +25,14 @@ import {
   startVersionWatch,
   VERSION_CHECK_MS,
 } from "./lib/app-version";
-import { applyDesktopDevice, askForPhone, asksForPhone, desktopPlatform, inDesktopApp } from "./lib/desktop";
+import {
+  applyDesktopDevice,
+  askForPhone,
+  asksForPhone,
+  desktopPlatform,
+  desktopRenderer,
+  inDesktopApp,
+} from "./lib/desktop";
 import { tolerateForeignDomEdits } from "./lib/dom-guard";
 import { announceConfirmation, emailConfirmedToast } from "./lib/email-confirmation";
 import { catchEarlyErrors, reportError, setErrorScope, startErrorReports } from "./lib/error-reports";
@@ -61,8 +68,11 @@ if (platform) {
   document.documentElement.dataset.desktop = platform;
   applyDesktopDevice(i18n, platform);
   if (asksForPhone(window.location.search)) askForPhone();
-  // Linux's WebKitGTK paints in software there: the skies stand still, or their frames keep a core busy (holdSkies).
-  if (platform === "linux") holdSkies();
+  // Painted in software (Linux's WebKitGTK): the skies stand still, or their frames keep a core busy (holdSkies), and
+  // desktop.css drops the blurs and endless loops.
+  const renderer = desktopRenderer();
+  if (renderer) document.documentElement.dataset.desktopRenderer = renderer;
+  if (renderer === "cpu") holdSkies();
 }
 // Focus rings only while the keys move the focus (`data-pointer` on <html>, read by the stylesheet).
 trackInput();

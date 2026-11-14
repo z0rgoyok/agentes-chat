@@ -1,8 +1,8 @@
 // A fake Grok Build CLI (`grok`) for runner tests. Each start appends its argv, cwd and the env that matters (its
 // home, the MCP run and token, the switches that keep other config out) to $FAKE_GROK_LOG (one JSON line).
-// Signed in: `auth.json` in $GROK_HOME. `--version` prints Grok Build's version line, `models` its models (or "You are
-// not authenticated." first when signed out), `logout` removes `auth.json`. `login --device-auth` prints an x.ai link
-// and a code, then (after $FAKE_GROK_LOGIN_MS, default 200 ms) writes `auth.json` and exits 0.
+// Signed in: `auth.json` in $GROK_HOME. `--version` prints Grok Build's version line, `models` the account's models
+// (signed out: "You are not authenticated." and fewer of them), `logout` removes `auth.json`. `login --device-auth`
+// prints an x.ai link and a code, then (after $FAKE_GROK_LOGIN_MS, default 200 ms) writes `auth.json` and exits 0.
 // `-p <prompt> --output-format streaming-messages-json` prints one turn: init (the session: `--resume`'s, or a new
 // one; `tools` and `mcp_servers` as `--tools` and config.toml make them, or $FAKE_GROK_TOOLS), text deltas, a shell
 // call (none with "BRIDGE_ONLY"), a `use_tool` call to our bridge (to another server's with "OTHER_SERVER"), more
@@ -41,8 +41,14 @@ if (args[0] === "--version") {
   process.exit(0);
 }
 if (args[0] === "models") {
-  if (!existsSync(auth)) process.stdout.write("You are not authenticated.\n\n");
-  process.stdout.write("Default model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n");
+  if (existsSync(auth)) {
+    process.stdout.write(
+      "Default model: grok-4.7\n\nAvailable models:\n  * grok-4.7 (default)\n  - grok-4.6\n  - grok-4.5\n",
+    );
+  } else {
+    process.stdout.write("You are not authenticated.\n\n");
+    process.stdout.write("Default model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n");
+  }
   process.exit(0);
 }
 if (args[0] === "logout") {

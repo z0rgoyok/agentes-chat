@@ -18,7 +18,7 @@ import {
   openableConsultation,
   pairItemOf,
 } from "@agenteschat/client/lib/consult-group";
-import { consultTimeText } from "@agenteschat/client/lib/consultations";
+import { consultSubject, consultTimeText } from "@agenteschat/client/lib/consultations";
 import { namesText } from "@agenteschat/client/lib/format";
 import type { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { useQueryClient } from "@tanstack/react-query";
@@ -156,6 +156,9 @@ export function ConsultPairRow({
   const from = nameOf(askerId);
   const names = pair.faces.map((f) => nameOf(f.agentId));
   const to = names.length === 1 ? (names[0] ?? "") : namesText(t, names, 1);
+  // What the question a tap opens is about, between the names and how it went, as on the web.
+  const opened = items.find((x) => x.id === pair.opens) ?? items[0];
+  const subject = consultSubject(opened?.question);
   // An old reply's question with no id of its own has no conversation to open.
   const opens = openableConsultation(pair.opens);
   return (
@@ -210,7 +213,17 @@ export function ConsultPairRow({
         <Text variant="footnote" tone="ink2" style={styles.name}>
           {to}
         </Text>
-        {pair.word || pair.seconds !== null ? (
+        {subject || pair.word || pair.seconds !== null ? (
+          <Text variant="footnote" tone="faint">
+            ·
+          </Text>
+        ) : null}
+        {subject ? (
+          <Text variant="footnote" tone="faint" style={styles.subject}>
+            {subject}
+          </Text>
+        ) : null}
+        {subject && (pair.word || pair.seconds !== null) ? (
           <Text variant="footnote" tone="faint">
             ·
           </Text>
@@ -256,6 +269,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   name: { fontWeight: "600", flexShrink: 1 },
+  subject: { flexShrink: 1 },
   faces: { flexDirection: "row", alignItems: "center" },
   stacked: { marginLeft: -6, borderLeftWidth: 1.5, borderRadius: 6 },
   off: { opacity: 0.45 },

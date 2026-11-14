@@ -59,6 +59,8 @@ export const featureKeysEn = {
     reopen: "Show again",
     answeredBy: "{{name}} picked",
     failed: "Your pick didn't go through. Try again.",
+    /** After the message's size and limit, when a written answer makes the reply too long. */
+    tooLongFix: "Shorten the answer.",
   },
   chart: {
     table: "Table",
@@ -2075,8 +2077,27 @@ export const featureKeysEn = {
       /** Under a step that sat unchanged for a while: what most likely holds it, and one way out. */
       stall: {
         plug: "{{host}} doesn't see this iPhone yet. Use a cable that carries data, not only power, keep this iPhone unlocked and tap Trust if it asks.",
-        devmode:
-          "Developer Mode turns on only after this iPhone restarts. Tap Restart, then Turn On once it's back. No switch there? Unplug this iPhone and plug it in again.",
+      },
+      /** Under Developer Mode, on the iPhone itself. */
+      devMode: {
+        /** It restarted to turn the mode on, and its Mac doesn't see it again yet. */
+        restarting: "{{host}} doesn't see this iPhone again yet after its restart. Keep it plugged in.",
+        /** Back from the restart with the mode still off: iOS shows its alert once unlocked. */
+        back: "Tap Turn On in the alert on this iPhone and enter your passcode.",
+        /** A button: the Mac looks at this iPhone again now. */
+        check: "I turned it on, check again",
+        stillOff: "{{host}} still sees Developer Mode off.",
+        /** Each reason the switch may be missing, with its one way out. */
+        missing: "Don't see the option?",
+        hidden: "This iPhone hides the option until Xcode asks to show it.",
+        /** For who can't open Xcode from here: someone who doesn't manage the Mac, or a Mac whose app is too old. */
+        hiddenOpen:
+          "This iPhone hides the option until Xcode asks to show it. Open Xcode on {{host}} with this iPhone plugged in.",
+        openXcode: "Open Xcode",
+        opened: "Xcode opened on {{host}}. Look in Settings again, then close Xcode there.",
+        unlock: "Turned it on and it restarted? The alert with Turn On shows once this iPhone is unlocked.",
+        checkAgain: "Check again",
+        outdated: "The agentes.chat app on {{host}} is out of date. Update it on that Mac.",
       },
     },
     /**

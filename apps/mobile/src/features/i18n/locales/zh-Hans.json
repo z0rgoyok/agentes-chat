@@ -52,7 +52,8 @@
     "closed": "{{title}} · 已关闭",
     "reopen": "再次显示",
     "answeredBy": "{{name}} 已选择",
-    "failed": "你的选择没有发送成功。请重试。"
+    "failed": "你的选择没有发送成功。请重试。",
+    "tooLongFix": "请缩短回答。"
   },
   "chart": {
     "table": "表格",
@@ -1884,8 +1885,21 @@
         "stopped": "“{{name}}”不再通过 Wi-Fi 使用"
       },
       "stall": {
-        "plug": "{{host}} 还没有看到这台 iPhone。请使用能传输数据的线，而不是只能充电的线，保持这台 iPhone 解锁，如有提示就点按“信任”。",
-        "devmode": "开发者模式要在这台 iPhone 重启后才会打开。点按“重新启动”，开机后点按“打开”。没有这个开关？拔下这台 iPhone 再重新插上。"
+        "plug": "{{host}} 还没有看到这台 iPhone。请使用能传输数据的线，而不是只能充电的线，保持这台 iPhone 解锁，如有提示就点按“信任”。"
+      },
+      "devMode": {
+        "restarting": "重新启动后，{{host}} 还没有再次看到这台 iPhone。请保持连接。",
+        "back": "在这台 iPhone 的提示中点按“打开”并输入你的密码。",
+        "check": "已经打开，再检查一次",
+        "stillOff": "{{host}} 仍然看到开发者模式是关闭的。",
+        "missing": "看不到这个选项？",
+        "hidden": "在 Xcode 请求显示之前，这台 iPhone 会隐藏这个选项。",
+        "hiddenOpen": "在 Xcode 请求显示之前，这台 iPhone 会隐藏这个选项。请在这台 iPhone 连接着时，在 {{host}} 上打开 Xcode。",
+        "openXcode": "打开 Xcode",
+        "opened": "Xcode 已在 {{host}} 上打开。请再看看设置，之后关闭那台 Mac 上的 Xcode。",
+        "unlock": "已经打开并且重新启动了？解锁这台 iPhone 后，带有“打开”的提示就会出现。",
+        "checkAgain": "再检查一次",
+        "outdated": "{{host}} 上的 agentes.chat 应用已过时。请在那台 Mac 上更新。"
       }
     },
     "notice": {

@@ -31,6 +31,7 @@ import {
 } from "../src";
 import { agentAiState, backgroundAiState, orgAiStatus, orgHasAi } from "../src/ai-status";
 import { rightHandWidgetsReady, widgetAi } from "../src/dashboards/refresh-fire";
+import { withPersonalBrain } from "../src/right-hand";
 import { addMember, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 import { routineDeps } from "./routine-fixtures";
@@ -660,4 +661,88 @@ test("a run a routine's report woke thinks with the AI its firing picked", async
   expect(await resolveBrain({ db: fx.db, machines }, agent, woken, woken.channelId)).toMatchObject({
     account: { id: BIAS },
   });
+});
+
+test("the model saved on the right hand reaches the turn when the person's own AI names none", async () => {
+  const { fx, deps, bia, lodi, runIn } = await world();
+  // Bia picked a plan for her own DM and left the model to the right hand, saved for the same brain.
+  await fx.db.insert(schema.rightHandBrains).values({
+    orgId: fx.org.id,
+    userId: bia.id,
+    brain: "claude_code",
+    brainModel: null,
+    brainAccountId: BIAS,
+  });
+  await fx.db.update(schema.machineAccounts).set({ provider: "opencode" }).where(eq(schema.machineAccounts.id, BIAS));
+  await fx.db
+    .update(schema.agents)
+    .set({ brain: "claude_code", brainModel: "deepseek-v4.1-flash", brainAccountId: BIAS })
+    .where(eq(schema.agents.id, lodi.id));
+  expect(await runIn(bia.id)).toMatchObject({
+    kind: "claude_code",
+    model: "deepseek-v4.1-flash",
+    account: { id: BIAS },
+  });
+  // Her own settings show the model her DM runs.
+  expect(await getAgentBrain(deps, bia.id, fx.org.id, lodi.id, "mine")).toMatchObject({
+    scope: "mine",
+    model: "deepseek-v4.1-flash",
+    effectiveModel: "deepseek-v4.1-flash",
+  });
+});
+
+test("the right hand's API model doesn't follow the person to their own plan", async () => {
+  const { fx, deps, bia, lodi, runIn } = await world();
+  // The right hand as seeded: the API brain with `auto`. Bia's own plan names no model.
+  await fx.db.insert(schema.rightHandBrains).values({
+    orgId: fx.org.id,
+    userId: bia.id,
+    brain: "claude_code",
+    brainModel: null,
+    brainAccountId: BIAS,
+  });
+  await fx.db.update(schema.agents).set({ brain: "model", brainModel: "auto" }).where(eq(schema.agents.id, lodi.id));
+  expect(await runIn(bia.id)).toMatchObject({ kind: "claude_code", model: "sonnet", account: { id: BIAS } });
+  expect(await getAgentBrain(deps, bia.id, fx.org.id, lodi.id, "mine")).toMatchObject({
+    model: null,
+    effectiveModel: "sonnet",
+  });
+});
+
+test("a model saved for one computer brain doesn't follow the person to another", async () => {
+  const { fx, bia, lodi } = await world();
+  // Bia's own DM runs Codex; the right hand is stored on Claude Code with a Claude model. An Opus is no Codex model.
+  await fx.db.insert(schema.rightHandBrains).values({
+    orgId: fx.org.id,
+    userId: bia.id,
+    brain: "codex",
+    brainModel: null,
+    brainAccountId: BIAS,
+  });
+  await fx.db
+    .update(schema.agents)
+    .set({ brain: "claude_code", brainModel: "claude-opus-5-5", brainAccountId: BIAS })
+    .where(eq(schema.agents.id, lodi.id));
+  const [stored] = await fx.db.select().from(schema.agents).where(eq(schema.agents.id, lodi.id));
+  if (!stored) throw new Error("no right hand");
+  const { agent } = await withPersonalBrain(fx.db, stored, bia.id);
+  expect(agent.brain).toBe("codex");
+  expect(agent.brainModel).toBeNull();
+});
+
+test("a model the person chose for their own DM wins over the right hand's", async () => {
+  const { fx, bia, lodi, runIn } = await world();
+  await fx.db.insert(schema.rightHandBrains).values({
+    orgId: fx.org.id,
+    userId: bia.id,
+    brain: "claude_code",
+    brainModel: "glm-5.3",
+    brainAccountId: BIAS,
+  });
+  await fx.db.update(schema.machineAccounts).set({ provider: "opencode" }).where(eq(schema.machineAccounts.id, BIAS));
+  await fx.db
+    .update(schema.agents)
+    .set({ brain: "claude_code", brainModel: "deepseek-v4.1-flash", brainAccountId: BIAS })
+    .where(eq(schema.agents.id, lodi.id));
+  expect((await runIn(bia.id)).model).toBe("glm-5.3");
 });

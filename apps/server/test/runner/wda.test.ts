@@ -29,7 +29,7 @@ import {
   WdaClient,
   wdaScreenDriver,
 } from "../../runner/wda";
-import { fakeUsbmuxd, freePort } from "./fake-usbmuxd";
+import { fakeUsbmuxd } from "./fake-usbmuxd";
 import { errorCode, removeDirs, tempDir } from "./helpers";
 
 // Each fake Xcode tool is a process of its own: an iPhone helper's build, check and start take seconds on a busy machine.
@@ -355,7 +355,7 @@ async function mac(state: Record<string, unknown> = {}) {
   const logFile = path.join(root, "log");
   const setState = (next: Record<string, unknown>) => writeFileSync(stateFile, JSON.stringify(next));
   setState(state);
-  const [wda, mjpeg] = [await freePort(), await freePort()];
+  const [wda, mjpeg] = [path.join(root, "wda.sock"), path.join(root, "mjpeg.sock")];
   const mux = await fakeUsbmuxd(root, [{ id: 5, serial: IPHONE }], { 8100: wda, 9100: mjpeg });
   closers.push(mux.close);
   let now = Date.parse("2026-11-09T04:00:00Z");
@@ -368,8 +368,8 @@ async function mac(state: Record<string, unknown> = {}) {
       PATH: bin,
       FAKE_PHONE_STATE: stateFile,
       FAKE_PHONE_LOG: logFile,
-      FAKE_WDA_PORT: String(wda),
-      FAKE_MJPEG_PORT: String(mjpeg),
+      FAKE_WDA_SOCKET: wda,
+      FAKE_MJPEG_SOCKET: mjpeg,
     },
     log: (line) => logged.push(line),
     now: () => now,
@@ -500,7 +500,7 @@ test("another runner of this user builds it or holds the phone: this one waits, 
   // Nor does a view from this workspace start it there.
   expect(await errorCode(() => m.helper.run("device", IPHONE, m.xcrun))).toBe("phone_busy");
   rmSync(holding);
-  expect(await m.settle(null)).toBe(null);
+  expect([await m.settle(null), m.helper.unknownFailure(IPHONE)]).toEqual([null, null]);
 });
 
 test("a build that fails for a reason Xcode's words don't name says them to the agent", async () => {

@@ -102,11 +102,13 @@ const PHONE_STEP: Partial<Record<string, IphoneSetupStep>> = {
 /**
  * Where the setup stands: steps before the first undone one are done, that one is the Mac's to do (`active`) or the
  * person's (`needs`), the rest wait. The Mac's own steps come first; the iPhone's come from its reason, which turns
- * a step done by itself once the iPhone reports it. Null `setup`: still asking the Mac.
+ * a step done by itself once the iPhone reports it. Null `setup`: still asking the Mac. An iPhone restarting to turn
+ * Developer Mode on (`restarting`, `useIphoneRestart`) stays on that step, under way.
  */
 export function iphoneSteps(
   setup: ControlIphoneSetup | null,
   phone: RunnerPhone | null,
+  restarting = false,
 ): { states: Record<IphoneSetupStep, IphoneStepState>; current: IphoneSetupStep | null; done: number } {
   const reason = phone?.state === "ready" ? undefined : phone?.reason;
   const fromPhone = reason ? PHONE_STEP[reason] : undefined;
@@ -117,7 +119,7 @@ export function iphoneSteps(
   else if (setup.platform.state !== "installed" || fromPhone === "tools")
     [at, mac] = ["tools", setup.platform.state !== "failed"];
   else if (!setup.account || fromPhone === "account") at = "account";
-  else if (!phone) [at, mac] = ["connected", true];
+  else if (!phone) [at, mac] = [restarting ? "developerMode" : "connected", true];
   else if (fromPhone) [at, mac] = [fromPhone, fromPhone === "helper" && phone.state === "preparing"];
   else if (phone.state !== "ready") [at, mac] = ["helper", phone.state === "preparing"];
   const index = at ? IPHONE_SETUP_STEPS.indexOf(at) : IPHONE_SETUP_STEPS.length;

@@ -617,9 +617,13 @@ export async function planIsOwners(
   return rows.length > 0;
 }
 
-/** The agent's effort when it thinks with its own brain (a mission's other brain: the CLI's default). */
+/**
+ * The agent's effort when it thinks with its own brain (a mission's other brain: the CLI's default). On an API key it
+ * holds for a fixed model; "Automático" picks its own (`autoApplied`), and a computer brain's fallback to the API sends
+ * none.
+ */
 export function brainEffortFor(agent: Pick<Agent, "brain" | "brainEffort">, kind: BrainKind): BrainEffort | undefined {
-  if (kind === "model" || kindOf(agent.brain) !== kind) return undefined;
+  if (kindOf(agent.brain) !== kind) return undefined;
   return isBrainEffort(agent.brainEffort) ? agent.brainEffort : undefined;
 }
 
@@ -777,7 +781,10 @@ export async function resolveBrain(
   const agent = await thinkingAgent(deps.db, given, await rightHandPerson(deps.db, given, run));
   const kind = brainFor(agent, run, mission);
   const base = mission ? { missionId: mission.missionId } : {};
-  if (kind === "model") return { kind, ...base };
+  if (kind === "model") {
+    const effort = brainEffortFor(agent, kind);
+    return { kind, ...base, ...(effort ? { effort } : {}) };
+  }
   const model = brainModelFor(kind, agent, mission);
   const machineId = mission?.session?.machineId ?? agent.machineId ?? null;
   const [status, account] = await Promise.all([

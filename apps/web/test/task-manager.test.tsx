@@ -143,6 +143,9 @@ function busy(): TaskManagerView {
         status: "canceled",
         label: "Responder os tickets",
         stoppedBy: { userId: "u-joao", name: "João" },
+        // A minute before the summary: two `ago(84)` read on either side of a millisecond would swap the rows.
+        startedAt: ago(91),
+        finishedAt: ago(85),
       }),
     ],
     activity: { [ADA_ID]: line(4), [ATLAS_ID]: line(2) },

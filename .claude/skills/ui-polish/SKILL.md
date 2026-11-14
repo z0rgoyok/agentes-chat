@@ -13,7 +13,7 @@ Measure, don't eyeball. Vision misses 1 to 2 px errors, source review can't see 
 - Spacing steps 4, 8, 12, 16, 24, 32. Form fields 16 apart, a label 4 from its control. List rows 8 above and below (`--row-py`, 12 on touch): one line 36, with a 24 face 40, with a 32 control 48. Cards 16 inside (`--card-pad`). A plated button stays 8 from its row's or card's edges (`--action-clear`). A row of actions (`.ac-acts`) puts 16 between what the eye sees, on touch too, and two plated buttons 8 apart. A small button keeps its 32 plate on touch: its target grows to 44 past it (`--touch-target`), up and down only when it has words.
 - Every page starts at `--page-top` (its title's line on the sidebar's workspace row, 20 on phones) and `--page-x` (24, 16 under 640). Header, toolbar and content 16 apart, list groups 24 (`.ac-groups`).
 - No raw px for padding, gaps or heights. Use the tokens.
-- Rounded inside rounded: inner radius is the outer radius minus the gap between them.
+- Rounded inside rounded: inner radius is the outer radius minus the gap between them. For a box, derive it from what's inside: outer = inner + gap (the composer's 18 = 10 + 8). One exception to "pills only for labels you don't press": inside a fully round pill (the notice island), a face or button at its end is fully round and as far from the end as from the top, 4 when the pill leaves only 4 above it (`nest` in `scripts/geometry` checks it).
 - Fonts are fixed: Source Sans 3 (the app, titles too), JetBrains Mono (code), Funnel Display (brand), Doto (dot type), Onest and Martian Mono (the kit's defaults, the desktop app). Never swap or "improve" them, whatever a tool suggests. A new font gets `--cap-mid` and `--cap-top` measured again.
 
 ## Rules

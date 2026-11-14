@@ -29,6 +29,7 @@ export function Face({
   framed,
   presence = false,
   ring,
+  radius,
 }: {
   who: { type: string; id: string | null } | null | undefined;
   size: number;
@@ -38,15 +39,26 @@ export function Face({
   framed?: boolean;
   presence?: boolean;
   ring?: string;
+  /** The tile's corner (default 30% of the side, see AgentAvatar). */
+  radius?: number | undefined;
 }) {
   const dir = useDirectory();
   const member = who?.type !== "agent" && who?.id ? dir.memberById.get(who.id) : undefined;
   const photo = usePersonPhoto(member ? (member.avatarUrl ?? member.image) : null);
   if (who?.type === "agent")
     return (
-      <AgentFace agentId={who.id} size={size} mode={mode} live={live} framed={framed} presence={presence} ring={ring} />
+      <AgentFace
+        agentId={who.id}
+        size={size}
+        mode={mode}
+        live={live}
+        framed={framed}
+        presence={presence}
+        ring={ring}
+        radius={radius}
+      />
     );
-  const face = <PersonAvatar name={dir.nameOf(who) || "?"} size={size} photo={photo} />;
+  const face = <PersonAvatar name={dir.nameOf(who) || "?"} size={size} photo={photo} radius={radius} />;
   if (!presence || !who?.id) return face;
   return (
     <Badged who={{ type: who.type, id: who.id }} size={size} ring={ring} inset={0}>
@@ -93,6 +105,7 @@ export function AgentFace({
   gaze,
   expression,
   bodyless,
+  radius,
 }: {
   agentId: string | null | undefined;
   size: number;
@@ -110,10 +123,12 @@ export function AgentFace({
   expression?: Expression | undefined;
   /** Only its sky in the frame: away on a routine. */
   bodyless?: boolean | undefined;
+  /** The tile's corner (default 30% of the side, see AgentAvatar). */
+  radius?: number | undefined;
 }) {
   const dir = useDirectory();
   const look = agentLook(agentId ? dir.anyAgent(agentId) : undefined);
-  const moment = { gaze, expression, bodyless };
+  const moment = { gaze, expression, bodyless, radius };
   if (presence && agentId)
     return (
       <PresentAgentFace
@@ -137,6 +152,7 @@ export function AgentFace({
       {...(gaze ? { gaze } : {})}
       {...(expression ? { expression } : {})}
       {...(bodyless ? { bodyless } : {})}
+      radius={radius}
     />
   );
 }
@@ -158,7 +174,12 @@ function PresentAgentFace({
   live: boolean;
   framed: boolean | undefined;
   ring: string | undefined;
-  moment: { gaze?: Gaze | undefined; expression?: Expression | undefined; bodyless?: boolean | undefined };
+  moment: {
+    gaze?: Gaze | undefined;
+    expression?: Expression | undefined;
+    bodyless?: boolean | undefined;
+    radius?: number | undefined;
+  };
 }) {
   const status = usePresenceOf().agent(agentId)?.status?.status;
   const asleep = mode === "idle" && isOutOfOffice(status);
@@ -173,6 +194,7 @@ function PresentAgentFace({
         {...(moment.gaze ? { gaze: moment.gaze } : {})}
         {...(moment.expression ? { expression: moment.expression } : {})}
         {...(moment.bodyless ? { bodyless: true } : {})}
+        radius={moment.radius}
       />
     </Badged>
   );

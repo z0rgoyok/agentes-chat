@@ -22,7 +22,18 @@ import {
   webmailOf,
 } from "@agenteschat/client/lib/text";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
-import { Button, cx, type Expression, Field, Icon, Input, Locked, PixelSpinner, Textarea } from "@agenteschat/ui";
+import {
+  Button,
+  cx,
+  type Expression,
+  Field,
+  Icon,
+  Input,
+  Locked,
+  overLimit,
+  PixelSpinner,
+  Textarea,
+} from "@agenteschat/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type KeyboardEvent, type ReactNode, type Ref, useEffect, useRef, useState } from "react";
@@ -35,6 +46,7 @@ import { OrgMark } from "@/components/ProfilePhoto";
 import { prepareBurst } from "@/components/Sky";
 import { rememberSignIn, SocialButtons, useSocialProviders } from "@/components/SocialButtons";
 import { useNow } from "@/hooks/useNow";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { TYPED_VALUES } from "@/i18n";
 import { inDesktopApp } from "@/lib/desktop";
 import { useHumanCheck } from "@/lib/human-check";
@@ -1174,6 +1186,7 @@ function AskSteps({
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [note, setNote] = useState("");
+  const noteLimit = useTextLimit(JOIN_NOTE_MAX);
   // A code proves one address: another address starts over.
   const [proof, setProof] = useState<{ email: string; code: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1388,7 +1401,7 @@ function AskSteps({
             className="auth__big"
             aria-label={t("invite.ask.noteField")}
             rows={3}
-            maxLength={JOIN_NOTE_MAX}
+            limit={noteLimit}
             placeholder={t("invite.ask.notePlaceholder")}
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -1617,6 +1630,8 @@ function AskAsAccount({ token, preview }: { token: string; preview: InvitationPr
   });
   const [step, setStep] = useState<"form" | "code">("form");
   const [note, setNote] = useState("");
+  const noteLimit = useTextLimit(JOIN_NOTE_MAX);
+  const noteTooLong = overLimit(note, noteLimit);
   const [error, setError] = useState<string | null>(null);
   const [wrong, setWrong] = useState(false);
   const [pending, setPending] = useState(false);
@@ -1668,7 +1683,7 @@ function AskAsAccount({ token, preview }: { token: string; preview: InvitationPr
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (step !== "form" || pending || codes.pending || capped) return;
+    if (step !== "form" || pending || codes.pending || capped || noteTooLong) return;
     if (proofNeeded) void toCode();
     else void ask(proof);
   };
@@ -1805,14 +1820,21 @@ function AskAsAccount({ token, preview }: { token: string; preview: InvitationPr
         className="auth__big"
         aria-label={t("invite.ask.note")}
         rows={3}
-        maxLength={JOIN_NOTE_MAX}
+        limit={noteLimit}
         placeholder={t("invite.ask.noteHelp")}
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
       {proofNeeded && human.slot}
       <ErrorLine error={error ?? (capped ? t("errors.code.limit") : null)} />
-      <Button type="submit" variant="primary" size="lg" block loading={pending || codes.pending} disabled={capped}>
+      <Button
+        type="submit"
+        variant="primary"
+        size="lg"
+        block
+        loading={pending || codes.pending}
+        disabled={capped || noteTooLong}
+      >
         {proofNeeded ? t("auth.flow.continue") : t("invite.ask.send")}
       </Button>
       <button type="button" className="auth__quiet" onClick={() => void signOutHere()}>
@@ -1832,11 +1854,12 @@ function AskForm({ token, preview }: { token: string; preview: InvitationPreview
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
+  const noteLimit = useTextLimit(JOIN_NOTE_MAX);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState<AskToJoinResult | null>(null);
   const fix = emailTypoFix(email);
-  const ready = name.trim() !== "" && isEmail(email);
+  const ready = name.trim() !== "" && isEmail(email) && !overLimit(note, noteLimit);
 
   const ask = async () => {
     setPending(true);
@@ -1905,7 +1928,7 @@ function AskForm({ token, preview }: { token: string; preview: InvitationPreview
         <Textarea
           className="auth__big"
           rows={3}
-          maxLength={JOIN_NOTE_MAX}
+          limit={noteLimit}
           placeholder={t("invite.ask.noteHelp")}
           value={note}
           onChange={(e) => setNote(e.target.value)}

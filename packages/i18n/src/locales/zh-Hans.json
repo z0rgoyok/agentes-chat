@@ -24,6 +24,7 @@
     "retry": "重试",
     "soon": "即将推出",
     "unknownError": "出了点问题，请重试。",
+    "overLimit": "文本有 {{length}} 个字符，上限为 {{max}} 个。请缩短。",
     "ourSide": "我们这边出了点问题，请稍后再试。",
     "signedOut": "你的会话已结束，请重新登录以继续。",
     "newVersion": "agentes.chat 有新版本了。",
@@ -66,7 +67,7 @@
     "create": "创建角色",
     "base": "基础",
     "everyoneName": "所有人",
-    "orderHint": "顺序很重要：排在上面的角色可以管理下面的角色和成员。",
+    "orderHint": "位置更高的人管理下面的角色和成员。每个人名字的颜色来自其最高的角色。拖动以更改顺序。",
     "reorder": "调整顺序",
     "reorderDone": "完成",
     "moveUp": "上移 {{name}}",
@@ -107,6 +108,26 @@
         "none": "任何人都不能查看或使用智能体的电脑、浏览器或登录请求",
         "browser": "自己智能体的浏览器和发给本人的登录请求，绝不包括整个屏幕",
         "full": "自己智能体以及本人连接的电脑的整个屏幕和终端"
+      },
+      "steps": {
+        "off": "不使用",
+        "ownBrowser": "自己智能体的浏览器",
+        "ownComputer": "自己智能体的电脑",
+        "anyBrowser": "任何智能体的浏览器",
+        "anyComputer": "任何智能体的电脑"
+      },
+      "short": {
+        "browser": "浏览器",
+        "computer": "电脑"
+      },
+      "groupOwn": "自己的智能体",
+      "groupAny": "任何智能体",
+      "hint": "浏览器：浏览器和登录请求。电脑：还包括整个屏幕和终端。自己的智能体：此人负责的智能体和此人连接的电脑。",
+      "with": {
+        "ownBrowser": "自己智能体的浏览器",
+        "ownComputer": "自己智能体的电脑",
+        "anyBrowser": "任何智能体的浏览器",
+        "anyComputer": "任何智能体的电脑"
       }
     },
     "everyoneNote": "适用于工作区中的每位成员。其他角色只会在此基础上增加权限。",
@@ -142,10 +163,10 @@
     "name": "名称",
     "nameDesc": "大家看到的名称。",
     "color": "颜色",
-    "colorDesc": "角色标记的颜色。",
+    "colorDesc": "为角色徽章和以它为最高角色的人的名字上色。",
     "colorOf": "{{color}}色",
     "hoist": "在成员列表中单独显示",
-    "hoistDesc": "拥有此角色的人会在成员栏中单独成组。",
+    "hoistDesc": "拥有此角色的人会在成员栏中单独成组。智能体留在自己的组里。",
     "icon": "图标",
     "iconDesc": "显示在名称旁边。",
     "more": "更多选项",
@@ -164,7 +185,7 @@
     },
     "newTitle": "创建角色",
     "newSub": "之后可以随时修改。",
-    "namePlaceholder": "例如：版主",
+    "namePlaceholder": "例如：支持",
     "startFrom": "从这里开始",
     "templates": {
       "blank": "无",
@@ -186,7 +207,131 @@
     "added_other": "{{count}} 位成员拥有{{name}}角色",
     "rolesOf": "{{name}} 的角色",
     "rolesCta": "角色",
-    "aboveYou": "高于你的角色"
+    "aboveYou": "高于你的角色",
+    "search": "搜索角色",
+    "noneYet": "还没有角色。创建一个，给部分成员更多权限。",
+    "noMatch": "没有与“{{q}}”匹配的角色。",
+    "full": "这个工作区已有 {{max}} 个角色。删除一个才能创建新的。",
+    "loadError": "无法加载角色。{{cause}}",
+    "move": "移动{{name}}",
+    "moveHint": "拖动，或使用空格键和方向键。",
+    "reach": {
+      "permissions_other": "+{{count}} 项权限",
+      "channels_other": "+{{count}} 个频道",
+      "agents_other": "+{{count}} 个智能体",
+      "basePermissions_other": "{{count}} 项权限",
+      "baseChannels_other": "{{count}} 个频道",
+      "baseAgents_other": "{{count}} 个智能体",
+      "owner": "随时可以做任何事",
+      "admin": "可以做任何事",
+      "none": "只有所有人能做的",
+      "hidden_other": "{{count}} 个你看不到的"
+    },
+    "switchTo": "前往其他角色",
+    "look": "更改名称、颜色和图标",
+    "lookColor": "更改颜色",
+    "inviteWith": "用此角色邀请",
+    "tabs": {
+      "permissions": "权限",
+      "channels": "频道",
+      "agents": "智能体",
+      "people": "成员"
+    },
+    "gone": "有人删除了这个角色。",
+    "backToList": "返回角色",
+    "searchPermission": "搜索权限",
+    "noPermissionMatch": "没有与“{{q}}”匹配的权限。",
+    "everyoneTip": "所有人都可以。点击选择谁可以。",
+    "only": "仅{{names}}",
+    "notHeld": "你没有这项权限。",
+    "nowAbove": "这个角色现在高于你的角色。只有更高的人才能更改。",
+    "agentsNote": "角色适用于成员。每个智能体都有自己的权限，在它的页面上。",
+    "adminHint": "可以做除所有者专属事项外的一切。只给负责管理工作区的人。",
+    "adminOn": "开启管理员后，{{name}}可以做除所有者专属事项外的一切。",
+    "adminAsk": {
+      "title": "要在{{name}}中开启管理员吗？",
+      "text_other": "拥有{{name}}的人将可以做除所有者专属事项外的一切。共 {{count}} 人。",
+      "confirm": "开启管理员"
+    },
+    "who": {
+      "title": "谁可以{{short}}",
+      "everyoneDesc": "工作区中的每个人",
+      "some": "仅部分角色",
+      "owners": "所有者始终可以。",
+      "losing": "将不再可以：",
+      "gaining": "将可以：",
+      "everyoneGains": "所有人都将可以。",
+      "nobody": "没有人失去。",
+      "noRoles": "还没有其他角色。",
+      "computersTitle": "谁保留{{what}}",
+      "computersLow": "所有人都将拥有{{what}}。",
+      "computersNone": "所有人都将停止使用智能体的电脑。"
+    },
+    "channels": {
+      "line": "拥有{{name}}的人能看到勾选的频道并加入。",
+      "lineBase": "所有人都能看到勾选的频道并加入。",
+      "hint": "适用于成员。有人添加智能体后，智能体才会进入频道。",
+      "search": "搜索频道",
+      "general": "所有人都留在 #general。",
+      "notYours": "只有 #{{channel}} 的创建者或整理频道的人能更改谁可以看到它。",
+      "removeTitle": "要从{{name}}移除 #{{channel}} 吗？",
+      "leave": "将离开频道：",
+      "openTitle": "要向{{name}}开放 #{{channel}} 吗？",
+      "openText": "拥有{{name}}的人能看到该频道和全部历史，并可加入。",
+      "open": "开放",
+      "openAllTitle": "要向所有人开放 #{{channel}} 吗？",
+      "openAllText": "全部历史将对工作区开放。",
+      "admin": "开启管理员后，拥有{{name}}的人能看到所有频道。",
+      "onlyGeneral": "目前只有 #general。",
+      "noMatch": "没有与“{{q}}”匹配的频道。"
+    },
+    "sees": {
+      "title": "谁能看到 #{{channel}}",
+      "private": "仅限被添加的人",
+      "privateDesc": "新的人看不到。已在其中的人保留。",
+      "unsee": "已在其中的人保留。将看不到的人："
+    },
+    "agents": {
+      "line": "拥有{{name}}的人可以与勾选的智能体对话。",
+      "lineBase": "所有人都可以与勾选的智能体对话。",
+      "hint": "这是关于成员的设置。每个智能体做什么，在它的页面上。",
+      "noTalk": "只有{{name}}的人不能与智能体对话。",
+      "turnOnTalk": "开启“与智能体对话”",
+      "search": "搜索智能体",
+      "notYours": "只有{{name}}的负责人{{owner}}或可以编辑任何智能体的人能更改。",
+      "notYoursNoOwner": "只有可以编辑任何智能体的人能更改。",
+      "none": "还没有智能体。",
+      "noMatch": "没有与“{{q}}”匹配的智能体。"
+    },
+    "talks": {
+      "title": "谁与{{name}}对话",
+      "some": "仅部分角色和成员",
+      "ownerDesc": "{{name}}的负责人",
+      "losing": "将不再与{{agent}}对话："
+    },
+    "holders": {
+      "agent": "{{name}}是智能体。智能体没有角色。",
+      "seeAgents": "查看智能体",
+      "removed": "{{person}}不再拥有{{name}}",
+      "undo": "撤销",
+      "selfTitle": "要把自己从{{name}}移除吗？",
+      "selfText": "你将失去只有{{name}}给你的权限。只有比你高的人才能还给你。",
+      "noMatch": "没有与“{{q}}”匹配的人。"
+    },
+    "mail": {
+      "title": "{{agent}}将失去{{owner}}的邮箱",
+      "titleMany": "智能体将失去邮箱",
+      "lead": "与它们对话的人增多后，智能体将不再读取这些邮箱。",
+      "of": "{{owner}}的邮箱 · {{agent}}",
+      "again": "只有给出邮箱的人才能再次给出。",
+      "addAnyway": "仍然添加",
+      "giveAnyway": "仍然授予"
+    },
+    "previewWhere": "在聊天中",
+    "sameAs": "与以下相同",
+    "deleteLeave": "将离开仅通过{{name}}看到的频道：",
+    "deleteReading": "正在查看谁会离开频道…",
+    "ownerAdd": "添加所有者"
   },
   "permissions": {
     "areas": {
@@ -5099,6 +5244,7 @@
         "effort": "投入程度",
         "efforts": {
           "auto": "自动",
+          "none": "模型默认",
           "low": "低",
           "medium": "中",
           "high": "高",
@@ -5115,6 +5261,8 @@
           "auto": "自动模型会为每项任务选择投入程度。选择一个模型即可固定投入程度。",
           "low": "回复快，适合简单问题。",
           "medium": "默认设置，大多数时候思考得足够充分。",
+          "mediumKey": "大多数时候思考得足够充分。",
+          "none": "模型按平时的方式思考。选择一个级别来固定投入程度。",
           "high": "在难题上思考更多，更慢，费用也更高。",
           "max": "尽可能深入思考，慢得多，也贵得多。"
         },
@@ -5142,6 +5290,7 @@
           "defaults": "恢复默认",
           "contents": {
             "model": "上下文窗口",
+            "modelFixed": "投入程度和上下文窗口",
             "auto": "上下文窗口和回复对象",
             "fixed": "投入程度、上下文窗口和回复对象",
             "autoSpeed": "速度、上下文窗口和回复对象",
@@ -5250,7 +5399,8 @@
             "not_signed_in_after_login": "{{brand}} 接受了登录，但此账号无法在这里使用，可能套餐不包含。请换一个账号或使用 API 密钥。",
             "status_unknown": "{{brand}} 没有说明账号是否已登录，请重试。",
             "no_token": "{{brand}} 结束时没有显示账号的令牌，请重试。",
-            "not_kept": "账号已登录，但 {{computer}} 无法保存登录状态，请重试。"
+            "not_kept": "账号已登录，但 {{computer}} 无法保存登录状态，请重试。",
+            "sandbox": "{{brand}} 已登录，但它的沙盒无法在 {{computer}} 上启动，所以没有智能体能使用它。请改用 API 密钥。"
           },
           "geminiNotShared": "Gemini 已登录，但 {{computer}} 无法把这个登录共享给所有智能体。请改用 Gemini API 密钥。",
           "duplicate": {
@@ -5284,6 +5434,8 @@
           "limitBack": "{{account}} {{when}}恢复",
           "limitSoon": "{{account}} 会在套餐续期后恢复",
           "limitHelp": "在此期间，{{name}} 可以用另一个已连接的账号思考。",
+          "fullWait": "在这个账号上，{{name}} 会等到套餐续期。",
+          "seeUsage": "查看用量",
           "wait": "等待",
           "modelTitle": "{{name}} 的模型",
           "moreTitle": "{{name}} 的更多选项",
@@ -5653,6 +5805,7 @@
         "cli_failed": "因为出错，{{brain}} 程序已停止：{{detail}}",
         "cli_stopped": "因为出错，{{brain}} 程序已停止。",
         "cli_closed": "程序 {{brain}} 意外关闭。",
+        "cli_sandbox": "程序 {{brain}} 无法在这台电脑上启动它的沙盒。请在智能体设置中选择其他 AI。",
         "account_missing": "为这个智能体选择的账号已不在它的电脑上。请在智能体设置中选择另一个账号，或重新添加。",
         "windows_sandbox": "这台 Windows 电脑无法隔离 Codex 的命令：需要 Windows 11 24H2 或更高版本。",
         "our_error": "我们这边出了点问题，任务已停止。请稍后再提一次。",
@@ -6688,6 +6841,7 @@
     "everyoneNote": "“所有人”适用于工作区中的每个人。",
     "everyoneNotePersonal": "没有角色时，对方使用智能体。有了{{role}}，对方会帮你一起管理。",
     "noRolesToGive": "没有比你低的角色可以授予。",
+    "rolesAbove": "高于你的角色不会显示。",
     "roleFilter": "角色",
     "rolesCount_other": "{{count}} 个角色",
     "title": "成员",
@@ -9384,7 +9538,11 @@
     "pickReplacesRemoved": "将替换已移除的技能 {{name}}",
     "forAgent_other": "为 {{agent}} 开启",
     "installedMany": "已安装 {{count}} 个技能。",
-    "zipHelp": "根目录中包含 SKILL.md 的 .zip 文件。",
+    "zipHelp": "技能文件夹的 .zip，最大 {{max}} MB。",
+    "zipAbout": "SKILL.md 位于 .zip 的最上层，或其中唯一的文件夹里。一个技能最多保留 {{text}} MB 文本和 {{assets}} MB 图片及其他文件。",
+    "zipTooLarge": "{{name}} 大小为 {{size}}。技能的 .zip 最大 {{max}} MB。",
+    "zipUseLink": "使用 GitHub 链接",
+    "zipSending": "正在上传文件… {{percent}}",
     "zipPick": "选择 .zip",
     "zipNone": "未选择文件",
     "zipMissing": "请选择 .zip 文件。",
@@ -9978,6 +10136,7 @@
     "someone": "某人"
   },
   "palette": {
+    "roleKeywords": "角色 创建 新建 权限",
     "newWikiKeywords": "wiki 新页面 创建 新建 页面",
     "actions": "操作",
     "inviteSub": "通过邮件或链接",
@@ -11231,7 +11390,8 @@
     "closed": "{{title}} · 已关闭",
     "reopen": "再次显示",
     "answeredBy": "{{name}} 已选择",
-    "failed": "你的选择没有发送成功。请重试。"
+    "failed": "你的选择没有发送成功。请重试。",
+    "tooLongFix": "请缩短回答。"
   },
   "drive": {
     "title": "Drive",
@@ -13005,6 +13165,8 @@
     }
   },
   "errors": {
+    "tooLarge": "超出了服务器接受的大小。",
+    "tooLargeMax": "超出了服务器接受的大小：最大 {{max}} MB。",
     "passwordLink": {
       "email": "这台服务器会发送邮件：对方可以在「忘记密码」中自己申请链接。",
       "serverOwner": "安装这台服务器的人在运行它的电脑上直接登录，不需要链接。",
@@ -13121,7 +13283,7 @@
       "aboveYou": "只有比这个角色级别更高的人才能修改它。",
       "base": "每个工作区都保留“所有人”角色。",
       "unknown": "这个角色已不存在。",
-      "orderIncomplete": "角色已发生变化，请重新加载后重试。"
+      "orderIncomplete": "你移动时角色发生了变化。请刷新后重试。"
     },
     "teamProposal": {
       "undoExpired": "这个团队创建已超过一天，无法在这里撤销。请在各智能体的页面上归档它们。"
@@ -14095,6 +14257,20 @@
       "trustText": "在 iPhone 上点按“信任”，然后输入密码。",
       "devModeDone": "已打开",
       "devModeText": "打开它并点按“重新启动”。重启后，点按“打开”并输入你的密码。",
+      "devModeRestarting": "iPhone 正在重新启动。回来后，解锁并点按“打开”。",
+      "devModeBack": "iPhone 已回来。解锁，点按“打开”并输入你的密码。",
+      "devModeCheck": "已经打开，再检查一次",
+      "devModeStillOff": "iPhone 仍然显示开发者模式是关闭的。",
+      "devModeMissing": {
+        "title": "看不到这个选项？",
+        "hidden": "在 Xcode 请求显示之前，iPhone 会隐藏这个选项。",
+        "hiddenOpen": "在 Xcode 请求显示之前，iPhone 会隐藏这个选项。请在连接着 iPhone 时，在 {{mac}} 上打开 Xcode。",
+        "openXcode": "打开 Xcode",
+        "opened": "Xcode 已在 {{mac}} 上打开。请再看看 iPhone 的设置，之后关闭 Xcode。",
+        "unlock": "已经打开并且 iPhone 重新启动了？请解锁。带有“打开”的提示只在那之后出现。",
+        "check": "再检查一次",
+        "outdated": "{{mac}} 上的 agentes.chat 应用已过时。请更新应用，如果你是从终端安装的，就在那里运行下面的命令。"
+      },
       "uiAutomationText": "重启后，在 设置 › 开发者 中。",
       "helperText": "由 Mac 构建，并每 7 天续期一次。在 Xcode 中登录免费的 Apple 账户即可。",
       "helperUntrustedText": "点按开发者的名称，然后点按“信任”。",
@@ -14111,7 +14287,6 @@
         "account": "已经登录了？在 Xcode 中新建任意 iOS App，在 Signing & Capabilities 下选择你的团队，然后在 iPhone 上运行一次。",
         "connected": "{{mac}} 还没有看到 iPhone。请使用能传输数据的线，而不是只能充电的线，解锁 iPhone，如有提示就点按“信任”。",
         "trust": "没有出现“信任”？拔下 iPhone，解锁后重新插上，然后点按“信任”并输入密码。",
-        "developerMode": "开发者模式要在 iPhone 重启后才会打开。点按“重新启动”，开机后点按“打开”。没有这个开关？拔下 iPhone 再重新插上。",
         "uiAutomation": "开发者模式打开且 iPhone 重启后，这个开关才会出现。查找时请保持解锁。",
         "helper": "{{mac}} 会构建测试助手并在 iPhone 上启动它，第一次需要几分钟。请保持 iPhone 解锁并连接。"
       },
@@ -14760,7 +14935,7 @@
       "general": "常规",
       "right_hand": "得力助手",
       "members": "成员和邀请",
-      "roles": "角色和权限",
+      "roles": "角色",
       "vault": "Vault",
       "access": "智能体和访问权限",
       "connectors": "连接器和 MCP",
@@ -14791,7 +14966,7 @@
       "general": "名称、时区，以及每个智能体都知道的工作区信息。",
       "right_hand": "在每个人的私信中和他们一起组建团队的助手。",
       "members": "工作区里有谁，以及邀请。",
-      "roles": "每个人可以做什么。角色权限会叠加。",
+      "roles": "每个角色都会增加权限、频道和智能体。",
       "vault": "你的智能体的密码、密钥和联系人。它们永远看不到密码。",
       "access": "每个智能体可以使用什么：每个连接器一个级别。",
       "connectors": "为整个工作区一次性连接的服务和 MCP 服务器。",
@@ -15252,6 +15427,13 @@
     "logins_other": "{{count}} 个登录",
     "noWindows": "再次使用此账号后会显示限额。",
     "unused": "没有智能体使用此账号。",
+    "models": {
+      "exhausted": "配额已用完 · {{when}}重置",
+      "exhaustedUnknown": "配额已用完",
+      "off": "已关闭",
+      "region": "需要 Global 区域",
+      "inactive": "没有有效订阅"
+    },
     "usesNow": "正在使用",
     "monthTokens": "本月 {{tokens}} 个 token",
     "tokens": "{{tokens}} 个 token",
@@ -15310,6 +15492,7 @@
   },
   "format": {
     "list": "{{names, list}}",
+    "andMore": "另外 {{count}} 个",
     "usd": "US$ {{value}}",
     "tokensMillions": "{{value}}M",
     "tokensThousands": "{{value}}K",

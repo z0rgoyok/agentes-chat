@@ -12,6 +12,22 @@
   /* The window's close, minimize and zoom buttons. */
   --titlebar-lights: calc(78px / var(--app-zoom, 1));
 }
+/* Painted in software (main.tsx `data-desktop-renderer`): every blur and endless loop is a repaint on the CPU, many
+   times a second. Glass turns solid, and a loop runs once. */
+html[data-desktop-renderer="cpu"],
+html[data-desktop-renderer="cpu"] [data-theme] {
+  --glass: var(--glass-solid);
+}
+html[data-desktop-renderer="cpu"] *,
+html[data-desktop-renderer="cpu"] *::before,
+html[data-desktop-renderer="cpu"] *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: painting on the CPU must beat every component's own blur */
+  -webkit-backdrop-filter: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: painting on the CPU must beat every component's own blur */
+  backdrop-filter: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: painting on the CPU must beat every component's own loop */
+  animation-iteration-count: 1 !important;
+}
 /* Full screen: the buttons hide, so does their room. Windows and Linux keep the system's own title bar. */
 html[data-fullscreen],
 html[data-desktop="windows"],

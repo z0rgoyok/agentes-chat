@@ -54,7 +54,8 @@
     "closed": "{{title}} · gesloten",
     "reopen": "Opnieuw tonen",
     "answeredBy": "{{name}} koos",
-    "failed": "Je keuze is niet verstuurd. Probeer het opnieuw."
+    "failed": "Je keuze is niet verstuurd. Probeer het opnieuw.",
+    "tooLongFix": "Maak het antwoord korter."
   },
   "chart": {
     "table": "Tabel",
@@ -1982,8 +1983,21 @@
         "stopped": "{{name}} wordt niet meer via wifi gebruikt"
       },
       "stall": {
-        "plug": "{{host}} ziet deze iPhone nog niet. Gebruik een kabel die data doorgeeft, niet alleen stroom, houd deze iPhone ontgrendeld en tik op Vertrouw als hij erom vraagt.",
-        "devmode": "Ontwikkelaarsmodus gaat pas aan nadat deze iPhone herstart. Tik op Herstart en daarna op Zet aan als hij terug is. Geen schakelaar? Koppel deze iPhone los en sluit hem weer aan."
+        "plug": "{{host}} ziet deze iPhone nog niet. Gebruik een kabel die data doorgeeft, niet alleen stroom, houd deze iPhone ontgrendeld en tik op Vertrouw als hij erom vraagt."
+      },
+      "devMode": {
+        "restarting": "{{host}} ziet deze iPhone na de herstart nog niet terug. Laat hem aangesloten.",
+        "back": "Tik op Zet aan in de melding op deze iPhone en voer je toegangscode in.",
+        "check": "Staat aan, opnieuw controleren",
+        "stillOff": "{{host}} ziet Ontwikkelaarsmodus nog uit staan.",
+        "missing": "Zie je de optie niet?",
+        "hidden": "Deze iPhone verbergt de optie tot Xcode vraagt om hem te tonen.",
+        "hiddenOpen": "Deze iPhone verbergt de optie tot Xcode vraagt om hem te tonen. Open Xcode op {{host}} met deze iPhone aangesloten.",
+        "openXcode": "Xcode openen",
+        "opened": "Xcode is geopend op {{host}}. Kijk opnieuw in Instellingen en sluit Xcode daar daarna.",
+        "unlock": "Aangezet en herstart? De melding met Zet aan verschijnt zodra deze iPhone ontgrendeld is.",
+        "checkAgain": "Opnieuw controleren",
+        "outdated": "De agentes.chat-app op {{host}} is verouderd. Werk hem bij op die Mac."
       }
     },
     "notice": {

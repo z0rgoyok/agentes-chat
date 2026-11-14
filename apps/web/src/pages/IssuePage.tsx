@@ -9,6 +9,7 @@ import {
   useIssueColumns,
 } from "@agenteschat/client";
 import { canTalk } from "@agenteschat/client/lib/audience";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { relativeTime, whenAt } from "@agenteschat/client/lib/format";
 import { githubLinkLabel, isGithubLink } from "@agenteschat/client/lib/github-link";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -30,10 +31,13 @@ import {
   Field,
   Icon,
   Input,
+  LimitLine,
   Locked,
+  limitShown,
   Menu,
   MenuItem,
   MenuSeparator,
+  overLimit,
   Popover,
   SavedNote,
   Select,
@@ -61,6 +65,7 @@ import { TaskConversationButton, TaskConversationPanel, TaskConversationSummary 
 import { IssueWhoSeesDialog, WhoSeesButton } from "@/components/WhoSees";
 import { useWikiLinkRenderer } from "@/components/WikiLinks";
 import { usePersonalView } from "@/hooks/usePersonalView";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import {
   columnIdOf,
   columnsOf,
@@ -397,8 +402,10 @@ function IssueDescription({ issue: i, hasFiles, onSaved }: { issue: Issue; hasFi
   const ref = useFocusAtEnd<HTMLTextAreaElement>(draft !== null);
   // As tall as its text where the engine can't size it from CSS (`field-sizing`, which the Mac app's WebKit lacks).
   useAutoGrow(ref, draft ?? "", draft !== null);
+  const limit = useTextLimit(FIELD_LIMITS.issueDescription);
   const save = () => {
-    if (draft === null) return;
+    // Past its limit it stays open, the line under it saying so: nothing is saved cut.
+    if (draft === null || overLimit(draft, limit)) return;
     const next = draft.trim();
     setDraft(null);
     if (next === description.trim()) return;
@@ -417,7 +424,8 @@ function IssueDescription({ issue: i, hasFiles, onSaved }: { issue: Issue; hasFi
             className="issue-new__text"
             rows={4}
             value={draft}
-            maxLength={50_000}
+            aria-invalid={overLimit(draft, limit) || undefined}
+            aria-describedby={limitShown(draft, limit) ? `issue-description-${i.id}-limit` : undefined}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={save}
             onKeyDown={(e) => {
@@ -429,6 +437,7 @@ function IssueDescription({ issue: i, hasFiles, onSaved }: { issue: Issue; hasFi
             aria-label={t("issues.description")}
           />
         </div>
+        <LimitLine id={`issue-description-${i.id}-limit`} value={draft} limit={limit} />
         <p className="issue-new__hint small muted">{t("issues.edit.hint")}</p>
       </>
     );

@@ -250,6 +250,52 @@ describe("Configurações → Skills", () => {
     expect(within(failed).getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
   });
 
+  test("Instalar skill › Enviar .zip: a .zip past the limit is refused when picked; one on its way shows how much went, and Cancelar stops it", async () => {
+    const { api, section } = await settings();
+    const pending: { input: unknown; progress?: (sent: number) => void; signal?: AbortSignal }[] = [];
+    api.skills.import = (_org, input, upload) =>
+      new Promise((_, reject) => {
+        pending.push({ input, progress: upload?.onProgress, signal: upload?.signal });
+        upload?.signal?.addEventListener("abort", () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        );
+      });
+    await click(within(section()).getByRole("button", { name: "Instalar skill" }));
+    const dialog = screen().getByRole("dialog", { name: "Instalar skill" });
+    await pickTab(within(dialog).getByRole("tab", { name: "Enviar .zip" }));
+    const pick = async (name: string, size: number) => {
+      const input = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File([new Uint8Array([80, 75, 3, 4])], name, { type: "application/zip" });
+      Object.defineProperty(file, "size", { value: size });
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [file] } });
+      });
+    };
+    await pick("repositorio-inteiro.zip", 150 * 1024 * 1024);
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      "repositorio-inteiro.zip tem 150 MB. O .zip de uma skill pode ter até 56 MB.",
+    );
+    expect((within(dialog).getByRole("button", { name: "Instalar" }) as HTMLButtonElement).disabled).toBe(true);
+    // The way out is a button: the GitHub tab, which reads only the skill's folder.
+    await click(within(dialog).getByRole("button", { name: "Usar um link do GitHub" }));
+    expect(within(dialog).getByRole("tab", { name: "Link do GitHub" }).getAttribute("aria-selected")).toBe("true");
+    await pickTab(within(dialog).getByRole("tab", { name: "Enviar .zip" }));
+
+    await pick("skill.zip", 4);
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    await click(within(dialog).getByRole("button", { name: "Instalar" }));
+    await settle(4);
+    expect(pending).toHaveLength(1);
+    await act(async () => pending[0]?.progress?.(0.42));
+    expect(dialog.textContent).toContain("Enviando o arquivo… 42%");
+    // Nothing to change while it goes: the tabs and the picker are locked.
+    expect(within(dialog).getByRole("tab", { name: "Escrever" }).closest("fieldset")?.disabled).toBe(true);
+    await click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await settle(4);
+    expect(pending[0]?.signal?.aborted).toBe(true);
+    expect(screen().queryByRole("dialog", { name: "Instalar skill" })).toBeNull();
+  });
+
   test("Instalar skill: GitHub link, .zip and Escrever", async () => {
     const { state, section } = await settings();
     await click(within(section()).getByRole("button", { name: "Instalar skill" }));
@@ -275,7 +321,8 @@ describe("Configurações → Skills", () => {
     dialog = screen().getByRole("dialog", { name: "Instalar skill" });
     await pickTab(within(dialog).getByRole("tab", { name: "Enviar .zip" }));
     // What the .zip holds, nothing about its scripts: they can run on the agent's computer, as its sheet says.
-    expect(within(dialog).getByText(/^Um \.zip/).textContent).toBe("Um .zip com o SKILL.md na raiz.");
+    expect(within(dialog).getByText(/^Um \.zip/).textContent).toStartWith("Um .zip da pasta da skill, até 56 MB.");
+    expect(within(dialog).getByText(/^Um \.zip/).textContent).not.toContain("script");
     expect(dialog.querySelector('input[type="file"]')?.className).toContain("ac-visually-hidden");
     const file = new File([new Uint8Array([80, 75, 3, 4])], "suporte.zip", { type: "application/zip" });
     await act(async () => {

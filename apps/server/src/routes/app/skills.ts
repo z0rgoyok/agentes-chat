@@ -29,6 +29,7 @@ import {
   updateSkillFromSource,
   ValidationError,
 } from "@agenteschat/engine";
+import { SKILL_ZIP_BASE64_CHARS } from "@agenteschat/tokens/skills";
 import { createRoute, z } from "@hono/zod-openapi";
 import { apiError, errorResponse } from "../../http/errors";
 import { githubAppOf } from "../github-app";
@@ -336,8 +337,7 @@ export function skillRoutes(deps: AppDeps) {
             z.object({
               zipBase64: z
                 .string()
-                // Base64 of a zip holding all a skill keeps (text and scripts, plus its images and other files).
-                .max(Math.ceil(((SKILL_LIMITS.maxBytes + SKILL_LIMITS.assetBytes) * 4) / 3) + 1_000_000)
+                .max(SKILL_ZIP_BASE64_CHARS)
                 .openapi({
                   description: `The skill folder as a zip, base64 (≤ ${SKILL_LIMITS.maxBytes / 1024 / 1024} MB of text and scripts and ${SKILL_LIMITS.assetBytes / 1024 / 1024} MB of other files unzipped).`,
                 }),

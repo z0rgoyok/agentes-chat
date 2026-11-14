@@ -45,6 +45,7 @@ import {
 } from "@agenteschat/client/lib/approval-words";
 import { formatTime, nextLabel, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -803,6 +804,7 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
         title={q.text}
         placeholder={t("mobile.chat.question.placeholder")}
         submitLabel={t("mobile.app.send")}
+        limit={{ max: MAX_MESSAGE_LENGTH, fix: t("mobile.choices.tooLongFix") }}
         onSubmit={(text) => answer({ text }).then(() => sheet.close())}
       />,
     );

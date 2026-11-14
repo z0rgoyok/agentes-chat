@@ -164,6 +164,9 @@ export function approvalOriginOf(value: Approval["origin"]): ApprovalOrigin | nu
   return null;
 }
 
+/** The longest reason a person gives with a decision. Mirror: `APPROVAL_REASON_MAX` in packages/client approval-card.ts. */
+export const APPROVAL_REASON_MAX = 1000;
+
 const resultOf = (a: Approval): ApprovalView["result"] => {
   const r = a.result as { content?: unknown; isError?: unknown; notRunAfter?: unknown } | null;
   if (!r) return null;
@@ -955,7 +958,7 @@ export async function decideApproval(
               decidedByUserId: actorId,
               decidedForUserId: forUserId,
               decidedAt: at,
-              reason: input.reason?.trim().slice(0, 1000) || null,
+              reason: input.reason?.trim().slice(0, APPROVAL_REASON_MAX) || null,
             },
       )
       .where(eq(approvals.id, approvalId))
@@ -1056,7 +1059,7 @@ export async function decideApprovals(
                 decidedByUserId: actorId,
                 decidedForUserId: forUserOf(row),
                 decidedAt: at,
-                reason: input.reason?.trim().slice(0, 1000) || null,
+                reason: input.reason?.trim().slice(0, APPROVAL_REASON_MAX) || null,
               },
         )
         .where(eq(approvals.id, row.id))

@@ -1,4 +1,5 @@
 import type { Actor, CalendarEvent, CalendarEventPatch } from "@agenteschat/client";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { toYmd } from "@agenteschat/client/lib/format";
 import { browserTimezone } from "@agenteschat/client/lib/routines";
 import {
@@ -10,6 +11,7 @@ import {
   Field,
   Input,
   Locked,
+  overLimit,
   RecurrencePicker,
   type RecurrenceRule,
   Switch,
@@ -24,6 +26,7 @@ import { PeoplePicker, type PickKey } from "@/components/MemberPicker";
 import { useOrg } from "@/components/org-context";
 import { ZoneSelect } from "@/components/ZoneSelect";
 import { useEdited } from "@/hooks/useEdited";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { fromApiRule, recurrenceLabels, ruleSentence, toApiRule, upcomingLabels } from "@/lib/recurrence";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -87,6 +90,8 @@ export function EventDialog({
   const [endTime, setEndTime] = useState(hm(end0));
   const [location, setLocation] = useState(event?.location ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
+  const descriptionLimit = useTextLimit(FIELD_LIMITS.eventDescription);
+  const tooLong = overLimit(description, descriptionLimit);
   const [picked, setPicked] = useState<Set<PickKey>>(
     () =>
       new Set(
@@ -131,7 +136,7 @@ export function EventDialog({
     }),
   ];
   const submit = () => {
-    if (!title.trim() || !timeOk) return;
+    if (!title.trim() || !timeOk || tooLong) return;
     const endAt = allDay ? new Date(end.getTime() + 86_400_000) : end;
     const input = {
       title: title.trim(),
@@ -273,7 +278,7 @@ export function EventDialog({
             <Field label={t("calendar.form.description")} id="ev-desc">
               <Textarea
                 rows={3}
-                maxLength={10_000}
+                limit={descriptionLimit}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -284,7 +289,12 @@ export function EventDialog({
           <Button type="button" onClick={onClose}>
             {t("calendar.form.cancel")}
           </Button>
-          <Button type="submit" variant="primary" disabled={!title.trim() || !timeOk || saving} loading={saving}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!title.trim() || !timeOk || tooLong || saving}
+            loading={saving}
+          >
             {event ? t("calendar.form.save") : t("calendar.form.create")}
           </Button>
         </DialogFooter>

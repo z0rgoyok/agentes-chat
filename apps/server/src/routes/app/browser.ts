@@ -6,6 +6,7 @@ import {
   getHandoff,
   type HandoffDeps,
   handoffViewFor,
+  MAX_MESSAGE_LENGTH,
   openHandoffOf,
   openPageInControl,
   PAGE_MOVES,
@@ -227,7 +228,7 @@ export function browserRoutes(deps: AppDeps) {
       security,
       summary: "Done (or hand back a take over): the agent reads the page again and goes on",
       description: "`note`: what the person wants the agent to know; it reads it as their own words.",
-      request: { params: HandoffParams, body: body(z.object({ note: z.string().max(1000).optional() })) },
+      request: { params: HandoffParams, body: body(z.object({ note: z.string().max(MAX_MESSAGE_LENGTH).optional() })) },
       responses: { 200: json(BrowserHandoff), ...errors },
     }),
     async (c) => {
@@ -247,7 +248,7 @@ export function browserRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Couldn't do it, with an optional note the agent reads",
-      request: { params: HandoffParams, body: body(z.object({ note: z.string().max(1000).optional() })) },
+      request: { params: HandoffParams, body: body(z.object({ note: z.string().max(MAX_MESSAGE_LENGTH).optional() })) },
       responses: { 200: json(BrowserHandoff), ...errors },
     }),
     async (c) => {

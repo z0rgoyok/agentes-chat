@@ -18,7 +18,7 @@ test("rows that became MediaRows lay nothing out of their own: the kit's grid pu
       "src/components/roles/roles.css",
     ),
   );
-  for (const row of [".tp-agent", ".ap-li", ".ap-row", ".nt-item", ".home-row", ".roles-row"]) {
+  for (const row of [".tp-agent", ".ap-li", ".ap-row", ".nt-item", ".home-row"]) {
     for (const p of ["display", "grid-template-columns", "align-items", "gap", "column-gap", "all"])
       expect([row, p, last(css, row, p)]).toEqual([row, p, undefined]);
   }

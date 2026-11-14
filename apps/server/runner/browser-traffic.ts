@@ -213,11 +213,15 @@ function requestBytes(headers: unknown): number {
   return n;
 }
 
-/** Counts the Chrome whose browser endpoint is `wsUrl` (`ws://127.0.0.1:<port>/devtools/browser/<id>`). */
+/**
+ * Counts the Chrome whose browser endpoint is `wsUrl` (`ws://127.0.0.1:<port>/devtools/browser/<id>`). `onPage` hears
+ * of each tab it has or opens, and whether another page opened it (a popup: `window.open`, a sign-in window).
+ */
 export function countChromeTraffic(
   wsUrl: string,
   open: (url: string) => StreamSocket = (url) => new WebSocket(url) as unknown as StreamSocket,
   onCrash?: (page: CrashedPage) => void,
+  onPage?: (targetId: string, popup: boolean) => void,
 ): TrafficCounter {
   let up = 0;
   let down = 0;
@@ -388,6 +392,11 @@ export function countChromeTraffic(
         const target = isObject(p.targetInfo) ? p.targetInfo : {};
         if (!sessionId && target.type === "page" && typeof target.targetId === "string") {
           pages.set(p.sessionId, target.targetId);
+          // A link's new tab (noopener, as `target=_blank` is by default) names its opener too, but can't reach it.
+          onPage?.(
+            target.targetId,
+            typeof target.openerId === "string" && target.openerId !== "" && target.canAccessOpener !== false,
+          );
           for (const c of emulation ?? []) send(c.method, c.params, p.sessionId);
         }
         if (target.type === "worker") workers.add(p.sessionId);

@@ -716,8 +716,8 @@ export function Composer({
       return;
     }
     const kind = format ? formatShortcut(e) : null;
-    if (kind) {
-      // Also keeps ⌘K (link) from reaching the command palette.
+    // ⌘K links the selected words; with none selected it opens the command palette, as everywhere else.
+    if (kind && !(kind === "link" && e.currentTarget.selectionStart === e.currentTarget.selectionEnd)) {
       e.preventDefault();
       e.stopPropagation();
       applyKind(kind);

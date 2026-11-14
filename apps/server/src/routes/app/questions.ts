@@ -1,4 +1,4 @@
-import { answerQuestion, dismissQuestion, getQuestion } from "@agenteschat/engine";
+import { answerQuestion, dismissQuestion, getQuestion, MAX_MESSAGE_LENGTH } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
 import { type AppDeps, body, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
 
@@ -62,7 +62,9 @@ export function questionRoutes(deps: AppDeps) {
       summary: "Answer an agent's question (a choice, text, or both); the agent continues",
       request: {
         params: QuestionParams,
-        body: body(z.object({ choice: z.string().max(200).optional(), text: z.string().max(4000).optional() })),
+        body: body(
+          z.object({ choice: z.string().max(200).optional(), text: z.string().max(MAX_MESSAGE_LENGTH).optional() }),
+        ),
       },
       responses: { 200: json(AgentQuestion), ...errors },
     }),

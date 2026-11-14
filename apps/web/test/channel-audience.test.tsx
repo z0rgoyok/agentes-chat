@@ -49,7 +49,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     await settle(2);
     const dialog = screen().getByRole("dialog", { name: "Criar canal" });
     await act(async () => fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "vendas" } }));
-    await access(dialog, /Departamentos ou cargos/);
+    await access(dialog, /^Só alguns cargos/);
     await settle(3);
     // No role yet: their dialog opens by itself. Closed without one, the channel isn't created.
     await click(within(rolesDialog()).getByRole("button", { name: "Cancelar" }));
@@ -79,7 +79,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     // "Quem pode entrar" lives under Permissões (ADR 0134).
     await click(within(dialog).getByRole("button", { name: "Permissões" }));
     await settle(2);
-    await access(dialog, /Departamentos ou cargos/);
+    await access(dialog, /^Só alguns cargos/);
     await settle(3);
     expect(calls(state, "chat.update")).toEqual([]);
     await pickRoles(/Admin/);
@@ -96,7 +96,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     expect(calls(state, "chat.update")).toHaveLength(2);
 
     // Going public opens every message to the workspace: asked first.
-    await access(dialog, /Público/);
+    await access(dialog, /^Todos/);
     await settle(3);
     expect(calls(state, "chat.update")).toHaveLength(2);
     const ask = screen().getByRole("dialog", { name: "Tornar #eng público?" });
@@ -105,7 +105,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     expect(calls(state, "chat.update")).toHaveLength(2);
 
     const again = screen().getByRole("dialog", { name: /^#eng/ });
-    await access(again, /Público/);
+    await access(again, /^Todos/);
     await settle(3);
     await click(
       within(screen().getByRole("dialog", { name: "Tornar #eng público?" })).getByRole("button", {

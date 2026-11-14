@@ -481,7 +481,8 @@
   align-items: center;
   gap: 8px 12px;
   padding: 10px 12px;
-  border-radius: 12px;
+  /* Concentric with its button's corner (10 from the top). */
+  border-radius: calc(var(--control-r-sm) + 10px);
   background: var(--sunken);
   box-shadow: inset 0 0 0 1px var(--line);
 }

@@ -599,6 +599,9 @@ export function xcodeBlockedOf(host: ComputerDevice | undefined): XcodeBlocked |
     : null;
 }
 
+/** What updates a runner installed from the Terminal (the app updates its own). */
+export const RUNNER_UPDATE_COMMAND = "agentes-runner update";
+
 /** How often the iPhone guide asks where a fix of the Mac's Xcode stands while it runs. */
 export const XCODE_FIX_POLL_MS = 1500;
 
@@ -649,6 +652,58 @@ export function useStalled(key: string | null, ms = SETUP_STALL_MS): boolean {
   return key !== null && since.key === key && Date.now() - since.at >= ms;
 }
 
+/** How long an iPhone gone from its Mac at the Developer Mode step reads as restarting before the guide asks for it. */
+export const IPHONE_RESTART_MS = 3 * 60_000;
+
+/** The iPhone guide's memory of the Developer Mode step: which phone was at it, since when it is gone, whether it came back. */
+export interface IphoneRestartMemo {
+  at: string | null;
+  goneAt: number | null;
+  back: boolean;
+}
+export const NO_IPHONE_RESTART: IphoneRestartMemo = { at: null, goneAt: null, back: false };
+/** `restarting`: gone from its Mac after the Developer Mode step; `back`: there again and the mode still off. */
+export type IphoneRestart = "restarting" | "back" | null;
+/** An iPhone as the guide sees it now: a key that names it, and its reason (null: none, ready). */
+export type IphoneSeen = { key: string; reason: string | null | undefined } | null;
+
+/** The memo after seeing `phone` (null: the Mac lists none) at `now`. */
+export function iphoneRestartNext(memo: IphoneRestartMemo, phone: IphoneSeen, now: number): IphoneRestartMemo {
+  if (!phone) return memo.at && memo.goneAt === null ? { ...memo, goneAt: now } : memo;
+  if (phone.reason !== "developer_mode_off") return NO_IPHONE_RESTART;
+  const same = memo.at === phone.key;
+  return { at: phone.key, goneAt: null, back: same && (memo.back || memo.goneAt !== null) };
+}
+
+export function iphoneRestartOf(memo: IphoneRestartMemo, phone: IphoneSeen, now: number): IphoneRestart {
+  if (!phone) return memo.at && memo.goneAt !== null && now - memo.goneAt < IPHONE_RESTART_MS ? "restarting" : null;
+  return memo.back && memo.at === phone.key && phone.reason === "developer_mode_off" ? "back" : null;
+}
+
+/**
+ * An iPhone restarts to turn Developer Mode on, and is gone from its Mac meanwhile: the guide stays on that step
+ * (`restarting`) for up to `IPHONE_RESTART_MS` instead of asking for the cable again, then says what to do once it is
+ * back (`back`). Kept in memory: a guide opened during the restart starts from what the Mac sees.
+ */
+export function useIphoneRestart(phone: IphoneSeen): IphoneRestart {
+  const [memo, setMemo] = useState(NO_IPHONE_RESTART);
+  const [, rerender] = useState(0);
+  const now = Date.now();
+  const next = iphoneRestartNext(memo, phone, now);
+  const changed = next.at !== memo.at || next.goneAt !== memo.goneAt || next.back !== memo.back;
+  useEffect(() => {
+    if (changed) setMemo(next);
+  }, [changed, next]);
+  const goneAt = next.goneAt;
+  useEffect(() => {
+    if (goneAt === null) return;
+    // Read again just after the time is up: the answer is the clock's.
+    const timer = setTimeout(() => rerender((n) => n + 1), Math.max(0, goneAt + IPHONE_RESTART_MS - Date.now()) + 100);
+    return () => clearTimeout(timer);
+  }, [goneAt]);
+  return iphoneRestartOf(next, phone, now);
+}
+
 /** The iPhone a Mac reaches (a real one first), for the iPhone guide. */
 export const iphoneOf = (host: ComputerDevice | undefined) =>
   host?.phones.find((p) => p.platform === "ios" && p.phoneKind === "device" && p.status.kind !== "offline") ?? null;
@@ -656,15 +711,19 @@ export const iphoneOf = (host: ComputerDevice | undefined) =>
 /**
  * The iPhone guide's checklist, mirrored from what the Mac reports: steps before the phone's reason are done, that
  * one is current (amber when only the person can do it), the rest wait. No Xcode on the Mac stops at step one; with
- * no iPhone plugged in yet, the Apple Account comes from what the Mac found in Xcode.
+ * no iPhone plugged in yet, the Apple Account comes from what the Mac found in Xcode. An iPhone restarting to turn
+ * Developer Mode on (`restarting`, `useIphoneRestart`) stays on that step, under way.
  */
 export function iphoneSteps(
   host: ComputerDevice | undefined,
   phone: PhoneDevice | null,
+  restarting = false,
 ): Record<IphoneStep, StepState> {
   let at: IphoneStep | null;
   let needs = false;
-  if (!phone) {
+  if (!phone && restarting) {
+    at = "developerMode";
+  } else if (!phone) {
     at = !host?.toolchains.xcode ? "xcode" : !hasAppleTeam(host) ? "account" : "connected";
     needs = at !== "connected";
   } else if (phone.status.kind === "unsupported") {

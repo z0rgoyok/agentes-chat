@@ -307,3 +307,37 @@ test("parts: use from before a window started stays out of it; a model without a
     ["Dev", 4.3],
   ]);
 });
+
+test("a plan's models at a limit of their own reach the usage views, and only those that still hold", async () => {
+  const { machineId } = await scene();
+  const at = new Date().toISOString();
+  const live = hours(48);
+  await f.db
+    .update(schema.machineAccounts)
+    .set({
+      provider: "opencode",
+      usage: {
+        ...usage([{ kind: "monthly", usedPercent: 20 }]),
+        models: {
+          "glm-5.3": { at, until: live },
+          "minimax-m3": { at, off: true },
+          // Its reset passed: the views don't show a limit that no longer holds.
+          "deepseek-v4.1-pro": { at, until: hours(-1) },
+        },
+      },
+    })
+    .where(eq(schema.machineAccounts.id, PESSOAL));
+
+  const view = await orgPlanUsage(f.db, f.owner.id, f.org.id);
+  const account = view.accounts.find((a) => a.accountId === PESSOAL);
+  expect(account?.usage?.models).toEqual({
+    "glm-5.3": { at, until: live },
+    "minimax-m3": { at, off: true },
+  });
+  // The window it was read with is on show too: the account's meters, and the models under them.
+  expect(account?.usage?.windows.map((w) => w.kind)).toEqual(["monthly"]);
+  // The agent's "Uso" tab reads the same account: the same models.
+  const dev = await agentPlanUsage(f.db, f.owner.id, f.org.id, f.agent.id);
+  expect(dev.current?.usage?.models).toEqual(account?.usage?.models);
+  expect(dev.current?.machineId).toBe(machineId);
+});

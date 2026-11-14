@@ -356,6 +356,9 @@ html:not([data-pointer]) .ap-conn-mark:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1.5px var(--ink);
 }
+.ap-refuse textarea[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
 .ap-refuse textarea:disabled {
   background: var(--sunken);
   color: var(--muted);

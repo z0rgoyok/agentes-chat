@@ -1031,17 +1031,12 @@ async function unshare(db: Executor, orgId: string, row: MachineAccountRow, shar
   return (using?.n ?? 0) > 1 ? releaseAgents(db, orgId, [row.id], now) : [];
 }
 
-/** A turn ran with it (best effort, after the turn); `succeeded`: a Claude Code turn, its success kept too. */
-export async function touchMachineAccount(
-  db: Executor,
-  orgId: string,
-  accountId: string,
-  { succeeded = false }: { succeeded?: boolean } = {},
-) {
+/** A turn ran and answered with it (best effort, after the turn). */
+export async function touchMachineAccount(db: Executor, orgId: string, accountId: string) {
   const now = new Date();
   await db
     .update(machineAccounts)
-    .set({ lastUsedAt: now, ...(succeeded ? { lastSuccessAt: now } : {}) })
+    .set({ lastUsedAt: now, lastSuccessAt: now })
     .where(and(eq(machineAccounts.orgId, orgId), eq(machineAccounts.id, accountId)));
 }
 

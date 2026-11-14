@@ -22,6 +22,15 @@ export function keyRefusalOf(error: Pick<ProviderError, "status" | "message">): 
 /** The provider's own words in a failure the adapters shaped as `what (status code): words`. */
 export const keyFailureWords = (message: string) => /\): (.+)$/.exec(message)?.[1] ?? "";
 
+/**
+ * What a workspace endpoint's own model checks say of its key (`options.endpoint.models[].check`, ADR 0146): `ok` once
+ * a model answered — `no_tools` is an answer too — and `unchecked` until one has been checked. A key of a `custom`
+ * provider has no cheap catalog model to test it with (`keyCheckRequest`), so its models are the test.
+ */
+export function endpointKeyCheck(checks: readonly (string | null | undefined)[]): "ok" | "unchecked" {
+  return checks.some((check) => check === "ok" || check === "no_tools") ? "ok" : "unchecked";
+}
+
 /** The cheapest real call a key can make: enough for the provider to bill it, so no credit shows too. */
 export function keyCheckRequest(provider: string, signal: AbortSignal): ModelRequest | null {
   const model = cheapModelOf(provider);

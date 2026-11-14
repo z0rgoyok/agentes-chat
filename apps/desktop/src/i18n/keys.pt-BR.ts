@@ -720,6 +720,7 @@ export const desktopPtBR = {
       installerNote: "Abra o arquivo baixado: ele instala a versão nova no lugar da antiga.",
       keepNote: "Seus servidores e configurações continuam guardados.",
       whatsNew: "O que mudou na {{version}}",
+      systemDetails: "Detalhes do sistema",
     },
     activity: {
       title: "Atividade",

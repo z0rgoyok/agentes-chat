@@ -14,6 +14,7 @@ import {
   nextLabel,
   parseDayInput,
   relativeTime,
+  rosterText,
   sentAtLine,
   shortModel,
   timeLeft,
@@ -155,6 +156,20 @@ describe("format (pt-BR, machine numbers precise)", () => {
       if (more) expect(namesText(tl, ["Ada", "Atlas", "Theo", "Lia"])).toBe(more);
     }
     expect(shortModel("Claude Sonnet 5.5")).toBe("sonnet 5.5");
+  });
+  test("a roster: one agent per line with its role, said once, then how many more", () => {
+    const team = [
+      { name: "Ada", role: "Pesquisadora" },
+      { name: "Lumen · Tradutora", role: "Tradutora" },
+      { name: "Theo", role: "" },
+      ...Array.from({ length: 37 }, (_, i) => ({ name: `Agente ${i + 1}`, role: "Revisor" })),
+    ];
+    const lines = rosterText(t, team).split("\n");
+    expect(lines.slice(0, 3)).toEqual(["Ada · Pesquisadora", "Lumen · Tradutora", "Theo"]);
+    expect(lines).toHaveLength(9);
+    expect(lines[8]).toBe("e mais 32");
+    expect(rosterText(i18n.getFixedT("en") as TFunction, team.slice(0, 9))).toEndWith("\nand 1 more");
+    expect(rosterText(t, team.slice(0, 8)).split("\n")).toHaveLength(8);
   });
 });
 

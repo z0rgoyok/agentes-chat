@@ -64,6 +64,8 @@ export const featureKeysPtBR = {
     reopen: "Mostrar de novo",
     answeredBy: "{{name}} escolheu",
     failed: "Não deu para mandar sua escolha. Tente de novo.",
+    /** After the message's size and limit, when a written answer makes the reply too long. */
+    tooLongFix: "Encurte a resposta.",
   },
   chart: {
     table: "Tabela",
@@ -2018,8 +2020,21 @@ export const featureKeysPtBR = {
       },
       stall: {
         plug: "O {{host}} ainda não vê este iPhone. Use um cabo que passe dados, não só carga, deixe este iPhone desbloqueado e toque em Confiar se ele pedir.",
-        devmode:
-          "O Modo de Desenvolvedor só liga depois que este iPhone reinicia. Toque em Reiniciar e em Ativar quando ele voltar. Não tem a opção? Desconecte este iPhone e ligue de novo.",
+      },
+      devMode: {
+        restarting: "O {{host}} ainda não vê este iPhone depois de reiniciar. Deixe o cabo ligado.",
+        back: "Toque em Ativar no aviso deste iPhone e digite seu código.",
+        check: "Já ativei, verificar de novo",
+        stillOff: "O {{host}} ainda vê o Modo de Desenvolvedor desligado.",
+        missing: "Não aparece essa opção?",
+        hidden: "Este iPhone esconde a opção até o Xcode pedir para mostrar.",
+        hiddenOpen:
+          "Este iPhone esconde a opção até o Xcode pedir para mostrar. Abra o Xcode no {{host}} com este iPhone ligado nele.",
+        openXcode: "Abrir o Xcode",
+        opened: "O Xcode abriu no {{host}}. Veja de novo nos Ajustes e feche o Xcode lá depois.",
+        unlock: "Já ativou e ele reiniciou? O aviso com Ativar aparece quando este iPhone está desbloqueado.",
+        checkAgain: "Verificar de novo",
+        outdated: "O app agentes.chat no {{host}} está desatualizado. Atualize nesse Mac.",
       },
     },
     notice: {

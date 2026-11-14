@@ -65,6 +65,9 @@
   "common.unknownError": {
     "value": "Something went wrong. Try again."
   },
+  "common.overLimit": {
+    "value": "The text has {{length}} characters and the limit is {{max}}. Shorten it."
+  },
   "common.ourSide": {
     "value": "Something went wrong on our side. Try again in a little while."
   },
@@ -180,7 +183,7 @@
     "value": "Everyone"
   },
   "rolesPage.orderHint": {
-    "value": "Order matters: whoever is higher manages the roles and people below."
+    "value": "Whoever is higher manages the roles and the people below. Each person's name color comes from their highest role. Drag to change the order."
   },
   "rolesPage.reorder": {
     "value": "Reorder"
@@ -281,6 +284,48 @@
   "rolesPage.computer.own.full": {
     "value": "The full screen and terminal of their own agents and of the computers they connected"
   },
+  "rolesPage.computer.steps.off": {
+    "value": "No access"
+  },
+  "rolesPage.computer.steps.ownBrowser": {
+    "value": "Their own agents' browser"
+  },
+  "rolesPage.computer.steps.ownComputer": {
+    "value": "Their own agents' computer"
+  },
+  "rolesPage.computer.steps.anyBrowser": {
+    "value": "Any agent's browser"
+  },
+  "rolesPage.computer.steps.anyComputer": {
+    "value": "Any agent's computer"
+  },
+  "rolesPage.computer.short.browser": {
+    "value": "Browser"
+  },
+  "rolesPage.computer.short.computer": {
+    "value": "Computer"
+  },
+  "rolesPage.computer.groupOwn": {
+    "value": "Their own agents"
+  },
+  "rolesPage.computer.groupAny": {
+    "value": "Any agent"
+  },
+  "rolesPage.computer.hint": {
+    "value": "Browser: the browser and sign-in requests. Computer: also the whole screen and the terminal. Their own agents: the ones the person is responsible for and the computers they connected."
+  },
+  "rolesPage.computer.with.ownBrowser": {
+    "value": "their own agents' browser"
+  },
+  "rolesPage.computer.with.ownComputer": {
+    "value": "their own agents' computer"
+  },
+  "rolesPage.computer.with.anyBrowser": {
+    "value": "any agent's browser"
+  },
+  "rolesPage.computer.with.anyComputer": {
+    "value": "any agent's computer"
+  },
   "rolesPage.everyoneNote": {
     "value": "Applies to every person in the workspace. Other roles only add to it."
   },
@@ -375,7 +420,7 @@
     "value": "Color"
   },
   "rolesPage.colorDesc": {
-    "value": "Paints the role's mark."
+    "value": "Paints the role's mark and the name of whoever has it as their highest."
   },
   "rolesPage.colorOf": {
     "value": "{{color}} color"
@@ -384,7 +429,7 @@
     "value": "Show apart in the members list"
   },
   "rolesPage.hoistDesc": {
-    "value": "People with this role get a group of their own in the members column."
+    "value": "People with this role get a group of their own in the members column. Agents stay in theirs."
   },
   "rolesPage.icon": {
     "value": "Icon"
@@ -435,7 +480,7 @@
     "value": "You can change everything later."
   },
   "rolesPage.namePlaceholder": {
-    "value": "E.g. Moderators"
+    "value": "E.g. Support"
   },
   "rolesPage.startFrom": {
     "value": "Start from"
@@ -502,6 +547,342 @@
   },
   "rolesPage.aboveYou": {
     "value": "Above your role"
+  },
+  "rolesPage.search": {
+    "value": "Search roles"
+  },
+  "rolesPage.noneYet": {
+    "value": "No roles yet. Create one to give some people more."
+  },
+  "rolesPage.noMatch": {
+    "value": "No role matches “{{q}}”."
+  },
+  "rolesPage.full": {
+    "value": "This workspace already has {{max}} roles. Delete one to create another."
+  },
+  "rolesPage.loadError": {
+    "value": "Couldn't load the roles. {{cause}}"
+  },
+  "rolesPage.move": {
+    "value": "Move {{name}}"
+  },
+  "rolesPage.moveHint": {
+    "value": "Drag it, or use Space and the arrow keys."
+  },
+  "rolesPage.reach.permissions": {
+    "value": {
+      "one": "+{{count}} permission",
+      "other": "+{{count}} permissions"
+    }
+  },
+  "rolesPage.reach.channels": {
+    "value": {
+      "one": "+{{count}} channel",
+      "other": "+{{count}} channels"
+    }
+  },
+  "rolesPage.reach.agents": {
+    "value": {
+      "one": "+{{count}} agent",
+      "other": "+{{count}} agents"
+    }
+  },
+  "rolesPage.reach.basePermissions": {
+    "value": {
+      "one": "{{count}} permission",
+      "other": "{{count}} permissions"
+    }
+  },
+  "rolesPage.reach.baseChannels": {
+    "value": {
+      "one": "{{count}} channel",
+      "other": "{{count}} channels"
+    }
+  },
+  "rolesPage.reach.baseAgents": {
+    "value": {
+      "one": "{{count}} agent",
+      "other": "{{count}} agents"
+    }
+  },
+  "rolesPage.reach.owner": {
+    "value": "Can do everything, always"
+  },
+  "rolesPage.reach.admin": {
+    "value": "Can do everything"
+  },
+  "rolesPage.reach.none": {
+    "value": "Only what Everyone can"
+  },
+  "rolesPage.reach.hidden": {
+    "value": {
+      "one": "{{count}} you can't see",
+      "other": "{{count}} you can't see"
+    }
+  },
+  "rolesPage.switchTo": {
+    "value": "Go to another role"
+  },
+  "rolesPage.look": {
+    "value": "Change name, color and icon"
+  },
+  "rolesPage.lookColor": {
+    "value": "Change the color"
+  },
+  "rolesPage.inviteWith": {
+    "value": "Invite with this role"
+  },
+  "rolesPage.tabs.permissions": {
+    "value": "Permissions"
+  },
+  "rolesPage.tabs.channels": {
+    "value": "Channels"
+  },
+  "rolesPage.tabs.agents": {
+    "value": "Agents"
+  },
+  "rolesPage.tabs.people": {
+    "value": "People"
+  },
+  "rolesPage.gone": {
+    "value": "Someone deleted this role."
+  },
+  "rolesPage.backToList": {
+    "value": "Back to roles"
+  },
+  "rolesPage.searchPermission": {
+    "value": "Search permissions"
+  },
+  "rolesPage.noPermissionMatch": {
+    "value": "No permission matches “{{q}}”."
+  },
+  "rolesPage.everyoneTip": {
+    "value": "Everyone can. Click to choose who can."
+  },
+  "rolesPage.only": {
+    "value": "Only {{names}}"
+  },
+  "rolesPage.notHeld": {
+    "value": "You don't have this permission."
+  },
+  "rolesPage.nowAbove": {
+    "value": "This role is now above yours. Only someone higher can change it."
+  },
+  "rolesPage.agentsNote": {
+    "value": "Roles are for people. Each agent has its own permissions, on its page."
+  },
+  "rolesPage.adminHint": {
+    "value": "Can do everything but what only the owner does. Give it only to whoever runs the workspace."
+  },
+  "rolesPage.adminOn": {
+    "value": "With Administrator, {{name}} can do everything but what only the owner does."
+  },
+  "rolesPage.adminAsk.title": {
+    "value": "Turn on Administrator in {{name}}?"
+  },
+  "rolesPage.adminAsk.text": {
+    "value": {
+      "one": "People with {{name}} can then do everything but what only the owner does. That's {{count}} person.",
+      "other": "People with {{name}} can then do everything but what only the owner does. That's {{count}} people."
+    }
+  },
+  "rolesPage.adminAsk.confirm": {
+    "value": "Turn on Administrator"
+  },
+  "rolesPage.who.title": {
+    "value": "Who can {{short}}"
+  },
+  "rolesPage.who.everyoneDesc": {
+    "value": "Every person in the workspace"
+  },
+  "rolesPage.who.some": {
+    "value": "Only some roles"
+  },
+  "rolesPage.who.owners": {
+    "value": "Owners always can."
+  },
+  "rolesPage.who.losing": {
+    "value": "Losing it:"
+  },
+  "rolesPage.who.gaining": {
+    "value": "Getting it:"
+  },
+  "rolesPage.who.everyoneGains": {
+    "value": "Everyone gets it."
+  },
+  "rolesPage.who.nobody": {
+    "value": "Nobody loses it."
+  },
+  "rolesPage.who.noRoles": {
+    "value": "There are no other roles yet."
+  },
+  "rolesPage.who.computersTitle": {
+    "value": "Who keeps {{what}}"
+  },
+  "rolesPage.who.computersLow": {
+    "value": "Everyone gets {{what}}."
+  },
+  "rolesPage.who.computersNone": {
+    "value": "Everyone stops using the agents' computers."
+  },
+  "rolesPage.channels.line": {
+    "value": "People with {{name}} see the checked channels and can join them."
+  },
+  "rolesPage.channels.lineBase": {
+    "value": "Everyone sees the checked channels and can join them."
+  },
+  "rolesPage.channels.hint": {
+    "value": "This is for people. An agent joins a channel when someone adds it."
+  },
+  "rolesPage.channels.search": {
+    "value": "Search channels"
+  },
+  "rolesPage.channels.general": {
+    "value": "Everyone stays in #general."
+  },
+  "rolesPage.channels.notYours": {
+    "value": "Only whoever created #{{channel}} or arranges channels changes who sees it."
+  },
+  "rolesPage.channels.removeTitle": {
+    "value": "Take #{{channel}} away from {{name}}?"
+  },
+  "rolesPage.channels.leave": {
+    "value": "Leaving the channel:"
+  },
+  "rolesPage.channels.openTitle": {
+    "value": "Open #{{channel}} to {{name}}?"
+  },
+  "rolesPage.channels.openText": {
+    "value": "People with {{name}} see the channel and all its history, and can join it."
+  },
+  "rolesPage.channels.open": {
+    "value": "Open"
+  },
+  "rolesPage.channels.openAllTitle": {
+    "value": "Open #{{channel}} to everyone?"
+  },
+  "rolesPage.channels.openAllText": {
+    "value": "All its history opens to the workspace."
+  },
+  "rolesPage.channels.admin": {
+    "value": "With Administrator, people with {{name}} see every channel."
+  },
+  "rolesPage.channels.onlyGeneral": {
+    "value": "There's only #general for now."
+  },
+  "rolesPage.channels.noMatch": {
+    "value": "No channel matches “{{q}}”."
+  },
+  "rolesPage.sees.title": {
+    "value": "Who sees #{{channel}}"
+  },
+  "rolesPage.sees.private": {
+    "value": "Only who's added"
+  },
+  "rolesPage.sees.privateDesc": {
+    "value": "Nobody new sees it. Whoever is in stays."
+  },
+  "rolesPage.sees.unsee": {
+    "value": "Whoever is in stays. No longer seeing it:"
+  },
+  "rolesPage.agents.line": {
+    "value": "People with {{name}} talk to the checked agents."
+  },
+  "rolesPage.agents.lineBase": {
+    "value": "Everyone talks to the checked agents."
+  },
+  "rolesPage.agents.hint": {
+    "value": "This is about people. What each agent does is on its page."
+  },
+  "rolesPage.agents.noTalk": {
+    "value": "People with only {{name}} don't talk to agents."
+  },
+  "rolesPage.agents.turnOnTalk": {
+    "value": "Turn on Talk to agents"
+  },
+  "rolesPage.agents.search": {
+    "value": "Search agents"
+  },
+  "rolesPage.agents.notYours": {
+    "value": "Only {{owner}}, who is responsible for {{name}}, or someone who edits any agent changes it."
+  },
+  "rolesPage.agents.notYoursNoOwner": {
+    "value": "Only someone who edits any agent changes it."
+  },
+  "rolesPage.agents.none": {
+    "value": "There are no agents yet."
+  },
+  "rolesPage.agents.noMatch": {
+    "value": "No agent matches “{{q}}”."
+  },
+  "rolesPage.talks.title": {
+    "value": "Who talks to {{name}}"
+  },
+  "rolesPage.talks.some": {
+    "value": "Only some roles and people"
+  },
+  "rolesPage.talks.ownerDesc": {
+    "value": "Whoever is responsible for {{name}}"
+  },
+  "rolesPage.talks.losing": {
+    "value": "No longer talking to {{agent}}:"
+  },
+  "rolesPage.holders.agent": {
+    "value": "{{name}} is an agent. Agents have no role."
+  },
+  "rolesPage.holders.seeAgents": {
+    "value": "See Agents"
+  },
+  "rolesPage.holders.removed": {
+    "value": "{{person}} no longer has {{name}}"
+  },
+  "rolesPage.holders.undo": {
+    "value": "Undo"
+  },
+  "rolesPage.holders.selfTitle": {
+    "value": "Remove yourself from {{name}}?"
+  },
+  "rolesPage.holders.selfText": {
+    "value": "You lose what only {{name}} gives. Only someone above you can give it back."
+  },
+  "rolesPage.holders.noMatch": {
+    "value": "Nobody matches “{{q}}”."
+  },
+  "rolesPage.mail.title": {
+    "value": "{{agent}} loses {{owner}}'s mailbox"
+  },
+  "rolesPage.mail.titleMany": {
+    "value": "Agents lose mailboxes"
+  },
+  "rolesPage.mail.lead": {
+    "value": "With more people talking to them, the agents stop reading these mailboxes."
+  },
+  "rolesPage.mail.of": {
+    "value": "{{owner}}'s mailbox · {{agent}}"
+  },
+  "rolesPage.mail.again": {
+    "value": "Only whoever gave the mailbox can give it again."
+  },
+  "rolesPage.mail.addAnyway": {
+    "value": "Add anyway"
+  },
+  "rolesPage.mail.giveAnyway": {
+    "value": "Give anyway"
+  },
+  "rolesPage.previewWhere": {
+    "value": "in chat"
+  },
+  "rolesPage.sameAs": {
+    "value": "Same as"
+  },
+  "rolesPage.deleteLeave": {
+    "value": "Leaving channels they saw only through {{name}}:"
+  },
+  "rolesPage.deleteReading": {
+    "value": "Checking who leaves channels…"
+  },
+  "rolesPage.ownerAdd": {
+    "value": "Add owners"
   },
   "permissions.areas.chat": {
     "value": "Conversations"
@@ -12924,6 +13305,9 @@
   "agentPage.work.brain.efforts.auto": {
     "value": "Automatic"
   },
+  "agentPage.work.brain.efforts.none": {
+    "value": "Model default"
+  },
   "agentPage.work.brain.efforts.low": {
     "value": "Low"
   },
@@ -12959,6 +13343,12 @@
   },
   "agentPage.work.brain.effortText.medium": {
     "value": "The default. Thinks enough most of the time."
+  },
+  "agentPage.work.brain.effortText.mediumKey": {
+    "value": "Thinks enough most of the time."
+  },
+  "agentPage.work.brain.effortText.none": {
+    "value": "The model thinks as much as it usually does. Pick a level to set the effort."
   },
   "agentPage.work.brain.effortText.high": {
     "value": "Thinks more on hard tasks. Slower and costs more."
@@ -13013,6 +13403,9 @@
   },
   "agentPage.work.brain.advanced.contents.model": {
     "value": "Context window"
+  },
+  "agentPage.work.brain.advanced.contents.modelFixed": {
+    "value": "Effort and context window"
   },
   "agentPage.work.brain.advanced.contents.auto": {
     "value": "Context window and who it answers"
@@ -13314,6 +13707,9 @@
   "agentPage.work.brain.add.why.not_kept": {
     "value": "The account signed in, but {{computer}} couldn't keep the sign-in. Try again."
   },
+  "agentPage.work.brain.add.why.sandbox": {
+    "value": "{{brand}} signed in, but its sandbox can't start on {{computer}}, so no agent could use it. Use an API key instead."
+  },
   "agentPage.work.brain.add.geminiNotShared": {
     "value": "Gemini signed in, but {{computer}} can't share that sign-in with every agent. Use a Gemini API key instead."
   },
@@ -13400,6 +13796,12 @@
   },
   "agentPage.work.brain.v2.limitHelp": {
     "value": "Meanwhile {{name}} can think with another account that's already connected."
+  },
+  "agentPage.work.brain.v2.fullWait": {
+    "value": "On this account {{name}} waits until the plan renews."
+  },
+  "agentPage.work.brain.v2.seeUsage": {
+    "value": "See usage"
   },
   "agentPage.work.brain.v2.wait": {
     "value": "Wait"
@@ -14376,6 +14778,9 @@
   },
   "agentPage.activity.errors.cli_closed": {
     "value": "The {{brain}} program closed unexpectedly."
+  },
+  "agentPage.activity.errors.cli_sandbox": {
+    "value": "The {{brain}} program can't start its sandbox on this computer. Choose another AI in the agent's settings."
   },
   "agentPage.activity.errors.account_missing": {
     "value": "The account chosen for this agent isn't on its computer anymore. Choose another one in the agent's settings, or add it again."
@@ -16786,6 +17191,9 @@
   },
   "members.noRolesToGive": {
     "value": "No roles below yours to give."
+  },
+  "members.rolesAbove": {
+    "value": "Roles above yours don't show."
   },
   "members.roleFilter": {
     "value": "Role"
@@ -23585,7 +23993,19 @@
     "value": "{{count}} skills installed."
   },
   "skills.zipHelp": {
-    "value": "A .zip with SKILL.md at its root."
+    "value": "A .zip of the skill's folder, up to {{max}} MB."
+  },
+  "skills.zipAbout": {
+    "value": "SKILL.md goes at the top of the .zip, or in its one folder. A skill keeps up to {{text}} MB of text and {{assets}} MB of images and other files."
+  },
+  "skills.zipTooLarge": {
+    "value": "{{name}} is {{size}}. A skill's .zip can be up to {{max}} MB."
+  },
+  "skills.zipUseLink": {
+    "value": "Use a GitHub link"
+  },
+  "skills.zipSending": {
+    "value": "Uploading the file… {{percent}}"
   },
   "skills.zipPick": {
     "value": "Choose .zip"
@@ -25038,6 +25458,9 @@
   },
   "reactions.someone": {
     "value": "someone"
+  },
+  "palette.roleKeywords": {
+    "value": "role roles create new permissions cargo"
   },
   "palette.newWikiKeywords": {
     "value": "wiki new page create"
@@ -28360,6 +28783,9 @@
   },
   "choices.failed": {
     "value": "Your pick didn't go through. Try again."
+  },
+  "choices.tooLongFix": {
+    "value": "Shorten the answer."
   },
   "drive.title": {
     "value": "Drive"
@@ -32638,6 +33064,12 @@
   "files.nav.place": {
     "value": "{{index}} of {{count}}"
   },
+  "errors.tooLarge": {
+    "value": "This is bigger than the server takes."
+  },
+  "errors.tooLargeMax": {
+    "value": "This is bigger than the server takes: up to {{max}} MB."
+  },
   "errors.passwordLink.email": {
     "value": "This server sends email: they ask for their own link in Forgot password."
   },
@@ -32936,7 +33368,7 @@
     "value": "That role isn't there anymore."
   },
   "errors.role.orderIncomplete": {
-    "value": "The roles changed. Reload and try again."
+    "value": "The roles changed while you were moving them. Reload and try again."
   },
   "errors.teamProposal.undoExpired": {
     "value": "It is more than a day since this team was created, so it can't be undone here. Archive its agents on their pages."
@@ -35412,6 +35844,42 @@
   "devices.iphone.devModeText": {
     "value": "Turn it on and tap Restart. After the restart, tap Turn On and enter your passcode."
   },
+  "devices.iphone.devModeRestarting": {
+    "value": "The iPhone is restarting. When it's back, unlock it and tap Turn On."
+  },
+  "devices.iphone.devModeBack": {
+    "value": "The iPhone is back. Unlock it, tap Turn On and enter your passcode."
+  },
+  "devices.iphone.devModeCheck": {
+    "value": "I turned it on, check again"
+  },
+  "devices.iphone.devModeStillOff": {
+    "value": "The iPhone still says Developer Mode is off."
+  },
+  "devices.iphone.devModeMissing.title": {
+    "value": "Don't see the option?"
+  },
+  "devices.iphone.devModeMissing.hidden": {
+    "value": "The iPhone hides the option until Xcode asks to show it."
+  },
+  "devices.iphone.devModeMissing.hiddenOpen": {
+    "value": "The iPhone hides the option until Xcode asks to show it. Open Xcode on {{mac}} with the iPhone plugged in."
+  },
+  "devices.iphone.devModeMissing.openXcode": {
+    "value": "Open Xcode"
+  },
+  "devices.iphone.devModeMissing.opened": {
+    "value": "Xcode opened on {{mac}}. Look in the iPhone's Settings again, then close Xcode."
+  },
+  "devices.iphone.devModeMissing.unlock": {
+    "value": "Turned it on and the iPhone restarted? Unlock it. The alert with Turn On shows only after that."
+  },
+  "devices.iphone.devModeMissing.check": {
+    "value": "Check again"
+  },
+  "devices.iphone.devModeMissing.outdated": {
+    "value": "The agentes.chat app on {{mac}} is out of date. Update the app, or run this in Terminal if you installed it there."
+  },
   "devices.iphone.uiAutomationText": {
     "value": "In Settings › Developer, after the restart."
   },
@@ -35456,9 +35924,6 @@
   },
   "devices.iphone.stall.trust": {
     "value": "No Trust prompt? Unplug the iPhone, unlock it and plug it in again, then tap Trust and enter its passcode."
-  },
-  "devices.iphone.stall.developerMode": {
-    "value": "Developer Mode turns on only after the iPhone restarts. Tap Restart, then Turn On once it's back. No switch there? Unplug the iPhone and plug it in again."
   },
   "devices.iphone.stall.uiAutomation": {
     "value": "The switch shows once Developer Mode is on and the iPhone restarted. Keep it unlocked while you look."
@@ -37072,7 +37537,7 @@
     "value": "Members and invitations"
   },
   "settings.section.roles": {
-    "value": "Roles and permissions"
+    "value": "Roles"
   },
   "settings.section.vault": {
     "value": "Vault"
@@ -37153,7 +37618,7 @@
     "value": "Who is in the workspace, and invitations."
   },
   "settings.sectionText.roles": {
-    "value": "What each person can do. Roles add up."
+    "value": "Each role adds permissions, channels and agents."
   },
   "settings.sectionText.vault": {
     "value": "Your agents' passwords, keys and contacts. They never see a password."
@@ -38453,6 +38918,9 @@
   },
   "format.list": {
     "value": "{{names, list}}"
+  },
+  "format.andMore": {
+    "value": "and {{count}} more"
   },
   "format.usd": {
     "value": "US$ {{value}}"
@@ -45675,5 +46143,20 @@
   },
   "feedback.offer.askFirst": {
     "value": "Ask before sending"
+  },
+  "usageViews.models.exhausted": {
+    "value": "No quota left · resets {{when}}"
+  },
+  "usageViews.models.exhaustedUnknown": {
+    "value": "No quota left"
+  },
+  "usageViews.models.off": {
+    "value": "Turned off"
+  },
+  "usageViews.models.region": {
+    "value": "Needs the Global region"
+  },
+  "usageViews.models.inactive": {
+    "value": "No active subscription"
   }
 }

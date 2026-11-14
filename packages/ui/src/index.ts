@@ -113,7 +113,15 @@ export {
   RadioGroup,
   Switch,
 } from "./components/Checkbox";
-export { AttentionNote, Chip, type ChipProps, type ChipTone, CountBadge, CountChip } from "./components/Chip";
+export {
+  AttentionNote,
+  Chip,
+  ChipButton,
+  type ChipProps,
+  type ChipTone,
+  CountBadge,
+  CountChip,
+} from "./components/Chip";
 export { CodeInput, type CodeInputProps } from "./components/CodeInput";
 export { ColorDot, dotTone } from "./components/ColorDot";
 export { ColorPicker, type ColorPickerLabels } from "./components/ColorPicker";
@@ -183,10 +191,14 @@ export {
   FormActions,
   FormStack,
   Input,
+  LimitLine,
   Locked,
+  limitShown,
+  overLimit,
   PickerHeading,
   SearchInput,
   Textarea,
+  type TextLimit,
   useAutoGrow,
   useFieldControl,
   useLocked,
@@ -406,7 +418,18 @@ export { Reaction, Reactions, type WorkStep, WorkSummary } from "./components/Wo
 export { WorkLine, WorkLineAction, type WorkLineTone, WorkPlan } from "./components/WorkLine";
 export { COMPUTER_GRID, COMPUTER_KINDS, COMPUTER_STATES, drawComputer, PHONE_KINDS } from "./computer/portrait.js";
 export { cx } from "./cx";
-export { hoverPointer, movesByKeys, onScreenKeyboard, onScreenNow, trackInput } from "./device";
+export {
+  focusAtEnd,
+  focusIdle,
+  hoverPointer,
+  mayTakeFocus,
+  movesByKeys,
+  OPEN_LAYER,
+  onScreenKeyboard,
+  onScreenNow,
+  trackInput,
+  typingInField,
+} from "./device";
 export {
   EMOJI_CATEGORIES,
   EMOJIS,

@@ -670,7 +670,8 @@
       "step3": "Öffne die heruntergeladene Datei und zieh das neue agentes.chat in Programme.",
       "installerNote": "Öffne die heruntergeladene Datei: Sie installiert die neue Version über die alte.",
       "keepNote": "Deine Server und Einstellungen bleiben.",
-      "whatsNew": "Neu in {{version}}"
+      "whatsNew": "Neu in {{version}}",
+      "systemDetails": "Systemdetails"
     },
     "activity": {
       "title": "Aktivität",

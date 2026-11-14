@@ -279,6 +279,8 @@ export class FakeRunner {
     },
   ];
   /** The Mac's side of an iPhone's setup; `iphone.download` fills the platform in about a second. */
+  /** How many times the iPhone setup asked to look at the iPhone again (`iphone.look`). */
+  looks = 0;
   iphone: ControlIphoneSetup = {
     xcode: "27.0",
     platform: { state: "missing" },
@@ -533,6 +535,9 @@ export class FakeRunner {
             ? { ...this.iphone, ...(this.iphone.fix ? { fix: { ...this.iphone.fix, state: "canceled" } } : {}) }
             : { ...this.iphone, fix: { kind: msg.kind, state: msg.kind === "select" ? "asking" : "running", step: 0 } };
         return reply(this.iphone);
+      case "iphone.look":
+        this.looks++;
+        return reply({ looking: true });
       case "shutdown":
         return reply({ stopping: true });
     }

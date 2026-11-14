@@ -1,0 +1,2 @@
+ALTER TABLE "machine_phones" ADD COLUMN "state_since" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "machine_phones" ADD COLUMN "stuck_reported_at" timestamp with time zone;

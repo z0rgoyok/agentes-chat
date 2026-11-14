@@ -24,6 +24,7 @@
     "retry": "Tekrar dene",
     "soon": "Yakında",
     "unknownError": "Bir şeyler ters gitti. Tekrar deneyin.",
+    "overLimit": "Metin {{length}} karakter, sınır ise {{max}}. Kısalt.",
     "ourSide": "Bizim tarafımızda bir şeyler ters gitti. Birazdan tekrar deneyin.",
     "signedOut": "Oturumunuz sona erdi. Devam etmek için tekrar giriş yapın.",
     "newVersion": "agentes.chat'in yeni bir sürümü çıktı.",
@@ -66,7 +67,7 @@
     "create": "Rol oluştur",
     "base": "Temel",
     "everyoneName": "Herkes",
-    "orderHint": "Sıralama önemlidir: üstte olan, altındaki rolleri ve kişileri yönetir.",
+    "orderHint": "Daha yukarıdakiler alttaki rolleri ve kişileri yönetir. Her kişinin ad rengi en yüksek rolünden gelir. Sırayı değiştirmek için sürükleyin.",
     "reorder": "Yeniden sırala",
     "reorderDone": "Bitti",
     "moveUp": "{{name}} rolünü yukarı taşı",
@@ -108,6 +109,26 @@
         "none": "Kimse ajanların bilgisayarlarını, tarayıcılarını veya oturum açma isteklerini göremez ve kullanamaz",
         "browser": "Kendi ajanlarının tarayıcısı ve kişiye gelen oturum açma istekleri, asla tam ekran değil",
         "full": "Kendi ajanlarının ve kişinin bağladığı bilgisayarların tam ekranı ve terminali"
+      },
+      "steps": {
+        "off": "Erişim yok",
+        "ownBrowser": "Kendi ajanlarının tarayıcısı",
+        "ownComputer": "Kendi ajanlarının bilgisayarı",
+        "anyBrowser": "Herhangi bir ajanın tarayıcısı",
+        "anyComputer": "Herhangi bir ajanın bilgisayarı"
+      },
+      "short": {
+        "browser": "Tarayıcı",
+        "computer": "Bilgisayar"
+      },
+      "groupOwn": "Kendi ajanları",
+      "groupAny": "Herhangi bir ajan",
+      "hint": "Tarayıcı: tarayıcı ve giriş istekleri. Bilgisayar: ayrıca tüm ekran ve terminal. Kendi ajanları: kişinin sorumlu olduğu ajanlar ve bağladığı bilgisayarlar.",
+      "with": {
+        "ownBrowser": "kendi ajanlarının tarayıcısı",
+        "ownComputer": "kendi ajanlarının bilgisayarı",
+        "anyBrowser": "herhangi bir ajanın tarayıcısı",
+        "anyComputer": "herhangi bir ajanın bilgisayarı"
       }
     },
     "everyoneNote": "Çalışma alanındaki herkese uygulanır. Diğer roller yalnızca buna ekleme yapar.",
@@ -145,10 +166,10 @@
     "name": "Ad",
     "nameDesc": "Herkesin göreceği şekli.",
     "color": "Renk",
-    "colorDesc": "Rolün işaretini boyar.",
+    "colorDesc": "Rolün rozetini ve onu en yüksek rolü olarak taşıyanların adını boyar.",
     "colorOf": "{{color}} renk",
     "hoist": "Üye listesinde ayrı göster",
-    "hoistDesc": "Bu role sahip kişiler üye sütununda kendi grubunda görünür.",
+    "hoistDesc": "Bu role sahip olanlar üye sütununda kendi grubunda görünür. Ajanlar kendi gruplarında kalır.",
     "icon": "Simge",
     "iconDesc": "Adın yanında gösterilir.",
     "more": "Diğer seçenekler",
@@ -167,7 +188,7 @@
     },
     "newTitle": "Rol oluştur",
     "newSub": "Her şeyi daha sonra değiştirebilirsiniz.",
-    "namePlaceholder": "Örn. Moderatörler",
+    "namePlaceholder": "Ör.: Destek",
     "startFrom": "Başlangıç",
     "templates": {
       "blank": "Boş",
@@ -191,7 +212,139 @@
     "added_other": "{{name}} rolünde {{count}} kişi",
     "rolesOf": "{{name}} rolleri",
     "rolesCta": "Roller",
-    "aboveYou": "Rolünüzün üstünde"
+    "aboveYou": "Rolünüzün üstünde",
+    "search": "Rol ara",
+    "noneYet": "Henüz rol yok. Bazı kişilere daha fazlasını vermek için bir rol oluşturun.",
+    "noMatch": "“{{q}}” ile eşleşen rol yok.",
+    "full": "Bu çalışma alanında zaten {{max}} rol var. Yenisini oluşturmak için birini silin.",
+    "loadError": "Roller yüklenemedi. {{cause}}",
+    "move": "{{name}} rolünü taşı",
+    "moveHint": "Sürükleyin ya da Boşluk ve ok tuşlarını kullanın.",
+    "reach": {
+      "permissions_one": "+{{count}} izin",
+      "permissions_other": "+{{count}} izin",
+      "channels_one": "+{{count}} kanal",
+      "channels_other": "+{{count}} kanal",
+      "agents_one": "+{{count}} ajan",
+      "agents_other": "+{{count}} ajan",
+      "basePermissions_one": "{{count}} izin",
+      "basePermissions_other": "{{count}} izin",
+      "baseChannels_one": "{{count}} kanal",
+      "baseChannels_other": "{{count}} kanal",
+      "baseAgents_one": "{{count}} ajan",
+      "baseAgents_other": "{{count}} ajan",
+      "owner": "Her şeyi yapabilir, her zaman",
+      "admin": "Her şeyi yapabilir",
+      "none": "Yalnızca Herkes’in yapabildikleri",
+      "hidden_one": "göremediğiniz {{count}} kanal",
+      "hidden_other": "göremediğiniz {{count}} kanal"
+    },
+    "switchTo": "Başka bir role git",
+    "look": "Adı, rengi ve simgeyi değiştir",
+    "lookColor": "Rengi değiştir",
+    "inviteWith": "Bu rolle davet et",
+    "tabs": {
+      "permissions": "İzinler",
+      "channels": "Kanallar",
+      "agents": "Ajanlar",
+      "people": "Kişiler"
+    },
+    "gone": "Biri bu rolü sildi.",
+    "backToList": "Rollere dön",
+    "searchPermission": "İzin ara",
+    "noPermissionMatch": "“{{q}}” ile eşleşen izin yok.",
+    "everyoneTip": "Herkes yapabilir. Kimlerin yapabileceğini seçmek için tıklayın.",
+    "only": "Yalnızca {{names}}",
+    "notHeld": "Bu izne sahip değilsiniz.",
+    "nowAbove": "Bu rol artık sizinkinin üstünde. Yalnızca daha yukarıdakiler değiştirir.",
+    "agentsNote": "Roller kişiler içindir. Her ajanın kendi izinleri, kendi sayfasında.",
+    "adminHint": "Yalnızca sahibe ait olanlar dışında her şeyi yapabilir. Yalnızca çalışma alanıyla ilgilenen kişilere verin.",
+    "adminOn": "Yönetici ile {{name}}, yalnızca sahibe ait olanlar dışında her şeyi yapabilir.",
+    "adminAsk": {
+      "title": "{{name}} için Yönetici açılsın mı?",
+      "text_one": "{{name}} sahibi olan herkes, yalnızca sahibe ait olanlar dışında her şeyi yapabilir. Bu {{count}} kişi.",
+      "text_other": "{{name}} sahibi olan herkes, yalnızca sahibe ait olanlar dışında her şeyi yapabilir. Bu {{count}} kişi.",
+      "confirm": "Yöneticiyi aç"
+    },
+    "who": {
+      "title": "{{short}} iznine kim sahip",
+      "everyoneDesc": "Çalışma alanındaki her kişi",
+      "some": "Yalnızca bazı roller",
+      "owners": "Sahipler her zaman yapabilir.",
+      "losing": "Artık yapamayacaklar:",
+      "gaining": "Artık yapabilecekler:",
+      "everyoneGains": "Herkes yapabilecek.",
+      "nobody": "Kimse kaybetmiyor.",
+      "noRoles": "Henüz başka rol yok.",
+      "computersTitle": "Kimler {{what}} erişimini koruyor",
+      "computersLow": "Herkes {{what}} erişimine sahip olur.",
+      "computersNone": "Herkes ajanların bilgisayarlarını kullanmayı bırakır."
+    },
+    "channels": {
+      "line": "{{name}} sahibi olanlar işaretli kanalları görür ve katılabilir.",
+      "lineBase": "Herkes işaretli kanalları görür ve katılabilir.",
+      "hint": "Kişiler için geçerlidir. Bir ajan, biri onu eklediğinde kanala girer.",
+      "search": "Kanal ara",
+      "general": "Herkes #general kanalında kalır.",
+      "notYours": "Kimin göreceğini yalnızca #{{channel}} kanalını oluşturan ya da kanalları düzenleyen değiştirir.",
+      "removeTitle": "#{{channel}}, {{name}} rolünden çıkarılsın mı?",
+      "leave": "Kanaldan ayrılacaklar:",
+      "openTitle": "#{{channel}}, {{name}} için açılsın mı?",
+      "openText": "{{name}} sahibi olanlar kanalı ve tüm geçmişini görür, katılabilir.",
+      "open": "Aç",
+      "openAllTitle": "#{{channel}} herkese açılsın mı?",
+      "openAllText": "Tüm geçmiş çalışma alanına açılır.",
+      "admin": "Yönetici ile {{name}} sahibi olanlar tüm kanalları görür.",
+      "onlyGeneral": "Şimdilik yalnızca #general var.",
+      "noMatch": "“{{q}}” ile eşleşen kanal yok."
+    },
+    "sees": {
+      "title": "#{{channel}} kanalını kim görür",
+      "private": "Yalnızca eklenenler",
+      "privateDesc": "Yeni kimse görmez. İçeridekiler kalır.",
+      "unsee": "İçeridekiler kalır. Artık göremeyecekler:"
+    },
+    "agents": {
+      "line": "{{name}} sahibi olanlar işaretli ajanlarla konuşur.",
+      "lineBase": "Herkes işaretli ajanlarla konuşur.",
+      "hint": "Bu kişilerle ilgili. Her ajanın ne yaptığı kendi sayfasında.",
+      "noTalk": "Yalnızca {{name}} sahibi olanlar ajanlarla konuşmaz.",
+      "turnOnTalk": "Ajanlarla konuşmayı aç",
+      "search": "Ajan ara",
+      "notYours": "Bunu yalnızca {{name}} ajanından sorumlu {{owner}} ya da herhangi bir ajanı düzenleyen değiştirir.",
+      "notYoursNoOwner": "Bunu yalnızca herhangi bir ajanı düzenleyen değiştirir.",
+      "none": "Henüz ajan yok.",
+      "noMatch": "“{{q}}” ile eşleşen ajan yok."
+    },
+    "talks": {
+      "title": "{{name}} ile kim konuşur",
+      "some": "Yalnızca bazı roller ve kişiler",
+      "ownerDesc": "{{name}} ajanından sorumlu kişi",
+      "losing": "Artık {{agent}} ile konuşamayacaklar:"
+    },
+    "holders": {
+      "agent": "{{name}} bir ajan. Ajanların rolü olmaz.",
+      "seeAgents": "Ajanları gör",
+      "removed": "{{person}} artık {{name}} rolüne sahip değil",
+      "undo": "Geri al",
+      "selfTitle": "Kendinizi {{name}} rolünden çıkarmak mı?",
+      "selfText": "Yalnızca {{name}} rolünün verdiklerini kaybedersiniz. Bunu yalnızca sizden yukarıdaki biri geri verir.",
+      "noMatch": "“{{q}}” ile eşleşen kimse yok."
+    },
+    "mail": {
+      "title": "{{agent}}, {{owner}} kişisinin posta kutusunu kaybeder",
+      "titleMany": "Ajanlar posta kutularını kaybeder",
+      "lead": "Onlarla daha çok kişi konuştuğunda ajanlar bu posta kutularını okumayı bırakır.",
+      "of": "{{owner}} posta kutusu · {{agent}}",
+      "again": "Posta kutusunu yalnızca veren kişi yeniden verir.",
+      "addAnyway": "Yine de ekle",
+      "giveAnyway": "Yine de ver"
+    },
+    "previewWhere": "sohbette",
+    "sameAs": "Aynısı",
+    "deleteLeave": "Yalnızca {{name}} sayesinde gördükleri kanallardan ayrılacaklar:",
+    "deleteReading": "Kanallardan kimin ayrılacağına bakılıyor…",
+    "ownerAdd": "Sahip ekle"
   },
   "permissions": {
     "areas": {
@@ -5246,6 +5399,7 @@
         "effort": "Çaba",
         "efforts": {
           "auto": "Otomatik",
+          "none": "Modelin varsayılanı",
           "low": "Düşük",
           "medium": "Orta",
           "high": "Yüksek",
@@ -5262,6 +5416,8 @@
           "auto": "Otomatik model her görevin çabasını seçer. Çabayı sabitlemek için bir model seçin.",
           "low": "Hızlı yanıt verir. Basit sorular için iyidir.",
           "medium": "Varsayılan. Çoğu zaman yeterince düşünür.",
+          "mediumKey": "Çoğu zaman yeterince düşünür.",
+          "none": "Model her zamanki kadar düşünür. Çabayı sabitlemek için bir seviye seçin.",
           "high": "Zor görevlerde daha çok düşünür. Daha yavaş ve daha pahalıdır.",
           "max": "Olabildiğince çok düşünür. Çok daha yavaş ve daha pahalıdır."
         },
@@ -5289,6 +5445,7 @@
           "defaults": "Varsayılanlara dön",
           "contents": {
             "model": "Bağlam penceresi",
+            "modelFixed": "Çaba ve bağlam penceresi",
             "auto": "Bağlam penceresi ve kime yanıt verdiği",
             "fixed": "Çaba, bağlam penceresi ve kime yanıt verdiği",
             "autoSpeed": "Hız, bağlam penceresi ve kime yanıt verdiği",
@@ -5402,7 +5559,8 @@
             "not_signed_in_after_login": "{{brand}} girişi kabul etti ama bu hesap burada kullanılamıyor, planı bunu kapsamıyor olabilir. Başka bir hesap veya bir API anahtarı deneyin.",
             "status_unknown": "{{brand}}, hesabın giriş yapıp yapmadığını bildirmedi. Tekrar deneyin.",
             "no_token": "{{brand}}, hesabın belirtecini göstermeden bitti. Tekrar deneyin.",
-            "not_kept": "Hesap giriş yaptı ama {{computer}} girişi saklayamadı. Tekrar deneyin."
+            "not_kept": "Hesap giriş yaptı ama {{computer}} girişi saklayamadı. Tekrar deneyin.",
+            "sandbox": "{{brand}} giriş yaptı ama sandbox'ı {{computer}} üzerinde başlamıyor, bu yüzden hiçbir ajan onu kullanamaz. Bunun yerine bir API anahtarı kullanın."
           },
           "geminiNotShared": "Gemini'ye giriş yapıldı, ancak {{computer}} bu girişi tüm ajanlarla paylaşamıyor. Bunun yerine bir Gemini API anahtarı kullanın.",
           "duplicate": {
@@ -5437,6 +5595,8 @@
           "limitBack": "{{account}} {{when}} geri dönüyor",
           "limitSoon": "{{account}} plan yenilenince geri dönüyor",
           "limitHelp": "Bu arada {{name}}, zaten bağlı olan başka bir hesapla düşünebilir.",
+          "fullWait": "Bu hesapta {{name}}, plan yenilenene kadar bekler.",
+          "seeUsage": "Kullanımı gör",
           "wait": "Bekle",
           "modelTitle": "{{name}} için model",
           "moreTitle": "{{name}} için diğer seçenekler",
@@ -5812,6 +5972,7 @@
         "cli_failed": "Bir hata {{brain}} programını durdurdu: {{detail}}",
         "cli_stopped": "Bir hata {{brain}} programını durdurdu.",
         "cli_closed": "Beklenmedik şekilde {{brain}} programı kapandı.",
+        "cli_sandbox": "{{brain}} programı bu bilgisayarda sandbox'ını başlatamıyor. Ajanın ayarlarından başka bir yapay zekâ seçin.",
         "account_missing": "Bu ajan için seçilen hesap artık bilgisayarında değil. Ajanın ayarlarından başka bir hesap seçin ya da yeniden ekleyin.",
         "windows_sandbox": "Bu Windows bilgisayar Codex'in komutlarını yalıtamıyor: Windows 11 24H2 veya daha yenisi gerekiyor.",
         "our_error": "Bizim tarafımızda bir şeyler ters gitti ve görev durdu. Birazdan yeniden isteyin.",
@@ -6853,6 +7014,7 @@
     "everyoneNote": "Herkes, çalışma alanındaki her kişi için geçerlidir.",
     "everyoneNotePersonal": "Rolü yoksa ajanları kullanır. {{role}} rolüyle buranın yönetimine yardım eder.",
     "noRolesToGive": "Verebileceğiniz, sizinkinden düşük bir rol yok.",
+    "rolesAbove": "Sizinkinin üstündeki roller görünmez.",
     "roleFilter": "Rol",
     "rolesCount_one": "{{count}} rol",
     "rolesCount_other": "{{count}} rol",
@@ -9668,7 +9830,11 @@
     "forAgent_one": "{{agent}} için aç",
     "forAgent_other": "{{agent}} için aç",
     "installedMany": "{{count}} beceri yüklendi.",
-    "zipHelp": "Kökünde SKILL.md bulunan bir .zip.",
+    "zipHelp": "Beceri klasörünün .zip dosyası, en fazla {{max}} MB.",
+    "zipAbout": "SKILL.md, .zip dosyasının en üstünde ya da içindeki tek klasörde durur. Bir beceri en fazla {{text}} MB metin ve {{assets}} MB görsel ile diğer dosyaları saklar.",
+    "zipTooLarge": "{{name}} {{size}} boyutunda. Bir becerinin .zip dosyası en fazla {{max}} MB olabilir.",
+    "zipUseLink": "GitHub bağlantısı kullan",
+    "zipSending": "Dosya yükleniyor… {{percent}}",
     "zipPick": ".zip seç",
     "zipNone": "Dosya seçilmedi",
     "zipMissing": "Bir .zip dosyası seçin.",
@@ -10258,6 +10424,7 @@
     "someone": "biri"
   },
   "palette": {
+    "roleKeywords": "rol roller oluştur yeni izinler",
     "newWikiKeywords": "wiki yeni sayfa oluştur new page create",
     "actions": "Eylemler",
     "inviteSub": "e-posta veya bağlantıyla",
@@ -11575,7 +11742,8 @@
     "closed": "{{title}} · kapandı",
     "reopen": "Yeniden göster",
     "answeredBy": "{{name}} seçti",
-    "failed": "Seçiminiz gönderilemedi. Tekrar deneyin."
+    "failed": "Seçiminiz gönderilemedi. Tekrar deneyin.",
+    "tooLongFix": "Cevabı kısalt."
   },
   "drive": {
     "title": "Drive",
@@ -13397,6 +13565,8 @@
     }
   },
   "errors": {
+    "tooLarge": "Bu, sunucunun kabul ettiğinden büyük.",
+    "tooLargeMax": "Bu, sunucunun kabul ettiğinden büyük: en fazla {{max}} MB.",
     "passwordLink": {
       "email": "Bu sunucu e-posta gönderiyor: kişi kendi bağlantısını Şifremi unuttum bölümünden ister.",
       "serverOwner": "Bu sunucuyu kuran kişi, sunucunun çalıştığı bilgisayardan bağlantısız girer.",
@@ -13513,7 +13683,7 @@
       "aboveYou": "Bu rolü yalnızca ondan üstteki biri değiştirir.",
       "base": "Her çalışma alanı Herkes rolünü korur.",
       "unknown": "O rol artık yok.",
-      "orderIncomplete": "Roller değişti. Yeniden yükleyip tekrar deneyin."
+      "orderIncomplete": "Siz taşırken roller değişti. Yenileyip tekrar deneyin."
     },
     "teamProposal": {
       "undoExpired": "Bu ekip oluşturulalı bir günden fazla oldu, bu yüzden burada geri alınamaz. Ajanları kendi sayfalarından arşivle."
@@ -14492,6 +14662,20 @@
       "trustText": "iPhone'da Güven'e dokunun ve parolasını girin.",
       "devModeDone": "Açık",
       "devModeText": "Açın ve Yeniden Başlat'a dokunun. Yeniden başladıktan sonra Aç'a dokunun ve parolanızı girin.",
+      "devModeRestarting": "iPhone yeniden başlıyor. Geri geldiğinde kilidini açın ve Aç'a dokunun.",
+      "devModeBack": "iPhone geri geldi. Kilidini açın, Aç'a dokunun ve parolanızı girin.",
+      "devModeCheck": "Açtım, yeniden kontrol et",
+      "devModeStillOff": "iPhone hâlâ Geliştirici Modu'nun kapalı olduğunu söylüyor.",
+      "devModeMissing": {
+        "title": "Seçenek görünmüyor mu?",
+        "hidden": "iPhone, Xcode göstermesini isteyene kadar bu seçeneği gizler.",
+        "hiddenOpen": "iPhone, Xcode göstermesini isteyene kadar bu seçeneği gizler. iPhone bağlıyken {{mac}} üzerinde Xcode'u açın.",
+        "openXcode": "Xcode'u aç",
+        "opened": "Xcode {{mac}} üzerinde açıldı. iPhone'un Ayarlar'ına yeniden bakın, sonra Xcode'u kapatın.",
+        "unlock": "Açtınız ve iPhone yeniden başladı mı? Kilidini açın. Aç düğmeli uyarı ancak bundan sonra çıkar.",
+        "check": "Yeniden kontrol et",
+        "outdated": "{{mac}} üzerindeki agentes.chat uygulaması eski. Uygulamayı güncelleyin ya da oradan kurduysanız bunu Terminal'de çalıştırın."
+      },
       "uiAutomationText": "Yeniden başladıktan sonra Ayarlar › Geliştirici bölümünde.",
       "helperText": "Mac onu her 7 günde bir oluşturur ve yeniler. Xcode'da ücretsiz bir Apple Account yeterlidir.",
       "helperUntrustedText": "Geliştiricinin adına, ardından Güven'e dokunun.",
@@ -14508,7 +14692,6 @@
         "account": "Zaten oturum açtınız mı? Xcode'da herhangi bir iOS uygulaması oluşturun, Signing & Capabilities altında ekibinizi seçin ve uygulamayı iPhone'da bir kez çalıştırın.",
         "connected": "{{mac}} henüz bir iPhone görmüyor. Sadece şarj değil veri de taşıyan bir kablo kullanın, iPhone'un kilidini açın ve isterse Güven'e dokunun.",
         "trust": "Güven sorusu çıkmadı mı? iPhone'u çıkarın, kilidini açıp yeniden takın, ardından Güven'e dokunup parolasını girin.",
-        "developerMode": "Geliştirici Modu yalnızca iPhone yeniden başladıktan sonra açılır. Yeniden Başlat'a, açıldıktan sonra da Aç'a dokunun. Anahtar yok mu? iPhone'u çıkarıp yeniden takın.",
         "uiAutomation": "Anahtar, Geliştirici Modu açık olduğunda ve iPhone yeniden başladıktan sonra görünür. Ararken kilidini açık tutun.",
         "helper": "{{mac}} test yardımcısını oluşturup iPhone'da başlatır, ilk seferde bu birkaç dakika sürer. iPhone'un kilidini açık ve takılı tutun."
       },
@@ -15171,7 +15354,7 @@
       "general": "Genel",
       "right_hand": "Sağ kol",
       "members": "Üyeler ve davetler",
-      "roles": "Roller ve izinler",
+      "roles": "Roller",
       "vault": "Vault",
       "access": "Ajanlar ve erişim",
       "connectors": "Bağlayıcılar ve MCP'ler",
@@ -15202,7 +15385,7 @@
       "general": "Ad, saat dilimi ve her ajanın çalışma alanı hakkında bildikleri.",
       "right_hand": "Her kişiyle kendi DM'inde ekibi kuran asistan.",
       "members": "Çalışma alanında kimler var ve davetler.",
-      "roles": "Her kişinin neler yapabileceği. Roller toplanır.",
+      "roles": "Her rol izin, kanal ve ajan ekler.",
       "vault": "Ajanlarınızın parolaları, anahtarları ve kişileri. Parolaları asla görmezler.",
       "access": "Her ajanın neleri kullanabileceği: bağlayıcı başına bir düzey.",
       "connectors": "Tüm çalışma alanı için bir kez bağlanan hizmetler ve MCP sunucuları.",
@@ -15672,6 +15855,13 @@
     "logins_other": "{{count}} oturum",
     "noWindows": "Sınır, bu hesap yeniden kullanıldıktan sonra görünür.",
     "unused": "Bu hesabı kullanan ajan yok.",
+    "models": {
+      "exhausted": "Kota kalmadı · {{when}} sıfırlanır",
+      "exhaustedUnknown": "Kota kalmadı",
+      "off": "Kapalı",
+      "region": "Global bölgesi gerekiyor",
+      "inactive": "Etkin abonelik yok"
+    },
     "usesNow": "şu anda kullanıyor",
     "monthTokens": "Bu ay {{tokens}} token",
     "tokens": "{{tokens}} token",
@@ -15731,6 +15921,7 @@
   },
   "format": {
     "list": "{{names, list}}",
+    "andMore": "ve {{count}} daha",
     "usd": "{{value}} ABD$",
     "tokensMillions": "{{value}} Mn",
     "tokensThousands": "{{value}} B",

@@ -24,6 +24,7 @@
     "retry": "Opnieuw proberen",
     "soon": "Binnenkort",
     "unknownError": "Er ging iets mis. Probeer het opnieuw.",
+    "overLimit": "De tekst heeft {{length}} tekens en de limiet is {{max}}. Maak hem korter.",
     "ourSide": "Er ging iets mis aan onze kant. Probeer het over een poosje opnieuw.",
     "signedOut": "Je sessie is verlopen. Log opnieuw in om verder te gaan.",
     "newVersion": "Er is een nieuwe versie van agentes.chat.",
@@ -66,7 +67,7 @@
     "create": "Rol maken",
     "base": "Basis",
     "everyoneName": "Iedereen",
-    "orderHint": "De volgorde telt: wie hoger staat, beheert de rollen en mensen eronder.",
+    "orderHint": "Wie hoger staat, beheert de rollen en mensen eronder. De naamkleur van elke persoon komt van diens hoogste rol. Sleep om de volgorde te wijzigen.",
     "reorder": "Volgorde wijzigen",
     "reorderDone": "Klaar",
     "moveUp": "{{name}} omhoog",
@@ -108,6 +109,26 @@
         "none": "Niemand ziet of gebruikt de computers of browsers van agents, ook geen inlogverzoeken",
         "browser": "De browser van de eigen agents en inlogverzoeken aan de persoon, nooit het hele scherm",
         "full": "Het hele scherm en de terminal van de eigen agents en van de computers die de persoon heeft gekoppeld"
+      },
+      "steps": {
+        "off": "Geen toegang",
+        "ownBrowser": "Browser van de eigen agents",
+        "ownComputer": "Computer van de eigen agents",
+        "anyBrowser": "Browser van elke agent",
+        "anyComputer": "Computer van elke agent"
+      },
+      "short": {
+        "browser": "Browser",
+        "computer": "Computer"
+      },
+      "groupOwn": "Eigen agents",
+      "groupAny": "Elke agent",
+      "hint": "Browser: de browser en de inlogverzoeken. Computer: ook het hele scherm en de terminal. Eigen agents: die waarvoor de persoon verantwoordelijk is en de computers die die heeft gekoppeld.",
+      "with": {
+        "ownBrowser": "de browser van de eigen agents",
+        "ownComputer": "de computer van de eigen agents",
+        "anyBrowser": "de browser van elke agent",
+        "anyComputer": "de computer van elke agent"
       }
     },
     "everyoneNote": "Geldt voor iedereen in de werkruimte. Andere rollen voegen er alleen iets aan toe.",
@@ -145,10 +166,10 @@
     "name": "Naam",
     "nameDesc": "Hoe iedereen het ziet.",
     "color": "Kleur",
-    "colorDesc": "Kleurt het teken van de rol.",
+    "colorDesc": "Kleurt het rolbadge en de naam van wie hem als hoogste rol heeft.",
     "colorOf": "Kleur {{color}}",
     "hoist": "Apart tonen in de ledenlijst",
-    "hoistDesc": "Wie deze rol heeft, krijgt een eigen groep in de ledenkolom.",
+    "hoistDesc": "Wie deze rol heeft, krijgt een eigen groep in de ledenkolom. Agents blijven in de hunne.",
     "icon": "Icoon",
     "iconDesc": "Naast de naam getoond.",
     "more": "Meer opties",
@@ -167,7 +188,7 @@
     },
     "newTitle": "Rol maken",
     "newSub": "Je kunt later alles wijzigen.",
-    "namePlaceholder": "Bijv. Moderators",
+    "namePlaceholder": "Bijv. Support",
     "startFrom": "Beginnen met",
     "templates": {
       "blank": "Niets",
@@ -191,7 +212,139 @@
     "added_other": "{{count}} mensen met {{name}}",
     "rolesOf": "Rollen van {{name}}",
     "rolesCta": "Rollen",
-    "aboveYou": "Boven je rol"
+    "aboveYou": "Boven je rol",
+    "search": "Rol zoeken",
+    "noneYet": "Nog geen rollen. Maak er een om sommige mensen meer te geven.",
+    "noMatch": "Geen rol met ‘{{q}}’.",
+    "full": "Deze werkruimte heeft al {{max}} rollen. Verwijder er een om een nieuwe te maken.",
+    "loadError": "De rollen konden niet worden geladen. {{cause}}",
+    "move": "{{name}} verplaatsen",
+    "moveHint": "Sleep hem, of gebruik de spatiebalk en de pijltjes.",
+    "reach": {
+      "permissions_one": "+{{count}} recht",
+      "permissions_other": "+{{count}} rechten",
+      "channels_one": "+{{count}} kanaal",
+      "channels_other": "+{{count}} kanalen",
+      "agents_one": "+{{count}} agent",
+      "agents_other": "+{{count}} agents",
+      "basePermissions_one": "{{count}} recht",
+      "basePermissions_other": "{{count}} rechten",
+      "baseChannels_one": "{{count}} kanaal",
+      "baseChannels_other": "{{count}} kanalen",
+      "baseAgents_one": "{{count}} agent",
+      "baseAgents_other": "{{count}} agents",
+      "owner": "Mag alles, altijd",
+      "admin": "Mag alles",
+      "none": "Alleen wat Iedereen mag",
+      "hidden_one": "{{count}} die je niet ziet",
+      "hidden_other": "{{count}} die je niet ziet"
+    },
+    "switchTo": "Naar een andere rol",
+    "look": "Naam, kleur en icoon wijzigen",
+    "lookColor": "Kleur wijzigen",
+    "inviteWith": "Uitnodigen met deze rol",
+    "tabs": {
+      "permissions": "Rechten",
+      "channels": "Kanalen",
+      "agents": "Agents",
+      "people": "Mensen"
+    },
+    "gone": "Iemand heeft deze rol verwijderd.",
+    "backToList": "Terug naar de rollen",
+    "searchPermission": "Recht zoeken",
+    "noPermissionMatch": "Geen recht met ‘{{q}}’.",
+    "everyoneTip": "Iedereen mag dit. Klik om te kiezen wie het mag.",
+    "only": "Alleen {{names}}",
+    "notHeld": "Je hebt dit recht niet.",
+    "nowAbove": "Deze rol staat nu boven de jouwe. Alleen wie hoger staat, wijzigt hem.",
+    "agentsNote": "Rollen gelden voor mensen. Elke agent heeft eigen rechten, op zijn pagina.",
+    "adminHint": "Mag alles behalve wat alleen van de eigenaar is. Geef dit alleen aan wie de werkruimte beheert.",
+    "adminOn": "Met Beheerder mag {{name}} alles behalve wat alleen van de eigenaar is.",
+    "adminAsk": {
+      "title": "Beheerder aanzetten in {{name}}?",
+      "text_one": "Wie {{name}} heeft, mag dan alles behalve wat alleen van de eigenaar is. Dat is {{count}} persoon.",
+      "text_other": "Wie {{name}} heeft, mag dan alles behalve wat alleen van de eigenaar is. Dat zijn {{count}} mensen.",
+      "confirm": "Beheerder aanzetten"
+    },
+    "who": {
+      "title": "Wie mag {{short}}",
+      "everyoneDesc": "Elke persoon in de werkruimte",
+      "some": "Alleen sommige rollen",
+      "owners": "Eigenaren mogen het altijd.",
+      "losing": "Verliezen het:",
+      "gaining": "Krijgen het:",
+      "everyoneGains": "Iedereen krijgt het.",
+      "nobody": "Niemand verliest het.",
+      "noRoles": "Er zijn nog geen andere rollen.",
+      "computersTitle": "Wie houdt {{what}}",
+      "computersLow": "Iedereen krijgt {{what}}.",
+      "computersNone": "Iedereen stopt met de computers van de agents."
+    },
+    "channels": {
+      "line": "Wie {{name}} heeft, ziet de aangevinkte kanalen en kan erin.",
+      "lineBase": "Iedereen ziet de aangevinkte kanalen en kan erin.",
+      "hint": "Geldt voor mensen. Een agent komt in een kanaal als iemand hem toevoegt.",
+      "search": "Kanaal zoeken",
+      "general": "Iedereen blijft in #general.",
+      "notYours": "Alleen wie #{{channel}} maakte of kanalen ordent, wijzigt wie het ziet.",
+      "removeTitle": "#{{channel}} weghalen bij {{name}}?",
+      "leave": "Verlaten het kanaal:",
+      "openTitle": "#{{channel}} openen voor {{name}}?",
+      "openText": "Wie {{name}} heeft, ziet het kanaal en de hele geschiedenis, en kan erin.",
+      "open": "Openen",
+      "openAllTitle": "#{{channel}} openen voor iedereen?",
+      "openAllText": "De hele geschiedenis komt open te staan voor de werkruimte.",
+      "admin": "Met Beheerder ziet wie {{name}} heeft alle kanalen.",
+      "onlyGeneral": "Er is voorlopig alleen #general.",
+      "noMatch": "Geen kanaal met ‘{{q}}’."
+    },
+    "sees": {
+      "title": "Wie ziet #{{channel}}",
+      "private": "Alleen wie wordt toegevoegd",
+      "privateDesc": "Niemand nieuw ziet het. Wie erin zit, blijft.",
+      "unsee": "Wie erin zit, blijft. Zien het niet meer:"
+    },
+    "agents": {
+      "line": "Wie {{name}} heeft, praat met de aangevinkte agents.",
+      "lineBase": "Iedereen praat met de aangevinkte agents.",
+      "hint": "Dit gaat over mensen. Wat elke agent doet, staat op zijn pagina.",
+      "noTalk": "Wie alleen {{name}} heeft, praat niet met agents.",
+      "turnOnTalk": "Met agents praten aanzetten",
+      "search": "Agent zoeken",
+      "notYours": "Alleen {{owner}}, verantwoordelijk voor {{name}}, of wie elke agent bewerkt, wijzigt dit.",
+      "notYoursNoOwner": "Alleen wie elke agent bewerkt, wijzigt dit.",
+      "none": "Er zijn nog geen agents.",
+      "noMatch": "Geen agent met ‘{{q}}’."
+    },
+    "talks": {
+      "title": "Wie praat met {{name}}",
+      "some": "Alleen sommige rollen en mensen",
+      "ownerDesc": "Wie verantwoordelijk is voor {{name}}",
+      "losing": "Praten niet meer met {{agent}}:"
+    },
+    "holders": {
+      "agent": "{{name}} is een agent. Agents hebben geen rol.",
+      "seeAgents": "Agents bekijken",
+      "removed": "{{person}} heeft {{name}} niet meer",
+      "undo": "Ongedaan maken",
+      "selfTitle": "Jezelf uit {{name}} halen?",
+      "selfText": "Je verliest wat alleen {{name}} geeft. Alleen iemand boven je geeft het terug.",
+      "noMatch": "Niemand met ‘{{q}}’."
+    },
+    "mail": {
+      "title": "{{agent}} verliest de mailbox van {{owner}}",
+      "titleMany": "Agents verliezen mailboxen",
+      "lead": "Als meer mensen met ze praten, lezen de agents deze mailboxen niet meer.",
+      "of": "Mailbox van {{owner}} · {{agent}}",
+      "again": "Alleen wie de mailbox gaf, geeft hem opnieuw.",
+      "addAnyway": "Toch toevoegen",
+      "giveAnyway": "Toch geven"
+    },
+    "previewWhere": "in de chat",
+    "sameAs": "Zoals",
+    "deleteLeave": "Verlaten kanalen die ze alleen via {{name}} zagen:",
+    "deleteReading": "Kijken wie kanalen verlaat…",
+    "ownerAdd": "Eigenaren toevoegen"
   },
   "permissions": {
     "areas": {
@@ -5286,6 +5439,7 @@
         "effort": "Inspanning",
         "efforts": {
           "auto": "Automatisch",
+          "none": "Standaard van het model",
           "low": "Laag",
           "medium": "Gemiddeld",
           "high": "Hoog",
@@ -5302,6 +5456,8 @@
           "auto": "Het automatische model kiest de inspanning per taak. Kies een model om de inspanning vast te zetten.",
           "low": "Antwoordt snel. Goed voor simpele vragen.",
           "medium": "De standaard. Denkt meestal genoeg na.",
+          "mediumKey": "Denkt meestal genoeg na.",
+          "none": "Het model denkt zoveel als het gewoonlijk doet. Kies een niveau om de inspanning vast te zetten.",
           "high": "Denkt meer na bij moeilijke taken. Trager en duurder.",
           "max": "Denkt zoveel mogelijk na. Veel trager en duurder."
         },
@@ -5329,6 +5485,7 @@
           "defaults": "Terug naar standaard",
           "contents": {
             "model": "Contextvenster",
+            "modelFixed": "Inspanning en contextvenster",
             "auto": "Contextvenster en wie het antwoordt",
             "fixed": "Inspanning, contextvenster en wie het antwoordt",
             "autoSpeed": "Snelheid, contextvenster en wie het antwoordt",
@@ -5442,7 +5599,8 @@
             "not_signed_in_after_login": "{{brand}} accepteerde het inloggen, maar dit account kan hier niet worden gebruikt, misschien valt het niet onder het abonnement. Probeer een ander account of een API-sleutel.",
             "status_unknown": "{{brand}} liet niet weten of het account is ingelogd. Probeer het opnieuw.",
             "no_token": "{{brand}} was klaar zonder het token van het account te tonen. Probeer het opnieuw.",
-            "not_kept": "Het account is ingelogd, maar {{computer}} kon de login niet bewaren. Probeer het opnieuw."
+            "not_kept": "Het account is ingelogd, maar {{computer}} kon de login niet bewaren. Probeer het opnieuw.",
+            "sandbox": "{{brand}} is ingelogd, maar de sandbox start niet op {{computer}}, dus geen enkele agent kan het gebruiken. Gebruik liever een API-sleutel."
           },
           "geminiNotShared": "Gemini is ingelogd, maar {{computer}} kan die login niet met alle agents delen. Gebruik liever een Gemini-API-sleutel.",
           "duplicate": {
@@ -5477,6 +5635,8 @@
           "limitBack": "{{account}} is {{when}} terug",
           "limitSoon": "{{account}} is terug als het abonnement vernieuwt",
           "limitHelp": "Tot die tijd kan {{name}} denken met een ander account dat al gekoppeld is.",
+          "fullWait": "Op dit account wacht {{name}} tot het abonnement vernieuwt.",
+          "seeUsage": "Gebruik bekijken",
           "wait": "Wachten",
           "modelTitle": "Model van {{name}}",
           "moreTitle": "Meer opties voor {{name}}",
@@ -5864,6 +6024,7 @@
         "cli_failed": "Het programma {{brain}} is gestopt met een fout: {{detail}}",
         "cli_stopped": "Het programma {{brain}} is gestopt met een fout.",
         "cli_closed": "Het programma {{brain}} werd onverwacht afgesloten.",
+        "cli_sandbox": "Het programma {{brain}} kan zijn sandbox niet starten op deze computer. Kies een andere AI in de instellingen van de agent.",
         "account_missing": "Het account dat voor deze agent gekozen is staat niet meer op zijn computer. Kies een ander in de instellingen van de agent of voeg het opnieuw toe.",
         "windows_sandbox": "Deze Windows-computer kan de opdrachten van Codex niet isoleren: hij heeft Windows 11 24H2 of nieuwer nodig.",
         "our_error": "Er ging iets mis aan onze kant en de taak is gestopt. Vraag het over een poosje opnieuw.",
@@ -6932,6 +7093,7 @@
     "everyoneNote": "Iedereen geldt voor elke persoon in de werkruimte.",
     "everyoneNotePersonal": "Zonder rol gebruikt iemand de agents. Met {{role}} helpt iemand je het te beheren.",
     "noRolesToGive": "Geen rollen onder de jouwe om toe te kennen.",
+    "rolesAbove": "Rollen boven de jouwe zie je niet.",
     "roleFilter": "Rol",
     "rolesCount_one": "{{count}} rol",
     "rolesCount_other": "{{count}} rollen",
@@ -9769,7 +9931,11 @@
     "forAgent_one": "Aanzetten voor {{agent}}",
     "forAgent_other": "Aanzetten voor {{agent}}",
     "installedMany": "{{count}} skills geïnstalleerd.",
-    "zipHelp": "Een .zip met SKILL.md in de hoofdmap.",
+    "zipHelp": "Een .zip van de map van de skill, tot {{max}} MB.",
+    "zipAbout": "SKILL.md staat bovenaan in de .zip, of in de enige map erin. Een skill bewaart tot {{text}} MB tekst en {{assets}} MB afbeeldingen en andere bestanden.",
+    "zipTooLarge": "{{name}} is {{size}}. De .zip van een skill mag tot {{max}} MB zijn.",
+    "zipUseLink": "Een GitHub-link gebruiken",
+    "zipSending": "Bestand uploaden… {{percent}}",
     "zipPick": ".zip kiezen",
     "zipNone": "Geen bestand gekozen",
     "zipMissing": "Kies een .zip-bestand.",
@@ -10381,6 +10547,7 @@
     "someone": "iemand"
   },
   "palette": {
+    "roleKeywords": "rol rollen maken nieuw rechten",
     "newWikiKeywords": "wiki nieuwe pagina maken new page create",
     "actions": "Acties",
     "inviteSub": "via e-mail of link",
@@ -11702,7 +11869,8 @@
     "closed": "{{title}} · gesloten",
     "reopen": "Opnieuw tonen",
     "answeredBy": "{{name}} koos",
-    "failed": "Je keuze is niet verstuurd. Probeer het opnieuw."
+    "failed": "Je keuze is niet verstuurd. Probeer het opnieuw.",
+    "tooLongFix": "Maak het antwoord korter."
   },
   "drive": {
     "title": "Drive",
@@ -13524,6 +13692,8 @@
     }
   },
   "errors": {
+    "tooLarge": "Dit is groter dan de server aanneemt.",
+    "tooLargeMax": "Dit is groter dan de server aanneemt: tot {{max}} MB.",
     "passwordLink": {
       "email": "Deze server verstuurt e-mail: de persoon vraagt zelf een link aan bij Wachtwoord vergeten.",
       "serverOwner": "Wie deze server installeerde, meldt zich aan op de computer waarop hij draait, zonder link.",
@@ -13640,7 +13810,7 @@
       "aboveYou": "Alleen iemand boven deze rol kan hem wijzigen.",
       "base": "Elke werkruimte houdt de rol Iedereen.",
       "unknown": "Die rol bestaat niet meer.",
-      "orderIncomplete": "De rollen zijn veranderd. Herlaad en probeer het opnieuw."
+      "orderIncomplete": "De rollen zijn veranderd terwijl je ze verplaatste. Laad opnieuw en probeer het nog eens."
     },
     "teamProposal": {
       "undoExpired": "Er is meer dan een dag verstreken sinds dit team is gemaakt, dus het kan hier niet ongedaan worden gemaakt. Archiveer de agents op hun pagina's."
@@ -14619,6 +14789,20 @@
       "trustText": "Tik op Vertrouw op de iPhone en voer de toegangscode in.",
       "devModeDone": "Aan",
       "devModeText": "Zet hem aan en tik op Herstart. Tik na het herstarten op Zet aan en voer je toegangscode in.",
+      "devModeRestarting": "De iPhone herstart. Als hij terug is, ontgrendel hem en tik op Zet aan.",
+      "devModeBack": "De iPhone is terug. Ontgrendel hem, tik op Zet aan en voer je toegangscode in.",
+      "devModeCheck": "Staat aan, opnieuw controleren",
+      "devModeStillOff": "De iPhone zegt nog dat Ontwikkelaarsmodus uit staat.",
+      "devModeMissing": {
+        "title": "Zie je de optie niet?",
+        "hidden": "De iPhone verbergt de optie tot Xcode vraagt om hem te tonen.",
+        "hiddenOpen": "De iPhone verbergt de optie tot Xcode vraagt om hem te tonen. Open Xcode op {{mac}} met de iPhone aangesloten.",
+        "openXcode": "Xcode openen",
+        "opened": "Xcode is geopend op {{mac}}. Kijk opnieuw in de Instellingen van de iPhone en sluit Xcode daarna.",
+        "unlock": "Aangezet en de iPhone herstartte? Ontgrendel hem. De melding met Zet aan verschijnt pas daarna.",
+        "check": "Opnieuw controleren",
+        "outdated": "De agentes.chat-app op {{mac}} is verouderd. Werk de app bij, of voer dit uit in Terminal als je hem daar hebt geïnstalleerd."
+      },
       "uiAutomationText": "In Instellingen › Ontwikkelaar, na het herstarten.",
       "helperText": "De Mac bouwt en vernieuwt hem elke 7 dagen. Een gratis Apple Account in Xcode is genoeg.",
       "helperUntrustedText": "Tik op de naam van de ontwikkelaar en dan op Vertrouw.",
@@ -14635,7 +14819,6 @@
         "account": "Al ingelogd? Maak in Xcode een willekeurige iOS-app, kies je team bij Signing & Capabilities en voer hem één keer uit op de iPhone.",
         "connected": "{{mac}} ziet nog geen iPhone. Gebruik een kabel die data doorgeeft, niet alleen stroom, ontgrendel de iPhone en tik op Vertrouw als hij erom vraagt.",
         "trust": "Geen Vertrouw-vraag? Koppel de iPhone los, ontgrendel hem en sluit hem weer aan, tik dan op Vertrouw en voer de toegangscode in.",
-        "developerMode": "Ontwikkelaarsmodus gaat pas aan nadat de iPhone herstart. Tik op Herstart en daarna op Zet aan als hij terug is. Geen schakelaar? Koppel de iPhone los en sluit hem weer aan.",
         "uiAutomation": "De schakelaar verschijnt als Ontwikkelaarsmodus aan staat en de iPhone herstart is. Houd hem ontgrendeld terwijl je zoekt.",
         "helper": "{{mac}} bouwt de testhelper en start hem op de iPhone, wat de eerste keer een paar minuten duurt. Houd de iPhone ontgrendeld en aangesloten."
       },
@@ -15298,7 +15481,7 @@
       "general": "Algemeen",
       "right_hand": "Rechterhand",
       "members": "Leden en uitnodigingen",
-      "roles": "Rollen en rechten",
+      "roles": "Rollen",
       "vault": "Vault",
       "access": "Agents en toegang",
       "connectors": "Connectors en MCP's",
@@ -15329,7 +15512,7 @@
       "general": "Naam, tijdzone en wat elke agent over de werkruimte weet.",
       "right_hand": "De assistent die met ieder het team opbouwt, in hun DM.",
       "members": "Wie er in de werkruimte zit, en uitnodigingen.",
-      "roles": "Wat iedereen kan doen. Rollen tellen op.",
+      "roles": "Elke rol voegt rechten, kanalen en agents toe.",
       "vault": "Wachtwoorden, sleutels en contacten van je agents. Wachtwoorden zien ze nooit.",
       "access": "Wat elke agent kan gebruiken: één niveau per connector.",
       "connectors": "Diensten en MCP-servers die één keer voor de hele werkruimte zijn gekoppeld.",
@@ -15799,6 +15982,13 @@
     "logins_other": "{{count}} aanmeldingen",
     "noWindows": "De limiet verschijnt zodra dit account weer wordt gebruikt.",
     "unused": "Geen agent gebruikt dit account.",
+    "models": {
+      "exhausted": "Geen quota meer · reset {{when}}",
+      "exhaustedUnknown": "Geen quota meer",
+      "off": "Uitgezet",
+      "region": "Vereist de regio Global",
+      "inactive": "Geen actief abonnement"
+    },
     "usesNow": "gebruikt het nu",
     "monthTokens": "{{tokens}} tokens deze maand",
     "tokens": "{{tokens}} tokens",
@@ -15858,6 +16048,7 @@
   },
   "format": {
     "list": "{{names, list}}",
+    "andMore": "en nog {{count}}",
     "usd": "US$ {{value}}",
     "tokensMillions": "{{value}} mln.",
     "tokensThousands": "{{value}}k",

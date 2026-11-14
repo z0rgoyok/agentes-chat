@@ -9,6 +9,7 @@ import {
   reachShortKey,
 } from "@agenteschat/client/lib/audience";
 import { engineOfBrain } from "@agenteschat/client/lib/brain";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { cleanHandle, handleAfterRename, handleProblemText, takenHandles } from "@agenteschat/client/lib/new-agent";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -39,7 +40,7 @@ import { useFailed } from "../routines/hooks";
 import { usePersonalView } from "../settings/hooks";
 import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { PushedHeader, successHaptic } from "../shared/parts";
-import { TextArea } from "../shared/TextArea";
+import { overLimit, TextArea } from "../shared/TextArea";
 import { BrakesSection } from "./BrakesSection";
 import { BudgetSection } from "./BudgetSection";
 import { openAgentDelete } from "./DeleteAgentScreen";
@@ -50,6 +51,8 @@ import { openAgentMore } from "./more-link";
 import { ReportsToSection } from "./ReportsToSection";
 import { RoleInput } from "./RoleInput";
 import { openSetupStep } from "./setup/SetupStepScreen";
+
+const INSTRUCTIONS_LIMIT = { max: FIELD_LIMITS.instructions };
 
 /** Opens "Editar" for an agent. */
 export const openAgentEdit = (id: string) => router.push({ pathname: "/agent-edit", params: { id } });
@@ -99,6 +102,7 @@ export function AgentEditScreen({ id }: { id: string }) {
   const changes = saved && draft ? agentChanges(saved, draft, fields) : null;
   const reach = draft ? agentsReach(draft.audience, onPlan, agent?.ownerUserId ?? null) : null;
   const nameMissing = Boolean(draft && fields.has("name") && !draft.name.trim());
+  const tooLong = Boolean(draft && fields.has("instructions") && overLimit(draft.instructions, INSTRUCTIONS_LIMIT));
   const taken = useMemo(
     () => takenHandles(dir.agents, [...dir.memberById.values()], id),
     [dir.agents, dir.memberById, id],
@@ -127,7 +131,7 @@ export function AgentEditScreen({ id }: { id: string }) {
 
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => setEdits((e) => ({ ...e, [key]: value }));
   const save = async () => {
-    if (!changes || nameMissing || handleIssue || update.isPending) return;
+    if (!changes || nameMissing || tooLong || handleIssue || update.isPending) return;
     if (changes.audience && !(await ask(changes.audience)([]))) return;
     update.mutate(changes, {
       onSuccess: () => {
@@ -161,7 +165,7 @@ export function AgentEditScreen({ id }: { id: string }) {
         action={{
           label: t("common.save"),
           onPress: () => void save(),
-          disabled: !changes || nameMissing || Boolean(handleIssue) || update.isPending,
+          disabled: !changes || nameMissing || tooLong || Boolean(handleIssue) || update.isPending,
         }}
       />
       <KeyboardAwareScrollView
@@ -310,7 +314,7 @@ export function AgentEditScreen({ id }: { id: string }) {
                 {fields.has("instructions") ? (
                   <TextArea
                     value={draft.instructions}
-                    maxLength={50_000}
+                    limit={INSTRUCTIONS_LIMIT}
                     onChangeText={(v) => set("instructions", v)}
                     placeholder={t("newAgent.instructionsPlaceholder")}
                     accessibilityLabel={t("agent.instructions")}

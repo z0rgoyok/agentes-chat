@@ -1,5 +1,6 @@
 import type { Agent, Memory, MemoryKind } from "@agenteschat/client";
 import { useMemory, useMemoryAction, useProposals } from "@agenteschat/client";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { daysBetween, relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { memoryLine } from "@agenteschat/client/lib/proposals";
@@ -16,6 +17,7 @@ import {
   Icon,
   type IconName,
   List,
+  overLimit,
   PageHeader,
   SearchField,
   Tabs,
@@ -31,6 +33,7 @@ import { HelpLink } from "@/components/HelpLink";
 import { ErrorState, LoadingPage } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { useLandOn } from "@/lib/land-on";
 import { lookOf } from "@/lib/look";
 
@@ -319,6 +322,7 @@ function EditMemoryDialog({
 }) {
   const { t, i18n } = useTranslation();
   const [text, setText] = useState("");
+  const limit = useTextLimit(FIELD_LIMITS.memory);
   useEffect(() => setText(memory?.text ?? ""), [memory]);
   return (
     <Dialog
@@ -338,12 +342,12 @@ function EditMemoryDialog({
             text: t("memory.editHelp", { source: memory ? `${memorySource(t, i18n.language, memory)}.` : "" }),
           }}
         >
-          <Textarea rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea rows={3} limit={limit} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
       </DialogBody>
       <DialogFooter>
         <Button onClick={onClose}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={!text.trim()} onClick={() => onSave(text.trim())}>
+        <Button variant="primary" disabled={!text.trim() || overLimit(text, limit)} onClick={() => onSave(text.trim())}>
           {t("common.save")}
         </Button>
       </DialogFooter>

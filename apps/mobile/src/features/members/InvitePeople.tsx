@@ -39,7 +39,7 @@ import { Page } from "../me/parts";
 import { useColors, useMeId } from "../shared/hooks";
 import { goBack, successHaptic } from "../shared/parts";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
-import { TextArea } from "../shared/TextArea";
+import { overLimit, TextArea } from "../shared/TextArea";
 import { EMPTY_INVITE, setInviteDraft, updateInviteDraft, useInviteDraft } from "./draft";
 import { InviteLinkRows } from "./InviteLinkRows";
 import { AddressSheet } from "./InviteSheets";
@@ -56,6 +56,7 @@ import {
 } from "./logic";
 import { MembersFullNote } from "./MembersFullNote";
 
+const NOTE_LIMIT = { max: INVITE_NOTE_MAX };
 /**
  * Convidar pessoas (ADR 0090 §5), the web's invite dialog as a pushed screen: an address a row with its role, the
  * channels they also join and a note in the email on screens of their own, then the workspace's link. A server that
@@ -168,7 +169,7 @@ function InvitePeople() {
   };
 
   const send = async () => {
-    if (ready.length === 0 || full || inviteMany.isPending) return;
+    if (ready.length === 0 || full || overLimit(note, NOTE_LIMIT) || inviteMany.isPending) return;
     try {
       const results = await inviteMany.mutateAsync({
         invites: ready.map((a) => ({ email: a.email, roleIds: a.roleId ? [a.roleId] : [] })),
@@ -223,7 +224,7 @@ function InvitePeople() {
                 variant="primary"
                 wide
                 label={ready.length > 0 ? t("members.dialog.send", { count: ready.length }) : t("members.invite")}
-                disabled={ready.length === 0 || full}
+                disabled={ready.length === 0 || full || overLimit(note, NOTE_LIMIT)}
                 loading={inviteMany.isPending}
                 onPress={() => void send()}
               />
@@ -416,7 +417,7 @@ export function InviteNoteScreen() {
         onChangeText={(note) => updateInviteDraft((d) => ({ ...d, note }))}
         placeholder={t(modeKey(org, "members.dialog.notePlaceholder"), { org: org?.name ?? "" })}
         accessibilityLabel={t("members.dialog.note")}
-        maxLength={INVITE_NOTE_MAX}
+        limit={NOTE_LIMIT}
         autoFocus
       />
       <GroupedFooter>{t("mobile.invitePeople.noteHelp", { max: INVITE_NOTE_MAX })}</GroupedFooter>

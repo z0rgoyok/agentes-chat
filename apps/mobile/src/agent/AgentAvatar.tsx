@@ -41,6 +41,8 @@ export interface AgentAvatarProps {
   gaze?: Gaze;
   /** Only its sky, no body (framed only): out on a routine, it comes back into the frame when the run ends. */
   bodyless?: boolean;
+  /** The tile's corner (framed only). Default 30% of the side; `size / 2` inside a fully round pill. */
+  radius?: number;
 }
 
 /** Up or down the screen. */
@@ -115,6 +117,7 @@ function AgentAvatarView({
   expression,
   gaze,
   bodyless = false,
+  radius,
 }: AgentAvatarProps) {
   const reduced = useReducedMotion();
   const { scheme, colors: c } = useTheme();
@@ -150,7 +153,7 @@ function AgentAvatarView({
       style={[
         { width: size, height: size },
         tile && {
-          borderRadius: size * 0.3,
+          borderRadius: radius ?? size * 0.3,
           overflow: "hidden",
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: c.line,
@@ -180,6 +183,7 @@ export const AgentAvatar = memo(
     a.expression === b.expression &&
     a.gaze === b.gaze &&
     a.bodyless === b.bodyless &&
+    a.radius === b.radius &&
     a.agent.color === b.agent.color &&
     a.agent.eyes === b.agent.eyes &&
     a.agent.accessory === b.agent.accessory &&

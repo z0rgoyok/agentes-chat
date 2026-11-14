@@ -1290,6 +1290,8 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         request<XcodeFixView>(`${org(orgId)}/devices/computers/${enc(machineId)}/xcode-fix`),
       cancelXcodeFix: (orgId, machineId) =>
         request<XcodeFixView>(`${org(orgId)}/devices/computers/${enc(machineId)}/xcode-fix`, { method: "DELETE" }),
+      openXcode: (orgId, machineId) =>
+        request<{ opened: boolean }>(`${org(orgId)}/devices/computers/${enc(machineId)}/xcode-open`, { json: {} }),
     },
     machines: {
       list: async (orgId) => (await request<{ machines: Machine[] }>(`${org(orgId)}/machines`)).machines,
@@ -1389,7 +1391,12 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
       list: async (orgId) => (await request<{ skills: Skill[] }>(`${org(orgId)}/skills`)).skills,
       get: (orgId, id) => request<SkillDetail>(`${org(orgId)}/skills/${enc(id)}`),
       create: (orgId, input) => request<SkillDetail>(`${org(orgId)}/skills`, { json: input }),
-      import: (orgId, input) => request<SkillDetail | SkillPick>(`${org(orgId)}/skills/import`, { json: input }),
+      import: (orgId, input, upload) =>
+        request<SkillDetail | SkillPick>(`${org(orgId)}/skills/import`, {
+          json: input,
+          signal: upload?.signal,
+          onUploadProgress: upload?.onProgress,
+        }),
       importPicked: async (orgId, url, paths, forAgentId) =>
         (
           await request<{ skills: SkillDetail[] }>(`${org(orgId)}/skills/import`, {

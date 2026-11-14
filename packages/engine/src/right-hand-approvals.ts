@@ -5,7 +5,7 @@ import { type AgentProposalCard, agentProposalOf, createProposedAgent } from "./
 import { type Agent, archiveAgent, getAgent } from "./agents";
 import { recordAudit } from "./audit";
 import { messageRoot, runChain, steeredByOthers } from "./authority";
-import { autoModelFor, autoProvider, orgAutoModels } from "./auto-model";
+import { autoLine, autoModelFor, autoProvider, orgAutoModels } from "./auto-model";
 import { isComputerBrain } from "./brains/types";
 import { decideProposal, type SettingsProposalCard, settingsCardOf } from "./context/proposals";
 import { modelInfoFor } from "./credentials";
@@ -420,9 +420,14 @@ async function decideCall(
   rightHand: Agent,
   input: DecisionInput,
 ) {
-  const provider = isAutoModel(rightHand.model) ? await autoProvider(deps.db, rightHand) : null;
-  const model = provider
-    ? autoModelFor(provider, "medium", (await orgAutoModels(deps.db, rightHand.orgId))[provider])
+  const line = isAutoModel(rightHand.model) ? await autoLine(deps.db, rightHand) : null;
+  const model = line
+    ? autoModelFor(
+        line.provider,
+        "medium",
+        (await orgAutoModels(deps.db, rightHand.orgId))[line.provider],
+        line.endpoint,
+      )
     : rightHand.model;
   if (!model) return { decision: "pass" as const, reason: "" };
   const { system, user } = decisionPrompt({ ...input, personal: await isPersonalWorkspace(deps.db, rightHand.orgId) });

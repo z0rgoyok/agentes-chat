@@ -40,3 +40,35 @@ test("choice card API: read it, answer once (409 after), a pick per question (40
   expect(((await again.json()) as { error: { code: string } }).error.code).toBe("choices.answered");
   expect(((await (await api("")).json()) as { answer: { picks: number[] } }).answer.picks).toEqual([1]);
 });
+
+test("a written answer holds what a message holds; answers that together pass a message are refused as too long", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, channelId, agentId } = await seedOrg(owner);
+  const card = await createArtifact(t.engine.artifacts, { type: "agent", agentId, channelId }, orgId, {
+    title: "Prazos",
+    channelId,
+    content: {
+      kind: "choices",
+      questions: [
+        { question: "Como responde?", options: [{ label: "Prazo padrão" }, { label: "Pergunta ao time" }] },
+        { question: "E fora do horário?", options: [{ label: "No dia seguinte" }, { label: "Na hora" }] },
+      ],
+    },
+  });
+  const api = (path: string, init?: Parameters<typeof owner>[1]) =>
+    owner(`/api/app/organizations/${orgId}/choices/${card.id}${path}`, init);
+
+  const half = "a".repeat(60_000);
+  const refused = await api("/answer", { json: { picks: [2, 2], others: [half, half] } });
+  expect(refused.status).toBe(400);
+  expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("message.too_long");
+  expect(((await (await api("")).json()) as { answer: null }).answer).toBeNull();
+
+  const long = "Conto o prazo a partir do dia em que todos os arquivos chegam. ".repeat(80).trim();
+  const answered = await api("/answer", { json: { picks: [2, 0], others: [long, null] } });
+  expect(answered.status).toBe(200);
+  const { messageId } = (await answered.json()) as { messageId: string };
+  const [message] = await t.db.select().from(schema.messages).where(eq(schema.messages.id, messageId));
+  expect(message?.body).toBe(`@dev Como responde? ${long}\nE fora do horário? No dia seguinte`);
+});

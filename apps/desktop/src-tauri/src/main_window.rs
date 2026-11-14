@@ -232,9 +232,12 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         // refuse them, so the sign-in's other server and Storage's "Show the folder" show only where this says
         // so), that a connector's sign-in and the window's own browser sign-in come back here (`deep_link.rs`,
         // older apps don't take them), that it lists the other servers' workspaces (`workspaces`,
-        // ADR 0154) and that it takes the person's app icon (`appIcon`, ADR 0179); nothing else.
+        // ADR 0154), that it takes the person's app icon (`appIcon`, ADR 0179) and how this computer draws
+        // (`renderer`, and Linux's `system` facts: graphics.rs); nothing else.
         .initialization_script(format!(
-            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, workspaces: true, appIcon: true }});"
+            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, workspaces: true, appIcon: true, renderer: {renderer:?}, system: {system} }});",
+            renderer = crate::graphics::renderer(),
+            system = serde_json::to_string(&crate::graphics::system()).unwrap_or_else(|_| "null".into()),
         ))
         .on_navigation(move |url| match route_now(&on_nav, url) {
             Route::Stay => true,
@@ -302,6 +305,19 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         // The buttons are placed by `place_lights` (on every fit), not with `traffic_light_position`.
         .hidden_title(true);
     let built = builder.build().map_err(|e| e.to_string())?;
+    // Linux's side of lib.rs `on_web_content_process_terminate` (macOS only in Tauri): a web process that died
+    // leaves the window blank, so the page loads again.
+    #[cfg(target_os = "linux")]
+    {
+        let app = app.clone();
+        let _ = built.with_webview(move |view| {
+            use webkit2gtk::WebViewExt;
+            view.inner().connect_web_process_terminated(move |view, _| {
+                crate::cover::show(&app, Duration::ZERO);
+                view.reload();
+            });
+        });
+    }
     // A new window starts with the bundle's icon on Windows and Linux: the person's pick (ADR 0179).
     crate::app_icon::show(app);
     let window = built.as_ref().window();

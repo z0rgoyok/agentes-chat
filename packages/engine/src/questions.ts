@@ -291,7 +291,7 @@ export async function answerQuestion(
   await requireChannelAccess(db, actorId, orgId, current.channelId);
   requireAddressee(current, actorId);
   const choice = input.choice?.trim() || null;
-  const text = input.text?.trim().slice(0, 4000) || null;
+  const text = input.text?.trim() || null;
   if (!choice && !text) throw new ValidationError("Send a choice or a text answer");
   if (choice && !(current.choices ?? []).includes(choice)) throw new ValidationError("That is not one of the choices");
   const answer = choice && text ? `${choice} (${text})` : (choice ?? text ?? "");

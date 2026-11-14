@@ -12,7 +12,7 @@ import {
 import { accountTitle, listsExisting } from "@agenteschat/client/lib/ai-accounts";
 import { CUSTOM_PROVIDER } from "@agenteschat/client/lib/endpoints";
 import { errorCode, errorText, keyRefusal } from "@agenteschat/client/lib/errors";
-import { namesText } from "@agenteschat/client/lib/format";
+import { namesText, rosterText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { stepPermissions } from "@agenteschat/client/lib/home";
 import {
@@ -60,7 +60,6 @@ import {
   DialogFooter,
   Icon,
   type IconName,
-  OptionCard,
   ProviderLogo,
   Spinner,
 } from "@agenteschat/ui";
@@ -99,6 +98,7 @@ import {
   usePlanHold,
 } from "@/components/ai/ConnectAiSteps";
 import { EndpointForm } from "@/components/ai/EndpointForm";
+import { AudienceCard } from "@/components/arrival/AudienceCard";
 import { ConnectChoices } from "@/components/arrival/ConnectChoices";
 import { bestHave, ConnectHave, haveId } from "@/components/arrival/ConnectHave";
 import { ConnectScene, isScenePlan, type SceneAgent, TeamScene, useDawn } from "@/components/arrival/TeamScene";
@@ -1342,26 +1342,20 @@ function ConnectAiDialog({
                 return (
                   // biome-ignore lint/a11y/useSemanticElements: pressable cards, not a native fieldset
                   <div className="arrival-for" role="group" aria-label={t("connectAi.agentAria")}>
-                    <OptionCard pressed={wide} onClick={() => choose("all")}>
-                      <AvatarStack>{everyone.slice(0, 4).map(face)}</AvatarStack>
-                      <span className="ac-option__text">
-                        <span className="ac-option__title">{t("connectAi.all")}</span>
-                        <span className="ac-option__desc">
-                          {namesText(
-                            t,
-                            everyone.map((a) => a.name),
-                            2,
-                          )}
-                        </span>
-                      </span>
-                    </OptionCard>
-                    <OptionCard pressed={!wide} onClick={() => choose("one")}>
-                      {face(asked)}
-                      <span className="ac-option__text">
-                        <span className="ac-option__title">{asked.name}</span>
-                        {asked.role && <span className="ac-option__desc">{asked.role}</span>}
-                      </span>
-                    </OptionCard>
+                    <AudienceCard
+                      pressed={wide}
+                      onClick={() => choose("all")}
+                      faces={<AvatarStack>{everyone.slice(0, 4).map(face)}</AvatarStack>}
+                      title={t("connectAi.all")}
+                      tip={rosterText(t, everyone)}
+                    />
+                    <AudienceCard
+                      pressed={!wide}
+                      onClick={() => choose("one")}
+                      faces={face(asked)}
+                      title={asked.name}
+                      tip={asked.role || undefined}
+                    />
                   </div>
                 );
               })()}

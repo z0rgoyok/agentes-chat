@@ -1,7 +1,7 @@
 import { and, asc, type Executor, eq, inArray, isNull, ne, schema } from "@agenteschat/db";
 import { ensureOpenRouterModels, isAutoModel, routerModelOf } from "@agenteschat/providers";
 import type { Agent } from "./agents";
-import { autoModelFor, autoProvider } from "./auto-model";
+import { type AutoLine, autoLine, autoModelFor, autoProvider } from "./auto-model";
 import { brainOf } from "./brain-settings";
 import { brainAccountFor, computerBrainUnavailable, mayFallBack, NO_AI_CODES } from "./brains/select";
 import { BRAIN_PLAN_NAMES, type BrainKind, type ComputerBrainKind, isComputerBrain } from "./brains/types";
@@ -87,14 +87,14 @@ type AiRun = Pick<AgentRun, "id" | "orgId" | "agentId" | "threadRootId" | "trigg
 
 const READY: AgentAi = { state: "ready" };
 
-/** The model brain can be called. `auto` isn't in the catalog: its provider's everyday model stands for it. */
+/** The model brain can be called. `auto` isn't in the catalog: its line's everyday model stands for it. */
 async function modelReady(deps: AiStatusDeps, agent: AiAgent): Promise<boolean> {
   if (!isAutoModel(agent.model)) return deps.gateway.hasModelCredential(agent);
-  const provider = await autoProvider(deps.db, agent).catch(() => "anthropic");
+  const { provider, endpoint } = await autoLine(deps.db, agent).catch((): AutoLine => ({ provider: "anthropic" }));
   // OpenRouter's line is its list.
   if (provider === "openrouter") await ensureOpenRouterModels();
-  const model = autoModelFor(provider, "medium");
-  // OpenRouter's list not read: `autoProvider` found its key, and a run waits the outage out.
+  const model = autoModelFor(provider, "medium", undefined, endpoint);
+  // OpenRouter's list not read: `autoLine` found its key, and a run waits the outage out.
   if (!model) return provider === "openrouter";
   return deps.gateway.hasModelCredential({ ...agent, model });
 }

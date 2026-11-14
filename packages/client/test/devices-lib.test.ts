@@ -15,11 +15,17 @@ import {
   deviceWaitEventOf,
   deviceWaitOf,
   fixText,
+  IPHONE_RESTART_MS,
+  type IphoneRestartMemo,
+  type IphoneSeen,
   iosOf,
   iphoneNoTeam,
+  iphoneRestartNext,
+  iphoneRestartOf,
   iphoneSteps,
   linkPhase,
   mayTakePhone,
+  NO_IPHONE_RESTART,
   narrowsAudience,
   newComputerOf,
   phoneCloseState,
@@ -282,6 +288,51 @@ describe("connecting a phone", () => {
       developerMode: "done",
       uiAutomation: "waiting",
     });
+  });
+
+  test("iPhone: restarting for Developer Mode stays on that step, then waits on the person once back", () => {
+    const mac = computer({ toolchains: { xcode: "27.0", appleTeam: "Sam Rivera (Personal Team)" } });
+    // Gone from the Mac while restarting: the step stays, under way, instead of asking for the cable.
+    expect(Object.values(iphoneSteps(mac, null, true))).toEqual([
+      "done",
+      "done",
+      "done",
+      "done",
+      "done",
+      "current",
+      "waiting",
+      "waiting",
+    ]);
+    let memo: IphoneRestartMemo = NO_IPHONE_RESTART;
+    let now = 0;
+    const see = (phone: IphoneSeen) => {
+      memo = iphoneRestartNext(memo, phone, now);
+      return iphoneRestartOf(memo, phone, now);
+    };
+    const off = { key: "p-1", reason: "developer_mode_off" };
+    expect(see(off)).toBeNull();
+    now = 1000;
+    expect(see(null)).toBe("restarting");
+    now += IPHONE_RESTART_MS - 2000;
+    expect(see(null)).toBe("restarting");
+    // Back, the mode still off: it waits on the person to unlock it and tap Turn On.
+    expect(see(off)).toBe("back");
+    expect(see(off)).toBe("back");
+    // On: done with it.
+    expect(see({ key: "p-1", reason: null })).toBeNull();
+    expect(see(null)).toBeNull();
+    // Gone too long: plugged out, not restarting.
+    expect(see(off)).toBeNull();
+    now += 10;
+    expect(see(null)).toBe("restarting");
+    now += IPHONE_RESTART_MS;
+    expect(see(null)).toBeNull();
+    // Another iPhone shows up instead: its own step, nothing remembered.
+    expect(see({ key: "p-2", reason: "developer_mode_off" })).toBeNull();
+    // A phone gone from any other step was unplugged.
+    memo = NO_IPHONE_RESTART;
+    see({ key: "p-1", reason: "untrusted" });
+    expect(see(null)).toBeNull();
   });
 
   test("iPhone: a team found without its name, an account with no team, refused taps, an iOS too old", () => {

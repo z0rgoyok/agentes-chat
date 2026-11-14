@@ -581,6 +581,7 @@ export function DesktopView({
     <div
       className={cx("dsk", preview && "dsk--card", inControl && "is-control", final && "is-final")}
       data-state={shown}
+      data-control={inControl || undefined}
     >
       {!preview && (
         <DialogHead

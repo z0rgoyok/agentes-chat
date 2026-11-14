@@ -454,6 +454,10 @@ html:not([data-pointer]) .consult-pair__row:focus-visible {
   font-weight: 600;
   color: var(--ink2);
 }
+/* What the question is about, after the names: quieter than them, on hover too (the row's ink turns --ink2). */
+.consult-pair__subject {
+  color: var(--muted);
+}
 .consult-pair__swap,
 .consult-pair__chev {
   flex: none;
@@ -14464,7 +14468,8 @@ html:not([data-pointer]) .ac-typing__see:focus-visible {
 .settings-row.rh-guidance {
   gap: 10px;
 }
-.rh-guidance > .ac-actrow__text + * {
+.rh-guidance > .ac-actrow__text + *,
+.rh-guidance > .ac-limit {
   flex-basis: 100%;
 }
 /* Configurações › Sua conta: a line that opens something is a button, its chevron at the end. Its hover stays inside

@@ -176,8 +176,9 @@ export function createFakeSkills(
         files: [{ path: "SKILL.md", size: input.body.length, mime: "text/markdown", status: "stored" }],
       });
     },
-    import: async (orgId, input) => {
+    import: async (orgId, input, upload) => {
       log("skills.import", orgId, input);
+      upload?.onProgress?.(1);
       const url = "url" in input ? input.url : null;
       const hidden = url?.includes("/acme/secret")
         ? "acme/secret"

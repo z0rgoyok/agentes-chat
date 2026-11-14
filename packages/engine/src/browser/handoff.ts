@@ -39,7 +39,7 @@ import {
   servesDesktops,
 } from "../machines";
 import { appPageLink, namesOwnApp } from "../message-links";
-import { insertMessage, messageView } from "../messages";
+import { insertMessage, MAX_MESSAGE_LENGTH, messageView } from "../messages";
 import { missionOfRun } from "../mission-context";
 import {
   browserHandoffRecipient,
@@ -1308,7 +1308,7 @@ export async function finishHandoff(
   if (current.controllerUserId && current.controllerUserId !== actorId && current.status === "active") {
     throw new ConflictError("Someone else is in control");
   }
-  const note = input.note?.trim().slice(0, 1000) || null;
+  const note = input.note?.trim().slice(0, MAX_MESSAGE_LENGTH) || null;
   const ended = await deps.db.transaction(async (tx) => {
     const [row] = await tx
       .update(browserHandoffs)

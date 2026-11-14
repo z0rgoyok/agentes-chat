@@ -1,7 +1,6 @@
 import { useAnswerChoices, useArtifact, useChoices } from "@agenteschat/client";
 import {
   answeredFirst,
-  CHOICE_OTHER_MAX,
   type ChoiceDraft,
   choiceLetter,
   choiceSummary,
@@ -10,6 +9,7 @@ import {
   otherChoice,
   pickChoice,
 } from "@agenteschat/client/lib/choices";
+import { MAX_MESSAGE_LENGTH, tooLongRefusal } from "@agenteschat/client/lib/message-length";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -27,7 +27,7 @@ import { useSheetIfAny } from "../shared/SheetHost";
  * "Outra resposta", opens a sheet to write the answer instead, as the ask card's does.
  */
 export function ChoicesCard({ id, version }: { id: string; version?: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const c = useColors();
   const orgId = useOrgId();
   const dir = useDirectory();
@@ -121,7 +121,11 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
     if (next.send)
       answer.mutate(next.send, {
         onError: (e) => {
-          if (!answeredFirst(e)) toast({ title: t("mobile.choices.failed"), icon: "x" });
+          if (!answeredFirst(e))
+            toast({
+              title: tooLongRefusal(t, i18n.language, e, t("mobile.choices.tooLongFix")) ?? t("mobile.choices.failed"),
+              icon: "x",
+            });
           void query.refetch();
         },
       });
@@ -190,7 +194,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
                   placeholder={t("mobile.chat.question.placeholder")}
                   submitLabel={t("mobile.app.send")}
                   initial={d.others[d.step] ?? ""}
-                  maxLength={CHOICE_OTHER_MAX}
+                  limit={{ max: MAX_MESSAGE_LENGTH, fix: t("mobile.choices.tooLongFix") }}
                   onSubmit={(text) => {
                     sheet.close();
                     pick(other, text.trim());

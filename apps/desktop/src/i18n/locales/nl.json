@@ -670,7 +670,8 @@
       "step3": "Open het gedownloade bestand en sleep de nieuwe agentes.chat naar Apps.",
       "installerNote": "Open het gedownloade bestand: het installeert de nieuwe versie over de oude heen.",
       "keepNote": "Je servers en instellingen blijven.",
-      "whatsNew": "Nieuw in {{version}}"
+      "whatsNew": "Nieuw in {{version}}",
+      "systemDetails": "Systeemgegevens"
     },
     "activity": {
       "title": "Activiteit",

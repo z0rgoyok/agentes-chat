@@ -442,6 +442,10 @@ const ManagedTask = z
       })
       .nullable()
       .openapi({ description: "Another agent asked it: who, what started the chain and where." }),
+    subject: z.string().nullable().openapi({
+      description:
+        "What the latest agent to ask it asked, as one line of at most 120 characters; null unless you read the conversation it was handed off from (`delegation.from`).",
+    }),
     helpers: z
       .number()
       .int()

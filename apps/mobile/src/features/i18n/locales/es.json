@@ -56,7 +56,8 @@
     "closed": "{{title}} · cerrado",
     "reopen": "Mostrar de nuevo",
     "answeredBy": "{{name}} eligió",
-    "failed": "Tu elección no se envió. Inténtalo de nuevo."
+    "failed": "Tu elección no se envió. Inténtalo de nuevo.",
+    "tooLongFix": "Acorta la respuesta."
   },
   "chart": {
     "table": "Tabla",
@@ -2075,8 +2076,21 @@
         "stopped": "{{name}} ya no se usa por Wi-Fi"
       },
       "stall": {
-        "plug": "{{host}} aún no ve este iPhone. Usa un cable que transmita datos, no solo carga, mantén este iPhone desbloqueado y toca Confiar si lo pide.",
-        "devmode": "El Modo de desarrollador solo se activa después de reiniciar este iPhone. Toca Reiniciar y luego Activar cuando vuelva. ¿No ves el interruptor? Desconecta este iPhone y vuelve a conectarlo."
+        "plug": "{{host}} aún no ve este iPhone. Usa un cable que transmita datos, no solo carga, mantén este iPhone desbloqueado y toca Confiar si lo pide."
+      },
+      "devMode": {
+        "restarting": "{{host}} todavía no ve este iPhone después del reinicio. Déjalo conectado.",
+        "back": "Toca Activar en el aviso de este iPhone y escribe tu código.",
+        "check": "Ya lo activé, comprobar de nuevo",
+        "stillOff": "{{host}} todavía ve el modo de desarrollador desactivado.",
+        "missing": "¿No aparece la opción?",
+        "hidden": "Este iPhone oculta la opción hasta que Xcode pide mostrarla.",
+        "hiddenOpen": "Este iPhone oculta la opción hasta que Xcode pide mostrarla. Abre Xcode en {{host}} con este iPhone conectado.",
+        "openXcode": "Abrir Xcode",
+        "opened": "Xcode se abrió en {{host}}. Vuelve a mirar en Ajustes y cierra Xcode allí después.",
+        "unlock": "¿Lo activaste y se reinició? El aviso con Activar aparece cuando este iPhone está desbloqueado.",
+        "checkAgain": "Comprobar de nuevo",
+        "outdated": "La app agentes.chat en {{host}} está desactualizada. Actualízala en ese Mac."
       }
     },
     "notice": {

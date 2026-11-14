@@ -46,6 +46,27 @@ describe("the check itself", () => {
   });
 });
 
+describe("the quota per model's words", () => {
+  const KEYS = [
+    "usageViews.models.exhausted",
+    "usageViews.models.exhaustedUnknown",
+    "usageViews.models.off",
+    "usageViews.models.region",
+    "usageViews.models.inactive",
+  ];
+
+  test("every language has them, and the reset keeps its placeholder", () => {
+    for (const { code } of LOCALES) {
+      const leaves = new Map(flatten(resources[code].translation as never));
+      for (const key of KEYS) expect({ code, key, value: leaves.get(key) ?? "" }).not.toEqual({ code, key, value: "" });
+      expect({ code, has: (leaves.get("usageViews.models.exhausted") ?? "").includes("{{when}}") }).toEqual({
+        code,
+        has: true,
+      });
+    }
+  });
+});
+
 describe("English, the source", () => {
   test("no empty values (the custom role starts with no instructions)", () => {
     expect(flatten(en).filter(([k, v]) => !v.trim() && k !== "newAgent.roles.custom.instructions")).toEqual([]);

@@ -9,6 +9,7 @@ import {
   useSkillAction,
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { formatShortDate } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -29,6 +30,7 @@ import {
   type IconName,
   InfoHint,
   Locked,
+  overLimit,
   SearchField,
   Segmented,
   Textarea,
@@ -41,6 +43,7 @@ import { AskAgentButton } from "@/components/AskAgentButton";
 import { HelpLink } from "@/components/HelpLink";
 import { ErrorState, LoadingLine } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { useLandOn } from "@/lib/land-on";
 import { lookOf } from "@/lib/look";
 import { inlineWords } from "@/lib/markdown";
@@ -188,8 +191,11 @@ function LearnedRow({ m }: { m: Memory }) {
   const toast = useToast();
   const act = useMemoryAction(org.id, agent.id);
   const [draft, setDraft] = useState<string | null>(null);
+  const limit = useTextLimit(FIELD_LIMITS.memory);
+  const tooLong = draft !== null && overLimit(draft, limit);
   const save = () =>
     draft !== null &&
+    !tooLong &&
     act.mutate(
       { type: "edit", id: m.id, text: draft },
       {
@@ -216,7 +222,7 @@ function LearnedRow({ m }: { m: Memory }) {
       ) : (
         <Locked when={act.isPending}>
           <Field label={t("agentPage.memory.edit")} id={`learned-${m.id}`}>
-            <Textarea rows={3} maxLength={8000} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <Textarea rows={3} limit={limit} value={draft} onChange={(e) => setDraft(e.target.value)} />
           </Field>
         </Locked>
       )}
@@ -283,7 +289,13 @@ function LearnedRow({ m }: { m: Memory }) {
           </>
         ) : (
           <>
-            <Button size="sm" variant="primary" disabled={!draft.trim()} loading={act.isPending} onClick={save}>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!draft.trim() || tooLong}
+              loading={act.isPending}
+              onClick={save}
+            >
               {t("agentPage.memory.save")}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>

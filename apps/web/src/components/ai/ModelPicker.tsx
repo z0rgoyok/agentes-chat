@@ -9,7 +9,7 @@ import {
   usePlatformKey,
   useUpdateAgent,
 } from "@agenteschat/client";
-import { EFFORT_LEVELS, type EffortLevel } from "@agenteschat/client/lib/brain-advanced";
+import { type EffortLevel, effortLevelsOf, effortOf, effortTextOf } from "@agenteschat/client/lib/brain-advanced";
 import {
   mayPickModel,
   modelPickerModels,
@@ -207,10 +207,8 @@ function PickerBody({ agent, view, onClose }: { agent: Agent; view: AgentBrain; 
   const shown = q.trim() ? rows.filter((r) => r.label.toLowerCase().includes(q.trim().toLowerCase())) : rows;
   const [busy, setBusy] = useState(false);
   const checked = rows.find((r) => r.checked);
-  const effortOn = tile?.current && tile.kind !== "model" && checked && !checked.auto;
-  const effort: EffortLevel = (EFFORT_LEVELS as readonly string[]).includes(view.effort ?? "")
-    ? (view.effort as EffortLevel)
-    : "medium";
+  const effortOn = tile?.current && checked && !checked.auto;
+  const effort = effortOf(view.brain, view.effort);
 
   const refresh = () => {
     for (const key of [keys.agentBrain(org.id, agent.id), keys.agents(org.id), keys.aiStatus(org.id)])
@@ -255,7 +253,7 @@ function PickerBody({ agent, view, onClose }: { agent: Agent; view: AgentBrain; 
     }
   };
   const setEffort = async (e: EffortLevel) => {
-    if (!tile || tile.kind === "model" || e === view.effort) return;
+    if (!tile || e === effort) return;
     try {
       await api.agents.setBrain(org.id, agent.id, { brain: tile.kind, effort: e });
     } catch {
@@ -380,15 +378,16 @@ function PickerBody({ agent, view, onClose }: { agent: Agent; view: AgentBrain; 
           </button>
         ))}
       </div>
-      {effortOn && tile && tile.kind !== "model" && (
+      {effortOn && tile && (
         <div className="mp__effort">
           <EffortPixels
             label={t("agentPage.work.brain.effort")}
             value={effort}
             onValueChange={(e) => void setEffort(e)}
             color={fullLook(lookOf(agent)).color}
-            steps={EFFORT_LEVELS.map((e) => ({ value: e, label: t(`agentPage.work.brain.efforts.${e}`) }))}
-            hint={(e) => t(`agentPage.work.brain.effortText.${e}`)}
+            steps={effortLevelsOf(tile.kind).map((e) => ({ value: e, label: t(`agentPage.work.brain.efforts.${e}`) }))}
+            hint={(e) => t(`agentPage.work.brain.effortText.${effortTextOf(tile.kind, e)}`)}
+            unset={t("agentPage.work.brain.efforts.none")}
           />
         </div>
       )}

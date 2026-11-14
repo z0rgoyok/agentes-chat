@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { Credential } from "@agenteschat/client";
 import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
@@ -41,8 +42,8 @@ describe("Configurações do workspace", () => {
     expect(screen().getByRole("heading", { level: 2, name: "Geral" })).toBeTruthy();
     expect(screen().queryByRole("button", { name: "Salvar organização" })).toBeNull();
     const field = screen().getByLabelText("Contexto do workspace");
-    // The server's cap: typing stops there, never a refusal after sending.
-    expect(field.getAttribute("maxlength")).toBe("20000");
+    // Nothing typed or pasted is cut: the limit shows near it, never a native cap.
+    expect(field.getAttribute("maxlength")).toBeNull();
     await type(field, "A Acme faz um app para clínicas.");
     await act(async () => fireEvent.blur(field));
     await settle(4);
@@ -875,4 +876,44 @@ test("Sua conta and Notificações in German and Japanese: every row keeps its �
     }
     cleanup();
   }
+});
+
+const endpointCred: Credential = {
+  id: "cred-custom",
+  provider: "custom",
+  label: "Gateway",
+  keyHint: "9f3c",
+  createdAt: "2026-11-01T10:00:00.000Z",
+  revokedAt: null,
+  endpoint: { style: "openai", baseURL: "https://llm.example.com/v1", models: [] },
+};
+
+test("a workspace's own endpoint key rotates whatever it looks like", async () => {
+  const { state } = await go(seedState({ credentials: [endpointCred] }), "settings/keys");
+  const keys = screen().getByRole("region", { name: "Chaves de provedor" });
+  await click(within(keys).getByRole("button", { name: "Trocar a chave" }));
+  const rotate = screen().getByRole("dialog", { name: "Trocar a chave Gateway" });
+  const field = within(rotate).getByLabelText("Chave da API");
+  // No provider's example or placeholder: this key is nobody's format.
+  expect(rotate.textContent).not.toContain("platform.claude.com");
+  expect(field.getAttribute("placeholder")).toBeNull();
+
+  await type(field, "tr_fake_endpoint_key");
+  await click(within(rotate).getByRole("button", { name: "Trocar a chave" }));
+  await settle(4);
+  // The fake logs the key redacted: the call itself is the proof the value passed the form's check.
+  expect(state.calls.find((c) => c.method === "agents.rotateCredential")?.args[1]).toBe("cred-custom");
+  expect(screen().queryByRole("dialog", { name: "Trocar a chave Gateway" })).toBeNull();
+});
+
+test("an endpoint key shorter than the server's floor is still caught", async () => {
+  const { state } = await go(seedState({ credentials: [endpointCred] }), "settings/keys");
+  const keys = screen().getByRole("region", { name: "Chaves de provedor" });
+  await click(within(keys).getByRole("button", { name: "Trocar a chave" }));
+  const rotate = screen().getByRole("dialog", { name: "Trocar a chave Gateway" });
+  await type(within(rotate).getByLabelText("Chave da API"), "tr_1");
+  await click(within(rotate).getByRole("button", { name: "Trocar a chave" }));
+  await settle(4);
+  expect(rotate.textContent).toContain("Cole a chave da API (pelo menos 8 caracteres).");
+  expect(state.calls.some((c) => c.method === "agents.rotateCredential")).toBe(false);
 });

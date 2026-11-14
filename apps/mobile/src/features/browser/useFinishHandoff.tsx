@@ -8,7 +8,7 @@ import { genderOf } from "../shared/logic";
 import { PromptForm } from "../shared/PromptForm";
 import { successHaptic } from "../shared/parts";
 import { useSheet } from "../shared/SheetHost";
-import { FAILED_REASONS, NOTE_MAX } from "./logic";
+import { FAILED_REASONS, NOTE_LIMIT } from "./logic";
 
 /**
  * Ending a person's turn on an agent's browser or screen. Pronto or Devolver hands back at once, and `leaveNote` is the
@@ -32,7 +32,7 @@ export function useFinishHandoff(
   const [finishing, setFinishing] = useState(false);
   const finish = async (ok: boolean, said?: string) => {
     if (!handoff) return;
-    const text = said?.slice(0, NOTE_MAX) || undefined;
+    const text = said || undefined;
     setFinishing(true);
     try {
       if (ok) await actions.done(handoff.id, text);
@@ -55,6 +55,7 @@ export function useFinishHandoff(
         submitLabel={doneLabel}
         icon="check"
         allowEmpty
+        limit={NOTE_LIMIT}
         onSubmit={async (text) => {
           sheet.close();
           await finish(true, text);
@@ -75,6 +76,7 @@ export function useFinishHandoff(
         placeholder={t("mobile.browser.failed.placeholder")}
         submitLabel={t("mobile.browser.failed.send")}
         allowEmpty
+        limit={NOTE_LIMIT}
         onSubmit={async (text) => {
           sheet.close();
           await finish(false, text.trim() || undefined);

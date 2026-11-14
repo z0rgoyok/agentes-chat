@@ -85,7 +85,7 @@ export class ModelBrain implements Brain {
       messages: laid.messages ?? messages,
       ...(laid.notes ? { notes: laid.notes } : {}),
       tools: specs.length > 0 ? specs : undefined,
-      // Only "Automático" sets an effort for the API; the API takes low, medium and high.
+      // The agent's effort, or "Automático"'s; the API takes low, medium and high.
       ...(turn.effort ? { effort: apiEffort(turn.effort) } : {}),
       // The prompt up to the conversation stays cached for an hour: a message after a pause reads it.
       cacheTtl: "1h" as const,

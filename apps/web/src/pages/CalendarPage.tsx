@@ -33,6 +33,7 @@ import {
   type IconName,
   Kbd,
   ListRow,
+  OPEN_LAYER,
   offsetMinutes,
   PageHeader,
   Popover,
@@ -89,7 +90,7 @@ const shortcutsFree = (e: KeyboardEvent) => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return false;
   const el = e.target as HTMLElement | null;
   if (el?.closest("input, textarea, select, [contenteditable='true'], [role='combobox']")) return false;
-  return !document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]');
+  return !document.querySelector(OPEN_LAYER);
 };
 
 /**

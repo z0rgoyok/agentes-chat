@@ -1616,6 +1616,9 @@ html:not([data-pointer]) .issue-ask__other:focus-visible {
 .issue-new__editor:focus-within {
   box-shadow: var(--focus-ring);
 }
+.issue-new__editor:has(textarea[aria-invalid="true"]) {
+  box-shadow: 0 0 0 1px var(--danger);
+}
 .issue-new__images {
   display: flex;
   flex-wrap: wrap;

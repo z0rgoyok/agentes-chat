@@ -461,6 +461,7 @@ describe("secrets are refused to every read tool", () => {
     // agent's own files of those names, are fine.
     expect(secretRead("Read", { file_path: "/var/lib/agentes-runner-old/README" }, system)).toBe(false);
     expect(secretRead("Read", { file_path: "/var/lib/agentes-runner-agents/README" }, system)).toBe(true);
+    expect(secretRead("Read", { file_path: "/var/lib/agentes-runner-grok/0193eeee/auth.json" }, system)).toBe(true);
     expect(secretRead("Read", { file_path: "src/auth.json" }, system)).toBe(false);
     expect(secretRead("Read", { file_path: "config/provider.json" }, system)).toBe(false);
     expect(secretRead("Read", { file_path: "config/token.json" }, system)).toBe(false);

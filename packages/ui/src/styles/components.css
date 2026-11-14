@@ -696,6 +696,26 @@ textarea.ac-input {
   line-height: 22px;
   resize: vertical;
 }
+/* Grows with its text up to here, then scrolls inside: a long paste never pushes the field's buttons out of view. */
+textarea.ac-input--grow {
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+}
+/* Its thumb shows on hover or while typing, as a scrolling column's (through the token: see the columns' rule). */
+textarea.ac-input:not(:hover, :focus-visible) {
+  --scroll-thumb: transparent;
+}
+/* Under a field with a limit (`LimitLine`): its own line in any parent, the counter quiet at the field's end. */
+.ac-limit {
+  display: block;
+}
+.ac-limit--count {
+  text-align: end;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
 /* Prefixed input, e.g. "agentes.chat/" + slug */
 .ac-input-affix {
   display: flex;
@@ -2111,6 +2131,27 @@ html:not([data-pointer]) .ac-eventpill__action:focus-visible {
 /* Words with no `.ac-chip__text` have nothing to shrink into: the chip keeps their width, or they'd eat its padding. */
 .ac-chip:not(:has(> .ac-chip__text)) {
   flex: none;
+}
+/* A chip that is a button (ChipButton): a plate on hover, the focus ring, never the browser's button look. */
+.ac-chip--button {
+  border: 0;
+  font-family: inherit;
+  color: var(--ink2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+.ac-chip--button .ac-icon {
+  color: var(--muted);
+}
+.ac-chip--button:hover {
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface-sunken));
+  color: var(--ink);
+}
+html:not([data-pointer]) .ac-chip--button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 /* Tag: a short fixed label in small type on a soft plate, square-cornered so it never reads as a state pill (an
    agent's role under its name). A state stays plain words. */
@@ -5948,9 +5989,12 @@ html:not([data-pointer]) .ac-seg__item:focus-visible {
 .ac-toast {
   --toast-button: var(--control-h-sm);
   --toast-line-pad: calc((var(--toast-button) - 20px) / 2);
+  --toast-pad: var(--space-3);
   align-items: flex-start;
   gap: var(--icon-gap);
-  padding: 12px;
+  padding: var(--toast-pad);
+  /* Concentric: its buttons' corner plus the room around them. */
+  border-radius: calc(var(--control-r-sm) + var(--toast-pad));
 }
 /* The words and their actions in an `.ac-actline`: actions that don't fit beside the words go under them, from their
    edge. The × stays beside the first line. */
@@ -5960,9 +6004,13 @@ html:not([data-pointer]) .ac-seg__item:focus-visible {
 .ac-toast__close {
   flex: none;
 }
-/* The close's × stands as far from the right edge as the tone's icon from the left: it reaches out by its air. */
+/* The close's × stands as far from the right edge as the tone's icon from the left: it reaches out by its air. So its
+   box is 4 from the side and 12 from the top, where no plate can follow the corner: a hover only darkens the ×. */
 .ac-toast > .ac-toast__close {
   margin-inline-end: calc((var(--control-icon-sm) - var(--toast-button)) / 2);
+}
+.ac-toast > .ac-toast__close:hover {
+  background: transparent;
 }
 .ac-toast > .ac-icon,
 .ac-toast > .ac-actline > .ac-toast__text {
@@ -10690,6 +10738,24 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
 }
 .ac-menu__hint + .ac-menu__check {
   margin-left: 0;
+}
+/* A multi-pick item's box (MenuCheckboxItem): the kit's checkbox at the row's end, ticked or not, on the name's line;
+   the item is what's pressed, so the box only shows. */
+.ac-menu__box {
+  margin: 0 0 0 auto;
+  align-self: center;
+  cursor: inherit;
+  pointer-events: none;
+}
+.ac-menu__item:has(> .ac-menu__label > .ac-menu__desc) > .ac-menu__box {
+  align-self: flex-start;
+  margin-top: 1px;
+}
+.ac-menu__hint + .ac-menu__box {
+  margin-left: var(--space-2);
+}
+.ac-menu__item[data-disabled] > .ac-menu__box {
+  opacity: 0.55;
 }
 /* A chip there ("Em breve") sets the hint's height, not a text line under it, and reaches 1px into the row's padding
    on each side, so the row keeps its kind's height. */

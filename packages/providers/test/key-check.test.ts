@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cheapModelOf, keyCheckRequest, keyFailureWords, keyRefusalOf } from "../src";
+import { cheapModelOf, endpointKeyCheck, keyCheckRequest, keyFailureWords, keyRefusalOf } from "../src";
 
 test("a test call's failure says what it knows of the key", () => {
   expect(keyRefusalOf({ status: 401, message: "invalid provider API key" })).toBe("invalid");
@@ -29,6 +29,15 @@ test("what says nothing of the key leaves it unchecked", () => {
 test("the provider's words come out of a failure's shape", () => {
   expect(keyFailureWords("provider rejected the request (400 x): Add credit.")).toBe("Add credit.");
   expect(keyFailureWords("invalid provider API key")).toBe("");
+});
+
+test("a workspace endpoint's key is what its own models' checks say of it", () => {
+  // No catalog model to test it with (`keyCheckRequest` of `custom` is null): its models are the test.
+  expect(endpointKeyCheck([])).toBe("unchecked");
+  expect(endpointKeyCheck([undefined, "failed"])).toBe("unchecked");
+  // Answering is the point, with the tool or without it.
+  expect(endpointKeyCheck(["failed", "no_tools"])).toBe("ok");
+  expect(endpointKeyCheck(["ok"])).toBe("ok");
 });
 
 test("the call is the provider's cheapest, a few tokens long", () => {

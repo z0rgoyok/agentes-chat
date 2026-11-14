@@ -21,6 +21,7 @@ import { listsAgent, seesDetails } from "@agenteschat/client/lib/audience";
 import { brainLine } from "@agenteschat/client/lib/brain";
 import { effortLevel } from "@agenteschat/client/lib/brain-advanced";
 import { modelUnpriced } from "@agenteschat/client/lib/endpoints";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { formatPercent, lowerFirst, timeLeft } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { agentPlan, aiStateOf, planLabel, planOfAccount } from "@agenteschat/client/lib/no-ai";
@@ -82,7 +83,7 @@ import { SheetTitle } from "../shared/PromptForm";
 import { PushedHeader } from "../shared/parts";
 import { useWaitingApprovals, useWorkingNow } from "../shared/queries";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
-import { TextArea } from "../shared/TextArea";
+import { overLimit, TextArea } from "../shared/TextArea";
 import { WaitingCard } from "../shared/WaitingCard";
 import { useAgentProfileStatus, usePresenceOf } from "../status/hooks";
 import { StatusCard } from "../status/StatusCard";
@@ -109,6 +110,8 @@ import { openAgentMore } from "./more-link";
 import { AgentSetupCard } from "./setup/SetupCard";
 import { useMemoryOriginText } from "./useMemoryOriginText";
 import { agoShort, workTitle, workWhere } from "./work";
+
+const MEMORY_LIMIT = { max: FIELD_LIMITS.memory };
 
 /** Rows of "O que fez por você" before "Ver tudo". */
 const DID_SHOWN = 4;
@@ -1078,7 +1081,7 @@ export function MemoryFix({
   const toast = useToast();
   const action = useMemoryAction(orgId, agentId);
   const [text, setText] = useState(m.text);
-  const changed = text.trim() !== "" && text.trim() !== m.text.trim();
+  const changed = text.trim() !== "" && text.trim() !== m.text.trim() && !overLimit(text, MEMORY_LIMIT);
   const failed = useErrorToast();
   const save = () =>
     action.mutate(
@@ -1106,7 +1109,7 @@ export function MemoryFix({
     <>
       <SheetTitle title={title ?? t(`mobile.intentAgents.fix.title${g}`, { name: agentName })} />
       <Locked when={action.isPending}>
-        <TextArea value={text} onChangeText={setText} autoFocus maxLength={8000} />
+        <TextArea value={text} onChangeText={setText} autoFocus limit={MEMORY_LIMIT} />
       </Locked>
       <View style={styles.src}>
         <Icon name="chat" size={15} color={c.muted} />

@@ -20,7 +20,7 @@ import {
   ownSignInTitle,
   signInOf,
 } from "@agenteschat/client/lib/ai-accounts";
-import { advancedContents, effortLevel, viewSpeedFits } from "@agenteschat/client/lib/brain-advanced";
+import { advancedContents, effortOf, viewSpeedFits } from "@agenteschat/client/lib/brain-advanced";
 import { computerNameOf, setupView } from "@agenteschat/client/lib/computer";
 import { contextChoices, isContextLimit } from "@agenteschat/client/lib/context-limits";
 import { holdText } from "@agenteschat/client/lib/errors";
@@ -485,7 +485,7 @@ export function useBrainState(view: AgentBrain, opts: { added: readonly MachineA
     contextOptions,
     moreLine,
     runsOn,
-    effort: effortLevel(view.effort),
+    effort: effortOf(kind, view.effort),
     models: all,
     credentials: credentials.data ?? [],
   };

@@ -1,9 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { MachineRequest } from "@agenteschat/adapters";
-import { AccountManager, accountEnv, parseGrokLogin, parseGrokStatus } from "../../runner/accounts";
+import {
+  AccountManager,
+  accountEnv,
+  grokSandboxFails,
+  lentAccounts,
+  parseGrokLogin,
+  parseGrokStatus,
+} from "../../runner/accounts";
 import type { CodexBrainEvent } from "../../runner/brain-codex";
 import {
   GROK_CHAT_DENIED,
@@ -397,4 +404,115 @@ test.skipIf(!posix)("sign-in on the computer: Grok's device link and code, then 
   await waitFor(() => m.status(id).state === "done", 5000);
   expect(m.status(id).account).toMatchObject({ kind: "grok", loggedIn: true });
   expect(m.accountDir("grok", id)).toBe(path.join(home, "accounts", "grok", id));
+  // The models it lists signed in, which the computer's own `grok models` (signed out) doesn't: kept for a restart.
+  const listed = [{ id: "grok-4.7" }, { id: "grok-4.6" }, { id: "grok-4.5" }];
+  expect(m.grokModels()).toEqual(listed);
+  const again = new AccountManager({ root: path.join(home, "accounts") });
+  managers.push(again);
+  expect(again.grokModels()).toEqual(listed);
+});
+
+/** A system-mode manager with Grok Build's folders apart (`grokRoot`), and the sandbox check as given. */
+function systemGrok(sandbox: (dir: string) => string | null = () => null) {
+  const home = tempDir("grok-system-");
+  dirs.push(home);
+  const root = path.join(home, "accounts");
+  const grokRoot = path.join(home, "grok-homes");
+  const make = () => {
+    const m = new AccountManager({
+      root,
+      grokRoot,
+      lending: { chown: async () => {} },
+      grokSandbox: sandbox,
+      orgId: () => ORG,
+      commands: { grok: [process.execPath, FAKE] },
+    });
+    managers.push(m);
+    return m;
+  };
+  return { root, grokRoot, make };
+}
+
+test.skipIf(!posix)(
+  "system mode: Grok's folders sit where its sandbox can bind every folder above them; what root keeps stays closed",
+  async () => {
+    const { root, grokRoot, make } = systemGrok();
+    const m = make();
+    const id = "0193eeee-0000-7000-8000-0000000000d2";
+    await m.begin("grok", id);
+    await waitFor(() => m.status(id).state === "done", 5000);
+    const dir = path.join(grokRoot, id);
+    expect(m.accountDir("grok", id)).toBe(dir);
+    expect(statSync(grokRoot).mode & 0o777).toBe(0o755);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    // What root writes beside it stays under the closed root.
+    expect(existsSync(path.join(root, "grok", `${id}.method`))).toBe(true);
+    expect(statSync(path.join(root, "grok")).mode & 0o777).toBe(0o711);
+    expect(await m.lendTo("grok", id, 21001)).toBe(true);
+    expect(statSync(grokRoot).mode & 0o777).toBe(0o755);
+    expect(existsSync(path.join(root, "grok", `${id}.lent`))).toBe(true);
+    // The agent's worker finds it there.
+    expect(lentAccounts(root, grokRoot).accountDir("grok", id)).toBe(dir);
+    expect((await m.list()).map((a) => a.id)).toEqual([id]);
+  },
+);
+
+test.skipIf(!posix)(
+  "system mode: a Grok folder made under the closed root moves out at start, with its markers",
+  () => {
+    const { root, grokRoot, make } = systemGrok();
+    const id = "0193eeee-0000-7000-8000-0000000000d3";
+    const old = path.join(root, "grok", id);
+    mkdirSync(old, { recursive: true });
+    writeFileSync(path.join(old, "auth.json"), "{}");
+    writeFileSync(path.join(root, "grok", `${id}.lent`), "21001");
+    const m = make();
+    expect(m.accountDir("grok", id)).toBe(path.join(grokRoot, id));
+    expect(readFileSync(path.join(grokRoot, id, "auth.json"), "utf8")).toBe("{}");
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(path.join(root, "grok", `${id}.lent`))).toBe(true);
+  },
+);
+
+test.skipIf(!posix)("system mode: a Grok sign-in whose sandbox can't start for an agent fails with why", async () => {
+  const said = "bwrap: Can't mkdir parents for /var/lib/agentes-runner-agents/accounts: Permission denied";
+  const tried: string[] = [];
+  const { grokRoot, make } = systemGrok((dir) => {
+    tried.push(dir);
+    return said;
+  });
+  const m = make();
+  const id = "0193eeee-0000-7000-8000-0000000000d4";
+  await m.begin("grok", id);
+  await waitFor(() => m.status(id).state === "failed", 5000);
+  expect(tried).toEqual([path.join(grokRoot, id)]);
+  expect(m.status(id)).toMatchObject({ state: "failed", code: "sandbox", message: said });
+  expect(m.status(id).error).toContain(said);
+  await waitFor(() => !existsSync(path.join(grokRoot, id)), 2000);
+});
+
+test("the sandbox check binds each folder above the account's, as Grok Build does, as a stand-in agent", () => {
+  const calls: [string, string[]][] = [];
+  const ok = grokSandboxFails("/var/lib/agentes-runner-grok/0193eeee-0000-7000-8000-0000000000d5", (file, args) => {
+    calls.push([file, args]);
+    return { code: 0, output: "" };
+  });
+  expect(ok).toBeNull();
+  const [file, args = []] = calls[0] ?? [];
+  expect(file).toBe("/usr/bin/setpriv");
+  expect(args.slice(args.indexOf("bwrap"))).toEqual([
+    "bwrap",
+    "--bind",
+    "/",
+    "/",
+    ...["/var", "/var/lib", "/var/lib/agentes-runner-grok"].flatMap((d) => ["--bind", d, d]),
+    "--",
+    "/bin/true",
+  ]);
+  expect(args.slice(0, 4)).toEqual(["--reuid=30999", "--regid=30999", "--clear-groups", "--"]);
+  const failed = grokSandboxFails("/var/lib/x/y", () => ({
+    code: 1,
+    output: "bwrap: Can't mkdir parents for /var/lib/x: Permission denied",
+  }));
+  expect(failed).toBe("bwrap: Can't mkdir parents for /var/lib/x: Permission denied");
 });

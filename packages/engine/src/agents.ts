@@ -13,7 +13,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
-import { AUTO_MODEL, customModelId, isAutoModel, MODEL_CATALOG, parseCustomModel } from "@agenteschat/providers";
+import { AUTO_MODEL, endpointModelId, isAutoModel, MODEL_CATALOG, parseCustomModel } from "@agenteschat/providers";
 import { isIdHandle } from "@agenteschat/ui/names";
 import type { AgentAppearance } from "./appearance";
 import { dropAgentRules } from "./approval-rules";
@@ -105,9 +105,9 @@ async function endpointModel<T extends Partial<AgentInput>>(db: Database, orgId:
   if (!isAutoModel(input.model) || !input.credentialId) return input;
   const credential = await usableCredentialRow(db, orgId, input.credentialId);
   if (credential?.provider !== "custom") return input;
-  const model = credential.options?.endpoint?.models[0];
+  const model = endpointModelId(credential.id, credential.options?.endpoint?.models ?? []);
   if (!model) throw new ValidationError("An endpoint needs at least one model");
-  return { ...input, model: customModelId(credential.id, model.id) };
+  return { ...input, model };
 }
 
 /** An agent's fields as the API takes them: its handle, model, key (of the model's provider), budget and owner. */

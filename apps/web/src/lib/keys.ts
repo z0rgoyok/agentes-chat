@@ -55,9 +55,7 @@ const NOT_AIMED = /^(Tab|Escape|Shift|Control|Alt|AltGraph|Meta|Fn|CapsLock|NumL
 export const aimsAtScreen = (e: KeyboardEvent, apple: boolean) =>
   pastes(e, apple) || (!e.ctrlKey && !e.metaKey && !e.altKey && !composes(e) && !NOT_AIMED.test(e.key));
 
-/** Typing in a field (a text box, a select, an editable text): single-key shortcuts and Esc are the field's. */
-export const typingInField = (el: EventTarget | null) =>
-  el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+export { typingInField } from "@agenteschat/ui";
 
 /** Whether the key landed in a text field that has something in it (not a checkbox or the like, which hold no text). */
 export const holdsText = (target: EventTarget | null) => {

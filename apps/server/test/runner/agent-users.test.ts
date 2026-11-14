@@ -1116,6 +1116,7 @@ test.if(process.platform !== "win32")(
       mask("/srv/agentes"),
       mask("/var/lib/agentes-runner-agents"),
       mask("/var/cache/agentes-git"),
+      mask("/var/lib/agentes-runner-grok"),
       mask("/var/lib/agentes-claude"),
       `mkdir -p ${a}/config ${a}/run/21000`,
       `mount --bind /tmp/.a/config ${a}/config`,

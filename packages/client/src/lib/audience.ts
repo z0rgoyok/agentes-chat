@@ -69,6 +69,25 @@ export function audienceWith(agent: Agent, userId: string): AgentAudience | null
   };
 }
 
+/** Whether people with `role` talk to the agent through it: it answers everyone, or its people list the role. */
+export function roleTalksTo(role: Pick<OrgRole, "id" | "kind">, agent: Agent) {
+  const a = audienceOf(agent);
+  return a.mode === "everyone" || (!isEveryone(role) && a.mode === "people" && a.roleIds.includes(role.id));
+}
+
+/** Its audience of some people with `roleId` among their roles (`on`) or out of them; the people it lists stay. */
+export function audienceWithRole(agent: Agent, roleId: string, on: boolean): AgentAudience {
+  const a = audienceOf(agent);
+  const people = a.mode === "people";
+  const roleIds = people ? a.roleIds.filter((id) => id !== roleId) : [];
+  return {
+    mode: "people",
+    userIds: people ? a.userIds : [],
+    roleIds: on ? [...roleIds, roleId] : roleIds,
+    consultable: a.consultable,
+  };
+}
+
 /** Whether I can talk to it (the server's `canTalk`; absent = yes). */
 export const canTalk = (agent: Pick<Agent, "canTalk"> | undefined) => agent?.canTalk !== false;
 

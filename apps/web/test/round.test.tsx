@@ -154,7 +154,7 @@ describe("Criar canal", () => {
     const access = within(dialog).getByRole("combobox", { name: "Quem pode entrar" });
     access.focus();
     await act(async () => fireEvent.keyDown(access, { key: "Enter" }));
-    await click(screen().getByRole("option", { name: /Privado/ }));
+    await click(screen().getByRole("option", { name: /^Só quem for adicionado/ }));
     await type(within(dialog).getByRole("searchbox", { name: "Buscar pessoa ou agente" }), "ada");
     await click(within(dialog).getByRole("checkbox", { name: /Ada/ }));
     expect(dialog.textContent).toContain("1 selecionado");

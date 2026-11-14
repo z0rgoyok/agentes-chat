@@ -54,7 +54,8 @@
     "closed": "{{title}} · kapandı",
     "reopen": "Yeniden göster",
     "answeredBy": "{{name}} seçti",
-    "failed": "Seçiminiz gönderilemedi. Tekrar deneyin."
+    "failed": "Seçiminiz gönderilemedi. Tekrar deneyin.",
+    "tooLongFix": "Cevabı kısalt."
   },
   "chart": {
     "table": "Tablo",
@@ -1982,8 +1983,21 @@
         "stopped": "{{name}} artık Wi-Fi üzerinden kullanılmıyor"
       },
       "stall": {
-        "plug": "{{host}} henüz bu iPhone'u görmüyor. Sadece şarj değil veri de taşıyan bir kablo kullanın, bu iPhone'un kilidini açık tutun ve isterse Güven'e dokunun.",
-        "devmode": "Geliştirici Modu yalnızca bu iPhone yeniden başladıktan sonra açılır. Yeniden Başlat'a, açıldıktan sonra da Aç'a dokunun. Anahtar yok mu? Bu iPhone'u çıkarıp yeniden takın."
+        "plug": "{{host}} henüz bu iPhone'u görmüyor. Sadece şarj değil veri de taşıyan bir kablo kullanın, bu iPhone'un kilidini açık tutun ve isterse Güven'e dokunun."
+      },
+      "devMode": {
+        "restarting": "{{host}} yeniden başlatmadan sonra bu iPhone'u henüz yeniden görmüyor. Bağlı bırakın.",
+        "back": "Bu iPhone'daki uyarıda Aç'a dokunun ve parolanızı girin.",
+        "check": "Açtım, yeniden kontrol et",
+        "stillOff": "{{host}} Geliştirici Modu'nu hâlâ kapalı görüyor.",
+        "missing": "Seçenek görünmüyor mu?",
+        "hidden": "Bu iPhone, Xcode göstermesini isteyene kadar bu seçeneği gizler.",
+        "hiddenOpen": "Bu iPhone, Xcode göstermesini isteyene kadar bu seçeneği gizler. Bu iPhone bağlıyken {{host}} üzerinde Xcode'u açın.",
+        "openXcode": "Xcode'u aç",
+        "opened": "Xcode {{host}} üzerinde açıldı. Ayarlar'a yeniden bakın, sonra oradaki Xcode'u kapatın.",
+        "unlock": "Açtınız ve yeniden başladı mı? Aç düğmeli uyarı, bu iPhone'un kilidi açıldığında çıkar.",
+        "checkAgain": "Yeniden kontrol et",
+        "outdated": "{{host}} üzerindeki agentes.chat uygulaması eski. O Mac'te güncelleyin."
       }
     },
     "notice": {

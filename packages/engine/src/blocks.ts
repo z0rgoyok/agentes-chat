@@ -2,7 +2,6 @@ import type { PubSub } from "@agenteschat/adapters";
 import { and, count, type Database, eq, inArray, isNotNull, isNull, lt, schema } from "@agenteschat/db";
 import type { BlockSpec } from "@agenteschat/ui/blocks/spec";
 import {
-  ARTIFACT_LIMITS,
   type ArtifactContent,
   type ArtifactDeps,
   type ChoiceQuestion,
@@ -18,7 +17,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { publishChannelEvent } from "./events";
 import { cutText } from "./format";
 import type { Judge } from "./judge";
-import { type MessageView, postPersonMessage } from "./messages";
+import { MAX_MESSAGE_LENGTH, type MessageView, postPersonMessage } from "./messages";
 import type { Notice } from "./notices";
 import { can } from "./organizations";
 import { enqueue } from "./outbox";
@@ -396,7 +395,7 @@ export async function answerChoices(
     if (!q || !Number.isInteger(p)) return false;
     const written = others[i];
     if (written === null || written === undefined) return Boolean(q.options[p]);
-    return written.length > 0 && written.length <= ARTIFACT_LIMITS.choiceOtherChars;
+    return written.length > 0 && written.length <= MAX_MESSAGE_LENGTH;
   };
   if (picks.length !== questions.length || !picks.every(fits))
     throw new ValidationError("Pick an option or write an answer for each question");

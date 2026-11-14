@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../cx";
 import { Icon, type IconName } from "../icons/Icon";
 
@@ -20,6 +20,29 @@ export function Chip({ icon, lead, tone = "neutral", className, children, ...res
       {lead ?? (icon && <Icon name={icon} size={14} />)}
       <span className="ac-chip__text">{children}</span>
     </span>
+  );
+}
+
+/**
+ * A chip that does something (a cargo row's Todos chip opens "Quem pode…"): the chip's look on a button, a plate on
+ * hover and the focus ring. A chip that only says something stays a `Chip`.
+ */
+export function ChipButton({
+  icon,
+  lead,
+  className,
+  children,
+  ...rest
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "children"> & {
+  icon?: IconName;
+  lead?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <button type="button" className={cx("ac-chip ac-chip--button", className)} {...rest}>
+      {lead ?? (icon && <Icon name={icon} size={14} />)}
+      <span className="ac-chip__text">{children}</span>
+    </button>
   );
 }
 

@@ -149,6 +149,17 @@ describe("a failed request in the person's words (errorText)", () => {
     expect(errorText(pt, new ApiError(403, "bad_origin", "Cross-origin request refused"))).toBe("common.notAllowed");
   });
 
+  test("a 413 with no code of its own says the request was too big, with the caller's limit when it has one", () => {
+    expect(errorText(pt, new ApiError(413, "too_large", "The request is too large"))).toBe("errors.tooLarge");
+    // A proxy's own page in front of the server: no code at all.
+    expect(errorText(pt, new ApiError(413, "http_413", "Payload Too Large"))).toBe("errors.tooLarge");
+    expect(errorText(pt, new ApiError(413, "too_large", "x"), "pt-BR", { maxMb: 56 })).toBe("errors.tooLargeMax");
+    // The Drive's own code keeps its own words.
+    expect(errorText(pt, new ApiError(413, "artifact.file_too_large", "x"), "pt-BR", { maxMb: 56 })).toBe(
+      "errors.artifact.fileTooLarge",
+    );
+  });
+
   test("a runner's internal failure is for the log: the person reads it's on our side", () => {
     expect(errorText(pt, new ApiError(503, "machine.internal", "ENOENT: no such file"))).toBe("common.ourSide");
   });

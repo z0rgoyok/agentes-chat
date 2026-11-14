@@ -10,7 +10,8 @@ import type { DesktopServerWorkspaces } from "./workspaces";
 
 /**
  * The site inside the agentes.chat desktop app (ADR 0036, ADR 0066): the app's main window loads it and
- * sets `window.__agentesDesktop` before it starts. The site gets nothing of the computer; it draws its own
+ * sets `window.__agentesDesktop` before it starts. The site gets nothing of the computer but how it draws
+ * (`renderer`, and on Linux `system`: distribution, session, WebKitGTK, graphics card). It draws its own
  * title bar and sends Google/Apple sign-in to the browser (`apps/desktop/src-tauri/src/main_window.rs`).
  */
 export const inDesktopApp = () =>
@@ -23,6 +24,30 @@ export function desktopPlatform(): DesktopPlatform | null {
   if (!inDesktopApp()) return null;
   const platform = (window as { __agentesDesktop?: { platform?: unknown } }).__agentesDesktop?.platform;
   return platform === "windows" || platform === "linux" ? platform : "mac";
+}
+
+/**
+ * How the app's window paints: "cpu" when every frame is drawn in software (Linux's WebKitGTK without its graphics
+ * card path). Apps from before say nothing, and on Linux they always painted on the CPU.
+ */
+export function desktopRenderer(): "gpu" | "cpu" | null {
+  const platform = desktopPlatform();
+  if (!platform) return null;
+  const renderer = (window as { __agentesDesktop?: { renderer?: unknown } }).__agentesDesktop?.renderer;
+  if (renderer === "gpu" || renderer === "cpu") return renderer;
+  return platform === "linux" ? "cpu" : "gpu";
+}
+
+/** How the desktop app draws on this computer, for the error reports' tags (`desktop_*`); nothing outside the app. */
+export function desktopReportTags(): Record<string, string> {
+  const renderer = desktopRenderer();
+  if (!renderer) return {};
+  const system = (window as { __agentesDesktop?: { system?: unknown } }).__agentesDesktop?.system;
+  const tags: Record<string, string> = { desktop_renderer: renderer };
+  if (system && typeof system === "object")
+    for (const [key, value] of Object.entries(system))
+      if (typeof value === "string" && value) tags[`desktop_${key}`] = value;
+  return tags;
 }
 
 /**

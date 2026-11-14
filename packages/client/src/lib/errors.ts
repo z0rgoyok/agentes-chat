@@ -1012,14 +1012,15 @@ export function vaultConnectRefusal(t: TFunction, kind: string, error: unknown, 
 }
 
 /**
- * A failed request in the person's words: a code the app knows, a file too big, a refusal, no answer (offline or the
- * server out of reach), else `untranslatedText`. Never a raw error's own words ("Failed to fetch", "Bad Gateway").
+ * A failed request in the person's words: a code the app knows, a request too big, a refusal, no answer (offline or
+ * the server out of reach), else `untranslatedText`. Never a raw error's own words ("Failed to fetch", "Bad Gateway").
+ * `maxMb`: the most the caller's request may carry, said when the server or a proxy before it refuses its size.
  */
-export function errorText(t: TFunction, error: unknown, locale?: string): string {
+export function errorText(t: TFunction, error: unknown, locale?: string, { maxMb }: { maxMb?: number } = {}): string {
   if (error instanceof ApiError) {
     const known = knownErrorText(t, error, locale);
     if (known) return known;
-    if (error.status === 413) return t("errors.artifact.fileTooLarge", { max: MAX_UPLOAD_MB });
+    if (error.status === 413) return maxMb ? t("errors.tooLargeMax", { max: maxMb }) : t("errors.tooLarge");
     if (error.status === 403) return forbiddenText(t, error, locale);
   }
   if (noAnswer(error)) return noAnswerText(t);

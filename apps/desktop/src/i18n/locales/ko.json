@@ -665,7 +665,8 @@
       "step3": "다운로드한 파일을 열고 새 agentes.chat을 응용 프로그램으로 끌어다 놓으세요.",
       "installerNote": "다운로드한 파일을 여세요. 새 버전이 예전 버전 위에 설치돼요.",
       "keepNote": "서버와 설정은 그대로 남아요.",
-      "whatsNew": "{{version}}의 새로운 기능"
+      "whatsNew": "{{version}}의 새로운 기능",
+      "systemDetails": "시스템 정보"
     },
     "activity": {
       "title": "활동",

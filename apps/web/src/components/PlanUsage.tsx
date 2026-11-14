@@ -52,6 +52,7 @@ import {
   splitUsage,
 } from "@/lib/plan-usage";
 import { useToast } from "@/lib/toast";
+import { PlanModels } from "./PlanModels";
 import "./plan-usage.css";
 
 /*
@@ -282,12 +283,15 @@ function AccountRow({
                 {[brandOf(account), account.email, computer].filter(Boolean).join(" · ")}
               </span>
               {account.usage ? (
-                <PlanMeter
-                  usage={splitUsage(account.usage, (id) => agentGradient(colorOf(dir.agentById.get(id))))}
-                  text={text}
-                >
-                  {list}
-                </PlanMeter>
+                <>
+                  <PlanMeter
+                    usage={splitUsage(account.usage, (id) => agentGradient(colorOf(dir.agentById.get(id))))}
+                    text={text}
+                  >
+                    {list}
+                  </PlanMeter>
+                  <PlanModels usage={account.usage} provider={account.provider} />
+                </>
               ) : (
                 <>
                   <p className="plan-empty">{noWindowsText(t, account)}</p>

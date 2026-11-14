@@ -2214,3 +2214,23 @@ body[data-window="notch"] {
   gap: var(--space-2);
   color: var(--ink2);
 }
+/* Why Developer Mode may be missing: one cause a row, its action beside it while the words fit (`.ac-actline`). */
+.dk-ip__causes {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--ink2);
+}
+.dk-ip__causes > b {
+  color: var(--ink);
+}
+.dk-ip__causes > ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}

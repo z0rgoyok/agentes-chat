@@ -11,6 +11,7 @@ import {
   useRuleDescribe,
   useRuleParse,
 } from "@agenteschat/client";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { splitAddresses } from "@agenteschat/client/lib/mail";
 import { routineReachWarnings } from "@agenteschat/client/lib/reach";
@@ -58,7 +59,7 @@ import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useEdition, useMeId, useNamesComputers, useOrgId } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
 import { goBack, PushedHeader, successHaptic } from "../shared/parts";
-import { TextArea } from "../shared/TextArea";
+import { overLimit, TextArea } from "../shared/TextArea";
 import { EventWebhookSetup } from "./EventWebhookSetup";
 import { useFailed, useMyZone, useSay, useTargetLabel } from "./hooks";
 import {
@@ -103,6 +104,8 @@ import {
 import { TemplatePicker } from "./TemplatePicker";
 import { WebhookCard } from "./WebhookCard";
 import { setRoutineZone, useRoutineZone } from "./zone";
+
+const PROMPT_LIMIT = { max: FIELD_LIMITS.routinePrompt };
 
 type Open = "agent" | "target" | "mailbox" | "folder" | null;
 
@@ -431,6 +434,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
     !action.isPending &&
     Boolean(d.agentId) &&
     (promptHidden || d.prompt.trim().length > 0) &&
+    !overLimit(d.prompt, PROMPT_LIMIT) &&
     !unfilled &&
     scheduleOk &&
     !parsing;
@@ -602,6 +606,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
               placeholder={t("routines.form.whatPlaceholder")}
               accessibilityLabel={t("routines.form.what")}
               minHeight={110}
+              limit={PROMPT_LIMIT}
             />
           )}
           {unfilled ? <GroupedFooter>{t("routines.presets.fillBlank")}</GroupedFooter> : null}

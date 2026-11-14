@@ -2,7 +2,7 @@ import type { OrgRole } from "@agenteschat/client";
 import { personalHelperRole } from "@agenteschat/client/lib/personal-view";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
-import { Button, Icon, Menu, MenuCheckboxItem, MenuHeading, MenuNote, RoleMark } from "@agenteschat/ui";
+import { Button, Icon, Menu, MenuCheckboxItem, MenuHeading, MenuNote, MenuSeparator, RoleMark } from "@agenteschat/ui";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
@@ -59,21 +59,25 @@ export function RolesPicker({
 }
 
 /**
- * The roles the viewer may give, as checkable items of a menu that stays open, and the note about everyone's base
- * role: the picker's own list, and a person's "Mudar cargos" in their row's menu.
+ * The roles the viewer may give, as checkable items of a menu that stays open (the kit's checkbox at each one's end),
+ * and the note about everyone's base role and the cargos above theirs: the picker's own list, and a person's "Cargos"
+ * in their row's menu. `disabled`: every item, while a change saves.
  */
 export function RoleChoices({
   roles,
   value,
   onChange,
+  disabled = false,
 }: {
   roles: readonly OrgRole[];
   value: readonly string[];
   onChange: (roleIds: string[]) => void;
+  disabled?: boolean;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const givable = sortRoles(roles.filter((r) => !isEveryone(r) && r.givable));
+  const above = roles.some((r) => !isEveryone(r) && !r.givable);
   // A personal workspace says it in the invitation's plain words (ADR 0159), naming its helper role as it's called.
   const helper = isPersonal(org) ? personalHelperRole(roles) : null;
   const toggle = (id: string, on: boolean) =>
@@ -81,19 +85,25 @@ export function RoleChoices({
   return (
     <>
       {givable.map((r) => (
-        <MenuCheckboxItem key={r.id} checked={value.includes(r.id)} onCheckedChange={(on) => toggle(r.id, on)}>
-          <span className="roles-picker__item">
-            <RoleMark color={r.color} icon={r.icon} size={18} />
-            {r.name}
-          </span>
+        <MenuCheckboxItem
+          key={r.id}
+          checked={value.includes(r.id)}
+          disabled={disabled}
+          leading={<RoleMark color={r.color} icon={r.icon} size={18} />}
+          onCheckedChange={(on) => toggle(r.id, on)}
+        >
+          {r.name}
         </MenuCheckboxItem>
       ))}
+      {givable.length > 0 && <MenuSeparator />}
       <MenuNote>
         {!givable.length
           ? t("members.noRolesToGive")
           : helper
             ? t("members.everyoneNotePersonal", { role: helper.name })
-            : t("members.everyoneNote")}
+            : above
+              ? t("common.joinSentences", { a: t("members.everyoneNote"), b: t("members.rolesAbove") })
+              : t("members.everyoneNote")}
       </MenuNote>
     </>
   );

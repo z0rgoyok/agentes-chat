@@ -5,6 +5,7 @@ import {
   agentAiState,
   allowsPrivateEndpoints,
   BudgetExceededError,
+  checkCredential,
   checkEndpoint,
   createAgent,
   createCredential,
@@ -15,6 +16,7 @@ import {
   listEndpoint,
   modelInfoFor,
   pickerModels,
+  rotateCredential,
   updateAgent,
   updateEndpointModels,
 } from "../src";
@@ -183,6 +185,19 @@ describe("calls", () => {
     expect(automatic.model).toBe(customModelId(cred.id, "first"));
   });
 
+  test("an endpoint key on Automatic pins the model whose test called a tool, not the first one listed", async () => {
+    f = await setup({
+      reply: (request) =>
+        request.model.endsWith(":tools")
+          ? { chunks: [], toolUses: [{ name: "report_status", input: { ok: true } }] }
+          : { chunks: ["I can't call tools."] },
+    });
+    const cred = await addEndpoint(f, [{ id: "chat" }, { id: "tools" }]);
+    await checkEndpoint(f.db, f.gateway, f.owner.id, f.org.id, cred.id);
+    const agent = await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { model: "auto", credentialId: cred.id });
+    expect(agent.model).toBe(customModelId(cred.id, "tools"));
+  });
+
   test("new agents with an endpoint key use its model, while catalog keys keep Automatic", async () => {
     f = await setup();
     const cred = await addEndpoint(f);
@@ -294,6 +309,12 @@ describe("the test call", () => {
             : { chunks: ["I can't call tools."] },
     });
     const cred = await addEndpoint(f, [{ id: "tools" }, { id: "chat" }, { id: "broken" }]);
+    // A key of an endpoint has no cheap catalog model to test it with: its own models' checks are the answer, so it is
+    // `unchecked` only while none of them has been tested (a connect flow toasts that, never a tested key).
+    expect(await f.gateway.verifyStoredKey(f.org.id, cred.id)).toMatchObject({
+      provider: "custom",
+      result: { state: "unchecked" },
+    });
     const checks = await checkEndpoint(f.db, f.gateway, f.owner.id, f.org.id, cred.id);
     expect(checks).toEqual([
       { model: "tools", check: "ok" },
@@ -305,6 +326,10 @@ describe("the test call", () => {
     );
     const [saved] = (await listCredentials(f.db, f.owner.id, f.org.id)).filter((c) => c.id === cred.id);
     expect(saved?.endpoint?.models.map((m) => m.check)).toEqual(["ok", "no_tools", "failed"]);
+    // Tested: the key answers, so nothing says it couldn't be checked.
+    expect(await f.gateway.verifyStoredKey(f.org.id, cred.id)).toMatchObject({ result: { state: "ok" } });
+    // The connect flows try a key this way before an agent is pointed at it.
+    expect(await checkCredential(f.db, f.gateway, f.owner.id, f.org.id, cred.id)).toBe("ok");
     const rows = await f.db.select().from(schema.usageRecords).where(eq(schema.usageRecords.credentialId, cred.id));
     expect(rows.map((r) => r.kind)).toEqual(["summary", "summary"]);
     // Prices change, the checks stay with their models.
@@ -316,5 +341,17 @@ describe("the test call", () => {
     ]);
     const member = await addMember(f.db, f.org.id, "member");
     await expect(checkEndpoint(f.db, f.gateway, member.id, f.org.id, cred.id)).rejects.toThrow();
+  });
+
+  test("a new key for an endpoint clears its models' tests: the old key's answers don't vouch for it", async () => {
+    f = await setup({ reply: () => ({ chunks: [], toolUses: [{ name: "report_status", input: { ok: true } }] }) });
+    const cred = await addEndpoint(f, [{ id: "tools" }]);
+    await checkEndpoint(f.db, f.gateway, f.owner.id, f.org.id, cred.id);
+    expect(await checkCredential(f.db, f.gateway, f.owner.id, f.org.id, cred.id)).toBe("ok");
+    await rotateCredential(f.db, f.keyWrapper, f.owner.id, f.org.id, cred.id, { apiKey: "gw-key-7654321" });
+    const [saved] = (await listCredentials(f.db, f.owner.id, f.org.id)).filter((c) => c.id === cred.id);
+    expect(saved?.endpoint).toMatchObject({ baseURL: "https://gw.example/v1", models: [{ id: "tools" }] });
+    expect(saved?.endpoint?.models[0]?.check).toBeUndefined();
+    expect(await checkCredential(f.db, f.gateway, f.owner.id, f.org.id, cred.id)).toBe("unchecked");
   });
 });

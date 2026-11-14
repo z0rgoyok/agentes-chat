@@ -12,6 +12,7 @@ mod cover;
 mod deep_link;
 mod discover;
 mod dock;
+mod graphics;
 mod host_sync;
 mod local_server;
 mod main_window;
@@ -55,6 +56,8 @@ struct AppInfo {
     arch: &'static str,
     /// The system's own version where it is read (macOS: `15.1`).
     system: Option<String>,
+    /// How Linux draws the app, the line people copy (graphics.rs).
+    graphics: Option<String>,
 }
 
 /// The providers' own sign-in pages the runner gets from `claude auth login` / `codex login --device-auth`
@@ -454,6 +457,7 @@ fn app_info(app: AppHandle) -> AppInfo {
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         system: prepare::system_version(),
+        graphics: graphics::system().map(|s| s.line()),
     }
 }
 

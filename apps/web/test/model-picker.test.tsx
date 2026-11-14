@@ -127,3 +127,13 @@ test("a reply Automático gave with another model: 'Usar o X em todos' opens the
   await click(within(line).getByRole("button", { name: "Escolher modelo" }));
   expect(document.querySelector(".mp")).toBeTruthy();
 });
+
+test("on an API key with a fixed model the picker's ramp has the three levels the API takes, none chosen yet", async () => {
+  const { state, panel } = await openPicker();
+  const ramp = within(panel).getByRole("slider", { name: "Esforço" });
+  expect(ramp.getAttribute("aria-valuemax")).toBe("3");
+  expect(ramp.getAttribute("aria-valuetext")).toBe("Padrão do modelo");
+  await act(async () => fireEvent.keyDown(ramp, { key: "ArrowRight" }));
+  await settle(6);
+  expect(state.calls.find((c) => c.method === "agents.setBrain")?.args[2]).toEqual({ brain: "model", effort: "low" });
+});

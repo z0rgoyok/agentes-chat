@@ -168,6 +168,22 @@ export function CommandMenu() {
         mark: <Icon name="plus" size={16} />,
         onSelect: () => invite.open(),
       });
+    // Cargos' "Criar cargo" (ADR 0085), for who manages them.
+    if (can(org, "manage_roles"))
+      list.push({
+        key: "do:role",
+        group: t("palette.actions"),
+        label: t("rolesPage.create"),
+        sub: t("settings.section.roles"),
+        keywords: t("palette.roleKeywords"),
+        mark: <Icon name="plus" size={16} />,
+        onSelect: () =>
+          void navigate({
+            to: "/org/$orgId/settings/$section",
+            params: { orgId, section: "roles" },
+            search: { create: 1 },
+          }),
+      });
     return list;
   }, [channels.data, wiki.data, dir.agents, dir.members, me.user.id, org, server, navigate, t, goTo, invite]);
 

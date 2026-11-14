@@ -183,13 +183,15 @@ export interface CliFailure {
  * `apt install -y bubblewrap`. Refusing to start with denied paths unprotected."), outside its pinned version range.
  */
 const REFUSED_START = /\brefus(?:e|es|ing) to start\b/i;
+/** A CLI's sandbox (bubblewrap) that didn't start on its computer, before the model was asked (`bwrap: …`). */
+const SANDBOX_FAILED = /\bbwrap: /;
 
 /**
- * A CLI that refused to start on its computer: every retry fails the same way until someone installs or updates
- * something there, whatever the runner called it.
+ * A CLI that refused to start on its computer, or whose sandbox didn't: every retry fails the same way until someone
+ * installs or updates something there, whatever the runner called it.
  */
 export const cliRefusedStart = (failure: CliFailure) =>
-  isCliFailure(failure.code) && REFUSED_START.test(failure.message);
+  isCliFailure(failure.code) && (REFUSED_START.test(failure.message) || SANDBOX_FAILED.test(failure.message));
 
 /**
  * Who failed a CLI's turn: the provider, when it refused or failed the CLI's call (a status, or the runner's cause), as
@@ -232,7 +234,8 @@ export function cliWords(failure: CliFailure): string {
 /**
  * A CLI's failure as its run stores it (`runErrorDetail` reads it back): the provider's as a key's
  * (`provider_error: cause@Claude: …`, `gave_up: …` after the outage's waits), else `cli_failed: Claude Code: what it
- * said`, or `cli_closed: Claude Code: exit 1` when it ended without a word. Null for any other code.
+ * said`, `cli_sandbox: Grok Build` when its sandbox didn't start, or `cli_closed: Claude Code: exit 1` when it ended
+ * without a word. Null for any other code.
  */
 export function cliFailureText(
   failure: CliFailure,
@@ -242,6 +245,7 @@ export function cliFailureText(
   const of = cliFailureOf(failure, account);
   if (!of) return null;
   if ("provider" in of) return providerFailureText(kind, of.provider);
+  if (SANDBOX_FAILED.test(failure.message)) return `cli_sandbox: ${of.brain}`;
   if (of.words) return `cli_failed: ${of.brain}: ${of.words}`;
   return of.ended ? `cli_closed: ${of.brain}: ${of.ended}` : `cli_failed: ${of.brain}`;
 }
@@ -260,7 +264,7 @@ export function brainFailureText(failure: CliFailure, kind: ComputerBrainKind): 
 }
 
 /** `cli_failed: Claude Code: what it said` (`cliFailureText`); `cli_closed` when it ended without a word. */
-const CLI_FAILURE = /^cli_(failed|closed): ([^:]+?)(?:: ([\s\S]*))?$/;
+const CLI_FAILURE = /^cli_(failed|closed|sandbox): ([^:]+?)(?:: ([\s\S]*))?$/;
 
 /** A run that stopped on an error of ours that kept repeating (`gave up` in the executor): its stored text's start. */
 export const OUR_ERROR = "Stopped after an error";
@@ -333,7 +337,7 @@ export function runErrorDetail(error: string | null | undefined): {
   const cli = CLI_FAILURE.exec(error);
   if (cli) {
     const [, how, brain = "", detail = ""] = cli;
-    if (how === "closed") return { errorCode: "run.cli_closed", errorParams: { brain } };
+    if (how === "closed" || how === "sandbox") return { errorCode: `run.cli_${how}`, errorParams: { brain } };
     return detail
       ? { errorCode: "run.cli_failed", errorParams: { brain, detail } }
       : { errorCode: "run.cli_stopped", errorParams: { brain } };

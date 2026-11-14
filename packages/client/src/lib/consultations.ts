@@ -1,7 +1,10 @@
+import { withoutRelayLine } from "@agenteschat/ui/agent-talk";
 import type { TFunction } from "i18next";
 import type { ConsultationStatus, MessageConsultation } from "../api/types";
 import { plainLine } from "./markdown";
 import { formatLineTime } from "./work";
+
+export { CONSULT_SUBJECT_CHARS, consultSubject, withoutRelayLine } from "@agenteschat/ui/agent-talk";
 
 /** How long an agent waits for another one's answer (the server's `CONSULTATION_TTL_MS`). */
 export const CONSULTATION_MINUTES = 15;
@@ -39,16 +42,6 @@ export function consultationsOf(meta: Record<string, unknown> | undefined): Mess
     ];
   });
 }
-
-/**
- * The bracketed line the server opens a mention it relays to an agent outside the conversation with ("[@ada
- * mentioned you in #general, where you aren't a member, so it reaches you here]"): written for the agent, never
- * shown to people.
- */
-const RELAY_LINE = /^\s*\[@[^\]\n]* mentioned you in [^\]\n]*so it reaches you here[^\]\n]*\]\s*/;
-
-/** An agents' message as people read it: without the relay line the server wrote for the agent (`RELAY_LINE`). */
-export const withoutRelayLine = (text: string) => text.replace(RELAY_LINE, "");
 
 /** Two agents' conversation as people read it: the question and each message without the relay line. */
 export function forPeople<C extends { question: string }, M extends { body: string }>(talk: {

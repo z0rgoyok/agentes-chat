@@ -50,6 +50,8 @@ export interface AppInfo {
   arch: string;
   /** The system's own version where the app reads it (macOS: `15.1`). */
   system?: string | null;
+  /** Linux: how it draws the app, one line to copy ("Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · …"). */
+  graphics?: string | null;
 }
 
 /** A server's answer to `siteFetch`: its status and body as text. */

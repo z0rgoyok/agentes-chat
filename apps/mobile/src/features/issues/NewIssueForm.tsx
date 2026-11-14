@@ -7,6 +7,7 @@ import {
   useIssueColumns,
   useIssueProjects,
 } from "@agenteschat/client";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { pickableProjects } from "@agenteschat/client/lib/issue-projects";
 import { PRIORITIES } from "@agenteschat/client/lib/issues";
 import { aiStateOf } from "@agenteschat/client/lib/no-ai";
@@ -20,7 +21,7 @@ import { Filters, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Locked,
 import { Face } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { goBack, PushedHeader, successHaptic } from "../shared/parts";
-import { TextArea } from "../shared/TextArea";
+import { overLimit, TextArea } from "../shared/TextArea";
 import { useWhoSeesDraft, useWhoSeesLabel, WhoSeesRows } from "../shared/WhoSees";
 import { columnOfIssue, DUE_CHOICES, type DueChoice, dueDateOf } from "./logic";
 import { ProjectDot, useColumnLabel } from "./parts";
@@ -28,6 +29,7 @@ import { useStartAgent } from "./useStartAgent";
 
 type Open = "who" | "project" | "priority" | "due" | "sees" | null;
 
+const DESCRIPTION_LIMIT = { max: FIELD_LIMITS.issueDescription };
 const close = () => goBack("/issues");
 
 /**
@@ -62,7 +64,7 @@ export function NewIssueForm() {
   const [open, setOpen] = useState<Open>(null);
   const sees = useWhoSeesDraft(EVERYONE);
   const seesLabel = useWhoSeesLabel();
-  const ready = title.trim().length > 0 && !action.isPending && sees.ready;
+  const ready = title.trim().length > 0 && !overLimit(text, DESCRIPTION_LIMIT) && !action.isPending && sees.ready;
   // A back swipe with a task half written asks first, as the web's dialog keeps it from a stray click.
   const done = useRef(false);
   usePreventRemove(title.trim() !== "" || text.trim() !== "", ({ repeat }) => {
@@ -151,7 +153,7 @@ export function NewIssueForm() {
             placeholder={t("mobile.issues.form.description")}
             accessibilityLabel={t("mobile.issues.form.description")}
             minHeight={96}
-            maxLength={50_000}
+            limit={DESCRIPTION_LIMIT}
           />
           <View>
             <GroupedHeader>{t("mobile.issues.form.who")}</GroupedHeader>

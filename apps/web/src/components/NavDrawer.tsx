@@ -1,5 +1,5 @@
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
-import { Button } from "@agenteschat/ui";
+import { Button, OPEN_LAYER } from "@agenteschat/ui";
 import { useRouterState } from "@tanstack/react-router";
 import {
   createContext,
@@ -119,7 +119,7 @@ export function NavDrawerProvider({ children }: { children: ReactNode }) {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      if (document.querySelector(OPEN_LAYER)) return;
       e.preventDefault();
       close({ restoreFocus: true });
     };

@@ -392,6 +392,24 @@ export function parseCustomModel(id: string): { credentialId: string; model: str
 
 export const isCustomModel = (id: string) => CUSTOM_ID.test(id);
 
+/** Agents work by tool calls: a model that made one first, then an untested one, then one that only talked, then failed. */
+const CHECK_RANK = { ok: 0, unchecked: 1, no_tools: 2, failed: 3 } as const;
+
+/**
+ * The one endpoint model an agent runs when nothing names one (Automático on an endpoint key, or a key just connected),
+ * as its `custom:` id: the best last test (`CHECK_RANK`), the admin's order among equals. Null when it offers none.
+ */
+export function endpointModelId(
+  credentialId: string,
+  models: readonly { id: string; check?: "ok" | "no_tools" | "failed" | null }[],
+): string | null {
+  let best: (typeof models)[number] | undefined;
+  for (const m of models) {
+    if (!best || CHECK_RANK[m.check ?? "unchecked"] < CHECK_RANK[best.check ?? "unchecked"]) best = m;
+  }
+  return best ? customModelId(credentialId, best.id) : null;
+}
+
 /** Replaces an organization's endpoint models (full ids); an empty record forgets them. */
 export function setCustomModels(orgId: string, models: Record<string, ModelInfo>) {
   custom = new Map(custom);

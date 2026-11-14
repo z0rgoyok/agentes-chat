@@ -276,6 +276,23 @@ export function namesText(t: TFunction, names: string[], max = 2, total = names.
   return joinNames([...shown, t("notifications.namesMore", { count: total - shown.length })], t);
 }
 
+/** How many agents a roster (`rosterText`) names, one per line, before "and N more". */
+export const ROSTER_SHOWN = 8;
+
+/** "Ana · Designer" per line, the first `max` of them, then "e mais 3": a team to read in a tip. */
+export function rosterText(
+  t: TFunction,
+  agents: readonly { name: string; role?: string | null }[],
+  max = ROSTER_SHOWN,
+) {
+  // A name often carries its role already ("Lumen · Tradutora"): it isn't said twice.
+  const lines = agents
+    .slice(0, max)
+    .map((a) => (a.role && !a.name.includes(a.role) ? `${a.name} · ${a.role}` : a.name));
+  if (agents.length > max) lines.push(t("format.andMore", { count: agents.length - max }));
+  return lines.join("\n");
+}
+
 /** Short model label for message meta: "Claude Sonnet 5.5" → "sonnet 5.5". */
 export const shortModel = (label: string) => label.replace(/^Claude\s+/i, "").toLowerCase();
 

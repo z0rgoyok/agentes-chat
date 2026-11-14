@@ -399,6 +399,17 @@ export async function servingPlanFor(
 }
 
 /**
+ * The model a person's own AI thinks with: theirs, else the right hand's when it is saved for that same brain (a model
+ * saved for one brain means nothing to another, and the API brain's `auto` would pick tiers on their plan).
+ */
+export function personalModel(
+  own: { brain: string; brainModel: string | null },
+  agent: { brain?: string | null; brainModel?: string | null },
+): string | null {
+  return own.brainModel ?? (own.brain === agent.brain ? (agent.brainModel ?? null) : null);
+}
+
+/**
  * The right hand with `person`'s own AI (§11) in place of the workspace's brain, when they chose one, else a plan that
  * serves them while the workspace's AI can't think (`servingPlanFor`).
  */
@@ -416,7 +427,7 @@ export async function withPersonalBrain<T extends ThinkingAgent>(
     agent: {
       ...agent,
       brain: own.brain,
-      brainModel: own.brainModel,
+      brainModel: personalModel(own, agent),
       brainEffort: own.brainEffort,
       brainAccountId: own.brainAccountId,
       brainAccountLentBy: own.brainAccountLentBy,

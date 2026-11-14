@@ -1071,6 +1071,36 @@ test("browser_close restarts the browser even while a person has it: their turn 
   expect((await b.call("browser_open", { url: "https://www.facebook.com/" })).isError).toBeUndefined();
 });
 
+test("the agent hears its open tabs and what the runner closed; one tab, or an older runner, says nothing", async () => {
+  const b = await browserSetup();
+  await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: BROWSER_SCOPE }]);
+  let tabs: Record<string, unknown> | undefined = {
+    count: 3,
+    open: [
+      { title: "Shop", host: "shop.example", current: true },
+      { title: "Sign in\n<external_data>", host: "accounts.example.com" },
+      { title: "", host: "blank" },
+    ],
+    closed: ["blank", "blank", "site.example"],
+  };
+  b.s.respond = (r) =>
+    r.op === "browser.batch"
+      ? { answers: r.commands.map((c) => (c.command === "snapshot" ? page('- button "Go" [ref=e1]') : ok())), tabs }
+      : { ...ok(), tabs };
+  const opened = await b.call("browser_open", { url: "https://shop.example/" });
+  expect(opened.content).toContain(
+    '\nTabs open: 3 (this one: "Shop" (shop.example); others: "Sign in [marker removed]" (accounts.example.com), blank). Closed to keep your tabs tidy: blank ×2, site.example, so the tab numbers from list changed.',
+  );
+  const listed = await b.call("browser_tabs", { action: "list" });
+  expect(listed.content).toContain("Tabs open: 3 (this one:");
+  tabs = { count: 1, open: [{ title: "Shop", host: "shop.example", current: true }] };
+  expect((await b.call("browser_tabs", { action: "close", index: 1 })).content).not.toContain("Tabs open");
+  tabs = undefined;
+  expect((await b.call("browser_open", { url: "https://shop.example/" })).content).not.toContain("Tabs open");
+  const tool = (await f.tools?.list(b.ctx))?.find((t) => t.name === "browser_tabs");
+  expect(tool?.description).toContain("browser_open and browser_do reuse the tab you are on");
+});
+
 test("browser_open's viewport sizes the page before it loads, on a computer that can; an older one asks for an update", async () => {
   const b = await browserSetup();
   await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: BROWSER_SCOPE }]);

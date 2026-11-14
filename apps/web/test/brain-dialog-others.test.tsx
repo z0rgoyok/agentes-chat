@@ -126,6 +126,18 @@ describe("Todos nesta conta", () => {
         .getByRole("button", { name: /^Todos nesta conta/ })
         .getAttribute("aria-pressed"),
     ).toBe("true");
+    // Whom each card covers is its description, behind an ⓘ: the role alone, or every agent on the account.
+    expect(cards.querySelectorAll(".ac-option__desc")).toHaveLength(0);
+    expect(
+      within(cards)
+        .getByRole("button", { name: /^Só a Ada/ })
+        .getAttribute("aria-description"),
+    ).toBe("Dev");
+    expect(
+      within(cards)
+        .getByRole("button", { name: /^Todos nesta conta/ })
+        .getAttribute("aria-description"),
+    ).toBe("Ada · Dev\nAtlas · Ops");
     await click(within(d).getByRole("button", { name: "Trocar os 2 agentes" }));
     await settle(6);
     // Ada moved; Atlas was asked for the account alone (the model it has stays its own) and refused.

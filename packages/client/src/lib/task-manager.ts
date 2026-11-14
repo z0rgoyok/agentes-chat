@@ -310,17 +310,19 @@ export function programKey(p: TaskProgram): string | null {
 }
 
 /**
- * What a task is about, for its row: its label, else its routine's name, else the thread work handed off from (ADR
- * 0084 addendum), else where it is ("Conversa com Ana", "#produto").
+ * What a task is about, for its row: its label, else its routine's name, else what another agent asked it, else the
+ * thread work handed off from (ADR 0084 addendum), else where it is ("Conversa com Ana", "#produto").
  */
 export function taskTitle(
   t: TFunction,
   task: Pick<ManagedTask, "label" | "routine" | "channelKind" | "channelName" | "betweenAgents"> & {
     delegation?: ManagedTask["delegation"];
+    subject?: ManagedTask["subject"];
   },
 ) {
   if (task.label?.trim()) return task.label.trim();
   if (task.routine?.name) return task.routine.name;
+  if (task.betweenAgents && task.subject) return task.subject;
   if (task.delegation?.from?.label) return task.delegation.from.label;
   return taskWhere(t, task);
 }
@@ -366,6 +368,7 @@ export function taskPlace(
   task: Pick<ManagedTask, "label" | "routine" | "channelKind" | "channelName" | "betweenAgents"> & {
     background?: boolean;
     delegation?: ManagedTask["delegation"];
+    subject?: ManagedTask["subject"];
   },
 ) {
   const where = taskWhere(t, task);

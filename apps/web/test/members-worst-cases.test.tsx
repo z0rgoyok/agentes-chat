@@ -126,19 +126,9 @@ describe("Pessoas", () => {
     await open();
     // This server sends no email, so its owner also makes a member's new-password link.
     const link = "Gerar link de senha novaPara quando a pessoa esqueceu a senha";
-    expect(await menuOf(personRow("Bia"))).toEqual([
-      "Mensagem direta",
-      "Adicionar cargo",
-      link,
-      "Remover do workspace",
-    ]);
-    expect(await menuOf(personRow(LONG_NAME))).toEqual([
-      "Mensagem direta",
-      "Mudar cargos",
-      link,
-      "Remover do workspace",
-    ]);
-    expect(await menuOf(personRow("Walter"))).toEqual(["Mudar cargos"]);
+    expect(await menuOf(personRow("Bia"))).toEqual(["Mensagem direta", "Cargos", link, "Remover do workspace"]);
+    expect(await menuOf(personRow(LONG_NAME))).toEqual(["Mensagem direta", "Cargos", link, "Remover do workspace"]);
+    expect(await menuOf(personRow("Walter"))).toEqual(["Cargos"]);
   });
 
   test("giving a role from the menu", async () => {
@@ -148,7 +138,7 @@ describe("Pessoas", () => {
       fireEvent.pointerDown(within(bia).getByRole("button", { name: "Mais de Bia" }), { button: 0, ctrlKey: false }),
     );
     await settle(2);
-    const sub = screen().getByRole("menuitem", { name: "Adicionar cargo" });
+    const sub = screen().getByRole("menuitem", { name: "Cargos" });
     expect(sub.getAttribute("aria-haspopup")).toBe("menu");
     await act(async () => fireEvent.keyDown(sub, { key: "Enter" }));
     await settle(2);

@@ -58,7 +58,7 @@ export interface AgentEdit {
   /** The change for a key (a field, or `levels:{id}`). */
   changeOf: (key: string) => Change | undefined;
   can: (field: Field) => boolean;
-  errors: { name?: string; handle?: string; budget?: string; audience?: string; repos?: string };
+  errors: { name?: string; handle?: string; budget?: string; audience?: string; repos?: string; instructions?: string };
   /** The access tree's resources (empty while loading or unavailable). */
   resources: AccessResource[];
   accessState: "loading" | "ready" | "unavailable";

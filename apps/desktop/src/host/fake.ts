@@ -423,6 +423,10 @@ export function createFakeHost(
       os: platform === "mac" ? "macos" : platform,
       arch: platform === "mac" ? "aarch64" : "x86_64",
       system: platform === "mac" ? "15.5" : null,
+      graphics:
+        platform === "linux"
+          ? "Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · Intel (i915) · CPU · AppImage"
+          : null,
     }),
     autostart: async () => autostart,
     setAutostart: async (on) => {

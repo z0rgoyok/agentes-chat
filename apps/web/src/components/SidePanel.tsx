@@ -12,19 +12,22 @@ import { leaveAnimated, takeOverLeaving } from "@/lib/leave";
  * click on the scrim closes it; everything behind is inert while it is open and the focus comes back when it goes. Esc
  * is the pane's own (`useEscClose`): a pane with steps inside (search, then a thread) goes back a step first. It slides
  * in from the right and out again; a pane replacing another in the same commit just swaps.
- * `className` sizes it (`thread-panel--wide`, `tm-panel`, `dm-side--float`).
+ * `className` sizes it (`thread-panel--wide`, `tm-panel`, `dm-side--float`). `inAddress`: the URL holds it open (a
+ * thread's `?thread=`, an agent's `?agent=`), so a history Back closes it by moving the URL (`useBackCloses`).
  */
 export function SidePanel({
   label,
   onClose,
   className,
   panelRef,
+  inAddress,
   children,
 }: {
   label: string;
   onClose: () => void;
   className?: string;
   panelRef?: RefObject<HTMLElement | null>;
+  inAddress?: boolean;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -50,7 +53,13 @@ export function SidePanel({
         aria-label={t("common.close")}
         onClick={onClose}
       />
-      <aside ref={ref} tabIndex={-1} className={cx("thread-panel", className)} aria-label={label}>
+      <aside
+        ref={ref}
+        tabIndex={-1}
+        className={cx("thread-panel", className)}
+        aria-label={label}
+        data-in-address={inAddress ? "" : undefined}
+      >
         {children}
       </aside>
     </>,

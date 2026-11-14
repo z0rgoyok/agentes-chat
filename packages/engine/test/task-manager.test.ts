@@ -8,10 +8,12 @@ import {
   createAgent,
   drainOutbox,
   ForbiddenError,
+  insertMessage,
   listMessages,
   type Membership,
   mayContinuePause,
   NotFoundError,
+  openPersonAgentDm,
   postPersonMessage,
   sendNote,
   setStopReason,
@@ -79,8 +81,9 @@ describe("work agents asked of each other (ADR 0128)", () => {
       label: null,
       canStop: true,
       delegation: { agentId: f.agent.id, origin: { kind: "person", userId: f.owner.id } },
+      subject: "Vê o log de ontem",
     });
-    expect(view.tasks.find((t) => t.runId === asker.id)).toMatchObject({ delegation: null, helpers: 1 });
+    expect(view.tasks.find((t) => t.runId === asker.id)).toMatchObject({ delegation: null, helpers: 1, subject: null });
     expect(view.hidden).toEqual({ total: 0, working: 0, byAgent: {} });
     expect((await taskSteps(f.db, f.owner.id, f.org.id, helper.id)).steps).toEqual([]);
 
@@ -92,9 +95,79 @@ describe("work agents asked of each other (ADR 0128)", () => {
     expect(JSON.stringify(theirs)).not.toContain("Vê o log");
     await expect(taskSteps(f.db, member.id, f.org.id, helper.id)).rejects.toBeInstanceOf(NotFoundError);
 
-    // Its owner sees it without admin rights.
+    // Its owner sees it without admin rights, but not what was asked: they don't read #general.
     await f.db.update(schema.agents).set({ ownerUserId: member.id }).where(eq(schema.agents.id, infra.id));
-    expect((await taskManager(f.db, member.id, f.org.id)).tasks.map((t) => t.runId)).toContain(helper.id);
+    const owners = await taskManager(f.db, member.id, f.org.id);
+    expect(owners.tasks.find((t) => t.runId === helper.id)).toMatchObject({
+      delegation: { from: null },
+      subject: null,
+    });
+    expect(JSON.stringify(owners)).not.toContain("Vê o log");
+  });
+
+  test("an admin who doesn't read the conversation it came from sees the task, never what was asked", async () => {
+    f = await setup();
+    const infra = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Infra", handle: "infra", role: "Servers", instructions: "You run them.", credentialId: f.credential.id },
+      { model: "claude-sonnet-5-5" },
+    );
+    const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, f.agent.id);
+    await postPersonMessage(deps(), f.owner.id, f.org.id, dm.id, { body: "olha os bugs" });
+    const asker = (await runs()).find((r) => r.agentId === f.agent.id);
+    if (!asker) throw new Error("no run");
+    await sendNote(f.db, {
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      runId: asker.id,
+      hop: 1,
+      targetAgentId: infra.id,
+      body: "Vê o log do meu cliente",
+      chain: [f.agent.id],
+    });
+    const helper = (await runs()).find((r) => r.agentId === infra.id);
+    if (!helper) throw new Error("no helper run");
+    await f.db.update(schema.agentRuns).set({ status: "running" });
+
+    expect((await taskManager(f.db, f.owner.id, f.org.id)).tasks.find((t) => t.runId === helper.id)?.subject).toBe(
+      "Vê o log do meu cliente",
+    );
+    const rui = await addMember(f.db, f.org.id, "admin", "rui");
+    const theirs = await taskManager(f.db, rui.id, f.org.id);
+    expect(theirs.tasks.find((t) => t.runId === helper.id)).toMatchObject({
+      delegation: { from: null },
+      subject: null,
+    });
+    expect(JSON.stringify(theirs)).not.toContain("meu cliente");
+  });
+
+  test("called by the latest question its run took, one sentence of it", async () => {
+    f = await setup();
+    const { helper } = await delegated();
+    const [first] = await f.db
+      .select()
+      .from(schema.agentConsultations)
+      .where(eq(schema.agentConsultations.targetRunId, helper.id));
+    if (!first) throw new Error("no consultation");
+    const question = "Agora veja a fila.\n\nDepois me diga quem ficou sem resposta.";
+    const message = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: first.channelId,
+      author: { type: "agent", agentId: first.askerAgentId, runId: first.askerRunId, hop: 1 },
+      body: question,
+    });
+    const { id: _id, ...rest } = first;
+    await f.db.insert(schema.agentConsultations).values({
+      ...rest,
+      messageId: message.id,
+      waitId: `${first.waitId}-2`,
+      question,
+      createdAt: new Date(first.createdAt.getTime() + 60_000),
+    });
+    const row = (await taskManager(f.db, f.owner.id, f.org.id)).tasks.find((t) => t.runId === helper.id);
+    expect(row?.subject).toBe("Agora veja a fila.");
   });
 
   test("hidden work asking its computer from the line counts as waiting, not working", async () => {

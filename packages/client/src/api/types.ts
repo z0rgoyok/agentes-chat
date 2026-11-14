@@ -6041,7 +6041,7 @@ export interface PlanUsage {
   at: string;
   /**
    * Models at a limit of their own, by model id: until `until` (absent: unknown), `region` the model needs, or `off`
-   * the plan refused it for the key.
+   * the plan refused it for the key. The usage views list them, one line each, as the quota per model.
    */
   models?: Record<string, { at: string; until?: string; region?: true; off?: true; inactive?: true }>;
   /** On a plan whose models have their own limits: the model that last answered with this key. */
@@ -6164,6 +6164,7 @@ export type AccountLoginFailure =
   | "status_unknown"
   | "no_token"
   | "not_kept"
+  | "sandbox"
   | "timeout"
   | "canceled";
 
@@ -7150,6 +7151,11 @@ export interface ManagedTask {
   requester: { userId: string; name: string } | null;
   /** Another agent asked it, in their private conversation (absent on an older server). */
   delegation?: TaskDelegation | null;
+  /**
+   * What the latest agent to ask it asked, one line: what its row is called by. Null unless you read the conversation
+   * it was handed off from (`delegation.from`); absent on an older server.
+   */
+  subject?: string | null;
   /** What it asked of other agents and is still on or not started, all the way down. */
   helpers?: number;
   /** `model`, `claude_code`, `codex`, `cursor`; null before its first turn. */
@@ -8040,6 +8046,8 @@ export interface ComputerDevice {
   status: DeviceStatus;
   maxTasks: number | null;
   toolchains: Record<string, string>;
+  /** A Mac whose app opens Xcode and looks at its iPhone again for the iPhone guide; absent from an older server. */
+  opensXcode?: boolean;
   lastSeenAt: string | null;
   mayUse: boolean;
   mayManage: boolean;

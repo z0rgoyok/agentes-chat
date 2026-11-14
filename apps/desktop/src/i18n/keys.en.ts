@@ -736,6 +736,8 @@ export const desktopEn = {
       installerNote: "Open the downloaded file: it installs the new version over the old one.",
       keepNote: "Your servers and settings stay.",
       whatsNew: "What's new in {{version}}",
+      /** Linux: how this computer draws the app (system, graphics card, renderer), one line to copy. */
+      systemDetails: "System details",
     },
     activity: {
       title: "Activity",

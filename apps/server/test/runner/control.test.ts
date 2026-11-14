@@ -315,6 +315,21 @@ test("hello never waits on the CLIs' looks; what a look finds later reaches the 
   });
 });
 
+test("Grok Build's models are the ones a signed-in account listed, not the computer's own signed-out list", async () => {
+  const { home } = pairedHome();
+  const grok = { version: "grok 1.0.70 (3736acbc8658) [stable]", models: [{ id: "grok-4.6" }] };
+  writeFileSync(path.join(home, "executors.json"), JSON.stringify({ grok }));
+  mkdirSync(path.join(home, "accounts"), { recursive: true });
+  writeFileSync(
+    path.join(home, "accounts", "grok-models.json"),
+    JSON.stringify([{ id: "grok-4.7" }, { id: "grok-4.6" }]),
+  );
+  const executorRun = () => new Promise<never>(() => {});
+  const c = control(home, { executors: undefined, executorRun });
+  const s = await c.connect();
+  expect(s.of("hello")[0]?.executors).toEqual({ grok: { ...grok, models: [{ id: "grok-4.7" }, { id: "grok-4.6" }] } });
+});
+
 test("a new install's hello leaves the CLIs out until the first look, then sends what it found", async () => {
   const { home } = pairedHome();
   let release: () => void = () => {};

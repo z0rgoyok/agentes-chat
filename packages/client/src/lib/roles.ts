@@ -166,23 +166,169 @@ export function holdersAfter<P extends Pick<Person, "role" | "roleIds">>(
   return { losing, gaining };
 }
 
+/** The rows a role adds: past what `everyone` gives (for `everyone`, every row it holds). */
+export const reachRows = (
+  role: OrgRole,
+  everyone: OrgRole | undefined,
+  areas: readonly Pick<PermissionArea, "keys">[],
+) =>
+  areas.flatMap(areaRows).filter((row) => {
+    const s = rowState(role, everyone, row);
+    return isEveryone(role) ? s.own > 0 : s.own > s.everyone;
+  });
+
 /**
  * What a role adds, for its row in the list and its glance line ("+3 permissões · +2 canais · +1 agente"): its rows
  * past what `everyone` gives (for `everyone`, every row it holds), its channels (those the viewer doesn't see counted
  * too) and its agents. `all`: Administrador, which may everything.
  */
 export function reachOf(role: OrgRole, everyone: OrgRole | undefined, areas: readonly Pick<PermissionArea, "keys">[]) {
-  const permissions = areas.flatMap(areaRows).filter((row) => {
-    const s = rowState(role, everyone, row);
-    return isEveryone(role) ? s.own > 0 : s.own > s.everyone;
-  }).length;
   return {
     all: isAdmin(role),
-    permissions,
+    permissions: reachRows(role, everyone, areas).length,
     channels: (role.channelIds?.length ?? 0) + (role.hiddenChannels ?? 0),
     agents: role.agentIds?.length ?? 0,
   };
 }
+
+/** The roles a "Quem pode" save writes: the custom ones the viewer may change, Administrador ones aside. */
+export const writableRoles = (roles: readonly OrgRole[]) =>
+  roles.filter((r) => !isEveryone(r) && r.editable && !isAdmin(r));
+
+/**
+ * A "Quem pode" dialog's choice: everyone at `keep` (the row's level, or the computers' step Todos had), or only the
+ * ticked roles keep it while `everyone` goes to `low`. `from`: the role the change started on, set to exactly its
+ * level (a computers' step picked below Todos'). Every writable role is listed, so none goes to 0 by being left out;
+ * an unticked one keeps what it has below `keep`.
+ */
+export function rowHolders(
+  roles: readonly OrgRole[],
+  row: string,
+  choice: { everyone: boolean; ticked: ReadonlySet<string> },
+  step: { keep: number; low: number; from?: { id: string; level: number } },
+): RowHolders {
+  return {
+    everyone: choice.everyone ? step.keep : step.low,
+    roles: writableRoles(roles).map((r) => {
+      const own = levelOn(r.permissions, row);
+      const level = choice.everyone
+        ? own
+        : choice.ticked.has(r.id)
+          ? Math.max(own, step.keep)
+          : r.id === step.from?.id
+            ? step.from.level
+            : Math.max(0, Math.min(own, step.keep - 1));
+      return { id: r.id, level };
+    }),
+  };
+}
+
+/**
+ * Who a "Quem pode" dialog starts with ticked: `holders`, the writable roles that hold the row at `keep` already;
+ * `all`, every writable role; else every writable role but that one (the role it was turned off on).
+ */
+export function whoStart(
+  roles: readonly OrgRole[],
+  row: string,
+  keep: number,
+  start: "holders" | "all" | { but: string },
+) {
+  const w = writableRoles(roles);
+  const picked =
+    start === "holders"
+      ? w.filter((r) => levelOn(r.permissions, row) >= keep)
+      : start === "all"
+        ? w
+        : w.filter((r) => r.id !== start.but);
+  return new Set(picked.map((r) => r.id));
+}
+
+/** Whether a "Quem pode" choice changes anything: some role's or `everyone`'s level on the row. */
+export function rowChanges(roles: readonly OrgRole[], row: string, holders: RowHolders) {
+  const next = withRowHolders(roles, row, holders);
+  return roles.some((r, i) => levelOn(r.permissions, row) !== levelOn(next[i]?.permissions ?? [], row));
+}
+
+/** Who sees a channel: every member (public), the people of some roles (ADR 0125), or only who is added. */
+export type ChannelReach = { kind: "everyone" } | { kind: "roles"; roleIds: string[] } | { kind: "private" };
+export const channelReach = (c: { visibility: string; audienceRoleIds?: readonly string[] }): ChannelReach =>
+  c.visibility === "public"
+    ? { kind: "everyone" }
+    : c.audienceRoleIds?.length
+      ? { kind: "roles", roleIds: [...c.audienceRoleIds] }
+      : { kind: "private" };
+
+/** Whether people with `role` see a channel through it: a public one, or one limited to it (`everyone`: public). */
+export const roleSees = (
+  role: Pick<OrgRole, "id" | "kind">,
+  c: { visibility: string; audienceRoleIds?: readonly string[] },
+) => c.visibility === "public" || (!isEveryone(role) && (c.audienceRoleIds ?? []).includes(role.id));
+
+/**
+ * Who deleting a role takes out of channels (the server's `dropRoleLeavers`, ADR 0125): the members of a channel
+ * limited to it who hold none of its other roles, its creator aside. Only the channels the viewer sees.
+ */
+export function deleteLeavers<P extends Pick<Person, "userId" | "roleIds">>(
+  role: Pick<OrgRole, "id">,
+  channels: readonly {
+    id: string;
+    visibility: string;
+    audienceRoleIds?: readonly string[];
+    createdByUserId?: string | null;
+  }[],
+  membersOf: (channelId: string) => readonly string[],
+  people: readonly P[],
+) {
+  const out = new Set<P>();
+  for (const c of channels) {
+    const ids = c.audienceRoleIds ?? [];
+    if (c.visibility !== "private" || !ids.includes(role.id)) continue;
+    const kept = ids.filter((id) => id !== role.id);
+    const members = new Set(membersOf(c.id));
+    for (const p of people) {
+      const mine = p.roleIds ?? [];
+      if (
+        members.has(p.userId) &&
+        p.userId !== c.createdByUserId &&
+        mine.includes(role.id) &&
+        !kept.some((id) => mine.includes(id))
+      )
+        out.add(p);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * The cargos' order once `id` moves one place up (`-1`) or down, or null when it can't: the viewer never moves a cargo
+ * above one they can't change, so those stay on top in their order. `order` is every custom cargo's id, top first.
+ */
+export function movedOrder(order: readonly string[], editable: (id: string) => boolean, id: string, by: -1 | 1) {
+  const i = order.indexOf(id);
+  const j = i + by;
+  if (i < 0 || j < 0 || j >= order.length) return null;
+  const next = [...order];
+  [next[i], next[j]] = [next[j] as string, next[i] as string];
+  return keepsFixedOnTop(next, editable) ? next : null;
+}
+
+/** Whether every cargo the viewer can't change still stands above every one they can. */
+export function keepsFixedOnTop(order: readonly string[], editable: (id: string) => boolean) {
+  const last = order.reduce((at, id, i) => (editable(id) ? at : i), -1);
+  return order.every((id, i) => i > last || !editable(id));
+}
+
+/** The cargo page's tabs, in order (`?tab=`): `everyone` has no people of its own. */
+export type RoleTab = "permissions" | "channels" | "agents" | "people";
+export const roleTabs = (role: Pick<OrgRole, "kind">): RoleTab[] =>
+  isEveryone(role) ? ["permissions", "channels", "agents"] : ["permissions", "channels", "agents", "people"];
+export const isRoleTab = (v: unknown): v is RoleTab =>
+  v === "permissions" || v === "channels" || v === "agents" || v === "people";
+
+/** Past this many cargos the list gets a search, and past as many channels, agents or people a tab does. */
+export const ROLES_SEARCH_FROM = 8;
+/** A workspace's cargos at most (`ROLES_MAX` on the server). */
+export const ROLES_MAX = 100;
 
 /**
  * What changing a channel's roles does to people (ADR 0125; `dropRoleLeavers` on the server): `leave`, its members

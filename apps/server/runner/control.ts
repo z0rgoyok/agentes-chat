@@ -138,6 +138,8 @@ export class ControlServer {
         return d
           .iphoneSetup()
           .fixXcode(m.action === "cancel" ? "cancel" : "start", m.kind === "update" ? "update" : "select");
+      case "iphone.look":
+        return d.iphoneLook();
       case "shutdown":
         return { stopping: true };
       default:

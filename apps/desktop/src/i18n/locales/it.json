@@ -675,7 +675,8 @@
       "step3": "Apri il file scaricato e trascina il nuovo agentes.chat in Applicazioni.",
       "installerNote": "Apri il file scaricato: installa la nuova versione sopra la vecchia.",
       "keepNote": "I tuoi server e le impostazioni restano.",
-      "whatsNew": "Novità della {{version}}"
+      "whatsNew": "Novità della {{version}}",
+      "systemDetails": "Dettagli di sistema"
     },
     "activity": {
       "title": "Attività recenti",

@@ -114,7 +114,7 @@ import { freeHandle, takenHandles } from "@agenteschat/client/lib/new-agent";
 import { stepIndex } from "@agenteschat/client/lib/onboarding";
 import type { PlanModel } from "@agenteschat/client/lib/plans";
 import { type LodiPrefs, lodiPrefsOf } from "@agenteschat/client/lib/right-hand-prefs";
-import { grants, SUMMARY_ORDER, withRowHolders } from "@agenteschat/client/lib/roles";
+import { grants, rowMax, SUMMARY_ORDER, withRowHolders } from "@agenteschat/client/lib/roles";
 import { sidebarItemOrder, sidebarSections } from "@agenteschat/client/lib/sidebar-items";
 import { driveFolder, isSecretFile } from "@agenteschat/ui/names";
 import { createFakeAccess } from "./fakes/access";
@@ -1293,12 +1293,32 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
     state.roles ??= seedRoles();
     return state.roles;
   };
-  /** `GET …/roles`: the roles with how many hold each, and the areas. */
+  /**
+   * `GET …/roles`: the roles with how many hold each, what each reaches (the channels limited to it, `everyone` the
+   * public ones; the agents whose audience lists it, `everyone` those that answer everyone) and the areas.
+   */
   const rolesPayload = () => ({
     roles: roles().map((r) => ({
       ...r,
       people:
         r.kind === "everyone" ? state.members.length : state.members.filter((m) => m.roleIds?.includes(r.id)).length,
+      channelIds: state.channels
+        .filter((c) =>
+          r.kind === "everyone"
+            ? c.visibility === "public"
+            : c.visibility === "private" && (c.audienceRoleIds ?? []).includes(r.id),
+        )
+        .map((c) => c.id),
+      hiddenChannels: 0,
+      agentIds: state.agents
+        .filter((a) => {
+          if (a.builtin === "right_hand" || a.former) return false;
+          const mode = a.audience?.mode ?? a.audienceMode ?? "everyone";
+          return r.kind === "everyone"
+            ? mode === "everyone"
+            : mode === "people" && (a.audience?.roleIds ?? []).includes(r.id);
+        })
+        .map((a) => a.id),
     })),
     areas: structuredClone(PERMISSION_AREAS),
     colors: ["indigo", "violet", "rose", "amber", "green", "teal", "graphite"],
@@ -1582,6 +1602,12 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
       },
       setRow: async (orgId, row, holders) => {
         log("roles.setRow", orgId, row, holders);
+        // The server's `Level`: each level 0 to the row's highest.
+        const max = rowMax(row);
+        if (
+          [holders.everyone, ...holders.roles.map((r) => r.level)].some((l) => !Number.isInteger(l) || l < 0 || l > max)
+        )
+          throw new ApiError(400, "role.level_invalid", `Each level is 0 to ${max}`);
         state.roles = withRowHolders(roles(), row, holders);
         return rolesPayload();
       },

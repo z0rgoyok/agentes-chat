@@ -1,5 +1,6 @@
 import type { BlobStoreResolver, PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, eq, gt, inArray, isNull, lte, schema, sql } from "@agenteschat/db";
+import { SKILL_ASSET_BYTES, SKILL_TEXT_BYTES } from "@agenteschat/tokens/skills";
 import { getAgent } from "./agents";
 import { recordAudit } from "./audit";
 import { mapInBatches } from "./batches";
@@ -27,8 +28,8 @@ export type SkillRow = typeof skills.$inferSelect;
  */
 export const SKILL_LIMITS = {
   maxFiles: 3000,
-  maxBytes: 16 * 1024 * 1024,
-  assetBytes: 40 * 1024 * 1024,
+  maxBytes: SKILL_TEXT_BYTES,
+  assetBytes: SKILL_ASSET_BYTES,
   imageBytes: 3_750_000,
   bodyChars: 200_000,
   fileReadChars: 40_000,
@@ -216,14 +217,17 @@ export interface SkillFileInput {
 
 /** A skill folder's files → the SKILL.md (found at the root, or under one top folder) and the rest. */
 export function splitSkillFolder(files: SkillFileInput[]) {
-  const normalized = files.map((f) => ({ ...f, path: safePath(f.path) }));
+  // Dropped before the top folder is found: a folder zipped by the Mac's Finder also holds `__MACOSX/<folder>/._*`.
+  const normalized = files
+    .map((f) => ({ ...f, path: safePath(f.path) }))
+    .filter((f) => !f.path.split("/").some((p) => (p.startsWith(".") && p !== ".") || p === "__MACOSX"));
   const firstSegments = new Set(normalized.map((f) => f.path.split("/")[0]));
   let root = "";
   if (!normalized.some((f) => f.path.toLowerCase() === "skill.md") && firstSegments.size === 1) {
     root = `${[...firstSegments][0]}/`;
   }
   const inRoot = normalized
-    .filter((f) => f.path.startsWith(root) && !f.path.split("/").some((p) => p.startsWith(".") && p !== "."))
+    .filter((f) => f.path.startsWith(root))
     .map((f) => ({ ...f, path: f.path.slice(root.length) }));
   const main = inRoot.find((f) => f.path.toLowerCase() === "skill.md");
   if (!main) throw new ValidationError("No SKILL.md at the top of the skill folder", "skill.no_skill_md_zip");
@@ -655,12 +659,15 @@ export interface GithubFetchOptions {
 /**
  * Minutes until GitHub stops limiting this server, or null when it isn't. GitHub answers 403 or 429 and says when
  * to retry in `retry-after` (seconds), else in `x-ratelimit-reset` once none remain, else "at least one minute"
- * (docs.github.com, "Rate limits for the REST API").
+ * (docs.github.com, "Rate limits for the REST API"). Without credentials this server shares its address with every
+ * other one, and GitHub's secondary limit can answer a bare 403: without a token any 403 is the limit. With a token a
+ * 403 means the token can't read it, which the caller decides.
  */
-function githubWaitMinutes(res: Response): number | null {
+function githubWaitMinutes(res: Response, authenticated: boolean): number | null {
   const retryAfter = Number(res.headers.get("retry-after"));
   const spent = res.headers.get("x-ratelimit-remaining") === "0";
-  if (res.status !== 429 && !(res.status === 403 && (spent || retryAfter > 0))) return null;
+  const refused = res.status === 403 && (!authenticated || spent || retryAfter > 0);
+  if (res.status !== 429 && !refused) return null;
   const reset = Number(res.headers.get("x-ratelimit-reset"));
   const seconds = retryAfter > 0 ? retryAfter : spent && reset > 0 ? reset - Date.now() / 1000 : 60;
   return Math.max(1, Math.ceil(seconds / 60));
@@ -690,7 +697,8 @@ async function githubGet(
     const at = await assertPublicHttpsUrl(next, deps.resolveHost);
     if (!GITHUB_HOSTS.has(at.hostname)) throw new ValidationError("Only GitHub URLs can be imported for now");
     const headers: Record<string, string> = { accept, "user-agent": "agentes.chat" };
-    if (token && at.origin === GITHUB_API) headers.authorization = `Bearer ${token}`;
+    const authenticated = Boolean(token) && at.origin === GITHUB_API;
+    if (authenticated) headers.authorization = `Bearer ${token}`;
     const res = await http(at.toString(), {
       headers,
       redirect: redirects > 0 ? "manual" : "error",
@@ -704,7 +712,7 @@ async function githubGet(
       next = new URL(location, at).toString();
       continue;
     }
-    const minutes = githubWaitMinutes(res);
+    const minutes = githubWaitMinutes(res, authenticated);
     if (minutes !== null) {
       throw new TooManyError(`GitHub is limiting downloads for now. Try again in ${minutes} min.`, "github.limited", {
         count: minutes,
@@ -916,16 +924,27 @@ type GithubConnectionState = "none" | "refused" | "ok";
  * a skill installed before was read, tried first and with no read without credentials before it (the other
  * connection follows it, so a skill never stays stuck on one the workspace replaced).
  *
+ * A public read GitHub limits (the server's address is shared, and its 60 an hour run out) is not about the
+ * repository: the tokens are on a limit of their own and read it next, and when no token could be tried the limit is
+ * what the refusal says. What they read keeps no `via`: the limit says nothing about who may read the repository, and
+ * a public one must go on updating without the token.
+ *
  * None reads it: `github.unreachable` when GitHub left a token request unanswered, `skill.connection_gone` when the
  * workspace no longer has the connection `through` names, else `github.repo_missing` with the connection's state and
  * whether the GitHub App is installed on some account (`app`).
  */
 async function readRepository(deps: GithubReadDeps, orgId: string, target: GithubTarget, through: SkillVia | null) {
+  let limited: TooManyError | null = null;
   if (!through) {
-    const open = await publicRepository(deps, target);
-    if (open) return { ...open, via: null };
+    try {
+      const open = await publicRepository(deps, target);
+      if (open) return { ...open, via: null };
+    } catch (err) {
+      if (!(err instanceof TooManyError) || err.code !== "github.limited") throw err;
+      limited = err;
+    }
   }
-  return workspaceRepository(deps, orgId, target, through);
+  return workspaceRepository(deps, orgId, target, through, limited);
 }
 
 /** The repository read with the workspace's tokens alone, as `readRepository` says: which one read it, or why none. */
@@ -934,12 +953,14 @@ async function workspaceRepository(
   orgId: string,
   target: GithubTarget,
   through: SkillVia | null,
+  limited: TooManyError | null = null,
 ) {
   const repo = `${target.owner}/${target.repo}`;
   const github = deps.github;
   const connection = github && (await activeConnections(deps.db, orgId)).find((c) => c.connector === "github");
   let state: GithubConnectionState = connection ? "ok" : "none";
   let unanswered = false;
+  let tried = false;
   if (github && tokenSafe(target)) {
     const order: SkillVia[] = through === "github" ? ["github", "github_app"] : ["github_app", "github"];
     for (const via of order) {
@@ -959,10 +980,11 @@ async function workspaceRepository(
         if (!token && !made.failed) state = "refused";
       }
       if (!token) continue;
+      tried = true;
       const found = await tokenRepository(deps, target, token);
       if (found === "refused") {
         if (via === "github") state = "refused";
-      } else if (found) return { ...found, via };
+      } else if (found) return { ...found, via: limited ? null : via };
     }
   }
   if (unanswered) throw unreachable();
@@ -975,6 +997,9 @@ async function workspaceRepository(
   if (gone) {
     throw new ValidationError(`The GitHub connection that read ${repo} is gone`, "skill.connection_gone", { repo });
   }
+  // No token was ever tried: whether the repository exists went unanswered, and the limit is what happened. A
+  // connection whose refresh was refused says the limit too: it passes, and the next try reads without credentials.
+  if (limited && !tried) throw limited;
   throw new ValidationError(`${repo} is private or doesn't exist on GitHub`, "github.repo_missing", {
     repo,
     connection: state,
@@ -1001,10 +1026,16 @@ const REPOSITORY_PAGE: GithubFetchOptions = { maxBytes: 0, tooLarge: "", redirec
  */
 export async function hiddenRepository(deps: GithubReadDeps, orgId: string, target: GithubTarget) {
   const page = `https://github.com/${encodePath(`${target.owner}/${target.repo}`)}`;
-  const { res } = await githubGet(deps, page, "text/html", REPOSITORY_PAGE);
-  await res.body?.cancel();
-  if (res.ok) return null;
-  return workspaceRepository(deps, orgId, target, null);
+  let limited: TooManyError | null = null;
+  try {
+    const { res } = await githubGet(deps, page, "text/html", REPOSITORY_PAGE);
+    await res.body?.cancel();
+    if (res.ok) return null;
+  } catch (err) {
+    if (!(err instanceof TooManyError) || err.code !== "github.limited") throw err;
+    limited = err;
+  }
+  return workspaceRepository(deps, orgId, target, null, limited);
 }
 
 /**

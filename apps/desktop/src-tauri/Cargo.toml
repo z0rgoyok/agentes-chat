@@ -46,6 +46,8 @@ libc = "0.2"
 # tauri-plugin-deep-link 2.6.2 fills rust-ini's ParseOption with the two fields 0.21.1 has; 0.21.3 added two
 # more, so it doesn't build against it (0.21.2 is yanked). Drop the pin once the plugin sets all four.
 rust-ini = "=0.21.1"
+# The site's web view itself (main_window.rs, graphics.rs): the copy Tauri already builds with, at its features.
+webkit2gtk = { version = "2", features = ["v2_40"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The notch window (src/notch.rs): its level, Spaces and frame, and finding the notch.

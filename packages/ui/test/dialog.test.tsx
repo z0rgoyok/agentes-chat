@@ -247,7 +247,10 @@ describe("Dialog", () => {
       <>
         <div className="ac-toasts">
           <div className="ac-toast">
-            Salvo <button type="button">Dispensar</button>
+            Salvo{" "}
+            <button type="button" className="ac-btn ac-btn--ghost ac-btn--sm">
+              Dispensar
+            </button>
           </div>
         </div>
         <Dialog open onOpenChange={() => closes++} title="Orçamento mensal" closeLabel="Fechar">

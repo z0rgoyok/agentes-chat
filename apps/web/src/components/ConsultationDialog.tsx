@@ -1,5 +1,6 @@
 import { type Message, useExchangeConversation } from "@agenteschat/client";
 import { consultLineState, consultOriginKey } from "@agenteschat/client/lib/consult-group";
+import { consultSubject } from "@agenteschat/client/lib/consultations";
 import { dayLabel, formatTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { buildTimeline } from "@agenteschat/client/lib/timeline";
@@ -62,6 +63,7 @@ export function ConsultationDialog({
     from: from.name,
     to: to.name,
   });
+  const subject = consultSubject(c?.question);
   const state = c ? consultLineState(c, now) : null;
   // The cards keep their buttons (a question answers in its own field); nothing else acts
   // here: no reply, no thread, no quote (the messages live in the agents' DM). Stable: rows don't redraw for it.
@@ -112,17 +114,20 @@ export function ConsultationDialog({
           </span>
         }
         subtitle={
-          <span className="thread-head__meta">
-            <span className="thread-head__where">
-              {channelName ? t("chat.consultPanel.where", { channel: channelName }) : t("chat.consultPanel.whereDm")}
+          <>
+            {subject && <span className="thread-head__subject">{subject}</span>}
+            <span className="thread-head__meta">
+              <span className="thread-head__where">
+                {channelName ? t("chat.consultPanel.where", { channel: channelName }) : t("chat.consultPanel.whereDm")}
+              </span>
+              {list && list.length > 0 && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{t("chat.consultPanel.messages", { count: list.length })}</span>
+                </>
+              )}
             </span>
-            {list && list.length > 0 && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{t("chat.consultPanel.messages", { count: list.length })}</span>
-              </>
-            )}
-          </span>
+          </>
         }
         leading={
           c && (

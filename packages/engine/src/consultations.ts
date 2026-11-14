@@ -312,13 +312,15 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
   return {
     name: TELL_AGENT_TOOL,
     description:
-      "Hand another agent of the organization work to do, or news it should act on, e.g. @sales to hand its client notes to @support, or @infra that a deploy finished so it watches the metrics. It works on it privately, with its own tools and permissions, for the same person you are helping, and the people here see that it's on it. The call returns at once and you carry on. What comes of it reaches you here by itself, even after your turn ends, together with everything else you handed off this turn: don't check on it, send it again or set a follow_up for it. Give the whole job to the agent that owns it, with everything it needs, and let it bring in the others; don't send heads-ups to agents that only have to wait. Write the note so it stands alone: the other agent doesn't see this conversation. For an answer you need for the task, use ask_agent.",
+      "Hand another agent of the organization work to do, or news it should act on, e.g. @sales to hand its client notes to @support, or @infra that a deploy finished so it watches the metrics. It works on it privately, with its own tools and permissions, for the same person you are helping, and the people here see it's on it. It returns at once; carry on. What comes of it reaches you here by itself, even after your turn ends, with everything else you handed off this turn: don't check on it, send it again or set a follow_up for it. Give the whole job to the agent that owns it, with everything it needs, and let it bring in the others; don't send heads-ups to agents that only have to wait. Write the note so it stands alone: the agent doesn't see this conversation. For an answer you need for the task, use ask_agent.",
     scope: "",
     inputSchema: {
       type: "object",
       properties: {
         agent: { type: "string", minLength: 2, maxLength: 33, description: "The agent's handle, e.g. @infra." },
         message: { type: "string", minLength: 1, maxLength: 4000 },
+        // What it means is told only where it counts: the agents' DM's "Where you are" (`buildRunContext`).
+        heads_up: { type: "boolean" },
       },
       required: ["agent", "message"],
       additionalProperties: false,
@@ -357,6 +359,7 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
       let waitsForRoom = false;
       // Nobody asked for it directly: the note meets the brakes on unrequested work before it wakes anyone (ADR 0131).
       const braked = (await runAuthorityById(db, ctx.orgId, ctx.runId)).kind !== "person";
+      const headsUp = input.heads_up === true && Boolean(here && isAgentOnlyDm(here) && !isRoutineRoomKey(here.dmKey));
       const sent = await sendNote(db, {
         orgId: ctx.orgId,
         agentId: ctx.agentId,
@@ -366,6 +369,7 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
         body,
         chain,
         deferStart: braked,
+        headsUp,
       });
       if (!sent) {
         return {
@@ -405,9 +409,11 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
       });
       const handed = ctx.background
         ? `Handed to @${handle}. What comes of it reaches the people where this routine reports, by itself, and wakes you there: don't wait for it. Do your own part now, and say in hand_off who has what.`
-        : here && isAgentOnlyDm(here)
-          ? `Handed to @${handle}. Your answer goes back once @${handle} is done, together with what came of it: do your own part now, then end your turn saying what you handed on.`
-          : `Handed to @${handle}; it's on it, and the people here can see that. What comes of it reaches you here by itself once everything you handed off this turn is back. Tell the people in a line who has it, without promising a time, then do your own part or end your turn.`;
+        : headsUp
+          ? `Told @${handle}. Your answer goes back without waiting for it: do your own part now, then end your turn.`
+          : here && isAgentOnlyDm(here)
+            ? `Handed to @${handle}. Your answer goes back once @${handle} is done, together with what came of it: do your own part now, then end your turn saying what you handed on.`
+            : `Handed to @${handle}; it's on it, and the people here can see that. What comes of it reaches you here by itself once everything you handed off this turn is back. Tell the people in a line who has it, without promising a time, then do your own part or end your turn.`;
       return {
         content: waitsForRoom
           ? `${handed} @${handle} hasn't started yet: its computer is full, so your note waits and starts once there's room. It isn't lost: don't send it again.`
@@ -485,6 +491,8 @@ export async function sendNote(
     fromMention?: boolean;
     /** Wakes nobody yet: the caller starts it (`startNoteRun`) once the brakes let it through. */
     deferStart?: boolean;
+    /** News from a run answering another agent: that answer neither waits for it nor carries its reply. */
+    headsUp?: boolean;
   },
 ) {
   const consultationId = Bun.randomUUIDv7();
@@ -498,7 +506,11 @@ export async function sendNote(
       body: input.body,
       // `agentNote`: the run it came from (the same-note check, `peopleRun`); `consultation`: its row.
       meta: {
-        agentNote: { runId: input.runId, ...(input.fromMention ? { mention: true } : {}) },
+        agentNote: {
+          runId: input.runId,
+          ...(input.fromMention ? { mention: true } : {}),
+          ...(input.headsUp ? { headsUp: true } : {}),
+        },
         consultation: { id: consultationId },
         ...((await runReadOutsideById(tx, input.orgId, input.runId)) ? { readOutside: true } : {}),
       },
@@ -848,11 +860,19 @@ export async function sentOpen(db: Executor, run: Pick<AgentRun, "id" | "orgId">
         eq(agentConsultations.orgId, run.orgId),
         eq(agentConsultations.askerRunId, run.id),
         eq(agentConsultations.status, "open"),
+        sql`not ${headsUpSql(sql`${agentConsultations}`)}`,
       ),
     )
     .limit(1);
   return Boolean(row);
 }
+
+/**
+ * For a select over `agent_consultations` (`row` names it): a heads-up (`tell_agent` with `heads_up`), which the
+ * sender's answer neither waits for nor carries.
+ */
+const headsUpSql = (row: SQL) => sql<boolean>`exists (select 1 from ${messages} hm
+  where hm.org_id = ${row}.org_id and hm.id = ${row}.message_id and hm.meta -> 'agentNote' ->> 'headsUp' = 'true')`;
 
 /** Whether a run (one in an agents' DM) still owes an answer to a question or a note. */
 export async function answersOpen(db: Executor, run: Pick<AgentRun, "id" | "orgId">) {
@@ -1055,22 +1075,29 @@ async function closeConsultation(
  * What came of a question or note asked from an agents' DM, for the run there that asked (it answers another agent,
  * ADR 0095), in the close's transaction with that run locked. It joins the answer that run owes for what it read
  * (`[@x, to whom @a handed part of it]: …`), which goes back with its reply once nothing it handed on is out
- * (`settleOwed`). A run still at work also reads it at its next step. Nothing starts a run in an agents' DM to read a
- * result (`handOn` leaves one unread there): no person would read what it says. Returns the notice to publish.
+ * (`settleOwed`); a heads-up joins none. A run still at work also reads it at its next step. Nothing starts a run in
+ * an agents' DM to read a result (`handOn` leaves one unread there): no person would read what it says. Returns the
+ * notice to publish.
  */
 async function handBack(tx: Executor, asker: AgentRun, closed: AgentConsultationRow, handle: string, told: boolean) {
   if (told) return null;
+  const [headsUp] = await tx
+    .select({ id: agentConsultations.id })
+    .from(agentConsultations)
+    .where(and(eq(agentConsultations.id, closed.id), headsUpSql(sql`${agentConsultations}`)));
   const owed = (
-    await tx
-      .select({ id: agentConsultations.id, messageId: agentConsultations.messageId })
-      .from(agentConsultations)
-      .where(
-        and(
-          eq(agentConsultations.orgId, asker.orgId),
-          eq(agentConsultations.targetRunId, asker.id),
-          eq(agentConsultations.status, "open"),
-        ),
-      )
+    headsUp
+      ? []
+      : await tx
+          .select({ id: agentConsultations.id, messageId: agentConsultations.messageId })
+          .from(agentConsultations)
+          .where(
+            and(
+              eq(agentConsultations.orgId, asker.orgId),
+              eq(agentConsultations.targetRunId, asker.id),
+              eq(agentConsultations.status, "open"),
+            ),
+          )
   ).filter((r) => !asker.pendingMessageIds.includes(r.messageId));
   if (owed.length > 0) {
     const line = handedPartLine(
@@ -1215,7 +1242,8 @@ export async function reportHandOffs(deps: Pick<Deps, "db" | "pubsub">, asker: A
             where o.org_id = ${asker.orgId}::uuid and o.asker_run_id = ${asker.id}::uuid
               and o.kind = 'note' and o.status = 'open'
               and ((t.id is null and not ${wakeWaitsSql(sql`o`)}) or t.status not in ('waiting_approval', 'waiting_input')
-                or exists (select 1 from ${agentConsultations} s where s.asker_run_id = t.id and s.status = 'open')))`,
+                or exists (select 1 from ${agentConsultations} s where s.asker_run_id = t.id and s.status = 'open'
+                  and not ${headsUpSql(sql`s`)})))`,
         ),
       )
       .returning();

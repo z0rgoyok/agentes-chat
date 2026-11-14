@@ -24,6 +24,7 @@ import type {
   VaultOverview,
   VaultScope,
 } from "../vault/types";
+import type { UploadOptions } from "./http";
 import type {
   AccessInput,
   AccountDeletionPlan,
@@ -1136,7 +1137,10 @@ export interface ApiClient {
     ): Promise<WifiPairing>;
     wifiPairing(orgId: string, machineId: string, pairingId: string): Promise<WifiPairing>;
     cancelWifiPairing(orgId: string, machineId: string, pairingId: string): Promise<void>;
-    /** Asks the computer to also look for a plugged phone it has no driver for, which adb never lists (Windows). */
+    /**
+     * Asks the computer to also look for a plugged phone it has no driver for, which adb never lists (Windows), or a
+     * Mac to read its iPhones again now (answered once the new list is in).
+     */
     lookForPhones(orgId: string, machineId: string): Promise<void>;
     /** The iPhones on this Mac's Wi-Fi that trust it and aren't used yet (its owner or an admin). */
     wifiIphones(orgId: string, machineId: string): Promise<WifiIphones>;
@@ -1146,6 +1150,8 @@ export interface ApiClient {
     startXcodeFix(orgId: string, machineId: string, kind: "select" | "update"): Promise<XcodeFixView>;
     xcodeFix(orgId: string, machineId: string): Promise<XcodeFixView>;
     cancelXcodeFix(orgId: string, machineId: string): Promise<XcodeFixView>;
+    /** Opens Xcode on the Mac (its owner or an admin): it shows Developer Mode on a plugged iPhone. */
+    openXcode(orgId: string, machineId: string): Promise<{ opened: boolean }>;
   };
   /** Connected computers (ADR 0025): machines running `agentes-runner`. */
   machines: {
@@ -1234,11 +1240,12 @@ export interface ApiClient {
      * holding several skills (or any, with `list`) installs nothing and answers with them to pick from
      * (`importPicked`), those that can't be installed apart. A private repository is read through the workspace's
      * GitHub, on the server. `forAgentId`: the agent whose card opened the install, which gets what installs turned on
-     * when the installer may change its skills.
+     * when the installer may change its skills. `upload`: a zip's Cancel and how much of it has been sent.
      */
     import(
       orgId: string,
       input: { url: string; list?: boolean; forAgentId?: string } | { zipBase64: string },
+      upload?: UploadOptions,
     ): Promise<SkillDetail | SkillPick>;
     /** Installs the skills picked among a link's choices (their `path`), on for `forAgentId` as `import` does. */
     importPicked(orgId: string, url: string, paths: string[], forAgentId?: string): Promise<SkillDetail[]>;

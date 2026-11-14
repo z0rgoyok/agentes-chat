@@ -309,6 +309,13 @@ const insideOrTmp = (scope: CommandScope, p: string) => {
 export const AGENT_WORKER_HOMES = "/var/lib/agentes-runner-agents";
 
 /**
+ * System mode: Grok Build's account folders (`<this>/<account id>`, 0700, the agent's user's only while lent to it).
+ * Outside `AGENT_WORKER_HOMES`, whose closed (0711) folders Grok's sandbox can't bind: it binds every folder above
+ * `GROK_HOME`, so each of them must be open to the agent's user (0755). Its folder names (account ids) are listable.
+ */
+export const GROK_ACCOUNT_HOMES = "/var/lib/agentes-runner-grok";
+
+/**
  * System mode's runner home (`install.sh --system`), and the state of the server's own computer
  * (`agentes-runner host`): every organization's machine token is in it.
  */
@@ -348,6 +355,7 @@ const SECRET_DIRS = [
   "Keychains",
   ".agentes-runner",
   path.basename(AGENT_WORKER_HOMES),
+  path.basename(GROK_ACCOUNT_HOMES),
   SYSTEM_RUNNER_HOME.slice(1),
   ".config/gh",
   ".config/gcloud",
@@ -1060,6 +1068,7 @@ export const SECRET_BASH_DENY_RULES: readonly string[] = [
   ".config/gcloud",
   ".agentes-runner",
   path.basename(AGENT_WORKER_HOMES),
+  path.basename(GROK_ACCOUNT_HOMES),
   SYSTEM_RUNNER_HOME.slice(1),
   ".git-credentials",
   ".netrc",

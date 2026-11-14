@@ -670,7 +670,8 @@
       "step3": "İndirilen dosyayı açın ve yeni agentes.chat'i Uygulamalar'a sürükleyin.",
       "installerNote": "İndirilen dosyayı açın: yeni sürümü eskisinin yerine yükler.",
       "keepNote": "Sunucularınız ve ayarlarınız korunur.",
-      "whatsNew": "{{version}} sürümündeki yenilikler"
+      "whatsNew": "{{version}} sürümündeki yenilikler",
+      "systemDetails": "Sistem ayrıntıları"
     },
     "activity": {
       "title": "Etkinlik",

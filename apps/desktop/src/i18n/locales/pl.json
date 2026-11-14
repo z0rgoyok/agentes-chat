@@ -680,7 +680,8 @@
       "step3": "Otwórz pobrany plik i przeciągnij nowe agentes.chat do Aplikacji.",
       "installerNote": "Otwórz pobrany plik: zainstaluje nową wersję w miejsce starej.",
       "keepNote": "Twoje serwery i ustawienia zostają.",
-      "whatsNew": "Nowości w wersji {{version}}"
+      "whatsNew": "Nowości w wersji {{version}}",
+      "systemDetails": "Szczegóły systemu"
     },
     "activity": {
       "title": "Aktywność",

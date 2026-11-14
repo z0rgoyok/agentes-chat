@@ -83,6 +83,13 @@ describe("composer row and formatting", () => {
     await settle(1);
     expect(composer().value).toBe("[olha](https://) o **deploy**");
     expect(screen().queryByRole("dialog")).toBeNull();
+    // Nothing selected (the box holds the cursor whenever a conversation is open): ⌘K is the palette.
+    const linked = composer();
+    linked.setSelectionRange(linked.value.length, linked.value.length);
+    await act(async () => fireEvent.keyDown(linked, { key: "k", metaKey: true }));
+    await settle(1);
+    expect(linked.value).toBe("[olha](https://) o **deploy**");
+    expect(screen().queryByRole("dialog")).not.toBeNull();
   });
 });
 

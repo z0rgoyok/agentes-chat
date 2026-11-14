@@ -1,6 +1,7 @@
 import type { Issue, IssueColumn, IssuePriority } from "@agenteschat/client";
 import { useIssueAction, useIssueProjects, useStartAgentOnTask } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { MAX_UPLOAD_MB } from "@agenteschat/client/lib/files";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { NO_PROJECT, pickableProjects } from "@agenteschat/client/lib/issue-projects";
@@ -15,12 +16,15 @@ import {
   DialogBody,
   DialogFooter,
   Icon,
+  LimitLine,
   Locked,
+  limitShown,
   Menu,
   MenuCheckboxItem,
   MenuItem,
   MenuSeparator,
   modKey,
+  overLimit,
   Spinner,
   Switch,
   useAutoGrow,
@@ -36,6 +40,7 @@ import { WhoSeesButton, WhoSeesDialog } from "@/components/WhoSees";
 import { useComposerFiles } from "@/hooks/useComposerFiles";
 import { useEdited } from "@/hooks/useEdited";
 import { usePersonalView } from "@/hooks/usePersonalView";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { columnIdOf, columnsOf, PRIORITIES, splitCriteria, useColumnTitle } from "@/lib/issues";
 import { useToast } from "@/lib/toast";
 import { ProjectDialog } from "./IssueProjects";
@@ -149,7 +154,10 @@ export function NewIssueDialog({
     setAnother(false);
     onClose();
   };
-  const ready = title.trim() !== "" && !files.uploading && !action.isPending;
+  const limit = useTextLimit(FIELD_LIMITS.issueDescription);
+  const shown = wide ? description : text;
+  const tooLong = overLimit(shown, limit);
+  const ready = title.trim() !== "" && !tooLong && !files.uploading && !action.isPending;
   const unsaved = useEdited(open, [title, text, description, criteria, draftCriterion, due, files.items.length]);
   /** "Pedir" right after creating: when it can't start, the toast says why, with Pedir de novo. */
   const startAgent = (issue: Issue, picked: { id: string; name: string }, again = false) => {
@@ -405,12 +413,14 @@ export function NewIssueDialog({
                       ref={textRef}
                       className="issue-new__text"
                       rows={4}
-                      maxLength={50_000}
                       value={description}
+                      aria-invalid={tooLong || undefined}
+                      aria-describedby={limitShown(description, limit) ? "ni-text-limit" : undefined}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder={t("issues.form.descriptionPlaceholder")}
                       aria-label={t("issues.description")}
                     />
+                    <LimitLine id="ni-text-limit" value={description} limit={limit} />
                     {files.items.some((f) => f.preview) && (
                       <div className="issue-new__images">
                         {files.items
@@ -506,10 +516,13 @@ export function NewIssueDialog({
                 className="issue-new__text"
                 rows={5}
                 value={text}
+                aria-invalid={tooLong || undefined}
+                aria-describedby={limitShown(text, limit) ? "ni-text-limit" : undefined}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={t("issues.form.quickPlaceholder")}
                 aria-label={t("issues.form.description")}
               />
+              <LimitLine id="ni-text-limit" value={text} limit={limit} />
               {files.attachments && (
                 <div className="ac-composer__attachments issue-new__files">{files.attachments}</div>
               )}

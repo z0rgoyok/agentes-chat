@@ -13,6 +13,7 @@ import {
   accountKindOf,
   accountRow,
   accountSaved,
+  advancedResetInput,
   agentAccounts,
   existingRows,
   flowBack,
@@ -101,7 +102,10 @@ describe("the agent's AI", () => {
       "owners",
     ]);
     // Connect an AI's first rows: Bia's in one tap, whose it is under it; one another agent has stays locked.
-    const rows = existingRows(t, view, [], "Ada").map((r) => [r.row.kind === "key" ? "key" : r.row.act, r.sub]);
+    const rows = existingRows(t, view, [], "Ada", "pt-BR").map((r) => [
+      r.row.kind === "key" ? "key" : r.row.act,
+      r.sub,
+    ]);
     expect(rows).toContainEqual(["use", "De Bia"]);
     expect(rows.filter(([act]) => act === "locked")).toHaveLength(2);
   });
@@ -421,7 +425,7 @@ describe("the agent's AI", () => {
     // One row per account (the web's choice), and "Também usada por" signs this agent in on Connect an AI.
     expect(screen).toContain("const choices = view ? accountChoices(accounts, [view.account]) : [];");
     expect(screen).toContain("{choices.map((c) => (");
-    expect(screen).toContain("row={accountRow(t, c, name)}");
+    expect(screen).toContain("row={accountRow(t, c, name, i18n.language)}");
     expect(screen).toContain("onPress={() => (c.also ? connect(c.login, true) : choose(c.login))}");
     // That account's email goes along as Claude's hint, on Claude's page only, whatever the agent's own login is.
     expect(screen).toContain("...(also && a?.email ? { email: a.email } : {}),");
@@ -429,9 +433,23 @@ describe("the agent's AI", () => {
     expect(connect).toContain('{...(choice === "claude" && props.email ? { email: props.email } : {})}');
     const t = await translator("pt-BR");
     const theo = account("t", { usedBy: ["Theo"] });
-    expect(accountRow(t, { login: theo, usedBy: ["Theo", "Lia"], also: true }, "Ada").sub).toBe(
+    expect(accountRow(t, { login: theo, usedBy: ["Theo", "Lia"], also: true }, "Ada", "pt-BR").sub).toBe(
       "Também usada por Theo e Lia",
     );
+  });
+
+  test("an account at its limit says so on its own line, in the usage words; picked, the agent's AI says it waits", async () => {
+    const t = await translator("pt-BR");
+    const row = (u: PlanUsage | null) =>
+      accountRow(t, { login: account("c", { usage: u }), usedBy: [], also: false }, "Ada", "pt-BR");
+    expect(row(usage(100)).below).toBe("No limite");
+    expect("below" in row(usage(10))).toBe(false);
+    expect("below" in row(null)).toBe(false);
+    expect(t("agentPage.work.brain.v2.fullWait", { name: "Ada", context: "female" })).toBe(
+      "Nesta conta a Ada espera até o plano renovar.",
+    );
+    const screen = await Bun.file(new URL("../../src/features/ai/AgentAiScreen.tsx", import.meta.url).pathname).text();
+    expect(screen).toContain('? t("agentPage.work.brain.v2.fullWait", g)');
   });
 
   test("Connect an AI starts with what the person already has: the free account, those other agents use, a workspace key, someone else's locked", async () => {
@@ -461,7 +479,7 @@ describe("the agent's AI", () => {
         account("joao", { label: "Claude Max", ownerId: "u2", ownerName: "João Silva", mine: false }),
       ],
     };
-    const rows = existingRows(t, view, [key("k1"), key("k2", "2026-10-20T00:00:00.000Z")], "Ada");
+    const rows = existingRows(t, view, [key("k1"), key("k2", "2026-10-20T00:00:00.000Z")], "Ada", "pt-BR");
     expect(
       rows.map((r) => [r.row.kind === "key" ? "key" : r.row.act, r.label, r.sub, "below" in r ? r.below : null]),
     ).toEqual([
@@ -490,7 +508,7 @@ describe("the agent's AI", () => {
     expect(makers).toContain("<PickList");
     expect(makers).toContain("...PROVIDERS.map(");
     expect(connect.slice(connect.indexOf("function KeyPage("))).toContain("onPress={onMakers}");
-    expect(connect).toContain("existingRows(t, gates.view, credentials.data ?? [], forAgent.name)");
+    expect(connect).toContain("existingRows(t, gates.view, credentials.data ?? [], forAgent.name, i18n.language)");
     // The workspace's keys only in Connect an AI (a sheet), as on the web: the first run's saved key already serves
     // every agent with no plan.
     expect(connect).toContain("useCredentials(orgId, mayAddKey && forAgent !== undefined && sheetTitle !== undefined)");
@@ -859,7 +877,7 @@ describe("the agent's AI", () => {
       "Ligue a região Global no OpenCode, em Settings\u00a0›\u00a0Privacy. Sem ela, este modelo não responde.",
     );
     const refused = account("oc", { provider: "opencode", keyHint: "Ex2b", status: "signed_out" });
-    expect(accountRow(t, { login: refused, usedBy: [], also: false }, "Ada").sub).toBe(
+    expect(accountRow(t, { login: refused, usedBy: [], also: false }, "Ada", "pt-BR").sub).toBe(
       "A chave foi recusada: troque por uma nova.",
     );
     expect(t("aiAccounts.page.newKey")).toBe("Trocar a chave");
@@ -975,6 +993,28 @@ describe("the agent's AI", () => {
     expect(screen).toContain("onPress={() => openAgentSetup(agentId)}");
     const route = await Bun.file(new URL("../../app/(app)/agent-setup/[id].tsx", import.meta.url).pathname).text();
     expect(route).toContain("<AgentSetupScreen agentId={id");
+  });
+
+  test("Voltar ao padrão on an API key gives the effort back to the model, Automático too; nothing chosen saves none", () => {
+    const base = { effort: null, speed: "standard" as const, contextTokens: null, onlyOwner: true, fallback: true };
+    const key = { brain: "model" as const, onlyOwner: true };
+    expect(advancedResetInput(key, { ...base, effort: "high", contextTokens: 400_000 }, false)).toEqual({
+      contextTokens: null,
+      effort: "auto",
+    });
+    expect(advancedResetInput(key, { ...base, effort: "high" }, true)).toEqual({ contextTokens: null, effort: "auto" });
+    expect(advancedResetInput(key, base, false)).toEqual({ contextTokens: null });
+    // On a computer, Medium, its default; "Automático" keeps picking its own.
+    const plan = { brain: "claude_code" as const, onlyOwner: true };
+    expect(advancedResetInput(plan, { ...base, effort: "high" }, false)).toEqual({
+      contextTokens: null,
+      effort: "medium",
+      fallback: true,
+    });
+    expect(advancedResetInput(plan, { ...base, effort: "high" }, true)).toEqual({
+      contextTokens: null,
+      fallback: true,
+    });
   });
 
   test("Usar em outros agentes on other people's plans asks once before saving, naming every owner", async () => {

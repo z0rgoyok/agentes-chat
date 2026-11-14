@@ -42,6 +42,7 @@ import {
 } from "@agenteschat/client/lib/brain-picker";
 import { type ConnectedItem, itemName } from "@agenteschat/client/lib/connected";
 import { errorText as failureText } from "@agenteschat/client/lib/errors";
+import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { choiceOf, defaultPolicy, MAIL_ACTIONS, toMailLevel } from "@agenteschat/client/lib/mail";
@@ -70,6 +71,7 @@ import {
   Locked,
   Logo,
   modKey,
+  overLimit,
   ProviderLogo,
   prefersReducedMotion,
   randomAppearance,
@@ -116,6 +118,7 @@ import { AgentBornSky, AgentPreviewSky, OnboardingHorizon } from "@/components/S
 import { StepRail } from "@/components/StepRail";
 import { useFlowExit } from "@/hooks/useFlowExit";
 import { useKeeperName, usePersonalView } from "@/hooks/usePersonalView";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { flowReturn } from "@/lib/flow-return";
 import { CARD_MARK, IMPORT_CARDS } from "@/lib/import-flow";
 import {
@@ -385,6 +388,7 @@ function NewAgentFlow({
     was?.look ?? (draft?.appearance as Required<AgentAppearance> | null) ?? BLANK_LOOK,
   );
   const [instructions, setInstructions] = useState(was?.instructions ?? draft?.instructions ?? "");
+  const instructionsLimit = useTextLimit(FIELD_LIMITS.instructions);
   const [levels, setLevels] = useState<Record<string, Level>>(
     was?.levels ?? (draft && managesAgents ? draftLevels(draft) : {}),
   );
@@ -829,6 +833,10 @@ function NewAgentFlow({
   };
   const next = () => {
     if (created || create.isPending || importing) return;
+    if (overLimit(instructions, instructionsLimit)) {
+      goTo(NEW_AGENT_STEPS.indexOf("instructions"));
+      return;
+    }
     if (stepErrors(step, check).length > 0) {
       fail(step);
       setTimeout(() => root.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
@@ -1298,7 +1306,7 @@ function NewAgentFlow({
             <Textarea
               className="newag__textarea"
               rows={9}
-              maxLength={50_000}
+              limit={instructionsLimit}
               placeholder={t("newAgent.instructionsPlaceholder")}
               value={instructions}
               onChange={(e) => {

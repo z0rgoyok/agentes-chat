@@ -1,11 +1,19 @@
-import { type Database, type Executor, eq, schema } from "@agenteschat/db";
-import { isAutoModel, MODEL_TIERS, type ModelTier, modelForTier, modelInfo } from "@agenteschat/providers";
+import { and, type Database, desc, type Executor, eq, isNull, schema } from "@agenteschat/db";
+import {
+  endpointModelId,
+  isAutoModel,
+  MODEL_TIERS,
+  type ModelTier,
+  modelForTier,
+  modelInfo,
+  parseCustomModel,
+} from "@agenteschat/providers";
 import type { Agent } from "./agents";
 import { agentBrainSummaries, brainOf, CLAUDE_CODE_MODELS } from "./brain-settings";
 import type { BrainPlan } from "./brains/select";
 import type { BrainKind } from "./brains/types";
 import { caches } from "./cache";
-import { usableCredentialRow } from "./credentials";
+import { defaultCredentials, usableCredentialRow } from "./credentials";
 import { cutText } from "./format";
 import type { Judge } from "./judge";
 import { missionOfThread } from "./missions";
@@ -221,17 +229,37 @@ export async function orgAutoModels(db: Executor, orgId: string): Promise<AutoMo
 }
 
 /**
- * The API model for a tier on `provider`'s key: the workspace's own (`tiers`) while that provider lists it, else its
- * line's. Null for OpenRouter before its list is read: its line is the list, and another provider's model would need
- * another key.
+ * A workspace endpoint's models as Automático reads them (ADR 0146): the credential whose key calls them, and the
+ * models its admin chose with each one's last test call (`check`).
+ */
+export interface AutoEndpoint {
+  credentialId: string;
+  models: readonly { id: string; check?: "ok" | "no_tools" | "failed" }[];
+}
+
+/**
+ * The API model for a tier on `provider`'s key: the workspace's own (`tiers`) while it is still on that line, else its
+ * line's. A workspace endpoint has no line in the catalog (ADR 0146): one of its own models stands for the tier, since
+ * only its key can call them and the Anthropic fallback below would be refused as no AI. Null for a `custom` provider
+ * with no endpoint, and for OpenRouter before its list is read: its line is the list, and another provider's model
+ * would need another key.
  */
 export function autoModelFor(
   provider: string,
   tier: ModelTier,
   tiers?: Partial<Record<ModelTier, string>>,
+  endpoint?: AutoEndpoint | null,
 ): string | null {
   const own = tiers?.[tier];
-  if (own && modelInfo(own)?.provider === provider) return own;
+  // Another provider's (or another endpoint's) model needs another key: only this line's own pick stands.
+  const ownHere = own
+    ? provider === "custom"
+      ? endpoint?.credentialId === parseCustomModel(own)?.credentialId
+      : modelInfo(own)?.provider === provider
+    : false;
+  if (own && ownHere) return own;
+  // An endpoint declares no catalog tiers: its one best model answers for every tier.
+  if (provider === "custom") return endpoint ? endpointModelId(endpoint.credentialId, endpoint.models) : null;
   return modelForTier(provider, tier) ?? (provider === "openrouter" ? null : modelForTier("anthropic", tier));
 }
 
@@ -239,8 +267,8 @@ export function autoModelFor(
  * Maps a choice onto the run's brain (the one place that does): the API model
  * for the tier on `provider`'s key (`autoModelFor`), Claude Code's alias,
  * Codex's model, and the effort where the agent left it to auto. The API brain
- * takes the effort only when its model is auto (it has no effort setting of its
- * own). `apiModel` from a resumed run's record wins, so the run keeps its model.
+ * takes the effort when its model is auto (a fixed model keeps the agent's own,
+ * `brainEffortFor`). `apiModel` from a resumed run's record wins, so the run keeps its model.
  */
 export function autoApplied(
   agent: AutoAgent,
@@ -248,10 +276,11 @@ export function autoApplied(
   choice: Pick<AutoModelRecord, "tier" | "effort" | "apiModel">,
   provider: string,
   tiers?: Partial<Record<ModelTier, string>>,
+  endpoint?: AutoEndpoint | null,
 ): AutoApplied {
   const out: AutoApplied = {};
   if (isAutoModel(agent.model)) {
-    const model = choice.apiModel ?? autoModelFor(provider, choice.tier, tiers);
+    const model = choice.apiModel ?? autoModelFor(provider, choice.tier, tiers, endpoint);
     if (model) out.apiModel = model;
   }
   if (plan.kind === "model") {
@@ -281,17 +310,63 @@ export function withAuto<A extends AutoAgent>(
   return { agent: applied.apiModel ? { ...agent, model: applied.apiModel } : agent, plan: next };
 }
 
+/** The endpoint of a stored key, as Automático maps its tiers onto it; null for any other provider or a key without one. */
+const endpointOf = (row: Awaited<ReturnType<typeof usableCredentialRow>>): AutoEndpoint | null => {
+  const endpoint = row?.options.endpoint;
+  return row?.provider === "custom" && endpoint ? { credentialId: row.id, models: endpoint.models } : null;
+};
+
 /**
- * The provider whose line an `auto` API model comes from: the agent's own
- * key's (unless revoked), else the organization's (`orgModelProvider`: its
- * default key's, its newest key's, else Anthropic).
+ * The workspace's endpoint key behind `orgModelProvider`'s `custom` answer, in the order that reads the provider from:
+ * its default key, else the newest one it has.
  */
-export async function autoProvider(db: Executor, agent: Pick<Agent, "orgId" | "credentialId">): Promise<string> {
+async function orgEndpointKey(db: Executor, orgId: string) {
+  const { legacy } = await defaultCredentials(db, orgId);
+  const def = legacy ? await usableCredentialRow(db, orgId, legacy) : null;
+  // A live default is where `orgModelProvider` read the provider from; a revoked one leaves the newest key.
+  if (def) return def.provider === "custom" ? def : null;
+  const [newest] = await db
+    .select({ id: schema.providerCredentials.id })
+    .from(schema.providerCredentials)
+    .where(and(eq(schema.providerCredentials.orgId, orgId), isNull(schema.providerCredentials.revokedAt)))
+    .orderBy(desc(schema.providerCredentials.createdAt))
+    .limit(1);
+  const row = newest ? await usableCredentialRow(db, orgId, newest.id) : null;
+  return row?.provider === "custom" ? row : null;
+}
+
+/** What an `auto` API model thinks with: the provider of its key, and the endpoint whose own models stand for its tier. */
+export interface AutoLine {
+  provider: string;
+  /** With `custom`: the workspace endpoint's models (ADR 0146). */
+  endpoint?: AutoEndpoint;
+}
+
+/**
+ * The line an `auto` API model comes from: the agent's own key's (unless revoked), else the organization's
+ * (`orgModelProvider`: its default key's, its newest key's, else Anthropic) — with the workspace endpoint behind it, so a
+ * `custom` key resolves to a model only that key can call.
+ */
+export async function autoLine(db: Executor, agent: Pick<Agent, "orgId" | "credentialId">): Promise<AutoLine> {
   if (agent.credentialId) {
     const own = await usableCredentialRow(db, agent.orgId, agent.credentialId);
-    if (own) return own.provider;
+    if (own) {
+      const endpoint = endpointOf(own);
+      return { provider: own.provider, ...(endpoint ? { endpoint } : {}) };
+    }
   }
-  return orgModelProvider(db, agent.orgId);
+  const provider = await orgModelProvider(db, agent.orgId);
+  if (provider !== "custom") return { provider };
+  const endpoint = endpointOf(await orgEndpointKey(db, agent.orgId));
+  return { provider, ...(endpoint ? { endpoint } : {}) };
+}
+
+/**
+ * The provider whose line an `auto` API model comes from (`autoLine`): the agent's own key's (unless revoked), else the
+ * organization's (`orgModelProvider`: its default key's, its newest key's, else Anthropic).
+ */
+export async function autoProvider(db: Executor, agent: Pick<Agent, "orgId" | "credentialId">): Promise<string> {
+  return (await autoLine(db, agent)).provider;
 }
 
 /**

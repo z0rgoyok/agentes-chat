@@ -12,6 +12,7 @@ import {
   type Expression,
   Icon,
   modKey,
+  overLimit,
   PixelSpinner,
   Textarea,
 } from "@agenteschat/ui";
@@ -22,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { matchesNow, TOUCH } from "@/hooks/useMatchMedia";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { contextMenusOn, keepsSystemMenu, openContextMenu, selectedTextAt, setMenuReporter } from "@/lib/context-menu";
 import {
   closeFeedback,
@@ -116,6 +118,7 @@ export function FeedbackDialog({ reported, onClose }: { reported: Reported | nul
   const params = useRouterState({ select: (s) => JSON.stringify(s.matches.at(-1)?.params ?? {}) });
   const lead = rightHandOf(dir.agents) ?? dir.agents[0];
   const [text, setText] = useState("");
+  const textLimit = useTextLimit(MAX);
   const [sent, setSent] = useState(false);
   const [noting, setNoting] = useState(false);
   const [face, setFace] = useState<Expression>();
@@ -249,7 +252,7 @@ export function FeedbackDialog({ reported, onClose }: { reported: Reported | nul
     },
   });
   const uploading = files.some((f) => f.id === null);
-  const ready = text.trim() !== "" && !send.isPending && !uploading;
+  const ready = text.trim() !== "" && !overLimit(text, textLimit) && !send.isPending && !uploading;
   const title = sent ? t("feedback.thanks") : t("feedback.ask");
   const quote = quoting ? (about?.about.text ?? "") : "";
   return (
@@ -341,7 +344,7 @@ export function FeedbackDialog({ reported, onClose }: { reported: Reported | nul
               ref={box}
               className="arrival-feedback__text"
               rows={about ? 4 : 5}
-              maxLength={MAX}
+              limit={textLimit}
               value={text}
               aria-label={t("feedback.ask")}
               placeholder={t("feedback.placeholder")}

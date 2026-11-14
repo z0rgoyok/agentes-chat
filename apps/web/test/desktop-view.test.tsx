@@ -648,7 +648,7 @@ describe("the agent's screen in the computer dialog", () => {
     expect([note.tagName, note.getAttribute("rows"), note.className]).toEqual([
       "TEXTAREA",
       "1",
-      "ac-input brw-ac__note",
+      "ac-input ac-input--grow brw-ac__note",
     ]);
     expect(note.style.height).not.toBe("");
     await act(async () => fireEvent.change(note, { target: { value: "Deixei o arquivo na mesa" } }));

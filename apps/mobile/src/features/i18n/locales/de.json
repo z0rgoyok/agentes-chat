@@ -54,7 +54,8 @@
     "closed": "{{title}} · geschlossen",
     "reopen": "Wieder anzeigen",
     "answeredBy": "{{name}} hat gewählt",
-    "failed": "Deine Auswahl wurde nicht gesendet. Versuch es noch einmal."
+    "failed": "Deine Auswahl wurde nicht gesendet. Versuch es noch einmal.",
+    "tooLongFix": "Kürze die Antwort."
   },
   "chart": {
     "table": "Tabelle",
@@ -1982,8 +1983,21 @@
         "stopped": "{{name}} wird nicht mehr über WLAN genutzt"
       },
       "stall": {
-        "plug": "{{host}} sieht dieses iPhone noch nicht. Nimm ein Kabel, das Daten überträgt und nicht nur lädt, lass dieses iPhone entsperrt und tippe auf Vertrauen, wenn es fragt.",
-        "devmode": "Der Entwicklermodus geht erst nach einem Neustart dieses iPhones an. Tippe auf Neustart und danach auf Aktivieren. Kein Schalter da? Zieh dieses iPhone ab und schließ es wieder an."
+        "plug": "{{host}} sieht dieses iPhone noch nicht. Nimm ein Kabel, das Daten überträgt und nicht nur lädt, lass dieses iPhone entsperrt und tippe auf Vertrauen, wenn es fragt."
+      },
+      "devMode": {
+        "restarting": "{{host}} sieht dieses iPhone nach dem Neustart noch nicht wieder. Lass es angeschlossen.",
+        "back": "Tippe in der Abfrage auf diesem iPhone auf Aktivieren und gib deinen Code ein.",
+        "check": "Ist eingeschaltet, erneut prüfen",
+        "stillOff": "{{host}} sieht den Entwicklermodus noch als aus.",
+        "missing": "Option nicht zu sehen?",
+        "hidden": "Dieses iPhone versteckt die Option, bis Xcode sie anzeigen lässt.",
+        "hiddenOpen": "Dieses iPhone versteckt die Option, bis Xcode sie anzeigen lässt. Öffne Xcode auf {{host}}, während dieses iPhone dort angeschlossen ist.",
+        "openXcode": "Xcode öffnen",
+        "opened": "Xcode ist auf {{host}} offen. Schau noch einmal in den Einstellungen und schließ Xcode dort danach.",
+        "unlock": "Eingeschaltet und neu gestartet? Die Abfrage mit Aktivieren erscheint, sobald dieses iPhone entsperrt ist.",
+        "checkAgain": "Erneut prüfen",
+        "outdated": "Die agentes.chat-App auf {{host}} ist veraltet. Aktualisiere sie auf diesem Mac."
       }
     },
     "notice": {

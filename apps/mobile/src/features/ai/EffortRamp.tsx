@@ -1,5 +1,6 @@
-import { type AgentBrainInput, type BrainScope, keys, useApi } from "@agenteschat/client";
-import { EFFORT_LEVELS, type EffortLevel } from "@agenteschat/client/lib/brain-advanced";
+import { type AgentBrainInput, type BrainKind, type BrainScope, keys, useApi } from "@agenteschat/client";
+import { type EffortLevel, effortLevelsOf, effortTextOf } from "@agenteschat/client/lib/brain-advanced";
+import { AUTO } from "@agenteschat/client/lib/providers";
 import { bodyTones } from "@agenteschat/ui/agent/engine";
 import { Canvas, Fill, Shader, Skia, useClock } from "@shopify/react-native-skia";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,7 +17,6 @@ import { EFFORT_SHADER } from "@/sky/shaders";
 import { haptics, Text, useReducedMotion, useTheme, useToast } from "@/ui";
 import { effortReach, effortStep } from "./effort";
 
-const STEPS = EFFORT_LEVELS.length;
 const HEIGHT = 46;
 const CELL = 3;
 const FILL_SPRING = { stiffness: 220, damping: 22, mass: 1 };
@@ -37,24 +37,29 @@ function effortEffect() {
 /**
  * How much an agent thinks, the web's pixel ramp (`EffortPixels`) on the phone: bars in the agent's color fill up to
  * the chosen step, under the finger and on the UI thread, with a tick at each step; the step's name and what it means
- * follow. Drag or tap the ramp, or tap a name; it says the choice when let go. Still with reduced motion.
+ * follow. Drag or tap the ramp, or tap a name; it says the choice when let go. Still with reduced motion. `kind`: what
+ * the agent thinks with (an API key takes fewer levels); `value` null: none chosen, the ramp stays empty.
  */
 export function EffortRamp({
   value,
   onChange,
   color,
+  kind,
   disabled = false,
 }: {
-  value: EffortLevel;
+  value: EffortLevel | null;
   onChange: (level: EffortLevel) => void;
   color: Parameters<typeof bodyTones>[0];
+  kind?: BrainKind;
   disabled?: boolean;
 }) {
+  const levels = effortLevelsOf(kind);
+  const STEPS = levels.length;
   const { t } = useTranslation();
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const paused = useLivePaused();
-  const index = Math.max(0, EFFORT_LEVELS.indexOf(value));
+  const index = value ? levels.indexOf(value) : -1;
   const [shown, setShown] = useState(index);
   const [width, setWidth] = useState(0);
   const pos = useSharedValue(index + 1);
@@ -79,7 +84,7 @@ export function EffortRamp({
   const choose = (to: number) => {
     setShown(to);
     land(to);
-    const level = EFFORT_LEVELS[to];
+    const level = levels[to];
     if (level && level !== value) onChange(level);
   };
   const follow = (x: number) => {
@@ -142,8 +147,8 @@ export function EffortRamp({
   const uniforms = useDerivedValue(() => ({ ...base, pos: pos.value, t: moving ? clock.value : 0 }));
 
   const label = t("agentPage.work.brain.effort");
-  const level = EFFORT_LEVELS[shown] ?? value;
-  const name = t(`agentPage.work.brain.efforts.${level}`);
+  const level = levels[shown] ?? null;
+  const name = t(`agentPage.work.brain.efforts.${level ?? "none"}`);
   const onAction = (e: AccessibilityActionEvent) => {
     const by = e.nativeEvent.actionName === "increment" ? 1 : e.nativeEvent.actionName === "decrement" ? -1 : 0;
     const to = Math.min(STEPS - 1, Math.max(0, index + by));
@@ -188,7 +193,7 @@ export function EffortRamp({
         </Animated.View>
       </GestureDetector>
       <View style={styles.names}>
-        {EFFORT_LEVELS.map((e, i) => (
+        {levels.map((e, i) => (
           <Pressable
             key={e}
             onPress={() => {
@@ -207,7 +212,7 @@ export function EffortRamp({
         ))}
       </View>
       <Text variant="footnote" tone="muted" numberOfLines={2} style={styles.hint}>
-        {t(`agentPage.work.brain.effortText.${level}`)}
+        {t(`agentPage.work.brain.effortText.${effortTextOf(kind, level)}`)}
       </Text>
     </View>
   );
@@ -217,8 +222,13 @@ export function EffortRamp({
  * The ramp's choice, saved when let go: it stays on the ramp while the server answers, and a change made in the
  * meantime goes next, so the last one wins. Only a failure speaks.
  */
-export const useEffortChoice = (agentId: string, saved: EffortLevel | undefined, scope?: BrainScope) =>
-  useBrainChoice<EffortLevel>(agentId, saved ?? "medium", (effort) => ({ effort }), scope);
+export const useEffortChoice = (agentId: string, saved: EffortLevel | null | undefined, scope?: BrainScope) =>
+  useBrainChoice<EffortLevel | null>(
+    agentId,
+    saved === undefined ? "medium" : saved,
+    (effort) => ({ effort: effort ?? AUTO }),
+    scope,
+  );
 
 /**
  * One choice of the agent's brain that shows at once and saves in the background: the last one wins, and a save that

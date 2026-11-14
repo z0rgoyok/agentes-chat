@@ -1,10 +1,21 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+} from "node:fs";
 import { chmod, lchown, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { AGENT_WORKER_HOMES } from "@agenteschat/adapters/command-policy";
+import { AGENT_WORKER_HOMES, GROK_ACCOUNT_HOMES } from "@agenteschat/adapters/command-policy";
 import {
   ACCOUNT_KINDS,
   ACCOUNT_LOGIN_TTL_MS,
@@ -14,6 +25,7 @@ import {
   type AuthMethod,
   accountCodeAad,
   CURSOR_KEY_PROVIDER,
+  type CursorModelInfo,
   isAccountId,
   isAccountKind,
   isAuthMethod,
@@ -43,7 +55,7 @@ import {
   planModel,
   planOf,
 } from "@agenteschat/providers/plans";
-import type { Launcher } from "./agent-users";
+import { type Launcher, PROBE_AGENT_UID } from "./agent-users";
 import {
   AGY_SIGN_IN_FILE,
   type AgySignIn,
@@ -67,6 +79,7 @@ import {
   GROK_BIN,
   isExecutable,
   OPENCODE_BIN,
+  parseGrokModels,
   resolveCommand,
 } from "./executors";
 import { readSmallJson, writeJson } from "./json-file";
@@ -80,6 +93,7 @@ import {
   usageCrossed,
   withRateLimit,
 } from "./plan-usage";
+import { type RunCommand, runSync } from "./service";
 import type { TaskSecrets } from "./tasks";
 
 /**
@@ -528,8 +542,25 @@ export function watchCodexAuth(home: string, granted: string, send: (auth: strin
   };
 }
 
+/** Beside the account folders: the models Grok Build lists to a signed-in account (`AccountManager.grokModels`). */
+const GROK_MODELS_FILE = "grok-models.json";
+
 /** System mode: the account folders, outside root's home (its parents 711) so an agent's user reaches the one lent to it. */
 export const SYSTEM_ACCOUNTS_ROOT = path.join(AGENT_WORKER_HOMES, "accounts");
+
+/**
+ * System mode, Linux: what Grok Build's `workspace` sandbox does first, as a stand-in agent's user: bubblewrap binds
+ * each folder above `GROK_HOME`, and gives up when one of them is closed to that user. Null when it starts; else what
+ * it said. No bubblewrap is a failure too: Grok Build refuses to start without it.
+ */
+export function grokSandboxFails(dir: string, run: RunCommand = runSync): string | null {
+  const above: string[] = [];
+  for (let d = path.dirname(dir); d !== path.dirname(d); d = path.dirname(d)) above.unshift(d);
+  const as = [`--reuid=${PROBE_AGENT_UID}`, `--regid=${PROBE_AGENT_UID}`, "--clear-groups", "--"];
+  const binds = above.flatMap((d) => ["--bind", d, d]);
+  const r = run("/usr/bin/setpriv", [...as, "bwrap", "--bind", "/", "/", ...binds, "--", "/bin/true"]);
+  return r.code === 0 ? null : (saidIn(r.output) ?? `bubblewrap exited with code ${r.code}`);
+}
 
 /** A key account's plan and key (`provider.json`); null when the folder isn't one. Never through a link or a pipe. */
 export async function planKeyOf(dir: string): Promise<{ provider: PlanId; key: string } | null> {
@@ -574,11 +605,11 @@ export function agentAccountHome(home: string, kind: AccountKind, id: string): s
 }
 
 /** System mode, in an agent's worker: the account folders lent to this agent's user; any other is missing. */
-export function lentAccounts(root = SYSTEM_ACCOUNTS_ROOT) {
+export function lentAccounts(root = SYSTEM_ACCOUNTS_ROOT, grokRoot = GROK_ACCOUNT_HOMES) {
   return {
     accountDir(kind: AccountKind, id: string): string | null {
       if (!isAccountKind(kind) || !isAccountId(id)) return null;
-      const dir = path.join(root, kind, id);
+      const dir = kind === "grok" ? path.join(grokRoot, id) : path.join(root, kind, id);
       try {
         accessSync(dir, constants.R_OK | constants.W_OK | constants.X_OK);
         return statSync(dir).isDirectory() ? dir : null;
@@ -1215,6 +1246,13 @@ export interface AccountManagerOptions {
   onChange?: () => void;
   /** System mode: folders are lent to agents' users (`lendTo`); `chown` never follows a link (tests: a fake). */
   lending?: { chown: Chown };
+  /**
+   * System mode: Grok Build's folders, outside `root` (`GROK_ACCOUNT_HOMES`); what root writes beside them stays under
+   * `root`. Left out, they are under `root` as every other kind's.
+   */
+  grokRoot?: string;
+  /** System mode: whether Grok Build's sandbox starts for an agent's user above a folder (`grokSandboxFails`). */
+  grokSandbox?: (dir: string) => string | null;
   /** Tests: the platform (the Antigravity CLI signs in only on Linux here). */
   platform?: NodeJS.Platform;
   /**
@@ -1315,6 +1353,38 @@ export class AccountManager {
 
   constructor(private readonly opts: AccountManagerOptions) {
     this.log = opts.log ?? (() => {});
+    if (opts.lending && opts.grokRoot) this.moveGrokFolders(opts.grokRoot);
+  }
+
+  /**
+   * System mode: Grok Build's folders still under `root` go to `grokRoot`, owner and mode kept (what root wrote beside
+   * them stays). One that can't move there stays, and reads as missing until it signs in again.
+   */
+  private moveGrokFolders(to: string) {
+    const from = path.join(this.opts.root, "grok");
+    let names: string[];
+    try {
+      names = readdirSync(from).filter((n) => isAccountId(n) && lstatSync(path.join(from, n)).isDirectory());
+    } catch {
+      return;
+    }
+    if (names.length === 0) return;
+    try {
+      mkdirSync(to, { recursive: true, mode: 0o755 });
+      chmodSync(to, 0o755);
+    } catch (err) {
+      this.log(`grok accounts: couldn't make ${to} (${errnoCode(err) ?? "error"})`);
+      return;
+    }
+    // ponytail: a rename only; across file systems the folder stays and its account signs in again.
+    for (const id of names) {
+      try {
+        renameSync(path.join(from, id), path.join(to, id));
+        this.log(`account ${id.slice(0, 8)} (grok) moved to ${to}`);
+      } catch (err) {
+        this.log(`account ${id.slice(0, 8)} (grok): couldn't move it to ${to} (${errnoCode(err) ?? "error"})`);
+      }
+    }
   }
 
   /** `own`: the computer's own sign-in, which never goes through the auth egress group. */
@@ -1345,8 +1415,27 @@ export class AccountManager {
     return this.authPrefix() !== null;
   }
 
+  /** Where a kind's account folders are. */
+  private kindRoot(kind: AccountKind) {
+    return kind === "grok" && this.opts.grokRoot ? this.opts.grokRoot : path.join(this.opts.root, kind);
+  }
+
   private dirOf(kind: AccountKind, id: string) {
-    return path.join(this.opts.root, kind, id);
+    return path.join(this.kindRoot(kind), id);
+  }
+
+  /**
+   * The folders above a kind's account folders, with their modes. System mode: an agent's user passes through to the
+   * folder lent to it and lists nothing, except above Grok Build's, which its sandbox binds one by one.
+   */
+  private parents(kind: AccountKind): [string, number][] {
+    const closed = this.opts.lending ? 0o711 : 0o700;
+    const list: [string, number][] = [
+      [this.opts.root, closed],
+      [path.join(this.opts.root, kind), closed],
+    ];
+    if (kind === "grok" && this.opts.grokRoot) list.push([this.opts.grokRoot, 0o755]);
+    return list;
   }
 
   private env(kind: AccountKind, dir: string): NodeJS.ProcessEnv {
@@ -1577,11 +1666,9 @@ export class AccountManager {
     // half stays in memory.
     const pair = kind === "claude_code" || kind === "antigravity" || cliKey ? await generateSecretKeyPair() : undefined;
     if (!again) {
-      // System mode: agents' users pass through to the one folder lent to each, and list nothing.
-      const parents = this.opts.lending ? 0o711 : 0o700;
-      for (const d of [this.opts.root, path.dirname(dir)]) {
-        await mkdir(d, { recursive: true, mode: parents });
-        await chmod(d, parents).catch(() => undefined);
+      for (const [d, mode] of this.parents(kind)) {
+        await mkdir(d, { recursive: true, mode });
+        await chmod(d, mode).catch(() => undefined);
       }
       // Not recursive: two sign-ins with one id can't both create it.
       await mkdir(dir, { mode: 0o700 }).catch((err: unknown) => {
@@ -2005,7 +2092,19 @@ export class AccountManager {
         const status: { said?: string } = {};
         const info = await this.lookUp(login.kind, login.id, status);
         if (login.state !== "waiting") return;
-        if (info.loggedIn && !info.statusUnknown) {
+        const sandbox =
+          info.loggedIn && !info.statusUnknown && login.kind === "grok"
+            ? (this.opts.grokSandbox?.(login.dir) ?? null)
+            : null;
+        if (sandbox) {
+          this.failWith(
+            login,
+            "failed",
+            "sandbox",
+            `${LABEL.grok} signed in, but its sandbox can't start on this computer for an agent (${sandbox}).`,
+            sandbox,
+          );
+        } else if (info.loggedIn && !info.statusUnknown) {
           const unshared =
             login.shared && login.kind === "antigravity" ? await this.agyCopyFails(login.id, login.dir) : null;
           // Signed in again, the folder now holds that sign-in, which no agent can think with: signed out for all.
@@ -2293,16 +2392,46 @@ export class AccountManager {
             : kind === "antigravity"
               ? parseAgyStatus(r.status, `${r.stdout}\n${r.stderr}`, agyAuthOf(dir))
               : parseCodexStatus(r.status, `${r.stdout}\n${r.stderr}`);
+    if (kind === "grok" && status.loggedIn) this.keepGrokModels(parseGrokModels(r.stdout));
     // Timed out, or didn't start.
     const unknown = r.status === null ? { statusUnknown: true as const } : {};
     return { id, kind, ...status, ...unknown, ...shared };
+  }
+
+  private grokList: CursorModelInfo[] | undefined;
+  private get grokModelsFile() {
+    return path.join(this.opts.root, GROK_MODELS_FILE);
+  }
+
+  /**
+   * The models Grok Build last listed for an account signed in here (its status look runs `grok models` in that
+   * account's folder), kept across restarts: a folder lent to an agent is never looked at again. Undefined before one.
+   */
+  grokModels(): CursorModelInfo[] | undefined {
+    if (this.grokList === undefined) {
+      const kept = readSmallJson(this.grokModelsFile, 64 * 1024);
+      const list = Array.isArray(kept) ? kept.filter((m): m is CursorModelInfo => typeof m?.id === "string") : [];
+      this.grokList = list.length > 0 ? list : undefined;
+    }
+    return this.grokList;
+  }
+
+  private keepGrokModels(list: CursorModelInfo[]) {
+    if (list.length === 0 || JSON.stringify(list) === JSON.stringify(this.grokModels())) return;
+    this.grokList = list;
+    try {
+      writeJson(this.grokModelsFile, list);
+    } catch {
+      // kept in memory until the next look
+    }
+    this.changed();
   }
 
   private async lookAll(): Promise<RunnerAccountInfo[]> {
     const found: { kind: AccountKind; id: string }[] = [];
     for (const kind of ACCOUNT_KINDS) {
       // No folder yet: no accounts. Any other failure fails the look (the server must never read it as "none left").
-      const entries = await readdir(path.join(this.opts.root, kind), { withFileTypes: true }).catch((err: unknown) => {
+      const entries = await readdir(this.kindRoot(kind), { withFileTypes: true }).catch((err: unknown) => {
         if (errnoCode(err) === "ENOENT") return [];
         throw err;
       });
@@ -2313,7 +2442,7 @@ export class AccountManager {
         if (login?.state === "waiting" && !login.again) continue;
         // A sign-in that never finished (the runner stopped meanwhile): not an account; gone once it would have
         // expired. A folder lent to an agent was signed in (and is never removed from under it here).
-        const marker = path.join(this.opts.root, kind, e.name, SIGNING_IN);
+        const marker = path.join(this.dirOf(kind, e.name), SIGNING_IN);
         const started = this.lentTo(kind, e.name) === null ? await lstat(marker).catch(() => null) : null;
         if (started) {
           if (Date.now() - started.mtimeMs > ACCOUNT_LOGIN_TTL_MS) {
@@ -2567,7 +2696,7 @@ export class AccountManager {
       const now = this.lentTo(kind, id);
       if (now === uid) return true;
       if (now) await this.reclaimNow(kind, id);
-      for (const d of [this.opts.root, path.dirname(dir)]) await chmod(d, 0o711);
+      for (const [d, mode] of this.parents(kind)) await chmod(d, mode);
       // Marked before the first chown: a folder an agent's user may have written to never runs as root again.
       await writeFile(this.marker(kind, id, "lent"), String(uid), { mode: 0o600 });
       await chownTree(dir, uid, chown);

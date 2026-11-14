@@ -216,6 +216,7 @@ export const OP_ROUTES: Readonly<Record<MachineOp, "machine" | "agent">> = {
   "keep.end": "machine",
   // The person's own session: macOS's password window opens on their screen (a system-mode runner answers unsupported).
   "xcode.fix": "machine",
+  "xcode.open": "machine",
 };
 
 type AccessRequestOp = Extract<MachineRequest, { op: "access.request" }>;
@@ -337,6 +338,8 @@ export interface HandlerContext {
   };
   /** `XCODE_FIX_PROTOCOL`: fixing this Mac's own Xcode; without it the op answers `unsupported`. */
   xcodeFix?: (req: Extract<MachineRequest, { op: "xcode.fix" }>) => MachineReplies["xcode.fix"];
+  /** `IPHONE_DEV_MODE_PROTOCOL`: opening Xcode on this Mac; without it the op answers `opened: false`. */
+  xcodeOpen?: () => Promise<MachineReplies["xcode.open"]>;
 }
 
 export interface RequestScope {
@@ -707,7 +710,9 @@ async function routeRequest(ctx: HandlerContext, req: MachineRequest, scope: Req
     if (!ctx.phones) throw new RunnerError("phone_missing", "This computer doesn't reach phones.");
     return ctx.phones.pair(req);
   }
-  if (req.op === "phone.look") return { looking: ctx.phones?.look() ?? false } satisfies MachineReplies["phone.look"];
+  if (req.op === "phone.look")
+    return { looking: (await ctx.phones?.look()) ?? false } satisfies MachineReplies["phone.look"];
+  if (req.op === "xcode.open") return (await ctx.xcodeOpen?.()) ?? { opened: false };
   if (req.op === "phone.wifi")
     return ctx.phones ? ctx.phones.wifi(req) : ({ available: [] } satisfies MachineReplies["phone.wifi"]);
   if (req.op === "xcode.fix") {

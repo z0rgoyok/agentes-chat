@@ -1006,4 +1006,44 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     expect(brainCalls(state)).toEqual([{ brain: "claude_code", account: "acct_d" }]);
     expect(brainScreen(d)).toBe("Pronto");
   });
+
+  test("an account at its limit says until when in the list; picked, one line says the agent waits, with Ver uso, and the switch still goes", async () => {
+    const until = new Date(Date.now() + 25 * 86_400_000).toISOString();
+    const at = new Date().toISOString();
+    const { state } = await onMac({
+      accounts: [
+        work,
+        {
+          ...work,
+          id: "acct_full",
+          label: "Cheia",
+          email: "cheia@example.com",
+          usage: { windows: [{ kind: "seven_day", usedPercent: 100, resetsAt: until }], source: "probe", at },
+        },
+        {
+          ...work,
+          id: "acct_free",
+          label: "Folga",
+          email: "folga@example.com",
+          usage: { windows: [{ kind: "seven_day", usedPercent: 5 }], source: "probe", at },
+        },
+      ],
+      account: "acct_work",
+    });
+    const d = await brainDialog();
+    await toScreen(d, "Trocar de conta");
+    const full = within(d).getByRole("radio", { name: /Cheia/ }).closest("label") as HTMLElement;
+    expect(full.textContent).toContain("No limite até");
+    // The one with room comes picked: nothing waits, nothing to say.
+    expect(within(d).queryByText(/espera até o plano renovar/)).toBeNull();
+    await pickRow(d, notInUse("Cheia"));
+    const line = within(d).getByText(/Nesta conta a Ada espera até o plano renovar\./);
+    const link = within(line.closest("p") as HTMLElement).getByRole("link", { name: "Ver uso" });
+    expect(link.getAttribute("href")).toBe(`/org/${ORG_ID}/settings/usage`);
+    expect(mainButton(d)?.textContent).toBe("Trocar para Cheia · Team");
+    expect((mainButton(d) as HTMLButtonElement).disabled).toBe(false);
+    await confirmScreen(d);
+    await settle(6);
+    expect(brainCalls(state)).toEqual([{ brain: "claude_code", account: "acct_full" }]);
+  });
 });

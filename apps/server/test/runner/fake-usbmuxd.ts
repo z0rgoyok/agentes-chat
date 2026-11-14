@@ -10,9 +10,9 @@ export interface FakeDevice {
 
 /**
  * usbmuxd on a Unix socket in `dir`: `ListDevices` answers `devices`, a `Connect` to a phone port in `ports` pipes the
- * socket to that loopback port (any other port is refused). `asked` keeps every message.
+ * socket to that loopback port or Unix socket (any other port is refused). `asked` keeps every message.
  */
-export async function fakeUsbmuxd(dir: string, devices: FakeDevice[], ports: Record<number, number>) {
+export async function fakeUsbmuxd(dir: string, devices: FakeDevice[], ports: Record<number, number | string>) {
   const file = path.join(dir, "usbmuxd.sock");
   const asked: Record<string, unknown>[] = [];
   const reply = (sock: net.Socket, tag: number, xml: string) => {
@@ -57,7 +57,7 @@ export async function fakeUsbmuxd(dir: string, devices: FakeDevice[], ports: Rec
       }
       sock.off("data", onData);
       sock.pause();
-      const phone = net.connect(to, "127.0.0.1", () => {
+      const connected = () => {
         reply(
           sock,
           tag,
@@ -66,7 +66,8 @@ export async function fakeUsbmuxd(dir: string, devices: FakeDevice[], ports: Rec
         if (buf.length > 0) phone.write(buf);
         sock.pipe(phone).pipe(sock);
         sock.resume();
-      });
+      };
+      const phone = typeof to === "string" ? net.connect(to, connected) : net.connect(to, "127.0.0.1", connected);
       const close = () => {
         sock.destroy();
         phone.destroy();

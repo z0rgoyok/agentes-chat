@@ -100,3 +100,43 @@ export const focusHeld = () => {
   const held = document.activeElement;
   return held !== null && held !== document.body && !held.matches('[role="dialog"]');
 };
+
+/** What opens over the page and keeps the keys while open: a dialog, a menu, a list of options. */
+export const OPEN_LAYER = '[role="dialog"], [role="menu"], [role="listbox"]';
+
+/** Typing in a field (a text box, a select, an editable text): single-key shortcuts and Esc are the field's. */
+export const typingInField = (el: EventTarget | null) =>
+  el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+/** A page or computer a person is controlling (`data-control` on it): its keys are the person's, never the app's. */
+const IN_CONTROL = "[data-control]";
+
+/**
+ * Whether the focus rests where no one chose: on the page itself, or in a conversation's box, where the app puts it
+ * as the conversation opens. Something taking the keys (a page coming under control) may take it from there.
+ */
+export const focusIdle = () => {
+  const held = document.activeElement;
+  return held === null || held === document.body || held.closest(".ac-composer") !== null;
+};
+
+/**
+ * Whether the app may put the focus in a conversation's box by itself (the conversation opening, a key typed on it):
+ * never on a touch screen, whose keyboard would open over the page, nor while a dialog, menu or list is open, a page
+ * or computer is under a person's control, a field other than a conversation's box holds the focus, or the person
+ * has text selected (to copy it).
+ */
+export const mayTakeFocus = () => {
+  if (onScreenKeyboard() || document.querySelector(`${OPEN_LAYER}, ${IN_CONTROL}`)) return false;
+  const held = document.activeElement;
+  if (typingInField(held) && !(held as HTMLElement).closest(".ac-composer")) return false;
+  return !window.getSelection()?.toString();
+};
+
+/** Focus a text box with the caret after its text, the page left where it is (a jump to a message stays put). */
+export const focusAtEnd = (box: HTMLTextAreaElement | HTMLInputElement) => {
+  box.focus({ preventScroll: true });
+  box.setSelectionRange(box.value.length, box.value.length);
+  // A draft taller than the box: its end in view, where the caret is (not every browser scrolls to it).
+  box.scrollTop = box.scrollHeight;
+};

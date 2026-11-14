@@ -380,6 +380,12 @@ describe("no AI connected: above the composer", () => {
         .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(within(whom).getByRole("button", { name: /^Ada/ }).getAttribute("aria-pressed")).toBe("false");
+    // Each card is its title and an ⓘ, no line under it: whom it covers is the card's description, one per line.
+    expect(whom.querySelectorAll(".ac-option__desc")).toHaveLength(0);
+    expect(whom.querySelectorAll(".ac-hint")).toHaveLength(2);
+    const [all, ada] = within(whom).getAllByRole("button");
+    expect(all?.getAttribute("aria-description")).toBe("Ada · Dev\nAtlas · Ops");
+    expect(ada?.getAttribute("aria-description")).toBe("Dev");
     for (const name of ["Claude", "ChatGPT", "Outro plano", "Começar grátis"])
       expect(within(team).getByRole("button", { name: new RegExp(`^${name}`) })).toBeTruthy();
     cleanup();
@@ -419,7 +425,11 @@ describe("no AI connected: above the composer", () => {
     const box = screen().getByRole("dialog");
     const whom = within(box).getByRole("group", { name: "Agentes que usam este plano" });
     // The conversation's agent leads, the right hand isn't one of them.
-    expect(within(whom).getByRole("button", { name: /^Todos os agentes/ }).textContent).toContain("Atlas e Ada");
+    expect(
+      within(whom)
+        .getByRole("button", { name: /^Todos os agentes/ })
+        .getAttribute("aria-description"),
+    ).toBe("Atlas · Ops\nAda · Dev");
     await click(within(box).getByRole("button", { name: /^Claude/ }), 8);
     // The plan's panel signs in for both, one at a time, the conversation's agent first: whose turn in words, their
     // faces in order, and the sign-in as the dialog's own action.

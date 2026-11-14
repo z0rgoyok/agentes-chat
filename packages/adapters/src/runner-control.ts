@@ -281,6 +281,8 @@ export type ControlRequest =
   | { type: "iphone.open"; app: "xcode" | "appStore" }
   /** Fixes the Mac's Xcode (macOS asks for the Mac's password for `select`), or stops the fix; answers the setup. */
   | { type: "iphone.fixXcode"; action: "start" | "cancel"; kind: XcodeFixKind }
+  /** Reads the plugged iPhone again now; answers once the status carries what it found. */
+  | { type: "iphone.look" }
   /** Finish what's running briefly, then exit 0 (the app quits). */
   | { type: "shutdown" };
 
@@ -322,6 +324,7 @@ export interface ControlReplies {
   "iphone.download": ControlIphoneSetup;
   "iphone.open": { opened: boolean };
   "iphone.fixXcode": ControlIphoneSetup;
+  "iphone.look": { looking: boolean };
   shutdown: { stopping: true };
 }
 

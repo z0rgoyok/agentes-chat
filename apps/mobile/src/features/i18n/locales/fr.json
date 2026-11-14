@@ -56,7 +56,8 @@
     "closed": "{{title}} · fermé",
     "reopen": "Afficher à nouveau",
     "answeredBy": "{{name}} a choisi",
-    "failed": "Votre choix n'a pas été envoyé. Réessayez."
+    "failed": "Votre choix n'a pas été envoyé. Réessayez.",
+    "tooLongFix": "Raccourcissez la réponse."
   },
   "chart": {
     "table": "Tableau",
@@ -2075,8 +2076,21 @@
         "stopped": "{{name}} n'est plus utilisé en Wi-Fi"
       },
       "stall": {
-        "plug": "{{host}} ne voit pas encore cet iPhone. Utilisez un câble qui transmet les données, pas seulement la charge, gardez cet iPhone déverrouillé et touchez Se fier s'il le demande.",
-        "devmode": "Le Mode développeur ne s'active qu'après le redémarrage de cet iPhone. Touchez Redémarrer, puis Activer une fois qu'il a redémarré. Pas d'interrupteur ? Débranchez cet iPhone et rebranchez-le."
+        "plug": "{{host}} ne voit pas encore cet iPhone. Utilisez un câble qui transmet les données, pas seulement la charge, gardez cet iPhone déverrouillé et touchez Se fier s'il le demande."
+      },
+      "devMode": {
+        "restarting": "{{host}} ne voit pas encore cet iPhone après son redémarrage. Laissez-le branché.",
+        "back": "Touchez Activer dans l'alerte de cet iPhone et saisissez votre code.",
+        "check": "C'est activé, vérifier à nouveau",
+        "stillOff": "{{host}} voit toujours le mode développeur désactivé.",
+        "missing": "L'option n'apparaît pas ?",
+        "hidden": "Cet iPhone cache l'option jusqu'à ce que Xcode demande de l'afficher.",
+        "hiddenOpen": "Cet iPhone cache l'option jusqu'à ce que Xcode demande de l'afficher. Ouvrez Xcode sur {{host}} avec cet iPhone branché.",
+        "openXcode": "Ouvrir Xcode",
+        "opened": "Xcode s'est ouvert sur {{host}}. Regardez à nouveau dans Réglages, puis fermez Xcode là-bas.",
+        "unlock": "Vous l'avez activé et il a redémarré ? L'alerte avec Activer apparaît une fois cet iPhone déverrouillé.",
+        "checkAgain": "Vérifier à nouveau",
+        "outdated": "L'app agentes.chat sur {{host}} n'est pas à jour. Mettez-la à jour sur ce Mac."
       }
     },
     "notice": {

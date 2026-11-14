@@ -15,8 +15,12 @@ const OVER_SHEETS = ".ac-toasts, .ni-wrap";
  * of either (a popover's row): the conversation's composer, as Esc does (`useEscClose`).
  */
 export function useModalSheet(sheet: RefObject<HTMLElement | null>, keep?: string) {
-  // Read on the first render, before a field inside takes the focus (`autoFocus`).
-  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  // Read on the first render, before a field inside takes the focus (`autoFocus`). The page itself (a sheet the URL
+  // opened, after a menu let the focus go) is no opener: the one it replaced, or the composer, is.
+  const [opener] = useState(() => {
+    const now = document.activeElement;
+    return now instanceof HTMLElement && now !== document.body ? now : null;
+  });
   useEffect(() => {
     const el = sheet.current;
     if (!el) return;

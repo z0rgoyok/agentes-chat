@@ -665,7 +665,8 @@
       "step3": "ダウンロードしたファイルを開き、新しいagentes.chatを「アプリケーション」にドラッグします。",
       "installerNote": "ダウンロードしたファイルを開くと、古いバージョンに上書きして新しいバージョンがインストールされます。",
       "keepNote": "サーバーと設定はそのまま残ります。",
-      "whatsNew": "{{version}}の新機能"
+      "whatsNew": "{{version}}の新機能",
+      "systemDetails": "システムの詳細"
     },
     "activity": {
       "title": "アクティビティ",

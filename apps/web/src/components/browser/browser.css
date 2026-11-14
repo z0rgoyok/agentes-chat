@@ -814,6 +814,11 @@ html:not([data-pointer]) .brw-ac__stage[tabindex]:focus-visible {
   flex: 1 1 240px;
   min-width: 0;
 }
+/* Its limit's line under the whole row, the buttons kept beside the note. */
+.brw-ac__back .ac-limit {
+  flex-basis: 100%;
+  order: 1;
+}
 /*
  * A note to the agent (handing back, or why it couldn't be done): one line in the middle of its field that grows as it
  * wraps, up to four lines (10 + 4 × 22 + 10, and the border), with no grip.

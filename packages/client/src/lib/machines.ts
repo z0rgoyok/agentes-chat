@@ -421,6 +421,7 @@ const WORDED_LOGIN_FAILURES = [
   "status_unknown",
   "no_token",
   "not_kept",
+  "sandbox",
 ] as const satisfies readonly AccountLoginFailure[];
 
 /**
@@ -434,7 +435,7 @@ export function loginFailureLine(code: string | null | undefined) {
   const worded = WORDED_LOGIN_FAILURES.find((c) => c === code);
   return {
     key: worded ? (`agentPage.work.brain.add.why.${worded}` as const) : ("agentPage.work.brain.add.failed" as const),
-    detail: worded === "cli_exit" || worded === "not_signed_in_after_login",
+    detail: worded === "cli_exit" || worded === "not_signed_in_after_login" || worded === "sandbox",
   };
 }
 

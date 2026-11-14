@@ -236,21 +236,88 @@ export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: s
   }, [ref, on]);
 }
 
+/**
+ * How much a text field holds, in place of a native `maxLength`, which drops pasted or dictated text past it without
+ * a word: here nothing is ever cut, and the screen holds its submit while `overLimit` says so.
+ */
+export interface TextLimit {
+  max: number;
+  /** For the counter's digits: "90.120 / 100.000". */
+  locale: string;
+  /** The line past the limit, given the length: its size, the limit, then the way out. */
+  over: (length: number) => ReactNode;
+}
+
+/** A field shows how much it holds from this share of its limit. Mirror: `LIMIT_NEAR` in packages/client message-length.ts. */
+const LIMIT_NEAR = 0.9;
+
+/** Counted as the server counts it (trimmed). */
+export const overLimit = (value: string, limit: TextLimit | undefined) =>
+  limit !== undefined && value.trim().length > limit.max;
+
+/** Whether `LimitLine` shows anything for this value: from 90% of the limit. */
+export const limitShown = (value: string, limit: TextLimit | undefined) =>
+  limit !== undefined && value.trim().length >= limit.max * LIMIT_NEAR;
+
+/**
+ * Under a field with a limit (`Textarea`'s `limit`, or beside a bare textarea): nothing below 90% of it, then a quiet
+ * counter, past it the field's error line.
+ */
+export function LimitLine({ id, value, limit }: { id?: string; value: string; limit: TextLimit }) {
+  if (!limitShown(value, limit)) return null;
+  const length = value.trim().length;
+  if (length > limit.max)
+    return (
+      <span id={id} className="ac-limit ac-field__error" aria-live="polite">
+        {limit.over(length)}
+      </span>
+    );
+  const digits = new Intl.NumberFormat(limit.locale);
+  return (
+    <span id={id} className="ac-limit ac-limit--count">
+      {digits.format(length)} / {digits.format(limit.max)}
+    </span>
+  );
+}
+
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   invalid?: boolean;
-  /** As tall as its text (a controlled `value`), growing and shrinking with it. */
+  /** As tall as its text (a controlled `value`), growing and shrinking with it, up to a set height, then it scrolls. */
   autoGrow?: boolean;
+  /** How much it holds (a controlled `value`); never with `maxLength`. */
+  limit?: TextLimit;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { className, invalid, rows = 4, autoGrow = false, ...rest },
+  { className, invalid, rows = 4, autoGrow = false, limit, ...rest },
   ref,
 ) {
-  const { labelledBy: _, ...wiring } = useFieldControl({ ...rest, "aria-invalid": invalid ?? rest["aria-invalid"] });
+  const value = String(rest.value ?? "");
+  const lineId = `${useId().replace(/:/g, "")}-limit`;
+  const { labelledBy: _, ...wiring } = useFieldControl({
+    ...rest,
+    "aria-describedby": limitShown(value, limit) ? cx(rest["aria-describedby"], lineId) : rest["aria-describedby"],
+    "aria-invalid": overLimit(value, limit) || (invalid ?? rest["aria-invalid"]),
+  });
   const box = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => box.current as HTMLTextAreaElement, []);
-  useAutoGrow(box, String(rest.value ?? ""), autoGrow);
-  return <textarea ref={box} rows={rows} className={cx("ac-input", className)} {...rest} {...wiring} />;
+  useAutoGrow(box, value, autoGrow);
+  const area = (
+    <textarea
+      ref={box}
+      rows={rows}
+      className={cx("ac-input", autoGrow && "ac-input--grow", className)}
+      {...rest}
+      {...wiring}
+    />
+  );
+  if (!limit) return area;
+  return (
+    <>
+      {area}
+      <LimitLine id={lineId} value={value} limit={limit} />
+    </>
+  );
 });
 
 /**

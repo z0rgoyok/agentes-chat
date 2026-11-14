@@ -9,7 +9,7 @@ import { useHeldWhile } from "@agenteschat/client/lib/hold";
 import { can } from "@agenteschat/client/lib/permissions";
 import { rolePicksInSight } from "@agenteschat/client/lib/personal-view";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
-import { modeKey } from "@agenteschat/client/lib/workspace-mode";
+import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Button,
   Dialog,
@@ -34,14 +34,21 @@ import { memberOf, PeoplePicker, type PickKey } from "./MemberPicker";
 import { useOrg } from "./org-context";
 import { RoleChecklist } from "./roles/RoleChecklist";
 
-const ACCESS_MODES: ChannelAccessMode[] = ["public", "private", "roles"];
+const ACCESS_MODES: ChannelAccessMode[] = ["public", "roles", "private"];
+
+/** A team's three words for who sees a channel, the same as a cargo's "Quem vê #canal" says them. */
+const TEAM_ACCESS = {
+  public: "rolesPage.everyoneName",
+  roles: "rolesPage.who.some",
+  private: "rolesPage.sees.private",
+} as const;
 
 /**
- * "Quem pode entrar": Público, Privado or Departamentos ou cargos (ADR 0125). The third shows the roles picked, each
- * removable, and "Escolher cargos", which ticks them in a dialog of their own (it opens by itself while none is
- * picked). Creating a channel and its details share it. A personal workspace says the first two plainly ("Everyone
- * here can join", "Only who I add") and offers the third only when a role is worth it or it is the channel's (ADR
- * 0158); what each one does is the same.
+ * "Quem pode entrar": Todos, Só alguns cargos or Só quem for adicionado (ADR 0125), the words a cargo's Canais uses.
+ * The second shows the roles picked, each removable, and "Escolher cargos", which ticks them in a dialog of their own
+ * (it opens by itself while none is picked). Creating a channel and its details share it. A personal workspace says
+ * the open and closed ones plainly ("Everyone here can join", "Only who I add") and offers the cargos only when a
+ * role is worth it or it is the channel's (ADR 0158); what each one does is the same.
  */
 export function ChannelAccessChoice({
   value,
@@ -64,10 +71,19 @@ export function ChannelAccessChoice({
   const modes = ACCESS_MODES.filter(
     (mode) => mode !== "roles" || value.mode === "roles" || rolePicksInSight(org, roles.data?.roles ?? []),
   );
+  const personal = isPersonal(org);
   const label = (mode: ChannelAccessMode) =>
-    mode === "roles" ? ("newChannel.roles" as const) : modeKey(org, `newChannel.${mode}` as const);
+    !personal
+      ? TEAM_ACCESS[mode]
+      : mode === "roles"
+        ? ("newChannel.roles" as const)
+        : modeKey(org, `newChannel.${mode}` as const);
   const desc = (mode: ChannelAccessMode) =>
-    mode === "roles" ? ("newChannel.rolesDesc" as const) : modeKey(org, `newChannel.${mode}Desc` as const);
+    mode === "roles"
+      ? ("newChannel.rolesDesc" as const)
+      : !personal && mode === "private"
+        ? ("rolesPage.sees.privateDesc" as const)
+        : modeKey(org, `newChannel.${mode}Desc` as const);
   return (
     <div className="channel-access">
       {/* A dropdown, as "Categoria" above it: three cards side by side broke their words in a narrow dialog. */}
@@ -228,11 +244,14 @@ export function NewChannelDialog({
   open,
   onOpenChange,
   category = null,
+  roleIds,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Opened from a category's +: it starts chosen. */
   category?: string | null;
+  /** Opened from a cargo's Canais: it starts limited to these cargos. */
+  roleIds?: string[];
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -243,7 +262,9 @@ export function NewChannelDialog({
   const { solo } = usePersonalView();
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
-  const [access, setAccess] = useState<ChannelAccess>({ mode: "public", roleIds: [] });
+  const [access, setAccess] = useState<ChannelAccess>(
+    roleIds?.length ? { mode: "roles", roleIds } : { mode: "public", roleIds: [] },
+  );
   const [categoryId, setCategoryId] = useState<string | null>(category);
   const [selected, setSelected] = useState<Set<PickKey>>(new Set());
   const [touched, setTouched] = useState(false);
@@ -265,11 +286,12 @@ export function NewChannelDialog({
       await navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: channel.id } });
     },
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the cargos it opens with are read once per opening
   useEffect(() => {
     if (!open) return;
     setName("");
     setTopic("");
-    setAccess({ mode: "public", roleIds: [] });
+    setAccess(roleIds?.length ? { mode: "roles", roleIds } : { mode: "public", roleIds: [] });
     setCategoryId(category);
     setSelected(new Set());
     setTouched(false);

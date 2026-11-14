@@ -286,6 +286,7 @@ export const SELF_TESTED = [
   "iconmid",
   "fieldwidth",
   "corner",
+  "nest",
   "clip",
   "cascadeorder",
   "pagetop",

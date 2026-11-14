@@ -5,7 +5,7 @@ import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { memberGroups } from "@agenteschat/client/lib/member-groups";
 import { agentFaceWord, agentStatusShort, isOutOfOffice } from "@agenteschat/client/lib/presence";
-import { Avatar, Button, Icon, matchesWords, PixelSpinner, RoleMark, SearchField } from "@agenteschat/ui";
+import { Avatar, Button, Icon, matchesWords, OPEN_LAYER, PixelSpinner, RoleMark, SearchField } from "@agenteschat/ui";
 import { type KeyboardEvent, type TouchEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -74,7 +74,7 @@ export function MembersSheet({
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const over = document.querySelectorAll('[role="dialog"], [role="menu"], [role="listbox"]');
+      const over = document.querySelectorAll(OPEN_LAYER);
       if (Array.from(over).some((el) => el !== sheet.current)) return;
       e.preventDefault();
       onClose();

@@ -20,8 +20,14 @@ import {
   useSkillUsage,
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { SKILL_ASSET_MB } from "@agenteschat/client/lib/files";
-import { relativeTime } from "@agenteschat/client/lib/format";
+import {
+  formatBytes,
+  SKILL_ASSET_MB,
+  SKILL_TEXT_MB,
+  SKILL_ZIP_BYTES,
+  SKILL_ZIP_MB,
+} from "@agenteschat/client/lib/files";
+import { formatPercent, relativeTime } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   changedByText,
@@ -49,7 +55,7 @@ import { diffLines } from "@agenteschat/ui/diff";
 import { useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
@@ -664,7 +670,7 @@ export function InstallSkillScreen({ initialUrl, forAgentId }: { initialUrl?: st
  * from the card's own link: one typed over it or a repository picked instead goes on for nobody.
  */
 function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgentId?: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const c = useColors();
   const toast = useToast();
   const qc = useQueryClient();
@@ -679,10 +685,15 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<InstallTab>("github");
   const [url, setUrl] = useState("");
-  const [zip, setZip] = useState<{ uri: string; name: string } | null>(null);
+  const [zip, setZip] = useState<{ uri: string; name: string; size: number | undefined } | null>(null);
+  const tooBig = (zip?.size ?? 0) > SKILL_ZIP_BYTES;
+  /** A .zip on its way: the share of it sent, from the moment it's read for sending until the server answers. */
+  const [sending, setSending] = useState<number | null>(null);
+  /** Stops the .zip on its way: Cancelar in the bar, or leaving the screen. */
+  const stop = useRef<AbortController | null>(null);
+  useEffect(() => () => stop.current?.abort(), []);
   const [form, setForm] = useState({ name: "", description: "", body: "" });
   const [error, setError] = useState<string | null>(null);
-  const [reading, setReading] = useState(false);
   const [choices, setChoices] = useState<SkillChoice[] | null>(null);
   const [skipped, setSkipped] = useState<SkillSkipped[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -695,12 +706,18 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
   /** The agent what installs from `link` goes on for, when the row shows it and is checked. */
   const sendFor = (link: string) =>
     turnOn && cardLink !== undefined && link.trim() === cardLink ? forAgentId : undefined;
-  const busy = action.isPending || reading;
-  const step = useStepText(busy, [
+  const busy = action.isPending || sending !== null;
+  const timerStep = useStepText(busy && sending === null, [
     t("skills.installStep.fetching"),
     t("skills.installStep.reading"),
     t("skills.installStep.saving"),
   ]);
+  const step =
+    sending === null
+      ? timerStep
+      : sending < 1
+        ? t("skills.zipSending", { percent: formatPercent(i18n.language, sending * 100) })
+        : t("skills.installStep.saving");
 
   const done = (skill: unknown) => {
     const s = skill as SkillDetail;
@@ -774,7 +791,7 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
     });
     const a = res.canceled ? null : res.assets[0];
     if (!a) return;
-    setZip({ uri: a.uri, name: a.name });
+    setZip({ uri: a.uri, name: a.name, size: a.size });
     setError(null);
   };
   const submit = async () => {
@@ -809,17 +826,32 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
         setError(t("skills.zipMissing"));
         return;
       }
-      setReading(true);
+      if (tooBig) return;
+      const stopper = new AbortController();
+      stop.current = stopper;
+      setSending(0);
       let zipBase64: string;
       try {
         zipBase64 = await new File(zip.uri).base64();
       } catch {
+        setSending(null);
         setError(t("common.unknownError"));
         return;
-      } finally {
-        setReading(false);
       }
-      action.mutate({ type: "import", input: { zipBase64 } }, { onSuccess: done, onError });
+      if (stopper.signal.aborted) {
+        setSending(null);
+        return;
+      }
+      action.mutate(
+        { type: "import", input: { zipBase64 }, upload: { signal: stopper.signal, onProgress: setSending } },
+        {
+          onSuccess: done,
+          onError: (e) => {
+            if (!stopper.signal.aborted) setError(errorText(t, e, i18n.language, { maxMb: SKILL_ZIP_MB }));
+          },
+          onSettled: () => setSending(null),
+        },
+      );
       return;
     }
     if (!(form.name.trim() && form.description.trim() && form.body.trim())) {
@@ -835,7 +867,15 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
   return (
     <SettingsPage
       title={t("skills.install")}
-      action={{ label: t("skills.installSubmit"), disabled: busy, onPress: () => void submit() }}
+      action={
+        sending !== null
+          ? { label: t("common.cancel"), onPress: () => stop.current?.abort() }
+          : {
+              label: t("skills.installSubmit"),
+              disabled: busy || (tab === "zip" && tooBig),
+              onPress: () => void submit(),
+            }
+      }
       locked={busy}
     >
       <View style={styles.tabs}>
@@ -980,12 +1020,43 @@ function InstallSkill({ initialUrl, forAgentId }: { initialUrl?: string; forAgen
             <GroupedRow
               icon="file"
               label={t("skills.zipPick")}
-              sub={zip?.name ?? t("skills.zipNone")}
+              sub={
+                zip
+                  ? zip.size === undefined
+                    ? zip.name
+                    : `${zip.name} · ${formatBytes(i18n.language, zip.size)}`
+                  : t("skills.zipNone")
+              }
               chevron
               onPress={() => void pickZip()}
             />
           </GroupedList>
-          <GroupedFooter>{t("skills.zipHelp")}</GroupedFooter>
+          <GroupedFooter
+            hint={{
+              name: t("common.about", { label: t("skills.tab.zip") }),
+              text: t("skills.zipAbout", { text: SKILL_TEXT_MB, assets: SKILL_ASSET_MB }),
+            }}
+          >
+            {t("skills.zipHelp", { max: SKILL_ZIP_MB })}
+          </GroupedFooter>
+          {zip && tooBig ? (
+            <View style={styles.hidden}>
+              <Note icon="x" live>
+                {t("skills.zipTooLarge", {
+                  name: zip.name,
+                  size: formatBytes(i18n.language, zip.size ?? 0),
+                  max: SKILL_ZIP_MB,
+                })}
+              </Note>
+              <Button
+                variant="secondary"
+                size="sm"
+                label={t("skills.zipUseLink")}
+                leading={(color) => <SocialMark provider="github" color={color} size={16} />}
+                onPress={() => setTab("github")}
+              />
+            </View>
+          ) : null}
         </>
       ) : (
         <>

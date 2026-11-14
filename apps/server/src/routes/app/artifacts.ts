@@ -24,6 +24,7 @@ import {
   listArtifacts,
   listArtifactVersions,
   listDeletedArtifacts,
+  MAX_MESSAGE_LENGTH,
   purgeArtifactNow,
   replyToBlock,
   restoreArtifact,
@@ -823,7 +824,7 @@ export function artifactRoutes(deps: AppDeps) {
           z.object({
             picks: z.array(z.number().int().min(0)).min(1).max(ARTIFACT_LIMITS.choiceQuestions),
             others: z
-              .array(z.string().max(ARTIFACT_LIMITS.choiceOtherChars).nullable())
+              .array(z.string().max(MAX_MESSAGE_LENGTH).nullable())
               .max(ARTIFACT_LIMITS.choiceQuestions)
               .nullable()
               .optional(),

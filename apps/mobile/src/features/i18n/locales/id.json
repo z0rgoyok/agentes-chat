@@ -52,7 +52,8 @@
     "closed": "{{title}} · ditutup",
     "reopen": "Tampilkan lagi",
     "answeredBy": "{{name}} memilih",
-    "failed": "Pilihanmu tidak terkirim. Coba lagi."
+    "failed": "Pilihanmu tidak terkirim. Coba lagi.",
+    "tooLongFix": "Persingkat jawabannya."
   },
   "chart": {
     "table": "Tabel",
@@ -1884,8 +1885,21 @@
         "stopped": "{{name}} tidak lagi dipakai lewat Wi-Fi"
       },
       "stall": {
-        "plug": "{{host}} belum melihat iPhone ini. Pakai kabel yang membawa data, bukan hanya daya, biarkan iPhone ini tidak terkunci, lalu ketuk Percayai jika diminta.",
-        "devmode": "Mode Pengembang baru menyala setelah iPhone ini dimulai ulang. Ketuk Mulai Ulang, lalu Nyalakan setelah iPhone menyala lagi. Tidak ada tombolnya? Cabut iPhone ini dan colokkan lagi."
+        "plug": "{{host}} belum melihat iPhone ini. Pakai kabel yang membawa data, bukan hanya daya, biarkan iPhone ini tidak terkunci, lalu ketuk Percayai jika diminta."
+      },
+      "devMode": {
+        "restarting": "{{host}} belum melihat iPhone ini lagi setelah dimulai ulang. Biarkan tetap tersambung.",
+        "back": "Ketuk Nyalakan di peringatan pada iPhone ini dan masukkan kode sandimu.",
+        "check": "Sudah kunyalakan, periksa lagi",
+        "stillOff": "{{host}} masih melihat Mode Pengembang mati.",
+        "missing": "Opsinya tidak muncul?",
+        "hidden": "iPhone ini menyembunyikan opsi ini sampai Xcode memintanya muncul.",
+        "hiddenOpen": "iPhone ini menyembunyikan opsi ini sampai Xcode memintanya muncul. Buka Xcode di {{host}} dengan iPhone ini tersambung.",
+        "openXcode": "Buka Xcode",
+        "opened": "Xcode terbuka di {{host}}. Lihat lagi di Pengaturan, lalu tutup Xcode di sana.",
+        "unlock": "Sudah dinyalakan dan dimulai ulang? Peringatan dengan Nyalakan muncul saat kunci iPhone ini terbuka.",
+        "checkAgain": "Periksa lagi",
+        "outdated": "Aplikasi agentes.chat di {{host}} sudah usang. Perbarui di Mac itu."
       }
     },
     "notice": {

@@ -6,6 +6,7 @@ import {
   createModelProviders,
   customModelId,
   customModelOf,
+  endpointModelId,
   isOpenRouterModel,
   listEndpointModels,
   maxCostNanoUsd,
@@ -34,6 +35,27 @@ const unpriced = {
 };
 
 describe("ids and the registry", () => {
+  test("the endpoint model picked when none is named: the best last test, the admin's order among equals", () => {
+    const pick = (models: { id: string; check?: "ok" | "no_tools" | "failed" }[]) => endpointModelId(CRED, models);
+    expect(pick([])).toBeNull();
+    expect(pick([{ id: "a" }, { id: "b" }])).toBe(customModelId(CRED, "a"));
+    expect(
+      pick([
+        { id: "a", check: "no_tools" },
+        { id: "b", check: "ok" },
+        { id: "c", check: "ok" },
+      ]),
+    ).toBe(customModelId(CRED, "b"));
+    expect(pick([{ id: "a", check: "failed" }, { id: "b" }])).toBe(customModelId(CRED, "b"));
+    expect(
+      pick([
+        { id: "a", check: "failed" },
+        { id: "b", check: "no_tools" },
+      ]),
+    ).toBe(customModelId(CRED, "b"));
+    expect(pick([{ id: "a", check: "failed" }])).toBe(customModelId(CRED, "a"));
+  });
+
   test("a custom id keeps its credential and the endpoint's own id, slashes and colons included", () => {
     expect(parseCustomModel(id)).toEqual({ credentialId: CRED, model: "meta-llama/llama-4:70b" });
     expect(parseCustomModel("claude-sonnet-5-5")).toBeNull();

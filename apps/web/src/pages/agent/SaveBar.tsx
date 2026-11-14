@@ -25,7 +25,7 @@ export function SaveBar({
   const [open, setOpen] = useState(false);
   if (changes.length === 0) return null;
   const where = [...new Set(changes.map((c) => c.label))];
-  const problem = errors.name ?? errors.handle ?? errors.budget ?? errors.audience;
+  const problem = errors.name ?? errors.handle ?? errors.budget ?? errors.audience ?? errors.instructions;
   return (
     <section className="agp-savebar" aria-label={t("edit.unsaved")}>
       <span

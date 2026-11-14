@@ -2,7 +2,7 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { Button, type IconName, InfoHint, Locked, Text } from "@/ui";
-import { TextArea } from "./TextArea";
+import { overLimit, TextArea, type TextLimit } from "./TextArea";
 
 /**
  * A sheet's title row: an optional face or tile, the title (with an ⓘ, "About <title>", when `hint` says why) and a
@@ -55,7 +55,7 @@ export function PromptForm({
   icon,
   initial = "",
   allowEmpty = false,
-  maxLength,
+  limit,
   children,
   onSubmit,
 }: {
@@ -67,8 +67,8 @@ export function PromptForm({
   icon?: IconName;
   initial?: string;
   allowEmpty?: boolean;
-  /** The most characters the answer takes (the server's own limit). */
-  maxLength?: number;
+  /** How much the answer holds (the server's own limit): Send waits while it is past it. */
+  limit?: TextLimit;
   /** Extra rows between the text and the button (who does it, where). */
   children?: ReactNode;
   /** May return a promise: the button waits for it. */
@@ -77,7 +77,7 @@ export function PromptForm({
   const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (busy || (!allowEmpty && !text.trim())) return;
+    if (busy || (!allowEmpty && !text.trim()) || overLimit(text, limit)) return;
     setBusy(true);
     try {
       await onSubmit(text.trim());
@@ -100,7 +100,7 @@ export function PromptForm({
           placeholder={placeholder}
           accessibilityLabel={title}
           autoFocus
-          {...(maxLength ? { maxLength } : {})}
+          {...(limit ? { limit } : {})}
         />
         {children}
       </Locked>
@@ -110,7 +110,7 @@ export function PromptForm({
         {...(icon ? { icon } : {})}
         label={submitLabel}
         loading={busy}
-        disabled={!allowEmpty && !text.trim()}
+        disabled={(!allowEmpty && !text.trim()) || overLimit(text, limit)}
         onPress={() => void submit()}
       />
     </>

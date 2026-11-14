@@ -150,7 +150,7 @@ const push = (socket: { push: (f: unknown) => void }, event: Record<string, unkn
 const asking = { type: "agent.consulting", runId: RUN, agentId: ADA_ID, consultedAgentId: ATLAS_ID };
 
 describe("the pair row before the reply that asked (ConsultPairRow)", () => {
-  test("still out: the two faces, ⇄ and 'perguntando' with its clock, right before the reply, never the question", async () => {
+  test("still out: the two faces, ⇄ and 'perguntando' with its clock, right before the reply, its subject, never the answer", async () => {
     await open(withAsk([consultation({})]));
     const r = row() as HTMLElement;
     expect(r).not.toBeNull();
@@ -160,9 +160,35 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     expect(r.querySelector(".consult-pair__word")?.textContent).toBe("perguntando");
     expect(r.querySelector(".consult-pair__time")?.textContent).toMatch(/^\d+ s$/);
     expect(r.querySelector(".consult-pair__row--live")).not.toBeNull();
-    expect(r.textContent).not.toContain(QUESTION);
+    // A one-sentence question is its own subject.
+    expect(r.querySelector(".consult-pair__subject")?.textContent).toBe(QUESTION);
+    expect(r.textContent).not.toContain(ANSWER);
     // The reply under it shows its face and name again (not grouped under the message above).
     expect(asked().classList.contains("ac-msg--grouped")).toBe(false);
+  });
+
+  test("its subject sits between the names and how it went, and stays in the dialog's header", async () => {
+    const c = consultation({ question: "Investigue as notificações duplicadas. Depois diga quem as recebe." });
+    await open(withTalk(withAsk([c]), c));
+    const r = row() as HTMLElement;
+    const subject = "Investigue as notificações duplicadas.";
+    expect(r.querySelector(".consult-pair__subject")?.textContent).toBe(subject);
+    // Names first, then · subject · word and time.
+    const parts = [...r.querySelectorAll(".consult-pair__name, .consult-pair__subject, .consult-pair__word")].map(
+      (n) => n.textContent,
+    );
+    expect(parts).toEqual(["Ada", "Atlas", subject, "perguntando"]);
+    expect(r.querySelectorAll(".consult-pair__sep")).toHaveLength(2);
+    await act(async () => fireEvent.click(rowButton()));
+    await settle(3);
+    const side = panel() as HTMLElement;
+    expect(side.querySelector(".thread-head__subject")?.textContent).toBe(subject);
+    // Its own line, which wraps: the meta under it never does.
+    expect(side.querySelector(".thread-head__meta .thread-head__subject")).toBeNull();
+    // The participants and the kind stay, after it.
+    expect(side.querySelector(".consult-title")?.textContent).toContain("Ada");
+    expect(side.textContent).toContain("entre agentes");
+    expect(panelLabel()).toBe("Conversa entre Ada e Atlas");
   });
 
   test("several agents fold into one row: stacked faces, 'Atlas e mais 1', the count while out", async () => {

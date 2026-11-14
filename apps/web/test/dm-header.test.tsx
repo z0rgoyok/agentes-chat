@@ -225,3 +225,49 @@ describe("the profile in the panel closes", () => {
     expect(panel()).toBeNull();
   });
 });
+
+describe("the profile in the panel is part of the address", () => {
+  const PANEL = { name: "Perfil da Ada" };
+  const panel = () => screen().queryByRole("complementary", PANEL);
+  const searchOf = (router: { state: { location: { search: unknown } } }) =>
+    router.state.location.search as Record<string, unknown>;
+  const tab = (name: RegExp) =>
+    within(screen().getByRole("tablist", { name: "Seções da Ada" })).getByRole("tab", { name });
+
+  test("opening adds it, a tab picked inside replaces it, and Back and Forward close and reopen it", async () => {
+    const { router } = await renderApp(`/org/${ORG_ID}/dm/agent/${ADA_ID}`, { api: createFakeApi(seedState()) });
+    await settle(8);
+    const header = document.querySelector(".channel__header") as HTMLElement;
+    await click(within(header).getByRole("button", { name: "Perfil de Ada" }));
+    expect(searchOf(router)).toMatchObject({ agent: ADA_ID });
+    const entries = router.history.length;
+    // Radix's tabs move on the press.
+    await act(async () => fireEvent.mouseDown(tab(/^Memória/), { button: 0 }));
+    await settle(4);
+    expect(searchOf(router)).toMatchObject({ agent: ADA_ID, agentTab: "memory" });
+    expect(router.history.length).toBe(entries);
+    await act(async () => router.history.back());
+    await settle(6);
+    expect(panel()).toBeNull();
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/agent/${ADA_ID}`);
+    await act(async () => router.history.forward());
+    await settle(6);
+    expect(panel()).toBeTruthy();
+    expect(tab(/^Memória/).getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("a reload, or Back from another page, opens it at its tab", async () => {
+    const { router } = await renderApp(`/org/${ORG_ID}/dm/agent/${ADA_ID}?agent=${ADA_ID}&agentTab=memory`, {
+      api: createFakeApi(seedState()),
+    });
+    await settle(8);
+    expect(panel()).toBeTruthy();
+    expect(tab(/^Memória/).getAttribute("aria-selected")).toBe("true");
+    await act(async () => router.navigate({ to: "/org/$orgId/notifications", params: { orgId: ORG_ID } }));
+    await settle(6);
+    expect(panel()).toBeNull();
+    await act(async () => router.history.back());
+    await settle(8);
+    expect(panel()).toBeTruthy();
+  });
+});

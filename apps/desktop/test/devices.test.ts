@@ -73,6 +73,12 @@ describe("the iPhone setup's checklist", () => {
     expect(ready.done).toBe(7);
   });
 
+  test("an iPhone gone from the Mac while it restarts for Developer Mode stays on that step, under way", () => {
+    const restarting = iphoneSteps(READY, null, true);
+    expect(restarting.current).toBe("developerMode");
+    expect(restarting.states).toMatchObject({ connected: "done", developerMode: "active", uiAutomation: "todo" });
+  });
+
   test("an iPhone that needs a newer Xcode, or the Mac still preparing it, goes back to that step", () => {
     expect(at(READY, iphone({ state: "needs_you", reason: "xcode_too_old" })).current).toBe("xcode");
     expect(at(READY, iphone({ state: "preparing", reason: "device_support" }))).toMatchObject({ current: "tools" });

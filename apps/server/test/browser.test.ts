@@ -637,8 +637,10 @@ describe("handoff routes", () => {
     const takeover = async () =>
       (await (await api(`/agents/${org.agentId}/browser/takeover`, { json: {} })).json()) as { id: string };
     const first = await takeover();
-    const failed = await api(`/browser/handoffs/${first.id}/failed`, { json: { note: "pediu o código da Ana" } });
-    expect(await failed.json()).toMatchObject({ status: "failed", note: "pediu o código da Ana" });
+    // A note is the person's words to the agent: it holds what a message holds.
+    const note = `pediu o código da Ana ${"e depois outro código por mensagem ".repeat(40)}`.trim();
+    const failed = await api(`/browser/handoffs/${first.id}/failed`, { json: { note } });
+    expect(await failed.json()).toMatchObject({ status: "failed", note });
     const second = await takeover();
     const canceled = await api(`/browser/handoffs/${second.id}/cancel`, { json: {} });
     expect(await canceled.json()).toMatchObject({ status: "cancelled" });

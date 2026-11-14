@@ -177,7 +177,7 @@ describe("a help request opens the agent's browser in its card", () => {
     await act(async () => fireEvent.click(within(card).getByRole("button", { name: "Desistir" })));
     expect(card.textContent).toContain("O que aconteceu?");
     const why = within(card).getByPlaceholderText("Conte com suas palavras") as HTMLTextAreaElement;
-    expect([why.getAttribute("rows"), why.className]).toEqual(["1", "ac-input brw-ac__note"]);
+    expect([why.getAttribute("rows"), why.className]).toEqual(["1", "ac-input ac-input--grow brw-ac__note"]);
     expect(card.querySelector(".brw-ac__back")).toBeNull();
     await act(async () => fireEvent.click(within(card).getByRole("button", { name: "Voltar" })));
 
@@ -198,7 +198,7 @@ describe("a help request opens the agent's browser in its card", () => {
     expect([note.tagName, note.getAttribute("rows"), note.className]).toEqual([
       "TEXTAREA",
       "1",
-      "ac-input brw-ac__note",
+      "ac-input ac-input--grow brw-ac__note",
     ]);
     await act(async () => fireEvent.change(note, { target: { value: "Entrei com a conta de teste" } }));
     // Shift+Enter adds a line, as in the chat; Enter sends the note, and adds no line to it.

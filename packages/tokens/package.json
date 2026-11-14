@@ -10,7 +10,8 @@
     "./channel-refs": "./src/channel-refs.ts",
     "./look": "./src/look.ts",
     "./message-links": "./src/message-links.ts",
-    "./names": "./src/names.ts"
+    "./names": "./src/names.ts",
+    "./skills": "./src/skills.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

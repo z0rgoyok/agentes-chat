@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { ARTIFACT_LIMITS, IMPORT_LIMITS } from "@agenteschat/engine";
+import { SKILL_ZIP_BASE64_CHARS } from "@agenteschat/tokens/skills";
 import { API_BODY_BYTES, apiBodyMax } from "../src/http/body-limit";
 import { createTestServer, ORIGIN, type TestServer } from "./harness";
 
@@ -71,8 +72,9 @@ describe("a request body past its path's limit is refused before any route reads
       "/api/git/org_1/conn_1/acme/site.git/git-receive-pack",
     ])
       expect(apiBodyMax(path)).toBeNull();
-    // Raised for the JSON that carries a whole folder.
+    // Raised for the JSON that carries a whole folder, past the zip its schema takes.
     expect(apiBodyMax(`${org}/skills/import`)).toBeGreaterThan(IMPORT_LIMITS.bodyBytes);
+    expect(apiBodyMax(`${org}/skills/import`)).toBeGreaterThan(SKILL_ZIP_BASE64_CHARS);
     // The web app's batch is 8 Mi characters, each up to 3 bytes.
     expect(apiBodyMax(`${org}/wiki/import`)).toBeGreaterThanOrEqual(3 * 8 * 1024 * 1024);
     // Signing in keeps its limit whatever the path ends with.

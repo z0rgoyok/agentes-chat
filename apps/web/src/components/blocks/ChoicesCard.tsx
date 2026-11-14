@@ -1,7 +1,6 @@
 import { useAnswerChoices, useArtifact, useChoices } from "@agenteschat/client";
 import {
   answeredFirst,
-  CHOICE_OTHER_MAX,
   type ChoiceDraft,
   choiceLetter,
   choiceOfKey,
@@ -11,12 +10,14 @@ import {
   otherChoice,
   pickChoice,
 } from "@agenteschat/client/lib/choices";
-import { Button, Spinner, Textarea } from "@agenteschat/ui";
+import { MAX_MESSAGE_LENGTH, tooLongRefusal } from "@agenteschat/client/lib/message-length";
+import { Button, overLimit, Spinner, Textarea } from "@agenteschat/ui";
 import { type KeyboardEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { CardSky, colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { codeAndBold, inlineWords } from "@/lib/markdown";
 import { useToast } from "@/lib/toast";
 import "./blocks.css";
@@ -28,7 +29,7 @@ import "./blocks.css";
  * sent with Enviar (or Enter). The app's own card, like a vote: a pick is an act of the person's.
  */
 export function ChoicesCard({ id, version }: { id: string; version?: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const toast = useToast();
@@ -41,6 +42,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
   const list = useRef<HTMLFieldSetElement>(null);
+  const limit = useTextLimit(MAX_MESSAGE_LENGTH, "choices.tooLongFix");
   const a = artifact.data;
   if (a?.content.kind !== "choices" || !query.data) {
     return (
@@ -114,7 +116,8 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
     if (next.send)
       answer.mutate(next.send, {
         onError: (e) => {
-          if (!answeredFirst(e)) toast.show(t("choices.failed"), "error");
+          if (!answeredFirst(e))
+            toast.show(tooLongRefusal(t, i18n.language, e, t("choices.tooLongFix")) ?? t("choices.failed"), "error");
           void query.refetch();
         },
       });
@@ -125,9 +128,10 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
     setText(d.others[d.step] ?? "");
     setWriting(true);
   };
+  const tooLong = overLimit(text, limit);
   const send = () => {
     const words = text.trim();
-    if (words) pick(other, words);
+    if (words && !tooLong) pick(other, words);
   };
   const go = (next: ChoiceDraft) => {
     setDraft(next);
@@ -239,7 +243,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
             autoGrow
             autoFocus
             value={text}
-            maxLength={CHOICE_OTHER_MAX}
+            limit={limit}
             placeholder={t("question.placeholder")}
             aria-label={t("question.placeholder")}
             disabled={answer.isPending}
@@ -255,7 +259,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
             <Button
               size="sm"
               variant="primary"
-              disabled={!text.trim() || answer.isPending}
+              disabled={!text.trim() || tooLong || answer.isPending}
               loading={answer.isPending}
               onClick={send}
             >

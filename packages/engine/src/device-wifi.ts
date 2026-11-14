@@ -1,4 +1,5 @@
 import {
+  IPHONE_DEV_MODE_PROTOCOL,
   type PhonePairFailure,
   type PhonePairing,
   type PhonePairState,
@@ -310,4 +311,26 @@ export async function xcodeFix(
     });
   }
   return { fix: xcodeFixOf(reply, kind) };
+}
+
+/**
+ * `POST …/computers/{machineId}/xcode-open` (the Mac's owner or an admin): opens Xcode on the Mac, which shows the
+ * Developer Mode switch on a plugged iPhone that hides it. `opened: false`: the Mac's app is too old, or Xcode didn't
+ * open. Offline: `MachineOfflineError`.
+ */
+export async function openXcode(
+  deps: Deps,
+  actorId: string,
+  orgId: string,
+  machineId: string,
+): Promise<{ opened: boolean }> {
+  const machine = await pairingHost(deps.db, actorId, orgId, machineId);
+  if (machine.protocol < IPHONE_DEV_MODE_PROTOCOL) return { opened: false };
+  try {
+    const reply = await deps.hub.call(machine.id, { op: "xcode.open" });
+    return { opened: reply.opened === true };
+  } catch (error) {
+    if (tooOld(error)) return { opened: false };
+    throw error;
+  }
 }

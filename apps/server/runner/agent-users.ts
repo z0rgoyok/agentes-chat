@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { AGENT_WORKER_HOMES } from "@agenteschat/adapters/command-policy";
+import { AGENT_WORKER_HOMES, GROK_ACCOUNT_HOMES } from "@agenteschat/adapters/command-policy";
 import { type AgentScope, isAccountId } from "@agenteschat/adapters/machine-protocol";
 import { agentTmpOnDisk, isAgentUid } from "./config";
 import { RunnerError } from "./errors";
@@ -879,9 +879,9 @@ export function readAccountUsers(home: string): Omit<AccountUser, "gid">[] {
   return Array.isArray(v) ? v.filter(isAccountRow).map(({ id, user, uid }) => ({ id, user, uid })) : [];
 }
 
-/** What holds agents' data. Claude's mount view hides them all; a turn's cwd must lie under one but the stores. */
+/** What holds agents' data. Claude's mount view hides them all; a turn's cwd must lie under one but the sign-ins'. */
 const AGENT_DATA_ROOTS = ["/home", SHARED_ROOT, AGENT_WORKER_HOMES, GIT_CACHE_DIR];
-export const ACCOUNT_MASKED_ROOTS = [...AGENT_DATA_ROOTS, ACCOUNT_STORES];
+export const ACCOUNT_MASKED_ROOTS = [...AGENT_DATA_ROOTS, GROK_ACCOUNT_HOMES, ACCOUNT_STORES];
 
 const inside = (root: string, p: string) => p.startsWith(`${root}/`);
 export const underMaskedRoot = (p: string) => ACCOUNT_MASKED_ROOTS.some((root) => inside(root, p));

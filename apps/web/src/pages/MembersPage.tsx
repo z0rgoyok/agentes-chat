@@ -1,4 +1,11 @@
-import type { InvitationWithStatus, JoinRequest, MySuggestion, OrgRole, Person } from "@agenteschat/client";
+import type {
+  InvitationWithStatus,
+  JoinRequest,
+  MySuggestion,
+  OrgRole,
+  Person,
+  RoleMailLoss,
+} from "@agenteschat/client";
 import {
   useAllInvitations,
   useApproveJoinRequest,
@@ -60,6 +67,7 @@ import {
   MenuNote,
   MenuSeparator,
   MenuSub,
+  overLimit,
   PageHeader,
   PlanMeter,
   planAttention,
@@ -83,9 +91,11 @@ import { MembersFull } from "@/components/Limits";
 import { LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { ProfileTrigger } from "@/components/ProfileCard";
+import { MailLoss, mailTitle } from "@/components/roles/RolePeople";
 import { RoleChoices, RolesPicker } from "@/components/roles/RolesPicker";
 import { RoleChip } from "@/components/roles/RolesSection";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { copyText, type MenuEntry } from "@/lib/context-menu";
 import { entityMenu } from "@/lib/entity-menu";
 import { planMeterText, usageShown } from "@/lib/plan-usage";
@@ -166,6 +176,27 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
   // On a server that sends no email, an owner makes the link for a member who forgot their password (ADR 0158).
   const makesPasswordLinks = org.role === "owner" && authConfig.data !== undefined && !authConfig.data.passwordReset;
   const [passwordLinkFor, setPasswordLinkFor] = useState<{ userId: string; name: string } | null>(null);
+  // A person's ⋯ › Cargos: each tick saves; a cargo that takes a mailbox from an agent asks first (`mail`).
+  const api = useApi();
+  const [giving, setGiving] = useState(false);
+  const [mail, setMail] = useState<{ lost: RoleMailLoss[]; answer: (yes: boolean) => void } | null>(null);
+  const giveRoles = async (m: Person, roleIds: string[]) => {
+    const added = roleIds.filter((id) => !(m.roleIds ?? []).includes(id));
+    setGiving(true);
+    try {
+      const lost = (await Promise.all(added.map((id) => api.roles.mailLoss(org.id, id, [m.userId])))).flat();
+      const yes = lost.length === 0 || (await new Promise<boolean>((answer) => setMail({ lost, answer })));
+      if (!yes) return;
+      setRolesOf.mutate(
+        { userId: m.userId, roleIds, ...(added.length ? { mailLossSeen: lost.map((x) => x.accountId) } : {}) },
+        { onError: (e) => toast.show(errorText(t, e), "error") },
+      );
+    } catch (e) {
+      toast.show(errorText(t, e), "error");
+    } finally {
+      setGiving(false);
+    }
+  };
   // The filter's values: `owner`, or a role's id.
   const people = allPeople.filter(
     (m) =>
@@ -306,21 +337,12 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                       >
                         <MenuEntries entries={acts.filter((e) => e.id === "dm")} />
                         {gives && (
-                          <MenuSub
-                            icon="shield"
-                            label={t(
-                              m.role === "owner" || held.length > 0 ? "members.rolesChange" : "members.rolesAdd",
-                            )}
-                          >
+                          <MenuSub icon="shield" label={t("rolesPage.rolesCta")}>
                             <RoleChoices
                               roles={orgRoles}
                               value={m.roleIds ?? []}
-                              onChange={(roleIds) =>
-                                setRolesOf.mutate(
-                                  { userId: m.userId, roleIds },
-                                  { onError: (e) => toast.show(errorText(t, e), "error") },
-                                )
-                              }
+                              disabled={setRolesOf.isPending || giving}
+                              onChange={(roleIds) => void giveRoles(m, roleIds)}
                             />
                           </MenuSub>
                         )}
@@ -343,6 +365,38 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
             })}
           </List>
           <PasswordLinkDialog person={passwordLinkFor} onClose={() => setPasswordLinkFor(null)} />
+          <Dialog
+            open={mail !== null}
+            onOpenChange={(open) => {
+              if (open) return;
+              mail?.answer(false);
+              setMail(null);
+            }}
+            title={mail ? mailTitle(t, mail.lost) : ""}
+            closeLabel={t("common.close")}
+            width={440}
+          >
+            <DialogBody>{mail && <MailLoss lost={mail.lost} />}</DialogBody>
+            <DialogFooter bar>
+              <Button
+                onClick={() => {
+                  mail?.answer(false);
+                  setMail(null);
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  mail?.answer(true);
+                  setMail(null);
+                }}
+              >
+                {t("rolesPage.mail.giveAnyway")}
+              </Button>
+            </DialogFooter>
+          </Dialog>
         </section>
 
         <section aria-labelledby="sec-agents" className="section section--tight">
@@ -541,6 +595,7 @@ function WaitingRequests({ focus, action }: { focus?: string; action?: string })
   const [roles, setRoles] = useState<Record<string, string[]>>({});
   const [denying, setDenying] = useState<JoinRequest | null>(null);
   const [reason, setReason] = useState("");
+  const reasonLimit = useTextLimit(JOIN_REASON_MAX);
   const [handOff, setHandOff] = useState<{ name: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [gone, setGone] = useState(false);
@@ -577,7 +632,7 @@ function WaitingRequests({ focus, action }: { focus?: string; action?: string })
       },
     );
   const denyOne = () => {
-    if (!denying) return;
+    if (!denying || overLimit(reason, reasonLimit)) return;
     deny.mutate(
       { id: denying.id, reason: reason.trim() || undefined },
       {
@@ -693,18 +748,13 @@ function WaitingRequests({ focus, action }: { focus?: string; action?: string })
                 text: t("members.requests.reasonHelp"),
               }}
             >
-              <Textarea
-                rows={3}
-                maxLength={JOIN_REASON_MAX}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
+              <Textarea rows={3} limit={reasonLimit} value={reason} onChange={(e) => setReason(e.target.value)} />
             </Field>
           </DialogBody>
         </Locked>
         <DialogFooter>
           <Button onClick={() => setDenying(null)}>{t("common.cancel")}</Button>
-          <Button variant="danger" loading={deny.isPending} onClick={denyOne}>
+          <Button variant="danger" disabled={overLimit(reason, reasonLimit)} loading={deny.isPending} onClick={denyOne}>
             {t("members.requests.deny")}
           </Button>
         </DialogFooter>
@@ -1140,8 +1190,10 @@ function SuggestDialog({ open, onClose, inviters }: { open: boolean; onClose: ()
   const emails = sendsEmail(useAuthConfig().data);
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
+  const noteLimit = useTextLimit(JOIN_NOTE_MAX);
   const [error, setError] = useState<string | null>(null);
   const submit = () => {
+    if (overLimit(note, noteLimit)) return;
     const address = email.trim().toLowerCase();
     if (!isEmail(address)) return setError(t("members.suggest.refused.invalid"));
     setError(null);
@@ -1203,7 +1255,7 @@ function SuggestDialog({ open, onClose, inviters }: { open: boolean; onClose: ()
           >
             <Textarea
               rows={2}
-              maxLength={JOIN_NOTE_MAX}
+              limit={noteLimit}
               value={note}
               placeholder={t("members.suggest.whoPlaceholder")}
               onChange={(e) => setNote(e.target.value)}
@@ -1213,7 +1265,7 @@ function SuggestDialog({ open, onClose, inviters }: { open: boolean; onClose: ()
       </Locked>
       <DialogFooter>
         <Button onClick={onClose}>{t("common.cancel")}</Button>
-        <Button variant="primary" loading={suggest.isPending} onClick={submit}>
+        <Button variant="primary" disabled={overLimit(note, noteLimit)} loading={suggest.isPending} onClick={submit}>
           {t("members.suggest.send")}
         </Button>
       </DialogFooter>

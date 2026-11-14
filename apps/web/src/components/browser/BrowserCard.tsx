@@ -47,6 +47,7 @@ import {
 import { formatTime, lowerFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { browserOffMessage, profileRefusalLine } from "@agenteschat/client/lib/machines";
+import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import { can as canDo } from "@agenteschat/client/lib/permissions";
 import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { isBlankPage } from "@agenteschat/client/lib/sites";
@@ -55,11 +56,13 @@ import {
   Button,
   Chip,
   FilterToggle,
+  focusIdle,
   Icon,
   type IconName,
   isApple,
   Locked,
   onScreenNow,
+  overLimit,
   PixelSpinner,
   SkyStrip,
   shortcut,
@@ -82,6 +85,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { withAgentFace } from "@/components/AgentAvatar";
 import { useDirectory } from "@/hooks/useDirectory";
 import { TOUCH, useMatchMedia } from "@/hooks/useMatchMedia";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { usePageVisible } from "@/hooks/useWindowActive";
 import { pastes } from "@/lib/keys";
 import { useToast } from "@/lib/toast";
@@ -107,8 +111,8 @@ import "./browser.css";
 export { Cover } from "./Cover";
 
 const FAIL_REASONS = ["code", "password", "blocked"] as const;
-/** The reason goes before it, in the 1000 the server takes. */
-const FAIL_NOTE_MAX = 900;
+/** The reason goes before it, in what the server takes: a message's length. */
+const FAIL_NOTE_MAX = MAX_MESSAGE_LENGTH - 100;
 /** The scroll hint goes this long after the wheel's last tick. */
 const SCROLL_HINT_IDLE_MS = 1200;
 const KEYS = ["Tab", "Enter", "Backspace", "Escape"] as const;
@@ -459,6 +463,7 @@ export function BrowserCard({
   const [failing, setFailing] = useState(false);
   const [reason, setReason] = useState<(typeof FAIL_REASONS)[number] | null>(null);
   const [note, setNote] = useState("");
+  const failLimit = useTextLimit(FAIL_NOTE_MAX);
   const [backNote, setBackNote] = useState("");
   const [confirmStop, setConfirmStop] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
@@ -703,7 +708,7 @@ export function BrowserCard({
   }, [pointing, fingers]);
   // The button that opened the page leaves with the focus: keys typed at once, at a field the page shows, go there.
   useEffect(() => {
-    if (pointing && document.activeElement === document.body) pageRef.current?.focus({ preventScroll: true });
+    if (pointing && focusIdle()) pageRef.current?.focus({ preventScroll: true });
   }, [pointing]);
   // The screen's last picture, when the dialog switches from it to this page (or back), shows dimmed until the page's
   // first frame: the layout effects of the view going and of the one coming run before anything paints
@@ -789,7 +794,7 @@ export function BrowserCard({
   };
 
   const fail = () => {
-    if (!handoff) return;
+    if (!handoff || overLimit(note, failLimit)) return;
     const words = [reason ? t(`browser.live.failReasons.${reason}`) : "", note.trim()].filter(Boolean).join(". ");
     actions.failed.mutate(
       { handoffId: handoff.id, ...(words ? { note: words } : {}) },
@@ -1231,6 +1236,7 @@ export function BrowserCard({
       style={framed ? frameStyle : undefined}
       role="group"
       data-esc-layer={full ? "" : undefined}
+      data-control={inControl || undefined}
       aria-label={t("browser.inCard.group", g)}
     >
       {!surface && !framed && <SkyStrip color={color} muted={inControl} moving={live_} />}
@@ -1480,14 +1486,20 @@ export function BrowserCard({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder={t("browser.live.failPlaceholder")}
-                maxLength={FAIL_NOTE_MAX}
+                limit={failLimit}
               />
               <div className="brw-ac__row">
                 <span className="brw-grow" />
                 <Button size="sm" variant="ghost" onClick={() => setFailing(false)}>
                   {t("browser.live.back")}
                 </Button>
-                <Button size="sm" variant="primary" loading={actions.failed.isPending} onClick={fail}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={overLimit(note, failLimit)}
+                  loading={actions.failed.isPending}
+                  onClick={fail}
+                >
                   {t("browser.live.failSend", g)}
                 </Button>
               </div>
@@ -1596,7 +1608,7 @@ export function BrowserCard({
                 variant="ghost"
                 disabled={actions.done.isPending}
                 onClick={() => {
-                  setNote((words) => words || backNote.slice(0, FAIL_NOTE_MAX));
+                  setNote((words) => words || backNote);
                   setFailing(true);
                 }}
               >

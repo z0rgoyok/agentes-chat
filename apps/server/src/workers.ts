@@ -1,9 +1,10 @@
-import type { PubSub } from "@agenteschat/adapters";
+import type { ErrorReporter, PubSub } from "@agenteschat/adapters";
 import { type Database, ensureMessagePartitions, schema } from "@agenteschat/db";
 import {
   type ArtifactDeps,
   type BrowserLive,
   type ContextDeps,
+  claimStuckPhoneSetups,
   clearOldOutboxPayloads,
   createOutboxPump,
   type DesktopControl,
@@ -139,6 +140,8 @@ export interface WorkerDeps {
    * the app (a worker process: `APP_JOB_KINDS`); absent: the pump's own.
    */
   outbox?: { maxInFlight: number; quickSlots: number; limits?: LaneLimits; memoryBytes?: number; skipKinds?: string[] };
+  /** Error reports (ADR 0104): phones whose setup stays stuck on one step go there, one each. */
+  errors?: ErrorReporter;
   /** The database is the built-in one (one process): the alarms advise what fits it. */
   builtInDatabase?: boolean;
   log: Logger;
@@ -202,6 +205,8 @@ export const WORKER_INTERVALS_MS = {
   planModels: 3600_000,
   /** Plans stuck at their limit, read again on their computers (each at most every 5 or 10 minutes). */
   planRechecks: 60_000,
+  /** Phones whose setup sat on one step for 10 minutes, each reported once (`claimStuckPhoneSetups`). */
+  phoneSetups: 60_000,
 };
 
 /**
@@ -284,6 +289,22 @@ export function startWorkers(deps: WorkerDeps) {
   });
 
   every("apps", WORKER_INTERVALS_MS.apps, () => purgeApps(db));
+  const errors = deps.errors;
+  if (errors) {
+    every("phoneSetups", WORKER_INTERVALS_MS.phoneSetups, async () => {
+      const now = Date.now();
+      for (const p of await claimStuckPhoneSetups(db)) {
+        // One issue per platform and step: never the phone's name or serial.
+        errors.capture(new Error(`Device setup stuck: ${p.platform} ${p.reason ?? p.state}`), {
+          org_id: p.orgId,
+          machine_id: p.machineId,
+          phone_state: p.state,
+          os_version: p.osVersion,
+          waited_s: Math.round((now - p.stateSince.getTime()) / 1000),
+        });
+      }
+    });
+  }
   every("planModels", WORKER_INTERVALS_MS.planModels, () => refreshPlanModels());
   const machines = deps.machines;
   if (machines)

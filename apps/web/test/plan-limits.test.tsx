@@ -335,3 +335,55 @@ describe("the account card", () => {
     ).toBe(height(".sidebar__org-mark") + 2 * padding('.sidebar[data-rail="true"] .sidebar__org .sidebar__org-button'));
   });
 });
+
+describe("IA e uso › Contas: the quota per model", () => {
+  const AT = new Date().toISOString();
+  const OPENCODE: AiAccounts["accounts"][number] = {
+    ...TEAM,
+    id: "acct_oc",
+    label: "OpenCode",
+    plan: null,
+    provider: "opencode",
+    keyHint: "9f3c",
+    usage: {
+      ...used(10, 20),
+      models: { "glm-5.3": { at: AT, until: LATER }, "minimax-m3": { at: AT, off: true } },
+    },
+  };
+  /** The row of a plan account in "Contas", open. */
+  const openRow = async (name: string): Promise<HTMLElement> => {
+    const plans = screen().getByRole("region", { name: "Contas" });
+    const row = [...plans.querySelectorAll(".plan-row")].find((r) => r.textContent?.includes(name)) as HTMLElement;
+    const head = row.querySelector(".plan-row__head") as HTMLElement;
+    if (head.getAttribute("aria-expanded") === "false") await click(head);
+    return row;
+  };
+
+  test("one line per model at a limit of its own inside the account's row", async () => {
+    await go("settings/usage", onPlans(), [OPENCODE]);
+    const row = await openRow("OpenCode");
+    const rows = [...row.querySelectorAll(".plan-model")].map((r) => [
+      r.querySelector(".plan-model__name")?.textContent,
+      r.querySelector(".plan-model__text")?.textContent,
+    ]);
+    expect(rows.map((r) => r[0])).toEqual(["MiniMax M3", "GLM-5.3"]);
+    expect(rows[0]?.[1]).toBe("Desligado");
+    expect(rows[1]?.[1]).toMatch(/^Sem cota · renova /);
+  });
+
+  test("an account whose plan's maker shares no usage names the maker, never a number", async () => {
+    const minimax: AiAccounts["accounts"][number] = {
+      ...TEAM,
+      id: "acct_mm",
+      label: "MiniMax",
+      plan: null,
+      provider: "minimax",
+      keyHint: "1b2c",
+      usage: null,
+    };
+    await go("settings/usage", onPlans(), [minimax]);
+    const row = await openRow("MiniMax");
+    expect(row.textContent).toContain("MiniMax não mostra o uso por aqui.");
+    expect(row.textContent).not.toContain("%");
+  });
+});

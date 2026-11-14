@@ -239,8 +239,6 @@ export const ARTIFACT_LIMITS = {
   choiceQuestionChars: 300,
   choiceLabelChars: 120,
   choiceDescriptionChars: 200,
-  /** A question's written answer ("Outra resposta"), in place of its options. */
-  choiceOtherChars: 1000,
   diagramBytes: 200_000,
   tableRows: 10_000,
   tableColumns: 100,

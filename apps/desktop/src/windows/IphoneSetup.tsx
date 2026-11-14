@@ -13,6 +13,7 @@ import {
   PHONE_APP_IN_STORE,
   reasonText,
   tooOldVersion,
+  useIphoneRestart,
   useStalled,
   XCODE_FIX_COMMAND,
   type XcodeFixStage,
@@ -105,6 +106,27 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
   const open = (app: "xcode" | "appStore") => {
     if (homeId) void store.request(homeId, { type: "iphone.open", app }).catch(() => {});
   };
+  /** Developer Mode: whether Xcode opened from its causes (null: not asked), and a look at the iPhone under way. */
+  const [xcodeOpened, setXcodeOpened] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [causesAsked, setCausesAsked] = useState(false);
+  const check = () => {
+    if (!homeId || checking) return;
+    setChecking(true);
+    void store
+      .request(homeId, { type: "iphone.look" })
+      .then(() => setChecked(true))
+      .catch((err: unknown) => toast(errorText(t, err), "alert"))
+      .finally(() => setChecking(false));
+  };
+  const openXcode = () => {
+    if (homeId)
+      void store
+        .request(homeId, { type: "iphone.open", app: "xcode" })
+        .then((r) => setXcodeOpened(r.opened))
+        .catch((err: unknown) => toast(errorText(t, err), "alert"));
+  };
   const [terminal, setTerminal] = useState(false);
   /** This Mac fixes its own Xcode (macOS asks for its password for `select`), or stops the fix. */
   const fixXcode = (action: "start" | "cancel", kind: "select" | "update") => {
@@ -117,12 +139,13 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
   };
 
   const phone = iphoneHere(home?.status?.phones);
-  const { states, current, done } = iphoneSteps(setup, phone);
+  const reason = phone?.state === "ready" ? undefined : phone?.reason;
+  const restart = useIphoneRestart(phone ? { key: phone.serial, reason } : null);
+  const { states, current, done } = iphoneSteps(setup, phone, restart === "restarting");
   const mac = home?.status?.machine;
   // The server here's home points at its loopback, which a phone can't open: its public address instead.
   const server = home ? deviceServer(home, local) : null;
   const orgId = home?.status?.org?.id;
-  const reason = phone?.state === "ready" ? undefined : phone?.reason;
   const platform = setup?.platform;
   const macName = mac?.name ?? "";
   const phoneName = phone ? (phone.name ?? phone.model) : "";
@@ -290,6 +313,12 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
   const updating =
     setup?.fix?.kind === "update" ? xcodeFixStage(fix, "update", { mayFix: true, terminal: false }) : null;
 
+  const checkButton = (label: string) => (
+    <Button size="sm" icon="refresh" loading={checking} disabled={checking} onClick={check}>
+      {label}
+    </Button>
+  );
+
   /** What the step under way says, and its one action. */
   const line = (step: IphoneSetupStep): ReactNode => {
     switch (step) {
@@ -409,17 +438,52 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
           </>
         );
       case "developerMode":
+        if (restart === "restarting") return t("devices.iphone.devModeRestarting");
         return (
           <>
-            {t("devices.iphone.devModeText")}
-            <SettingsPath
-              label={t("devices.onTheIphone")}
-              segments={[
-                t("devices.iphone.path.settings"),
-                t("devices.iphone.path.privacy"),
-                t("devices.iphone.path.devMode"),
-              ]}
-            />
+            {restart === "back" ? t("devices.iphone.devModeBack") : t("devices.iphone.devModeText")}
+            {restart !== "back" && (
+              <SettingsPath
+                label={t("devices.onTheIphone")}
+                segments={[
+                  t("devices.iphone.path.settings"),
+                  t("devices.iphone.path.privacy"),
+                  t("devices.iphone.path.devMode"),
+                ]}
+              />
+            )}
+            <span className="dk-ip__act">{checkButton(t("devices.iphone.devModeCheck"))}</span>
+            {checked && <span>{t("devices.iphone.devModeStillOff")}</span>}
+            {stalled || causesAsked ? (
+              <section className="dk-ip__causes" aria-labelledby="dk-devmode-title">
+                <b id="dk-devmode-title">{t("devices.iphone.devModeMissing.title")}</b>
+                {/* biome-ignore lint/a11y/noRedundantRoles: Safari drops list semantics under list-style: none */}
+                <ul role="list">
+                  <li className="ac-actline">
+                    <span>
+                      {xcodeOpened
+                        ? t("devices.iphone.devModeMissing.opened", { mac: macName })
+                        : xcodeOpened === false
+                          ? t("devices.iphone.devModeMissing.hiddenOpen", { mac: macName })
+                          : t("devices.iphone.devModeMissing.hidden")}
+                    </span>
+                    {xcodeOpened === null && (
+                      <Button size="sm" icon="external" onClick={openXcode}>
+                        {t("devices.iphone.devModeMissing.openXcode")}
+                      </Button>
+                    )}
+                  </li>
+                  <li className="ac-actline">
+                    <span>{t("devices.iphone.devModeMissing.unlock")}</span>
+                    {checkButton(t("devices.iphone.devModeMissing.check"))}
+                  </li>
+                </ul>
+              </section>
+            ) : (
+              <button type="button" className="ac-link" aria-expanded="false" onClick={() => setCausesAsked(true)}>
+                {t("devices.iphone.devModeMissing.title")}
+              </button>
+            )}
           </>
         );
       case "uiAutomation":
@@ -505,7 +569,7 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
                       {(step === current || (step === "helper" && state === "todo")) && (
                         <span className="dk-fr__stepline" role={step === current ? "status" : undefined}>
                           {line(step)}
-                          {step === current && (stalled || (looking && plugged)) && (
+                          {step === current && step !== "developerMode" && (stalled || (looking && plugged)) && (
                             <span className="dk-ip__stall ac-iconline">
                               <Icon name="info" size={14} />
                               <span>{stall(step)}</span>

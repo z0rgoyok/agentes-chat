@@ -1,4 +1,5 @@
 import {
+  IPHONE_DEV_MODE_PROTOCOL,
   IPHONE_WIFI_PROTOCOL,
   PHONE_SCREEN_PROTOCOL,
   type PhoneHolder,
@@ -11,7 +12,7 @@ import {
   STREAM_CLOSE,
   STREAM_LIMITS,
 } from "@agenteschat/adapters";
-import { and, type Database, type Executor, eq, gt, inArray, isNull, schema, sql } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, gt, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
 import { AUDIENCE_MODES, type AudienceMode } from "./audience";
 import { recordAudit } from "./audit";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -112,6 +113,8 @@ export interface ComputerDevice {
   /** Background tasks it runs at once. */
   maxTasks: number | null;
   toolchains: Record<string, string>;
+  /** A Mac whose app opens Xcode and looks at its iPhone again for the iPhone guide (`IPHONE_DEV_MODE_PROTOCOL`). */
+  opensXcode: boolean;
   lastSeenAt: string | null;
   mayUse: boolean;
   mayManage: boolean;
@@ -434,6 +437,7 @@ export async function listDevices(
       status: computerStatus(m, busy.get(m.id) ?? 0, now),
       maxTasks: null,
       toolchains: m.executors?.toolchains ?? {},
+      opensXcode: !managed && m.os === "darwin" && m.protocol >= IPHONE_DEV_MODE_PROTOCOL,
       lastSeenAt: iso(m.lastSeenAt),
       mayUse,
       mayManage: !managed && mayManageDevice(membership, viewerUserId, m.pairedByUserId),
@@ -914,11 +918,13 @@ export async function syncMachinePhones(
       ownerUserId: machine.pairedByUserId,
       followsHost: p.platform === "ios",
       lastSeenAt: now,
+      stateSince: now,
       updatedAt: now,
     });
   }
   if (seen.size > 0) {
     const fresh = sql`(${machinePhones.deletedAt} is not null or ${machinePhones.ownerUserId} is distinct from excluded.owner_user_id)`;
+    const same = sql`(${machinePhones.state} = excluded.state and ${machinePhones.reason} is not distinct from excluded.reason)`;
     // ponytail: two people's computers both reporting one phone (a cable on one, adb over Wi-Fi on the other) pass it
     // back and forth, each time as a new phone; a phone that is two places at once would need a host per phone.
     await db
@@ -938,6 +944,8 @@ export async function syncMachinePhones(
           followsHost: sql`excluded.follows_host`,
           lastSeenAt: sql`excluded.last_seen_at`,
           updatedAt: sql`excluded.updated_at`,
+          stateSince: sql`case when ${same} then ${machinePhones.stateSince} else excluded.state_since end`,
+          stuckReportedAt: sql`case when ${same} then ${machinePhones.stuckReportedAt} else null end`,
           name: sql`case when ${fresh} then excluded.name else ${machinePhones.name} end`,
           audienceMode: sql`case when ${fresh} then 'owner' else ${machinePhones.audienceMode} end`,
           audienceUserIds: sql`case when ${fresh} then '{}'::text[] else ${machinePhones.audienceUserIds} end`,
@@ -962,7 +970,7 @@ export async function syncMachinePhones(
   if (gone.length === 0) return current;
   await db
     .update(machinePhones)
-    .set({ state: "offline", reason: null, holder: null, updatedAt: now })
+    .set({ state: "offline", reason: null, holder: null, stateSince: now, stuckReportedAt: null, updatedAt: now })
     .where(
       inArray(
         machinePhones.id,
@@ -971,8 +979,41 @@ export async function syncMachinePhones(
     );
   const off = new Set(gone.map((p) => p.id));
   return current.map((p) =>
-    off.has(p.id) ? { ...p, state: "offline", reason: null, holder: null, updatedAt: now } : p,
+    off.has(p.id)
+      ? { ...p, state: "offline", reason: null, holder: null, stateSince: now, stuckReportedAt: null, updatedAt: now }
+      : p,
   );
+}
+
+/** A phone's setup that sits on one step, the same reason, this long is reported (`claimStuckPhoneSetups`). */
+export const PHONE_SETUP_STUCK_MS = 10 * 60_000;
+
+/**
+ * Phones whose setup sits on one step (`needs_you` or `preparing`, its reason unchanged) for `PHONE_SETUP_STUCK_MS`,
+ * each marked reported by the same statement: a sweep on another replica never reports it again, and neither does
+ * this one until its state or reason moves (`syncMachinePhones` clears the mark).
+ */
+export async function claimStuckPhoneSetups(db: Executor, now = new Date()) {
+  return db
+    .update(machinePhones)
+    .set({ stuckReportedAt: now })
+    .where(
+      and(
+        isNull(machinePhones.deletedAt),
+        isNull(machinePhones.stuckReportedAt),
+        inArray(machinePhones.state, ["needs_you", "preparing"]),
+        lt(machinePhones.stateSince, new Date(now.getTime() - PHONE_SETUP_STUCK_MS)),
+      ),
+    )
+    .returning({
+      orgId: machinePhones.orgId,
+      machineId: machinePhones.machineId,
+      platform: machinePhones.platform,
+      state: machinePhones.state,
+      reason: machinePhones.reason,
+      osVersion: machinePhones.osVersion,
+      stateSince: machinePhones.stateSince,
+    });
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   getChoices,
   listArtifacts,
   listMessages,
+  MAX_MESSAGE_LENGTH,
   NEW_AGENT_DEFAULTS,
   openAgentDm,
   postPersonMessage,
@@ -124,8 +125,8 @@ test("a pick must name one option of each question", async () => {
   const row = await asked();
   for (const picks of [[], [2], [0, 1], [-1], [0.5], [3]])
     await expect(answerChoices(deps(), f.owner.id, f.org.id, row.id, { picks })).rejects.toThrow(ValidationError);
-  // "Outra resposta" (the pick past the last option) needs its words, and not too many.
-  for (const others of [[""], ["   "], [null], ["x".repeat(1001)]])
+  // "Outra resposta" (the pick past the last option) needs its words, and no more than a message holds.
+  for (const others of [[""], ["   "], [null], ["x".repeat(MAX_MESSAGE_LENGTH + 1)]])
     await expect(answerChoices(deps(), f.owner.id, f.org.id, row.id, { picks: [2], others })).rejects.toThrow(
       ValidationError,
     );
@@ -147,6 +148,15 @@ test("Outra resposta: what the person wrote reaches the agent in place of an opt
   expect(later.answer?.others).toEqual(["Só depois da reunião de sexta"]);
   const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, message.id));
   expect(run?.agentId).toBe(f.agent.id);
+});
+
+test("a long written answer reaches the agent whole: it holds what a chat message holds", async () => {
+  f = await setup({ blockTools: true, reply: agent });
+  const row = await asked();
+  const long = "Primeiro confirmamos o prazo com o time e depois avisamos o cliente. ".repeat(40).trim();
+  expect(long.length).toBeGreaterThan(1000);
+  const { message } = await answerChoices(deps(), f.owner.id, f.org.id, row.id, { picks: [2], others: [long] });
+  expect(message.body).toBe(`@dev Como sigo com o deploy? ${long}`);
 });
 
 test("an option an agent wrote that only says other goes: every question takes a written answer of its own", () => {

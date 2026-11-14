@@ -9,6 +9,7 @@ import {
 import { questionWaitsOn } from "@agenteschat/client/lib/agent-questions";
 import { formatTime, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import { messagePath } from "@agenteschat/client/lib/message-links";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
@@ -38,7 +39,7 @@ import {
   secretWhere,
 } from "@agenteschat/client/lib/secret-requests";
 import { secretEndedAt, secretOutcome } from "@agenteschat/client/lib/secret-words";
-import { Button, Chip, CodeInput, diffLines, Field, Icon, Input, Switch, Textarea } from "@agenteschat/ui";
+import { Button, Chip, CodeInput, diffLines, Field, Icon, Input, overLimit, Switch, Textarea } from "@agenteschat/ui";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
@@ -46,6 +47,7 @@ import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useTextLimit } from "@/hooks/useTextLimit";
 import { TYPED_VALUES } from "@/i18n";
 import { inPlaceClick } from "@/lib/navigate";
 import { useToast } from "@/lib/toast";
@@ -496,6 +498,8 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
   const [error, setError] = useState<string | null>(null);
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
+  const limit = useTextLimit(MAX_MESSAGE_LENGTH, "choices.tooLongFix");
+  const tooLong = overLimit(text, limit);
   const reopen = useRef<HTMLButtonElement>(null);
   // Refused because it ended (someone answered, its run stopped): the card closes here, even if no event came.
   const [ended, setEnded] = useState(false);
@@ -565,7 +569,7 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
   const mine = !done && questionWaitsOn(current, me.user.id);
   const choices = current.choices ?? [];
   const send = () => {
-    if (text.trim() && !busy) answer.mutate({ text: text.trim() });
+    if (text.trim() && !tooLong && !busy) answer.mutate({ text: text.trim() });
   };
   const pick = (choice: string | undefined) => {
     if (choice !== undefined && !busy) answer.mutate({ choice });
@@ -584,6 +588,7 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
         autoGrow
         autoFocus
         value={text}
+        limit={limit}
         placeholder={t("question.placeholder")}
         aria-label={t("question.placeholder")}
         onChange={(e) => setText(e.target.value)}
@@ -635,7 +640,9 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
               type="submit"
               variant="primary"
               size="sm"
-              disabled={!text.trim() || skip.isPending || (answer.isPending && !("text" in answer.variables))}
+              disabled={
+                !text.trim() || tooLong || skip.isPending || (answer.isPending && !("text" in answer.variables))
+              }
               loading={answer.isPending && "text" in answer.variables}
             >
               {t("channel.send")}

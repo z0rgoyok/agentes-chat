@@ -44,6 +44,7 @@ test("questions API: the card's answer resumes the agent; a second answer is a c
 
   expect(await (await api(`/questions/${id}`)).json()).toMatchObject({ id, status: "open", threadId: null });
   expect((await api(`/questions/${id}/answer`, { json: {} })).status).toBe(400);
+  expect((await api(`/questions/${id}/answer`, { json: { text: "x".repeat(100_001) } })).status).toBe(400);
   const res = await api(`/questions/${id}/answer`, { json: { choice: "production" } });
   expect(res.status).toBe(200);
   expect(await res.json()).toMatchObject({

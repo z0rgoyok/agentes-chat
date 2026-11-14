@@ -26,6 +26,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { PlanModels } from "@/components/PlanModels";
 
 /*
  * The pieces of "Quem pensa" (ADR 0032 §5, addendum 2026-11-10), drawn like the rest of the dialogs under the sky: no
@@ -34,33 +35,38 @@ import { useTranslation } from "react-i18next";
 
 /**
  * The account's limits under its row, one line per window: its name, a bar, how much is used and when it renews
- * ("Semana ▬ 86% renova sáb 18:00"). Numbers out of date say how old they are.
+ * ("Semana ▬ 86% renova sáb 18:00"). Numbers out of date say how old they are. A plan whose models have limits of
+ * their own (`models`) lists them under the windows: the quota per model, which the account's windows can't show.
  */
-export function PlanWindows({ usage }: { usage: PlanUsage }) {
+export function PlanWindows({ usage, provider }: { usage: PlanUsage; provider?: string | null }) {
   const { t, i18n } = useTranslation();
   const text = planMeterText(t, i18n.language);
   const now = Date.now();
   const rows = planWindows(usage, now);
   const line = planLine(usage, text, now);
-  if (rows.length === 0) return null;
+  const models = <PlanModels usage={usage} provider={provider ?? null} />;
+  if (rows.length === 0) return models;
   return (
-    <div className="bd-wins">
-      {rows.map((w, i) => {
-        const name = text.window(w);
-        const renews = w.resetsAt && Date.parse(w.resetsAt) > now ? text.resets(w.resetsAt) : null;
-        return (
-          <div key={`${w.kind}:${w.label ?? i}`} className="bd-win" data-level={planLevel(w.used)}>
-            <span className="bd-win__name">{name}</span>
-            <span className="bd-win__bar" aria-hidden="true">
-              <i style={{ "--used": `${Math.min(100, w.used)}%` } as CSSProperties} />
-            </span>
-            <span className="bd-win__n">{w.used}%</span>
-            <small className="bd-win__at">{renews}</small>
-          </div>
-        );
-      })}
-      {line?.stale && line.age && <small className="bd-wins__age">{line.age}</small>}
-    </div>
+    <>
+      <div className="bd-wins">
+        {rows.map((w, i) => {
+          const name = text.window(w);
+          const renews = w.resetsAt && Date.parse(w.resetsAt) > now ? text.resets(w.resetsAt) : null;
+          return (
+            <div key={`${w.kind}:${w.label ?? i}`} className="bd-win" data-level={planLevel(w.used)}>
+              <span className="bd-win__name">{name}</span>
+              <span className="bd-win__bar" aria-hidden="true">
+                <i style={{ "--used": `${Math.min(100, w.used)}%` } as CSSProperties} />
+              </span>
+              <span className="bd-win__n">{w.used}%</span>
+              <small className="bd-win__at">{renews}</small>
+            </div>
+          );
+        })}
+        {line?.stale && line.age && <small className="bd-wins__age">{line.age}</small>}
+      </div>
+      {models}
+    </>
   );
 }
 

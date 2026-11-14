@@ -124,7 +124,8 @@ test("a consulted agent answers the agent that asked, never the people too; a wo
     .returning();
   if (!consulted) throw new Error("no run");
   const text = systemText((await buildRunContext(f.db, consulted, qa, { maxMessages: 10 })).system);
-  expect(text).toContain("Never also answer the people yourself where they asked.");
+  expect(text).toContain("never ask another agent to pass something on to a person");
+  expect(text).not.toContain("Never also answer the people yourself");
   expect(WHY_AN_AGENT_CALLED).toContain("never answer it again, restate its answer, confirm it or nitpick it here");
   expect(WHY_AN_AGENT_CALLED).toContain("tell that agent privately with tell_agent and pass");
 });
