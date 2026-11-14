@@ -3739,6 +3739,57 @@ function chromeWithDevtools() {
   return { t, devtools, chromes: chromes.started };
 }
 
+test.if(posix)(
+  "live pointer input goes straight to the active tab without waiting, while keys keep the relay",
+  async () => {
+    const { t, devtools } = chromeWithDevtools();
+    const relay = fakeRelay();
+    try {
+      await t.act("open", ["https://shop.example.com"]);
+      t.page({ port: relay.port });
+      const cdp = devtools[0] as FakeSocket;
+      cdp.push({
+        method: "Target.attachedToTarget",
+        params: { sessionId: "page-1", targetInfo: { type: "page", targetId: "target-1" } },
+      });
+      await t.manager.streamStart(dev, "control");
+      const stream = t.sockets[0] as FakeSocket;
+      stream.push({
+        type: "tabs",
+        tabs: [{ active: true, targetId: "target-1", url: "https://shop.example.com", title: "Shop" }],
+      });
+      stream.push({ type: "status", connected: true, viewportWidth: 1280, viewportHeight: 720 });
+      stream.push({ type: "frame", seq: 1, data: "/9j/A", metadata: { deviceWidth: 1280, deviceHeight: 720 } });
+      const before = cdp.sent.length;
+      const res = await t.manager.input(dev, [
+        { kind: "mouse", type: "mouseMoved", x: 10, y: 20, button: "none" },
+        { kind: "mouse", type: "mousePressed", x: 10, y: 20, button: "left", clickCount: 1 },
+        { kind: "mouse", type: "mouseMoved", x: 60, y: 20, button: "left" },
+        { kind: "mouse", type: "mouseReleased", x: 60, y: 20, button: "left", clickCount: 1 },
+        { kind: "key", type: "keyDown", key: "Enter" },
+      ]);
+      expect(res).toEqual({ accepted: 5 });
+      // The pointer never queued behind agent-browser's command relay.
+      expect(relay.received.map((r) => r.body.type ?? r.body.action)).toEqual(["press"]);
+      const sent = cdp.sent
+        .slice(before)
+        .filter((m) => m.method === "Input.dispatchMouseEvent")
+        .map((m) => {
+          const params = m.params as Record<string, unknown>;
+          return [m.sessionId, params.type, params.x, params.button, params.buttons];
+        });
+      expect(sent).toEqual([
+        ["page-1", "mouseMoved", 10, "none", 0],
+        ["page-1", "mousePressed", 10, "left", 1],
+        ["page-1", "mouseMoved", 60, "left", 1],
+        ["page-1", "mouseReleased", 60, "left", 0],
+      ]);
+    } finally {
+      relay.server.stop(true);
+    }
+  },
+);
+
 const emulationOn = (socket: FakeSocket | undefined, sessionId: string) =>
   (socket?.sent ?? []).filter((m) => m.sessionId === sessionId && String(m.method).startsWith("Emulation."));
 

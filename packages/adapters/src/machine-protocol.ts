@@ -1282,16 +1282,16 @@ export const isLoginEmail = (v: unknown): v is string =>
   /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}@[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$/.test(v);
 
 /** The `agent-browser` release the runner and the desktop app ship (ADR 0040 §2). */
-export const AGENT_BROWSER_VERSION = "0.39.1";
+export const AGENT_BROWSER_VERSION = "0.39.4";
 /** Targets of `agent-browser`'s release assets (`agent-browser-<target>`, `.exe` on Windows). */
 export type AgentBrowserTarget = "darwin-arm64" | "darwin-x64" | "linux-arm64" | "linux-x64" | "win32-x64";
 /** SHA-256 (hex) of each release asset of `AGENT_BROWSER_VERSION`, checked before the binary is used. */
 export const AGENT_BROWSER_SHA256: Record<AgentBrowserTarget, string> = {
-  "darwin-arm64": "cc18fac41d9dc9821918340a136e643286ea05544c4dd35671b796f1a874cdef",
-  "darwin-x64": "339cb9aa6dfd404856cf938df34cd3b4779c61dfd57fc257be11b14fd1a885f9",
-  "linux-arm64": "9d8fdc586056df65747927ae166157c83af91b52cea287175e5544afd2591d33",
-  "linux-x64": "6906d3a2a67b05809932a93d99e53d1132373f0a52a617b2d6032dbb954df6fc",
-  "win32-x64": "af1ff5f2afd5c187fb50ac3bbc1e7114baadc180d67cef63f644af9031be5049",
+  "darwin-arm64": "0317ce35172905c775c25b393914bc259701a464877aab9753ec8896f6e38bf7",
+  "darwin-x64": "21522a8ec34063fa294b0c928ad03d3485f1821ebe22f9da2b47b89963f731af",
+  "linux-arm64": "922b60dbd9f5c8b5c0f39b453bfe8cbf61b83abd487344028a508e8c4dca7883",
+  "linux-x64": "aa82c8ee81a38b8ad9ba61af02ced6dcbbb8af36dd8b2b479384177f8aa077a6",
+  "win32-x64": "be19a109a004f84c367d7913c22b8046390b3e0e5241f9f6c7e83c7bacd22aae",
 };
 /** `darwin-arm64` → `agent-browser-darwin-arm64`; `win32-x64` → `agent-browser-win32-x64.exe`. */
 export const agentBrowserAsset = (target: AgentBrowserTarget) =>
