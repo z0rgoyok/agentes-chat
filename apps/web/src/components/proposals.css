@@ -53,14 +53,12 @@
 .rh-cards {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-4);
 }
 .rh-cards > p {
   margin: 0;
 }
-
-/* A proposal's change (Propostas): its eyebrow and "Editar antes de aceitar" in an `.ac-actline`, the button under
-   the eyebrow when they don't share a line, on its middle when they do. */
-.proposal-change__head {
-  align-items: center;
+/* The stack's gap alone parts its cards: a request card's own room (request-card.css) would add to it. */
+.rh-cards > .rq {
+  margin: 0;
 }

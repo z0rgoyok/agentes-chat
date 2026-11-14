@@ -114,7 +114,7 @@ describe("an organization being deleted on the phone", () => {
       audit: "settings/AuditScreen.tsx",
       import: "settings/ImportScreen.tsx",
       vault: "vault/VaultScreen.tsx",
-      roles: "settings/RolesScreen.tsx",
+      roles: "roles/RolesScreen.tsx",
       skills: "settings/SkillsScreen.tsx",
     };
     for (const [section, file] of Object.entries(screens)) {

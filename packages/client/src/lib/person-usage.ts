@@ -84,7 +84,7 @@ export function sortPeople(people: PersonRow[], by: PeopleSort, desc: boolean, l
 
 /**
  * Under a person's limit notice to who decides (ADR 0141): this month's requests, the agent most used and where the
- * limit comes from ("64 pedidos este mês, 80% com Zara. Limite do papel Vendas."). Empty for the person's own.
+ * limit comes from ("64 pedidos este mês, 80% com Zara. Limite do cargo Vendas."). Empty for the person's own.
  */
 export function usageLimitLine(t: TFunction, n: Pick<AppNotification, "latest" | "source">) {
   const l = n.latest;

@@ -763,7 +763,7 @@ export const helpDe: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "E-Mail",
         blocks: [
-          "Ohne E-Mail schreibt agentes.chat jede E-Mail in sein Log, statt sie zu senden, also lässt sich ein Einladungslink dort kopieren. Passwort zurücksetzen bleibt aus.",
+          "Ohne E-Mail schreibt agentes.chat jede E-Mail in sein Log, statt sie zu senden, also lässt sich ein Einladungslink dort kopieren. Passwort zurücksetzen bleibt aus, und eine neue E-Mail-Adresse für ein Konto gilt sofort, ohne Code und ohne Link.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

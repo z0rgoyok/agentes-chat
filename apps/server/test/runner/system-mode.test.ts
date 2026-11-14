@@ -6,6 +6,7 @@ import path from "node:path";
 import { MACHINE_OPS, type MachineRequest, type RunnerAccess } from "@agenteschat/adapters/machine-protocol";
 import type { BrowserViews } from "../../runner/browser-views";
 import {
+  agentTmpOnDisk,
   configPath,
   DEFAULT_AGENT_UID_RANGE,
   normalizeStored,
@@ -162,6 +163,37 @@ test("config: the auth route is only ever the guard's true, and a new pairing ke
   expect(paired.networkAuthRoute).toBe(true);
 });
 
+test("config: each agent's /tmp on disk is only ever true, and a new pairing keeps it", () => {
+  expect(normalizeStored({ agentTmpOnDisk: true }).agentTmpOnDisk).toBe(true);
+  for (const bad of [false, "true", 1, {}]) expect(normalizeStored({ agentTmpOnDisk: bad })).toEqual({});
+  const paired = configFromGrant(
+    { mode: "system", agentTmpOnDisk: true },
+    {
+      server: "https://app.example.com",
+      grant: { machineId: "m", token: "t", name: "n", org: { id: "o", name: "O" } } as never,
+      workspace: "/w",
+      tools: { commands: true } as never,
+      desktop: false,
+    },
+  );
+  expect(paired.agentTmpOnDisk).toBe(true);
+});
+
+test("config: an organization's runner on the server's own computer takes /tmp on disk from the computer's config", () => {
+  const computer = tempDir("computer-");
+  dirs.push(computer);
+  const org = path.join(computer, "orgs", "0b4e6f2a-5c1d-4e8f-9a7b-3c2d1e0f9a8b");
+  writeConfig({ mode: "system", managedBy: "host", orgId: "o1" }, org);
+  expect(agentTmpOnDisk(org, computer)).toBe(false);
+  writeConfig({ mode: "system", agentTmpOnDisk: true }, computer);
+  expect(agentTmpOnDisk(org, computer)).toBe(true);
+  // Its own home says so too, and a computer's config that can't be read changes nothing.
+  writeFileSync(configPath(computer), "{");
+  expect(agentTmpOnDisk(org, computer)).toBe(false);
+  writeConfig({ mode: "system", managedBy: "host", orgId: "o1", agentTmpOnDisk: true }, org);
+  expect(agentTmpOnDisk(org, computer)).toBe(true);
+});
+
 test("a system home paired again stays a system home", () => {
   const grant = { token: "agm_new", machineId: "m2", name: "box", org: { id: "o1", name: "Acme" } };
   const input = {
@@ -260,13 +292,19 @@ test.if(posix)("service install --system: a system home, and it starts only when
   // Where their counters are read (memory.events).
   expect(AGENTS_CGROUP).toBe("/sys/fs/cgroup/agents.slice");
   expect(agentCgroup(21003)).toBe("/sys/fs/cgroup/agents.slice/agents-21003.slice");
-  // Each agent's own temporary folders: /tmp, /dev/shm and /run/lock in memory, /var/tmp on disk; what it leaves
-  // goes after 10 days, 30 in /var/tmp, as in a stock system.
+  // Each agent's own temporary folders: /tmp, /dev/shm and /run/lock in memory, /var/tmp on disk; what it leaves goes
+  // after 10 days, 30 in /var/tmp, as in a stock system. The boot removes the image of the agents' /tmp on disk
+  // (`r!`), in a root-only folder of the system disk that no workspace path holds.
   expect(agentTmpCleanupPath()).toBe("/etc/tmpfiles.d/agentes-runner.conf");
   expect(agentTmp(21003)).toBe("/run/agentes-runner-tmp/21003/tmp");
-  expect(readFileSync(agentTmpCleanupPath(unitPath), "utf8")).toBe(
-    "# agentes.chat runner: each agent's own temporary folders\ne /run/agentes-runner-tmp/*/* - - - 10d\nx /run/agentes-runner-tmp/*/run\ne /var/lib/agentes-runner-tmp/*/* - - - 30d\n",
-  );
+  expect(readFileSync(agentTmpCleanupPath(unitPath), "utf8").split("\n")).toEqual([
+    "# agentes.chat runner: each agent's own temporary folders",
+    "e /run/agentes-runner-tmp/*/* - - - 10d",
+    "x /run/agentes-runner-tmp/*/run",
+    "e /var/lib/agentes-runner-tmp/*/* - - - 30d",
+    "r! /var/cache/agentes-runner-tmp/image",
+    "",
+  ]);
 
   // Not connected yet: an unpaired runner would only restart in a loop.
   expect(install()).toBe(0);

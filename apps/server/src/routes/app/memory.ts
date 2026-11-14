@@ -12,6 +12,7 @@ import {
   isPlaybook,
   itemVisibleIn,
   itemWords,
+  LATER_REASONS,
   listAgentMemoryRows,
   listOrgMemoryRows,
   listProposals,
@@ -169,10 +170,13 @@ const Proposal = z
     }),
     title: z.string(),
     why: z.string().openapi({ description: "Words of a person or an agent; empty when `whyCode` alone says it." }),
-    whyCode: z.enum(["refused", "corrected", "seen", "skill", "asked", "budget", "no_channel"]).nullable().openapi({
-      description:
-        "How it came, for the apps to say in the person's language (`why` holds the words it is about, if any): a refusal or a correction it was made from, `seen` (its memory is gone), `skill` (from using the skill), `asked` (in a conversation, no reason given), `budget` or `no_channel` (the week's review of the team). Null: `why` as it is.",
-    }),
+    whyCode: z
+      .enum(["refused", "corrected", "seen", "skill", "asked", "budget", "no_channel", "idle", "light_work"])
+      .nullable()
+      .openapi({
+        description:
+          "How it came, for the apps to say in the person's language (`why` holds the words it is about, if any): a refusal or a correction it was made from, `seen` (its memory is gone), `skill` (from using the skill), `asked` (in a conversation, no reason given), `budget`, `no_channel`, `idle` or `light_work` (the week's review of the team, the last two with the sentence in English in `why` for app builds from before them). Null: `why` as it is.",
+      }),
     evidence: z.array(
       z.object({
         where: z.string(),
@@ -211,7 +215,7 @@ function proposalWhy(r: ProposalRow, items: ContextItem[]) {
   if (r.target === "skill") return { why: "", whyCode: "skill" as const };
   if (r.itemIds.length > 0) return { why: "", whyCode: "seen" as const };
   const whyCode = SERVER_REASONS[r.rationale] ?? null;
-  return { why: whyCode ? "" : r.rationale, whyCode };
+  return { why: whyCode && !LATER_REASONS.has(whyCode) ? "" : r.rationale, whyCode };
 }
 
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });

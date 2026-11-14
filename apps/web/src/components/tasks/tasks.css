@@ -236,6 +236,12 @@
   font-weight: 650;
   color: var(--ink);
 }
+/* What else a stop does, under its question (work another agent handed it: that agent is told too). */
+.tm-cfm__note {
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
 .tm-cfm__acts {
   display: flex;
   flex: 1;
@@ -462,4 +468,55 @@
   flex: 1;
   min-width: 0;
   padding: 0;
+}
+
+/*
+ * A row's words and its press (`RowName`): the title, then what it is about in quiet type, on one line that ends in "…"
+ * when it doesn't fit. The whole row picks it (its button reaches every edge); the buttons on it stay on top.
+ */
+.tm-hit {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+  white-space: nowrap;
+  text-align: left;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tm-hit > small {
+  margin-left: var(--space-2);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.tm-hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+html:not([data-pointer]) .tm-hit:focus-visible {
+  outline: none;
+}
+/* A name with its face in the line ("ajudando a Ada") stays on it: in running text it would wrap between its words. */
+.tm-hit .ac-who > b {
+  white-space: inherit;
+}
+/* A row's tip: the title, then one fact a line. */
+.tm-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tm-tip > b {
+  font-weight: 600;
+}
+.tm-tip > span {
+  color: var(--ink2);
 }

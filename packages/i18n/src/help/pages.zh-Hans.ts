@@ -742,7 +742,7 @@ export const helpZhHans: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "邮件",
         blocks: [
-          "没有配置邮件时，agentes.chat 会把每封邮件写进日志而不是发出去，所以邀请链接可以从日志里复制。重置密码不可用。",
+          "没有配置邮件时，agentes.chat 会把每封邮件写进日志而不是发出去，所以邀请链接可以从日志里复制。重置密码不可用，账号换新邮箱会立即生效，无需验证码或链接。",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

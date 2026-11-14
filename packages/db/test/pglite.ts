@@ -6,11 +6,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { sql } from "drizzle-orm";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
-import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
-import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
-import { type Database, migrationsFolder } from "../src/client";
+import { type Database, migrateInSteps, migrationsFolder } from "../src/client";
 import * as schema from "../src/schema";
 import { tracingLogger } from "../src/trace";
 
@@ -53,7 +51,7 @@ async function loadTemplate(): Promise<Blob> {
   if (existsSync(file)) return new Blob([readFileSync(file)]);
 
   const client = new PGlite({ extensions: { vector } });
-  await migratePglite(drizzlePglite(client, { schema, casing: "snake_case" }), { migrationsFolder });
+  await migrateInSteps(drizzlePglite(client, { schema, casing: "snake_case" }), migrationsFolder);
   const dump = await client.dumpDataDir("none");
   await client.close();
   // Written beside its final name and moved there: a process starting meanwhile never reads half a file.
@@ -98,7 +96,7 @@ async function createOnServer(serverUrl: string) {
   url.pathname = `/${name}`;
   const client = postgres(url.toString(), { max: 5, onnotice: () => {} });
   const db = drizzlePostgres(client, { schema, casing: "snake_case", logger: tracingLogger });
-  await migratePostgres(db, { migrationsFolder });
+  await migrateInSteps(db, migrationsFolder);
 
   return {
     db: db as unknown as Database,

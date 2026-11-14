@@ -54,6 +54,10 @@ describe("the page behind the agent's screen", () => {
     expect(url).toBe("https://app.example/screen.html?o=org&a=ada&p=1");
     expect(screenPageStays(SERVER, url)).toBe(true);
     expect(screenPageUrl(SERVER, "org", "ada", { preview: false })).toBe(screenPageUrl(SERVER, "org", "ada"));
+    // An agent's shared place is asked for by name, and its page is still the server's own.
+    const shared = screenPageUrl(SERVER, "org", "ada", { seat: "shared" });
+    expect(shared).toBe("https://app.example/screen.html?o=org&a=ada&s=shared");
+    expect(screenPageStays(SERVER, shared)).toBe(true);
   });
 
   test("a message counts only from the server's page, and only as what it can say", () => {

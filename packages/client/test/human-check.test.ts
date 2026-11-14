@@ -89,6 +89,54 @@ describe("withHumanCheck", () => {
     expect(humanCheckHeaders("tok")).toEqual({ "x-captcha-response": "tok" });
   });
 
+  test("a pass from the e-mail's lookup goes first, and the widget is asked only when the server refuses it", async () => {
+    const { check, log } = widget();
+    const sent: (string | undefined)[] = [];
+    const taking = async (token: string | undefined) => {
+      sent.push(token);
+      return { ok: true };
+    };
+    expect(await withHumanCheck(check, taking, "pass.1.sig")).toEqual({ ok: true });
+    expect(sent).toEqual(["pass.1.sig"]);
+    // The widget made no token and spent none.
+    expect(log).toEqual([]);
+
+    // A pass that ran out is refused like a token: the call goes again with the widget's, whatever shape the refusal has.
+    for (const refuse of [
+      async () => ({ ok: false, code: "human_check" }),
+      async () => {
+        throw new ApiError(403, "human_check", "");
+      },
+    ]) {
+      const spent = widget();
+      const calls: (string | undefined)[] = [];
+      const outcome = await withHumanCheck(
+        spent.check,
+        async (token) => {
+          calls.push(token);
+          return token === "pass.1.sig" ? refuse() : { ok: true };
+        },
+        "pass.1.sig",
+      );
+      expect(outcome).toEqual({ ok: true });
+      expect(calls).toEqual(["pass.1.sig", "tok-1"]);
+      expect(spent.log).toEqual(["token tok-1", "reset"]);
+    }
+
+    // Any other answer to the pass is the call's answer (a wrong password), and no check on the server sends no pass.
+    const wrong = widget();
+    expect(
+      await withHumanCheck(wrong.check, async () => ({ ok: false, code: "INVALID_PASSWORD" }), "pass.1.sig"),
+    ).toEqual({
+      ok: false,
+      code: "INVALID_PASSWORD",
+    });
+    expect(wrong.log).toEqual([]);
+    const none: (string | undefined)[] = [];
+    await withHumanCheck(null, async (token) => void none.push(token), "pass.1.sig");
+    expect(none).toEqual([undefined]);
+  });
+
   test("a token per call and a reset after it, answered or refused", async () => {
     const { check, log } = widget();
     expect(await withHumanCheck(check, async (token) => token)).toBe("tok-1");

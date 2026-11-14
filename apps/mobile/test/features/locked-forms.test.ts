@@ -16,7 +16,7 @@ describe("a form that is sending turns its controls off", () => {
     "%s locks inside the scroll view, so the page still scrolls",
     (file) => {
       expect(read(file)).toMatch(
-        /<ScrollView[\s\S]*?<Locked when=\{locked(?: \|\| frozen)?\}(?: readable=\{[^}]*\})?>[\s\S]*?\{children\}[\s\S]*?<\/Locked>\s*<\/ScrollView>/,
+        /<ScrollView[\s\S]*?<Locked when=\{locked(?: \|\| busy)?(?: \|\| frozen)?\}(?: readable=\{[^}]*\})?>[\s\S]*?\{children\}[\s\S]*?<\/Locked>\s*<\/ScrollView>/,
       );
     },
   );

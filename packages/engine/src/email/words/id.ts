@@ -1,4 +1,4 @@
-import { atHost } from "./en";
+import { atHost, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -38,6 +38,12 @@ export const words: EmailWords = {
       inviter
         ? [{ b: inviter }, `${email ? ` (${email})` : ""} mengundangmu bergabung ke `, { b: org }, ` sebagai ${role}.`]
         : ["Kamu diundang bergabung ke ", { b: org }, ` sebagai ${role}.`],
+    starts: (channels, agents) =>
+      sentences(
+        channels && ["Kamu langsung masuk ke ", ...channels, "."],
+        agents && ["Kamu akan bekerja bersama ", ...agents, "."],
+      ),
+    more: (n) => `${n} lainnya`,
     what: "agentes.chat adalah tempat orang dan agen AI bekerja bersama.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "Pesannya: " }, `“${note}”`],
     button: "Terima undangan",
@@ -307,6 +313,48 @@ export const words: EmailWords = {
         { b: org },
         ". Ruang kerja ini langsung jadi hanya-baca dan dihapus permanen 7 hari kemudian.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `${code} adalah kodemu untuk mengganti emailmu`,
+      preheader: "Ketik di agentes.chat untuk mengonfirmasi. Kodenya berlaku 10 menit.",
+      headline: "Kodemu",
+      body: (email, newEmail) => [
+        "Ketik kode ini untuk mengganti email akun ",
+        { b: email },
+        " menjadi ",
+        { b: newEmail },
+        ".",
+      ],
+      support: (address) => [
+        "Berlaku 10 menit, dan emailmu tidak berubah tanpa kode ini. Kalau ini bukan kamu, jangan bagikan kodenya dan kirim email ke ",
+        { mail: address },
+        ".",
+      ],
+      noSupport:
+        "Berlaku 10 menit, dan emailmu tidak berubah tanpa kode ini. Kalau ini bukan kamu, jangan bagikan kodenya dan beri tahu pengelola server ini.",
+      why: "Kamu menerima email ini karena akunmu meminta untuk mengganti email di agentes.chat.",
+    },
+    link: {
+      subject: "Konfirmasi email barumu untuk agentes.chat",
+      preheader: "Sekali klik, mulai sekarang kamu masuk dengan alamat ini. Tautannya berlaku satu jam.",
+      headline: "Konfirmasi email barumu",
+      body: "Tinggal satu langkah: konfirmasi bahwa alamat ini milikmu. Setelah itu akunmu masuk dengan alamat ini.",
+      button: "Konfirmasi email baru",
+      small: "Tautannya berlaku satu jam. Kalau kamu tidak memintanya, abaikan saja email ini.",
+      why: "Kamu menerima email ini karena seseorang meminta alamat ini dipakai untuk akun agentes.chat.",
+    },
+    changed: {
+      subject: "Email akun agentes.chat kamu sudah berubah",
+      preheader: "Kalau bukan kamu, alamat ini bisa dikembalikan selama 7 hari.",
+      headline: "Emailmu sudah berubah",
+      body: (email, newEmail) => ["Akun ", { b: email }, " sekarang masuk dengan ", { b: newEmail }, "."],
+      notYou:
+        "Bukan kamu? Tekan tombolnya dalam 7 hari. Alamat ini kembali, semua sesi dikeluarkan, aplikasi AI diputuskan, dan cara masuk yang ditambahkan sejak itu tidak berlaku lagi. Kata sandi juga dihapus, dan “Lupa kata sandi” membuat yang berikutnya.",
+      button: "Ini bukan saya",
+      small: "Kalau ini kamu, tidak perlu melakukan apa-apa.",
+      why: "Kamu menerima email ini karena alamat ini adalah email sebuah akun agentes.chat.",
     },
   },
   deleting: {

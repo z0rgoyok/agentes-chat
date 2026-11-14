@@ -17,6 +17,7 @@ import {
   Icon,
   type IconName,
   Locked,
+  RoleMark,
   SheetScreen,
   Text,
   textLineOf,
@@ -24,7 +25,6 @@ import {
 } from "@/ui";
 import { useFontScale } from "@/ui/text-scale";
 import { leadBox } from "@/ui/type-scale";
-import { RoleMark } from "../dashboards/parts";
 import { Face } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
@@ -168,7 +168,7 @@ export function FileShareSheet({ id, onClose }: { id: string; onClose: () => voi
                   key={r.id}
                   label={r.name}
                   sub={t("share.role")}
-                  leading={<RoleMark color={r.color} size={22} />}
+                  leading={<RoleMark color={r.color} icon={r.icon} size={22} />}
                   checked={listed.roleIds.includes(r.id)}
                   onPress={() => toggle("role", r.id)}
                 />
@@ -218,7 +218,9 @@ export function FileShareSheet({ id, onClose }: { id: string; onClose: () => voi
                     key={roleId}
                     label={name}
                     sub={t("share.role")}
-                    {...(r ? { leading: <RoleMark color={r.color} size={22} /> } : { icon: "members" as const })}
+                    {...(r
+                      ? { leading: <RoleMark color={r.color} icon={r.icon} size={22} /> }
+                      : { icon: "members" as const })}
                     {...(canShare
                       ? { remove: { label: t("share.remove", { name }), onPress: () => toggle("role", roleId) } }
                       : {})}

@@ -5,14 +5,13 @@ import { resources } from "@agenteschat/i18n";
 import { LOCALES } from "@agenteschat/i18n/locale";
 import i18next, { type TFunction } from "i18next";
 import type { Message } from "../src/index";
-import { formatShortDate } from "../src/lib/format";
 import { latestText, previewBody } from "../src/lib/message-body";
 import {
   AGENT_ONLY_NOTICES,
   answeredNotices,
   consultationOfNotice,
-  followUpLine,
   isAgentOnlyNotice,
+  isReturnLine,
   isTalkerReply,
   NOTICE_KINDS,
   noticeAgentHandle,
@@ -53,7 +52,8 @@ describe("notices only their agent reads", () => {
       [],
       [],
     ).flatMap((i) => (i.kind === "message" ? [i.message.id] : []));
-    expect(shown).toEqual(["asked", "report", "later", "answer"]);
+    // A return's line isn't one either: the bar above the composer holds it.
+    expect(shown).toEqual(["asked", "report", "answer"]);
     expect(isAgentOnlyNotice(notice("proposal_result"))).toBe(true);
     expect(isAgentOnlyNotice(notice("consult_reply"))).toBe(false);
     expect(isAgentOnlyNotice({})).toBe(false);
@@ -142,39 +142,6 @@ describe("notices in a conversation", () => {
     const byPerson = msg("p", 3, walter, { routine: { id: "rt", name: "x", noticeId: "notice" } });
     expect(answeredNotices([byPerson]).size).toBe(0);
   });
-
-  test("a follow-up's line: cancelable while it waits, its day when not today, past once it came, canceled", () => {
-    const at = "2026-10-30T14:00:00.000Z";
-    const today = new Date("2026-10-30T13:00:00.000Z");
-    const dayBefore = new Date("2026-10-29T13:00:00.000Z");
-    const when = { time: (iso: string) => (iso === at ? "11:00" : "?"), locale: "pt-BR" };
-    const line = (refs: Record<string, string>, now = today) => {
-      const notice = noticeOf({ notice: { kind: "follow_up", text: "Check CI run 42", refs } });
-      return notice ? followUpLine(notice, "Ari", when, now) : null;
-    };
-    const refs = { runId: "r1", at, about: "ver o CI" };
-    expect(line({ ...refs, state: "pending" })).toEqual({
-      key: "chat.notice.followUp",
-      values: { name: "Ari", about: "ver o CI", time: "11:00", day: "" },
-      pending: true,
-    });
-    // Set the day before: it says the day it comes back.
-    expect(line({ ...refs, state: "pending" }, dayBefore)).toEqual({
-      key: "chat.notice.followUpOn",
-      values: { name: "Ari", about: "ver o CI", time: "11:00", day: formatShortDate("pt-BR", at) },
-      pending: true,
-    });
-    expect(line({ ...refs, state: "done" })).toMatchObject({ key: "chat.notice.followUpDone", pending: false });
-    expect(line({ ...refs, state: "done" }, dayBefore)?.key).toBe("chat.notice.followUpDoneOn");
-    expect(line({ ...refs, state: "canceled" })).toMatchObject({ key: "chat.notice.followUpCanceled", pending: false });
-    expect(line({ ...refs, state: "canceled" }, dayBefore)?.key).toBe("chat.notice.followUpCanceledOn");
-    expect(line({ ...refs, wake: "1", followUpId: "m1" })).toMatchObject({
-      key: "chat.notice.followUpWake",
-      pending: false,
-    });
-    const report = noticeOf({ notice: { kind: "routine_handoff", text: "x", refs: {} } });
-    expect(report && followUpLine(report, "Ari", when)).toBeNull();
-  });
 });
 
 describe("consultationOfNotice", () => {
@@ -236,8 +203,8 @@ describe("consultationOfNotice", () => {
 
 describe("events over once they happened", () => {
   const rex = { type: "agent" as const, id: "rex" };
-  const shown = (list: Message[], working = new Set<string>()) =>
-    buildTimeline(list, [], [], working).flatMap((i) => (i.kind === "message" ? [i.message.id] : []));
+  const shown = (list: Message[]) =>
+    buildTimeline(list, [], []).flatMap((i) => (i.kind === "message" ? [i.message.id] : []));
   const follow = (refs: Record<string, string>) => ({
     notice: {
       kind: "follow_up",
@@ -246,24 +213,29 @@ describe("events over once they happened", () => {
     },
   });
 
-  test("a follow-up that came: its line goes, and the line that woke the agent stays only while its turn runs", () => {
-    const set = msg("set", 0, rex, follow({ state: "done" }));
-    const woke = msg("woke", 20, rex, follow({ wake: "1", followUpId: "set" }));
-    const reply = msg("reply", 21, rex);
-    // The turn is running: nothing after it yet, or a person wrote while the agent works.
-    expect(shown([set, woke])).toEqual(["woke"]);
-    expect(shown([set, woke, msg("p", 21, walter)], new Set(["rex"]))).toEqual(["woke", "p"]);
-    // Over: the agent said something after it, or something came after it and the agent isn't at work.
-    expect(shown([set, woke, reply])).toEqual(["reply"]);
-    expect(shown([set, woke, msg("p", 21, walter)])).toEqual(["p"]);
-    // Another conversation's message says nothing of this one.
-    expect(shown([woke, { ...reply, threadId: "t" }])).toEqual(["woke", "reply"]);
-  });
-
-  test("a follow-up still to come or canceled stays", () => {
-    const pending = msg("pending", 0, rex, follow({ state: "pending" }));
-    const canceled = msg("canceled", 1, rex, follow({ state: "canceled" }));
-    expect(shown([pending, canceled, msg("after", 2, rex)])).toEqual(["pending", "canceled", "after"]);
+  test("a return's line never shows: set, come, canceled or the one that woke the agent (the bar holds it)", () => {
+    const lines = [
+      msg("pending", 0, rex, follow({ state: "pending" })),
+      msg("done", 1, rex, follow({ state: "done" })),
+      msg("canceled", 2, rex, follow({ state: "canceled", canceledBy: "walter" })),
+      msg("woke", 3, rex, follow({ wake: "1", followUpId: "done" })),
+    ];
+    expect(lines.every((m) => isReturnLine(m.meta))).toBe(true);
+    expect(shown([...lines, msg("reply", 4, rex)])).toEqual(["reply"]);
+    // Its reply groups with the agent's message before it: no line stood between them.
+    const items = buildTimeline([msg("said", 0, rex), lines[0] as Message, msg("reply", 1, rex)], [], []);
+    expect(items.flatMap((i) => (i.kind === "message" ? [[i.message.id, i.grouped]] : []))).toEqual([
+      ["said", false],
+      ["reply", true],
+    ]);
+    expect(isReturnLine({ notice: { kind: "work_follow_up", text: "x" } })).toBe(false);
+    // Alone on a day, it opens no day of its own.
+    const days = (list: Message[]) => buildTimeline(list, [], []).filter((i) => i.kind === "day").length;
+    const tomorrow = {
+      ...msg("next-day", 0, rex, follow({ state: "pending" })),
+      createdAt: "2026-10-15T10:00:00.000Z",
+    };
+    expect(days([msg("said", 0, rex), tomorrow])).toBe(1);
   });
 
   test("a mention that couldn't wake an agent folds into its message's own line about it, else stays", () => {
@@ -285,7 +257,6 @@ describe("events over once they happened", () => {
 });
 
 describe("what people read of a notice", () => {
-  const when = { time: (iso: string) => iso.slice(11, 16), locale: "pt-BR" };
   const names = { author: "Rex", agentByHandle: (h: string) => (h === "ivy" ? "Ivy" : null) };
   /** Every ref any kind words a line or its detail from. */
   const refs = {
@@ -323,7 +294,10 @@ describe("what people read of a notice", () => {
   });
 
   test("every kind people see has its own words in every language, and never the text written for the agent", () => {
-    const seen = NOTICE_KINDS.filter((k) => !AGENT_ONLY_NOTICES.has(k) && k !== "talker_reply" && k !== "run_stopped");
+    // A return's line is the bar's, never one of the conversation's (`isReturnLine`).
+    const seen = NOTICE_KINDS.filter(
+      (k) => !AGENT_ONLY_NOTICES.has(k) && k !== "talker_reply" && k !== "run_stopped" && k !== "follow_up",
+    );
     expect(seen.length).toBeGreaterThan(0);
     const missing: string[] = [];
     for (const kind of seen) {
@@ -339,7 +313,6 @@ describe("what people read of a notice", () => {
         const view = noticeView(
           { body: said, meta: { notice: { kind, text: said, from: "@ivy", refs: { ...refs, reason } } } },
           names,
-          when,
         );
         if (!view) {
           missing.push(`${kind}: no line`);
@@ -361,11 +334,7 @@ describe("what people read of a notice", () => {
 
   test("a mention that couldn't wake says why in people's words, by the reason it carries", () => {
     const view = (r: Record<string, string>) =>
-      noticeView(
-        { body: AGENT_TEXT, meta: { notice: { kind: "wake_skipped", text: AGENT_TEXT, refs: r } } },
-        names,
-        when,
-      );
+      noticeView({ body: AGENT_TEXT, meta: { notice: { kind: "wake_skipped", text: AGENT_TEXT, refs: r } } }, names);
     expect(view({ agentHandles: "ivy" })).toMatchObject({
       key: "chat.notice.wakeSkipped",
       values: { name: "Rex", agents: "Ivy" },
@@ -389,7 +358,6 @@ describe("what people read of a notice", () => {
       noticeView(
         { body: AGENT_TEXT, meta: { notice: { kind: "github_event", text, refs: { who: "drive-by", ...r } } } },
         names,
-        when,
       );
     const at = { number: "12", repo: "acme/app", url: "https://github.com/acme/app/pull/12" };
     expect(view({ ...at, event: "comment", item: "pull_request", outside: "1" })).toMatchObject({
@@ -416,18 +384,6 @@ describe("what people read of a notice", () => {
       detail: { content: "https://github.com/acme/app/pull/12" },
       answer: false,
     });
-  });
-
-  test("a follow-up's line has nothing to open: its note to itself is the agent's", () => {
-    const view = noticeView(
-      {
-        body: AGENT_TEXT,
-        meta: { notice: { kind: "follow_up", text: AGENT_TEXT, refs: { ...refs, state: "pending" } } },
-      },
-      names,
-      when,
-    );
-    expect(view).toMatchObject({ key: "chat.notice.followUpOn", pending: true, detail: null });
   });
 });
 

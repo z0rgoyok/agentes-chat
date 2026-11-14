@@ -98,3 +98,35 @@ minutes at most. Models that don't load leave the service up, unhealthy and answ
 load the same files again on a machine it shares. A release whose speech image doesn't build publishes the app without
 it. Self-hosted servers turn on the same profile, with the image each release publishes (SELF_HOSTING.md, Voice
 messages).
+
+## Addendum (2026-11-13): "gravando áudio…" for the others
+
+**The decision.** People see when someone records a voice message, as they see typing: "Marina está gravando áudio…"
+in the line above the composer, on the web and the phone. It rides the typing frame: `{"type":"typing", channelId,
+threadId?, kind: "voice"}`, passed on as `user.typing` with the same `kind`, the same rate limit and the same 5 s
+(`TYPING_TTL_MS`). No `kind` is typing, and any other reads as typing, so older apps keep working. The latest frame per
+person wins. Agents never record.
+
+**How long it lasts.** From the first second recorded until the message shows:
+
+- The apps send it while the take records, held or hands free (web: `onRecording` from the kit's recorder each second;
+  phone: `useVoiceTake`'s tick), never while starting or paused, and while the take uploads. The typing throttle keeps
+  it to one frame every 3 s and sends a change of kind at once. The upload's frames (`keepAlive`) wait while the person
+  has written in the last 3 s: writing takes over. The recorder's never wait, so a take started right after a typed
+  message tells the agent asked in it at once.
+- The upload's 202 hands it to the server: `voice.transcribe` sends it every 3 s while the words are made out
+  (`keepRecording` in `voice.ts`), until the person's typing frame in that channel or the message. Its last frame is
+  out before the message, which clears the line at once in the apps (`applyTypingEvent`). A message too big for its
+  event still names its author (`authorUserId`), so a long take ends the line as fast.
+- Paused or deleted, the frames stop: gone within 5 s. A recording dropped as silent, or one waiting for the job's
+  retry, ends the same way.
+
+**The look.** Three 3 px bars in the voice wave's look rise and fall where the dots are for typing, ink, never red,
+still with reduced motion (`.ac-typing__bars`, the phone's `RecordingBars`). Who records comes last, as a group: the
+bars, their faces, their words, agents' words first as always (`barWords`, `peopleGroups`). Beside someone typing,
+each verb is a group with its own mark and faces ("Marina está digitando · Rui está gravando áudio…", `bothAtIt`), and
+the second takes a line of its own when the line is short: names give way, verbs never. Copy:
+`chat.activity.recordingVoice`.
+
+**Agents wait for it.** The quiet window counts a voice frame like typing (ADR 0112): a run started on a person's
+message waits its whole window while they record a follow-up.

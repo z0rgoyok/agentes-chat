@@ -178,8 +178,9 @@ const styles = StyleSheet.create({
   dock: { flex: 1, justifyContent: "flex-end" },
   // Shrinks to the room above the keyboard (its content scrolls), never past the status bar.
   sheet: { marginHorizontal: INSET, marginBottom: INSET, borderRadius: RADIUS, flexShrink: 1 },
-  surface: { borderRadius: RADIUS, paddingTop: 8, overflow: "hidden", flexShrink: 1 },
-  grab: { alignItems: "center", paddingTop: 4, paddingBottom: 10 },
+  surface: { borderRadius: RADIUS, overflow: "hidden", flexShrink: 1 },
+  // The whole strip over the content drags, its top edge included (the surface's own padding didn't).
+  grab: { alignItems: "center", paddingTop: 12, paddingBottom: 10 },
   // The system's own grabber (as `SheetSurface` draws it): 36 × 5, round ends; the hairline's tone was too faint on
   // the glass.
   grabBar: { width: 36, height: 5, borderRadius: 2.5 },

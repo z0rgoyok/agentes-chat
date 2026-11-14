@@ -64,9 +64,8 @@ export function jobOf({ dedupe, lastError, ...job }: JobRow) {
   };
 }
 
-// By name, not by payload: a finished job's payload is cleared after 30 days and its name stays.
-// ponytail: no index serves a name by its start, so this reads the whole outbox; an index on `dedupe_key` with
-// `text_pattern_ops` (a migration) once that takes long.
+// By name, not by payload: a finished job's payload is cleared after 30 days and its name stays. Written as
+// `outbox_run_jobs_idx` is: the kind is the index's condition, and the planner reads `starts_with` as a range of it.
 export const jobsOfRun = (runId: string) =>
   and(eq(outbox.kind, RUN_JOB), sql`starts_with(${outbox.dedupeKey}, ${`${RUN_JOB}:${runId}`})`);
 
@@ -110,10 +109,10 @@ const jobsIn = (q: JobFilters, now: Date) =>
 const QUEUED_AT = micros(outbox.createdAt);
 
 /**
- * Jobs of every workspace and of none, newest first, in keyset pages.
- * ponytail: only due and leased jobs are indexed, so every other filter reads the whole outbox and sorts it. A page
- * is ordered and continued by the stored `created_at` itself, never an expression of it (which an index on the
- * column can't serve), so an index on `(created_at, id)` (a migration) serves it once that takes long.
+ * Jobs of every workspace and of none, newest first, in keyset pages. A page is ordered and continued by the stored
+ * `created_at` itself, never an expression of it (which an index on the column can't serve), so it walks
+ * `outbox_created_idx` from the newest job and sorts nothing. A filter that few jobs match still reads on until a
+ * page is full.
  */
 export async function operatorJobs(db: Database, query: OperatorJobQuery, now = new Date()) {
   const after = query.cursor ? decodeCursor(query.cursor, UuidCursor) : null;
@@ -146,7 +145,8 @@ const REFUSED = /refused the email \((\d{3})(?: ([\w.-]+))?\)/;
  * The emails queued to one address, newest first, in keyset pages: which template each sends, its state and its
  * attempts. The address is compared here, whole and in any case, with the ones a job is to, and never read out; nor
  * is anything else of the payload (a subject, a link, a code). A finished job keeps its addresses 30 days
- * (`clearOldOutboxPayloads`): after that it is no longer found. Like `operatorJobs`, this reads the whole outbox.
+ * (`clearOldOutboxPayloads`): after that it is no longer found. No index is on whom a job is to: the outbox is read
+ * newest first until a page is full.
  */
 export async function operatorEmailJobs(db: Database, query: PageQuery & { to: string }) {
   const after = query.cursor ? decodeCursor(query.cursor, UuidCursor) : null;

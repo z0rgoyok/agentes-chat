@@ -53,6 +53,8 @@ export interface VoiceTarget {
   /** Whether this person may record now (`/voice/allowed`); null while unknown. */
   allowed: boolean | null;
   afterSend: () => void;
+  /** While it records, held or hands free, never paused: the others see "gravando áudio…" (call it throttled). */
+  onRecording?: () => void;
 }
 
 const removeFile = (uri: string) => {
@@ -255,6 +257,7 @@ export function useVoiceTake(target: VoiceTarget) {
       void pause();
       return;
     }
+    if (phaseNow === "hold" || phaseNow === "locked") targetRef.current.onRecording?.();
     liveMs.current = status.durationMillis;
     const ms = doneMs.current + liveMs.current;
     levels.current.push(levelOf(status.metering));
@@ -357,8 +360,12 @@ export function useVoiceTake(target: VoiceTarget) {
         setListening(false);
         setSeconds(Math.floor(doneMs.current / 1000));
       },
+      onError: () => {
+        setListening(false);
+        toast({ title: t("voice.noPlayback"), icon: "x" });
+      },
     });
-  }, [progress]);
+  }, [progress, t, toast]);
 
   const scrub = useCallback(
     (at: number) => {

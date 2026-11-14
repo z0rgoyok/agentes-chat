@@ -79,19 +79,25 @@ type Log = (message: string, data?: Record<string, unknown>) => void;
 /**
  * Turnstile's siteverify, our own call rather than Better Auth's captcha plugin: one policy for every form, an
  * action per form, and a fake `fetch` in tests. A token counts only for its action, seen by Cloudflare on one of
- * `hostnames`, except the answers of Cloudflare's test keys (any host, no action). When Cloudflare can't be
- * reached, or refuses the secret, requests go through and each is logged: nobody is locked out of signing in by
- * someone else's outage, and every rate limit still holds.
+ * `hostnames` (or of `landingHostnames`, for `waitlist` only), except the answers of Cloudflare's test keys (any
+ * host, no action). When Cloudflare can't be reached, or refuses the secret, requests go through and each is logged:
+ * nobody is locked out of signing in by someone else's outage, and every rate limit still holds.
  */
 export function createTurnstileCheck(options: {
   siteKey: string;
   secretKey: string;
   /** Where our pages run the widget: `PUBLIC_URL`'s host. */
   hostnames: string[];
+  /**
+   * Where the landing page, a site of its own (`LANDING_URL`), runs the widget. Its tokens count only for `waitlist`,
+   * the action of its only forms, and never for another.
+   */
+  landingHostnames?: string[];
   fetch?: typeof fetch;
   now?: () => number;
   log?: { error: Log };
 }): HumanCheck {
+  const waitlistHostnames = [...options.hostnames, ...(options.landingHostnames ?? [])];
   const http = options.fetch ?? fetch;
   const now = options.now ?? Date.now;
   const logError: Log = (message, data) => options.log?.error(message, data);
@@ -216,7 +222,8 @@ export function createTurnstileCheck(options: {
         return null;
       }
       if (!answer.success) return "human_check";
-      const ours = answer.action === action && options.hostnames.includes(answer.hostname ?? "");
+      const hostnames = action === "waitlist" ? waitlistHostnames : options.hostnames;
+      const ours = answer.action === action && hostnames.includes(answer.hostname ?? "");
       if (!ours && answer.metadata?.result_with_testing_key !== true) return "human_check";
       prune();
       const minute = Math.floor(now() / 60_000);

@@ -94,9 +94,11 @@ function Row({ check, selfId }: { check: TeamCheck; selfId: string | null }) {
 const styles = StyleSheet.create({
   list: { gap: 8 },
   bold: { fontWeight: "600" },
-  // The receipts' card: a hairline, the cut corner; the icon (as the conversation's event lines), the first line and
-  // the action (32, in a 50 row) share one middle.
+  // The receipts' card: a hairline, the cut corner, as wide as its words; the icon (as the conversation's event lines),
+  // the first line and the action (32, in a 50 row) share one middle.
   one: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
@@ -111,6 +113,6 @@ const styles = StyleSheet.create({
   },
   // The "small" line (20) on the action's middle.
   tx: { paddingTop: (32 - 20) / 2 },
-  line: { flex: 1, minWidth: 0, alignItems: "flex-start", columnGap: 8 },
+  line: { flexShrink: 1, minWidth: 0, alignItems: "flex-start", columnGap: 8 },
   detail: { marginTop: 2 },
 });

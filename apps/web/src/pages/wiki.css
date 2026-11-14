@@ -62,7 +62,8 @@
   align-items: center;
   gap: 8px;
 }
-/* "New page" shows only its +: it reaches out by its plate, so the + ends on the padding line the title starts on. */
+/* "New page" (+) and the "…" with what is done now and then show only their glyphs, 8 apart: the last reaches out by
+   its plate, so its glyph ends on the padding line the title starts on. */
 .wiki-nav__head > .ac-btn--ghost:last-child {
   margin-right: calc(-1 * var(--ghost-plate));
 }
@@ -374,10 +375,6 @@ button.wiki-folder-row__act:hover {
 html:not([data-pointer]) .wiki-tag:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-}
-/* "Importar", at the foot of the wiki's side column. */
-.wiki-import-btn {
-  margin-top: auto;
 }
 .obsidian-mark {
   flex: none;

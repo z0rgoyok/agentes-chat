@@ -90,7 +90,7 @@ export function AudienceChip({ agent }: { agent: Agent }) {
 }
 
 /**
- * The three choices (Todos do workspace / Só algumas pessoas ou papéis / Só o
+ * The three choices (Todos do workspace / Só algumas pessoas ou cargos / Só o
  * responsável), with the roles and people picker under the second, and whether other agents may consult it for
  * the rest (ADR 0085 addendum).
  * `compact`: a segmented control and one line about the choice ("Criar agente").

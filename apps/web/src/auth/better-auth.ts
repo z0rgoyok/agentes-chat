@@ -6,6 +6,7 @@ import {
 } from "@agenteschat/client/lib/guards";
 import { humanCheckHeaders } from "@agenteschat/client/lib/human-check";
 import { createAuthClient } from "better-auth/client";
+import { announceAccountChange, leaveFor, loadAs } from "@/lib/accounts";
 import type { AuthClient, AuthResult } from "./client";
 
 type Refusal = { status?: number; message?: string; code?: string; kind?: unknown; cloud?: unknown } | null;
@@ -74,7 +75,6 @@ export function createBetterAuthClient(origin = window.location.origin, language
         }),
       ),
     updateName: (name) => toResult(client.updateUser({ name })),
-    changeEmail: (email) => toResult(client.changeEmail({ newEmail: email, callbackURL: "/" })),
     sendVerificationEmail: (email) => toResult(client.sendVerificationEmail({ email })),
     signInSocial: (provider, callbackURL, earlyAccess, errorCallbackURL = "/login") =>
       toResult(
@@ -90,8 +90,24 @@ export function createBetterAuthClient(origin = window.location.origin, language
         client.requestPasswordReset({ email, redirectTo, fetchOptions: { headers: humanCheckHeaders(humanCheck) } }),
       ),
     resetPassword: ({ token, newPassword }) => toResult(client.resetPassword({ token, newPassword })),
+    // Only this account leaves the browser; the others signed in on it stay (ADR 0183). Never Better Auth's own
+    // sign-out, which ends every one of them. With another account still in, the browser is on it now: the app loads
+    // again from the start as that person (`leaveFor`), and this never settles, so no caller goes on as if nobody
+    // were signed in.
     signOut: async () => {
-      await client.signOut();
+      const out = await fetch(`${origin}/api/app/device-accounts/sign-out`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }).catch(() => null);
+      const left = out?.ok ? ((await out.json().catch(() => null)) as { signedIn?: boolean } | null) : null;
+      if (!left) return;
+      if (left.signedIn) {
+        loadAs(leaveFor(window.location.pathname, window.location.search));
+        await new Promise(() => {});
+      }
+      announceAccountChange();
     },
     desktopOpen: (challenge) =>
       dataOr(

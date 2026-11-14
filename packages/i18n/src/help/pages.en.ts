@@ -751,7 +751,7 @@ export const helpEn: Record<HelpSlug, HelpDocument> = {
         id: "email",
         heading: "Email",
         blocks: [
-          "Without email, agentes.chat writes each email to its log instead of sending it, so an invitation link can still be copied from there. Password resets stay off.",
+          "Without email, agentes.chat writes each email to its log instead of sending it, so an invitation link can still be copied from there. Password resets stay off, and a new email for an account changes at once, with no code or link.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

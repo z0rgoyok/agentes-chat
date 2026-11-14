@@ -16,7 +16,7 @@ import { webUrl } from "@agenteschat/client/lib/guards";
 import { NO_PROJECT } from "@agenteschat/client/lib/issue-projects";
 import { issueEventText } from "@agenteschat/client/lib/issues";
 import { can } from "@agenteschat/client/lib/permissions";
-import { foldSteps } from "@agenteschat/client/lib/work";
+import { foldSteps, shownSteps } from "@agenteschat/client/lib/work";
 import {
   Alert,
   Button,
@@ -634,8 +634,9 @@ function WorkBox({ issue: i }: { issue: Issue }) {
   const stalled = w.state === "stalled";
   const waiting = w.state === "waiting_approval" || w.state === "waiting_input";
   const when = relativeTime(t, i18n.language, w.since);
-  const last = w.steps.at(-1);
-  const lines = foldSteps(w.steps, stepText);
+  const steps = shownSteps(w.steps);
+  const last = steps.at(-1);
+  const lines = foldSteps(steps, stepText);
   return (
     <section className={cx("issue-work", stalled && "is-stalled")} aria-label={t("issues.work.label", g)}>
       <div className="issue-work__head ac-iconline">

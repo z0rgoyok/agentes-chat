@@ -6,7 +6,7 @@ import { Button, EmptyState, Text, useToast } from "@/ui";
 import { ChangeRequestRow } from "../right-hand/SettingsCard";
 import { useFailed } from "../routines/hooks";
 import { confirmAction } from "../settings/parts";
-import { LoadFailed } from "../shared/FirstUse";
+import { LoadFailed, useEmptyLook } from "../shared/FirstUse";
 import { useOrgId, usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { InstructionProposalCard } from "./InstructionProposalCard";
@@ -18,6 +18,7 @@ export function ProposalsScreen() {
   const proposals = useProposals(orgId);
   const pull = usePullRefresh(proposals.refetch);
   const open = sortProposals((proposals.data ?? []).filter(isOpen));
+  const look = useEmptyLook();
   return (
     <PushedLargeTitle
       title={t("shell.proposals")}
@@ -25,7 +26,15 @@ export function ProposalsScreen() {
     >
       {proposals.isError && !proposals.data ? <LoadFailed onRetry={() => void proposals.refetch()} /> : null}
       {proposals.isSuccess && open.length === 0 ? (
-        <EmptyState size="inline" title={t("proposals.emptyTitle")} subtitle={t("proposals.empty")} />
+        // All clear, the whole screen's: the agent at ease over the words, centered (as the audit's "Nothing to review").
+        // The compact form is a filtered list's, and left two lines stuck under the title on an empty page.
+        <EmptyState
+          size="page"
+          agent={look}
+          mood="deal"
+          title={t("proposals.emptyTitle")}
+          subtitle={t("proposals.empty")}
+        />
       ) : null}
       <View style={styles.list}>
         <DecideAll open={open} />

@@ -106,6 +106,7 @@ const KNOWN = {
   "thread.range_has_replies": "errors.thread.rangeHasReplies",
   "thread.move_other_channel": "errors.thread.moveOtherChannel",
   "thread.not_allowed": "errors.thread.notAllowed",
+  "follow_up.not_yours": "errors.followUp.notYours",
   "thread.range_invalid": "errors.thread.rangeInvalid",
   "thread.range_empty": "errors.thread.rangeEmpty",
   "thread.range_too_long": "errors.thread.rangeTooLong",
@@ -197,6 +198,8 @@ const KNOWN = {
   "machine.managed": "computerSetup.managedNotRemovable",
   "machine.managed_access": "computerSetup.managedAccess",
   "join.link_closed": "errors.join.linkClosed",
+  "join.link_full": "errors.join.linkFull",
+  "join.link_full_approval": "errors.join.linkFullApproval",
   "join.full": "errors.join.full",
   "join.rate_limited": "errors.join.rateLimited",
   "join.link_busy": "errors.join.linkBusy",
@@ -216,6 +219,13 @@ const KNOWN = {
   "reauth.code_tries": "errors.code.tries",
   "reauth.code_limit": "errors.code.limit",
   "reauth.code_wait": "errors.code.wait",
+  // A new address for the account (apps/server auth.ts `changeAccountEmail`) and its "This wasn't me".
+  "email.same": "shell.email.same",
+  "email.held": "shell.email.held",
+  "email.no_mail": "shell.email.noMail",
+  "email.taken": "shell.email.taken",
+  "email.undo_gone": "emailUndo.goneLead",
+  "email.undo_taken": "emailUndo.takenLead",
   "invitation.ask_to_join": "errors.invitation.askToJoin",
   "org.create_invite_only": "errors.org.createInviteOnly",
   "org.not_restorable": "errors.org.notRestorable",
@@ -235,6 +245,8 @@ const KNOWN = {
   SIGNUP_CLOSED: "auth.flow.closedLead",
   // A sign-up whose name is its password (apps/server auth.ts `NAME_IS_PASSWORD`).
   NAME_IS_PASSWORD: "auth.flow.nameIsPassword",
+  // A sign-up with an address an account just left, held for its "This wasn't me" (apps/server auth.ts `EMAIL_HELD`).
+  EMAIL_HELD: "auth.flow.emailHeld",
   // Better Auth's own refusals on sign-up or a password change (an expired reset link is the reset page's own state).
   USER_ALREADY_EXISTS: "auth.refused.linked",
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "auth.refused.linked",
@@ -396,6 +408,9 @@ const KNOWN = {
   "action.not_undone": "errors.said.alreadyDone",
   "action_card.asked": "errors.said.alreadyDone",
   "action_card.decided": "errors.said.alreadyDone",
+  // A card that names all it does (an invite's addresses, a key) is applied only by an app that words it.
+  "action_card.update_app": "errors.rightHand.updateApp",
+  "action_card.nobody_new": "errors.rightHand.nobodyNew",
   "agent_proposal.asked": "errors.said.alreadyDone",
   "approval.not_ahead": "errors.said.alreadyDone",
   "approval.not_cancelable": "errors.said.alreadyDone",
@@ -416,6 +431,8 @@ const KNOWN = {
   "secret.closed": "errors.said.alreadyDone",
   "team_week.done": "errors.said.alreadyDone",
   "upload.not_pending": "errors.said.alreadyDone",
+  // What an invite card names (a role) moved since: the server rewrote the card, so a refresh shows it as it is.
+  "action_card.changed": "errors.said.changed",
   "agent.mail_loss_changed": "errors.said.changed",
   "mission.plan_conflict": "errors.said.changed",
   "run.state_changed": "errors.said.changed",
@@ -679,6 +696,19 @@ export const CONTINUE_ERRORS: ReadonlySet<string> = new Set([
 export const errorCode = (error: unknown) => (error instanceof ApiError ? error.code : undefined);
 
 /**
+ * Where Sua conta › E-mail says why a new address was refused, web and phone: under the address (`email.same`,
+ * `email.held`, `email.taken`), under the code (`reauth.code_*`), else on its own. A code that went out a moment ago
+ * (`reauth.code_wait`) is no refusal: the code's countdown says it.
+ */
+export function emailChangeRefusal(error: unknown): "address" | "code" | "wait" | "other" | null {
+  const code = errorCode(error);
+  if (!error) return null;
+  if (code === "reauth.code_wait") return "wait";
+  if (code === "email.same" || code === "email.held" || code === "email.taken") return "address";
+  return code?.startsWith("reauth.code") ? "code" : "other";
+}
+
+/**
  * What the proxy in front answers while the server restarts, is down or too slow: Caddy's 502, 503 and 504, and
  * Cloudflare's 520 to 527 and 530 (as apps/web/public/unavailable.html reads them). The server's own errors carry a
  * code of theirs (its 503 for a computer's error does).
@@ -869,20 +899,6 @@ export function authErrorText(
     cloud,
   });
   return knownErrorText(t, error) ?? (noAnswer(error) ? noAnswerText(t) : untranslatedText(t, error));
-}
-
-/**
- * Why a new address for the signed-in account was refused (Better Auth's `change-email`), web and phone: the same
- * address, a server that sends no e-mail to confirm it with (who runs it can turn e-mail on), else as any sign-in.
- */
-export function emailChangeErrorText(
-  t: TFunction,
-  refusal: { status: number; code?: string; message: string } & RestrictionFacts,
-): string {
-  if (/email is the same/i.test(refusal.message)) return t("shell.email.same");
-  if (/verification email isn't enabled|change email is disabled/i.test(refusal.message))
-    return t("shell.email.noMail");
-  return authErrorText(t, refusal);
 }
 
 type ProviderRefusal = "cancelled" | "linked" | "noEmail" | "expired" | "server" | "other";

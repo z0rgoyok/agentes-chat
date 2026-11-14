@@ -1,18 +1,19 @@
 import type {
-  AgentPresence,
   AgentStatus,
   AgentStatusLine,
+  AgentWork,
   AiStatus,
   Availability,
   MemberPresence,
   MemberStatus,
   Person,
 } from "@agenteschat/client";
-import { agentStateIn, keys, useApi } from "@agenteschat/client";
-import { agentPresenceShown, agentStatusText } from "@agenteschat/client/lib/presence";
+import { agentStateIn, agentWorkingIn, keys, useApi } from "@agenteschat/client";
+import { agentWork } from "@agenteschat/client/lib/agent-work";
+import { type AgentFace, agentPresenceShown, agentStatusText } from "@agenteschat/client/lib/presence";
 import { useQuery } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useOrg } from "@/components/org-context";
 import { useStreams } from "@/realtime/context";
 
@@ -77,8 +78,11 @@ export function usePresences(): Map<string, MemberPresence> {
 const EMPTY_PRESENCES = new Map<string, MemberPresence>();
 
 export interface AgentShown {
-  presence: AgentPresence;
+  /** Its face (ADR 0084 addendum): free, at work, waiting on you, out of office or offline. */
+  presence: AgentFace;
   line: AgentStatusLine | null;
+  /** Its most important work for this person, a run this tab hears at work included (`agentWork`). */
+  work: AgentWork | null;
   /** Its last run's end (now while one is going); null = it never worked. */
   activeAt: string | null;
   /** No AI to think with: drawn offline (ADR 0084 §3). */
@@ -110,16 +114,60 @@ export function useAgentPresence(agentId: string | null | undefined): AgentShown
     select: pickAi,
   }).data;
   // A run of its this tab hears: at work before the list's next read says so.
-  const working = useStreams((s) => (agentId ? agentStateIn(s, agentId) !== "idle" : false));
+  const workingIn = useStreams((s) =>
+    agentId && agentStateIn(s, agentId) !== "idle" ? agentWorkingIn(s, agentId) : null,
+  );
   if (!on || status === undefined) return null;
+  const working = workingIn !== null;
   // At work it has an AI, whatever the AIs' list reads for this person (the right hand's is each person's own).
   const noAi = ai === "no_ai" && !working && status?.working !== true;
   return {
     presence: agentPresenceShown(status ?? undefined, !noAi, working),
     line: noAi ? null : live(status?.status),
+    work: agentWork(status, workingIn ? { channelId: workingIn } : null),
     activeAt: status?.activeAt ?? null,
     noAi,
   };
+}
+
+const workingIdsOf = (list: AgentStatus[]) =>
+  list
+    .filter((s) => s.work?.state === "working")
+    .map((s) => s.agentId)
+    .sort()
+    .join(",");
+
+/** The agents at work, workspace-wide (their work for this person, ADR 0084 addendum), from the list every face reads. */
+export function useAgentsWorking(): ReadonlySet<string> {
+  const { org } = useOrg();
+  const api = useApi();
+  const key =
+    useQuery({
+      queryKey: keys.agentStatus(org.id),
+      queryFn: () => api.agents.statuses(org.id),
+      staleTime: 15_000,
+      enabled: org.id.length > 0,
+      select: workingIdsOf,
+    }).data ?? "";
+  return useMemo(() => new Set(key ? key.split(",") : []), [key]);
+}
+
+const linesOf = (list: AgentStatus[]) => new Map(list.map((s) => [s.agentId, live(s.status)]));
+const NO_LINES: ReadonlyMap<string, AgentStatusLine | null> = new Map();
+
+/** Every agent's line by id (ADR 0084), from the list every face reads, with no poll of its own. */
+export function useAgentLines(): ReadonlyMap<string, AgentStatusLine | null> {
+  const { org } = useOrg();
+  const api = useApi();
+  return (
+    useQuery({
+      queryKey: keys.agentStatus(org.id),
+      queryFn: () => api.agents.statuses(org.id),
+      staleTime: 15_000,
+      enabled: org.id.length > 0,
+      select: linesOf,
+    }).data ?? NO_LINES
+  );
 }
 
 /** An agent's line in words with its emoji, or null; `locale` words when an agent out of office is back. */

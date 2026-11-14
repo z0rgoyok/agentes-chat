@@ -303,6 +303,7 @@
     "offline": "Offline sejak {{time}}",
     "signIn": "Masuk",
     "signOut": "Keluar dari server ini",
+    "addAccount": "Tambah akun",
     "signedOutDone": "Kamu keluar dari {{host}}",
     "removeFromApp": "Hapus dari aplikasi ini",
     "newsOne": "1 notifikasi baru",

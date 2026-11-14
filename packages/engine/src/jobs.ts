@@ -98,11 +98,13 @@ import { ORG_FILES_PURGE_ATTEMPTS, ORG_FILES_PURGE_JOB, USER_FILES_PURGE_JOB } f
 import { outOfOfficeIds } from "./out-of-office";
 import { enqueue, type JobHandlers, type OutboxJob, PermanentJobError } from "./outbox";
 import { checkParkedRun, EARLY_CHECK_JOB, scheduleParkedChecks } from "./parked-asks";
+import { PARTNER_WAITLIST_CONTACT_JOB, savePartnerWaitlistContact } from "./partner-waitlist";
 import { notifyPersonLimit, PERSON_LIMIT_JOB } from "./person-usage";
 import { checkPushReceipts, deliverPush, pushTicketsOf } from "./push";
 import { reachOf, settleReach } from "./reach";
 import { routineCreatorOf } from "./requester";
 import { considerCard, RIGHT_HAND_DECIDE_JOB } from "./right-hand-approvals";
+import { lodiLaneHandlers } from "./right-hand-lanes";
 import {
   createLlmRouterStrategy,
   DEFAULT_ROUTER_POLICY,
@@ -124,7 +126,7 @@ import { TEAM_HELLO_JOB } from "./standing";
 import { purgeOrgFiles, purgeUserFiles, runMigration, type StorageDeps } from "./storage";
 import { postStretchCard, STRETCH_JOB, type StretchHold } from "./stretch";
 import { sayTeamHello } from "./team-templates";
-import { postTeamWeek, TEAM_WEEK_JOB } from "./team-week";
+import { postTeamWeek, TEAM_DAY_JOB, TEAM_WEEK_JOB } from "./team-week";
 import { isAgentesCloud } from "./telemetry";
 import { assessThread } from "./thread-assess";
 import { runVaultSync, VAULT_SYNC_JOB, type VaultDeps } from "./vault";
@@ -1031,6 +1033,10 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
       if (!deps.email) throw new PermanentJobError("no email sender configured");
       await saveWaitlistContact(deps.db, deps.email, String(job.payload.entryId));
     },
+    [PARTNER_WAITLIST_CONTACT_JOB]: async (job) => {
+      if (!deps.email) throw new PermanentJobError("no email sender configured");
+      await savePartnerWaitlistContact(deps.db, deps.email, String(job.payload.entryId));
+    },
     [ACCOUNT_CONTACT_JOB]: async (job) => {
       if (!deps.email) throw new PermanentJobError("no email sender configured");
       await saveAccountContact(deps.db, deps.email, {
@@ -1108,10 +1114,16 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
         { orgId: orgOf(job), messageId: String(job.payload.messageId) },
       );
     },
-    // A person's monthly AI limit neared or reached (ADR 0141): the person hears 80%, who decides hears 100%.
+    // The right hand's cards: the week's, and the day's under its own kind (`TEAM_DAY_JOB`).
     [TEAM_WEEK_JOB]: async (job) => {
       await postTeamWeek({ db: deps.db, pubsub: deps.pubsub }, orgOf(job), job.payload);
     },
+    [TEAM_DAY_JOB]: async (job) => {
+      await postTeamWeek({ db: deps.db, pubsub: deps.pubsub }, orgOf(job), job.payload);
+    },
+    // What else the right hand does by itself: each lane's own jobs (`right-hand-lane.ts`).
+    ...lodiLaneHandlers(deps),
+    // A person's monthly AI limit neared or reached (ADR 0141): the person hears 80%, who decides hears 100%.
     [PERSON_LIMIT_JOB]: async (job) => {
       await notifyPersonLimit({ db: deps.db, pubsub: deps.pubsub }, orgOf(job), {
         personId: String(job.payload.personId),

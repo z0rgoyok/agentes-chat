@@ -16,7 +16,11 @@ import {
   barEntries,
   barFaces,
   barWords,
+  bothAtIt,
+  facesOf,
   listNames,
+  peopleGroups,
+  someoneTypes,
   toolActivity,
 } from "@agenteschat/client/lib/activity";
 import { consultationsOf, previewOf } from "@agenteschat/client/lib/consultations";
@@ -130,6 +134,12 @@ describe("the working line's sentence", () => {
     activity: { kind: "thinking" },
   });
   const person = (name: string): ActivityEntry => ({ id: name, type: "person", name, activity: { kind: "typing" } });
+  const recording = (name: string): ActivityEntry => ({
+    id: name,
+    type: "person",
+    name,
+    activity: { kind: "recordingVoice" },
+  });
   const run = (agentId: string, runId = `r-${agentId}`): LiveRun => ({
     runId,
     agentId,
@@ -177,20 +187,107 @@ describe("the working line's sentence", () => {
       " · ",
       "Ana",
       " está digitando…",
+      "",
+      "",
+      "",
     ]);
     expect(words(tEn, [...busy, person("Ana"), person("Bia"), person("Caio")])).toEqual([
       "Theo and Iris are working",
       " · ",
       "Ana and 2 more",
       " are typing…",
+      "",
+      "",
+      "",
     ]);
-    expect(words(t, [person("Ana"), person("Bia")])).toEqual(["", "", "Ana e Bia", " estão digitando…"]);
+    expect(words(t, [person("Ana"), person("Bia")])).toEqual(["", "", "Ana e Bia", " estão digitando…", "", "", ""]);
     // Nobody typing: the agents' phrase alone (one on its own is just its name).
-    expect(words(t, busy)).toEqual(["Theo e Iris estão trabalhando…", "", "", ""]);
+    expect(words(t, busy)).toEqual(["Theo e Iris estão trabalhando…", "", "", "", "", "", ""]);
     // Joined, the pieces are the sentence, names marked the same.
     const mark = (n: string) => `[${n}]`;
     const list = [agent("theo"), person("Ana")];
     expect(barWords(t, list, mark).join("")).toBe(activitySentence(t, list, mark));
+  });
+
+  test("who records a voice message: “Marina está gravando áudio…”, alone, plural, beside who types and after agents", () => {
+    expect(activityText(t, [recording("Marina")])).toBe("Marina está gravando áudio…");
+    expect(activityText(t, [recording("Marina"), recording("Rui")])).toBe("Marina e Rui estão gravando áudio…");
+    expect(activityText(t, ["Marina", "Rui", "Gabi"].map(recording))).toBe("Marina e mais 2 estão gravando áudio…");
+    expect(activityText(tEn, [recording("Marina")])).toBe("Marina is recording audio…");
+    expect(activityText(tEn, [recording("Marina"), recording("Rui")])).toBe("Marina and Rui are recording audio…");
+    // People grouped by what they do, writing first, each group in its own words.
+    expect(activityText(t, [recording("Rui"), person("Marina")])).toBe(
+      "Marina está digitando · Rui está gravando áudio…",
+    );
+    // Agents at work come first, as with typing.
+    expect(activityText(t, [agent("theo"), recording("Marina")])).toBe(
+      "Theo está trabalhando · Marina está gravando áudio…",
+    );
+    expect(peopleGroups([recording("Rui"), person("Marina"), recording("Gabi")])).toEqual([
+      { kind: "typing", names: ["Marina"] },
+      { kind: "recordingVoice", names: ["Rui", "Gabi"] },
+    ]);
+  });
+
+  test("who records gets their own pieces after who types: names give way, never “está gravando áudio…”", () => {
+    const words = (tf: TFunction, list: ActivityEntry[]) => barWords(tf, list);
+    expect(words(t, [recording("Marina")])).toEqual(["", "", "", "", "", "Marina", " está gravando áudio…"]);
+    expect(words(t, [person("Marina"), recording("Rui")])).toEqual([
+      "",
+      "",
+      "Marina",
+      " está digitando",
+      " · ",
+      "Rui",
+      " está gravando áudio…",
+    ]);
+    expect(words(tEn, [agent("theo"), recording("Marina")])).toEqual([
+      "Theo is working",
+      " · ",
+      "",
+      "",
+      "",
+      "Marina",
+      " is recording audio…",
+    ]);
+    // Joined, the pieces are the sentence.
+    const mixed = [agent("theo"), agent("iris"), person("Ana"), recording("Rui"), recording("Bia")];
+    expect(barWords(t, mixed).join("")).toBe(activitySentence(t, mixed));
+    expect(barWords(t, mixed).join("")).toBe(
+      "Theo e Iris estão trabalhando · Ana está digitando · Rui e Bia estão gravando áudio…",
+    );
+  });
+
+  test("who records shows their faces by their own mark, and so does who types beside them; the stack keeps agents", () => {
+    const ids = (list: ActivityEntry[]) => list.map((e) => e.id);
+    const list = [agent("theo"), person("Ana"), ...["Rui", "Bia", "Caio", "Dario"].map(recording)];
+    expect(bothAtIt(list)).toBe(true);
+    expect(ids(barFaces(list))).toEqual(["theo"]);
+    expect(ids(facesOf(list, "typing"))).toEqual(["Ana"]);
+    expect(ids(facesOf(list, "recordingVoice"))).toEqual(["Rui", "Bia", "Caio"]);
+    // Only typing: the stack as before; only recording: the agents alone.
+    expect(ids(barFaces([agent("theo"), person("Ana")]))).toEqual(["theo", "Ana"]);
+    expect(ids(barFaces([agent("theo"), recording("Rui")]))).toEqual(["theo"]);
+    expect(someoneTypes([agent("theo"), recording("Rui")])).toBe(false);
+    expect(bothAtIt([agent("theo"), recording("Rui")])).toBe(false);
+    expect(barFaces([recording("Rui")])).toEqual([]);
+  });
+
+  test("barEntries reads each person's kind from the typing state", () => {
+    const people: Record<string, string> = { u1: "Marina", u2: "Rui" };
+    const entries = barEntries(
+      [],
+      [
+        { id: "u1", kind: "typing" },
+        { id: "u2", kind: "voice" },
+      ],
+      nameOf,
+      (id) => people[id],
+    );
+    expect(entries.map((e) => [e.name, e.activity.kind])).toEqual([
+      ["Marina", "typing"],
+      ["Rui", "recordingVoice"],
+    ]);
   });
 
   test("names can be marked (bold in the bar) without changing the words", () => {

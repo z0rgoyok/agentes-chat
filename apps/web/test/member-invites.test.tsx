@@ -78,7 +78,7 @@ const invitation = (
 });
 
 describe("the invite dialog", () => {
-  /** The line under the dialog's title ("Passo 2 de 4 · Papel"), and what the host asks in its bubble. */
+  /** The line under the dialog's title ("Passo 2 de 4 · Cargo"), and what the host asks in its bubble. */
   const stepOf = () => dialog().querySelector(".ac-dialog__sub")?.textContent ?? null;
   const asked = () => dialog().querySelector(".auth__title")?.textContent;
   const press = (name: string | RegExp) => click(within(dialog()).getByRole("button", { name }));
@@ -92,7 +92,7 @@ describe("the invite dialog", () => {
       expect(within(actions).getByRole("button", { name }).parentElement?.className).toBe(actions.className);
   });
 
-  test("a step at a time, the host asking each: Quem, Papel, Onde começam, Recado; Voltar keeps what was chosen", async () => {
+  test("a step at a time, the host asking each: Quem, Cargo, Onde começam, Recado; Voltar keeps what was chosen", async () => {
     await members();
     const invite = await openInvite();
     expect(stepOf()).toBe("Passo 1 de 4 · Quem");
@@ -118,8 +118,8 @@ describe("the invite dialog", () => {
     await act(async () => fireEvent.keyDown(emails, { key: "Enter" }));
     await settle(2);
 
-    expect(stepOf()).toBe("Passo 2 de 4 · Papel");
-    expect(asked()).toBe("Com que papel essas pessoas entram?");
+    expect(stepOf()).toBe("Passo 2 de 4 · Cargo");
+    expect(asked()).toBe("Com que cargo essas pessoas entram?");
     expect(dialog().querySelectorAll('.ac-steps__bar[data-done="true"]')).toHaveLength(2);
     expect(option(/^Membro/).getAttribute("aria-pressed")).toBe("true");
     expect(option(/^Membro/).textContent).toContain("O que todos podem");
@@ -238,9 +238,9 @@ describe("the invite dialog", () => {
     await press("Continuar com 2");
 
     // A role for each person: each its own select, Membro to start.
-    await press("Um papel para cada pessoa");
-    const ana = within(dialog()).getByRole("combobox", { name: "Papel de ana@acme.com" });
-    const rafa = within(dialog()).getByRole("combobox", { name: "Papel de rafa@acme.com" });
+    await press("Um cargo para cada pessoa");
+    const ana = within(dialog()).getByRole("combobox", { name: "Cargo de ana@acme.com" });
+    const rafa = within(dialog()).getByRole("combobox", { name: "Cargo de rafa@acme.com" });
     expect(ana.textContent).toContain("Membro");
     await openFrom(ana);
     await click(screen().getByRole("option", { name: /^Admin/ }));
@@ -248,10 +248,10 @@ describe("the invite dialog", () => {
     expect(ana.textContent).toContain("Admin");
     expect(rafa.textContent).toContain("Membro");
     // The same role for everyone again, and back: each one's choice is still there.
-    await press("O mesmo papel para todo mundo");
+    await press("O mesmo cargo para todo mundo");
     expect(within(dialog()).queryByRole("combobox")).toBeNull();
-    await press("Um papel para cada pessoa");
-    expect(within(dialog()).getByRole("combobox", { name: "Papel de ana@acme.com" }).textContent).toContain("Admin");
+    await press("Um cargo para cada pessoa");
+    expect(within(dialog()).getByRole("combobox", { name: "Cargo de ana@acme.com" }).textContent).toContain("Admin");
     await press("Continuar");
     await settle(4);
     await press("Continuar");
@@ -342,7 +342,7 @@ describe("the invite dialog", () => {
     expect(chipsIn(invite)).toEqual(["nova@acme.com"]);
     // One person: the host names them.
     await act(async () => fireEvent.keyDown(emails, { key: "Enter" }));
-    expect(asked()).toBe("Com que papel Nova entra?");
+    expect(asked()).toBe("Com que cargo Nova entra?");
     await press("Continuar");
     await settle(4);
     expect(asked()).toBe("Em que canais Nova já entra?");
@@ -515,22 +515,22 @@ describe("Members › Convites enviados", () => {
     expect(within(rafael()).getByRole("button", { name: "Reenviar" }).hasAttribute("disabled")).toBe(true);
     expect(state.invitations.find((i) => i.id === "inv-rafa")?.url).toBe("http://localhost:3000/invite/tok-inv-rafa");
 
-    // Mudar o papel: nothing is sent, the link stays.
+    // Mudar o cargo: nothing is sent, the link stays.
     const more = () => within(rafael()).getByRole("button", { name: "Mais ações para rafael@acme.com" });
     await openFrom(more());
-    await click(screen().getByRole("menuitem", { name: "Mudar o papel" }));
+    await click(screen().getByRole("menuitem", { name: "Mudar o cargo" }));
     await settle(2);
-    const roles = screen().getByRole("dialog", { name: "Papel de rafael@acme.com" });
+    const roles = screen().getByRole("dialog", { name: "Cargo de rafael@acme.com" });
     expect(roles.textContent).toContain("Muda o que a pessoa recebe ao entrar. O link continua o mesmo.");
-    await openFrom(within(roles).getByRole("button", { name: "Papel de rafael@acme.com" }));
+    await openFrom(within(roles).getByRole("button", { name: "Cargo de rafael@acme.com" }));
     await click(screen().getByRole("menuitemcheckbox", { name: "Admin" }));
     await act(async () => fireEvent.keyDown(screen().getByRole("menu"), { key: "Escape" }));
     await click(within(roles).getByRole("button", { name: "Salvar" }));
     await settle(4);
-    expect(state.calls.find((c) => c.method === "orgs.setInvitationRoles")?.args).toEqual([
+    expect(state.calls.find((c) => c.method === "orgs.updateInvitation")?.args).toEqual([
       ORG_ID,
       "inv-rafa",
-      [ADMIN_ROLE_ID],
+      { roleIds: [ADMIN_ROLE_ID] },
     ]);
     expect(text()).toContain("rafael@acme.com entra como Admin.");
     expect(rafael().textContent).toContain("Admin · convite de João");

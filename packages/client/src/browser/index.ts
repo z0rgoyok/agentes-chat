@@ -6,6 +6,8 @@ import { keys } from "../api/keys";
 import type { AgentBrowserSettings, BrowserHandoff, DesktopStatus, PageTarget, ScreenKind } from "../api/types";
 import { timeLeft } from "../lib/format";
 import { can } from "../lib/permissions";
+import { screenId } from "../lib/seat";
+import { useSeat, useSeatFor } from "../lib/seat-context";
 import { isBlankPage } from "../lib/sites";
 import type { LiveWork } from "../realtime/streams";
 import { noteHandoffPlace } from "./held";
@@ -210,15 +212,16 @@ export function applyBrowserHandoff(
 ) {
   if (place) noteHandoffPlace(handoff, place.channelId, place.threadId);
   qc.setQueryData(keys.browserHandoff(orgId, handoff.id), handoff);
-  qc.setQueryData<BrowserHandoff | null>(
-    keys.agentBrowserHandoff(orgId, handoff.agentId, handoffScreen(handoff)),
-    (old) => (isOpenHandoff(handoff) ? handoff : old?.id === handoff.id || old === undefined ? null : old),
+  // The right hand's shared place is another screen than a person's own: each keeps its own state.
+  const screen = screenId(handoff.agentId, handoff.seat);
+  qc.setQueryData<BrowserHandoff | null>(keys.agentBrowserHandoff(orgId, screen, handoffScreen(handoff)), (old) =>
+    isOpenHandoff(handoff) ? handoff : old?.id === handoff.id || old === undefined ? null : old,
   );
-  qc.setQueryData<DesktopStatus>(keys.agentDesktop(orgId, handoff.agentId), (old) =>
+  qc.setQueryData<DesktopStatus>(keys.agentDesktop(orgId, screen), (old) =>
     old ? desktopWithHandoff(old, handoff) : old,
   );
   // A request asked of someone lets them drive while it is open: who may control follows it.
-  void qc.invalidateQueries({ queryKey: keys.agentBrowserControl(orgId, handoff.agentId, handoffScreen(handoff)) });
+  void qc.invalidateQueries({ queryKey: keys.agentBrowserControl(orgId, screen, handoffScreen(handoff)) });
 }
 
 /**
@@ -265,9 +268,10 @@ export const useAgentBrowserHandoff = (
   screen: ScreenKind = "browser",
 ) => {
   const api = useApi();
+  const seat = useSeat(agentId);
   return useQuery({
-    queryKey: keys.agentBrowserHandoff(orgId, agentId, screen),
-    queryFn: () => api.browser.agentHandoff(orgId, agentId, screen),
+    queryKey: keys.agentBrowserHandoff(orgId, screenId(agentId, seat), screen),
+    queryFn: () => api.browser.agentHandoff(orgId, agentId, screen, seat),
     enabled,
     retry: false,
     staleTime,
@@ -285,9 +289,10 @@ export const useAgentScreenControl = (
   screen: ScreenKind = "browser",
 ) => {
   const api = useApi();
+  const seat = useSeat(agentId);
   return useQuery({
-    queryKey: keys.agentBrowserControl(orgId, agentId, screen),
-    queryFn: () => api.browser.agentControl(orgId, agentId, screen),
+    queryKey: keys.agentBrowserControl(orgId, screenId(agentId, seat), screen),
+    queryFn: () => api.browser.agentControl(orgId, agentId, screen, seat),
     enabled,
     retry: false,
     staleTime: 60_000,
@@ -335,6 +340,8 @@ export const HANDOFF_OVER = "browser.handoff_over";
 export function useBrowserHandoffMutations(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
+  // A take over or a stop inside a view of the right hand's shared place acts on that place.
+  const seatOf = useSeatFor();
   const apply = (h: BrowserHandoff) => applyBrowserHandoff(qc, orgId, h);
   // It ended meanwhile: the card settles now, even if the event that said so never came.
   const settle = (error: unknown, handoffId: string) => {
@@ -376,13 +383,13 @@ export function useBrowserHandoffMutations(orgId: string) {
     takeover: useMutation({
       mutationFn: (v: string | TakeoverInput) =>
         typeof v === "string"
-          ? api.browser.takeover(orgId, v)
-          : api.browser.takeover(orgId, v.agentId, v.runId, v.screen),
+          ? api.browser.takeover(orgId, v, undefined, undefined, seatOf(v))
+          : api.browser.takeover(orgId, v.agentId, v.runId, v.screen, seatOf(v.agentId)),
       meta: { silent: true },
       onSuccess: apply,
     }),
     stop: useMutation({
-      mutationFn: (agentId: string) => api.browser.stop(orgId, agentId),
+      mutationFn: (agentId: string) => api.browser.stop(orgId, agentId, seatOf(agentId)),
       meta: { silent: true },
     }),
     /** "Tentar de novo" on a page that never came (who may drive it). */

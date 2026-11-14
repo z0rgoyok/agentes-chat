@@ -1,6 +1,6 @@
 # 0137. The team's right hand
 
-- Status: Accepted; §6 and §7 amended 2026-11-06 by ADR 0079 §7 (built: engine, server, the shared client, the web and the phone app); amended 2026-11-03 (§5, a person alone with the team; §4 and §6 written as decided); amended 2026-11-04 (§8, agents act on agentes.chat through their tools, never by signing in to it); amended 2026-11-04 (§4, it starts everything a person does in the app, as cards); amended 2026-11-04 (§1, §4 and §7: it thinks with a person's plan through Claude Code or OpenCode, locked down and checked before each turn; then through Codex and Cursor too, the owner accepting their residual risk); amended 2026-11-04 (§4: through Grok Build too, checked on its `init` like Claude Code, ADR 0142); amended 2026-11-04 (§4: through the Antigravity CLI too, as an agent with no tool of its own, checked on its `init` and every step, ADR 0143); amended 2026-11-04 (§9, "Semana da equipe": a weekly card in each admin's DM, from stored data); amended 2026-11-04 (§10: the team set up from three questions, one team card, team templates); amended 2026-11-04 (§4: the team map's drag posts its settings card, ADR 0148); amended 2026-11-05 (§11, each person's own AI); amended 2026-11-06 (§12, it reads the Drive and the wiki for the person); amended 2026-11-06 (§13, the one you talk to: it sees the team and hands work on); amended 2026-11-11 (§4: a teammate's skills on its settings card); amended 2026-11-12 (§4: every agent asks for its own settings on the same card, always a click); amended 2026-11-12 (§4, §12, §13: it has a normal agent's tools); amended 2026-11-12 (§11: a routine or widget a person set up thinks with that person's AI)
+- Status: Accepted; §6 and §7 amended 2026-11-06 by ADR 0079 §7 (built: engine, server, the shared client, the web and the phone app); amended 2026-11-03 (§5, a person alone with the team; §4 and §6 written as decided); amended 2026-11-04 (§8, agents act on agentes.chat through their tools, never by signing in to it); amended 2026-11-04 (§4, it starts everything a person does in the app, as cards); amended 2026-11-04 (§1, §4 and §7: it thinks with a person's plan through Claude Code or OpenCode, locked down and checked before each turn; then through Codex and Cursor too, the owner accepting their residual risk); amended 2026-11-04 (§4: through Grok Build too, checked on its `init` like Claude Code, ADR 0142); amended 2026-11-04 (§4: through the Antigravity CLI too, as an agent with no tool of its own, checked on its `init` and every step, ADR 0143); amended 2026-11-04 (§9, "Semana da equipe": a weekly card in each admin's DM, from stored data); amended 2026-11-04 (§10: the team set up from three questions, one team card, team templates); amended 2026-11-04 (§4: the team map's drag posts its settings card, ADR 0148); amended 2026-11-05 (§11, each person's own AI); amended 2026-11-06 (§12, it reads the Drive and the wiki for the person); amended 2026-11-06 (§13, the one you talk to: it sees the team and hands work on); amended 2026-11-11 (§4: a teammate's skills on its settings card); amended 2026-11-12 (§4: every agent asks for its own settings on the same card, always a click); amended 2026-11-12 (§4, §12, §13: it has a normal agent's tools); amended 2026-11-12 (§1, §4, §13: a computer of its own, a seat per person, ADR 0175); amended 2026-11-12 (§11: a routine or widget a person set up thinks with that person's AI)
 - Date: 2026-11-03
 - Supersedes: ADR 0093 (the team's coordinator)
 - Amends: ADR 0081 (one-click Criar and Criar e testar on the right hand's cards), ADR 0092 §5 (a teammate's settings, on the right hand's card)
@@ -151,7 +151,7 @@ A beginner asked for a lead agent that, after the team exists, points out what i
 
 ### Decision
 
-1. **Who and when.** Each person who holds `administrator` (owners included) and may talk to Lodi gets one card a week in their DM with it, on Friday at 17h in the workspace's time zone by default. It is the one exception to "posts nothing unless someone writes to it". Each person moves or stops their own (`organization_members.team_week`, `{ off?, day?, hour? }`, migration 0218, read through `teamWeekPrefsOf`): from the card's footer ("Toda sexta às 17:00 · Mudar"), from Settings › Lodi ("Semana da equipe", on the web and the phone), or by telling Lodi (`set_team_week`, a setup tool for it alone, acting for the person behind the run).
+1. **Who and when.** Each person who holds `administrator` (owners included) and may talk to Lodi gets one card a week in their DM with it, on Friday at 17h in the workspace's time zone by default. It is the one exception to "posts nothing unless someone writes to it". Each person moves or stops their own (`organization_members.team_week`, `{ off?, day?, hour? }`, migration 0218, read through `lodiPrefsOf`, ADR 0177): from the card's footer ("Toda sexta às 17:00 · Mudar"), from Settings › Lodi ("Semana da equipe", on the web and the phone), or by telling Lodi (`set_team_week`, a setup tool for it alone, acting for the person behind the run).
 2. **The job.** A worker tick every 10 minutes (`enqueueTeamWeeks`) queues `team_week.post` in the outbox (ADR 0005) for every admin whose slot passed in the last 6 hours, in open workspaces with Lodi and at least one other agent; its dedupe key is the person and the Monday of the slot's local week, so moving the day never sends a second card that week. The handler (`postTeamWeek`) checks again who may get it, builds the card and posts it as Lodi with no run, enqueuing `notifications.message` like any agent's message in a DM. A week with nothing to say (no work done, none stuck and no row) posts nothing; no team, no card.
 3. **What it says, from stored data, with no model call** (`buildTeamWeek`): the week's work done and runs that failed, the approvals waiting for this person, the money spent this month against the team's monthly budgets added up, the busiest agent per channel this person can read and the tasks agents closed ("Funcionou"), then up to 6 rows ("Para melhorar"):
    - approvals of one agent waiting for them ("Ver e aprovar" opens them on the card as the conversation draws them, decided one by one);
@@ -297,7 +297,7 @@ After onboarding the right hand couldn't see the team: `search_context` and `rea
 - **It is a `note` row of the right hand's run** (`agent_consultations`, its channel the task's conversation). The consulted run's end settles it as in an agents' DM (`answersHandOffs`), so what came of it reaches the person's DM by itself (`reportHandOffs`), and its cards go there (`consultationOrigin`). A stop in the task's conversation is heard the same way.
 - **The chip.** The tool returns `data.handedTask`, and the reply carries `meta.tasks`: one chip per task, "#42 Campanha de Natal · Ada · Em andamento", live, that opens the task's conversation beside the chat (web) or as a thread (phone). The `issue.created` receipt of that task is left out under it: the chip is the task.
 - **The audience** stays the person and administrators (§13), which they widen on the task (ADR 0151).
-- **Resumo do dia.** The weekly card (§9) can come every day at an hour instead (`team_week.daily`), over the last day, from the same builder with no model call, on days with something to say. Anyone may turn it on, telling the right hand (`set_team_week` `daily`) or in Settings › Lodi. Anyone but an administrator gets runs counted only where they read, no money and no budget row; a fix the card can't offer them leaves no proposal behind. The weekly card stays the default, for administrators.
+- **Resumo do dia.** The weekly card (§9) can come every day at an hour instead (`team_week.daily`), over the last day, from the same builder with no model call, on days with something to say. Anyone may turn it on, telling the right hand (`set_team_week` `daily`) or in Settings › Lodi. Anyone but an administrator gets runs counted only where they read, no money and no budget row; a fix the card can't offer them leaves no proposal behind. The weekly card stays the default, for administrators. Since ADR 0177 the day's card is everyone's by default beside the week's, each with its own hour, and whatever else the right hand does by itself is decided there.
 - **The prompt** names `create_issue` assigned to an agent for real work and `tell_agent` for a small thing, and that either reports back by itself.
 
 ### Consequences
@@ -313,7 +313,7 @@ The right hand is nobody's supervisor and reports to nobody (ADR 0148's addendum
 
 ### Context
 
-Asked to create a role for a marketing person who may not merge or deploy, the right hand said it could only assign one afterwards and opened Papéis e permissões for the owner to do it by hand. It was following the amendment of 2026-11-04 (§3 there), which kept roles' permissions, a channel's settings and more as screens it only opens. The standing decision says otherwise: it does almost everything the person can do in the app, as them, with the app's own confirmations.
+Asked to create a role for a marketing person who may not merge or deploy, the right hand said it could only assign one afterwards and opened Cargos for the owner to do it by hand. It was following the amendment of 2026-11-04 (§3 there), which kept roles' permissions, a channel's settings and more as screens it only opens. The standing decision says otherwise: it does almost everything the person can do in the app, as them, with the app's own confirmations.
 
 ### Decision
 
@@ -326,7 +326,7 @@ Asked to create a role for a marketing person who may not merge or deploy, the r
 ### Consequences
 
 - Lodi's own prompt grew by about 50 characters. The tool's schema loads only with the setup group and only for it, so a DM "oi" with any other agent is unchanged.
-- The phone draws the card and its inbox entry as the web does. Its Abrir for roles now opens the phone's own roles screen (Configurações › Papéis), which `APP_PAGES` had left out.
+- The phone draws the card and its inbox entry as the web does. Its Abrir for roles now opens the phone's own roles screen (Configurações › Cargos), which `APP_PAGES` had left out.
 - The catalog's invitations and requests to join send email through the server's address and secret, passed to the setup tools and the card's route.
 - Left for later, in the audit's order: a task's or a page's audience, approval covers, deleting tasks and board columns, the language and the rest of their own settings, pins and channel categories, invitation links, the task manager's paused runs, routines' stop, duplicate and take over, models and per-person limits, the Drive, the calendar, skills, agents' extras, proposals waiting on them, apps, AI keys and computers housekeeping, knowledge and memories by hand, dashboards' extras and missions. Also not in the catalog yet: undoing another agent's change from its receipt, correcting an agent's reply (a lesson), Responder agora, an agent's request to show a board to more people, a new agent's setup checklist, and one agent's Quem pensa and Autonomia for others. Posting as the right hand elsewhere waits on the owner's call.
 - Desfazer of taking a role away gives the role back, not the seats in the channels the person left with it (they may join again through it), nor the notifications those channels cleared. Leaving a private channel through `channel_people` is undone only by someone who manages it.
@@ -455,7 +455,7 @@ threw its rows away. The owner decided it has every tool an agent can have, by d
   person behind the run may post, a private channel included, as it already answers there by name.
 - **Its workspace powers behind cards** (§4): the team, people, approvals and `workspace_action` are its alone, applied
   as whoever clicks.
-- **No computer yet.** `sandbox:run`, `browser:use` and `desktop:use` are not on its list, a row for one gives it
+- **No computer yet** (replaced the same day by the next amendment and ADR 0175)**.** `sandbox:run`, `browser:use` and `desktop:use` are not on its list, a row for one gives it
   nothing, its access tree leaves them out, `request_permission` never offers them and refuses a card that asks, and a
   call of one answers that it has no computer and to hand the work to an agent that has one. `agents.machine_id` stays
   null (`machines.ts`). A separate change gives it a computer of its own.
@@ -509,6 +509,26 @@ threw its rows away. The owner decided it has every tool an agent can have, by d
   change after it waits on a card, a send still asks a person, and its replies keep the scrub of §4.
 - Its one budget on an API key (§13) now also carries the turns that read the web, write files and do long work for
   everyone who talks to it.
+
+## Amended 2026-11-12: a computer of its own, a seat per person (§1, §4, §13)
+
+ADR 0175 gives it a computer: on the workspace's own computer, where each agent is its own OS user, each person has a
+seat (a stored id the computer takes for an agent's), with its own Linux user, home, browser profile and sign-ins.
+
+- **§1 stands in the database, not in what it can do.** `agents.machine_id` stays null (it is still what its plan's
+  settings read) and it still can't be given a computer by hand. Its tools use the workspace's own computer
+  (`toolMachineId`), as the seat of the person behind the run.
+- **Its computer's scopes are rows** it is made with (`sandbox:run`, `browser:use`, `desktop:use`), so its access tab
+  and `request_permission` treat them like any agent's. This replaces "a row for one gives it nothing", the access
+  tree leaving them out and the refusal of a card that asks.
+- **A person's own seat only in that person's own DM.** Amended 2026-11-13 (ADR 0175's amendment): everywhere else (a
+  channel, a widget, a routine that reports where others read) it works in one shared seat of the workspace, and a
+  run nobody asked for in a person's own DM (a routine that reports there included) has no seat.
+- **The locked turn on a plan is unchanged.** The CLI still gets our bridge and nothing else. The computer's tools are
+  ours, and the server sends them to the seat. The hub refuses the agent's own id for anything but that turn.
+- **Its prompt** says which of the three it has: this person's own seat, the workspace's shared one, or none yet.
+- This replaces §1's "no computer tools, no desktop, no terminal as it", §4's and §13's "no computer", and the
+  amendment above's "No computer yet" and "a skill's script needs a computer, so it runs none".
 
 ## Amendment (2026-11-12): work a person set up thinks with their AI (§11)
 

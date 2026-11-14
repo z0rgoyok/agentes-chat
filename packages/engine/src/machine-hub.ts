@@ -36,6 +36,7 @@ import {
 import { and, type Database, eq, inArray, lt, schema } from "@agenteschat/db";
 import type { ToolImage } from "@agenteschat/providers";
 import { getAgentCached } from "./agents";
+import { UUID } from "./authority";
 import { type MachinePhoneRow, publishDevicesChanged, syncMachinePhones } from "./devices";
 import { cutText } from "./format";
 import { agentCoAuthorLine } from "./git/signature";
@@ -83,6 +84,7 @@ import {
   machinePause,
   memberPause,
   pauseForApps,
+  publishMachineAgentsChanged,
   publishMachineStatus,
   publishMachineUpdated,
 } from "./machines";
@@ -93,6 +95,7 @@ import {
   notifyComputerNoChrome,
 } from "./notification-producers";
 import { enqueue } from "./outbox";
+import { isRightHand } from "./right-hand";
 import { assertCanWork, standingRefusal } from "./standing";
 
 const { machines, machineRpc, machineMcpCalls } = schema;
@@ -181,6 +184,8 @@ export interface MachineStatus {
   access?: RunnerAccess | null;
   /** The operator put the workspace's own computer in standby (ADR 0161): asleep, it is woken when wanted. */
   standby?: boolean;
+  /** `system`: each agent works as its own OS user there (ADR 0058 §10); absent, all as the runner's user. */
+  mode?: "system";
 }
 
 /** What the machine provider needs from the hub. */
@@ -193,6 +198,8 @@ export interface MachineCaller {
   status(machineId: string): Promise<MachineStatus | null>;
   /** Something wants the computer now (`wantMachine`): one in standby is asked to wake. */
   wake?(machineId: string, why: WakeWhy): Promise<void>;
+  /** Who a workspace's computers serve changed (a new seat of the right hand): they are told before this resolves. */
+  agentsChanged?(orgId: string): Promise<void>;
 }
 
 /** How long a run waits, still working, for a computer just gone: a runner dialing again is back within seconds. */
@@ -343,6 +350,16 @@ export function requestTimeoutMs(request: MachineRequest) {
 }
 
 type RpcReply = { ok: true; data: unknown } | { ok: false; error: { code: string; message: string } };
+
+/** What a tool of the right hand reads when its request would go out under its own id: nothing was sent. */
+export const RIGHT_HAND_OWN_ID_MESSAGE =
+  "Not done: on a computer you work only in a person's own place, in their private conversation with you, and this can't be done there yet. Say so plainly, or hand it to an agent that has a computer (ask_agent, tell_agent, or create_issue assigned to it). Never ask the person to try again.";
+
+/** The right hand's locked chat turn and what follows it (ADR 0137 §4): all that goes out under its own id. */
+export const isLockedTurn = (request: MachineRequest) =>
+  request.op === "brain.steer" ||
+  request.op === "brain.route" ||
+  (request.op === "brain.turn" && request.permissions?.mode === "chat");
 
 /**
  * Requests that start something new on the machine: refused while it is
@@ -565,7 +582,7 @@ export function createMachineHub(deps: MachineHubDeps) {
     (input) => {
       const call: TaskCall = async (_machineId, request) => {
         if (conn.orgId) await assertCanWork(db, conn.orgId, input.agent.id);
-        return callLocal(conn, await withAgentName(conn.orgId, request));
+        return callLocal(conn, await outgoing(conn.orgId, request));
       };
       return startMachineTask({ db, pubsub, call }, input);
     };
@@ -921,17 +938,25 @@ export function createMachineHub(deps: MachineHubDeps) {
   }
 
   /**
-   * Fills `agent.name` (protocol 9, for the machine's activity log) when a caller left it out, and on what runs the
-   * agent's programs the agent's own line its commits end with (`coAuthors`, ADR 0156), unless the workspace turned
-   * it off: every path to the computer goes through here.
+   * Every request goes out through here. The right hand's own id passes only for its locked chat turn (ADR 0175): on
+   * a computer each person has a seat with its own id, so anything else under the agent's id would put every member
+   * in one home, and is refused. Also fills `agent.name` (protocol 9, for the machine's activity log) when a caller
+   * left it out, and on what runs the agent's programs the agent's own line its commits end with (`coAuthors`,
+   * ADR 0156), unless the workspace turned it off.
    */
-  async function withAgentName<R extends MachineRequest>(orgId: string | null, request: R): Promise<R> {
+  async function outgoing<R extends MachineRequest>(orgId: string | null, request: R): Promise<R> {
     const scope = request.agent;
-    const runs = request.op === "exec" || request.op === "brain.turn" || request.op === "task.start";
-    if (!scope || (scope.name && !runs) || !orgId) return request;
-    const agent = await getAgentCached(db, orgId, scope.id).catch(() => null);
+    if (!scope || !orgId) return request;
+    // A read that fails sends nothing: who the id is must be known before it goes out. An id that is no row's
+    // (a seat, a shared browser profile's key) is nobody's to look up.
+    const agent = UUID.test(scope.id) ? await getAgentCached(db, orgId, scope.id) : null;
+    if (isRightHand(agent) && !isLockedTurn(request)) {
+      throw new MachineRequestError("not_allowed", RIGHT_HAND_OWN_ID_MESSAGE);
+    }
     if (!agent) return request;
+    const runs = request.op === "exec" || request.op === "brain.turn" || request.op === "task.start";
     const line = runs ? await agentCoAuthorLine(db, orgId, agent).catch(() => null) : null;
+    if (scope.name && !line) return request;
     return { ...request, agent: { ...scope, name: scope.name || agent.name, ...(line ? { coAuthors: [line] } : {}) } };
   }
 
@@ -1565,7 +1590,7 @@ export function createMachineHub(deps: MachineHubDeps) {
             if (row) await assertNotPaused(db, row);
           }
         }
-        return callLocal(conn, await withAgentName(conn.orgId, request), options);
+        return callLocal(conn, await outgoing(conn.orgId, request), options);
       }
       const row = await getMachineById(db, machineId);
       if (!row || row.deletedAt) throw new MachineOfflineError(row?.name ?? "computer", row?.kind);
@@ -1579,7 +1604,7 @@ export function createMachineHub(deps: MachineHubDeps) {
         await assertCanWork(db, row.orgId, request.agent?.id);
         await assertNotPaused(db, row);
       }
-      const named = await withAgentName(row.orgId, request);
+      const named = await outgoing(row.orgId, request);
       return callRemote({ ...row, connectedReplica: row.connectedReplica }, named, options);
     },
 
@@ -1604,7 +1629,15 @@ export function createMachineHub(deps: MachineHubDeps) {
         paused: pause ? { until: pause.until, timezone: await machineOwnerTimezone(db, row).catch(() => null) } : null,
         access: row.access ?? null,
         standby: inStandby(row),
+        ...(row.executors?.mode === "system" ? { mode: "system" as const } : {}),
       };
+    },
+
+    async agentsChanged(orgId: string) {
+      await Promise.all(
+        [...local.values()].filter((c) => c.orgId === orgId).map((c) => sendAgents(c).catch(() => undefined)),
+      );
+      await publishMachineAgentsChanged(pubsub, orgId);
     },
 
     /** Something wants the computer now: the workspace's own one keeps when, and asks to wake from standby. */

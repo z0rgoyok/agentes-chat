@@ -1,11 +1,15 @@
 import { useSyncExternalStore } from "react";
 import type { InviteAddress } from "./logic";
 
-/** Convidar pessoas while it's open: the addresses, the channels chosen and the note in the email. */
+/**
+ * Convidar pessoas while it's open: the addresses, the channels chosen and the note in the email; `roleId`, the cargo
+ * new addresses get (opened from a cargo's "Convidar com este cargo").
+ */
 export interface InviteDraft {
   addresses: InviteAddress[];
   channelIds: string[];
   note: string;
+  roleId?: string | null;
 }
 
 export const EMPTY_INVITE: InviteDraft = { addresses: [], channelIds: [], note: "" };

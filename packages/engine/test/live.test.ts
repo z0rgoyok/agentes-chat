@@ -28,7 +28,7 @@ let f: Fixture;
 afterEach(() => f?.close());
 
 describe("a message too big for its event", () => {
-  test("goes out without its body, with the thread and the run it ends", async () => {
+  test("goes out without its body, with the thread and the run it ends, and the person who wrote it (none here)", async () => {
     const pubsub = createMemoryPubSub();
     const events: RealtimeEvent[] = [];
     pubsub.subscribe(channelTopic("c1"), (e) => events.push(e));
@@ -46,7 +46,14 @@ describe("a message too big for its event", () => {
       createdAt: new Date().toISOString(),
     });
     expect(events).toEqual([
-      { type: "message.created", channelId: "c1", messageId: "m1", threadId: "t1", agentRunId: "r1" },
+      {
+        type: "message.created",
+        channelId: "c1",
+        messageId: "m1",
+        threadId: "t1",
+        agentRunId: "r1",
+        authorUserId: null,
+      },
     ]);
   });
 });

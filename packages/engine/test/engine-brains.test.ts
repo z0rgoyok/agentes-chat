@@ -8,7 +8,7 @@ import {
   orgTopic,
 } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
-import { systemText } from "@agenteschat/providers";
+import { ProviderError, systemText } from "@agenteschat/providers";
 import {
   activeRunsIn,
   addChannelMember,
@@ -1154,6 +1154,34 @@ test("a plan limit falls back to the model brain; the reply carries a quiet note
     .where(eq(schema.usageRecords.runId, run?.id ?? ""));
   expect(usage.some((u) => u.provider === "anthropic")).toBe(true);
   expect(computerBrainUnavailable("claude_code", machineId, statusOf(machineId))?.code).toBe("plan_limit");
+});
+
+test("the key standing in is refused for want of credit: the run waits for its own brain, never failed on that key", async () => {
+  f = await setup({ reply: () => new ProviderError("Insufficient Balance", false, 402) });
+  await computerAgent(f);
+  const { brain, seen } = scriptedComputerBrain(() => [
+    { type: "limit", resetsAt: new Date(Date.now() + 2 * 3600_000).toISOString() },
+    { type: "error", code: "plan_limit", message: "You've hit your limit.", worked: false },
+  ]);
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev oi");
+  await drainOutbox(f.db, handlers);
+
+  expect(seen.length).toBe(1);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  // Waiting for the plan, as a run with no key to stand in: the key's refusal is nobody's error to read.
+  expect(run?.status).toBe("waiting_input");
+  expect(run?.error).toBeNull();
+  expect(run?.brain).toBe("claude_code");
+  const kept = run?.transcript as { fallback?: unknown; standInRefused?: boolean; usageWait?: unknown };
+  expect(kept.fallback).toBeUndefined();
+  expect(kept.standInRefused).toBe(true);
+  expect(kept.usageWait).toBeDefined();
+  expect((await timeline(f)).some((m) => m.meta.brainFallback)).toBe(false);
 });
 
 test("Fast: the turn of a conversation asks for it; refused, the reply says it came at standard speed", async () => {

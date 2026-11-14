@@ -17,7 +17,8 @@ import {
   Alert,
   Button,
   Card,
-  Chip,
+  CardHeader,
+  cx,
   diffLines,
   EmptyState,
   Field,
@@ -28,7 +29,7 @@ import {
 } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ApprovalsTabs } from "@/components/ApprovalsTabs";
 import { isText, SettingChange } from "@/components/ChatCards";
@@ -37,8 +38,12 @@ import { ProseDiff } from "@/components/ProseDiff";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
 import { useToast } from "@/lib/toast";
+import "./approvals.css";
 
-/** Proposals: list + detail with evidence and a neutral before/after diff. */
+/**
+ * Proposals, on the requests' own layout (Pedidos): the list's rows, what is open beside them as cards, and the
+ * decision in the bar at the bottom.
+ */
 export function ProposalsPage({ agentId }: { agentId?: string }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -104,172 +109,225 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
     return mine ? t("proposals.refusedByYou", { when }) : t("proposals.refusedBy", { name, when });
   };
 
+  const open = (p: Proposal) => p.status === "pending" && !p.stale;
+  // How a closed one ended, for its row's mark and its outcome card: accepted reads as done, the rest plain.
+  const accepted = (p: Proposal) => p.status === "accepted" && !p.stale;
+  // Its row's mark takes the requests' own state class (a decided request's `is-<phase>`).
+  const stateClass = (p: Proposal) => (accepted(p) ? "is-done" : undefined);
+  const proposer = current ? agentName(proposerOf(current)) : "";
+
   return (
-    <div className="page page--full">
-      {backAgent && (
-        <Link
-          to="/org/$orgId/agents/$agentId/memory"
-          params={{ orgId: org.id, agentId: backAgent.id }}
-          className="ac-back"
-        >
-          <Icon name="chevronLeft" />
-          {t("memory.title", agentGrammar(backAgent.name))}
-        </Link>
-      )}
-      <PageHeader title={t("approvals.title")} meta={t(modeKey(org, "proposals.subtitle"), { org: org.name })} />
-      <ApprovalsTabs value="proposals" actions={<DecideAll proposals={list} />} />
-
-      {proposals.isSuccess && list.length === 0 && (
-        <EmptyState size="page" agent={look} mood="deal" title={t("proposals.emptyTitle")}>
-          {t("proposals.empty")}
-        </EmptyState>
-      )}
-
-      {current && (
-        <div className="proposals page-split">
-          <nav className="proposals__list" data-scroll-restoration-id="proposals-list" aria-label={t("proposals.list")}>
-            {list.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className="ac-navcard"
-                aria-current={p.id === current.id ? "true" : undefined}
-                onClick={() => setSelected(p.id)}
-              >
-                <span className="row">
-                  <AgentAvatar agentId={proposerOf(p)} size="sm" name={agentName(proposerOf(p))} />
-                  <span style={{ fontWeight: 600 }}>{agentName(proposerOf(p))}</span>
-                  <span className="small muted" style={{ marginLeft: "auto", fontSize: 12 }}>
-                    {relativeTime(t, i18n.language, p.createdAt)}
-                  </span>
-                </span>
-                <span style={{ fontSize: 14, lineHeight: "20px" }}>{titleOf(p)}</span>
-                <span className="muted" style={{ fontSize: 12, lineHeight: "16px" }}>
-                  {statusText(p)}
-                </span>
-              </button>
-            ))}
-          </nav>
-
-          <Card
-            as="article"
-            className="proposals__detail"
-            data-scroll-restoration-id="proposals-detail"
-            aria-labelledby="prop-title"
+    <div className="page page--list ap">
+      <div className="ap__main">
+        {backAgent && (
+          <Link
+            to="/org/$orgId/agents/$agentId/memory"
+            params={{ orgId: org.id, agentId: backAgent.id }}
+            className="ac-back"
           >
-            <div className="row">
-              <AgentAvatar agentId={proposerOf(current)} size="sm" name={agentName(proposerOf(current))} />
-              <span className="small muted">
-                <Trans
-                  i18nKey="proposals.proposes"
-                  values={{ agent: agentName(proposerOf(current)), target: targetLabel(current) }}
-                  components={{ b: <b style={{ color: "var(--ink)" }} /> }}
-                />
-              </span>
-              {current.stale ? (
-                <Chip icon="close">{t("proposals.stale")}</Chip>
-              ) : current.status === "pending" ? (
-                <Chip icon="waiting" tone="waiting">
-                  {statusText(current)}
-                </Chip>
-              ) : current.status === "accepted" ? (
-                <Chip icon="check" tone="done">
-                  {decisionText(current)}
-                </Chip>
-              ) : (
-                <Chip icon="close">{decisionText(current)}</Chip>
-              )}
-            </div>
-            <h2 id="prop-title" className="ac-card__title">
-              {titleOf(current)}
-            </h2>
+            <Icon name="chevronLeft" />
+            {t("memory.title", agentGrammar(backAgent.name))}
+          </Link>
+        )}
+        <PageHeader title={t("approvals.title")} meta={t(modeKey(org, "proposals.subtitle"), { org: org.name })} />
+        <ApprovalsTabs value="proposals" actions={<DecideAll proposals={list} />} />
 
-            <section aria-label={t("proposals.why")} className="section section--tight">
-              <span className="ac-eyebrow">{t("proposals.why")}</span>
-              <p style={{ margin: 0 }}>{proposalWhy(t, current)}</p>
-              <ul className="evidence">
-                {current.evidence.map((e) => (
-                  <li key={`${e.where}-${e.what}`} className="ac-iconline">
-                    <Icon name="message" size={16} />
-                    <span>
-                      {whereOf(e)} <span className="muted">· {e.what}</span>
+        {proposals.isSuccess && list.length === 0 && (
+          <EmptyState size="page" agent={look} mood="deal" title={t("proposals.emptyTitle")}>
+            {t("proposals.empty")}
+          </EmptyState>
+        )}
+
+        {current && (
+          // The requests' own split (approvals.css): the list's rows on the left, what is open beside them.
+          <div className="ap-split page-split">
+            <nav className="ap-list" data-scroll-restoration-id="proposals-list" aria-label={t("proposals.list")}>
+              <div className="ap-list__rows">
+                {list.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={cx("ap-li ac-mediarow ac-mediarow--row", p.id === current.id && "is-selected")}
+                    aria-current={p.id === current.id ? "true" : undefined}
+                    onClick={() => setSelected(p.id)}
+                  >
+                    <span className="ac-mediarow__face">
+                      <AgentAvatar
+                        agentId={proposerOf(p)}
+                        size="sm"
+                        name={agentName(proposerOf(p))}
+                        state={open(p) ? "waiting" : "idle"}
+                      />
                     </span>
-                  </li>
+                    <span className="ac-mediarow__head">
+                      <span className="ap-li__line">
+                        <b>{titleOf(p)}</b>
+                      </span>
+                    </span>
+                    <span className="ac-mediarow__end">
+                      {!open(p) && (
+                        <span
+                          className={cx("ap-li__state", stateClass(p))}
+                          role="img"
+                          aria-label={statusText(p)}
+                          title={statusText(p)}
+                        >
+                          <Icon name={accepted(p) ? "check" : "close"} size={16} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="ac-mediarow__body">
+                      <span className="ap-li__meta">
+                        <span className="ap-li__where">{agentName(proposerOf(p))}</span>
+                        <span className="ap-li__when">
+                          {p.stale || p.status === "pending"
+                            ? `${statusText(p)} · ${relativeTime(t, i18n.language, p.createdAt)}`
+                            : decisionText(p)}
+                        </span>
+                      </span>
+                    </span>
+                  </button>
                 ))}
-              </ul>
-            </section>
-
-            <section aria-label={t("proposals.changeLabel")} className="section section--tight">
-              <div className="ac-actline proposal-change__head">
-                <span className="ac-eyebrow">{t("proposals.change", { target: targetLabel(current) })}</span>
-                {current.status === "pending" && current.canDecide && isText(current) && (
-                  <span className="ac-acts">
-                    <Button variant="link" disabled={decide.isPending} onClick={() => setEditing((v) => !v)}>
-                      {editing ? t("proposals.viewDiff") : t("proposals.editFirst")}
-                    </Button>
-                  </span>
-                )}
               </div>
-              {!isText(current) && current.target.type !== "skill" ? (
-                <SettingChange p={current} />
-              ) : editing && current.status === "pending" ? (
-                <Field
-                  label={
-                    current.target.type === "org_context" ? t("proposals.finalTextContext") : t("proposals.finalText")
-                  }
-                  id="prop-edit"
-                >
-                  <Locked when={decide.isPending || current.stale}>
-                    <Textarea rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} />
-                  </Locked>
-                </Field>
-              ) : (
-                <ProseDiff
-                  label={t("proposals.changeLabel")}
-                  lines={diffLines(current.before.split("\n"), (editing ? draft : current.after).split("\n"))}
-                />
-              )}
-            </section>
+            </nav>
 
-            {staleError && <Alert>{staleError}</Alert>}
-            {current.stale && (
-              <p className="small muted" style={{ margin: 0 }}>
-                {t(isText(current) ? "proposals.staleNote" : "proposals.staleNoteAgent")}
-              </p>
-            )}
-            {current.status === "pending" && current.canDecide && !current.stale && (
-              <div className="proposals__actions">
-                <Button
-                  variant="primary"
-                  disabled={decide.isPending || (isText(current) && !draft.trim())}
-                  onClick={() =>
-                    decide.mutate(
-                      {
-                        id: current.id,
-                        decision: "accept",
-                        text: editing && draft !== current.after ? draft : undefined,
-                      },
-                      { onError: onDecideError },
-                    )
-                  }
-                >
-                  {editing ? t("proposals.acceptEdited") : t("proposals.accept")}
-                </Button>
-                <Button
-                  disabled={decide.isPending}
-                  loading={decide.isPending && decide.variables?.decision === "refuse"}
-                  onClick={() => decide.mutate({ id: current.id, decision: "refuse" }, { onError: onDecideError })}
-                >
-                  {t("proposals.refuse")}
-                </Button>
-                <span className="small muted" style={{ flex: "1 1 200px" }}>
-                  {t("proposals.refuseNote", agentGrammar(agentName(proposerOf(current))))}
+            <article className="ap-review" data-scroll-restoration-id="proposals-detail" aria-labelledby="prop-title">
+              <header className="ap-review__head ac-mediarow">
+                <span className="ac-mediarow__face">
+                  <AgentAvatar
+                    agentId={proposerOf(current)}
+                    size="md"
+                    name={proposer}
+                    state={open(current) ? "waiting" : "idle"}
+                  />
                 </span>
+                <p className="ap-review__by ac-mediarow__head">
+                  <b>{proposer}</b>
+                  <span className="ac-mediarow__meta">
+                    {[targetLabel(current), relativeTime(t, i18n.language, current.createdAt)].join(" · ")}
+                  </span>
+                </p>
+                <div className="ac-mediarow__body">
+                  <h2 id="prop-title" className="ap-review__title">
+                    {titleOf(current)}
+                  </h2>
+                </div>
+              </header>
+
+              <div className="ap-review__body">
+                {!open(current) && (
+                  <Card className={cx("ap-review__card ap-outcome", accepted(current) && "ap-outcome--done")}>
+                    <CardHeader
+                      icon={accepted(current) ? "check" : "close"}
+                      title={current.stale ? t("proposals.stale") : decisionText(current)}
+                      subtitle={
+                        current.stale
+                          ? t(isText(current) ? "proposals.staleNote" : "proposals.staleNoteAgent")
+                          : undefined
+                      }
+                    />
+                  </Card>
+                )}
+
+                <Card as="section" className="ap-review__card" aria-label={t("proposals.why")}>
+                  <CardHeader icon="message" title={t("proposals.why")} />
+                  <p className="ap-review__why">{proposalWhy(t, current)}</p>
+                  {current.evidence.length > 0 && (
+                    <ul className="evidence">
+                      {current.evidence.map((e) => (
+                        <li key={`${e.where}-${e.what}`} className="ac-iconline">
+                          <Icon name="message" size={16} />
+                          <span>
+                            {whereOf(e)} <span className="muted">· {e.what}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Card>
+
+                <Card as="section" className="ap-review__card" aria-label={t("proposals.changeLabel")}>
+                  <CardHeader icon="edit" title={t("proposals.change", { target: targetLabel(current) })} />
+                  {!isText(current) && current.target.type !== "skill" ? (
+                    <SettingChange p={current} />
+                  ) : editing && current.status === "pending" ? (
+                    <Field
+                      label={
+                        current.target.type === "org_context"
+                          ? t("proposals.finalTextContext")
+                          : t("proposals.finalText")
+                      }
+                      id="prop-edit"
+                    >
+                      <Locked when={decide.isPending || current.stale}>
+                        <Textarea rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} />
+                      </Locked>
+                    </Field>
+                  ) : (
+                    <ProseDiff
+                      label={t("proposals.changeLabel")}
+                      lines={diffLines(current.before.split("\n"), (editing ? draft : current.after).split("\n"))}
+                    />
+                  )}
+                </Card>
+
+                {staleError && <Alert>{staleError}</Alert>}
               </div>
-            )}
-          </Card>
-        </div>
-      )}
+
+              {open(current) &&
+                (current.canDecide ? (
+                  // The requests' decision bar: what refusing does on its line; editing first, refusing and accepting at its end.
+                  <div className="ap-bar ap-bar--float">
+                    <p className="ap-bar__text">{t("proposals.refuseNote", agentGrammar(proposer))}</p>
+                    <div className="ap-bar__acts">
+                      {isText(current) && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={decide.isPending}
+                          onClick={() => setEditing((v) => !v)}
+                        >
+                          {editing ? t("proposals.viewDiff") : t("proposals.editFirst")}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        disabled={decide.isPending}
+                        loading={decide.isPending && decide.variables?.decision === "refuse"}
+                        onClick={() =>
+                          decide.mutate({ id: current.id, decision: "refuse" }, { onError: onDecideError })
+                        }
+                      >
+                        {t("proposals.refuse")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={decide.isPending || (isText(current) && !draft.trim())}
+                        onClick={() =>
+                          decide.mutate(
+                            {
+                              id: current.id,
+                              decision: "accept",
+                              text: editing && draft !== current.after ? draft : undefined,
+                            },
+                            { onError: onDecideError },
+                          )
+                        }
+                      >
+                        {editing ? t("proposals.acceptEdited") : t("proposals.accept")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ap-bar ap-bar--float">
+                    <p className="ap-bar__text">{statusText(current)}</p>
+                  </div>
+                ))}
+            </article>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, type Database, eq, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
 import { routineBriefOfRun, routineOfRun } from "./background";
 import { widgetRoutineEnded } from "./dashboards/refresh-ledger";
 import { publishDelivery } from "./delivery";
@@ -7,11 +7,13 @@ import { publishRoutineRuns } from "./events";
 import { deliverRoutineReport, routineDeliveryBlock } from "./hand-off";
 import { releaseRoutineEmails } from "./mail/inbound";
 import { notifyRoutineFailed, notifyRoutineFinished, resolveRoutineTrouble } from "./notification-producers";
+import { enqueue } from "./outbox";
+import { lodiFor, lodiSwitches, saidKey, saidOnce } from "./right-hand-proactive";
 import { startGatheredRun } from "./routine-events";
 import { pauseRoutine, ROUTINE_FATIGUE_LIMIT, routineJobAlive } from "./routine-state";
 import { type AgentRun, runErrorDetail } from "./runs";
 
-const { routineRuns, routines, agentRuns } = schema;
+const { routineRuns, routines, agentRuns, outbox } = schema;
 
 /** What a background run's record keeps of its final text (the routine's history, read by its next run). */
 export const MAX_RUN_RECORD = 4000;
@@ -62,6 +64,130 @@ export function routineFailureCode(error: string | null | undefined): string {
 export function routineFailureEnd(error: string): { code: string; detail?: string } {
   const detail = runErrorDetail(error)?.errorParams?.detail;
   return detail ? { code: routineFailureCode(error), detail } : { code: routineFailureCode(error) };
+}
+
+/**
+ * Run errors (`runErrorDetail`'s codes) whose cause is outside the routine and passes by itself: its AI provider was
+ * down, slow, out of reach or over its rate, an error of ours, its computer failed or took too long, the server
+ * restarted in the middle. A refused key, no credit, a budget used up, a tool loop and a missing report are left out:
+ * trying again changes nothing until a person does something.
+ */
+export const OUTSIDE_RUN_ERRORS: ReadonlySet<string> = new Set([
+  "run.provider_down",
+  "run.provider_timeout",
+  "run.provider_unreachable",
+  "run.provider_rate_limit",
+  "run.provider_unavailable",
+  "run.our_error",
+  "run.computer_failed",
+  "run.computer_timeout",
+  "run.brain_interrupted",
+  "run.interrupted",
+]);
+
+/**
+ * Whether a failed routine run failed for a cause outside the routine: it never started (`lost`), or its agent run's
+ * stored error is one of `OUTSIDE_RUN_ERRORS`. The routine run's own code is too coarse to tell (`provider_error` is
+ * an outage and a refused key alike).
+ */
+export const outsideRoutineFailure = (code: string | null, runError: string | null | undefined) =>
+  code === "lost" || OUTSIDE_RUN_ERRORS.has(runErrorDetail(runError)?.errorCode ?? "");
+
+/** How long after an outside failure a scheduled routine gets its one more try. */
+export const ROUTINE_RETRY_AFTER_MS = 15 * 60_000;
+/** The next slot must be at least this far for that try: closer, the slot itself is the retry. */
+export const ROUTINE_RETRY_ROOM_MS = 3600_000;
+
+/**
+ * When the routine last ran well (ms), 0 when it never did. What the right hand fixes by itself is done once between
+ * two good runs (`routineRetryKey`, `routineResumeKey`), so a routine that keeps failing is never retried or resumed
+ * in a loop.
+ */
+export async function lastGoodRun(db: Executor, routineId: string): Promise<number> {
+  const [row] = await db
+    .select({ at: sql<Date | string | null>`max(${routineRuns.finishedAt})` })
+    .from(routineRuns)
+    .where(and(eq(routineRuns.routineId, routineId), inArray(routineRuns.status, ["reported", "silent"])));
+  return row?.at ? new Date(row.at).getTime() : 0;
+}
+
+/** `saidOnce` keys of the right hand's fixes: one retry and one resume of a routine since its last good run. */
+export const routineRetryKey = (routineId: string, lastGood: number) => `team_watch.retry:${routineId}:${lastGood}`;
+export const routineResumeKey = (routineId: string, lastGood: number) => `team_watch.resume:${routineId}:${lastGood}`;
+/** The failure that retry held back was told. */
+const heldToldKey = (routineId: string, lastGood: number) => `${routineRetryKey(routineId, lastGood)}:told`;
+
+/** Whether `saidOnce` was already asked for this key (without asking). */
+export async function wasSaid(db: Executor, orgId: string, key: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: outbox.id })
+    .from(outbox)
+    .where(eq(outbox.dedupeKey, saidKey(orgId, key)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * The first failure after a good run, for an outside cause, of a scheduled routine whose next slot is far: the right
+ * hand queues it once more in a while, as that routine's own run on its agent's budget, when the workspace has
+ * "Cuidar da equipe" on. True when it queued the retry, so nobody is told of a failure that may heal by itself.
+ */
+async function retryOutsideFailure(
+  deps: LedgerDeps,
+  ended: RoutineRunRef & { code: string | null },
+  lastGood: number,
+): Promise<boolean> {
+  const { db } = deps;
+  const [row] = await db
+    .select({ routine: routines, error: agentRuns.error })
+    .from(routineRuns)
+    .innerJoin(routines, eq(routines.id, routineRuns.routineId))
+    .leftJoin(agentRuns, eq(agentRuns.id, routineRuns.agentRunId))
+    .where(and(eq(routineRuns.id, ended.routineRunId), eq(routineRuns.orgId, ended.orgId)));
+  const r = row?.routine;
+  if (!r?.active || r.deletedAt || r.triggerType !== "schedule" || !r.nextRunAt) return false;
+  if (r.nextRunAt.getTime() - Date.now() < ROUTINE_RETRY_ROOM_MS) return false;
+  if (!outsideRoutineFailure(ended.code, row?.error)) return false;
+  if (!(await lodiSwitches(db, ended.orgId)).teamWatch || !(await lodiFor(db, ended.orgId))) return false;
+  const at = new Date(Date.now() + ROUTINE_RETRY_AFTER_MS);
+  return db.transaction(async (tx) => {
+    if (!(await saidOnce(tx, ended.orgId, routineRetryKey(r.id, lastGood)))) return false;
+    const [run] = await tx
+      .insert(routineRuns)
+      .values({ orgId: r.orgId, routineId: r.id, at, trigger: "schedule" })
+      .onConflictDoNothing()
+      .returning();
+    if (!run) return false;
+    await enqueue(tx, {
+      orgId: r.orgId,
+      kind: "routine.run",
+      payload: { routineRunId: run.id },
+      dedupeKey: `routine.run:${run.id}`,
+      runAt: at,
+      maxAttempts: 3,
+    });
+    return true;
+  });
+}
+
+/**
+ * Whether a routine's failure is told now. The first of a streak is, unless the right hand tries it once more first
+ * (`retryOutsideFailure`). A failure held back so is told at the streak's next one, whichever run that is (the
+ * retry, the run a person started in its place, the next slot when the retry never ran), once. A good run in
+ * between leaves nothing to tell.
+ */
+async function tellsRoutineFailure(
+  deps: LedgerDeps,
+  ended: RoutineRunRef & { code: string | null },
+  failures: number,
+  active: boolean,
+): Promise<boolean> {
+  const lastGood = await lastGoodRun(deps.db, ended.routineId);
+  if (failures === 1) return !(active && (await retryOutsideFailure(deps, ended, lastGood)));
+  return (
+    (await wasSaid(deps.db, ended.orgId, routineRetryKey(ended.routineId, lastGood))) &&
+    (await saidOnce(deps.db, ended.orgId, heldToldKey(ended.routineId, lastGood)))
+  );
 }
 
 /**
@@ -210,8 +336,8 @@ export async function endRoutineRun(
 /**
  * What follows a routine run's end (ADR 0053 §6): a good run (reported or silent) resets the failure
  * streak and resolves its failure and outage notifications; a failure counts in `failures_in_row`
- * (the first after a good run notifies once, with its coded reason for the app to say; the fifth in a
- * row pauses the routine: `failing`); the emails of an email run that didn't finish are released to
+ * (the first after a good run notifies once, with its coded reason for the app to say, unless the right hand tries
+ * it once more first: `tellsRoutineFailure`; the fifth in a row pauses the routine: `failing`); the emails of an email run that didn't finish are released to
  * the next run (§6.8); and the event run gathered while it worked starts (§6.3). A widget's routine (ADR 0135 §5)
  * tells its widget first (`widgetRoutineEnded`): an end without data counts as a failure, and its widget's own
  * `widget_failed` replaces the routine's notification. Never throws into the ending.
@@ -242,7 +368,11 @@ export async function afterRoutineRunEnded(
           active: routines.active,
           failures: routines.failuresInRow,
         });
-      if (r?.failures === 1 && !widget) {
+      // A widget's routine is retried the same way: its own notice is its widget's, done by its next good update.
+      const tell = r
+        ? await tellsRoutineFailure(deps, ended, r.failures, r.active).catch(() => r.failures === 1)
+        : false;
+      if (tell && !widget) {
         await notifyRoutineFailed(deps, {
           orgId: ended.orgId,
           routineId: ended.routineId,

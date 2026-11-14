@@ -81,6 +81,11 @@
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
+/* A card with no header (one of a summary's): what comes first opens it, with no room or hairline over it. */
+.rq > .ac-approval__sky + :is(.rq__lead, .rq__well, .rq__preview) {
+  margin-top: 0;
+  border-top: 0;
+}
 /* A note (`RequestNote`): its title in the lead's type with the ⓘ after its last word, one quiet sentence under it. */
 .rq__title {
   margin: 0;
@@ -194,10 +199,12 @@
   font-weight: 600;
   color: var(--ink);
 }
+/* A detail of several lines (an invite card's roles, then each address left out) keeps them. */
 .rq__wt small {
   font-size: 12.5px;
   line-height: 18px;
   color: var(--muted);
+  white-space: pre-line;
 }
 .rq__more {
   flex: none;
@@ -347,6 +354,12 @@ html:not([data-pointer]) .rq__more:focus-visible {
 }
 .rq__foot > .ac-btn {
   height: 32px;
+}
+/* A ghost that leads the footer shows only its words: they start on the card's words' edge, its plate reaching out
+   by `--ghost-plate` (as `.ac-acts` places a ghost at a row's end), so it stays 8 from the card's edge. */
+.rq__foot > .ac-btn--ghost:first-child {
+  margin-inline-start: calc(-1 * var(--ghost-plate));
+  padding-inline-start: var(--ghost-plate);
 }
 /* On touch every button keeps its 32 plate, its target grown to 44 above and below it (the kit's small button's). */
 @media (pointer: coarse) {
@@ -577,7 +590,7 @@ html:not([data-pointer]) .rq__choice:focus-visible {
   box-shadow: inset 0 0 0 2px var(--warn);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .rq-wait > span {
+  .rq-wait:not(.rq-wait--still) > span {
     animation: rq-pulse 1.4s ease-in-out infinite;
   }
   /* "Ver" in the bar: the request lights up for a moment where it landed. */
@@ -636,6 +649,15 @@ html:not([data-pointer]) .rq__choice:focus-visible {
 @container (max-width: 479px) {
   .rq__item > :is(.rq__item-acts, .rq__item-outcome) {
     margin-inline-start: 0;
+  }
+}
+/* "Ver os outros N" under a long group's first rows: on the words' edge, as "Ver …" under an item's words. */
+.rq__item > .rq__more {
+  margin-inline-start: calc(22px + 10px - 6px);
+}
+@container (max-width: 479px) {
+  .rq__item > .rq__more {
+    margin-inline-start: -6px;
   }
 }
 /* What follows its line (its details, how it ended, a reason being typed, a run's items) takes a row of its own. */
@@ -760,8 +782,8 @@ html:not([data-pointer]) .rq__choice:focus-visible {
 }
 /*
  * A decided request: the same card, its footer strip saying how it ended where the buttons were (the same 48 strip
- * for one line of words, so a card that only had buttons keeps its height to the pixel). Mark, words, when: each on
- * the first line, the words wrapping whole. Nothing about it reads as waiting.
+ * for one line of words, 16 above and below a 16 line, so a card that only had buttons keeps its height to the
+ * pixel). Mark, words, when: each on the first line, the words wrapping whole. Nothing about it reads as waiting.
  */
 .rq--ended > .ac-approval__sky {
   opacity: 0.3;
@@ -770,10 +792,13 @@ html:not([data-pointer]) .rq__choice:focus-visible {
   flex-wrap: nowrap;
   align-items: flex-start;
   gap: var(--icon-gap);
-  padding-block: 15px;
+  padding-block: var(--space-4);
   font-size: 13px;
-  line-height: 18px;
+  line-height: 16px;
   color: var(--ink2);
+}
+.rq__answer > .rq-done__mark {
+  height: 16px;
 }
 .rq__answer-text {
   flex: 1;
@@ -797,11 +822,11 @@ html:not([data-pointer]) .rq__choice:focus-visible {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* Desfazer, Cancelar: a 32 button on the 18 line, the strip still 48. */
+/* Desfazer, Cancelar: a 32 button on the 16 line, the strip still 48. */
 .rq__answer > .ac-btn {
   flex: none;
   height: 32px;
-  margin-block: -7px;
+  margin-block: calc(-1 * var(--space-2));
 }
 /* On a narrow card the words and when keep the first line (one line of words is still the 48 strip): what can be done
    goes under the words, from their edge. */

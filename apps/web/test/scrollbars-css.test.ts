@@ -62,7 +62,6 @@ const SIDEWAYS: Record<string, "strip" | "content"> = {
   ".onb__steps": "strip",
   ".newag .onb__steps": "strip",
   ".newag__tips": "strip",
-  ".issues-now__list": "strip",
   ".threads-tabs": "strip",
   ".nt-segwrap": "strip",
   ".mi-files__tabs": "strip",

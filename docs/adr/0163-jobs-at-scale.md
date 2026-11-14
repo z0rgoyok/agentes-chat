@@ -59,7 +59,10 @@ every other workspace's routines wait behind it.
    socket knows (`Presence` is in memory). PostgreSQL only.
    - Migrations: processes booting together take turns on an advisory lock (`MIGRATIONS_LOCK`, on a connection of
      its own): drizzle's migrator takes none, and two of them would both apply, and both record, a migration with no
-     DDL, which every later boot then refuses. A worker may leave them to the app (`RUN_MIGRATIONS_ON_BOOT=false`).
+     DDL, which every later boot then refuses. A process that finds the lock taken asks again every half second
+     instead of waiting inside `pg_advisory_lock`: a session waiting there holds a snapshot, and a migration that
+     builds an index concurrently (`migrateInSteps`) ends only once every older snapshot is gone, so the two would
+     wait for each other. A worker may leave them to the app (`RUN_MIGRATIONS_ON_BOOT=false`).
    - Caches: an invalidation of the per-process caches (scopes, members, credentials, settings) made in one process
      is published over the Postgres pub/sub and applied in every other one, which never publishes it again. A process
      whose LISTEN came back after a gap forgets everything it cached: what was sent meanwhile never reached it.

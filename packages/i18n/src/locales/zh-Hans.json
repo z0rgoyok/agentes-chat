@@ -480,6 +480,7 @@
       "nameLead": "团队里大家怎么称呼你？",
       "namePlaceholder": "你的名字",
       "nameIsPassword": "这是你的名字吗？它和你输入的密码一样。",
+      "emailHeld": "这个邮箱刚离开这里的一个账号，会保留 7 天。如果那个账号是你的，请在我们发到这个邮箱的邮件里点“不是我”。",
       "nameLooksLikePassword": "这看起来像密码。这里填你的名字。",
       "newPassword": "再设置一个密码。",
       "newPasswordNamed": "好的，{{name}}。再设置一个密码。",
@@ -501,6 +502,7 @@
       "noPassword": "这个账号通过 agentes.chat 应用登录。",
       "noPasswordLead": "在运行这个服务器的电脑上，打开应用，在 设置 › 你的账号 中选择“添加密码”。",
       "backToSignIn": "返回登录",
+      "backToAccount": "返回 {{name}}",
       "toAuthorizeApp": "用于把应用连接到 agentes.chat。"
     },
     "desktop": {
@@ -1545,6 +1547,22 @@
       "settingUp": "正在设置 agentes-chat ({{version}}) ..."
     }
   },
+  "appIcon": {
+    "title": "应用图标",
+    "hintWeb": "此浏览器标签页上的图标。",
+    "hintMac": "应用打开时 Dock 中的图标。访达和启动台仍显示默认图标。",
+    "hintDesktop": "应用打开时任务栏中的图标。",
+    "hintAndroid": "部分主屏幕需要几秒钟才会显示新图标。",
+    "failed": "无法更换图标，请重试。",
+    "agentsOf": "{{org}} 的智能体",
+    "names": {
+      "night": "夜晚",
+      "moon": "月亮",
+      "sky": "天空",
+      "peekNight": "夜里探头",
+      "peekSky": "天空探头"
+    }
+  },
   "legal": {
     "updated": "最后更新于 {{date}}",
     "contents": "本页内容",
@@ -1743,7 +1761,12 @@
       "sent": "我们已向 {{email}} 发送链接。打开链接后邮箱就会更改。",
       "changed": "完成：现在用 {{email}} 登录。",
       "same": "这已经是你的邮箱。",
-      "noMail": "此服务器不发送邮件，所以无法确认新地址。请让服务器的管理员设置邮件发送。"
+      "noMail": "此服务器不发送邮件，所以无法确认新地址。请让服务器的管理员设置邮件发送。",
+      "held": "这个邮箱刚离开另一个账号，会为它保留 7 天。请换一个邮箱。",
+      "taken": "另一个账号已经在用这个邮箱。请换一个邮箱。",
+      "cantOpen": "打不开那个邮箱？",
+      "signInInstead": "重新登录后，不用验证码也能更改。登录后会回到这里。",
+      "useCode": "使用验证码"
     },
     "openOnPhone": "在手机上打开",
     "openOnPhoneHint": "用二维码登录应用",
@@ -1763,6 +1786,8 @@
     "newWorkspace": "新建工作区",
     "addWorkspace": "添加工作区",
     "addWorkspaceHint": "加入已有的工作区、创建新的，或使用团队的服务器",
+    "addAccount": "添加账号",
+    "addAccountHint": "登录其他账号，无需退出当前账号",
     "yourServer": "你的服务器",
     "serverHere": "这台 {{device}} 上的 agentes.chat",
     "serverStopped": "已停止",
@@ -2236,8 +2261,7 @@
       "fileName": "message.txt"
     },
     "long": {
-      "more": "查看更多",
-      "title": "{{name}} 的消息"
+      "more": "查看更多"
     },
     "retrySend": "重试",
     "thinking": "{{name}} 正在思考…",
@@ -2381,7 +2405,18 @@
       "budgetHelp": "达到上限时，它会像其他智能体一样停下并通知。",
       "audience": "谁可以使用",
       "audienceHelp": "不在范围内的人在侧边栏里看不到{{name}}。",
-      "lock": "{{name}}不能归档或删除。没人和它说话时，它只会给管理员发团队周报。",
+      "lock": "{{name}}不能归档或删除。",
+      "own": {
+        "title": "{{name}}会主动做的事",
+        "digest": "汇总等待中的审批",
+        "digestHelp": "当有多个审批在等你时，{{name}}会在你的私信里发一张卡片，把日常的和有风险的分开。",
+        "reminders": "记住我们约定的事",
+        "remindersHelp": "{{name}}会把交出去的任务跟进到结束，并在约定的时间提醒你们说好的事。",
+        "teamWatch": "照看团队",
+        "teamWatchHelp": "{{name}}会留意让团队停下来的问题，比如 AI 登录已结束或某个应用需要重新连接，并告诉能解决的人。",
+        "welcome": "欢迎新加入的人",
+        "welcomeHelp": "{{name}}会问候每一位新加入的人，并帮他们设置第一个智能体。"
+      },
       "audit": "查看{{name}}做了什么",
       "planHelp": "费用由套餐的所有者支付。套餐所在的电脑不可用时，对话里会说明，并提供使用 API 密钥的选项。",
       "lookEdit": "更改{{name}}的外观",
@@ -2415,6 +2450,11 @@
       "groupWorkspace": "对整个工作区",
       "groupAdmins": "仅管理员"
     },
+    "computerYours": "这是你在工作区电脑上的专属空间。只有你能查看或控制。",
+    "sharedName": "{{name}}(共享)",
+    "sharedPlace": "用于频道和自动运行的工作。整个工作区共用这个空间。请不要在这里存放任何私密内容。",
+    "computerNoHome": "还没有电脑。等这个工作区在“设置”的“电脑”中添加了自己的电脑后，它就会有一台。",
+    "computerOneUser": "这里没有电脑。工作区的电脑让所有智能体以同一个用户运行，无法把每个人的空间分开。用安装程序的 --system 选项安装的 Linux 服务器可以做到。",
     "powers": {
       "title": "工作区权限",
       "help": "只有你的得力助手能做这些事。",
@@ -2426,6 +2466,7 @@
     "card": {
       "settings": "{{name}} · 设置",
       "apply": "应用",
+      "delete": "删除",
       "dismiss": "放弃",
       "decline": "拒绝",
       "askAdmin": "请管理员处理",
@@ -2514,6 +2555,16 @@
       "title": "等你处理的审批",
       "done": "已决定"
     },
+    "digest": {
+      "waiting_other": "有 {{count}} 个审批在等待。",
+      "split": "其中 {{routine}} 个是常规请求，{{careful}} 个需要仔细查看。",
+      "allRoutine": "全部是常规请求。",
+      "more_other": "查看其余 {{count}} 个",
+      "routine_other": "{{count}} 个常规请求",
+      "help": "在已连接的应用中执行的操作，不发送、不删除、不付款，也不合并或部署。其他请求仍各自保留一张卡片。",
+      "approve_other": "批准这 {{count}} 个",
+      "each": "逐个查看"
+    },
     "open": {
       "open": "打开",
       "web": "在网站上打开",
@@ -2528,6 +2579,9 @@
       "update_role": "更改角色 <b>{{name}}</b>",
       "delete_role": "永久删除角色 <b>{{name}}</b>",
       "move_role": "调整角色 <b>{{name}}</b> 的顺序",
+      "set_permission_holders": "更改谁可以<b>{{short}}</b>",
+      "set_permission_holders_computers": "更改谁可以使用<b>智能体的电脑</b>",
+      "holdersOwnersOnly": "仅所有者",
       "set_member_roles": "更改 <b>{{name}}</b> 的角色：{{change}}",
       "set_channel_permissions": "更改 {{who}} 在 <b>#{{channel}}</b> 中能做的事",
       "set_my_status": "设置你的状态：<b>{{what}}</b>",
@@ -2549,7 +2603,11 @@
       "continue_work": "让 <b>{{agent}}</b> 继续",
       "update_workspace": "更改工作区 <b>{{name}}</b>",
       "set_action_check_on": "开启对团队已做之事的检查",
-      "set_action_check_off": "关闭对团队已做之事的检查"
+      "set_action_check_off": "关闭对团队已做之事的检查",
+      "invite_people": "邀请 <b>{{emails}}</b> 加入工作区。",
+      "invite_roles_other": "角色为 {{roles}}。",
+      "invite_people_sent_other": "已向 <b>{{emails}}</b> 发送邀请。",
+      "remove_ai_key": "删除 API 密钥“{{name}}”。"
     }
   },
   "teamWeek": {
@@ -2566,6 +2624,7 @@
     "workedRuns_other": "{{name}} 在 #{{channel}} 完成了 {{count}} 项工作",
     "workedTasks_other": "{{name}} 关闭了 {{count}} 个任务",
     "improve": "可以改进的",
+    "needsYou": "需要你处理",
     "approvals": {
       "title_other": "{{name}} 的 {{count}} 个请求在等你",
       "line": "从 {{since}} 起在等。",
@@ -2607,6 +2666,40 @@
       "messageNoAgent": "步骤 {{steps}} 不需要等 #{{on}}。可以并行推进。",
       "done": "消息已发送"
     },
+    "waiting": {
+      "title_other": "有 {{count}} 件事在等你",
+      "line_other": "从 {{since}} 起在等。",
+      "action": "打开",
+      "done": "没有在等的了"
+    },
+    "stuck": {
+      "title_other": "{{name}} 因出错停了 {{count}} 次",
+      "heldTitle": "{{name}} 停下了，等着继续",
+      "why": {
+        "budget": "每月预算已用完。",
+        "plan": "套餐已达到上限。",
+        "computer": "电脑没有响应。",
+        "key": "AI 的密钥或登录被拒绝。",
+        "ai": "AI 没有响应。",
+        "other": "出了点问题。对话里能看到是什么。"
+      },
+      "action": "打开对话"
+    },
+    "retire": {
+      "title": "归档 {{name}}",
+      "line": "4 周没有工作，没有例行任务，也没有未完成的任务。",
+      "action": "归档"
+    },
+    "model": {
+      "title": "{{name}} 可以使用 {{to}}。",
+      "line": "目前使用 {{from}}。"
+    },
+    "skip": "忽略",
+    "skipped": "已忽略",
+    "why": {
+      "idle": "4 周没有工作，没有例行任务，也没有未完成的任务。",
+      "lightWork": "它的工作很轻，用更小的模型就够了。"
+    },
     "applied": "已应用",
     "undo": "撤销",
     "gone": "已不适用",
@@ -2637,7 +2730,7 @@
       "label": "团队周报",
       "help": "每周 {{name}} 会在你的私信里告诉你团队的情况和可以改进的地方。只有管理员会收到。",
       "dayLabel": "每日摘要",
-      "dayHelp": "{{name}} 每天在你的私信里告诉你团队做了什么、有什么在等你，只在有事可说的日子。"
+      "dayHelp": "{{name}} 每天在你的私信里告诉你有什么在等你、你的智能体完成了什么、什么卡住了，只在有新消息的日子。"
     }
   },
   "routing": {
@@ -3263,6 +3356,8 @@
       "changed_update_role": "更改了角色 <b>{{name}}</b>",
       "changed_delete_role": "删除了角色 <b>{{name}}</b>",
       "changed_move_role": "调整了角色 <b>{{name}}</b> 的顺序",
+      "changed_set_permission_holders": "更改了谁可以<b>{{short}}</b>",
+      "changed_set_permission_holders_computers": "更改了谁可以使用<b>智能体的电脑</b>",
       "changed_set_member_roles": "更改了 <b>{{name}}</b> 的角色：{{change}}",
       "changed_set_channel_permissions": "更改了 {{who}} 在 <b>#{{channel}}</b> 中能做的事",
       "changed_set_my_status": "设置了你的状态：<b>{{what}}</b>",
@@ -3284,7 +3379,9 @@
       "changed_continue_work": "让 <b>{{agent}}</b> 继续",
       "changed_update_workspace": "更改了工作区 <b>{{name}}</b>",
       "changed_set_action_check_on": "开启了对团队已做之事的检查",
-      "changed_set_action_check_off": "关闭了对团队已做之事的检查"
+      "changed_set_action_check_off": "关闭了对团队已做之事的检查",
+      "changed_invite_people": "邀请了 <b>{{invited}}</b> 加入工作区",
+      "changed_remove_ai_key": "删除了 API 密钥 <b>{{name}}</b>"
     },
     "other": "做了一项更改",
     "copyWebhook": "复制 Webhook 地址",
@@ -3530,6 +3627,9 @@
     "hidden": "隐身",
     "offline": "离线",
     "out": "不在办公室",
+    "available": "空闲",
+    "working": "工作中",
+    "waiting": "等你处理",
     "lower": {
       "online": "在线",
       "away": "离开",
@@ -3618,6 +3718,44 @@
     "bySelf": "由 {{name}} 设置 · 完成后自动清除",
     "byAuto": "它现在正在做的事"
   },
+  "agentWork": {
+    "working": "工作中",
+    "you": "等你处理",
+    "waiting": "等待中",
+    "queued": "排队中",
+    "here": "这里",
+    "routine": "在执行例行任务",
+    "yourApproval": "你的批准",
+    "yourAnswer": "你的回答",
+    "later": "跟进 {{when}}",
+    "laterShort": "跟进",
+    "plan": "等待套餐重置",
+    "budget": "等待预算重置",
+    "stopping": "正在停止…"
+  },
+  "followUps": {
+    "when": {
+      "at": "{{time}}",
+      "today": "今天 {{time}}",
+      "tomorrow": "明天 {{time}}"
+    },
+    "whenLabel": {
+      "at": "{{time}}",
+      "today": "今天 {{time}}",
+      "tomorrow": "明天 {{time}}"
+    },
+    "bar": {
+      "at": "{{name}} 将于 {{when}} 跟进",
+      "short": "{{name}} {{time}}",
+      "heldYou": "{{name}} 将在你回复后跟进",
+      "held": "{{name}} 将在有人回复后跟进"
+    },
+    "title": "跟进",
+    "see": "查看消息",
+    "cancel": "取消跟进",
+    "cancelOf": "取消 {{name}} {{when}} 的跟进",
+    "inTime": "{{time}}后"
+  },
   "mentions": {
     "list": "成员和智能体",
     "inChannel": "在此频道中",
@@ -3672,7 +3810,6 @@
     "issue": "议题"
   },
   "folded": {
-    "more": "显示更多",
     "less": "收起"
   },
   "secret": {
@@ -4169,6 +4306,10 @@
   "approval": {
     "expiredChip": "已过期 · {{when}}",
     "canceledChip": "已取消 · {{when}}",
+    "line": {
+      "after": "在“{{title}}”之后执行",
+      "notRun": "未执行：前一个请求没有获批"
+    },
     "waitingFor": "等待 {{name}}",
     "waitingAdmin": "等待管理员",
     "reasonLine": "原因：{{reason}}",
@@ -4230,8 +4371,6 @@
       "noSubject": "（无主题）",
       "toSender": "发给消息的发件人",
       "toList": "收件人：{{to}}",
-      "more": "阅读全文",
-      "less": "收起",
       "answers": "回复 <b>“{{subject}}”</b>",
       "answersFrom": "回复 <b>“{{subject}}”</b>，来自 {{from}}",
       "forwards": "转发 <b>“{{subject}}”</b>",
@@ -4401,6 +4540,21 @@
       "onlyMe": "改为仅我自己",
       "done": "现在只有你使用这个套餐。"
     },
+    "teamWatch": {
+      "sign_in_other": "{{names}} 的登录已失效。",
+      "connector_other": "{{names}} 需要重新连接。",
+      "mailbox_other": "邮箱 {{names}} 需要重新连接。",
+      "database_other": "数据库 {{names}} 需要重新连接。",
+      "budget_out_other": "{{names}} 的预算已用完。",
+      "budget_low_other": "{{names}} 的预算即将用完。",
+      "computer_other": "{{names}} 已离线，有智能体在等待。",
+      "act": {
+        "sign_in": "重新登录",
+        "reconnect": "重新连接",
+        "budget": "提高预算",
+        "computer": "更换电脑"
+      }
+    },
     "docTitleUnread": "({{count}}) 通知",
     "summaryWaiting_other": "{{count}} 件事等你处理",
     "summaryUnread_other": "{{count}} 条未读",
@@ -4511,6 +4665,7 @@
       "changeRequest": "<b>{{name}}</b> 请求更改 <b>{{agent}}</b>",
       "proposalWaiting": "来自 <b>{{names}}</b> 的改进提议",
       "changeRequestAgent": "<b>{{name}}</b> 请求新的智能体：<b>{{agent}}</b>",
+      "changeRequestAction": "<b>{{name}}</b> 请求在工作区做一项更改",
       "approvalCover": "<b>{{name}}</b> 在“谁替我审批”中选了你",
       "approvalCoverDeclined": "<b>{{name}}</b> 不再替你审批",
       "approvalCoverEnded": "<b>{{name}}</b> 取消了替你审批的人",
@@ -4708,8 +4863,15 @@
       "canceled": "已取消",
       "failed": "失败",
       "running": "执行中",
-      "scheduled": "已计划"
+      "scheduled": "已计划",
+      "queued": "排队中",
+      "notRun": "未执行"
     },
+    "queuedLine": "已批准。会在先前请求的“{{title}}”之后执行。",
+    "notRunRefused": "先前请求的“{{title}}”在这一项获批后被拒绝，所以这一项没有执行。",
+    "notRunExpired": "先前请求的“{{title}}”在这一项获批后无人决定而过期，所以这一项没有执行。",
+    "notRunEarlier": "在这一项获批后，先前的请求被拒绝或已过期，所以这一项没有执行。",
+    "position": "第 {{n}} 个，共 {{total}} 个",
     "expiredLine": "24 小时内没有人决定，所以什么都没做。",
     "canceledLine": "运行在做出决定前就停止了。",
     "supersededLine": "智能体用更新的版本重新请求了，这一版没有执行。",
@@ -4778,10 +4940,10 @@
       "email": "邮件",
       "text": "将要发布的内容",
       "textDone": "已发布的内容",
+      "textNot": "本将发布的内容",
       "values": "将要做的事",
       "valuesDone": "已做的事",
-      "more": "显示全部",
-      "less": "收起",
+      "valuesNot": "本将要做的事",
       "trail": "来龙去脉",
       "showSteps": "查看每一步",
       "hideSteps": "隐藏步骤",
@@ -6758,6 +6920,7 @@
     "batch": {
       "already_member": "{{email}} 已在工作区中。",
       "already_invited": "{{email}} 已有一份待接受的邀请。请使用“重新发送”。",
+      "had_invite": "{{email}} 之前已有一份待接受的邀请。",
       "invalid_email": "{{email}} 看起来不是有效的邮箱。"
     },
     "activeNow": "当前活跃",
@@ -7169,8 +7332,22 @@
     "auto": "自动",
     "autoHint": "根据智能体的工作自动换了列。",
     "now": {
-      "title": "正在工作的智能体",
-      "stalled_other": "{{count}} 个已停滞"
+      "stalledCount_other": "{{count}} 个任务已停止",
+      "viewStalled": "查看已停止",
+      "continue": "继续",
+      "continueAll": "全部继续",
+      "continueAllCount": "全部继续（{{count}}）",
+      "sent_other": "已请求。{{names}} 会从停下的地方继续。",
+      "rowSent": "已请求：会从停下的地方继续。",
+      "stalledTitle": "已停止的任务",
+      "stalledSub": "{{tasks}} · {{agents}}",
+      "tasks_other": "{{count}} 个任务",
+      "agents_other": "{{count}} 个智能体",
+      "stalledText": "智能体在完成前停了下来。点“继续”会请它们从停下的地方接着做。",
+      "stoppedNow": "刚刚停止",
+      "stoppedAgo": "{{ago}}停止",
+      "stoppedYesterday": "昨天停止",
+      "stoppedOn": "{{date}}停止"
     },
     "work": {
       "label": "{{name}} 的工作",
@@ -7186,8 +7363,6 @@
       "started": "开始于 {{when}}",
       "starting": "正在开始…",
       "stalled": "{{when}} 停滞",
-      "noRun": "目前没有运行。",
-      "noRunStep": "目前没有运行。最后一步：{{step}}",
       "lastStep": "最后一步：{{step}}",
       "waitingApproval": "请求审批",
       "waitingInput": "有问题要问",
@@ -8291,8 +8466,7 @@
       "releasePaused": "专项任务已暂停：恢复后会话才会继续。",
       "releaseClosed": "专项任务已关闭：会话不会继续。",
       "onlyDeciders": "只有此专项任务的决策者可以允许命令。",
-      "pick": "允许 {{command}}",
-      "showAll": "显示全部"
+      "pick": "允许 {{command}}"
     },
     "decision": {
       "approveAll_other": "批准 {{count}} 个临时决定",
@@ -8679,6 +8853,11 @@
     "status": {
       "needsYou": "等你处理",
       "working": "工作中",
+      "approval": "等待批准",
+      "input": "等待回答",
+      "computer": "等待电脑",
+      "queued": "排队中",
+      "later": "跟进 {{when}}",
       "open": "进行中",
       "closed": "已关闭",
       "archived": "已归档"
@@ -9695,6 +9874,7 @@
     "noMic": "未找到麦克风。",
     "failed": "无法打开麦克风。请重试。",
     "noPlayback": "现在无法播放。你仍然可以发送，或继续录音。",
+    "cantPlay": "语音播放失败。",
     "settings": {
       "title": "语音消息",
       "on": "语音消息",
@@ -10585,13 +10765,6 @@
       "nowYours": "停下来阅读你的留言",
       "nowOf": "停下来阅读 {{name}} 的留言"
     },
-    "choice": {
-      "label": "{{name}} 工作时如何发送",
-      "join": "补充到 {{name}} 正在做的事中",
-      "interrupt": "停止并发送",
-      "joins": "补充",
-      "interrupts": "停止并发送"
-    },
     "strip": {
       "see": "查看",
       "toStop": "以停止"
@@ -11030,8 +11203,6 @@
     "thousand": "千",
     "building": "正在整理…",
     "openBig": "放大打开",
-    "showAll": "显示全部",
-    "showLess": "收起",
     "keep": "保存到 Drive",
     "kept": "已保存到 Drive",
     "inDrive": "在 Drive 中",
@@ -12973,6 +13144,8 @@
     },
     "join": {
       "linkClosed": "这个链接已失效，请向发送者索要新链接。",
+      "linkFull": "这个链接可加入的人数已满，请向发送者索要新链接。",
+      "linkFullApproval": "这个申请所用的链接可加入的人数已满。要批准它，请提高链接的人数上限。",
       "full": "这个工作区有很多待处理的申请。请稍后再试，或请那里的人邀请你。",
       "rateLimited": "来自这里的请求过多，请一小时后再试。",
       "linkBusy": "过去一小时内很多人通过这个链接申请，请稍后再试。",
@@ -13054,6 +13227,9 @@
       "titleTooLong": "标题最多 {{max}} 个字符。",
       "noContext": "这个话题不是由对话中的一段消息创建的。",
       "notUndoable": "只有由一段消息创建的话题才能撤销。"
+    },
+    "followUp": {
+      "notYours": "只有相关的人、智能体的所有者或管理员可以取消此跟进。"
     },
     "routine": {
       "tooFrequent": "例行工作最短每 15 分钟运行一次，请选择更长的间隔。",
@@ -13150,7 +13326,9 @@
       "tooMany": "这个工作区已有 {{max}} 个部门。请先删除一个。"
     },
     "rightHand": {
-      "permanent": "得力助手属于整个工作区，不加入频道。在任何频道 @提及它即可叫到它。"
+      "permanent": "得力助手属于整个工作区，不加入频道。在任何频道 @提及它即可叫到它。",
+      "updateApp": "此应用版本太旧，无法应用这张卡片。请更新应用，或在设置中进行更改。",
+      "nobodyNew": "这张卡片上的人都已加入或已收到邀请。请放弃这张卡片，或在“成员和邀请”中重新发送邀请。"
     },
     "agent": {
       "ownerOrAdmin": "只有智能体负责人或管理员可以执行此操作。",
@@ -14433,6 +14611,10 @@
         "role_changed": "更改了一位成员的角色",
         "password_link": "为成员生成了新密码链接"
       },
+      "role": {
+        "permission_set": "更改了谁可以{{short}}",
+        "permission_set_computers": "更改了谁可以使用智能体的电脑"
+      },
       "apps": {
         "connected": "连接了 {{app}}",
         "scopes_changed": "允许 {{app}} 发送任务",
@@ -15243,7 +15425,13 @@
       "asking": "{{from}} 正在询问 {{to}}",
       "answered": "{{to}} 已回答。{{from}} 正在撰写",
       "writing": "{{from}} 正在撰写",
-      "clock": "等待 {{time}}"
+      "clock": "等待 {{time}}",
+      "doing": "{{name}} {{doing}}",
+      "yourApproval": "{{name}} 正在等你批准",
+      "yourAnswer": "{{name}} 正在等你回答",
+      "done": "{{to}} 已完成。{{from}} 正在撰写",
+      "notDone": "{{to}} 没有完成。{{from}} 正在撰写",
+      "handedOff": "{{to}} 正在处理 {{from}} 交给它的工作"
     },
     "consultation": {
       "answered": "{{name}} 已回答",
@@ -15270,7 +15458,8 @@
       "waitingComputer_female": "{{name}} 正在等待电脑",
       "waitingProvider": "{{name}}：AI 服务商暂时不可用 · 会自动重试",
       "waitingAgents": "{{name}} 把部分工作交了出去，正在等待回复",
-      "waitingAgents_female": "{{name}} 把部分工作交了出去，正在等待回复"
+      "waitingAgents_female": "{{name}} 把部分工作交了出去，正在等待回复",
+      "queued": "{{name}} 正在排队"
     },
     "consultPair": {
       "took": "用了 {{time}}",
@@ -15280,15 +15469,14 @@
       "waitingInput": "等待回答",
       "waitingComputer": "等待电脑",
       "waitingProvider": "AI 提供方故障",
+      "waitingYourApproval": "等你批准",
+      "waitingYourAnswer": "等你回答",
+      "queued": "排队中",
       "handedOn": "等待其他智能体",
       "noAnswer": "未回答",
       "notFinished": "未完成",
       "someAnswered": "{{total}} 个中 {{done}} 个已回答",
       "labelMany": "{{from}} 与 {{to}} 的对话"
-    },
-    "talk": {
-      "readAll": "阅读全部",
-      "more_other": "还有 {{count}} 行"
     },
     "consultPanel": {
       "label": "{{from}} 和 {{to}} 之间的对话",
@@ -15320,14 +15508,6 @@
       "agentNote": "来自 {{from}} 的备注",
       "agentNoteAnon": "来自另一个智能体的备注",
       "waitResult": "{{name}} 等待的结果到了",
-      "followUp": "{{name}} 会在 {{time}} 回来跟进“{{about}}”",
-      "followUpOn": "{{name}} 会在 {{day}} {{time}} 回来跟进“{{about}}”",
-      "followUpDone": "{{name}} 在 {{time}} 回来跟进了“{{about}}”",
-      "followUpDoneOn": "{{name}} 在 {{day}} {{time}} 回来跟进了“{{about}}”",
-      "followUpCanceled": "{{name}} 不会在 {{time}} 回来跟进“{{about}}”了",
-      "followUpCanceledOn": "{{name}} 不会在 {{day}} {{time}} 回来跟进“{{about}}”了",
-      "followUpWake": "{{name}} 回来跟进“{{about}}”了",
-      "followUpCancel": "取消",
       "other": "给 {{name}} 的通知",
       "wakeSkipped": "{{name}} 的提及没有传达给 {{agents}}",
       "wakeSkippedAnon": "{{name}} 的提及没有叫到其他智能体",
@@ -15514,6 +15694,7 @@
         "usingTool": "使用了 {{tool}} 工具",
         "thinking": "思考了",
         "typing": "撰写了",
+        "recordingVoice": "录制了语音",
         "writing": "撰写了"
       }
     },
@@ -15523,6 +15704,7 @@
       "updatingRoutine": "修改例行工作",
       "thinking": "工作",
       "typing": "输入",
+      "recordingVoice": "录音",
       "writing": "撰写",
       "consulting": "查看 {{app}}",
       "creatingIssue": "创建任务",
@@ -15773,6 +15955,7 @@
       "action_install_skill": "安装技能",
       "action_update_skills": "更新技能",
       "action_approvals": "等你处理的审批",
+      "welcome_member": "你刚加入了{{org}}。**你在这里负责什么？**告诉我，我和你一起设置你的第一个智能体。",
       "action_open_page": "打开页面",
       "calendar_proposal": "日程提议：{{title}}",
       "action_workspace": "提议了一项工作区更改",
@@ -16617,6 +16800,17 @@
     "type": "输入 {{name}} 以确认",
     "submit": "删除工作区"
   },
+  "emailUndo": {
+    "title": "找回你的邮箱",
+    "lead": "收到这个链接的地址会重新成为你账号的邮箱。所有会话都会退出，AI 应用会断开连接，更改之后添加的登录方式会失效。密码也会被清除，下一个密码可通过“忘记密码”设置。",
+    "button": "不是我",
+    "done": "你的邮箱已找回",
+    "doneLead": "{{email}} 已重新成为你账号的邮箱，所有会话都已退出。更改之后添加的登录方式已失效，密码也已清除。登录时请点“忘记密码”设置下一个密码。",
+    "gone": "这个链接已失效",
+    "goneLead": "它已经用过了，或者 7 天已过。",
+    "taken": "另一个账号在用这个邮箱",
+    "takenLead": "{{email}} 现在是另一个账号的邮箱，所以无法改回。什么都没有改变。"
+  },
   "proof": {
     "willSend": "我们会向 {{email}} 发送验证码，确认是你本人。",
     "send": "发送验证码",
@@ -17112,6 +17306,19 @@
       "chooseOnWeb": "请在 agentes.chat 的 设置 › 设备 中选择。"
     }
   },
+  "agora": {
+    "label": "现在",
+    "working_other": "{{count}} 个智能体在工作",
+    "waiting_other": "{{count}} 件事等你处理",
+    "sections": {
+      "you": "等你处理",
+      "working": "工作中",
+      "waiting": "等待中"
+    },
+    "allWaiting_other": "查看 {{count}} 件等你处理的事",
+    "actions": "更多操作",
+    "openManager": "打开任务管理器"
+  },
   "taskManager": {
     "title": "任务管理器",
     "subtitle": "智能体现在在做什么，以及今天完成了什么。",
@@ -17141,11 +17348,12 @@
     "sections": {
       "asked": "成员的请求",
       "delegated": "智能体发起",
-      "background": "后台例行工作"
+      "background": "后台例行工作",
+      "returns": "跟进"
     },
     "state": {
       "working": "工作中",
-      "ok": "等待你审批",
+      "ok": "等你处理",
       "answer": "等待回答",
       "computerBusy": "等待电脑空位",
       "inLine": "排队中 · 第 {{position}} 位",
@@ -17229,6 +17437,9 @@
       "stopped": "被你停止",
       "stoppedBy": "被 {{name}} 停止",
       "failed": "未能完成",
+      "returnCanceled": "跟进已取消",
+      "returnCanceledYou": "你取消了跟进",
+      "returnCanceledBy": "{{name}} 取消了跟进",
       "none": "今天还没有结束的任务。"
     },
     "empty": {

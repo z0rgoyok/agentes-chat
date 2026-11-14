@@ -1475,6 +1475,65 @@ test("the desktops of agents this computer no longer serves stop; the others go 
   expect(t.desktops.status(ops).running).toBe(false);
 });
 
+test("the desktop of an agent that left, its processes killed, isn't started again: its end heard after the list, found by the sweep, or already being answered", async () => {
+  const kill = (t: ReturnType<typeof setup>) => {
+    for (const p of t.fake.procs) p.exit(null);
+  };
+  const settled = () => new Promise((r) => setTimeout(r, 20));
+
+  // Killed and left in one turn: the stop is queued before the end is heard.
+  const t = setup();
+  await t.desktops.ensure(dev);
+  kill(t);
+  await t.desktops.serve([]);
+  await settled();
+  expect(t.fake.of("Xtigervnc")).toHaveLength(1);
+
+  // The list first, the kill while its stop waits.
+  await t.desktops.ensure(dev);
+  const left = t.desktops.serve([]);
+  kill(t);
+  await left;
+  await settled();
+  expect(t.fake.of("Xtigervnc")).toHaveLength(2);
+  expect(t.logs.filter((l) => l.includes("starting it again"))).toEqual([]);
+
+  // Taken back from an earlier runner: no end to hear, the sweep finds it gone.
+  const before = new DesktopSessions({ ...t.opts, system: gone(t.fake.system) });
+  await before.ensure(dev);
+  before.close();
+  const next = new DesktopSessions(t.opts);
+  next.restore();
+  kill(t);
+  const stopped = next.serve([]);
+  void next.sweep();
+  await stopped;
+  await settled();
+  expect(t.fake.of("Xtigervnc")).toHaveLength(3);
+
+  // It ended by itself a moment before its agent left: the start already under way is stopped once it is up.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let asked = 0;
+  const late = setup({
+    user: async (agent) => {
+      if (++asked === 2) await held;
+      return runnerUser(late.home, path.join(late.folders, agent.handle), agent);
+    },
+  });
+  await late.desktops.ensure(dev);
+  kill(late);
+  await waitFor(() => asked === 2);
+  const leaving = late.desktops.serve([]);
+  release();
+  await leaving;
+  await settled();
+  expect(late.desktops.status(dev).running).toBe(false);
+  expect(late.fake.of("Xtigervnc").filter((p) => p.alive)).toEqual([]);
+});
+
 test("where the memory isn't known there is always room", async () => {
   const t = setup({ memAvailable: () => null });
   for (const agent of [dev, ops]) expect((await t.desktops.ensure(agent)).started).toBe(true);

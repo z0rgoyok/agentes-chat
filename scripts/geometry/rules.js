@@ -654,7 +654,9 @@
           const clips = (v) => v === "hidden" || v === "clip";
           if (clips(s.overflowX) && wide > 1 && s.textOverflow !== "ellipsis")
             out.push({ rule: "clipped", node: el, el: sig(el), px: wide, text: words(el) });
-          if (clips(s.overflowY) && tall > 2 && s.webkitLineClamp === "none" && s.textOverflow !== "ellipsis")
+          // A fold ends its words under a fade (a mask) with "Ver mais" under them: on purpose, not at a hard edge.
+          const fold = (s.maskImage || s.webkitMaskImage || "none") !== "none";
+          if (clips(s.overflowY) && tall > 2 && s.webkitLineClamp === "none" && s.textOverflow !== "ellipsis" && !fold)
             out.push({ rule: "clipped", node: el, el: sig(el), px: tall, text: words(el) });
           // Cut by a box around it instead: that box's "…" reaches only words on its own lines, not a block inside it
           // (a picker's two lines, a flex column), so they stop mid-word at its edge.

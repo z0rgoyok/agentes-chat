@@ -89,7 +89,7 @@ export function summarizeGrants(rows: { scope: string; connectionLabel: string |
 export function describeCapabilities(
   tools: Pick<ToolDefinition, "name" | "description" | "scope" | "sensitive" | "connectionId" | "connectorLabel">[],
   pending: { label: string; reason: string }[] = [],
-  /** The right hand (ADR 0137), which never has a computer: no line sends it to a browser, a shell or a clone. */
+  /** The right hand (ADR 0137) with no computer at all (ADR 0175): no line sends it to a browser, a shell or a clone. */
   noComputer = false,
 ) {
   const lines = ["# What you can do"];

@@ -280,6 +280,23 @@ describe("a teammate's settings, on the right hand's card", () => {
     await click(within(c).getByRole("button", { name: "Recusar" }));
     expect(state.calls.some((x) => x.method === "proposals.refuse" && x.args[1] === "set-1")).toBe(true);
   });
+
+  test("a workspace card sent on reads as a change asked for, never as a new agent", async () => {
+    const state = withCard(seedState(), settingsRow());
+    state.notifications = [
+      notification({
+        id: "n-invite",
+        kind: "change_request",
+        waiting: true,
+        actors: [{ type: "user", id: "u-joao" }],
+        source: { action: "invite_people", agentId: LODI_ID, label: "bia@example.com" },
+        latest: { text: "bia@example.com" },
+      }),
+    ];
+    await go(state, "notifications");
+    const row = document.querySelector('[data-n="n-invite"]') as HTMLElement;
+    expect(row.querySelector(".nt-what")?.textContent).toBe("João pede uma mudança no workspace");
+  });
 });
 
 /** A removal card (`propose_remove_agents`): one row per agent, each archiving it. */

@@ -44,7 +44,6 @@ import { useArtifactDownload, useDeleteArtifact } from "@/components/artifacts/A
 import { artifactLink, useArtifactViewer, useAuthorName } from "@/components/artifacts/ArtifactViewer";
 import { useFileShare } from "@/components/artifacts/ShareDialog";
 import { UploadButton, useDriveUpload } from "@/components/artifacts/Upload";
-import { DriveDetails } from "@/components/drive/DriveDetails";
 import { DriveCard, DriveRow, type ItemProps } from "@/components/drive/DriveItems";
 import { DriveTrash } from "@/components/drive/DriveTrash";
 import { DropOverlay, UploadProgress, useFileDrop } from "@/components/drive/DriveUploads";
@@ -54,7 +53,6 @@ import { COMPACT_QUERY } from "@/components/NavDrawer";
 import { useOrg } from "@/components/org-context";
 import { SelectionBar } from "@/components/SelectionBar";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
-import { useOpenParam } from "@/lib/open-param";
 import { STORAGE_KEYS, storage } from "@/lib/storage";
 import { useToast } from "@/lib/toast";
 import "./drive.css";
@@ -101,10 +99,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
   const [authors, setAuthors] = useState<string[]>([]);
   const [group, setGroup] = useState<DriveGroup>("date");
   const [sort, setSort] = useState<DriveSort>("recent");
-  // The item whose details are open, in the URL (`?open=…`).
-  const [openId, setOpenParam] = useOpenParam();
-  const setOpenId = (next: string | null | ((o: string | null) => string | null)) =>
-    setOpenParam(typeof next === "function" ? next(openId) : next);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
   const [uploadsHidden, setUploadsHidden] = useState(false);
@@ -129,7 +123,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
 
   const remover = useDeleteArtifact((ids) => {
     setSelected((s) => new Set([...s].filter((id) => !ids.includes(id))));
-    setOpenId((o) => (o && ids.includes(o) ? null : o));
   });
   const uploader = useDriveUpload((saved) =>
     toast.show(t("files.uploaded", { name: saved.title }), "info", {
@@ -175,7 +168,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
     setAuthors([]);
     setWho("all");
   };
-  const openItem = rows.find((a) => a.id === openId);
   const picked = shown.filter((a) => selected.has(a.id));
   const selectAll = () => setSelected(new Set(shown.map((a) => a.id)));
 
@@ -204,13 +196,14 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
       return;
     }
     anchor.current = a.id;
-    setOpenId((o) => (o === a.id ? null : a.id));
+    // Straight to the file: the viewer has its preview, who made it, where it is, its versions and its actions.
+    viewer.open(a.id);
   };
   const openViewer = (a: Artifact) => viewer.open(a.id);
 
   // "/" searches, ⌘A selects what's shown, Esc clears the selection.
-  const keys = useRef({ shown, selected, openId, trashOpen, selectAll });
-  keys.current = { shown, selected, openId, trashOpen, selectAll };
+  const keys = useRef({ shown, selected, trashOpen, selectAll });
+  keys.current = { shown, selected, trashOpen, selectAll };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = keys.current;
@@ -218,7 +211,7 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
       const active = document.activeElement;
       if (e.key === "Escape") {
         if (typingInField(active)) return;
-        // The details dialog closes itself on Esc; here Esc clears the selection.
+        // The viewer closes itself on Esc; here Esc clears the selection.
         if (s.selected.size > 0) setSelected(new Set());
         return;
       }
@@ -260,7 +253,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
   };
   const itemProps = (a: Artifact): ItemProps => ({
     artifact: a,
-    open: a.id === openId,
     selected: selected.has(a.id),
     channelName: channelLabel,
     onPick: pick,
@@ -357,7 +349,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
                   icon="trash"
                   onClick={() => {
                     setTrashOpen(true);
-                    setOpenId(null);
                     setSelected(new Set());
                   }}
                 >
@@ -713,14 +704,6 @@ export function DrivePage({ open }: { open?: { id: string; version?: number } })
         )}
       </div>
 
-      {openItem && !trashOpen && (
-        <DriveDetails
-          key={openItem.id}
-          artifact={openItem}
-          onClose={() => setOpenId(null)}
-          onDelete={(a) => remover.ask(a)}
-        />
-      )}
       {uploader.queue.length > 0 && !uploadsHidden && (
         <UploadProgress queue={uploader.queue} onHide={() => setUploadsHidden(true)} />
       )}

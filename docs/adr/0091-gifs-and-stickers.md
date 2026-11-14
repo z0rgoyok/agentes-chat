@@ -98,3 +98,10 @@ Good-morning GIF routines posted links to a GIF site's search pages instead of a
 - **`post_message` from a routine takes `gif` too:** it posts where its creator can post, as itself (ADR 0053 §2), and its creator asked for its posts. This replaces the addendum above's "for a person's request only": a run nobody asked for (no person behind it and no routine) still gets no GIF.
 - **Unchanged:** the run policy still refuses a routine `send_gif` and `send_sticker` (its room is read by nobody; the refusal now points to `hand_off`'s `gif`), and a routine has no sticker of its own in its message. A GIF in a routine's message counts toward no `MEDIA_PER_RUN_MAX`: it is the routine's one message.
 - **Eval:** `routine-good-morning-gif` (`bun run eval:behavior`) checks that the routine hands off with `gif` (`mustCall` `hand_off+gif`: a `+key` names an input the call must carry) and no link.
+
+## Addendum (2026-11-13): a GIF in someone's DM
+
+Asked in a DM to message another person with a GIF, an agent sent the text with `send_dm` and posted the GIF where it was asked: `send_gif` posts only where the run answers, `post_message`'s `gif` goes to channels, and `send_dm` took only text and files. Now `send_dm` takes `gif` too. Code: `packages/engine/src/chat-tools.ts` (`gifToPost`, `withGif`).
+
+- **The same rules as `post_message`'s:** listed where the agent may send a GIF (`AgentGifPoster.offered`), the call checks again; for a person's request, or a routine writing to its creator (the only DM a routine sends); found before any file is copied or anything is sent, skipping the GIFs posted lately in that DM; stored as §1 says without a URL; the answer says "with a GIF", never its title (§6).
+- **One message:** the GIF goes in `meta.media` of the DM's message, with its text or alone, next to `meta.agentDm`; `send_dm`'s own checks (who the routine may write to, the DMs per run) are unchanged. `send_gif`'s description points to `send_dm` for a person's DM.

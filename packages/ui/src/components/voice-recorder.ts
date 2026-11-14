@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stopVoicePlayback } from "./VoicePlayer";
-import { drawVoiceWave, useWaveRepaint } from "./voice-wave";
+import { drawVoiceWave, useWaveRepaint, waveAt } from "./voice-wave";
 
 /** A finished recording. */
 export interface VoiceTake {
@@ -236,6 +236,8 @@ export interface VoiceRecorderOptions {
   allowed?: () => Promise<boolean>;
   onTake: (take: VoiceTake) => void;
   onNotice: (notice: VoiceNotice) => void;
+  /** Each second it records, never while starting or paused: the others see "gravando áudio…". */
+  onRecording?: () => void;
 }
 
 /** The microphone's whole life in the composer: recording, pausing, listening back, sending, deleting. */
@@ -376,6 +378,12 @@ export function useVoiceRecorder(options: VoiceRecorderOptions | undefined, wave
     return () => cancelAnimationFrame(frame);
   }, [active, paint, send]);
 
+  // Each second recorded (`onRecording`), none while starting or paused.
+  const recordingSecond = phase === "rec" ? seconds : -1;
+  useEffect(() => {
+    if (recordingSecond >= 0) latest.current?.onRecording?.();
+  }, [recordingSecond]);
+
   // Enter sends, Esc deletes, Space listens: ahead of the page's own keys (Esc also stops an agent there).
   const held = hold;
   useEffect(() => {
@@ -415,12 +423,8 @@ export function useVoiceRecorder(options: VoiceRecorderOptions | undefined, wave
       if (!rec?.paused) return;
       e.preventDefault();
       const el = e.currentTarget;
-      const at = (x: number) => {
-        const r = el.getBoundingClientRect();
-        rec.scrub((x - r.left) / r.width, ended);
-      };
-      at(e.clientX);
-      const move = (ev: PointerEvent) => at(ev.clientX);
+      rec.scrub(waveAt(el, e.clientX), ended);
+      const move = (ev: PointerEvent) => rec.scrub(waveAt(el, ev.clientX), ended);
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);

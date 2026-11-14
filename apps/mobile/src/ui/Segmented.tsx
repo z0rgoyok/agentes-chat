@@ -16,15 +16,26 @@ export type SegmentedProps = FiltersProps & {
    * `fit`: each as wide as its words first, so long labels stay on one line (a form's choice).
    */
   wide?: boolean | "fit";
+  /**
+   * `page`: the views of a whole screen (an agent's Hoje · Acesso · Memória). As tall as the screen's own button (48),
+   * its words a size up: at a toolbar's 32 it read as a filter beside a 48 button and 52 rows.
+   */
+  size?: "page";
 };
 
 /** The track's inset around the segments; a segment's corner is the track's less it, so the two stay concentric. */
 const PAD = 4;
 /** 30% of the control's height, as every control's corner. */
 const RADIUS = Math.round(TOOL_H * 0.3);
+/** A screen's views: the button ruler's 48. */
+const PAGE_H = 48;
+const PAGE_RADIUS = Math.round(PAGE_H * 0.3);
 
 /** A segmented control: a sunken track, the selected segment raised; the raised plate slides to a new choice. */
-export function Segmented({ items, value, onChange, wide = false }: SegmentedProps) {
+export function Segmented({ items, value, onChange, wide = false, size }: SegmentedProps) {
+  const page = size === "page";
+  const height = page ? PAGE_H : TOOL_H;
+  const radius = page ? PAGE_RADIUS : RADIUS;
   const { colors, shadows, motion, reducedMotion } = useTheme();
   const [boxes, setBoxes] = useState<Record<string, { x: number; width: number }>>({});
   const at = boxes[value];
@@ -49,7 +60,7 @@ export function Segmented({ items, value, onChange, wide = false }: SegmentedPro
       style={{
         flexDirection: "row",
         padding: PAD,
-        borderRadius: RADIUS,
+        borderRadius: radius,
         backgroundColor: colors.sunken,
         boxShadow: "inset 0px 1px 2px 0px rgba(0, 0, 0, 0.06)",
         alignSelf: wide ? "stretch" : "flex-start",
@@ -59,7 +70,7 @@ export function Segmented({ items, value, onChange, wide = false }: SegmentedPro
       {at ? (
         <Animated.View
           pointerEvents="none"
-          style={[{ position: "absolute", left: 0, top: PAD, bottom: PAD, borderRadius: RADIUS - PAD }, raised, plate]}
+          style={[{ position: "absolute", left: 0, top: PAD, bottom: PAD, borderRadius: radius - PAD }, raised, plate]}
         />
       ) : null}
       {items.map((item) => {
@@ -84,8 +95,11 @@ export function Segmented({ items, value, onChange, wide = false }: SegmentedPro
               wide === "fit" ? { flexGrow: 1 } : wide ? { flex: 1 } : null,
               pressed && !on ? { opacity: 0.6 } : null,
             ]}
-            // The slop gives a segment the 44 a finger needs, past the track's own padding.
-            hitSlop={{ top: (TOUCH - TOOL_H) / 2 + PAD, bottom: (TOUCH - TOOL_H) / 2 + PAD }}
+            // The slop gives a segment the 44 a finger needs, past the track's own padding (a page's is 48 already).
+            hitSlop={{
+              top: Math.max(0, (TOUCH - height) / 2) + PAD,
+              bottom: Math.max(0, (TOUCH - height) / 2) + PAD,
+            }}
           >
             <View
               style={[
@@ -93,19 +107,24 @@ export function Segmented({ items, value, onChange, wide = false }: SegmentedPro
                   // Inside the track's inset: the control is a toolbar's 32.
                   minHeight: TOOL_H - 2 * PAD,
                   paddingHorizontal: 12,
-                  borderRadius: RADIUS - PAD,
+                  borderRadius: radius - PAD,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 6,
                 },
+                // A screen's views: the button's height, less the same inset.
+                page ? { minHeight: PAGE_H - 2 * PAD } : null,
                 on && !at ? raised : null,
               ]}
             >
               {item.icon ? <Icon name={item.icon} size={13} color={on ? colors.ink : colors.muted} /> : null}
               <RNText
                 maxFontSizeMultiplier={CHROME_MAX_SCALE}
-                style={[systemText("footnote", weights.semibold), { color: on ? colors.ink : colors.muted }]}
+                style={[
+                  systemText(page ? "callout" : "footnote", weights.semibold),
+                  { color: on ? colors.ink : colors.muted },
+                ]}
               >
                 {item.label}
               </RNText>

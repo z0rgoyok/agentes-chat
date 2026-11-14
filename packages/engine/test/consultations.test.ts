@@ -64,7 +64,12 @@ const inAgentDm = (req: ModelRequest) => systemText(req.system).includes("A priv
 const post = (body: string) =>
   postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body });
 
-const consultations = () => f.db.select().from(schema.agentConsultations);
+/** In the order they were asked: a table read with no order follows where its rows happen to sit. */
+const consultations = () =>
+  f.db
+    .select()
+    .from(schema.agentConsultations)
+    .orderBy(asc(schema.agentConsultations.createdAt), asc(schema.agentConsultations.id));
 const runs = () => f.db.select().from(schema.agentRuns);
 
 async function addInfra() {

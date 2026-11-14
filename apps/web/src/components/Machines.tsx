@@ -28,6 +28,8 @@ import {
   sharedFolderOf,
 } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { type Seat, SHARED_SEAT } from "@agenteschat/client/lib/seat";
+import { SeatContext, useSeat } from "@agenteschat/client/lib/seat-context";
 import {
   AvatarStack,
   Button,
@@ -52,7 +54,7 @@ import {
 } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useOpenComputer } from "@/components/computer/open";
@@ -699,10 +701,12 @@ function GrantCard({ machine: m }: { machine: Machine }) {
  * Open beside each agent on a computer's page: the agent's computer in its dialog, in place. Only for whoever may
  * watch it (its screen's state answers them; anyone else gets a 403), as on the agent's page.
  */
-function OpenComputerButton({ agentId, name }: { agentId: string; name: string }) {
+function OpenComputerButton({ agentId, name, shown }: { agentId: string; name: string; shown?: string }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const openComputer = useOpenComputer();
+  // Inside the row of the right hand's shared place (`SeatContext`), it is that place this asks about and opens.
+  const seat = useSeat(agentId);
   if (!useDesktopStatus(org.id, agentId).isSuccess) return null;
   return (
     <Button
@@ -710,11 +714,55 @@ function OpenComputerButton({ agentId, name }: { agentId: string; name: string }
       variant="ghost"
       icon="computer"
       className="machine-page__screen"
-      aria-label={`${t("agentComputer.open")}: ${t("agentComputer.title", agentGrammar(name))}`}
-      onClick={() => openComputer(agentId)}
+      aria-label={`${t("agentComputer.open")}: ${t("agentComputer.title", agentGrammar(name, shown))}`}
+      onClick={() => openComputer(agentId, seat)}
     >
       {t("agentComputer.open")}
     </Button>
+  );
+}
+
+/**
+ * One row of a computer's agents: the agent's face and name, a link to its page, a line under them, and Open beside
+ * it for whoever may watch its computer. `seat`: the row is the right hand's shared place there (ADR 0175), named
+ * for what it is, and Open opens that place; the right hand's own row opens the viewer's own.
+ */
+function MachineAgentRow({
+  agent: a,
+  body,
+  seat,
+}: {
+  agent: Machine["agents"][number];
+  body?: ReactNode;
+  seat?: Seat;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const name = seat ? t("rightHand.sharedName", { name: a.name }) : a.name;
+  const seatOf = useMemo(() => (seat ? { agentId: a.id, seat } : undefined), [a.id, seat]);
+  return (
+    <div className="machine-page__agent-row">
+      <Link
+        to="/org/$orgId/agents/$agentId"
+        params={{ orgId: org.id, agentId: a.id }}
+        className="machine-page__agent ac-mediarow"
+      >
+        <span className="ac-mediarow__face">
+          <AgentAvatar agentId={a.id} size="md" name={a.name} />
+        </span>
+        <span className="ac-mediarow__head machine-page__agent-name">
+          <b>{name}</b>
+          <span className="ac-mediarow__meta">@{a.handle}</span>
+        </span>
+        <span className="ac-mediarow__end">
+          <Icon name="chevronRight" />
+        </span>
+        {body && <span className="ac-mediarow__body small muted">{body}</span>}
+      </Link>
+      <SeatContext.Provider value={seatOf}>
+        <OpenComputerButton agentId={a.id} name={a.name} shown={name} />
+      </SeatContext.Provider>
+    </div>
   );
 }
 
@@ -724,8 +772,9 @@ function OpenComputerButton({ agentId, name }: { agentId: string; name: string }
  */
 export function MachineAgents({ machine: m }: { machine: Machine }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
   const managed = m.kind === "managed";
+  // The right hand's shared place here, for whoever may open it (the server says so).
+  const shared = m.agents.find((a) => a.id === m.sharedSeatOf);
   if (m.agents.length === 0) return null;
   return (
     <div className="stack-4" style={{ gap: 6 }}>
@@ -734,39 +783,16 @@ export function MachineAgents({ machine: m }: { machine: Machine }) {
         {m.agents.map((a) => {
           // What this agent may use here, beyond its own folder (only who may see the access knows).
           const folders = m.access?.folders.filter((f) => f.agents.includes(a.id)).map((f) => folderName(f.path));
-          return (
-            <div key={a.id} className="machine-page__agent-row">
-              <Link
-                to="/org/$orgId/agents/$agentId"
-                params={{ orgId: org.id, agentId: a.id }}
-                className="machine-page__agent ac-mediarow"
-              >
-                <span className="ac-mediarow__face">
-                  <AgentAvatar agentId={a.id} size="md" name={a.name} />
-                </span>
-                <span className="ac-mediarow__head machine-page__agent-name">
-                  <b>{a.name}</b>
-                  <span className="ac-mediarow__meta">@{a.handle}</span>
-                </span>
-                <span className="ac-mediarow__end">
-                  <Icon name="chevronRight" />
-                </span>
-                {/* On the workspace's own computer, each agent's own folder is its name's ⓘ. */}
-                {folders && (folders.length > 0 || !managed) && (
-                  <span className="ac-mediarow__body small muted">
-                    {folders.length > 0
-                      ? t("machines.page.agentFolders", {
-                          ...agentGrammar(a.name),
-                          folders: joinNames(folders, t),
-                        })
-                      : t("machines.page.agentOwnFolder", agentGrammar(a.name))}
-                  </span>
-                )}
-              </Link>
-              <OpenComputerButton agentId={a.id} name={a.name} />
-            </div>
-          );
+          // On the workspace's own computer, each agent's own folder is its name's ⓘ.
+          const body =
+            folders && (folders.length > 0 || !managed)
+              ? folders.length > 0
+                ? t("machines.page.agentFolders", { ...agentGrammar(a.name), folders: joinNames(folders, t) })
+                : t("machines.page.agentOwnFolder", agentGrammar(a.name))
+              : undefined;
+          return <MachineAgentRow key={a.id} agent={a} body={body} />;
         })}
+        {shared && <MachineAgentRow agent={shared} body={t("rightHand.sharedPlace")} seat={SHARED_SEAT} />}
       </div>
     </div>
   );

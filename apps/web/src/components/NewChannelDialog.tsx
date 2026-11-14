@@ -37,8 +37,8 @@ import { RoleChecklist } from "./roles/RoleChecklist";
 const ACCESS_MODES: ChannelAccessMode[] = ["public", "private", "roles"];
 
 /**
- * "Quem pode entrar": Público, Privado or Departamentos ou papéis (ADR 0125). The third shows the roles picked, each
- * removable, and "Escolher papéis", which ticks them in a dialog of their own (it opens by itself while none is
+ * "Quem pode entrar": Público, Privado or Departamentos ou cargos (ADR 0125). The third shows the roles picked, each
+ * removable, and "Escolher cargos", which ticks them in a dialog of their own (it opens by itself while none is
  * picked). Creating a channel and its details share it. A personal workspace says the first two plainly ("Everyone
  * here can join", "Only who I add") and offers the third only when a role is worth it or it is the channel's (ADR
  * 0158); what each one does is the same.

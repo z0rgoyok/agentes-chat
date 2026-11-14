@@ -25,6 +25,7 @@ import {
   InfoHint,
   Locked,
   PersonAvatar,
+  RoleMark,
   SheetScreen,
   Text,
   useReducedMotion,
@@ -267,6 +268,7 @@ function RequestCard({
                   <Fragment key={role.id}>
                     {i > 0 ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
                     <GroupedRow
+                      leading={<RoleMark color={role.color} icon={role.icon} size={30} />}
                       label={role.name}
                       toggle={roleIds.includes(role.id)}
                       disabled={busy}
@@ -331,6 +333,7 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   // A grouped row pads its text 14: pulled out by as much, the text meets the card's 16.
   rows: { marginHorizontal: -14 },
-  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14 },
+  // From the rows' text, after the mark's column (16 + 36 + 12), as GroupedList's.
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 64, marginRight: 14 },
   acts: { flexDirection: "row", gap: 8 },
 });

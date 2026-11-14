@@ -9,6 +9,7 @@ import {
   decideApproval,
   decideApprovals,
   drainOutbox,
+  expireApprovals,
   forComputerBrain,
   postPersonMessage,
   REQUEST_PERMISSION_TOOL,
@@ -133,6 +134,23 @@ test("stopping the run cancels its requests and takes their card out of the inbo
     .where(and(eq(schema.notifications.kind, "approval"), eq(schema.notifications.userId, f.owner.id)));
   expect(inbox).toHaveLength(1);
   expect(inbox.every((n) => n.doneAt !== null)).toBe(true);
+});
+
+test("a card left waiting in the inbox after its requests closed leaves it on the next sweep", async () => {
+  f = await setup({ toolSources: [goals], reply: fourAtOnce });
+  await askFour();
+  // Closed in place, as a stopped run's requests once were: the inbox was never told.
+  await f.db.update(schema.approvals).set({ status: "canceled", decidedAt: new Date() });
+  const inbox = () =>
+    f.db
+      .select()
+      .from(schema.notifications)
+      .where(and(eq(schema.notifications.kind, "approval"), eq(schema.notifications.userId, f.owner.id)));
+  expect((await inbox()).every((n) => n.doneAt === null)).toBe(true);
+  await expireApprovals({ db: f.db, pubsub: f.pubsub });
+  const after = await inbox();
+  expect(after).toHaveLength(1);
+  expect(after.every((n) => n.doneAt !== null)).toBe(true);
 });
 
 test("'Aprovar tudo' decides exactly the items it listed: one joining during the click stays waiting", async () => {

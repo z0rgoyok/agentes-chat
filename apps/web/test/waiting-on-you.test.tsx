@@ -82,6 +82,8 @@ describe("Esperando você", () => {
     await renderApp(`/org/${ORG_ID}/waiting`, { api: createFakeApi(seedState({ notifications: inbox() })) });
     await settle(8);
     const title = screen().getByRole("heading", { level: 1, name: "Esperando você" });
+    // What waits is the line under the title, as on the Approvals page: not beside it.
+    expect(title.nextElementSibling?.className).toBe("ac-pagehead__meta");
     expect(title.nextElementSibling?.textContent).toContain("2 coisas esperando você");
     expect(document.title).toBe("Esperando você");
     expect(screen().queryByRole("radiogroup", { name: "Filtrar notificações" })).toBeNull();

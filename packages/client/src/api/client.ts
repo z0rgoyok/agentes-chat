@@ -3,7 +3,9 @@ import type { PlanModel } from "@agenteschat/providers/plans";
 import type { DashboardsApi } from "../dashboards/api";
 import type { ChatPrefs } from "../lib/chat-look";
 import type { OnboardingStepId } from "../lib/onboarding";
-import type { TeamWeekAct, TeamWeekPrefs } from "../lib/team-week";
+import type { LegacyPrefsPatch, LodiPrefs, LodiPrefsPatch } from "../lib/right-hand-prefs";
+import type { Seat } from "../lib/seat";
+import type { TeamWeekAct } from "../lib/team-week";
 import type { AudienceChoice } from "../lib/who-sees";
 import type { WikiAccess } from "../lib/wiki";
 import type { WorkAreaAnswer } from "../lib/work-area";
@@ -128,12 +130,14 @@ import type {
   DesktopPictureView,
   DesktopRelease,
   DesktopStatus,
+  DeviceAccount,
   DeviceAudience,
   DeviceRequest,
   DevicesList,
   DirectMessage,
   DmRead,
   DmTarget,
+  EmailChange,
   EndpointCheck,
   EndpointModel,
   EndpointStyle,
@@ -165,6 +169,9 @@ import type {
   InvitationWithStatus,
   InviteBatch,
   InviteLink,
+  InviteLinkChanged,
+  InviteLinkChoices,
+  InviteLinkMade,
   Issue,
   IssueActivity,
   IssueColumn,
@@ -239,6 +246,7 @@ import type {
   OrgRoles,
   OrgSettings,
   PageTarget,
+  PendingReturn,
   PeopleUsage,
   Person,
   PersonalTokenInput,
@@ -261,12 +269,14 @@ import type {
   RightHandApprovalsInput,
   Role,
   RoleInput,
+  RoleMailLoss,
   RosterMember,
   Routine,
   RoutineHook,
   RoutineInput,
   RoutinePatch,
   RoutineRun,
+  RowHolders,
   RuleInfo,
   Run,
   RunConsultation,
@@ -428,6 +438,18 @@ export interface ApiClient {
     me(): Promise<Me | null>;
     /** Unread and waiting in each workspace, in one call (`GET /me/unread`, ADR 0154); null signed out. */
     unread(): Promise<{ organizations: { orgId: string; unread: number; waiting: number }[] } | null>;
+    /**
+     * The accounts signed in on this browser, the current one first (`GET /device-accounts`, ADR 0183); empty on a
+     * server from before it and with nobody signed in.
+     */
+    deviceAccounts(): Promise<DeviceAccount[]>;
+    /** Moves this browser to another account signed in on it; every account stays signed in. */
+    switchDeviceAccount(userId: string): Promise<void>;
+    /**
+     * Signs one account out of this browser, the current one without `userId`; the others stay. `signedIn`: the
+     * browser still has an account, the next one when the current one left.
+     */
+    signOutDeviceAccount(userId?: string): Promise<{ signedIn: boolean }>;
     /** My app language (emails and pushes are written in it). */
     updateMe(input: { locale: AppLocale; auto?: boolean }): Promise<void>;
     /** My own area, asked once during the onboarding, or `skipped` (`PUT /me/work-area`). */
@@ -453,6 +475,18 @@ export interface ApiClient {
     delete(input?: DeletionProofInput): Promise<void>;
     /** Brings it back before its date. `account.not_restorable` (409) after. */
     restore(): Promise<void>;
+    /**
+     * My account under `newEmail` (ADR 0088 §2, addendum 2026-11-13): with the `code` emailed to my current address, or
+     * a sign-in in the last 10 minutes, a link goes to it; without either, the code goes first (`code`), or for an
+     * address I never confirmed `reauth.sign_in` (403). On a server that sends no email it changes at once.
+     * `email.same` (400), `email.held` (409), `reauth.code_*` as deleting's.
+     */
+    changeEmail(input: { newEmail: string; code?: string }): Promise<EmailChange>;
+    /**
+     * "This wasn't me", from the page the notice to my old address links to: that address comes back and every
+     * session ends. `email.undo_gone` (404), `email.undo_taken` (409).
+     */
+    undoEmailChange(token: string): Promise<{ email: string }>;
   };
   /** Where my pushes go: phones (ADR 0035) and browsers (ADR 0071). Per person, not per organization. */
   push: {
@@ -603,8 +637,15 @@ export interface ApiClient {
     inviteMany(orgId: string, input: InviteBatch): Promise<BatchInviteResult[]>;
     /** The same link (ADR 0090; a new one for an invitation sent before that), 7 more days. */
     resendInvitation(orgId: string, invitationId: string): Promise<{ url: string; expiresAt: string }>;
-    /** The roles a pending invitation gives (ADR 0090): the same link, nothing is sent. */
-    setInvitationRoles(orgId: string, invitationId: string, roleIds: string[]): Promise<{ roleIds: string[] }>;
+    /**
+     * What a pending invitation gives (ADR 0090, 0184): its cargos, channels and agents, an omitted one kept. The same
+     * link, nothing is sent.
+     */
+    updateInvitation(
+      orgId: string,
+      invitationId: string,
+      change: { roleIds?: string[]; channelIds?: string[]; agentIds?: string[] },
+    ): Promise<{ roleIds: string[]; channelIds: string[]; agentIds: string[] }>;
     usageReport(orgId: string, since?: string): Promise<UsageReport>;
     /** Every plan account by computer and the API per agent, this month (ADR 0063). */
     planUsage(orgId: string): Promise<OrgPlanUsage>;
@@ -621,8 +662,8 @@ export interface ApiClient {
     raisePersonLimit(orgId: string, userId: string, limitUsd: number): Promise<void>;
     refuseMoreUsage(orgId: string, userId: string): Promise<void>;
     /** Lodi's weekly card (ADR 0137 §9): when mine comes, or that it is off. */
-    teamWeek(orgId: string): Promise<TeamWeekPrefs>;
-    setTeamWeek(orgId: string, patch: Partial<Omit<TeamWeekPrefs, "timezone">>): Promise<TeamWeekPrefs>;
+    teamWeek(orgId: string): Promise<LodiPrefs>;
+    setTeamWeek(orgId: string, patch: LodiPrefsPatch | LegacyPrefsPatch): Promise<LodiPrefs>;
     /** A row of my weekly card applied as me (a routine, a message), or "Agora não". */
     actOnTeamWeek(orgId: string, messageId: string, act: TeamWeekAct): Promise<void>;
     /** The audit log, newest first (admins): agents' tool calls and people's changes. `before`: `next`. */
@@ -636,8 +677,21 @@ export interface ApiClient {
     remove(orgId: string, roleId: string): Promise<void>;
     /** Every role but `everyone`, top first. */
     reorder(orgId: string, ids: string[]): Promise<void>;
-    /** A person's roles, exactly these. */
-    setFor(orgId: string, userId: string, roleIds: string[], via?: string): Promise<{ roleIds: string[] }>;
+    /**
+     * A person's roles, exactly these. `mailLossSeen`: the mailboxes they were told agents lose (`mailLoss`); one
+     * given since refuses it (409 `agent.mail_loss_changed`).
+     */
+    setFor(
+      orgId: string,
+      userId: string,
+      roleIds: string[],
+      via?: string,
+      mailLossSeen?: string[],
+    ): Promise<{ roleIds: string[] }>;
+    /** "Quem pode…": who holds one row (a key, or `computers`), `everyone` and the roles at once; the roles after it. */
+    setRow(orgId: string, row: string, holders: RowHolders): Promise<OrgRoles>;
+    /** The mailboxes agents would lose if `userIds` got the role, taking nothing. */
+    mailLoss(orgId: string, roleId: string, userIds: string[]): Promise<RoleMailLoss[]>;
   };
   /** Groups of agents (ADR 0083): everyone reads them, owners and admins change them; each change answers with all. */
   agentGroups: {
@@ -941,7 +995,12 @@ export interface ApiClient {
      * no-AI card or the person's message. 409 `ai.still_missing` while there's still no AI.
      */
     answerNow(orgId: string, messageId: string): Promise<{ runs: { agentId: string; runId: string }[] }>;
-    /** Cancels an agent's follow-up from its line (`messageId`); 409 `follow_up.not_pending` once it came. */
+    /** The returns agents set in a conversation, still to come, the soonest first (`[]` while the server lacks it). */
+    followUps(orgId: string, channelId: string): Promise<PendingReturn[]>;
+    /**
+     * Cancels a return (`messageId`, its line): the person it is for, the agent's owner or an admin (403
+     * `follow_up.not_yours` otherwise); 409 `follow_up.not_pending` once it came.
+     */
     cancelFollowUp(orgId: string, messageId: string): Promise<void>;
     /**
      * "Pedir resposta" on a GitHub notice of someone the agent doesn't answer (`messageId`): the agent answers them
@@ -962,10 +1021,13 @@ export interface ApiClient {
     refuse(orgId: string, approvalId: string, reason?: string, via?: string): Promise<Approval>;
     /** Withdraws an action approved ahead before its time: its routine's run won't do it. */
     cancel(orgId: string, approvalId: string): Promise<Approval>;
-    /** A card's "Aprovar tudo" / "Agora não para todos": exactly these ids; `skipped` the ones not decided. */
+    /**
+     * A card's "Aprovar tudo" / "Agora não para todos": exactly these ids; `skipped` the ones not decided. With
+     * `only: "routine"` the server decides the ones it calls routine (`Approval.routine`) and skips the rest.
+     */
     decideMany(
       orgId: string,
-      input: { ids: string[]; decision: "approve" | "refuse"; reason?: string; via?: string },
+      input: { ids: string[]; decision: "approve" | "refuse"; reason?: string; via?: string; only?: "routine" },
     ): Promise<{ approvals: Approval[]; skipped: string[] }>;
     /** What the agent runs without asking ("Aprovar sempre"), oldest first. */
     rules(orgId: string, agentId: string): Promise<ApprovalRule[]>;
@@ -1743,10 +1805,13 @@ export interface ApiClient {
   };
   invites: {
     /**
-     * The workspace's invitation link (admins, ADR 0068): the active one, else a new one for 30 days. Whoever
-     * opens it can only ask to join.
+     * The workspace's invitation link (admins, ADR 0068): the active one, else a new one for 30 days. With `choices`
+     * (ADR 0184), a link of its own that starts an approval on them; at the defaults, the workspace's link renewed to
+     * 30 days. Whoever opens any of them can only ask to join.
      */
-    createLink(orgId: string): Promise<{ id: string; url: string; expiresAt: string }>;
+    createLink(orgId: string, choices?: InviteLinkChoices): Promise<InviteLinkMade>;
+    /** Changes what a link gives (ADR 0184): the same address. `expiresIn` counts from now. */
+    editLink(orgId: string, linkId: string, choices: InviteLinkChoices): Promise<InviteLinkChanged>;
     /** The links people can still ask with, earlier ones (no `url`) included. */
     links(orgId: string): Promise<InviteLink[]>;
     /** Nobody new can ask with it; the requests made through it close without emails. */
@@ -1777,8 +1842,16 @@ export interface ApiClient {
   joinRequests: {
     /** Waiting ones, oldest first. */
     list(orgId: string): Promise<JoinRequest[]>;
-    /** `join.answered` / `join.expired` (409) when someone answered first or it ran out. */
-    approve(orgId: string, requestId: string, roleIds?: string[]): Promise<JoinApproval>;
+    /**
+     * `join.answered` / `join.expired` (409) when someone answered first or it ran out. `start`: the channels and
+     * agents they start with (ADR 0184); absent, the link's, as far as the approver may give them.
+     */
+    approve(
+      orgId: string,
+      requestId: string,
+      roleIds?: string[],
+      start?: { channelIds?: string[]; agentIds?: string[] },
+    ): Promise<JoinApproval>;
     /** `reason` is told to the person by email. */
     deny(orgId: string, requestId: string, reason?: string): Promise<void>;
     /** A member suggests someone to the people who may invite (ADR 0090). */
@@ -1823,6 +1896,8 @@ export interface ApiClient {
       orgId: string,
       messageId: string,
       decision: "apply" | "dismiss" | "ask",
+      /** The card's action id, when this build words it. */
+      knows?: string,
     ): Promise<{ card: WorkspaceActionCard }>;
   };
   /** "O que fez por você": what an agent did that involves the viewer (agent profile). */
@@ -1906,9 +1981,9 @@ export interface ApiClient {
     /** The sites (owner or admins); null or empty = any site. */
     setDomains(orgId: string, agentId: string, allowedDomains: string[] | null): Promise<AgentBrowserSettings>;
     /** The agent's open request or take over on that screen (the browser by default), if any. */
-    agentHandoff(orgId: string, agentId: string, screen?: ScreenKind): Promise<BrowserHandoff | null>;
+    agentHandoff(orgId: string, agentId: string, screen?: ScreenKind, seat?: Seat): Promise<BrowserHandoff | null>;
     /** Whether this person may drive that screen (take over, open a page, type); watching needs less (ADR 0040). */
-    agentControl(orgId: string, agentId: string, screen?: ScreenKind): Promise<boolean>;
+    agentControl(orgId: string, agentId: string, screen?: ScreenKind, seat?: Seat): Promise<boolean>;
     handoff(orgId: string, handoffId: string): Promise<BrowserHandoff>;
     /** Take control of a request (one person at a time; 409 when someone else has it). */
     takeControl(orgId: string, handoffId: string): Promise<BrowserHandoff>;
@@ -1924,7 +1999,7 @@ export interface ApiClient {
      * Take over while watching; the agent waits until handed back. `runId`: the run whose card it
      * was taken from (the take over is bound to it, so its card stays in that conversation).
      */
-    takeover(orgId: string, agentId: string, runId?: string, screen?: ScreenKind): Promise<BrowserHandoff>;
+    takeover(orgId: string, agentId: string, runId?: string, screen?: ScreenKind, seat?: Seat): Promise<BrowserHandoff>;
     /**
      * The person in control opens a site (a bare host gets https://), or goes back, forward or reloads; a closed
      * browser opens. 409 `browser.not_in_control`, 403 `browser.not_allowed` (outside the agent's sites), 400
@@ -1932,7 +2007,7 @@ export interface ApiClient {
      */
     open(orgId: string, agentId: string, to: PageTarget): Promise<void>;
     /** "Parar": closes the agent's browser now (its logins stay). Its screen has no stop: it stays on. */
-    stop(orgId: string, agentId: string): Promise<void>;
+    stop(orgId: string, agentId: string, seat?: Seat): Promise<void>;
     /**
      * "Tentar de novo" on a page that never came: the browser closes and opens again where it was (its logins
      * stay), and every live view gets it again. Resolves once it closed. Only who may drive it (403 otherwise).
@@ -1993,9 +2068,9 @@ export interface ApiClient {
    * starts it when it isn't running; control and "Devolver" are the browser's screen routes with `desktop`.
    */
   desktop: {
-    status(orgId: string, agentId: string): Promise<DesktopStatus>;
+    status(orgId: string, agentId: string, seat?: Seat): Promise<DesktopStatus>;
     /** A recent picture of the agent's screen; never starts a stopped one. 403 for who may not watch it. */
-    picture(orgId: string, agentId: string): Promise<DesktopPictureView>;
+    picture(orgId: string, agentId: string, seat?: Seat): Promise<DesktopPictureView>;
     /** What the agent keeps running there (ADR 0176); 403 for who may not watch its computer. */
     holds(orgId: string, agentId: string): Promise<AgentHolds>;
     /** Stop: the hold ends, and its program stops or its browser closes. 403 for who may not (`canStop`). */

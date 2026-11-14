@@ -64,11 +64,11 @@ import {
 } from "@/ui";
 import { CoverParallax, useCoverScroll, useScrollFade } from "@/ui/cover";
 import { router } from "@/ui/navigation";
-import { ModelPickerSheet } from "../ai/ModelPickerSheet";
+import { openAgentAi } from "../ai/AgentAiScreen";
 import { openConnectAi } from "../ai/NoAiCard";
 import { usePlanHold } from "../ai/parts";
 import { LetMeTalkButton } from "../chat/ReachLines";
-import { AgentComputerButton, AgentComputerPicture } from "../computer/AgentComputerRow";
+import { AgentComputerCard } from "../computer/AgentComputerRow";
 import { KeptRunningList } from "../computer/KeptRunning";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { chatHref } from "../links/logic";
@@ -133,7 +133,7 @@ type ProfileTab = "today" | "access" | "memory";
 
 /**
  * An agent's profile as a teammate: its sky and living body (its presence on the badge), its name and one plain line
- * of what it does, Chat (and its computer beside it), then three views on the grouped gray. Today: what waits on you,
+ * of what it does, Chat, then three views on the grouped gray. Today: what waits on you,
  * what it is on now, what it did for you and its month in one row. Access: what it thinks with, what it can use (apps,
  * areas and mailboxes in one list), what it runs without asking and who answers for it. Memory: what it knows about
  * you and how it works (tap to correct or forget, for its owner and admins). Someone it doesn't answer sees only what
@@ -478,7 +478,7 @@ function Profile({ id }: { id: string }) {
   const todayView = (
     <>
       {nowBlock}
-      <AgentComputerPicture agentId={id} />
+      <AgentComputerCard agentId={id} />
       {/* What it keeps running there (ADR 0176), for whoever may watch its computer. */}
       <KeptRunningList agentId={id} />
       {/* What it thinks with and how much of it is used this month, one row (ADR 0063 §5): the plan or key as its
@@ -555,15 +555,13 @@ function Profile({ id }: { id: string }) {
         <>
           <GroupedHeader>{t("mobile.intentAgents.thinks")}</GroupedHeader>
           <GroupedList>
-            {/* Its owner and admins change its AI and model in place (the DM header's sheet); its "Mais opções" opens
-                the AI screen. Anyone else reads it. */}
+            {/* Its owner and admins change its AI and model on its AI page, pushed from this row (the only way in: the
+                conversation's bar has no button for it). Anyone else reads it. */}
             <GroupedRow
               leading={thinks.mark ? <ProviderLogo id={thinks.mark} size="sm" /> : undefined}
               label={thinksPlan ?? thinks.text}
               {...(thinksUnder ? { sub: thinksUnder, subLines: 2 } : {})}
-              {...(decides && agent
-                ? { chevron: true, onPress: () => sheet.open(<ModelPickerSheet agent={agent} />) }
-                : {})}
+              {...(decides && agent ? { chevron: true, onPress: () => openAgentAi(agent.id) } : {})}
             />
           </GroupedList>
         </>
@@ -751,30 +749,22 @@ function Profile({ id }: { id: string }) {
               {t("rightHand.profile.nameStory")}
             </Text>
           ) : null}
+          {/* One action under the name, as wide as its word: its computer is a card in Hoje, with its picture. */}
           <View style={styles.acts}>
-            <View style={styles.grow}>
-              {details || !ownerId ? (
-                <Button
-                  variant="primary"
-                  wide
-                  label={t("mobile.agent.talk")}
-                  disabled={!listsAgent(org, agent)}
-                  onPress={() => void openDm()}
-                />
-              ) : (
-                <Button
-                  variant="primary"
-                  wide
-                  label={t("profile.askAccess")}
-                  onPress={() => void openDm({ userId: ownerId })}
-                />
-              )}
-            </View>
-            {details && !rightHand ? (
-              <View style={styles.grow}>
-                <AgentComputerButton agentId={id} />
-              </View>
-            ) : null}
+            {details || !ownerId ? (
+              <Button
+                variant="primary"
+                label={t("mobile.agent.talk")}
+                disabled={!listsAgent(org, agent)}
+                onPress={() => void openDm()}
+              />
+            ) : (
+              <Button
+                variant="primary"
+                label={t("profile.askAccess")}
+                onPress={() => void openDm({ userId: ownerId })}
+              />
+            )}
           </View>
           {agent?.canTalk === false ? (
             <Text variant="small" tone="muted" style={styles.center}>
@@ -829,6 +819,7 @@ function Profile({ id }: { id: string }) {
                 value={tab}
                 onChange={(k) => setTab(k as ProfileTab)}
                 wide
+                size="page"
               />
             </View>
             {/* A view picked fades in; the one the profile opens on just shows. */}
@@ -1189,8 +1180,8 @@ const styles = StyleSheet.create({
   // Face, name 28, what it does 15: 8 apart; the buttons 16 under them.
   prof: { paddingHorizontal: 24, gap: 8 },
   center: { textAlign: "center" },
-  // Chat and Computador side by side, the same width (one primary); 16 under the words (8 of `prof` and 8 here).
-  acts: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  // Chat alone, centered under the words at its own width; 16 under them (8 of `prof` and 8 here).
+  acts: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
   setup: { paddingHorizontal: 16, marginTop: 22 },
   grow: { flex: 1, minWidth: 0 },
   bold: { fontWeight: "600" },

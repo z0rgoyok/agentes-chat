@@ -39,6 +39,8 @@ export function ChatVoice({ message, voice }: { message: Message; voice: Message
         expired: t("voice.expired"),
         showText: t("voice.showText"),
         hideText: t("voice.hideText"),
+        cantPlay: t("voice.cantPlay"),
+        retry: t("common.retry"),
       }}
     />
   );

@@ -546,7 +546,7 @@ describe("the rule in words (the web's sentence, on the phone)", () => {
   });
 });
 
-test("a run's Abrir na conversa keeps off the Mostrar mais right above it: no slop on top", () => {
+test("a run's Abrir na conversa keeps off the Ver mais right above it: no slop on top", () => {
   const screen = readFileSync(join(import.meta.dir, "../../src/features/routines/RoutineScreen.tsx"), "utf8");
   const open = screen.slice(0, screen.indexOf(`t("routines.openInChat")`));
   expect(open.slice(open.lastIndexOf("<Pressable"))).toContain("hitSlop={{ bottom: 13, left: 13, right: 13 }}");

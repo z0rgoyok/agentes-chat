@@ -102,4 +102,5 @@ export const strings: Partial<PushStrings> = {
   joinRequestTitlePersonal: (name) => `${name} 님이 내 워크스페이스에 참여를 요청했어요`,
   joinSuggestionTitlePersonal: (by, name) => `${by} 님이 ${name} 님을 초대하자고 제안했어요`,
   teamWeekReadyPersonal: "한 주 정리가 준비됐어요",
+  teamWatchStill: (n) => `${n}건이 아직 기다리고 있어요`,
 };

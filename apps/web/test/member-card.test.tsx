@@ -69,7 +69,7 @@ const openCard = async (name: string) => {
   return card();
 };
 const chips = (c: HTMLElement) =>
-  [...within(c).getByRole("region", { name: "Papéis" }).querySelectorAll(".ac-token")].map((t) => ({
+  [...within(c).getByRole("region", { name: "Cargos" }).querySelectorAll(".ac-token")].map((t) => ({
     name: t.querySelector(".ac-token__label")?.textContent,
     mark: Boolean(t.querySelector(".ac-rolemark")),
     removable: Boolean(t.querySelector(".ac-token__remove")),
@@ -91,8 +91,8 @@ describe("a person's card", () => {
       { name: "Diretoria", mark: true, removable: false },
       { name: "Admin", mark: true, removable: true },
     ]);
-    await press(within(c).getByRole("button", { name: "Papéis de João" }));
-    const picker = screen().getByRole("menu", { name: "Papéis de João" });
+    await press(within(c).getByRole("button", { name: "Cargos de João" }));
+    const picker = screen().getByRole("menu", { name: "Cargos de João" });
     const options = within(picker).getAllByRole("menuitemcheckbox");
     expect(options.map((o) => [o.textContent, o.getAttribute("aria-checked")])).toEqual([
       ["Admin", "true"],
@@ -128,7 +128,7 @@ describe("a person's card", () => {
     await go(state);
     const c = await openCard("João");
     expect(chips(c).map((x) => x.removable)).toEqual([false, false]);
-    expect(within(c).queryByRole("button", { name: "Papéis de João" })).toBeNull();
+    expect(within(c).queryByRole("button", { name: "Cargos de João" })).toBeNull();
     expect(c.textContent).toContain("@joao");
     expect(c.textContent).toContain("No workspace desde");
   });

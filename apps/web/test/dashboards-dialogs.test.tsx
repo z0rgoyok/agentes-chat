@@ -126,9 +126,9 @@ describe("New dashboard (ADR 0135 §8, §10)", () => {
   test("for roles: each role with its people; who edits offers only the roles that see it", async () => {
     const { state, dialog } = await start(withSales);
     await type(within(dialog).getByLabelText("Nome"), "Diretoria");
-    await click(within(dialog).getByRole("radio", { name: /^Papéis/ }));
+    await click(within(dialog).getByRole("radio", { name: /^Cargos/ }));
     await settle(2);
-    const chips = within(dialog).getByRole("group", { name: "Papéis" });
+    const chips = within(dialog).getByRole("group", { name: "Cargos" });
     const admin = within(chips).getByRole("button", { name: /^Admin/ });
     expect(admin.getAttribute("aria-pressed")).toBe("false");
     const create = within(dialog).getByRole("button", { name: "Criar painel" }) as HTMLButtonElement;

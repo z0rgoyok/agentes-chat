@@ -1,6 +1,6 @@
-import type { AgentStatus, Availability, MemberPresence, MemberStatus, StatusInput } from "@agenteschat/client";
+import type { Availability, MemberPresence, MemberStatus, StatusInput } from "@agenteschat/client";
 import { lowerFirst } from "@agenteschat/client/lib/format";
-import { clearsText, type UntilChoice, untilFor } from "@agenteschat/client/lib/presence";
+import { type AgentFace, clearsText, type UntilChoice, untilFor } from "@agenteschat/client/lib/presence";
 import type { TFunction } from "i18next";
 
 /**
@@ -63,13 +63,11 @@ export function personLine(t: TFunction, language: string, s: MemberStatus, now 
   return s.until ? `${lineText(s)} · ${lowerFirst(clearsText(t, language, s.until, now), language)}` : lineText(s);
 }
 
-/** What an agent's presence is from (`presence.agentWhy.*`): active, on heavy work, idle since, held, no AI. */
-export function agentWhyKey(
-  presence: AgentStatus["presence"],
-  activeAt: string | null | undefined,
-  noAi: boolean,
-): "online" | "busy" | "away" | "awayNever" | "out" | "offline" | "noAi" {
+/**
+ * Why an agent's face says what it says (`presence.agentWhy.*`): no AI, out of office, held; null for its work (the
+ * work's own words say it, `workDetail`) and while it is free (ADR 0084 addendum of 2026-11-13).
+ */
+export function agentWhyKey(face: AgentFace, noAi: boolean): "out" | "offline" | "noAi" | null {
   if (noAi) return "noAi";
-  if (presence === "away") return activeAt ? "away" : "awayNever";
-  return presence;
+  return face === "out" || face === "offline" ? face : null;
 }

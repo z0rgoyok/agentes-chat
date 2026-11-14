@@ -2,6 +2,7 @@ import type { ChannelEvent, UserEvent } from "../api/types";
 import { decodeBrowserFrameBytes } from "../browser/frame-bytes";
 import { type BrowserWatcher, createBrowserWatches } from "../browser/watches";
 import { steerStore } from "./steer";
+import type { TypingKind } from "./typing";
 
 /**
  * WebSocket client for `/api/ws?orgId=` (apps/server/src/realtime/ws.ts,
@@ -275,9 +276,17 @@ export class RealtimeConnection {
     };
   }
 
-  /** Tells the channel we're typing, in one of its threads or not (call it throttled: see `typingThrottle`). */
-  sendTyping(channelId: string, threadId?: string | null) {
-    this.send(threadId ? { type: "typing", channelId, threadId } : { type: "typing", channelId });
+  /**
+   * Tells the channel we're typing, or recording a voice message (`voice`), in one of its threads or not (call it
+   * throttled: see `typingThrottle`).
+   */
+  sendTyping(channelId: string, threadId?: string | null, kind: TypingKind = "typing") {
+    this.send({
+      type: "typing",
+      channelId,
+      ...(threadId ? { threadId } : {}),
+      ...(kind === "voice" ? { kind } : {}),
+    });
   }
 
   onStatus(listener: (status: ConnectionStatus) => void) {

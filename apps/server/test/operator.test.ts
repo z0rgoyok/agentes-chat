@@ -487,7 +487,7 @@ test("agent hold: that agent stops, the workspace works; let go, it answers", as
   expect(t.provider.calls).toHaveLength(calls + 1);
 });
 
-test("user block: refused at once even with a cached session, signed out, no sign-in; unblocked, back in", async () => {
+test("user block: signed out at once, refused everywhere, no sign-in; unblocked, back in", async () => {
   const bia = browser(t);
   await signUp(bia, "bia@acme.test");
   const [row] = await t.db
@@ -514,10 +514,9 @@ test("user block: refused at once even with a cached session, signed out, no sig
   const blocked = await body(await put(`/users/${biaId}/block`, { blocked: true, reason: "Phishing" }));
   expect(blocked).toEqual({ blocked: true, blockedAt: expect.any(String), reason: "Phishing", sessionsRevoked: 1 });
   expect(revoked).toEqual([{ type: "membership.revoked", orgId: acme.orgId, userId: biaId, quiet: true }]);
-  // The browser still holds the session in its signed cookie cache for minutes: refused all the same.
-  expect(bia.cookie()).toContain("session_data");
-  expect((await members()).status).toBe(403);
-  expect(await (await bia("/api/app/me")).json()).toMatchObject({ organizations: [] });
+  // Its browser reads its session from the database on its next request: gone.
+  expect((await members()).status).toBe(401);
+  expect((await bia("/api/app/me")).status).toBe(401);
   const refused = await signIn();
   expect(refused.status).toBe(403);
   const said = await refused.json();

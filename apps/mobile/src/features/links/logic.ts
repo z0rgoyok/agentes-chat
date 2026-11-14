@@ -239,7 +239,7 @@ function queryParam(query: string, name: string): string | undefined {
  * workspace's AI status (`ai`).
  */
 export function notificationHref(
-  n: Pick<AppNotification, "kind" | "source">,
+  n: Pick<AppNotification, "kind" | "source"> & Partial<Pick<AppNotification, "latest">>,
   ai?: Pick<AiStatus, "any" | "agents">,
 ): AppHref | null {
   const s = n.source;
@@ -255,6 +255,16 @@ export function notificationHref(
   // Someone gave an agent the person's plan: their AI accounts, where the agents on each plan are.
   if (n.kind === "plan_lent") return "/ai-accounts";
   if (n.kind === "plan_serves") return "/usage";
+  // What the right hand found (ADR 0177 §1) opens where it is fixed: the AI accounts, the agent whose budget it is,
+  // the computer, the connections. A database is reconnected on the web alone, and a cause this build doesn't know
+  // has no screen: neither opens anything here, so the tap goes to its web page (`notificationWebPath`).
+  if (n.kind === "team_watch") {
+    const cause = n.latest?.reason;
+    if (cause === "sign_in") return "/ai-accounts";
+    if (cause === "budget_out" || cause === "budget_low") return isSafeId(s.agentId) ? `/agent/${s.agentId}` : "/usage";
+    if (cause === "computer") return isSafeId(s.machineId) ? `/settings/devices/${s.machineId}` : "/settings/devices";
+    return cause === "connector" || cause === "mailbox" ? "/connectors" : null;
+  }
   // What an AI app created as the person: the newest agent, else the newest routine.
   if (n.kind === "app_created")
     return isSafeId(s.agentId) ? `/agent/${s.agentId}` : s.routineId ? routineHref(s.routineId) : null;

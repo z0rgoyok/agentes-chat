@@ -1,5 +1,5 @@
 import { plural } from "@agenteschat/i18n/format";
-import { atHost, type Words } from "./en";
+import { atHost, sentences, type Words } from "./en";
 
 export const ptBR: Words = {
   sentBy: (host) => (host ? atHost("Enviado pelo servidor do agentes.chat", "em", host) : "Enviado pelo agentes.chat."),
@@ -34,6 +34,9 @@ export const ptBR: Words = {
       inviter
         ? [{ b: inviter }, `${email ? ` (${email})` : ""} convidou você para entrar na `, { b: org }, ` como ${role}.`]
         : ["Você recebeu um convite para entrar na ", { b: org }, ` como ${role}.`],
+    starts: (channels, agents) =>
+      sentences(channels && ["Você já entra em ", ...channels, "."], agents && ["Vai trabalhar com ", ...agents, "."]),
+    more: (n) => `mais ${n}`,
     what: "O agentes.chat é onde pessoas e agentes de IA trabalham juntos.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "Recado: " }, `“${note}”`],
     button: "Aceitar convite",
@@ -212,7 +215,7 @@ export const ptBR: Words = {
     preheader: "Aprove ou recuse em Membros. Nada acontece até você responder.",
     headline: "Um pedido para entrar espera por você",
     body: (org) => ["Essa pessoa abriu o link de convite da ", { b: org }, " e pediu para entrar."],
-    note: "Aprove só quem você espera. A pessoa entra como membro, a não ser que você escolha outro papel na página.",
+    note: "Aprove só quem você espera. A pessoa entra como membro, a não ser que você escolha outro cargo na página.",
     approve: "Aprovar",
     deny: "Recusar",
     more: ["Todos os pedidos ", { nobr: "em espera estão em Membros." }],
@@ -306,6 +309,48 @@ export const ptBR: Words = {
         { b: org },
         ". Ele fica só para leitura na hora e é apagado de vez 7 dias depois.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `${code} é seu código para mudar seu e-mail`,
+      preheader: "Digite no agentes.chat para confirmar. Vale por 10 minutos.",
+      headline: "Seu código",
+      body: (email, newEmail) => [
+        "Digite este código para mudar o e-mail da conta ",
+        { b: email },
+        " para ",
+        { b: newEmail },
+        ".",
+      ],
+      support: (address) => [
+        "Vale por 10 minutos, e o seu e-mail não muda sem ele. Se não foi você, não passe para ninguém e escreva para ",
+        { mail: address },
+        ".",
+      ],
+      noSupport:
+        "Vale por 10 minutos, e o seu e-mail não muda sem ele. Se não foi você, não passe para ninguém e avise quem cuida deste servidor.",
+      why: "Você recebeu este e-mail porque sua conta pediu para mudar o e-mail no agentes.chat.",
+    },
+    link: {
+      subject: "Confirme seu novo e-mail no agentes.chat",
+      preheader: "Um clique para entrar com este endereço daqui em diante. O link vale por uma hora.",
+      headline: "Confirme seu novo e-mail",
+      body: "Falta um passo: confirmar que este endereço é seu. Daí em diante, sua conta entra com ele.",
+      button: "Confirmar novo e-mail",
+      small: "O link vale por uma hora. Se não foi você que pediu, pode ignorar este e-mail.",
+      why: "Você recebeu este e-mail porque alguém pediu para usar este endereço numa conta do agentes.chat.",
+    },
+    changed: {
+      subject: "O e-mail da sua conta do agentes.chat mudou",
+      preheader: "Se não foi você, dá para trazer este endereço de volta por 7 dias.",
+      headline: "Seu e-mail mudou",
+      body: (email, newEmail) => ["A conta ", { b: email }, " agora entra com ", { b: newEmail }, "."],
+      notYou:
+        "Não foi você? Aperte o botão em até 7 dias. Este endereço volta, todas as sessões são encerradas, os apps de IA são desconectados e jeitos de entrar adicionados desde então deixam de valer. A senha também é apagada, e “Esqueci a senha” cria a próxima.",
+      button: "Não fui eu",
+      small: "Se foi você, não precisa fazer nada.",
+      why: "Você recebeu este e-mail porque este endereço era o e-mail de uma conta do agentes.chat.",
     },
   },
   deleting: {

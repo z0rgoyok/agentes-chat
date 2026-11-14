@@ -214,10 +214,18 @@ function AppStack() {
       <Stack.Screen name="settings/access" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/roles/index" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/roles/[roleId]" options={{ ...pushed, ...scrollUnder }} />
-      <Stack.Screen name="settings/roles/area" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/permissions" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/who" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/channels" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/channel" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/agents" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/agent" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/people" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/roles/add" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/look" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/roles/rename" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/roles/new" options={{ ...pushed, ...scrollUnder }} />
+      <Stack.Screen name="settings/roles/person" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/skills/index" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/skills/[id]" options={{ ...pushed, ...scrollUnder }} />
       <Stack.Screen name="settings/skills/new" options={{ ...pushed, ...scrollUnder }} />

@@ -346,6 +346,16 @@ export function stepLabel(t: TFunction, s: Pick<WorkItem, "kind" | "app" | "tool
 }
 
 /**
+ * Tools only the engine reads: `pass` is how an agent stays silent (reply policy), so it is never a step a person
+ * reads ("Used the tool pass").
+ */
+const ENGINE_ONLY_TOOLS = new Set(["pass"]);
+
+/** The steps a person reads: without the engine-only ones. */
+export const shownSteps = <T extends { tool: string }>(steps: readonly T[]): T[] =>
+  steps.filter((s) => !ENGINE_ONLY_TOOLS.has(s.tool));
+
+/**
  * A step as one line: its phrase and what it worked on unless the phrase says it ("Atualizou uma tarefa · #131"). A
  * command refused, or still waiting on a person, says so ("Recusado: npm publish", "Rodando: npm publish").
  */
@@ -787,13 +797,7 @@ export function barStep(
   return lowerFirst(waitStep(t, run.work, long ? run.step : undefined), locale);
 }
 
-/** "1,2 s", "760 ms": a line's time, finer than the block's. */
-export function formatLineTime(locale: string, ms: number) {
-  if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
-  if (ms < 60_000) return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(ms / 1000)} s`;
-  if (ms < 3600_000) return `${Math.round(ms / 60_000)} min`;
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: ms < 10 * 3600_000 ? 1 : 0 }).format(ms / 3600_000)} h`;
-}
+export { formatLineTime } from "./format";
 
 // ───────────────────────────── one call on its own ─────────────────────────────
 

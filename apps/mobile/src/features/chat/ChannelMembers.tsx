@@ -10,6 +10,7 @@ import {
   useMuteChannel,
   useRoster,
 } from "@agenteschat/client";
+import { WORK_TICK_MS, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
 import { listsAgent, opensDetails } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -26,10 +27,11 @@ import { useOrg } from "@/providers/org";
 import { Button, Card, Count, Icon, Locked, Row, SearchField, Text, useToast, weights } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Face, OpensAgent } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useColors, useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { ActionList, successHaptic, Tile, tapHaptic } from "../shared/parts";
 import { useSheet } from "../shared/SheetHost";
+import { usePresenceOf } from "../status/hooks";
 
 /** Above this many members the list gets a search field (as the web's channel details). */
 const SEARCH_FROM = 8;
@@ -71,7 +73,7 @@ const lineOf = (t: TFunction, w: Who, routing: AiRouting | undefined) =>
  * people or agents; an agent's owner opens it for how it replies; everyone else reads the list.
  */
 export function ChannelMembersSheet({ channelId, channelName }: { channelId: string; channelName: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const orgId = useOrgId();
   const { org } = useOrg();
   const sheet = useSheet();
@@ -80,7 +82,25 @@ export function ChannelMembersSheet({ channelId, channelName }: { channelId: str
   const c = useColors();
   const roster = useRoster(orgId, channelId);
   const routing = useAiStatus(orgId).data?.routing;
-  const channel = useChannels(orgId).data?.find((x) => x.id === channelId);
+  const channels = useChannels(orgId).data;
+  const channel = channels?.find((x) => x.id === channelId);
+  // An agent's work first, as the web's members column says it ("aqui" for this channel), then how it replies.
+  const presence = usePresenceOf();
+  const now = useNow(WORK_TICK_MS);
+  const workText = (id: string) => {
+    const line = workLine(
+      t,
+      i18n.language,
+      presence.agent(id)?.work,
+      {
+        agentName: (x) => dir.agentById.get(x)?.name,
+        channelName: (x) => channels?.find((ch) => ch.id === x)?.name,
+        here: channelId,
+      },
+      now,
+    );
+    return line ? workLineText(line) : null;
+  };
   const editable = managesChannel(channel, meId, org);
   const [q, setQ] = useState("");
   const all: Who[] = (roster.data ?? []).map((m: RosterMember) => ({
@@ -124,7 +144,11 @@ export function ChannelMembersSheet({ channelId, channelName }: { channelId: str
                 key={`${w.kind}:${w.id}`}
                 leading={<Face who={{ type: w.kind, id: w.id }} size={30} live={false} presence ring={c.raised} />}
                 title={mine ? `${w.name}${t("common.youSuffix")}` : w.name}
-                subtitle={lineOf(t, w, routing)}
+                subtitle={
+                  w.kind === "agent"
+                    ? [workText(w.id), lineOf(t, w, routing)].filter(Boolean).join("\n")
+                    : lineOf(t, w, routing)
+                }
                 subtitleLines={w.kind === "agent" ? 2 : 1}
                 // Not on my own row: taking myself out of my own list reads as a mistake (as on the web).
                 {...((editable && !mine) || w.setsReply

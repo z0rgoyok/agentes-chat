@@ -87,8 +87,8 @@ export function createFakeBrowser(
       settings.set(agentId, next);
       return next;
     },
-    agentHandoff: async (orgId, agentId, screen) => {
-      log("browser.agentHandoff", orgId, agentId);
+    agentHandoff: async (orgId, agentId, screen, seat) => {
+      log("browser.agentHandoff", orgId, agentId, ...(seat ? [seat] : []));
       return openOn(agentId, screen);
     },
     agentControl: async (_orgId, agentId) => !watchOnly.has(agentId),
@@ -111,8 +111,15 @@ export function createFakeBrowser(
       log("browser.cancel", orgId, handoffId);
       return end(handoffId, "cancelled");
     },
-    takeover: async (orgId, agentId, runId, screen) => {
-      log("browser.takeover", orgId, agentId, ...(runId ? [runId] : []), ...(screen ? [screen] : []));
+    takeover: async (orgId, agentId, runId, screen, seat) => {
+      log(
+        "browser.takeover",
+        orgId,
+        agentId,
+        ...(runId ? [runId] : []),
+        ...(screen ? [screen] : []),
+        ...(seat ? [seat] : []),
+      );
       const h: BrowserHandoff = {
         id: `takeover-${handoffs.size + 1}`,
         agentId,
@@ -165,8 +172,8 @@ export function createFakeBrowser(
     },
   };
   const desktop: ApiClient["desktop"] = {
-    status: async (orgId, agentId) => {
-      log("desktop.status", orgId, agentId);
+    status: async (orgId, agentId, seat) => {
+      log("desktop.status", orgId, agentId, ...(seat ? [seat] : []));
       if (forbidden.has(agentId)) throw new ApiError(403, "forbidden", "You can't use this agent's desktop");
       const open = openOn(agentId, "desktop") ?? (sameWindow.has(agentId) ? openOn(agentId, "browser") : null);
       return {

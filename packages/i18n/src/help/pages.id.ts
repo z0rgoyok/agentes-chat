@@ -759,7 +759,7 @@ export const helpId: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "Email",
         blocks: [
-          "Tanpa email, agentes.chat menulis setiap email ke log-nya alih-alih mengirimnya, jadi tautan undangan tetap bisa disalin dari sana. Atur ulang kata sandi tetap mati.",
+          "Tanpa email, agentes.chat menulis setiap email ke log-nya alih-alih mengirimnya, jadi tautan undangan tetap bisa disalin dari sana. Atur ulang kata sandi tetap mati, dan email baru untuk sebuah akun langsung berlaku, tanpa kode atau tautan.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

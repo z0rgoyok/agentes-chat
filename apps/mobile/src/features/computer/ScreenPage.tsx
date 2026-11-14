@@ -1,4 +1,5 @@
 import type { DesktopViewState } from "@agenteschat/client";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { type Ref, useImperativeHandle, useRef } from "react";
 import { StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
@@ -42,6 +43,8 @@ export function ScreenPage({
   ref: Ref<ScreenPageHandle>;
 }) {
   const web = useRef<WebView<object>>(null);
+  // The right hand's shared place, inside a view of it.
+  const seat = useSeat(agentId);
   useImperativeHandle(
     ref,
     () => ({
@@ -53,7 +56,9 @@ export function ScreenPage({
   return (
     <WebView
       ref={web}
-      source={{ uri: screenPageUrl(server, orgId, agentId, preview ? { preview } : {}) }}
+      source={{
+        uri: screenPageUrl(server, orgId, agentId, { ...(preview ? { preview } : {}), ...(seat ? { seat } : {}) }),
+      }}
       originWhitelist={[new URL(server).origin]}
       onShouldStartLoadWithRequest={(request) => screenPageStays(server, request.url)}
       injectedJavaScriptBeforeContentLoaded={sessionCookieScript(lastCookie(), server)}

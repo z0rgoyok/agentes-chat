@@ -51,8 +51,8 @@ Each row is decided by whoever may make that change on the agent's page today:
 
 ### 4. The card
 
-- One row: the existing card ("Theo propõe · instruções da Ada", "papel da Ada", "acesso da Ada"), with Aceitar mudança and Recusar, and Editar for text only.
-- Several rows: "Theo propõe · instruções de 3 agentes" (or "mudanças em N agentes", or "mudanças para a Ada" when they are one agent's). Each text change shows once, over the agents it changes alike. Each row has the agent's face, name, its role as "Papel: Dev → Revisora" or its apps as chips ("Ligar: Linear", "Desligar: Usar um navegador", `request_permission`'s own words), and a switch. A row the viewer can't decide says whom it waits for, and its switch stays off.
+- One row: the existing card ("Theo propõe · instruções da Ada", "função da Ada", "acesso da Ada"), with Aceitar mudança and Recusar, and Editar for text only.
+- Several rows: "Theo propõe · instruções de 3 agentes" (or "mudanças em N agentes", or "mudanças para a Ada" when they are one agent's). Each text change shows once, over the agents it changes alike. Each row has the agent's face, name, its role as "Função: Dev → Revisora" or its apps as chips ("Ligar: Linear", "Desligar: Usar um navegador", `request_permission`'s own words), and a switch. A row the viewer can't decide says whom it waits for, and its switch stays off.
 - "Aceitar para todos" while every open row is chosen, else "Aceitar para N", and Recusar, both on the chosen rows. The client sends one request per row and refreshes once (`useDecideProposals`), the accepted agents' role and apps too. Rows that went stale meanwhile are counted in a toast.
 - The diff is the design system's neutral one: added lines bold on a soft band, removed ones struck through.
 - The phone gets the same card (no Editar). Before, it showed these proposals as plain text.

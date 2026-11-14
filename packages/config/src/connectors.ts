@@ -22,6 +22,20 @@ export function composioAuthConfigs(config: Pick<Config, "COMPOSIO_AUTH_CONFIGS"
   );
 }
 
+/** `MCP_CALLER_IDENTITY` by host: the secret each listed MCP server checks the caller's statement with. */
+export function mcpCallerIdentity(config: Pick<Config, "MCP_CALLER_IDENTITY">): Map<string, string> {
+  return new Map(
+    (config.MCP_CALLER_IDENTITY ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((pair): [string, string] => {
+        // A secret may hold `=` (base64 padding): the host ends at the first one.
+        const at = pair.indexOf("=");
+        return [pair.slice(0, at), pair.slice(at + 1)];
+      }),
+  );
+}
+
 /** Our GitHub App (git and PRs; ADR 0033), or null when `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` aren't set. */
 export function githubAppConfig(config: Config) {
   if (!config.GITHUB_APP_ID || !config.GITHUB_APP_PRIVATE_KEY) return null;

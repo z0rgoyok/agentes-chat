@@ -110,7 +110,7 @@ import { RoleInput } from "./RoleInput";
 import { useAgentImport } from "./useAgentImport";
 
 /**
- * "Criar agente" on the phone, the web's steps for a thumb: Papel (the presets, grouped), Quem é
+ * "Criar agente" on the phone, the web's steps for a thumb: Função (the presets, grouped), Quem é
  * (name, @ and look), O que faz (the instructions, prefilled by the role) and Revisar (what it can use
  * and the channels it joins, from the role, and who thinks: the workspace's last setup or Automático,
  * ADR 0094). Budget and who it answers start at the workspace's defaults and change on its page.

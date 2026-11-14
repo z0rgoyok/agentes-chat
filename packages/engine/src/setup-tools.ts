@@ -35,19 +35,24 @@ import type { RolePermission } from "./permissions";
 import { personBehindCall } from "./requester";
 import { isRightHand } from "./right-hand";
 import { queueRightHandLook } from "./right-hand-approvals";
+import { liveLodiSwitches } from "./right-hand-lane";
+import { type LodiPrefsPatch, setLodiPrefs } from "./right-hand-prefs";
 import { bodyCode } from "./run-tools";
 import { REPORT_SCHEMA, SCHEDULE_INPUT } from "./schedule-tools";
 import { deletes, type WantedLine } from "./settings-proposals";
 import { noAgentText } from "./team";
 import { OFFER_ANSWERS_TOOL, PROPOSE_TEAM_SCHEMA_PERSONAL, PROPOSE_TEAM_TOOL, teamTools } from "./team-proposals";
-import { SET_TEAM_WEEK_TOOL, setTeamWeekPrefs } from "./team-week";
+import { SET_TEAM_WEEK_TOOL } from "./team-week";
 import { OFFER_CONNECT_APP_TOOL } from "./tools/connector-first";
 import { APPROVAL_TTL_MS } from "./tools/gateway";
 import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./tools/types";
 import {
   actNow,
   changesThisRun,
+  INVITE_ACTION,
   MAX_ACTIONS_PER_RUN,
+  MAX_INVITES_PER_CARD,
+  offerWorkspaceAction,
   type ServerLinks,
   workspaceAction,
   workspaceActionTool,
@@ -153,8 +158,6 @@ export const CONNECT_APP_CARD = "action_connect_app";
 export const ADD_MCP_CARD = "action_add_mcp";
 /** An invite card's `bodyCode` (`chat.body.action_invite_people`). */
 export const INVITE_CARD = "action_invite_people";
-/** Addresses one invite card fills in. */
-export const MAX_INVITES_PER_CARD = 20;
 
 export type ConnectAiStep = "claude" | "chatgpt" | "api_key";
 
@@ -205,7 +208,8 @@ export interface InviteCard {
 export interface ApprovalsCard {
   kind: "approvals";
   forUserId: string;
-  params: { approvalIds: string[]; why: string };
+  /** `digest`: the right hand posted it by itself, as the summary of what waits on this person. */
+  params: { approvalIds: string[]; why: string; digest?: boolean };
 }
 
 /**
@@ -304,7 +308,10 @@ export async function hopOf(ctx: ToolContext) {
   return run?.hop ?? 0;
 }
 
-/** What the right hand puts to the person for an answer: one a turn (`cardsLeft`). */
+/**
+ * What the right hand puts to the person for an answer: one a turn (`cardsLeft`). Its own invite card is a catalog
+ * action's (`INVITE_ACTION`), counted beside these.
+ */
 const ASKING_CARDS = ["connect_ai", "connect_app", "invite_people", "team_proposal"];
 
 /**
@@ -325,7 +332,14 @@ export async function cardsLeft(ctx: ToolContext, asks = false): Promise<ToolOut
       .where(
         and(
           here,
-          or(sql`${messages.meta} ? 'replyChips'`, inArray(sql`${messages.meta}->'actionCard'->>'kind'`, ASKING_CARDS)),
+          or(
+            sql`${messages.meta} ? 'replyChips'`,
+            inArray(sql`${messages.meta}->'actionCard'->>'kind'`, ASKING_CARDS),
+            and(
+              sql`${messages.meta}->'actionCard'->>'kind' = 'workspace_action'`,
+              sql`${messages.meta}->'actionCard'->'params'->>'action' = ${INVITE_ACTION}`,
+            ),
+          ),
         ),
       ),
     getAgentCached(ctx.db, ctx.orgId, ctx.agentId),
@@ -903,35 +917,17 @@ export function createSetupToolSource(deps: {
       scope: SETUP_SCOPE,
       inputSchema: {
         type: "object",
-        properties: {
-          emails: {
-            type: "array",
-            items: { type: "string", minLength: 3, maxLength: 254 },
-            minItems: 1,
-            maxItems: MAX_INVITES_PER_CARD,
-          },
-          why: {
-            type: "string",
-            minLength: 1,
-            maxLength: 300,
-            description:
-              "One short line on the card for the person, in their language: who they are or why invite them.",
-          },
-        },
+        properties: { emails: inviteEmails(), why: INVITE_WHY },
         required: ["emails", "why"],
         additionalProperties: false,
       },
       async execute(input, ctx) {
         try {
-          const why = str(input.why).trim();
-          if (!why) return { content: "Say in `why` why to invite them: one short line.", isError: true };
-          const emails = [
-            ...new Set((Array.isArray(input.emails) ? input.emails : []).map((e) => str(e).trim().toLowerCase())),
-          ];
-          const bad = emails.filter((e) => !EMAIL.test(e));
-          if (bad.length > 0) return { content: `Not an email address: ${bad.join(", ")}.`, isError: true };
+          const asked = inviteInput(input);
+          if ("content" in asked) return asked;
+          const { why, emails } = asked;
           const forUserId = await personBehindCall(ctx);
-          if (!forUserId) return { content: "Only a person's request can lead to invitations.", isError: true };
+          if (!forUserId) return ONLY_A_PERSON_INVITES;
           const at = await cardPlace(ctx);
           if (!at) return NOBODY_READS;
           const acts = await whoActs(ctx, forUserId, "invite_people", at.channelId);
@@ -968,8 +964,10 @@ export function createSetupToolSource(deps: {
   const all = [...tools, settingsTool(deps)];
   // The right hand changes its own settings with the card above; every other agent asks for its own here.
   const others = [...all, settingsTool(deps, true)];
+  // The right hand's own invite card takes the place of the dialog's.
+  const lodiInvites = rightHandInvites(deps);
   const rightHand = [
-    ...all,
+    ...all.map((t) => (t.name === OFFER_INVITES_TOOL ? lodiInvites : t)),
     ...rightHandCards(deps),
     ...teamTools({ ...deps, cardsLeft, hopOf }),
     workspaceActionTool({ ...deps, cardsLeft, hopOf }),
@@ -980,13 +978,98 @@ export function createSetupToolSource(deps: {
     // words (ADR 0159): the same tools, for one person and their agents, whose team card may leave an agent's channel
     // out (it lives in its DM with the person). Only words and that one field: a read that fails keeps the team's.
     tools: async (ctx) => {
-      const listed = isRightHand(await getAgentCached(ctx.db, ctx.orgId, ctx.agentId)) ? rightHand : others;
+      const lodi = isRightHand(await getAgentCached(ctx.db, ctx.orgId, ctx.agentId));
+      const listed = lodi ? rightHand : others;
       if (!(await isPersonalWorkspace(ctx.db, ctx.orgId).catch(() => false))) return listed;
       return listed.map((t) => {
-        const description = SETUP_TOOLS_PERSONAL[t.name];
+        const description =
+          t.name === SET_TEAM_WEEK_TOOL
+            ? setTeamWeekDoes(true, liveOwnSwitches())
+            : lodi && t.name === OFFER_INVITES_TOOL
+              ? RIGHT_HAND_INVITES_PERSONAL
+              : SETUP_TOOLS_PERSONAL[t.name];
         const worded = description ? { ...t, description } : t;
         return t.name === PROPOSE_TEAM_TOOL ? { ...worded, inputSchema: PROPOSE_TEAM_SCHEMA_PERSONAL } : worded;
       });
+    },
+  };
+}
+
+/**
+ * `offer_invites`' addresses and line as its two cards take them. A function: the catalog's file and this one import
+ * each other, so its constant is read once both are loaded.
+ */
+const inviteEmails = () =>
+  ({
+    type: "array",
+    items: { type: "string", minLength: 3, maxLength: 254 },
+    minItems: 1,
+    maxItems: MAX_INVITES_PER_CARD,
+  }) as const;
+const INVITE_WHY = {
+  type: "string",
+  minLength: 1,
+  maxLength: 300,
+  description: "One short line on the card for the person, in their language: who they are or why invite them.",
+} as const;
+const ONLY_A_PERSON_INVITES: ToolOutput = {
+  content: "Only a person's request can lead to invitations.",
+  isError: true,
+};
+
+/** What `offer_invites` was given, each address once in lowercase, or what is wrong with it. */
+function inviteInput(input: Record<string, unknown>): { why: string; emails: string[] } | ToolOutput {
+  const why = str(input.why).trim();
+  if (!why) return { content: "Say in `why` why to invite them: one short line.", isError: true };
+  const emails = [
+    ...new Set((Array.isArray(input.emails) ? input.emails : []).map((e) => str(e).trim().toLowerCase())),
+  ];
+  const bad = emails.filter((e) => !EMAIL.test(e));
+  return bad.length > 0 ? { content: `Not an email address: ${bad.join(", ")}.`, isError: true } : { why, emails };
+}
+
+const RIGHT_HAND_INVITES_PERSONAL =
+  "Offer to invite someone the person trusts (family, a partner, someone who helps them) to this workspace with a card in this conversation that lists every address: a person who may invite sends them with one tap on the card, as themselves. You send nothing. Use it when they ask to invite or add someone by email, never on your own.";
+
+/**
+ * The right hand's `offer_invites`: the catalog's invite card (`INVITE_ACTION`), with every address and role on it,
+ * sent in one tap by whoever may invite, as themselves. Every other agent's card opens the invite dialog.
+ */
+function rightHandInvites(deps: { pubsub?: PubSub }): ToolDefinition {
+  return {
+    name: OFFER_INVITES_TOOL,
+    description:
+      "Offer to invite people to the workspace with a card in this conversation that lists every address and the roles each gets (`roles`, only when the person named them). A person who may invite sends them with one tap on the card, as themselves, and one who can't sends the card on to whoever may. You send nothing. Use it when someone asks to invite or add people by email.",
+    scope: SETUP_SCOPE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        emails: inviteEmails(),
+        roles: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 80 },
+          maxItems: 20,
+          description: "Role names every address gets. Leave it out for plain members.",
+        },
+        why: INVITE_WHY,
+      },
+      required: ["emails", "why"],
+      additionalProperties: false,
+    },
+    async execute(input, ctx) {
+      try {
+        const asked = inviteInput(input);
+        if ("content" in asked) return asked;
+        const person = await personBehindCall(ctx);
+        const a = workspaceAction(INVITE_ACTION);
+        if (!person || !a) return ONLY_A_PERSON_INVITES;
+        const resolved = await a.resolve(ctx, person, { emails: asked.emails, roles: input.roles ?? [] });
+        if (typeof resolved === "string") return { content: resolved, isError: true };
+        const out = await offerWorkspaceAction({ ...deps, cardsLeft, hopOf }, ctx, person, a, resolved, asked.why);
+        return { ...out, content: out.content.replace(`Posted a card to ${INVITE_ACTION}`, "Posted the invite card") };
+      } catch (error) {
+        return failed(error);
+      }
     },
   };
 }
@@ -1002,8 +1085,6 @@ const SETUP_TOOLS_PERSONAL: Record<string, string> = {
     "Propose archiving agents (or deleting them for good) with one card in this conversation that lists them all: whoever may archive or delete agents applies it from the card as themselves, all at once or leaving some out, and archiving has Undo. A person who can't sends it from the card to an admin. Use it when someone asks to remove, archive, delete or start their agents over ('apaga os outros agentes'). Never you or the workspace's assistant. Nothing changes until someone clicks: never say it is done. To set up new agents after, propose them with propose_agent.",
   [OFFER_INVITES_TOOL]:
     "Offer to invite someone the person trusts (family, a partner, someone who helps them) to this workspace with a card in this conversation: its button opens the app's invite dialog with these addresses filled in, as members. A person who may invite sends it there (and may change roles); you send nothing. Use it when they ask to invite or add someone by email, never on your own.",
-  [SET_TEAM_WEEK_TOOL]:
-    "Stop, start again or move the card you post in this person's DM: the weekly look at how their agents did (Fridays at 17h in the workspace's time zone), or 'Resumo do dia', the same card every day at an hour ('me manda isso todo dia às 9h'). Use it when they ask you to stop it, send it again, or on another day or hour. It changes only their card.",
   [PROPOSE_SETTINGS_TOOL]:
     "Change agents' settings with one card in this conversation: the model, the AI account it thinks with, its monthly budget, its owner, who may talk to it, the channels it joins or leaves and whether it answers there without a mention, the skills it has on, its name, its look, who it reports to, or archiving it. A change the person who asked may make, with nothing read from outside this turn, applies at once with Undo. Any other waits on the card for who may make it, and one they can't make they send from there. The result says which: never say it is done before it does. Instructions, a role or apps go through propose_instruction_change.",
   [OFFER_ANSWERS_TOOL]:
@@ -1050,6 +1131,7 @@ async function rolesByName(ctx: ToolContext, wanted: string[]): Promise<string[]
  * whoever clicks, checked at the click, with the confirmation that screen asks for; it decides and moves nothing itself.
  */
 function rightHandCards(deps: { pubsub?: PubSub }): ToolDefinition[] {
+  const ownSwitches = liveOwnSwitches();
   return [
     {
       name: OFFER_APPROVALS_TOOL,
@@ -1279,16 +1361,25 @@ function rightHandCards(deps: { pubsub?: PubSub }): ToolDefinition[] {
     },
     {
       name: SET_TEAM_WEEK_TOOL,
-      description:
-        "Stop, start again or move the card you post in this person's DM: the weekly 'Semana da equipe' (admins get it by default, Fridays at 17h in the workspace's time zone), or 'Resumo do dia', the same card every day at an hour, which anyone may ask for ('me manda isso todo dia às 9h'). Use it when they ask you to stop it, send it again, or on another day or hour. It changes only their card.",
+      description: setTeamWeekDoes(false, ownSwitches),
       scope: SETUP_SCOPE,
       inputSchema: {
         type: "object",
         properties: {
+          card: {
+            type: "string",
+            enum: ["day", "week"],
+            description: "Which card `off` and `hour` are about. Left out, `off` stops or starts both.",
+          },
           off: { type: "boolean", description: "True stops it; false starts it again." },
-          daily: { type: "boolean", description: "True: every day at `hour`; false: back to weekly." },
-          day: { type: "string", enum: [...WEEK_DAYS] },
-          hour: { type: "integer", minimum: 0, maximum: 23, description: "In the workspace's time zone." },
+          day: { type: "string", enum: [...WEEK_DAYS], description: "The weekly card's day." },
+          hour: { type: "integer", minimum: 0, maximum: 23 },
+          ...Object.fromEntries(
+            ownSwitches.map((o) => [
+              o.input,
+              { type: "boolean", description: `False stops ${o.does}; true starts it.` },
+            ]),
+          ),
         },
         additionalProperties: false,
       },
@@ -1296,21 +1387,40 @@ function rightHandCards(deps: { pubsub?: PubSub }): ToolDefinition[] {
         try {
           const forUserId = await personBehindCall(ctx);
           if (!forUserId) return { content: "Only a person's request changes their card.", isError: true };
-          const day = WEEK_DAYS.indexOf(str(input.day) as (typeof WEEK_DAYS)[number]);
-          const next = await setTeamWeekPrefs(ctx.db, ctx.orgId, forUserId, {
-            ...(typeof input.off === "boolean" ? { off: input.off } : {}),
-            ...(typeof input.daily === "boolean" ? { daily: input.daily } : {}),
-            ...(day >= 0 ? { day } : {}),
-            ...(typeof input.hour === "number" ? { hour: input.hour } : {}),
-          });
           const admin = can(await getMembership(ctx.db, forUserId, ctx.orgId), "administrator");
+          // Only the day's card comes to someone who administers nothing.
+          const card = input.card === "day" || input.card === "week" ? input.card : admin ? null : "day";
+          if (card === "week" && !admin)
+            return { content: "The weekly card is for admins. They get the daily one: use card: day.", isError: true };
+          if (typeof input.hour === "number" && !card)
+            return { content: "Say which card the hour is for: card: day or card: week.", isError: true };
+          const day = WEEK_DAYS.indexOf(str(input.day) as (typeof WEEK_DAYS)[number]);
+          const patch: LodiPrefsPatch = {
+            ...(typeof input.off === "boolean" && card !== "day" ? { weekOff: input.off } : {}),
+            ...(typeof input.off === "boolean" && card !== "week" ? { dayOff: input.off } : {}),
+            ...(day >= 0 ? { day } : {}),
+            ...(typeof input.hour === "number" ? { [card === "day" ? "dayHour" : "weekHour"]: input.hour } : {}),
+            ...Object.fromEntries(
+              ownSwitches.flatMap((o) => (typeof input[o.input] === "boolean" ? [[o.pref, !input[o.input]]] : [])),
+            ),
+          };
+          const next = await setLodiPrefs(ctx.db, ctx.orgId, forUserId, patch);
           return {
-            content:
-              next.off || (!next.daily && !admin)
-                ? "Stopped: no card for them until they ask again or turn it on in Settings › Lodi."
-                : next.daily
-                  ? `Their 'Resumo do dia' now comes every day at ${next.hour}:00 (${next.timezone}), on days with something to say.`
-                  : `Their weekly card now comes every ${WEEK_DAYS[next.day]} at ${next.hour}:00 (${next.timezone}), when there is something to say.`,
+            content: [
+              "Saved, for them only.",
+              next.dayOff
+                ? "Daily summary: off."
+                : `Daily summary: every day at ${next.dayHour}:00 (${next.dayTimezone}), on days with something to say.`,
+              !admin
+                ? ""
+                : next.weekOff
+                  ? "Weekly card: off."
+                  : `Weekly card: every ${WEEK_DAYS[next.day]} at ${next.weekHour}:00 (${next.timezone}), when there is something to say.`,
+              ...ownSwitches.map((o) => `${o.name}: ${next[o.pref] ? "off" : "on"}.`),
+              "They can change each in Settings › Lodi.",
+            ]
+              .filter(Boolean)
+              .join(" "),
           };
         } catch (error) {
           return failed(error);
@@ -1319,6 +1429,43 @@ function rightHandCards(deps: { pubsub?: PubSub }): ToolDefinition[] {
     },
   ];
 }
+
+/** `OWN_SWITCHES` whose feature is built. */
+const liveOwnSwitches = () => {
+  const live = liveLodiSwitches();
+  return OWN_SWITCHES.filter((o) => live.includes(o.switch));
+};
+
+/**
+ * `set_team_week` as the right hand reads it, in a team's workspace or a personal one (ADR 0159): the two cards, then
+ * the switches it also flips.
+ */
+const setTeamWeekDoes = (personal: boolean, own: readonly { does: string }[]) =>
+  `Stop, start again or move the cards you post in this person's DM by yourself: 'Resumo do dia' (\`card: day\`, ${
+    personal ? "" : "everyone gets it, "
+  }every day at an hour in their own time zone, 9h unless they moved it) and the weekly ${
+    personal ? "look at how their agents did (`card: week`" : "'Semana da equipe' (`card: week`, admins only"
+  }, Fridays at 17h in the workspace's time zone).${
+    own.length ? ` Also turns ${own.map((o) => o.does).join(" and ")} off or on.` : ""
+  } Use it when they ask you to stop one, send it again, or on another day or hour ('me manda isso todo dia às 8h'). It changes only what they get.`;
+
+/** The right hand's own switches a person may ask it to flip, as `set_team_week` takes them. */
+const OWN_SWITCHES = [
+  {
+    switch: "digest",
+    input: "digest",
+    pref: "digestOff",
+    name: "Summary of approvals waiting",
+    does: "your summary of approvals waiting on them",
+  },
+  {
+    switch: "reminders",
+    input: "reminders",
+    pref: "remindOff",
+    name: "Reminders of what you agreed on",
+    does: "your reminders of what you two agreed on",
+  },
+] as const;
 
 const WEEK_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 

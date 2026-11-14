@@ -3,6 +3,7 @@ import type { Database } from "@agenteschat/db";
 import { getAgentCached } from "../agents";
 import type { MachineCaller, MachineStatus } from "../machine-hub";
 import { REMOVED_COMPUTER_MESSAGE } from "../machines";
+import { toolMachineId } from "../right-hand-seats";
 
 /** Why the agent's browser isn't usable, as a code (for the app) and a sentence (for the agent). */
 export type BrowserUnavailable =
@@ -55,7 +56,7 @@ export async function agentBrowserStatus(
     detail: null,
   });
   const agent = await getAgentCached(db, orgId, agentId);
-  const machineId = machineOverride ?? agent?.machineId ?? null;
+  const machineId = machineOverride ?? (await toolMachineId(db, agent));
   if (!machineId || !hub) return none("no_machine");
   const status = await hub.status(machineId);
   if (!status || status.orgId !== orgId) return none("machine_removed", machineId);

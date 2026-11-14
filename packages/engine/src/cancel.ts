@@ -1,4 +1,4 @@
-import { DESKTOP_PROTOCOL, type PubSub } from "@agenteschat/adapters";
+import { type AgentScope, DESKTOP_PROTOCOL, type PubSub } from "@agenteschat/adapters";
 import { and, type Database, type Executor, eq, gte, inArray, schema, sql } from "@agenteschat/db";
 import { announceAgentStatus } from "./agent-status";
 import { publishApproval } from "./approvals";
@@ -13,6 +13,8 @@ import { cancelOrgTasks, type TaskCall } from "./machine-tasks";
 import { resolveQuestionNotifications } from "./notification-producers";
 import { can, type Membership, requireActiveMembership } from "./organizations";
 import { type AgentQuestionRow, publishQuestion, syncQuestionMessage } from "./questions";
+import { isRightHandId } from "./right-hand";
+import { seatScopes } from "./right-hand-seats";
 import { closeRoutineRun } from "./routine-ledger";
 import { ACTIVE_RUN_STATUSES, releaseInbox } from "./run-inbox";
 import { tellAgentStopped } from "./run-stopped";
@@ -532,8 +534,15 @@ export async function stopOrgWork(
         agentId ? eq(agents.id, agentId) : undefined,
       ),
     );
+  // The right hand's desktops are its people's seats on the workspace's own computer (ADR 0175).
+  const seats = !agentId || (await isRightHandId(deps.db, orgId, agentId)) ? await seatScopes(deps.db, orgId) : null;
+  const stops: { machineId: string; agent: AgentScope }[] = desktops.map(({ machineId, ...agent }) => ({
+    machineId,
+    agent,
+  }));
+  if (seats) stops.push(...seats.agents.map((agent) => ({ machineId: seats.machineId, agent })));
   await Promise.all(
-    desktops.map(({ machineId, ...agent }) =>
+    stops.map(({ machineId, agent }) =>
       hub.call(machineId, { op: "desktop.session.stop", agent }, { timeoutMs: 15_000 }).catch(() => null),
     ),
   );

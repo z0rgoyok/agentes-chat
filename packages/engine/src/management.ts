@@ -85,6 +85,10 @@ export interface OrgSettings extends MediaSettings {
   autoModels: AutoModels;
   /** Who the workspace is for (ADR 0159): `team` or `personal`. */
   mode: WorkspaceMode;
+  /** The right hand watches for what stops the team and tells who can fix it. On by default. */
+  teamWatch: boolean;
+  /** The right hand greets each person who joins, once. On by default. */
+  welcomePeople: boolean;
 }
 
 export const TEAM_SIZES = ["solo", "small", "medium", "large"] as const;
@@ -109,6 +113,8 @@ export async function getOrgSettings(db: Database, actorId: string, orgId: strin
     voiceMessages: s?.voiceMessages ?? true,
     autoModels: (s?.autoModels ?? {}) as AutoModels,
     mode: isWorkspaceMode(s?.mode) ? s.mode : "team",
+    teamWatch: s?.teamWatch ?? true,
+    welcomePeople: s?.welcomePeople ?? true,
     ...mediaSettingsFrom(s),
   };
 }
@@ -241,6 +247,8 @@ export async function updateOrgSettings(
       ...(input.agentStickers !== undefined ? { agentStickers: input.agentStickers } : {}),
       ...(input.agentMedia !== undefined ? { agentMedia: input.agentMedia } : {}),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
+      ...(input.teamWatch !== undefined ? { teamWatch: input.teamWatch } : {}),
+      ...(input.welcomePeople !== undefined ? { welcomePeople: input.welcomePeople } : {}),
       ...(input.autoModels !== undefined
         ? { autoModels: mergeAutoModels(await storedAutoModels(), input.autoModels) }
         : {}),

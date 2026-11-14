@@ -298,7 +298,7 @@ export function createMockPlanning(
           { id: mockId("crit"), text: "Responde em 2 s no pico", done: true, doneBy: agent(0) },
           { id: mockId("crit"), text: "Teste de carga", done: false },
         ],
-        // The agent is on it now (a live run): the board shows it under "Agentes trabalhando agora".
+        // The agent is on it now (a live run): its card on the board says so.
         work: {
           agentId: agent(0).id,
           runId: null,

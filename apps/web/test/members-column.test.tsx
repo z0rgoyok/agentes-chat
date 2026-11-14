@@ -506,7 +506,7 @@ describe("answering without a mention, as true for my own messages as who picks 
   });
 });
 
-describe("Settings › Papéis: listed apart", () => {
+describe("Settings › Cargos: listed apart", () => {
   test("a role's switch sets whether its people get their own group in the members column", async () => {
     const state = seedState();
     await renderApp(`/org/${ORG_ID}/settings/roles`, { api: createFakeApi(state) });

@@ -97,6 +97,8 @@ describe("a personal workspace's sidebar", () => {
       // A personal workspace of mine is me: my face (its initial here) and my name, never the workspace's.
       "WWalterVocê está aqui",
       "Novo workspace",
+      // Another account beside this one (ADR 0183).
+      "Adicionar contaEntrar com outra conta sem sair desta",
       "Sair",
     ]);
     expect(menu.textContent).toContain("Seus workspaces");

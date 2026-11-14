@@ -11,13 +11,16 @@ import {
   can,
   canCreateWorkspace,
   changeMemberRole,
+  clearPassword,
   cloudNotice,
   countUsers,
   createInvitation,
   createOrganization,
   type DeletionDeps,
+  deriveSecret,
   getOrganization,
   hasPassword,
+  INVITE_CHOICES_MAX,
   invitationLogoFile,
   invitationState,
   isAgentesCloud,
@@ -62,6 +65,8 @@ import {
   soleOwnerRefusal,
   toldReason,
   USER_LOCALES,
+  undoEmailChange,
+  undoneSince,
   unfinishedWorkspaces,
   updateMyProfile,
   updateOrganization,
@@ -74,18 +79,24 @@ import {
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   authUiConfig,
+  changeAccountEmail,
   deletionProof,
+  deviceAccountsOf,
   mintPhoneSignIn,
   replacePassword,
+  sessionOf,
   sessionUser,
   signedInLately,
+  signOutDeviceAccount,
   signupOpen,
   signupPolicy,
+  switchDeviceAccount,
   workspacePolicy,
 } from "../../auth";
 import { requestLimitIp } from "../../http/client-ip";
 import { apiError, errorResponse } from "../../http/errors";
 import { humanCheckRefusal } from "../../http/human-check";
+import { humanPassesFor } from "../../http/human-pass";
 import { imageFile } from "../../http/image-file";
 import { releaseOf } from "../../version";
 import {
@@ -126,6 +137,8 @@ const Sent = json(
   }),
   "Sent",
 );
+/** "This wasn't me" from one address: room for a few retries, never for guessing a link's token. */
+const EMAIL_UNDO_PER_IP = { limit: 10, windowMs: 10 * 60_000 };
 /** A join page loads its logo once (cached for good): room for an office opening a link at once, not for hosting it. */
 const INVITE_LOGO_PER_IP = { limit: 60, windowMs: 60_000 };
 const Name = z.string().trim().min(1).max(100);
@@ -188,7 +201,7 @@ const Created = z.object({
 /** Account, organizations, members and invitations. */
 export function accountRoutes(deps: AppDeps) {
   const { db, config } = deps;
-  /** `GET /me`'s body; null once the account is deleted (its cached session cookie outlives it for minutes). */
+  /** `GET /me`'s body; null once the account is deleted. */
   const meBody = async (user: { id: string; name: string; email: string }): Promise<z.infer<typeof Me> | null> => {
     const [memberships, password, verified, creates, unfinished, account] = await Promise.all([
       listMemberships(db, user.id),
@@ -435,6 +448,10 @@ export function accountRoutes(deps: AppDeps) {
             accessExpired: z.literal(true).optional().openapi({
               description: "`access` is the link of an invitation to this same address, and it expired.",
             }),
+            pass: z.string().optional().openapi({
+              description:
+                "Only with the bot check on: sent as `x-captcha-response` in place of a token, it stands for the check at this address's sign-in, sign-up or password reset, from the same network, for ten minutes and a few calls (ADR 0075).",
+            }),
           }),
         ),
         429: errorResponse("Too many attempts (`rate_limited`)"),
@@ -453,7 +470,11 @@ export function accountRoutes(deps: AppDeps) {
       );
       if (refused) return apiError(c, 403, refused.code, refused.message);
       const { email, access } = c.req.valid("json");
-      return c.json(await signInOptions(db, email, signupPolicy(config), access), 200);
+      const found = await signInOptions(db, email, signupPolicy(config), access);
+      // Checked once: the step after this one, for this address, goes with the pass and no second check.
+      if (!deps.adapters.humanCheck) return c.json(found, 200);
+      const pass = humanPassesFor(deriveSecret(config.AGENTES_SECRET, "human-pass")).issue(email, ip);
+      return c.json({ ...found, pass }, 200);
     },
   );
 
@@ -498,7 +519,28 @@ export function accountRoutes(deps: AppDeps) {
                   appearance: z.object({ color: z.string(), eyes: z.string(), accessory: z.string() }).nullable(),
                 }),
               )
-              .openapi({ description: "The organization's first agents (name and look)." }),
+              .openapi({
+                description:
+                  "The organization's first agents (name and look), the ones an invitation starts the person with first.",
+              }),
+            yours: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .openapi({
+                description:
+                  "An email invitation (ADR 0184): how many of `agents`, from the first, it starts the person with. The " +
+                  "page's host is the first.",
+              }),
+            roles: z
+              .array(z.object({ name: z.string(), color: z.string(), icon: z.string() }))
+              .optional()
+              .openapi({
+                description:
+                  "An email invitation: the cargos it gives (ADR 0184), the ones whoever sent it may still give. Empty: " +
+                  "a member.",
+              }),
             moreAgents: z
               .number()
               .int()
@@ -525,9 +567,14 @@ export function accountRoutes(deps: AppDeps) {
                 description:
                   "An email invitation: how its address signs in (ADR 0090), so the page asks only what is missing.",
               }),
-            full: z.literal(true).optional().openapi({
-              description: "An email invitation to a workspace with no seat left: said before anyone makes an account.",
-            }),
+            full: z
+              .literal(true)
+              .optional()
+              .openapi({
+                description:
+                  "An email invitation to a workspace with no seat left, or a link that took all the people it may " +
+                  "(ADR 0184, asking answers `join.link_full`): said before anyone makes an account or asks.",
+              }),
             you: z
               .object({
                 member: z.boolean(),
@@ -611,6 +658,92 @@ export function accountRoutes(deps: AppDeps) {
     return imageFile(file, { "cross-origin-resource-policy": "same-origin" });
   });
 
+  // ── The accounts signed in on this browser (ADR 0183) ─────────────────────
+  // No session guards these: a browser whose own session ended still lists the others and moves to one.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/device-accounts",
+      tags,
+      summary: "The accounts signed in on this browser",
+      description:
+        "Every account this browser is signed in to on this server (ADR 0183), the request's own first (`current`), each with its workspaces and their unread counts, so one list shows them all. Empty with nobody signed in. Accounts are named by person: no session token is answered.",
+      responses: {
+        200: json(
+          z.object({
+            accounts: z.array(
+              z.object({
+                current: z.boolean(),
+                user: z.object({
+                  id: z.string(),
+                  name: z.string(),
+                  email: z.string(),
+                  image: z.string().nullable(),
+                }),
+                organizations: z.array(Organization),
+                unread: z.array(z.object({ orgId: z.string(), unread: z.number().int(), waiting: z.number().int() })),
+              }),
+            ),
+          }),
+        ),
+      },
+    }),
+    async (c) => {
+      const { accounts, cookies } = await deviceAccountsOf(deps.auth, c.req.raw.headers);
+      const listed = await Promise.all(
+        accounts.map(async (a) => {
+          const [me, unread] = await Promise.all([
+            meBody(a.user),
+            notificationCountsByOrg({ db, pubsub: deps.adapters.pubsub }, a.user.id),
+          ]);
+          if (!me) return null;
+          const { id, name, email, image } = me.user;
+          return { current: a.current, user: { id, name, email, image }, organizations: me.organizations, unread };
+        }),
+      );
+      for (const cookie of cookies) c.header("set-cookie", cookie, { append: true });
+      return c.json({ accounts: listed.filter((a) => a !== null) }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/device-accounts/switch",
+      tags,
+      summary: "Move this browser to another account signed in on it",
+      description:
+        "Makes `userId`'s session the browser's (ADR 0183); every account stays signed in. 404 when that person isn't signed in on this browser.",
+      request: { body: body(z.object({ userId: z.string().min(1).max(200) })) },
+      responses: { 204: noContent[204], 404: errors[404] },
+    }),
+    async (c) => {
+      const cookies = await switchDeviceAccount(deps.auth, c.req.raw.headers, c.req.valid("json").userId);
+      if (!cookies) return apiError(c, 404, "not_found", "That account isn't signed in on this browser");
+      for (const cookie of cookies) c.header("set-cookie", cookie, { append: true });
+      return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/device-accounts/sign-out",
+      tags,
+      summary: "Sign one account out of this browser",
+      description:
+        "Ends the session of `userId` on this browser, the request's own without it (ADR 0183); the other accounts stay signed in. `signedIn`: the browser still has an account, the next one when its own left.",
+      request: { body: body(z.object({ userId: z.string().min(1).max(200).optional() })) },
+      responses: { 200: json(z.object({ signedIn: z.boolean() })), 404: errors[404] },
+    }),
+    async (c) => {
+      const out = await signOutDeviceAccount(deps.auth, c.req.raw.headers, c.req.valid("json").userId);
+      if (!out) return apiError(c, 404, "not_found", "That account isn't signed in on this browser");
+      for (const cookie of out.cookies) c.header("set-cookie", cookie, { append: true });
+      return c.json({ signedIn: out.signedIn }, 200);
+    },
+  );
+
   // ── Signed in ─────────────────────────────────────────────────────────────
   app.openapi(
     createRoute({
@@ -619,17 +752,12 @@ export function accountRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "The signed-in person and their organizations",
-      description:
-        "401 with the session cookies expired once the account is deleted: a cached session cookie outlives it for minutes.",
+      description: "401 once the account is deleted: its sessions go with it.",
       responses: { 200: json(Me), 401: errors[401] },
     }),
     async (c) => {
       const me = await meBody(c.get("user"));
-      // A deleted account's session lives on in a cached cookie for minutes: its other tabs and devices learn it here.
-      if (!me) {
-        for (const cookie of expiredSessionCookies()) c.header("set-cookie", cookie, { append: true });
-        return apiError(c, 401, "unauthorized", "Sign in to continue");
-      }
+      if (!me) return apiError(c, 401, "unauthorized", "Sign in to continue");
       return c.json(me, 200);
     },
   );
@@ -713,21 +841,24 @@ export function accountRoutes(deps: AppDeps) {
       responses: { 204: noContent[204], ...errors },
     }),
     async (c) => {
+      const startedAt = Date.now();
       const userId = c.get("user").id;
       if (!(await signedInLately(deps.auth, c.req.raw.headers, userId))) {
         return apiError(c, 403, "reauth.sign_in", "Sign in again to set a password");
       }
       const { password } = c.req.valid("json");
       if (await hasPassword(db, userId)) {
-        const current = await deps.auth.api.getSession({
-          headers: c.req.raw.headers,
-          query: { disableCookieCache: true },
-        });
+        const current = await sessionOf(deps.auth, c.req.raw.headers);
         if (!current) return apiError(c, 401, "unauthorized", "Sign in to continue");
         await replacePassword(deps.auth, db, userId, password, current.session.token);
-        return c.body(null, 204);
+      } else {
+        await deps.auth.api.setPassword({ body: { newPassword: password }, headers: c.req.raw.headers });
       }
-      await deps.auth.api.setPassword({ body: { newPassword: password }, headers: c.req.raw.headers });
+      // "This wasn't me" ran meanwhile: the session was read before the undo, the password landed after it cleared one.
+      if (await undoneSince(db, userId, startedAt)) {
+        await clearPassword(db, userId);
+        return apiError(c, 401, "unauthorized", "Sign in to continue");
+      }
       return c.body(null, 204);
     },
   );
@@ -762,10 +893,7 @@ export function accountRoutes(deps: AppDeps) {
       if (isLoopback(server) && (config.INSTALL_MODE === "desktop" || config.INSTALL_MODE === "native")) {
         return apiError(c, 409, "phone.local_only", "This server answers only on its own computer");
       }
-      const current = await deps.auth.api.getSession({
-        headers: c.req.raw.headers,
-        query: { disableCookieCache: true },
-      });
+      const current = await sessionOf(deps.auth, c.req.raw.headers);
       if (!current) return apiError(c, 401, "unauthorized", "Sign in to continue");
       const limit = await deps.adapters.rateLimiter.consume(`phone-sign-in:${current.user.id}`, {
         limit: 30,
@@ -897,6 +1025,92 @@ export function accountRoutes(deps: AppDeps) {
       const sent = await sendDeletionCode(codes, user.id, null);
       deps.wakeWorkers?.();
       return c.json(sent, 202);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/account/email",
+      tags,
+      security,
+      summary: "Change your account's email address",
+      description:
+        "The same account under `newEmail` (ADR 0088 §2, addendum 2026-11-13), the only way to change it: Better Auth's `/api/auth/change-email` is off. Refused for the address it has (400 `email.same`) and for one another account just left (409 `email.held`, held 7 days for its “This wasn't me”). On a server that sends email it takes the 6-digit `code` emailed to the account's current address for this new one, with every emailed code's rules (`reauth.code_wrong`, `reauth.code_expired`, `reauth.code_tries`, 429 `reauth.code_wait` with `retryIn` and `reauth.code_limit`), or a sign-in in the last 10 minutes instead. Without either it emails that code and answers 202 `code`, except to an address the account never confirmed, which gets no code (403 `reauth.sign_in`: a fresh sign-in is the proof there). With the proof, 200 `sent`: a link goes to `newEmail` and the address changes once it is opened, when the old one, only if the account had confirmed it, gets a notice with “This wasn't me” (`POST /email-undo`). 5 links an hour and 10 a day per account (429 `rate_limited`). On a server that sends no email, 200 `changed` at once, as an unconfirmed address only (409 `email.no_mail` for a confirmed one, 409 `email.taken` when another account has it).",
+      request: {
+        body: body(
+          z.object({
+            newEmail: z.email().max(254),
+            code: z
+              .string()
+              .regex(new RegExp(`^\\d{${CODE_LENGTH}}$`))
+              .optional(),
+          }),
+        ),
+      },
+      responses: {
+        200: json(
+          z.object({
+            status: z.enum(["sent", "changed"]),
+            email: z.string().openapi({ description: "The new address." }),
+          }),
+          "Sent, or changed at once",
+        ),
+        202: json(
+          z.object({
+            status: z.literal("code"),
+            email: z.string().openapi({ description: "Where the code went: the account's current address." }),
+            resendIn: z.number().int().openapi({ description: "Seconds before another can go." }),
+          }),
+          "A code went to the current address",
+        ),
+        400: errorResponse("The address it has (`email.same`), or a wrong code (`reauth.code_wrong`)"),
+        401: errors[401],
+        403: errorResponse("Blocked, or an address never confirmed without a fresh sign-in (`reauth.sign_in`)"),
+        409: errorResponse(
+          "Held for another account (`email.held`), a code refused (`reauth.code_expired`, `reauth.code_tries`), or on a server that sends no email `email.no_mail` and `email.taken`",
+        ),
+        429: errorResponse("Too many codes (`reauth.code_wait`, `reauth.code_limit`) or links (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      const result = await changeAccountEmail(
+        deps.auth,
+        { ...codes, emailDelivers: deps.adapters.email.delivers === true },
+        c.req.raw.headers,
+        c.get("user").id,
+        c.req.valid("json"),
+      );
+      deps.wakeWorkers?.();
+      return result.status === "code" ? c.json(result, 202) : c.json(result, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/email-undo",
+      tags,
+      summary: "“This wasn't me”: put the account's old email address back",
+      description:
+        "Public, from the page the notice to an account's old address links to (`/email-undo?token=`), never from the link itself: mail scanners open links. Within 7 days of the change and once, it puts that address back (confirmed), ends every session and cuts off every AI app and token, as a new password does. It also removes what the other mailbox got since the change was asked: the sign-ins made since then, every reset link still waiting and the phones' push registrations, and it clears the password, which “Forgot my password” at the address that came back sets anew. A sign-in under way when it runs gets nothing. It voids the newer ones of the same account, never the older. 404 `email.undo_gone` once used, run out or its account gone; 409 `email.undo_taken` (`params.email`) when another account has the address, which changes nothing. 10 tries per 10 minutes per IP address (429 `rate_limited`).",
+      request: { body: body(z.object({ token: z.string().min(16).max(200) })) },
+      responses: {
+        ...errors,
+        200: json(z.object({ email: z.string().openapi({ description: "The address the account has again." }) })),
+        404: errorResponse("Used, run out, or its account is gone (`email.undo_gone`)"),
+        409: errorResponse("Another account has the address (`email.undo_taken`)"),
+        429: errorResponse("Too many tries (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      const ip = requestLimitIp(c.req.raw.headers, config.TRUSTED_PROXIES);
+      const limit = await deps.adapters.rateLimiter.consume(`email-undo:${ip}`, EMAIL_UNDO_PER_IP);
+      if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+      const back = await undoEmailChange(db, c.req.valid("json").token);
+      // Every session ended: this browser's too.
+      for (const cookie of expiredSessionCookies()) c.header("set-cookie", cookie, { append: true });
+      return c.json(back, 200);
     },
   );
 
@@ -1524,6 +1738,16 @@ export function accountRoutes(deps: AppDeps) {
               .max(50)
               .optional()
               .openapi({ description: "Roles they get on accepting, below your own (ADR 0085)." }),
+            channelIds: z
+              .array(z.string().uuid())
+              .max(INVITE_CHOICES_MAX)
+              .optional()
+              .openapi({ description: "Channels they join on accepting, as the batch's (ADR 0184)." }),
+            agentIds: z
+              .array(z.string().uuid())
+              .max(INVITE_CHOICES_MAX)
+              .optional()
+              .openapi({ description: "Agents they start with, as the batch's (ADR 0184)." }),
           }),
         ),
       },
@@ -1605,7 +1829,7 @@ export function accountRoutes(deps: AppDeps) {
       const user = c.get("user");
       const mail = { secret: config.AGENTES_SECRET, proof: c.req.valid("query").mail };
       const joined = await acceptInvitation(db, user, c.req.valid("param").token, new Date(), mail);
-      await announceMembers(deps.adapters.pubsub, joined.orgId);
+      await announceMembers(deps.adapters.pubsub, joined.orgId, joined.agents);
       // A request to join they had waiting closed as they joined: the admins' notice goes with the last one.
       await settleJoinRequests({ db, pubsub: deps.adapters.pubsub }, joined.orgId);
       await noticeInvitationAccepted(

@@ -90,16 +90,21 @@ function InvitePeople() {
   const personal = isPersonal(org);
   // Family or friends, in a personal workspace: asked once each time this screen opens (ADR 0159 §4).
   const [family, setFamily] = useState(false);
-  // An agent's invite card opens it with its addresses (`?emails=a@x,b@y`), a channel's add sheet with that channel.
-  const { emails, channel } = useLocalSearchParams<{ emails?: string; channel?: string }>();
+  // An agent's invite card opens it with its addresses (`?emails=a@x,b@y`), a channel's add sheet with that channel, a
+  // cargo's "Convidar com este cargo" with that cargo and the channels it opens.
+  const { emails, channel, role } = useLocalSearchParams<{ emails?: string; channel?: string; role?: string }>();
+  const cargo = role ? roles.find((r) => r.id === role) : undefined;
+  const cargoChannels = cargo?.channelIds?.join() ?? "";
   useEffect(() => {
+    const roleId = role ?? null;
     setInviteDraft({
       ...EMPTY_INVITE,
-      addresses: emails ? withAddresses(EMPTY_INVITE.addresses, emails) : EMPTY_INVITE.addresses,
-      channelIds: channel ? [channel] : EMPTY_INVITE.channelIds,
+      roleId,
+      addresses: emails ? withAddresses(EMPTY_INVITE.addresses, emails, roleId) : EMPTY_INVITE.addresses,
+      channelIds: [...(channel ? [channel] : []), ...(cargoChannels ? cargoChannels.split(",") : [])],
     });
     return () => setInviteDraft(null);
-  }, [emails, channel]);
+  }, [emails, channel, role, cargoChannels]);
   const draft = useInviteDraft() ?? EMPTY_INVITE;
 
   // Who is in already, and who has an invitation waiting: said on their row and left out of the send.
@@ -110,7 +115,7 @@ function InvitePeople() {
   );
   const stateOf = (a: InviteAddress) => addressState(a, members, invited);
   // What's still in the field counts: the button is pressed with the keyboard up, so the field never lost focus.
-  const all = withAddresses(draft.addresses, typed);
+  const all = withAddresses(draft.addresses, typed, draft.roleId ?? null);
   const ready = all.filter((a) => stateOf(a) === "ok");
   const bad = draft.addresses.some((a) => !a.valid);
 
@@ -119,7 +124,8 @@ function InvitePeople() {
   const extraNames = extra.map((ch) => `#${ch.name}`);
   const note = draft.note.trim();
 
-  const add = (text: string) => updateInviteDraft((d) => ({ ...d, addresses: withAddresses(d.addresses, text) }));
+  const add = (text: string) =>
+    updateInviteDraft((d) => ({ ...d, addresses: withAddresses(d.addresses, text, d.roleId ?? null) }));
   const onType = (next: string) => {
     const read = readTyped(typed, next);
     if (read.add) add(read.add);

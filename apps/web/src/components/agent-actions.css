@@ -1,9 +1,15 @@
 /*
  * Receipts under an agent's reply: one change is a quiet row; several are a group with "N changes · X ago". Cards like
- * the reply's tools (the card face, its hairline and cut corner, the same width), flat icons. A change's sentence is
- * one line (`.ag-rc__line`); the other rows' wrap, whole, the icon on their first line. Undone rows are struck through
- * and dimmed.
+ * the reply's tools (the card face, its hairline and cut corner), flat icons. Every row wraps whole, the icon on its
+ * first line, never cut with "…". Undone rows are struck through and dimmed.
  */
+/* As wide as its words, up to about 60 characters, and never past the column. */
+.ag-rc,
+.ag-rcg {
+  width: fit-content;
+  max-width: min(100%, 480px);
+  box-sizing: border-box;
+}
 /* Its own room outside a message: in one, the conversation's rhythm sets it (`.ac-msg .ac-msg__body > *`). */
 :where(:not(.ac-msg__body)) > .ag-rcs {
   margin-top: 8px;
@@ -19,7 +25,6 @@
   display: flex;
   align-items: flex-start;
   gap: var(--icon-gap);
-  max-width: var(--msg-card-w);
   padding: 7px 12px;
   border-radius: var(--radius-item) var(--radius-item) var(--radius-item) 4px;
   background: var(--surface-raised);
@@ -55,21 +60,6 @@
 .ag-rc__sentence {
   overflow-wrap: anywhere;
 }
-/* What an agent changed reads in one line, cut with "…": its whole words are its tip. The clip stands 4px out, so a
-   link's focus ring at the line's edge shows whole; `clip`, not `hidden`, so tabbing to a link past the cut never
-   scrolls the words. */
-.ag-rc__line {
-  overflow: clip;
-  margin: calc(-1 * var(--space-1));
-  padding: var(--space-1);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* A link the keys reach is never past the cut: while it has the focus, its line says everything. */
-.ag-rc__line:has(:focus-visible) {
-  overflow: visible;
-  white-space: normal;
-}
 .ag-rc__target {
   color: var(--ink);
   font-weight: 600;
@@ -91,6 +81,7 @@
 .ag-rc__by {
   font-size: 12.5px;
   color: var(--faint);
+  overflow-wrap: anywhere;
 }
 /* On a screen with no hover, a row's changes listed whole in a popover (the kit's rows), each sentence opening its own
    thing, with a chevron where it does. As wide as its words want, up to what the window leaves. */
@@ -186,7 +177,6 @@ html:not([data-pointer]) .ag-rc__btn:focus-visible {
 
 /* B: several changes */
 .ag-rcg {
-  max-width: var(--msg-card-w);
   margin-top: 8px;
   border-radius: var(--radius-item) var(--radius-item) var(--radius-item) 4px;
   background: var(--surface-raised);
@@ -272,7 +262,10 @@ html:not([data-pointer]) .ag-rc__btn:focus-visible {
  * of its two lines of words; where they don't fit beside the words they go under them (`.ac-actline`). Opened, the
  * report comes down inside the row, under a hairline. One surface: nothing inside has a background of its own.
  */
-.ag-fb {
+/* The cards' width from the start, as a request's: the report opening inside never widens it under the pointer. */
+.ag-rc.ag-fb {
+  width: auto;
+  max-width: var(--msg-card-w);
   flex-wrap: wrap;
 }
 .ag-fb .ag-fb__acts {

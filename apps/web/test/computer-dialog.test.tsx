@@ -14,6 +14,8 @@ import type {
   SocketFactory,
 } from "@agenteschat/client";
 import { ApiError, keys } from "@agenteschat/client";
+import { SHARED_SEAT } from "@agenteschat/client/lib/seat";
+import { SeatContext } from "@agenteschat/client/lib/seat-context";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ComputerDialog } from "@/components/computer/ComputerDialog";
 import { useChannelRealtime } from "@/realtime/context";
@@ -351,6 +353,24 @@ describe("the computer dialog, live", () => {
     expect(row?.childElementCount).toBe(0);
     expect(row?.textContent).toBe("");
     expect(box().querySelector(".cmp-body")?.lastElementChild).toBe(row);
+  });
+
+  test("opened for an agent's shared place: named for it, and what it reads and shows is that place", async () => {
+    const b = await backend();
+    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    await renderPage(
+      <SeatContext.Provider value={{ agentId: ADA_ID, seat: SHARED_SEAT }}>
+        <ComputerDialog agent={ada} open onClose={() => {}} />
+      </SeatContext.Provider>,
+      { api: b.api, org: true, createSocket: b.sockets.factory },
+    );
+    await settle(8);
+    // The name's gender is the agent's own, whatever is written beside it.
+    expect(screen().getByRole("dialog", { name: "Computador da Ada (compartilhado)" })).toBeTruthy();
+    const status = calls(b, "desktop.status");
+    expect(status.length).toBeGreaterThan(0);
+    expect(status.every((args) => args[2] === SHARED_SEAT)).toBe(true);
+    expect(b.sockets.screens.at(-1)?.url).toContain("seat=shared");
   });
 
   test("the steps' line comes under the screen while the agent works there, and goes with its run", async () => {

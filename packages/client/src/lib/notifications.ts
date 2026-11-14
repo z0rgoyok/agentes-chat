@@ -28,9 +28,15 @@ const MENTION_KINDS: NotificationKind[] = ["mention", "dm", "agent_question"];
 
 /**
  * Waiting ones in this order: an agent's secret request (it expires in minutes), an agent's question, an
- * approval, then someone asking to join (nobody's work waits on it).
+ * approval, someone asking to join (nobody's work waits on it), then what the right hand found to fix.
  */
-const WAITING_ORDER: NotificationKind[] = ["secret_request", "agent_question", "approval", "join_request"];
+const WAITING_ORDER: NotificationKind[] = [
+  "secret_request",
+  "agent_question",
+  "approval",
+  "join_request",
+  "team_watch",
+];
 
 export const isSnoozed = (n: Pick<AppNotification, "snoozedUntil">, now = Date.now()) =>
   !!n.snoozedUntil && new Date(n.snoozedUntil).getTime() > now;
@@ -234,6 +240,49 @@ export function restrictionOf(n: Pick<AppNotification, "kind" | "latest">) {
   return { code: l.statusTo === "hold" ? "org.paused" : "org.suspended", facts: { reason: l.text, cloud: true } };
 }
 
+/** What the right hand's notice may be about (`latest.reason`), each worded by `notifications.teamWatch.<cause>`. */
+export const TEAM_WATCH_CAUSES = [
+  "sign_in",
+  "connector",
+  "mailbox",
+  "database",
+  "budget_out",
+  "budget_low",
+  "computer",
+] as const;
+export type TeamWatchCause = (typeof TEAM_WATCH_CAUSES)[number];
+
+/** The way out of each cause, the notice's one button (`notifications.teamWatch.act.<act>`). */
+const TEAM_WATCH_ACT = {
+  sign_in: "sign_in",
+  connector: "reconnect",
+  mailbox: "reconnect",
+  database: "reconnect",
+  budget_out: "budget",
+  budget_low: "budget",
+  computer: "computer",
+} as const satisfies Record<TeamWatchCause, string>;
+
+/**
+ * What the right hand found wrong (ADR 0177 §1): its cause, the key of the sentence saying it (`key`, said by
+ * `teamWatchLine` with `names`, the first things it is about, and `count`, how many in all) and the name of its one
+ * button (`act`). A cause this build doesn't know has neither: `text`, the server's own sentence, stands for it and
+ * its button only opens. Null for any other notice.
+ */
+export function teamWatchOf(n: Pick<AppNotification, "kind" | "count" | "latest">) {
+  if (n.kind !== "team_watch") return null;
+  const names = n.latest.names ?? [];
+  const cause = TEAM_WATCH_CAUSES.find((c) => c === n.latest.reason) ?? null;
+  return {
+    cause,
+    key: cause && names.length > 0 ? `notifications.teamWatch.${cause}` : null,
+    names,
+    count: Math.max(n.count, names.length),
+    text: n.latest.text ?? "",
+    act: cause ? `notifications.teamWatch.act.${TEAM_WATCH_ACT[cause]}` : null,
+  };
+}
+
 /**
  * Whether an item's headline already names the place called `name` ("Theo replied in #general"), so nothing beside
  * it says that again. The headline names its `source.label` for a reply, an agent's answer, a mention in a thread and a
@@ -386,6 +435,21 @@ export function openTarget(n: AppNotification): OpenTarget | null {
   if (n.kind === "approval_cover") return { to: "/org/$orgId/settings/$section", params: { section: "approvals" } };
   // What the right hand does without asking is on its own page, which its old settings address opens.
   if (n.kind === "right_hand_paused") return { to: "/org/$orgId/settings/$section", params: { section: "right_hand" } };
+  // What the right hand found (ADR 0177 §1) opens where it is fixed: the plans, the connections, the agent whose
+  // budget it is, the computer.
+  const found = teamWatchOf(n);
+  if (found) {
+    if (found.cause === "sign_in") return { to: "/org/$orgId/settings/$section", params: { section: "usage" } };
+    if (found.cause === "budget_out" || found.cause === "budget_low")
+      return s.agentId
+        ? { to: "/org/$orgId/agents/$agentId", params: { agentId: s.agentId } }
+        : { to: "/org/$orgId/settings/$section", params: { section: "usage" } };
+    if (found.cause === "computer")
+      return s.machineId
+        ? { to: "/org/$orgId/settings/computers/$machineId", params: { machineId: s.machineId } }
+        : { to: "/org/$orgId/settings/$section", params: { section: "computers" } };
+    return found.cause ? { to: "/org/$orgId/settings/$section", params: { section: "connectors" } } : null;
+  }
   // Requests to join are answered in Members (ADR 0068).
   if (n.kind === "join_request") return { to: "/org/$orgId/settings/$section", params: { section: "members" } };
   // "Pedir a um admin": roles are given in Members, webhooks set up from a routine; an agent is added in its channel.
@@ -608,6 +672,8 @@ export function waitingCardOf(n: Pick<AppNotification, "kind" | "count" | "lates
     return { kind: "question", title: l.text ?? l.title ?? "", expiresAt: null, action: "open" };
   // A person at their limit asks for more (ADR 0141): raised or refused on the card itself.
   if (n.kind === "usage_limit") return { kind: "limit", title: "", expiresAt: null, action: "review" };
+  // What the right hand found has nobody to answer: it opens where it is fixed.
+  if (n.kind === "team_watch") return { kind: "question", title: l.text ?? "", expiresAt: null, action: "open" };
   return { kind: "question", title: l.text ?? l.title ?? "", expiresAt: null, action: "answer" };
 }
 

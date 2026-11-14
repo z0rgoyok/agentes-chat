@@ -8,7 +8,7 @@ export const legalNl: Partial<Record<LegalKind, LegalDocument>> = {
       "De overeenkomst voor het gebruik van agentes.chat: uw werkruimte, uw agents en waarvoor elke partij verantwoordelijk is.",
     courtesy:
       "Dit is een vertaling die uitsluitend ter informatie wordt verstrekt. Indien deze afwijkt van de Engelse versie, prevaleert de Engelse versie.",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -174,7 +174,7 @@ export const legalNl: Partial<Record<LegalKind, LegalDocument>> = {
     summary: "Wat wij verzamelen, wat agents waarheen sturen, wie uw werkruimte kan zien en welke rechten u hebt.",
     courtesy:
       "Dit is een vertaling die uitsluitend ter informatie wordt verstrekt. Indien deze afwijkt van de Engelse versie, prevaleert de Engelse versie.",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

@@ -35,6 +35,7 @@ import { AgentAvatar, withAgentFace } from "@/components/AgentAvatar";
 import { useChannelActions } from "@/components/channel-actions";
 import { useNow } from "@/components/missions/MissionBits";
 import { useOrg } from "@/components/org-context";
+import { askOf, usePendingAsks, WaitMark } from "@/components/RequestCard";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useChannelEvents } from "@/realtime/context";
 
@@ -72,10 +73,11 @@ export const useOpenConsultation = () => useContext(ConsultGroupsContext).open;
 const RELOAD_ON = new Set(["agent.consulting", "agent.consulted", "agent.consultation"]);
 
 /**
- * The conversation's questions to other agents, by the run that asked; reloaded when one changes. `rows`: the
- * messages drawn here, in order; `live`: the runs at work after them. A reply shows its run's questions: the answers'
- * notices close to it fold, and the working line leaves out the ones near the end. A run at work draws none until its
- * reply comes (its answers' notices fold meanwhile): the line says its questions.
+ * The conversation's questions to other agents, by the run that asked; reloaded when one changes, with its threads'
+ * list, whose chips say how a hand-off's work stands. `rows`: the messages drawn here, in order; `live`: the runs at
+ * work after them. A reply shows its run's questions: the answers' notices close to it fold, and the working line
+ * leaves out the ones near the end. A run at work draws none until its reply comes (its answers' notices fold
+ * meanwhile): the line says its questions.
  */
 export function useConsultGroups(
   channelId: string,
@@ -87,7 +89,9 @@ export function useConsultGroups(
   const qc = useQueryClient();
   const list = useConsultations(org.id, channelId);
   useChannelEvents(channelId, true, (event) => {
-    if (RELOAD_ON.has(event.type)) void qc.invalidateQueries({ queryKey: keys.consultations(org.id, channelId) });
+    if (!RELOAD_ON.has(event.type)) return;
+    void qc.invalidateQueries({ queryKey: keys.consultations(org.id, channelId) });
+    void qc.invalidateQueries({ queryKey: keys.channelThreads(org.id, channelId, "all") });
   });
   // Its own memo: opening a question doesn't hand every row a new map.
   const helping = useMemo(() => {
@@ -169,15 +173,22 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const dialog = useChannelActions()?.openConsultation;
+  const actions = useChannelActions();
+  const dialog = actions?.openConsultation;
   const openId = useOpenConsultation();
   const [open, setOpen] = useState(false);
   const live = items.some((c) => c.status === "open");
   const now = useNow(live);
-  const pair = consultPair(items, now, askerId);
+  // The consulted agent's card here waits on me: the row says so (amber) before the list hears the run park, and a
+  // click goes to the card (ADR 0095 addendum).
+  const asks = usePendingAsks();
+  const only = items.length === 1 && items[0]?.status === "open" ? items[0] : undefined;
+  const mine = only ? askOf(asks, only.consultedAgentId, only.consultedRunId) : null;
+  const pair = consultPair(items, now, askerId, mine?.on ?? null);
   if (!pair) return null;
   // An old reply's question with no id of its own has no conversation to open: it opens in place.
   const openConsultation = openableConsultation(pair.opens) ? dialog : undefined;
+  const seeCard = mine && actions?.seeRequest ? () => actions.seeRequest?.(mine.ask.id) : undefined;
   const nameOf = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const from = nameOf(askerId);
   const names = pair.faces.map((f) => nameOf(f.agentId));
@@ -191,19 +202,27 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
         type="button"
         className={cx("consult-pair__row", pair.tone && `consult-pair__row--${pair.tone}`)}
         title={title}
-        {...(openConsultation
-          ? {
-              "aria-pressed": items.some((c) => c.id === openId),
-              onClick: () => openConsultation(pair.opens),
-            }
-          : { "aria-expanded": open, onClick: () => setOpen((o) => !o) })}
+        {...(seeCard
+          ? { onClick: seeCard }
+          : openConsultation
+            ? {
+                "aria-pressed": items.some((c) => c.id === openId),
+                onClick: () => openConsultation(pair.opens),
+              }
+            : { "aria-expanded": open, onClick: () => setOpen((o) => !o) })}
       >
         {/* One sentence that wraps at its spaces: each face keeps its name's first word, the · its name's last. */}
         <span className="consult-pair__who">
           <AgentAvatar agentId={askerId} size="xs" name={from} state="idle" />
           <span className="consult-pair__name">{from}</span>
         </span>
-        <Icon name="swap" size={16} className="consult-pair__swap" label={t("newAgent.and")} />
+        {pair.tone === "you" ? (
+          <span className="consult-pair__swap consult-pair__wait">
+            <WaitMark />
+          </span>
+        ) : (
+          <Icon name="swap" size={16} className="consult-pair__swap" label={t("newAgent.and")} />
+        )}
         <span className="consult-pair__who">
           <span className="ac-avatar-stack consult-pair__faces">
             {pair.faces.slice(0, 3).map((f) => (
@@ -212,7 +231,7 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
                 agentId={f.agentId}
                 size="xs"
                 name={nameOf(f.agentId)}
-                state={live && !f.off ? "thinking" : "idle"}
+                state={pair.tone === "you" ? "waiting" : pair.tone === "live" && !f.off ? "thinking" : "idle"}
                 className={f.off ? "consult-pair__off" : undefined}
               />
             ))}

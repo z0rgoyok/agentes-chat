@@ -13,11 +13,14 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
+import { outageIn, waitSinceIn, workStateOf } from "./agent-work";
+import { decidableBySql } from "./approvals";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { type Channel, requireChannelAccess } from "./channels";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishChannelEvent, publishMessageCreated, publishUserEvent } from "./events";
+import { pendingReturns } from "./follow-through";
 import { followsThreadSql, threadReadAtSql } from "./follows";
 import { landedAfterSql } from "./message-place";
 import { type PreviewMeta, previewMeta, readableBody } from "./message-preview";
@@ -62,6 +65,9 @@ export type ThreadChange =
   | "unarchived"
   | "deleted";
 export type ThreadTab = "all" | "working" | "missions" | "closed" | "archived";
+
+/** What a thread's work waits on (`ThreadInfo.wait`). */
+export type ThreadWait = "approval" | "input" | "computer" | "queued";
 
 /** The most messages a context range may hold (after exclusions). */
 export const MAX_CONTEXT_MESSAGES = 500;
@@ -118,10 +124,27 @@ export interface ThreadInfo {
   lastMessage: { author: Actor; excerpt: string; meta: PreviewMeta | null; createdAt: string } | null;
   /** Distinct authors of the root and the replies: people and agents. */
   participants: Actor[];
-  /** An agent run is in progress (or waiting for approval or an answer) in this thread. */
+  /**
+   * An agent run here is queued or running, or one handed work by a run here (`tell_agent`, `ask_agent`, one hop)
+   * is: what works for this thread from two agents' DM counts here (ADR 0084 addendum of 2026-11-13).
+   */
   working: boolean;
-  /** An agent asked something here and the actor took part, or an approval here waits for the actor. */
+  /** An agent asked something here and the actor took part, or an approval here waits for the actor's decision. */
   needsYou: boolean;
+  /**
+   * What the work here waits on when nothing of it runs (and nothing waits on the actor): someone's approval, someone's
+   * answer, its computer, or a place in line (`queued`). Null: it works, or nothing is on.
+   */
+  wait: ThreadWait | null;
+  /** Since when the chip's state holds: what waits on the actor, the work (since it started or was handed off), the wait. */
+  since: string | null;
+  /** The agent of the run at it longest (working, else the one waiting): the chip's orbit takes its tones. */
+  worker: string | null;
+  /**
+   * The soonest return still to come here (a `follow_up` an agent set, `pendingReturns`), not yet past its time: the
+   * chip's "Retorno às 00:32" when nothing else is on. Null: none.
+   */
+  laterAt: string | null;
   /**
    * Open, and a cheap model judged its matter done after its last message
    * (`threads.assess`): the app offers to close it. Cleared by a new message,
@@ -945,6 +968,8 @@ interface ThreadSqlRow {
   context_count: number | string | null;
   working: boolean;
   needs_you: boolean;
+  needs_you_since?: string | Date | null;
+  work_runs?: ThreadWorkRun[] | string | null;
   suggested_resolved?: boolean | null;
   following?: boolean | null;
   unread?: number | string | null;
@@ -980,6 +1005,91 @@ function decodeCursor(cursor: string): { at: string; id: string } {
 }
 
 const ACTIVE_RUN = sql`('queued', 'running', 'waiting_approval', 'waiting_input')`;
+
+/** A run still on for a thread: its own, or one a run of it handed work to. Times as ISO strings. */
+export interface ThreadWorkRun {
+  agent: string;
+  status: string;
+  machine: boolean;
+  outage: boolean;
+  code: string | null;
+  /** Its start, or the hand-off's for work handed to it. */
+  started: string;
+  /** Since when it waits (in line, on its computer, its plan, its provider), else its last change. */
+  waited: string;
+}
+
+/**
+ * The runs still on for the listed thread `l`, as JSON (`ThreadWorkRun[]`): its own, and those its runs handed work to
+ * in two agents' DM (one hop: the open `agent_consultations` of a run here). Read only for the page's rows.
+ */
+const threadWorkRunsSql = (orgId: string) => sql`(select coalesce(json_agg(json_build_object('agent', x.agent,
+    'status', x.status, 'machine', x.machine, 'outage', x.outage, 'code', x.code, 'started', x.started,
+    'waited', x.waited)), '[]'::json)
+  from (
+    select ar.agent_id as agent, ar.status, ar.waiting_machine_id is not null as machine, ${outageIn("ar")} as outage,
+      ar.transcript->'waitingForBrain'->>'code' as code, coalesce(ar.started_at, ar.created_at) as started,
+      ${waitSinceIn("ar")} as waited
+    from ${schema.agentRuns} ar
+    where ar.org_id = ${orgId}::uuid and ar.thread_root_id = l.id and ar.status in ${ACTIVE_RUN}
+    union all
+    select hr.agent_id, hr.status, hr.waiting_machine_id is not null, ${outageIn("hr")},
+      hr.transcript->'waitingForBrain'->>'code',
+      hc.created_at, ${waitSinceIn("hr")}
+    from ${schema.agentRuns} ar
+    join ${schema.agentConsultations} hc on hc.org_id = ${orgId}::uuid and hc.asker_run_id = ar.id and hc.status = 'open'
+    join ${schema.agentRuns} hr on hr.id = hc.target_run_id and hr.status in ${ACTIVE_RUN}
+    where ar.org_id = ${orgId}::uuid and ar.thread_root_id = l.id
+  ) x)`;
+
+const WAIT_OF: Partial<Record<NonNullable<ReturnType<typeof workStateOf>>, ThreadWait>> = {
+  approval: "approval",
+  answer: "input",
+  computer: "computer",
+  queued: "queued",
+};
+
+/**
+ * What a thread's chip says of its work, after what waits on the actor: it works (since the oldest run at it started,
+ * or was handed the work), else what the work waits on (since the oldest of those waits began), else nothing.
+ */
+function threadWork(r: Pick<ThreadSqlRow, "needs_you" | "needs_you_since" | "work_runs">): {
+  wait: ThreadWait | null;
+  since: string | null;
+  worker: string | null;
+} {
+  const raw = r.work_runs ?? [];
+  const runs = (typeof raw === "string" ? JSON.parse(raw) : raw) as ThreadWorkRun[];
+  const oldest = (times: string[]) =>
+    times.length ? new Date(Math.min(...times.map((t) => Date.parse(t)))).toISOString() : null;
+  const states = runs.map((run) => ({
+    run,
+    state: workStateOf({
+      status: run.status,
+      onMachine: run.machine,
+      outage: run.outage,
+      waitCode: run.code,
+      you: false,
+    }),
+  }));
+  const working = states.filter((s) => s.state === "working").map((s) => s.run.started);
+  const neutral = (["approval", "answer", "computer", "queued"] as const).find((w) =>
+    states.some((s) => s.state === w),
+  );
+  const wait = working.length > 0 || !neutral ? null : (WAIT_OF[neutral] ?? null);
+  const shown = states
+    .filter((s) => (working.length > 0 ? s.state === "working" : s.state === neutral))
+    .sort((a, b) => Date.parse(a.run.started) - Date.parse(b.run.started));
+  const since =
+    r.needs_you && r.needs_you_since
+      ? new Date(r.needs_you_since).toISOString()
+      : working.length > 0
+        ? oldest(working)
+        : neutral
+          ? oldest(states.filter((s) => s.state === neutral).map((s) => s.run.waited))
+          : null;
+  return { wait, since, worker: shown[0]?.run.agent ?? null };
+}
 
 /**
  * Threads of the channels the actor reads (members only, like the channel's
@@ -1064,18 +1174,21 @@ async function queryThreads(
               and not (cx.id = any(t.context_excluded_message_ids))
           ) end as context_count,
           exists (select 1 from ${schema.agentRuns} ar where ar.org_id = ${orgId}::uuid
-            and ar.thread_root_id = root.id and ar.status in ${ACTIVE_RUN}
-            -- Waiting for its computer to come back isn't working.
-            and ar.waiting_machine_id is null) as working,
-          (
-            exists (select 1 from ${schema.agentQuestions} aq where aq.org_id = ${orgId}::uuid
+            and ar.thread_root_id = root.id and (ar.status in ('queued', 'running')
+              or exists (select 1 from ${schema.agentConsultations} hc
+                join ${schema.agentRuns} hr on hr.id = hc.target_run_id and hr.status in ('queued', 'running')
+                where hc.org_id = ${orgId}::uuid and hc.asker_run_id = ar.id and hc.status = 'open'))) as working,
+          (select min(y.at) from (
+            select aq.created_at as at from ${schema.agentQuestions} aq where aq.org_id = ${orgId}::uuid
               and aq.channel_id = root.channel_id and aq.thread_id = root.id and aq.status = 'open'
               and aq.expires_at > now()
-              and (aq.requested_for_user_id = ${userId} or (aq.requested_for_user_id is null and ${participated})))
-            or exists (select 1 from ${schema.approvals} ap where ap.org_id = ${orgId}::uuid
-              and ap.status = 'pending' and ap.thread_root_id = root.id
-              and (${maySql(orgId, userId, "approve_actions")} or ap.owner_user_id = ${userId}))
-          ) as needs_you,
+              and (aq.requested_for_user_id = ${userId} or (aq.requested_for_user_id is null and ${participated}))
+            union all
+            -- Who decides by the one rule of decides(): a role, the agent's owner, the people it names, a cover.
+            select ${schema.approvals.createdAt} from ${schema.approvals} where ${schema.approvals.orgId} = ${orgId}::uuid
+              and ${schema.approvals.status} = 'pending' and ${schema.approvals.threadRootId} = root.id
+              and ${decidableBySql(userId)}
+          ) y) as needs_you_since,
           -- The model's "resolved?" holds while no message came after the one it read.
           (coalesce(t.state, 'open') = 'open' and t.resolved_suggested_at is not null
             and t.resolved_suggested_at >= coalesce(r.last_at, root.created_at)) as suggested_resolved,
@@ -1098,14 +1211,15 @@ async function queryThreads(
         left join ${schema.missions} mi on mi.org_id = ${orgId}::uuid and mi.thread_root_id = root.id
         where root.thread_id is null and root.deleted_at is null
       )
-      select l.*, to_char(l.last_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at,
+      select l.*, l.needs_you_since is not null as needs_you, ${threadWorkRunsSql(orgId)} as work_runs,
+        to_char(l.last_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at,
         case when l.following then (select count(*)::int from (select 1 from ${messages} ur
           where ${unreadReplySql(orgId, userId, sql`l.id`, sql`l.joined_at`)} limit ${MAX_THREAD_UNREAD}) x) else 0 end
           as unread
       from listed l
       where ${stateFilter}
         ${agentFilter}
-        ${input.needsYou ? sql`and l.needs_you` : sql``}
+        ${input.needsYou ? sql`and l.needs_you_since is not null` : sql``}
         ${input.mine ? sql`and (l.created_by = ${userId} or l.participated)` : sql``}
         ${like ? sql`and (l.title ilike ${like} or l.body ilike ${like})` : sql``}
         ${cursor ? sql`and (l.last_at, l.id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : sql``}
@@ -1118,17 +1232,26 @@ async function queryThreads(
   return { rows: page, nextCursor: more && tail ? encodeCursor(tail.cursor_at, tail.id) : null };
 }
 
-/** Distinct authors and the latest reply of each thread on the page (two queries for the whole page). */
-async function threadExtras(db: Database, orgId: string, rows: ThreadSqlRow[]) {
+/**
+ * Distinct authors, the latest reply and the soonest return still to come (for `userId`) of each thread on the page:
+ * three queries for the whole page.
+ */
+async function threadExtras(db: Database, orgId: string, userId: string, rows: ThreadSqlRow[]) {
   const ids = rows.map((r) => r.id);
-  if (ids.length === 0) return { authors: new Map<string, Actor[]>(), latest: new Map<string, Message>() };
+  if (ids.length === 0)
+    return {
+      authors: new Map<string, Actor[]>(),
+      latest: new Map<string, Message>(),
+      later: new Map<string, string>(),
+    };
+  const channelIds = new Set(rows.map((r) => r.channel_id));
   const scope = and(
     eq(messages.orgId, orgId),
     inArray(messages.threadId, ids),
     isNull(messages.deletedAt),
     sql`not ${quietNoticeSql(sql`${messages.meta}`)}`,
   );
-  const [authorRows, latestRows] = await Promise.all([
+  const [authorRows, latestRows, returns] = await Promise.all([
     db
       .selectDistinct({
         threadId: messages.threadId,
@@ -1144,7 +1267,11 @@ async function threadExtras(db: Database, orgId: string, rows: ThreadSqlRow[]) {
       // The reply, not the agent's sticker or GIF after it (ADR 0091).
       .where(and(scope, sql`${messages.meta}->>'mediaAfter' is null`))
       .orderBy(messages.threadId, desc(messages.createdAt), desc(messages.id)),
+    pendingReturns(db, userId, orgId, channelIds.size === 1 ? { channelId: [...channelIds][0] } : {}),
   ]);
+  // Soonest first: each thread keeps its first one still ahead (a held one says its wait in the thread's bar).
+  const later = new Map<string, string>();
+  for (const r of returns) if (r.threadId && !r.held && !later.has(r.threadId)) later.set(r.threadId, r.at);
   const authors = new Map<string, Actor[]>();
   const push = (threadId: string, a: Actor) => {
     if (!a.id) return;
@@ -1160,7 +1287,7 @@ async function threadExtras(db: Database, orgId: string, rows: ThreadSqlRow[]) {
     push(a.threadId, { type: a.authorType, id: a.authorType === "person" ? a.userId : a.agentId });
   }
   const latest = new Map(latestRows.map((m) => [m.threadId ?? "", m]));
-  return { authors, latest };
+  return { authors, latest, later };
 }
 
 function toView(
@@ -1209,6 +1336,8 @@ function toView(
     participants: extras.authors.get(r.id) ?? [],
     working: r.working === true,
     needsYou: r.needs_you === true,
+    ...threadWork(r),
+    laterAt: extras.later.get(r.id) ?? null,
     suggestedResolved: r.suggested_resolved === true,
     canManage: r.created_by === userId || (r.author_type === "person" && r.author_user_id === userId) || isAdmin,
     following: r.following === true,
@@ -1243,7 +1372,7 @@ export async function listThreads(
   if (input.channelId) await requireChannelAccess(db, actorId, input.orgId, input.channelId);
   const isAdmin = can(membership, "manage_channels");
   const { rows, nextCursor } = await queryThreads(db, actorId, input);
-  const extras = await threadExtras(db, input.orgId, rows);
+  const extras = await threadExtras(db, input.orgId, actorId, rows);
   return { threads: rows.map((r) => toView(r, extras, actorId, isAdmin)), nextCursor };
 }
 
@@ -1295,12 +1424,14 @@ export async function getThread(db: Database, actorId: string, orgId: string, ro
       context_count: null,
       working: false,
       needs_you: false,
+      needs_you_since: null,
+      work_runs: null,
       following: await followsRoot(db, orgId, actorId, root.id),
       cursor_at: root.createdAt.toISOString(),
     };
-    return toView(r, await threadExtras(db, orgId, [r]), actorId, isAdmin);
+    return toView(r, await threadExtras(db, orgId, actorId, [r]), actorId, isAdmin);
   }
-  return toView(found, await threadExtras(db, orgId, rows), actorId, isAdmin);
+  return toView(found, await threadExtras(db, orgId, actorId, rows), actorId, isAdmin);
 }
 
 /** What everyone may hear of a thread: nothing only the actor has (following it, its unread for them). */

@@ -1,6 +1,6 @@
-import type { Actor, AgentPresence } from "@agenteschat/client";
+import type { Actor } from "@agenteschat/client";
 import { agentStateIn } from "@agenteschat/client";
-import { isOutOfOffice } from "@agenteschat/client/lib/presence";
+import { type AgentFace, agentFaceWord, isOutOfOffice } from "@agenteschat/client/lib/presence";
 import { splitAtNames } from "@agenteschat/client/lib/text";
 import {
   type AgentAppearance,
@@ -37,7 +37,7 @@ type AgentAvatarProps = Omit<AvatarProps, "kind" | "running" | "state" | "appear
    * Its presence badge (ADR 0084): `true` reads it live (from its work, offline with no AI), a value draws that one.
    * Only where presence matters (the sidebar, member lists, profile cards, messages), never on the tiny receipts.
    */
-  presence?: boolean | AgentPresence | null;
+  presence?: boolean | AgentFace | null;
 };
 
 /**
@@ -155,7 +155,7 @@ function PresentAgentAvatar(props: AgentAvatarProps & { agentId: string }) {
       {...props}
       asleep={props.asleep ?? isOutOfOffice(shown?.line)}
       presence={shown?.presence ?? null}
-      presenceLabel={shown ? t(`presence.${shown.presence}`) : undefined}
+      presenceLabel={shown ? agentFaceWord(t, shown.presence) : undefined}
     />
   );
 }
@@ -170,7 +170,7 @@ function LiveAgentAvatar({
   presence,
   asleep,
   ...rest
-}: Omit<AgentAvatarProps, "presence"> & { agentId: string; presence: AgentPresence | null }) {
+}: Omit<AgentAvatarProps, "presence"> & { agentId: string; presence: AgentFace | null }) {
   const live = useStreams((s) => agentStateIn(s, agentId, channelId));
   const { org } = useOrg();
   const dir = useDirectory(org.id);

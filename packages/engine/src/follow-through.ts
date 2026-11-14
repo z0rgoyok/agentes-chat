@@ -9,9 +9,12 @@ import {
   inArray,
   isNotNull,
   isNull,
+  rowsOf,
   schema,
   sql,
 } from "@agenteschat/db";
+import { announceAgentStatus } from "./agent-status";
+import { agentsOnlyIn } from "./agent-work";
 import { runAuthority } from "./authority";
 import { askStillOpen, unrequested } from "./brakes";
 import { requireChannelAccess } from "./channels";
@@ -20,17 +23,19 @@ import { getChannelCached } from "./context";
 import { publishDelivery } from "./delivery";
 import { eligibleChannelAgents } from "./dispatch";
 import { isAgentOnlyDm } from "./dms";
-import { ConflictError, NotFoundError } from "./errors";
+import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
 import { publishMessageCreated } from "./events";
 import { cutText, cutTextEnd } from "./format";
 import type { Judge } from "./judge";
 import { getMessage, insertMessage, type Message, messageView } from "./messages";
 import { isWithdrawnHandoff } from "./open-requests";
+import { can } from "./organizations";
 import { enqueue } from "./outbox";
 import { personCanPost } from "./routine-state";
 import { deliverNoticeToRun, lateNoticeSent } from "./run-resume";
 import { type AgentRun, replyThreadOf } from "./runs";
 import { refusedAtLimit, runStretchOf } from "./stretch";
+import { channelReaderSql } from "./task-access";
 import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./tools/types";
 
 /**
@@ -42,7 +47,7 @@ import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./tool
  * that conversation (`wakeFollowUp`).
  */
 
-const { agentRuns, agentWorks, messages, routines } = schema;
+const { agentRuns, agents, agentWorks, channels, messages, outbox, routines, users } = schema;
 
 export const FOLLOW_UP_TOOL = "follow_up";
 export const CANCEL_FOLLOW_UP_TOOL = "cancel_follow_up";
@@ -264,13 +269,23 @@ export async function wakesLater(
   return false;
 }
 
-/** Moves a pending follow-up line to `state`; null when it isn't pending anymore. */
-async function settle(tx: Executor, line: Pick<Message, "id" | "orgId">, state: FollowUpState, by?: string) {
-  const patch = JSON.stringify({ state, ...(by ? { canceledBy: by } : {}) });
+/**
+ * Moves a pending follow-up line to `state`; null when it isn't pending anymore. A canceled one keeps when, for the task
+ * manager's "Terminadas hoje", and who (`by`: a person's id, `agent:<id>`; none when its time found it can't come).
+ */
+const settle = (tx: Executor, line: Pick<Message, "id" | "orgId">, state: FollowUpState, by?: string) =>
+  patchPending(tx, line, {
+    state,
+    ...(state === "canceled" ? { canceledAt: new Date().toISOString() } : {}),
+    ...(by ? { canceledBy: by } : {}),
+  });
+
+/** Merges `patch` into a pending follow-up line's refs; null when it isn't pending anymore. */
+async function patchPending(tx: Executor, line: Pick<Message, "id" | "orgId">, patch: Record<string, string>) {
   const [row] = await tx
     .update(messages)
     .set({
-      meta: sql`jsonb_set(${messages.meta}, '{notice,refs}', coalesce(${messages.meta}->'notice'->'refs', '{}'::jsonb) || ${patch}::jsonb)`,
+      meta: sql`jsonb_set(${messages.meta}, '{notice,refs}', coalesce(${messages.meta}->'notice'->'refs', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
     })
     .where(
       and(
@@ -346,7 +361,9 @@ export function createFollowUpToolSource(deps: { pubsub?: PubSub }): ToolSource 
           return refused("Say when: `minutes` from now, or `at` as an ISO 8601 time with its offset.");
         if (due < now + 30_000) return refused("That time has passed: pick one at least a minute ahead.");
         if (due > now + FOLLOW_UP_LIMITS.maxMinutes * 60_000)
-          return refused("At most 24 hours ahead. For later or recurring checks, ask the person for a routine.");
+          return refused(
+            "At most 24 hours ahead. For later, schedule_reminder: a plain reminder to the person, or with ask_agent when they asked you to do something then. For recurring checks, a routine.",
+          );
         const note = str(input.note).trim();
         const about = str(input.about).trim();
         const at = new Date(due).toISOString();
@@ -385,6 +402,8 @@ export function createFollowUpToolSource(deps: { pubsub?: PubSub }): ToolSource 
             `${FOLLOW_UP_LIMITS.perConversation} follow-ups already wait in this conversation: cancel one first (cancel_follow_up) or do it now.`,
           );
         await publishLine(deps.pubsub, line);
+        // The lists say "retorno às …" for it now (`pendingReturns`).
+        await announceAgentStatus(deps.pubsub, run.orgId, run.agentId);
         return {
           content: `Follow-up ${line.id} set for ${at}: you'll be woken here then with your note. Tell them in a line when you'll be back.`,
           data: { followUp: { id: line.id, at } },
@@ -415,6 +434,7 @@ export function createFollowUpToolSource(deps: { pubsub?: PubSub }): ToolSource 
           if (row) lines.push(row);
         }
         for (const line of lines) await publishLine(deps.pubsub, line);
+        if (lines.length > 0) await announceAgentStatus(deps.pubsub, run.orgId, run.agentId);
         return { content: `Canceled ${lines.length} follow-up${lines.length === 1 ? "" : "s"}.` };
       },
     },
@@ -426,7 +446,8 @@ export function createFollowUpToolSource(deps: { pubsub?: PubSub }): ToolSource 
  * Job `agent.follow_up`: a follow-up's time came. Its line moves to `done` and a `follow_up` notice for the run
  * that set it (`refs.wake`) goes to its conversation: while that run is still active it reads it at its next step,
  * else it starts a run of the agent there (or joins one working for the same person), which reads the note and
- * the conversation since. A canceled or deleted line, or a run that is gone, wakes nobody.
+ * the conversation since. A canceled or deleted line, or a run that is gone, wakes nobody. Held on an answer, the
+ * line gets `refs.held` once.
  */
 export async function wakeFollowUp(deps: { db: Database; pubsub?: PubSub }, orgId: string, messageId: string) {
   const woke = await deps.db.transaction(async (tx) => {
@@ -456,7 +477,9 @@ export async function wakeFollowUp(deps: { db: Database; pubsub?: PubSub }, orgI
           runAt: new Date(Date.now() + ASK_HOLD_MS),
           maxAttempts: 4,
         });
-        return null;
+        // Held (`pendingReturns`): the first time, the open bars, the chip and the lists hear it.
+        const held = refs.held ? null : await patchPending(tx, line, { held: "1" });
+        return held ? { line: held, delivered: null } : null;
       }
       here = false;
     }
@@ -471,6 +494,7 @@ export async function wakeFollowUp(deps: { db: Database; pubsub?: PubSub }, orgI
   });
   if (!woke) return null;
   await publishLine(deps.pubsub, woke.line);
+  if (woke.line.authorAgentId) await announceAgentStatus(deps.pubsub, orgId, woke.line.authorAgentId);
   if (woke.delivered) await publishDelivery(deps.pubsub, woke.delivered).catch(() => {});
   return woke.delivered?.message ?? null;
 }
@@ -491,7 +515,17 @@ async function stillHere(tx: Executor, run: AgentRun) {
   return agents.length > 0 && (!personId || (await personCanPost(tx, run.orgId, personId, run.channelId)));
 }
 
-/** A person cancels a follow-up from its line: anyone who can read the conversation. */
+/**
+ * Who may cancel a return (ADR 0037, amended 2026-11-13): the person it is for (who is behind the run that set it), the
+ * agent's owner, and admins (who manage agents). Everyone else who reads the conversation sees it without the control.
+ */
+export const mayCancelReturn = (
+  line: { personId: string | null; ownerUserId: string | null },
+  userId: string,
+  managesAgents: boolean,
+) => managesAgents || line.personId === userId || line.ownerUserId === userId;
+
+/** A person cancels a follow-up (the bar's list, the task manager): who may (`mayCancelReturn`), reading its conversation. */
 export async function cancelFollowUp(
   deps: { db: Database; pubsub?: PubSub },
   userId: string,
@@ -501,8 +535,186 @@ export async function cancelFollowUp(
   const line = await getMessage(deps.db, orgId, messageId);
   if (!line || line.deletedAt || !isFollowUpLine(line))
     throw new NotFoundError("Follow-up not found", "follow_up.not_found");
-  await requireChannelAccess(deps.db, userId, orgId, line.channelId);
+  const { workspace } = await requireChannelAccess(deps.db, userId, orgId, line.channelId);
+  const [agent] = line.authorAgentId
+    ? await deps.db.select({ ownerUserId: agents.ownerUserId }).from(agents).where(eq(agents.id, line.authorAgentId))
+    : [];
+  const who = { personId: refsOf(line).personId ?? null, ownerUserId: agent?.ownerUserId ?? null };
+  if (!mayCancelReturn(who, userId, can(workspace, "manage_agents")))
+    throw new ForbiddenError(
+      "Only the person it is for, the agent's owner or an admin can cancel this follow-up",
+      "follow_up.not_yours",
+    );
   const row = await settle(deps.db, line, "canceled", userId);
   if (!row) throw new ConflictError("This follow-up already came or was canceled", "follow_up.not_pending");
   await publishLine(deps.pubsub, row);
+  if (line.authorAgentId) await announceAgentStatus(deps.pubsub, orgId, line.authorAgentId);
+}
+
+// ── Returns, as the apps list them ───────────────────────────────────────────
+
+/**
+ * A return still to come (a `follow_up` line whose wake is queued), as one person sees it: the bar above the composer
+ * ("Ada retorna às 00:32"), the lists' "retorno às 00:32", the thread's chip and the task manager's "Retornos".
+ */
+export interface PendingReturn {
+  messageId: string;
+  agentId: string;
+  channelId: string;
+  channelKind: "channel" | "dm" | "task";
+  /** A channel's name; null for a DM or a task's conversation. */
+  channelName: string | null;
+  /** Null: the conversation's main timeline. */
+  threadId: string | null;
+  /** When it comes (ISO). */
+  at: string;
+  /** The agent's words for it, in the people's language (1 to 80 characters). */
+  about: string;
+  /** The run that set it, and its reply once posted: where "Ver a mensagem" lands. */
+  runId: string;
+  replyMessageId: string | null;
+  /**
+   * Its wake found what the agent asked there still unanswered, and it waits for the answer (ADR 0131 §1: `refs.held`).
+   * A wake that is only late (a queue backlog, a retry) isn't held.
+   */
+  held: boolean;
+  canCancel: boolean;
+}
+
+/** A return canceled since a given time (the task manager's "Terminadas hoje"). */
+export interface CanceledReturn {
+  messageId: string;
+  agentId: string;
+  channelId: string;
+  channelKind: "channel" | "dm" | "task";
+  channelName: string | null;
+  threadId: string | null;
+  at: string;
+  about: string;
+  canceledAt: string;
+  /** A person, the agent itself, or null: its time found it couldn't come (the agent or the person left). */
+  canceledBy: { kind: "person"; userId: string; name: string } | { kind: "agent"; agentId: string } | null;
+}
+
+/** A line is set at most a day ahead, and held at most a day past its time. */
+const RETURN_LIVES_MS = (2 * FOLLOW_UP_LIMITS.maxMinutes + 60) * 60_000;
+
+type ReturnRow = {
+  id: string;
+  agent_id: string;
+  channel_id: string;
+  channel_kind: "channel" | "dm" | "task";
+  channel_name: string | null;
+  thread_id: string | null;
+  refs: Record<string, string> | string | null;
+  owner_user_id: string | null;
+  reply_message_id: string | null;
+  canceler_name: string | null;
+};
+
+const refsOfRow = (r: Pick<ReturnRow, "refs">) =>
+  ((typeof r.refs === "string" ? JSON.parse(r.refs) : r.refs) ?? {}) as Record<string, string>;
+
+const placeOf = (r: ReturnRow) => ({
+  messageId: r.id,
+  agentId: r.agent_id,
+  channelId: r.channel_id,
+  channelKind: r.channel_kind,
+  channelName: r.channel_kind === "channel" ? r.channel_name : null,
+  threadId: r.thread_id,
+});
+
+/**
+ * The returns still to come that `viewerId` reads (`channelReaderSql` of the line's conversation), the soonest first,
+ * in `channelId` only when given. One statement, from the outbox's pending wakes (its partial index) to their lines by
+ * id: a return is a line still pending whose wake will come. `managesAgents`: the viewer's, for `canCancel`.
+ */
+export async function pendingReturns(
+  db: Executor,
+  viewerId: string,
+  orgId: string,
+  options: { channelId?: string; managesAgents?: boolean } = {},
+): Promise<PendingReturn[]> {
+  const now = Date.now();
+  const rows = rowsOf<ReturnRow>(
+    await db.execute(sql`select m.id, m.author_agent_id as agent_id, m.channel_id, c.kind as channel_kind,
+        c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs, g.owner_user_id, rr.reply_message_id,
+        null as canceler_name
+      from ${messages} m
+      join ${channels} c on c.id = m.channel_id and c.org_id = m.org_id and c.archived_at is null
+      join ${agents} g on g.id = m.author_agent_id
+      left join ${agentRuns} rr on rr.id = (m.meta->'notice'->'refs'->>'runId')::uuid
+      where m.id in (select (o.payload->>'messageId')::uuid from ${outbox} o
+          where o.org_id = ${orgId}::uuid and o.kind = ${FOLLOW_UP_JOB} and o.status = 'pending')
+        and m.created_at > ${new Date(now - RETURN_LIVES_MS).toISOString()}::timestamptz
+        and m.org_id = ${orgId}::uuid and m.deleted_at is null
+        and m.meta->'notice'->>'kind' = 'follow_up' and m.meta->'notice'->'refs'->>'state' = 'pending'
+        and m.meta->'notice'->'refs'->>'wake' is null
+        ${options.channelId ? sql`and m.channel_id = ${options.channelId}::uuid` : sql``}
+        and not ${agentsOnlyIn("c")} and ${channelReaderSql(sql`c.id`, sql`${viewerId}::text`)}`),
+  );
+  return rows
+    .map((r) => {
+      const refs = refsOfRow(r);
+      const at = refs.at ?? "";
+      return {
+        ...placeOf(r),
+        at,
+        about: refs.about ?? "",
+        runId: refs.runId ?? "",
+        replyMessageId: r.reply_message_id,
+        held: refs.held === "1",
+        canCancel: mayCancelReturn(
+          { personId: refs.personId ?? null, ownerUserId: r.owner_user_id },
+          viewerId,
+          options.managesAgents === true,
+        ),
+      };
+    })
+    .sort((a, b) => a.at.localeCompare(b.at) || a.messageId.localeCompare(b.messageId));
+}
+
+/**
+ * The returns canceled since `since` that `viewerId` reads, the latest first (at most `limit`): by its conversations'
+ * own index, over the day a line lives before its time.
+ */
+export async function canceledReturns(
+  db: Executor,
+  viewerId: string,
+  orgId: string,
+  since: Date,
+  limit = 50,
+): Promise<CanceledReturn[]> {
+  const rows = rowsOf<ReturnRow>(
+    await db.execute(sql`select m.id, m.author_agent_id as agent_id, m.channel_id, c.kind as channel_kind,
+        c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs, null as owner_user_id,
+        null as reply_message_id, u.name as canceler_name
+      from ${channels} c
+      join ${messages} m on m.channel_id = c.id and m.org_id = c.org_id
+        and m.created_at > ${new Date(since.getTime() - (FOLLOW_UP_LIMITS.maxMinutes + 60) * 60_000).toISOString()}::timestamptz
+      left join ${users} u on u.id = m.meta->'notice'->'refs'->>'canceledBy'
+      where c.org_id = ${orgId}::uuid and c.archived_at is null and not ${agentsOnlyIn("c")}
+        and ${channelReaderSql(sql`c.id`, sql`${viewerId}::text`)}
+        and m.deleted_at is null and m.author_agent_id is not null
+        and m.meta->'notice'->>'kind' = 'follow_up' and m.meta->'notice'->'refs'->>'state' = 'canceled'
+        and m.meta->'notice'->'refs'->>'wake' is null
+        and (m.meta->'notice'->'refs'->>'canceledAt')::timestamptz >= ${since.toISOString()}::timestamptz
+      order by (m.meta->'notice'->'refs'->>'canceledAt')::timestamptz desc
+      limit ${limit}`),
+  );
+  return rows.map((r) => {
+    const refs = refsOfRow(r);
+    const by = refs.canceledBy ?? "";
+    return {
+      ...placeOf(r),
+      at: refs.at ?? "",
+      about: refs.about ?? "",
+      canceledAt: refs.canceledAt ?? "",
+      canceledBy: by.startsWith("agent:")
+        ? { kind: "agent" as const, agentId: by.slice("agent:".length) }
+        : by
+          ? { kind: "person" as const, userId: by, name: r.canceler_name ?? "" }
+          : null,
+    };
+  });
 }

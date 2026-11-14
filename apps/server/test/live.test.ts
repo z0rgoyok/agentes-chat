@@ -83,6 +83,42 @@ test("typing frames fan out to subscribers of the channel (throttled), never to 
   b.ws.close();
 });
 
+test("a voice frame (“gravando áudio…”) goes on with its kind, through the same limit; another kind reads as typing", async () => {
+  const channelId = "0193a2b4-0000-7000-8000-000000000000";
+  expect(parseClientFrame(JSON.stringify({ type: "typing", channelId, kind: "voice" }))).toEqual({
+    type: "typing",
+    channelId,
+    threadId: null,
+    kind: "voice",
+  });
+  expect(parseClientFrame(JSON.stringify({ type: "typing", channelId, kind: "drawing" }))).toEqual({
+    type: "typing",
+    channelId,
+    threadId: null,
+  });
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const seeded = await seedOrg(owner);
+  const url = `ws://127.0.0.1:${server.port}/api/ws?orgId=${seeded.orgId}`;
+  const a = connect(url, { origin: ORIGIN, cookie: owner.cookie() });
+  const b = connect(url, { origin: ORIGIN, cookie: owner.cookie() });
+  await Promise.all([a.opened, b.opened]);
+  for (const c of [a, b]) {
+    c.send({ type: "subscribe", channelId: seeded.channelId });
+    await c.until((f) => f.type === "subscribed");
+  }
+  // The server hears it too: an agent's quiet window counts it like typing (ADR 0112).
+  const heard: unknown[] = [];
+  t.adapters.pubsub.subscribe(typingTopic, (e) => heard.push(e));
+  a.send({ type: "typing", channelId: seeded.channelId, kind: "voice" });
+  const voice = await b.until((f) => f.type === "event" && (f.event as { type: string }).type === "user.typing");
+  expect(voice.event).toMatchObject({ type: "user.typing", channelId: seeded.channelId, ttlMs: 5000, kind: "voice" });
+  await Bun.sleep(50);
+  expect(heard).toEqual([expect.objectContaining({ type: "user.typing", kind: "voice" })]);
+  a.ws.close();
+  b.ws.close();
+});
+
 test("send: 201 with the clientId echoed and a Server-Timing for the commit + event", async () => {
   const owner = browser(t);
   await signUp(owner, "owner@example.com");

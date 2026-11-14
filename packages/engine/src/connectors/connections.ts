@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { KeyWrapper } from "@agenteschat/adapters";
-import { and, asc, type Database, type Executor, eq, isNull, lt, or, schema, sql } from "@agenteschat/db";
+import { and, asc, type Database, type Executor, eq, isNull, lt, ne, or, schema, sql } from "@agenteschat/db";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { type AuditEntry, recordAudit } from "../audit";
 import { caches } from "../cache";
@@ -729,7 +729,14 @@ export async function markToReconnect(
   await db
     .update(connectorConnections)
     .set({ status: "needs_reconnect", lastError: reason.slice(0, 300), updatedAt: new Date() })
-    .where(and(eq(connectorConnections.id, connection.id), isNull(connectorConnections.revokedAt)));
+    // A mark repeated on a connection that already waits moves nothing: its row's last change is when it broke.
+    .where(
+      and(
+        eq(connectorConnections.id, connection.id),
+        isNull(connectorConnections.revokedAt),
+        ne(connectorConnections.status, "needs_reconnect"),
+      ),
+    );
   caches.connections.delete(`${connection.orgId}:active`);
 }
 

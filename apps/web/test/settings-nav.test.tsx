@@ -169,7 +169,7 @@ describe("finding the settings", () => {
     expect(nav().queryByRole("link", { name: "Sobre o agentes.chat" })).toBeNull();
     expect(screen().getByRole("heading", { level: 2, name: "Sua conta" })).toBeTruthy();
     // The Cloud has no Sobre for anyone: nothing to say about the person's role.
-    expect(screen().queryByText(/não abre com o seu papel/)).toBeNull();
+    expect(screen().queryByText(/não abre com o seu cargo/)).toBeNull();
     expect(license()).toBeNull();
     expect(await inPalette()).toBe(false);
   });
@@ -178,13 +178,13 @@ describe("finding the settings", () => {
     const state = seedState();
     if (state.me?.organizations[0]) state.me.organizations[0].role = "member";
     await go("settings/skills", state);
-    expect(screen().getByText(/não abre com o seu papel/).textContent).toBe(
-      "Skills não abre com o seu papel neste workspace. Quem gerencia os papéis pode liberar para você.",
+    expect(screen().getByText(/não abre com o seu cargo/).textContent).toBe(
+      "Skills não abre com o seu cargo neste workspace. Quem gerencia os cargos pode liberar para você.",
     );
     cleanup();
     // Opened from its own nav, the section says nothing more.
     await go("settings/account", state);
-    expect(screen().queryByText(/não abre com o seu papel/)).toBeNull();
+    expect(screen().queryByText(/não abre com o seu cargo/)).toBeNull();
   });
 
   test("Configurações with no section named, opened by a member, lands on their first section with nothing to explain", async () => {
@@ -193,7 +193,7 @@ describe("finding the settings", () => {
     await go("settings", state);
     const nav = screen().getByRole("navigation", { name: "Seções das configurações" });
     expect(nav.querySelector('[aria-current="page"]')).toBeTruthy();
-    expect(screen().queryByText(/não abre com o seu papel/)).toBeNull();
+    expect(screen().queryByText(/não abre com o seu cargo/)).toBeNull();
   });
 
   test("an unknown section goes back to Geral", async () => {

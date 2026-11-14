@@ -4,10 +4,10 @@ import { type DiffLine, diffBlocks } from "../diff";
 export { type DiffBlock, type DiffKind, type DiffLine, diffBlocks, diffLines } from "../diff";
 
 /**
- * Before and after, as GitHub shows a change: added lines on green with a green bar, removed ones on red, struck
- * through. `prose`: words in Markdown (an agent's instructions, a context), each run of lines rendered as one block by
- * `render`, with no mark column, and long unchanged runs folded to the line beside each change (`folded` says how
- * many). Labels are for screen readers.
+ * Before and after, as GitHub shows a change: added lines on green, removed ones on red, struck through (the tint
+ * alone says which: no bar on the edge). `prose`: words in Markdown (an agent's instructions, a context), each run of
+ * lines rendered as one block by `render`, with no mark column, and long unchanged runs folded to the line beside each
+ * change (`folded` says how many). Labels are for screen readers.
  */
 export function Diff({
   lines,

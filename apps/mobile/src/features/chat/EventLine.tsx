@@ -18,8 +18,7 @@ import { StoppedLine } from "./StoppedLine";
  * An automatic line of the conversation, not a voice (the web's `NoticeLine`): what reached an agent's
  * conversation ("Rotina «Sentry» entregou um relatório" while the agent hasn't told it yet, "Infra
  * respondeu", "Nota de Dev", "Chegou o resultado que Ada esperava"), as one pill (`EventPill`) with its time; the
- * text opens under it on "Show", a follow-up still to come has "Cancel". The agent's own reply, if it has one,
- * follows as a normal message.
+ * text opens under it on "Show". The agent's own reply, if it has one, follows as a normal message.
  * An answer the reply that asked shows (`ConsultGroup`, `fold`): nothing when that reply is close, the two agents'
  * pair row when it is farther up (a tap opens their conversation).
  * A task a person stopped has its own pill (`StoppedLine`), drawn in the stopped reply's when that reply is here.
@@ -47,14 +46,10 @@ export function EventLine({ message, fold, gap }: { message: Message; fold?: Con
   // An answer from another agent that carries the consultation, its reply not here: the same pair row a reply
   // has (who asked whom), never the text written for the agent; a tap opens what they said.
   const consulted = consultationOfNotice(message.meta);
-  const line = eventLineOf(
-    message,
-    {
-      author: dir.nameOf(message.author) || t("channel.unknownAgent"),
-      agentByHandle: (handle) => agentsByAnyHandle(dir.agents).get(handle.toLowerCase())?.name ?? null,
-    },
-    when,
-  );
+  const line = eventLineOf(message, {
+    author: dir.nameOf(message.author) || t("channel.unknownAgent"),
+    agentByHandle: (handle) => agentsByAnyHandle(dir.agents).get(handle.toLowerCase())?.name ?? null,
+  });
   if (consulted)
     return (
       <ConsultPairRow
@@ -71,7 +66,6 @@ export function EventLine({ message, fold, gap }: { message: Message; fold?: Con
         mark={noticeOf(message.meta)?.kind === "github_event" ? <ProviderLogo id="github" size="xs" /> : line.icon}
         time={when.time(message.createdAt)}
         actions={[
-          line.pending ? <CancelFollowUp key="cancel" messageId={message.id} /> : null,
           line.answer ? <AnswerGitHub key="answer" messageId={message.id} /> : null,
           line.detail ? (
             <EventPillAction
@@ -97,27 +91,6 @@ export function EventLine({ message, fold, gap }: { message: Message; fold?: Con
         {t(line.key, line.values)}
       </EventPill>
     </View>
-  );
-}
-
-/** "Cancel" on a follow-up still to come: the pill changes in place once the server has it. */
-function CancelFollowUp({ messageId }: { messageId: string }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const orgId = useOrgId();
-  const [busy, setBusy] = useState(false);
-  return (
-    <EventPillAction
-      label={t("chat.notice.followUpCancel")}
-      loading={busy}
-      onPress={() => {
-        setBusy(true);
-        void api.chat
-          .cancelFollowUp(orgId, messageId)
-          .catch(() => {})
-          .finally(() => setBusy(false));
-      }}
-    />
   );
 }
 

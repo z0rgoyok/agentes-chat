@@ -37,11 +37,6 @@ export interface AuthClient {
   ): Promise<AuthResult>;
   /** The signed-in person's name (the account's, shown in every workspace). */
   updateName(name: string): Promise<AuthResult>;
-  /**
-   * The signed-in person's address, on the same account: a link to `email` confirms it, and the address changes once it
-   * is opened; on a server that sends no e-mail it changes at once.
-   */
-  changeEmail(email: string): Promise<AuthResult>;
   /** A new link confirming the signed-in person's own address (`email`). */
   sendVerificationEmail(email: string): Promise<AuthResult>;
   /**

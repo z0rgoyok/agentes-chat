@@ -26,8 +26,12 @@ export interface WorkItem {
   plan: { done: number; total: number } | null;
   /** Since when (the mission's or the run's start, else when it was created). */
   since: string;
-  /** A run stopped on a person (your ok, your answer): it isn't working, it waits ("espera seu ok"). */
+  /** A run stopped on a person (your ok, your answer): it isn't working, it waits ("esperando você"). */
   waiting: boolean;
+  /** Work another agent handed it: that agent ("ajudando a Ada"), listed where it was handed off. */
+  forAgentId: string | null;
+  /** The reply that handed it off, once posted: where its row opens the thread. */
+  messageId: string | null;
 }
 
 /**
@@ -53,6 +57,8 @@ export function workingNow(runs: WorkingRun[] | undefined, missions: Mission[] |
       plan: { done: m.plan.done, total: m.plan.total },
       since: m.startedAt ?? m.createdAt,
       waiting: false,
+      forAgentId: null,
+      messageId: null,
     });
     seen.add(spot(m.agentId, m.channelId, m.threadId));
   }
@@ -75,6 +81,8 @@ export function workingNow(runs: WorkingRun[] | undefined, missions: Mission[] |
       plan: r.work?.plan ?? null,
       since: r.work?.since ?? newest(r),
       waiting: r.status === "waiting_approval" || r.status === "waiting_input",
+      forAgentId: r.forAgentId ?? null,
+      messageId: r.anchorMessageId ?? null,
     });
   }
   return out;

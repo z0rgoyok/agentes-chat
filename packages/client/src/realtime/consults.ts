@@ -7,8 +7,8 @@ import { isMediaAfterReply } from "../lib/media";
  * respondeu. Dev está escrevendo…". Kept apart from the runs: `ask_agent` never
  * waits, so the asking turn says what it asked and ends while the question is
  * still out; the line stays until the answer (or the server says it's gone:
- * `reconcileConsults`, on load and reconnect). Work handed off (`tell_agent`) isn't on the line: the reply that
- * handed it shows where it is.
+ * `reconcileConsults`, on load and reconnect). Work handed off (`tell_agent`, `kind` `note`) takes the line the same
+ * way, for as long as the other agent is on it (ADR 0095 addendum of 2026-11-13).
  */
 export type LiveConsultStatus = "asking" | ConsultationStatus;
 
@@ -20,6 +20,8 @@ export interface LiveConsult {
   consultedAgentId: string;
   channelId: string;
   threadId: string;
+  /** A question, or work handed off (none: a question). */
+  kind?: "question" | "note";
   status: LiveConsultStatus;
   /** When the question went out (the line's clock). */
   since: number;
@@ -77,7 +79,6 @@ export function applyConsultEvent(
   switch (e.type) {
     case "agent.consulting": {
       const ev = event as Extract<ChannelEvent, { type: "agent.consulting" }>;
-      if (ev.kind === "note") return state;
       return {
         ...state,
         [ev.runId]: {
@@ -86,6 +87,7 @@ export function applyConsultEvent(
           consultedAgentId: ev.consultedAgentId,
           channelId: ev.channelId,
           threadId: ev.threadId,
+          kind: ev.kind === "note" ? "note" : "question",
           status: "asking",
           since: now,
           at: now,
@@ -94,7 +96,6 @@ export function applyConsultEvent(
     }
     case "agent.consulted": {
       const ev = event as Extract<ChannelEvent, { type: "agent.consulted" }>;
-      if (ev.kind === "note") return state;
       const before = state[ev.runId];
       return {
         ...state,
@@ -104,6 +105,7 @@ export function applyConsultEvent(
           consultedAgentId: ev.consultedAgentId,
           channelId: ev.channelId,
           threadId: ev.threadId,
+          kind: ev.kind === "note" ? "note" : (before?.kind ?? "question"),
           status: ev.status,
           since: before?.since ?? now,
           at: now,
@@ -177,6 +179,7 @@ export function reconcileConsults(
       consultedAgentId: o.consultedAgentId,
       channelId: o.channelId,
       threadId: o.threadId,
+      kind: o.kind ?? "question",
       status: "asking",
       since: Number.isNaN(since) ? (known?.since ?? now) : since,
       at: now,

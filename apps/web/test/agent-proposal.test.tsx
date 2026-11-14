@@ -418,7 +418,7 @@ describe("Revisar: Criar agente filled in with the draft", () => {
     // Another one starts empty, without the proposal.
     await click(within(connect).getByRole("button", { name: "Fechar" }));
     await click(screen().getByRole("button", { name: "Criar outro agente" }), 8);
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
   });
 
   test("no AI, and a coding plan to connect picked: Connect opens once, on that plan", async () => {
@@ -534,18 +534,18 @@ describe("Revisar: Criar agente filled in with the draft", () => {
     state.messages.push(proposal("p-1"));
     await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
     await settle(8);
-    await click(screen().getByRole("button", { name: "Editar Papel" }));
+    await click(screen().getByRole("button", { name: "Editar Função" }));
     const custom = screen().getByRole("button", { name: /^Do zero/ });
     expect(custom.getAttribute("aria-pressed")).toBe("true");
-    expect((screen().getByLabelText("Cargo") as HTMLInputElement).value).toBe("Designer");
+    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Designer");
     // Again on the role it has: nothing changes.
     await click(custom);
-    expect((screen().getByLabelText("Cargo") as HTMLInputElement).value).toBe("Designer");
-    await typeIn(screen().getByLabelText("Cargo"), "Design de produto");
+    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Designer");
+    await typeIn(screen().getByRole("textbox", { name: "Função" }), "Design de produto");
     // Another role and back: the name, the instructions and the words stay.
     await click(screen().getByRole("button", { name: /^QA/ }));
     await click(screen().getByRole("button", { name: /^Do zero/ }));
-    expect((screen().getByLabelText("Cargo") as HTMLInputElement).value).toBe("Design de produto");
+    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Design de produto");
     await click(railStep("Revisar e criar"));
     await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
     expect(state.calls.find((c) => c.method === "agents.create")?.args[1]).toMatchObject({

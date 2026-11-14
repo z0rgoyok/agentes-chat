@@ -409,6 +409,8 @@ describe("the desktop app lists every server's workspaces (ADR 0154)", () => {
       expect.stringContaining("Beta"),
       expect.stringMatching(/Oficina.*4/),
       expect.stringContaining("Adicionar workspace"),
+      // Another account beside this one (ADR 0183).
+      expect.stringContaining("Adicionar conta"),
     ]);
     expect(menu.queryByText("Novo workspace")).toBeNull();
     await click(menu.getAllByRole("menuitem")[2] as Element);
@@ -430,6 +432,7 @@ describe("the desktop app lists every server's workspaces (ADR 0154)", () => {
       "agentes.chat",
       expect.stringMatching(/Oficina.*4/),
       expect.stringContaining("Adicionar workspace"),
+      expect.stringContaining("Adicionar conta"),
     ]);
     await click(menu.getByText("Novo workspace"));
     await settle(4);
@@ -451,6 +454,7 @@ describe("the desktop app lists every server's workspaces (ADR 0154)", () => {
       expect(all.slice(all.indexOf("Seus workspaces") + 1)).toEqual([
         ...servers,
         expect.stringContaining("Adicionar workspace"),
+        expect.stringContaining("Adicionar conta"),
         "Sair",
       ]);
       if (here === OWN) {
@@ -469,6 +473,8 @@ describe("the desktop app lists every server's workspaces (ADR 0154)", () => {
       expect.stringContaining("Acme"),
       expect.stringContaining("Beta"),
       expect.stringContaining("Novo workspace"),
+      // The one thing new in a browser: another account beside this one (ADR 0183).
+      expect.stringContaining("Adicionar conta"),
     ]);
     expect(menu.queryByText("Adicionar workspace")).toBeNull();
   });

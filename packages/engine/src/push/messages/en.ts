@@ -94,6 +94,8 @@ export interface PushStrings {
   joinRequestTitlePersonal: (name: string) => string;
   joinSuggestionTitlePersonal: (by: string, name: string) => string;
   teamWeekReadyPersonal: string;
+  /** A reminder of what the person left unread in "Esperando você": how many things, over the oldest one's own line. */
+  teamWatchStill: (count: number) => string;
 }
 
 export const en: PushStrings = {
@@ -195,4 +197,5 @@ export const en: PushStrings = {
   joinRequestTitlePersonal: (name) => `${name} asks to join your workspace`,
   joinSuggestionTitlePersonal: (by, name) => `${by} suggested inviting ${name}`,
   teamWeekReadyPersonal: "Your week is ready",
+  teamWatchStill: (n) => (n === 1 ? "1 thing still waits on you" : `${n} things still wait on you`),
 };

@@ -12,6 +12,7 @@ import { clockAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { computerKind, isPaused } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useNavigation } from "expo-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -118,8 +119,10 @@ function ComputerView({ agentId, onLeave }: { agentId: string; onLeave: (held: B
   const outages = useMachineOutages();
   const now = useNow(15_000);
   const agent = dir.agentById.get(agentId);
-  const name = agent?.name ?? "";
-  const g = agentGrammar(name);
+  // Its shared place says so wherever the screen names whose computer it is.
+  const seat = useSeat(agentId);
+  const name = seat && agent ? t("rightHand.sharedName", { name: agent.name }) : (agent?.name ?? "");
+  const g = agentGrammar(agent?.name ?? "", name);
   const machine = view.machine;
   const computer = computerName(t, org?.name ?? "", machine, isPersonal(org));
   const manages = can(org, "manage_agents") || (Boolean(meId) && agent?.ownerUserId === meId);

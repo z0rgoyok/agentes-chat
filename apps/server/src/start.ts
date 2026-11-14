@@ -29,7 +29,6 @@ import {
   createRelayPushSender,
   createS3BlobStore,
   createSmtpEmailSender,
-  createTurnstileCheck,
   createWebPushSender,
   type EmailSender,
   type ErrorReporter,
@@ -96,7 +95,7 @@ import { createApp } from "./app";
 import { createAuth } from "./auth";
 import { buildEngine } from "./engine";
 import { startFreezeWatch } from "./freeze-watch";
-import { checkHumanCheckAtBoot } from "./http/human-check";
+import { checkHumanCheckAtBoot, createHumanCheck } from "./http/human-check";
 import { createLogger, type Logger } from "./logger";
 import { OPERATOR_API_PREFIX, serveOperatorApi } from "./operator/app";
 import { createMachineSockets } from "./realtime/machines";
@@ -262,16 +261,7 @@ async function boot(
     ),
     // People's Postgres databases for agents (ADR 0039): always on; every connection is checked and read-only.
     databases: createPostgresDatabaseDriver(),
-    // agentes.chat Cloud's bot check (ADR 0075), only with both keys: without them nothing reaches Cloudflare.
-    humanCheck:
-      config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY
-        ? createTurnstileCheck({
-            siteKey: config.TURNSTILE_SITE_KEY,
-            secretKey: config.TURNSTILE_SECRET_KEY,
-            hostnames: [new URL(config.PUBLIC_URL).hostname],
-            log,
-          })
-        : null,
+    humanCheck: createHumanCheck(config, { log }),
     // GIFs in chat (ADR 0091), only with a key: without one nothing reaches GIPHY and the app shows no GIFs.
     gifs: gifProvider(config, () => gifKey?.key() ?? null),
     // The Vault's external sources (ADR 0144): nothing reaches them until a person connects one. A self-hosted

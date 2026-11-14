@@ -1,8 +1,8 @@
 import { isTailnet, type ServerProblem } from "@agenteschat/client/lib/server";
 import { signOutOf } from "@/features/account";
 import { signInOneTime } from "@/lib/auth";
-import { orgValueName, serverUrl, setServer, signedInServers } from "@/lib/server";
-import { connectPlan } from "@/lib/server-choice";
+import { newAccountPlace, orgValueName, placeKey, serverUrl, setServer, signedInServers } from "@/lib/server";
+import { connectPlan, serverOf } from "@/lib/server-choice";
 import { writeValue } from "@/lib/storage";
 import { router } from "@/ui/navigation";
 
@@ -28,19 +28,22 @@ export const problemText = (problem: ServerProblem, server: string): string =>
  * is signed in to replaces them there (`connectPlan`). False when the token was refused (expired or already used).
  */
 export async function connectToServer(target: { server: string; token?: string }) {
-  const plan = connectPlan(serverUrl(), target, signedInServers().includes(target.server));
-  if (plan.signOut) await signOutOf(target.server);
-  if (plan.move) await setServer(target.server);
-  return plan.token ? signInOneTime(plan.token, target.server) : true;
+  // On that server already, as any of its accounts (ADR 0183): the link is for the account the app is on.
+  const place = serverOf(placeKey()) === target.server ? placeKey() : target.server;
+  const plan = connectPlan(serverUrl(), target, signedInServers().includes(place));
+  if (plan.signOut) await signOutOf(place);
+  if (plan.move) await setServer(place);
+  return plan.token ? signInOneTime(plan.token, place) : true;
 }
 
 /**
- * Opens a workspace, on this server or another one signed in to (ADR 0154): remembered as that server's workspace,
- * the screens of this one closed, then the app moves there. Nothing signs out.
+ * Opens a workspace, in this place or another one signed in to (another server, ADR 0154, or another account on one,
+ * ADR 0183): remembered as that place's workspace, the screens of this one closed, then the app moves there. Nothing
+ * signs out.
  */
 export async function openWorkspace(server: string, orgId: string | null) {
   if (orgId) await writeValue(orgValueName(server), orgId);
-  if (server === serverUrl()) return;
+  if (server === placeKey()) return;
   let closing = false;
   try {
     if (router.canDismiss()) {
@@ -55,3 +58,9 @@ export async function openWorkspace(server: string, orgId: string | null) {
   if (closing) await new Promise((done) => setTimeout(done, 450));
   await setServer(server);
 }
+
+/**
+ * One more account on `server`, beside whoever is signed in there (ADR 0183): the app moves to a place of its own
+ * with nobody in it, so its sign-in shows, with the way back to the account before. Nothing signs out.
+ */
+export const addAccount = (server: string) => openWorkspace(newAccountPlace(server), null);

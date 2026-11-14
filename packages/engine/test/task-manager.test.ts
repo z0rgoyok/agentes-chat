@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { eq, schema, sql } from "@agenteschat/db";
 import {
+  addChannelMember,
   addRunStep,
   cancelRun,
   continuePausedRuns,
@@ -382,6 +383,56 @@ describe("the task manager", () => {
     const after = await taskManager(f.db, f.owner.id, f.org.id);
     expect(after.tasks).toHaveLength(0);
     expect(after.ended[0]).toMatchObject({ runId: run.id, status: "canceled", stoppedBy: { userId: f.owner.id } });
+  });
+
+  test("each task says how it stands for its reader, by an agent's line's rule and clock", async () => {
+    f = await setup();
+    await ask("@dev faz o merge do PR #12");
+    const [run] = await runs();
+    if (!run) throw new Error("no run");
+    const bia = await addMember(f.db, f.org.id, "member", "bia");
+    const caio = await addMember(f.db, f.org.id, "member", "caio");
+    for (const id of [bia.id, caio.id])
+      await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: id });
+    const workOf = async (userId: string) =>
+      (await taskManager(f.db, userId, f.org.id)).tasks.find((t) => t.runId === run.id)?.work;
+    const startedAt = new Date(Date.now() - 600_000);
+    await f.db.update(schema.agentRuns).set({ status: "running", startedAt }).where(eq(schema.agentRuns.id, run.id));
+    expect(await workOf(caio.id)).toEqual({ state: "working", since: startedAt.toISOString(), card: null });
+
+    // Parked on a card Bia decides (she owns its approvals), as the workspace's owner does: theirs. Caio's waits on
+    // someone else, since the card was posted, however long it worked before.
+    await f.db
+      .update(schema.agentRuns)
+      .set({ status: "waiting_approval", updatedAt: new Date() })
+      .where(eq(schema.agentRuns.id, run.id));
+    const cardAt = new Date(Date.now() - 180_000);
+    await f.db.insert(schema.approvals).values({
+      orgId: f.org.id,
+      runId: run.id,
+      agentId: f.agent.id,
+      channelId: f.general.id,
+      threadRootId: run.threadRootId,
+      toolUseId: "toolu_1",
+      tool: "github_merge_pull_request",
+      scope: "",
+      params: {},
+      actionHash: "hash",
+      title: "Merge PR #12",
+      ownerUserId: bia.id,
+      requestedByUserId: f.owner.id,
+      expiresAt: new Date(Date.now() + 3600_000),
+      createdAt: cardAt,
+      messageId: run.triggerMessageId,
+    });
+    expect((await workOf(bia.id))?.state).toBe("you");
+    expect((await workOf(f.owner.id))?.state).toBe("you");
+    // Its row opens at the card.
+    expect(await workOf(caio.id)).toEqual({
+      state: "approval",
+      since: cardAt.toISOString(),
+      card: run.triggerMessageId,
+    });
   });
 
   test("a task stopped to read a message its person sent is no ended task: it goes on in the next run", async () => {

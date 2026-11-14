@@ -302,7 +302,7 @@
   },
   "along": {
     "agent": "Een agent",
-    "waits": "{{name}} wacht op je akkoord",
+    "waits": "{{name}} · wacht op jou",
     "on": "{{name}} · {{what}}",
     "working": "{{name}} is aan het werk",
     "more": "+{{count}}"
@@ -792,7 +792,7 @@
     "teamSectionPersonal": "Je agents",
     "managerQuiet": "Er loopt niets",
     "state": {
-      "waitsYou": "wacht op je akkoord",
+      "waitsYou": "wacht op jou",
       "noAi": "Geen AI gekoppeld",
       "connect": "Koppelen",
       "archived": "Gearchiveerd",
@@ -1138,6 +1138,9 @@
     "addWorkspaceTeamShort": "Naar de server van je team",
     "addWorkspaceTeamSubShort": "Adres of QR-code van de computer",
     "addWorkspaceFoot": "Je verlaat geen enkele werkruimte.",
+    "addAccount": "Inloggen bij een ander account",
+    "addAccountSub": "Op {{host}}, zonder dit te verlaten",
+    "accountNoWorkspace": "Nog geen werkruimte",
     "teamServerLeadShort": "Wat je team in de browser opent.",
     "teamServerQuestion": "Wat is het adres van je team?",
     "account": {
@@ -1155,6 +1158,8 @@
       "name": "Naam",
       "namePlaceholder": "Je naam",
       "email": "E-mail",
+      "emailWebLead": "Log opnieuw in op de website en wijzig het daar, zonder de code.",
+      "emailWeb": "Opnieuw inloggen op de website",
       "inWorkspace": "In deze werkruimte · {{org}}",
       "handle": "Je @",
       "timezone": "Tijdzone",
@@ -1439,7 +1444,7 @@
       "plain": "heeft een klus afgerond"
     },
     "rowWait": {
-      "approval": "wacht op je akkoord",
+      "approval": "wacht op jou",
       "question": "wacht op je antwoord",
       "mission": "wacht tot je het nakijkt"
     },
@@ -1477,13 +1482,13 @@
   },
   "intentAgents": {
     "waitingSection": "Wacht op jou",
-    "waitingLine": "{{title}} · heeft je akkoord nodig",
+    "waitingLine": "{{title}} · wacht op jou",
     "waitingMore_one": "{{title}} · en nog {{count}} die op je wacht",
     "waitingMore_other": "{{title}} · en nog {{count}} die op je wachten",
-    "waitingLabel": "{{name}}, heeft je akkoord nodig",
+    "waitingLabel": "{{name}}, wacht op jou",
     "owner": "Eigenaar: {{name}}",
     "ownerYou": "Eigenaar: jij",
-    "nowWaiting": "Heeft je akkoord nodig: {{title}}",
+    "nowWaiting": "Wacht op jou: {{title}}",
     "did": {
       "title": "Wat hij voor je deed",
       "title_female": "Wat zij voor je deed",
@@ -1502,7 +1507,7 @@
         "image": "Afbeelding",
         "file": "Bestand"
       },
-      "waitingOnYou": "Heeft je akkoord nodig",
+      "waitingOnYou": "Wacht op jou",
       "youApproved": "Je hebt goedgekeurd",
       "youRefused": "Je hebt geweigerd",
       "action": {
@@ -2256,14 +2261,164 @@
       "toolsHow": "Tik op een tool die aan staat om hem uit te zetten. Weer aanzetten: op de computer zelf, of hier door wie hem heeft gekoppeld.",
       "toolsHowOwner": "Tik op een tool om hem aan of uit te zetten."
     },
-    "roles": {
-      "onComputer": "De volgorde van de rollen en het pictogram van elke rol wijzig je op de computer.",
-      "items": "Per onderdeel",
-      "create": "Maken"
-    },
     "import": {
       "preparing": "Het bestand voorbereiden…",
       "failed": "Het bestand kon niet worden gedownload. Probeer het opnieuw."
+    }
+  },
+  "roles": {
+    "create": "Maken",
+    "search": "Rol zoeken",
+    "baseHint": "Geldt voor iedereen in de werkruimte. Rollen komen hier bovenop.",
+    "orderHint": "Wie hoger staat, beheert de rollen en de mensen eronder. De kleur van ieders naam komt van zijn hoogste rol.",
+    "order": "Volgorde",
+    "orderDone": "Klaar",
+    "up": "{{name}} omhoog",
+    "down": "{{name}} omlaag",
+    "orderChanged": "De rollen zijn veranderd terwijl je ze verplaatste. Laad opnieuw en probeer het nog eens.",
+    "none": "Nog geen rollen. Maak er een om sommige mensen meer te geven.",
+    "noMatch": "Geen rol komt overeen met “{{q}}”.",
+    "tooMany": "Deze werkruimte heeft al 100 rollen. Verwijder er een om een nieuwe te maken.",
+    "loadFailed": "De rollen konden niet worden geladen. {{cause}}",
+    "backToList": "Terug naar rollen",
+    "nobody": "Niemand",
+    "reach": {
+      "permissions_one": "{{count}} recht",
+      "permissions_other": "{{count}} rechten",
+      "channels_one": "{{count}} kanaal",
+      "channels_other": "{{count}} kanalen",
+      "agents_one": "{{count}} agent",
+      "agents_other": "{{count}} agents",
+      "more": "+{{what}}",
+      "all": "Mag alles",
+      "owner": "Mag alles, altijd",
+      "none": "Alleen wat Iedereen mag",
+      "baseNone": "Alleen lezen"
+    },
+    "tabs": {
+      "permissions": "Rechten",
+      "channels": "Kanalen",
+      "agents": "Agents"
+    },
+    "addOwners": "Eigenaren toevoegen",
+    "icons": {
+      "shield": "Schild",
+      "code": "Broncode",
+      "wallet": "Portemonnee",
+      "mail": "E-mail",
+      "bolt": "Bliksem",
+      "flag": "Vlag",
+      "book": "Boek",
+      "chart": "Grafiek",
+      "bulb": "Gloeilamp",
+      "globe": "Wereldbol",
+      "pullRequest": "Pull-request",
+      "calendar": "Agenda",
+      "message": "Bericht",
+      "eye": "Oog",
+      "plug": "Stekker",
+      "person": "Persoon"
+    },
+    "inviteWith": "Uitnodigen met deze rol",
+    "searchPermission": "Recht zoeken",
+    "everyoneCan": "Iedereen mag het",
+    "only": "Alleen {{names}}",
+    "notHeld": "Je hebt dit recht niet.",
+    "noPermissionMatch": "Geen recht komt overeen met “{{q}}”.",
+    "advanced": "Geavanceerd",
+    "peopleOnly": "Rollen gelden voor mensen. Elke agent heeft eigen rechten, op zijn pagina.",
+    "nowAbove": "Deze rol staat nu boven de jouwe. Alleen iemand hoger kan hem wijzigen.",
+    "admin": {
+      "title": "Beheerder aanzetten voor {{name}}?",
+      "text": "Wie {{name}} heeft, mag dan alles behalve wat alleen de eigenaar mag.",
+      "count_one": "Dat is {{count}} persoon.",
+      "count_other": "Dat zijn {{count}} mensen.",
+      "on": "Beheerder aanzetten",
+      "note": "Met Beheerder mag {{name}} alles behalve wat alleen de eigenaar mag."
+    },
+    "computers": {
+      "title": "Computers van agents",
+      "hint": "Browser: de browser en de inlogverzoeken. Computer: ook het hele scherm en de terminal. Eigen agents: die waar de persoon verantwoordelijk voor is en de computers die die persoon heeft gekoppeld.",
+      "steps": {
+        "0": "Gebruikt geen",
+        "1": "Browser van eigen agents",
+        "2": "Computer van eigen agents",
+        "3": "Browser van elke agent",
+        "4": "Computer van elke agent"
+      },
+      "stepsIn": {
+        "1": "de browser van eigen agents",
+        "2": "de computer van eigen agents",
+        "3": "de browser van elke agent",
+        "4": "de computer van elke agent"
+      },
+      "everyoneTo": "Iedereen krijgt {{step}}.",
+      "everyoneNone": "Iedereen stopt met de computers van agents."
+    },
+    "whoCan": "Wie mag",
+    "everyoneSub": "Iedereen in de werkruimte",
+    "someRoles": "Alleen sommige rollen",
+    "losing": "Verliezen het: {{names}}.",
+    "nobodyLoses": "Niemand verliest iets.",
+    "everyoneGets": "Iedereen krijgt het.",
+    "ownersAlways": "Eigenaren mogen het altijd.",
+    "noOtherRoles": "Er zijn nog geen andere rollen.",
+    "channels": {
+      "header": "Wie {{name}} heeft, ziet",
+      "headerBase": "Iedereen ziet",
+      "hint": "Dit gaat over mensen. Een agent komt in een kanaal als iemand hem toevoegt.",
+      "search": "Kanaal zoeken",
+      "everyone": "Iedereen ziet het",
+      "private": "Privé",
+      "general": "Iedereen blijft in #general.",
+      "locked": "Alleen wie #{{channel}} heeft gemaakt of kanalen ordent, wijzigt wie het ziet.",
+      "leaveTitle": "#{{channel}} weghalen bij {{name}}?",
+      "leave_one": "{{names}} verlaat het kanaal.",
+      "leave_other": "{{names}} verlaten het kanaal.",
+      "leaveAction": "Weghalen",
+      "openTitle": "#{{channel}} openen voor {{name}}?",
+      "openText": "Wie {{name}} heeft, ziet het kanaal en de hele geschiedenis en kan meedoen.",
+      "openAction": "Openen",
+      "openAllTitle": "#{{channel}} openen voor iedereen?",
+      "openAllText": "De hele geschiedenis komt open voor de werkruimte.",
+      "admin": "Met Beheerder ziet wie {{name}} heeft alle kanalen.",
+      "onlyGeneral": "Er is voorlopig alleen #general.",
+      "noMatch": "Geen kanaal komt overeen met “{{q}}”.",
+      "ungrouped": "Kanalen",
+      "whoSees": "Wie ziet",
+      "allSub": "Iedereen in de werkruimte ziet het en kan meedoen.",
+      "invited": "Alleen wie wordt toegevoegd",
+      "invitedSub": "Niemand nieuw ziet het. Wie erin zit, blijft.",
+      "unsee": "Wie erin zit, blijft. Zien het niet meer: {{names}}."
+    },
+    "agents": {
+      "header": "Wie {{name}} heeft, praat met",
+      "headerBase": "Iedereen praat met",
+      "hint": "Dit gaat over mensen. Wat elke agent doet, staat op zijn pagina.",
+      "everyone": "Iedereen praat ermee",
+      "gate": "Wie alleen {{name}} heeft, praat niet met agents.",
+      "gateOn": "Met agents praten aanzetten",
+      "locked": "Alleen {{owner}}, verantwoordelijk voor {{name}}, of wie elke agent bewerkt, wijzigt dit.",
+      "locked_female": "Alleen {{owner}}, verantwoordelijk voor {{name}}, of wie elke agent bewerkt, wijzigt dit.",
+      "lockedNoOwner": "Alleen wie elke agent bewerkt, wijzigt dit.",
+      "none": "Nog geen agents.",
+      "some": "Alleen sommige rollen en mensen",
+      "addPerson": "Persoon toevoegen",
+      "losing": "Praten niet meer met {{agent}}: {{names}}."
+    },
+    "people": {
+      "removed": "{{person}} heeft {{name}} niet meer",
+      "selfTitle": "Jezelf uit {{name}} halen?",
+      "selfText": "Je verliest wat alleen {{name}} geeft. Alleen iemand boven je geeft het terug."
+    },
+    "mail": {
+      "title_one": "Een agent verliest een mailbox",
+      "title_other": "Agents verliezen {{count}} mailboxen",
+      "loses": "{{agent}} verliest {{address}}, de mailbox van {{owner}}.",
+      "losesAddress": "{{agent}} verliest de mailbox {{address}}.",
+      "only": "Alleen wie een mailbox gaf, geeft hem opnieuw.",
+      "addAnyway": "Toch toevoegen",
+      "giveAnyway": "Toch geven"
     }
   },
   "vault": {

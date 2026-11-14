@@ -22,7 +22,7 @@ was a private channel kept by hand.
 ## Decision
 
 1. **A private channel with roles.** `channels.audience_role_ids` (uuid[], empty by default). A private channel with
-   roles is "Departamentos ou papéis": whoever holds one of them **at the time** sees it in their list and on a
+   roles is "Departamentos ou cargos": whoever holds one of them **at the time** sees it in their list and on a
    `#channel` card, and may join it. Everyone else gets what a private channel gives them: nothing listed, a 404 card,
    a refused join. A public channel never keeps roles (the server clears them, and refuses them on create).
 2. **See and join, not automatic membership.** The channel is listed for the role's people like a public one (not a
@@ -38,10 +38,12 @@ was a private channel kept by hand.
 4. **Who picks.** Anyone who may create a channel may limit it to any of the workspace's custom roles (not
    `everyone`, which is "Público"); changing it later is for its creator or `manage_channels`, as for its name.
    At most 100 roles.
-5. **Apps.** "Quem pode entrar" has a third card, "Departamentos ou papéis", with the roles to tick (the same rows as
+5. **Apps.** "Quem pode entrar" has a third card, "Departamentos ou cargos", with the roles to tick (the same rows as
    an agent's audience, `RoleChecklist`), in Criar canal and in the channel's details (saved on each change once a
    role is ticked; hidden for #general). The phone joins such a channel from its card like a public one
-   (`joinable`); choosing who may join stays on the web, as private channels did.
+   (`joinable`); choosing who may join stays on the web, as private channels did. *Amended 2026-11-13:* a cargo's
+   Canais tab (ADR 0085, addendum of 2026-11-13) sets the same `audience_role_ids` from the cargo's side, with the
+   same meaning: see and join, membership following the cargos.
 
 ## Consequences
 

@@ -47,10 +47,11 @@ import {
   toolOneClick,
 } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { SHARED_SEAT, screenId } from "@agenteschat/client/lib/seat";
 import { helpUrl } from "@agenteschat/client/lib/server";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { countryFlagSvg } from "@agenteschat/ui/brand/flags";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
@@ -72,6 +73,7 @@ import {
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note, openPage } from "../ai/parts";
+import { openComputer } from "../computer/AgentComputerRow";
 import { ComputerSection } from "../devices/ComputerSection";
 import { findDevice } from "../devices/logic";
 import { StatusLine } from "../devices/parts";
@@ -114,6 +116,14 @@ export function MachineScreen({ machineId }: { machineId: string }) {
       queryFn: () => api.desktop.status(orgId, a.id),
       retry: false,
     })),
+  });
+  // The right hand's shared place here (ADR 0175), for whoever may open it: its screen's state answers only them.
+  const sharedOf = m?.agents.find((a) => a.id === m.sharedSeatOf);
+  const sharedDesktop = useQuery({
+    queryKey: keys.agentDesktop(orgId, screenId(sharedOf?.id ?? "", SHARED_SEAT)),
+    queryFn: () => api.desktop.status(orgId, sharedOf?.id ?? "", SHARED_SEAT),
+    enabled: Boolean(sharedOf),
+    retry: false,
   });
 
   if (!m) {
@@ -330,6 +340,20 @@ export function MachineScreen({ machineId }: { machineId: string }) {
                 />,
               ];
             })}
+            {sharedOf && sharedDesktop.isSuccess ? (
+              <GroupedRow
+                icon="laptop"
+                label={t(
+                  "agentComputer.title",
+                  agentGrammar(sharedOf.name, t("rightHand.sharedName", { name: sharedOf.name })),
+                )}
+                sub={t("rightHand.sharedPlace")}
+                subLines={4}
+                value={t("agentComputer.open")}
+                chevron
+                onPress={() => openComputer(sharedOf.id, SHARED_SEAT)}
+              />
+            ) : null}
           </GroupedList>
         </>
       ) : null}

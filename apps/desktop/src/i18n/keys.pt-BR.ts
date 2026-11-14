@@ -330,6 +330,8 @@ export const desktopPtBR = {
     offline: "Fora do ar desde {{time}}",
     signIn: "Entrar",
     signOut: "Sair deste servidor",
+    /** A server with several accounts signed in (ADR 0183): one more beside them, from its menu. */
+    addAccount: "Adicionar conta",
     signedOutDone: "Você saiu de {{host}}",
     removeFromApp: "Remover deste app",
     newsOne: "1 notificação nova",
@@ -599,7 +601,7 @@ export const desktopPtBR = {
       whoIn: "Quem pode usar em {{org}}",
       owner: "Só eu",
       everyone: "Todos em {{org}}",
-      people: "Pessoas ou papéis específicos",
+      people: "Pessoas ou cargos específicos",
       edit: "Editar",
       pickTitle: "Quem pode usar este {{device}}",
       search: "Buscar pessoas",

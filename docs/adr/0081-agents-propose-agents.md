@@ -52,7 +52,7 @@ The decision reaches the agent that proposed it as a `proposal_result` notice in
 ### 6. The apps
 
 - Web and the desktop app (its window loads the site, ADR 0036): the card shows the draft's face, name, @handle and role, the AI it would think with and the agent's line, with Revisar and Recusar for who may create agents while it is open; anyone else sees it waiting for an admin. Revisar opens Criar agente (`?proposal=`) on its last step, filled in with the draft, where every step can be edited and Recusar says no too (then back to the conversation). Picking a role there changes the role alone, and a role's words are a field of their own under Do zero (in any new agent). The channels it proposes are listed even when the reviewer isn't in them, and the agent joins them. Created, the card links to the agent's page.
-- Phone: the same card in the chat. Revisar opens the phone's own Criar agente (Papel, Quem é, O que faz, Revisar) filled in, with the same rules for the role and the channels; a tap on an app in Revisar moves its level on (Sem acesso, Ler, Ler e escrever), and Recusar is there too. The suggested account is given to the new agent when it is the reviewer's, and with no AI the Connect sheet opens over the new agent's conversation.
+- Phone: the same card in the chat. Revisar opens the phone's own Criar agente (Função, Quem é, O que faz, Revisar) filled in, with the same rules for the role and the channels; a tap on an app in Revisar moves its level on (Sem acesso, Ler, Ler e escrever), and Recusar is there too. The suggested account is given to the new agent when it is the reviewer's, and with no AI the Connect sheet opens over the new agent's conversation.
 
 ## Consequences
 

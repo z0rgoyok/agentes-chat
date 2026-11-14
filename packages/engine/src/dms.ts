@@ -9,7 +9,7 @@ import { publishChannelEvent, publishUserEvent } from "./events";
 import { landedAfterSql } from "./message-place";
 import { type PreviewMeta, previewMediaKind, previewMeta, readableBody } from "./message-preview";
 import { quietNoticeSql } from "./notices";
-import { resolveNotifications } from "./notifications";
+import { resolveNotifications, unaskedGroup } from "./notifications";
 import { can, getMembership, requirePermission } from "./organizations";
 import { accountInUse, closedRefusal } from "./standing";
 
@@ -425,7 +425,8 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
 /**
  * Marks a channel (or DM) read up to now for me. In a DM between people the other one hears it
  * (`channel.read`): their app says "Visto" under the last message I read. An agent's answers there
- * (`agent_reply`) are seen, so they leave the inbox and never push (ADR 0071).
+ * (`agent_reply`) and what the right hand wrote there by itself are seen, so they leave the inbox and never push
+ * (ADR 0071).
  */
 export async function markChannelRead(
   db: Database,
@@ -452,6 +453,7 @@ export async function markChannelRead(
     userIds: [actorId],
     kind: "agent_reply",
   });
+  await resolveNotifications({ db, pubsub }, orgId, { groupKeyPrefix: unaskedGroup(channelId), userIds: [actorId] });
   const read = { type: "channel.read" as const, channelId, userId: actorId, lastReadAt: at.toISOString() };
   if (member.kind === "dm") await publishChannelEvent(pubsub, read);
   // My other devices: the conversation stops looking unread there too.

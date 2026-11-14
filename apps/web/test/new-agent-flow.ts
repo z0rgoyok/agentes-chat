@@ -29,7 +29,7 @@ export async function startAs(role: string) {
   await proceed();
 }
 
-/** A step on the rail ("Papel", "Ferramentas e acesso"…). */
+/** A step on the rail ("Função", "Ferramentas e acesso"…). */
 export const railStep = (name: string) =>
   screen().getByRole("button", { name: new RegExp(`^${name}`) }) as HTMLButtonElement;
 

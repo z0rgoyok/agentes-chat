@@ -4,8 +4,9 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { EmailLetter } from "@/components/EmailLetter";
 import { createFakeApi, ENG_ID, type FakeState, ORG_ID, seedState } from "./fake-api";
-import { renderApp, screen, settle } from "./render";
+import { renderApp, renderPage, screen, settle } from "./render";
 
 afterEach(() => cleanup());
 
@@ -70,5 +71,34 @@ describe("an approval's preview: what will happen, drawn as an attachment's cove
     });
     expect(card.querySelector(".rq__preview")).toBeNull();
     expect(card.querySelector(".rq__well")).not.toBeNull();
+  });
+});
+
+describe("an email folded to its first lines", () => {
+  test("Ver mais opens its text in place, for good: no Ver menos, the focus on the text", async () => {
+    const body = Array.from({ length: 8 }, (_, i) => `Linha ${i + 1} do e-mail para o cliente.`).join("\n");
+    await renderPage(
+      <EmailLetter
+        email={{
+          verb: "send",
+          mailbox: "suporte@example.com",
+          provider: "Gmail",
+          from: "suporte@example.com",
+          to: ["cliente@example.com"],
+          cc: [],
+          bcc: [],
+          subject: "Coleta confirmada",
+          body,
+          original: null,
+        }}
+      />,
+      { api: createFakeApi(seedState()) },
+    );
+    const text = document.querySelector(".email-letter__body") as HTMLElement;
+    expect(text.hasAttribute("data-folded")).toBe(true);
+    await click(screen().getByRole("button", { name: "Ver mais" }));
+    expect(text.hasAttribute("data-folded")).toBe(false);
+    expect(screen().queryByRole("button")).toBeNull();
+    expect(document.activeElement === text).toBe(true);
   });
 });

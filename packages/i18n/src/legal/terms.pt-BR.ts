@@ -3,7 +3,7 @@ import type { LegalDocument } from "./types";
 export const termsPtBR: LegalDocument = {
   title: "Termos de uso",
   summary: "O acordo para usar o agentes.chat: o seu workspace, os seus agentes e pelo que cada lado responde.",
-  updated: "2026-11-06",
+  updated: "2026-11-13",
   sections: [
     {
       id: "agreement",
@@ -17,7 +17,7 @@ export const termsPtBR: LegalDocument = {
       id: "service",
       heading: "2. O Serviço",
       blocks: [
-        "O Serviço é um workspace onde pessoas e agentes de IA trabalham juntos. Ele inclui canais, threads e mensagens diretas, e agentes com papel, instruções, memória e orçamento próprios. Inclui também tarefas, wiki, Drive, calendário e rotinas, aprovações, conectores com outros serviços e a opção de conectar computadores em que os agentes podem trabalhar.",
+        "O Serviço é um workspace onde pessoas e agentes de IA trabalham juntos. Ele inclui canais, threads e mensagens diretas, e agentes com função, instruções, memória e orçamento próprios. Inclui também tarefas, wiki, Drive, calendário e rotinas, aprovações, conectores com outros serviços e a opção de conectar computadores em que os agentes podem trabalhar.",
         "O Serviço é novo e continua evoluindo: os recursos podem mudar, ser limitados ou removidos. Podemos abrir contas novas só por convite durante um tempo, ou para qualquer pessoa que se cadastrar. Quando possível, avisaremos antes de remover algo de que você dependa.",
       ],
     },
@@ -25,7 +25,7 @@ export const termsPtBR: LegalDocument = {
       id: "accounts",
       heading: "3. Contas e workspaces",
       blocks: [
-        "Você responde pela exatidão dos dados da sua conta, pela segurança das suas credenciais e por toda atividade na sua conta. Os donos e administradores de um workspace decidem quem entra nele, com quais papéis, quais agentes existem e o que esses agentes podem fazer. Quando estes Termos dizem que um workspace é dono de algo, decide algo ou responde por algo, falam da pessoa ou entidade que o criou, ou em nome de quem ele foi criado, agindo pelos donos e administradores dele. Avise-nos logo em security@agentes.chat se achar que uma conta, uma chave ou um computador conectado foi comprometido.",
+        "Você responde pela exatidão dos dados da sua conta, pela segurança das suas credenciais e por toda atividade na sua conta. Os donos e administradores de um workspace decidem quem entra nele, com quais cargos, quais agentes existem e o que esses agentes podem fazer. Quando estes Termos dizem que um workspace é dono de algo, decide algo ou responde por algo, falam da pessoa ou entidade que o criou, ou em nome de quem ele foi criado, agindo pelos donos e administradores dele. Avise-nos logo em security@agentes.chat se achar que uma conta, uma chave ou um computador conectado foi comprometido.",
       ],
     },
     {

@@ -109,15 +109,14 @@ const click = async (el: HTMLElement) => {
 };
 
 describe("receipts under the agent's reply", () => {
-  test("one change: a quiet row, one line whole in its tip, the target links to the issue, nothing else", async () => {
+  test("one change: a quiet row, its words whole with no tip repeating them, the target links to the issue, nothing else", async () => {
     // Who sees the task is the task's own: the receipt says nothing of it.
     await open(withActions([action({ params: { ...action().params, audience: "everyone" } })]));
     const group = receipts();
     const row = group.querySelector(".ag-rc") as HTMLElement;
     expect(row.textContent).toBe("Criei a tarefa #23 · Prompt de avaliação após a assinatura");
     const line = row.querySelector(".ag-rc__sentence") as HTMLElement;
-    expect(line.className).toContain("ag-rc__line");
-    expect(line.title).toBe("Criei a tarefa #23 · Prompt de avaliação após a assinatura");
+    expect(line.hasAttribute("title")).toBe(false);
     const link = within(group).getByRole("link", { name: "#23" });
     expect(link.getAttribute("href")).toBe(`/org/${ORG_ID}/issues/23`);
     expect(within(group).queryAllByRole("button")).toHaveLength(0);
@@ -148,7 +147,7 @@ describe("receipts under the agent's reply", () => {
         .getAllByRole("link")
         .map((l) => [l.textContent, l.getAttribute("href")]),
     ).toEqual([58, 59, 60].map((n) => [`#${n}`, `/org/${ORG_ID}/issues/${n}`]));
-    expect(tasks.querySelector<HTMLElement>(".ag-rc__line")?.title).toBe(
+    expect(tasks.querySelector<HTMLElement>(".ag-rc__sentence")?.title).toBe(
       [58, 59, 60]
         .map((n) => `Criei a tarefa #${n} · Página de preços: o botão Assinar não responde no tablet ${n}`)
         .join("\n"),
@@ -169,6 +168,24 @@ describe("receipts under the agent's reply", () => {
     const row = receipts().querySelector(".ag-rc") as HTMLElement;
     expect(row.textContent).toContain("Criei a rotina Resumo da semana");
     expect(row.textContent).toContain("Faz sozinha, sem pedir: Enviar mensagem (Slack) e Enviar e-mail (Gmail)");
+  });
+
+  test("a routine with a long name and its schedule: every word shows, wrapped, on a card as wide as its words", async () => {
+    const name = "Relatório diário da loja: pedidos atrasados, trocas pendentes e o que cada transportadora prometeu";
+    await open(
+      withActions([
+        action({
+          kind: "routine.created",
+          target: { type: "routine", id: "rt-1", title: name },
+          params: { name, rule: { freq: "daily", times: ["08:00"], timezone: "America/Sao_Paulo" } },
+        }),
+      ]),
+    );
+    const row = receipts().querySelector(".ag-rc") as HTMLElement;
+    const sentence = row.querySelector(".ag-rc__sentence") as HTMLElement;
+    expect(sentence.textContent).toStartWith(`Criei a rotina ${name} · Todos os dias`);
+    // Nothing on the card cuts its words with "…".
+    expect(row.querySelector(".ag-rc__line")).toBeNull();
   });
 
   test("a changed routine: its tile icon at the 14px text's 16px, a real space before its bold name", async () => {
@@ -242,10 +259,9 @@ describe("receipts under the agent's reply", () => {
     const rows = [...group.querySelectorAll(".ag-rcg__it")] as HTMLElement[];
     expect(rows.map((r) => r.className.includes("is-undone"))).toEqual([false, true]);
     expect(rows[1]?.textContent).toContain("Desfeito por João");
-    // The line under a row is one line too, cut with "…", whole in its tip.
+    // The line under a row is whole too.
     const by = rows[1]?.querySelector(".ag-rc__by") as HTMLElement;
-    expect(by.className).toContain("ag-rc__line");
-    expect(by.title).toBe("Desfeito por João");
+    expect(by.textContent).toBe("Desfeito por João");
   });
 
   test("the files a change brought: one line of their own under it", async () => {
@@ -253,7 +269,23 @@ describe("receipts under the agent's reply", () => {
     const row = receipts().querySelector(".ag-rc") as HTMLElement;
     const files = row.querySelector(".ag-rc__by") as HTMLElement;
     expect(files.textContent).toBe("Anexei print.png e registro.txt");
-    expect(files.className).toContain("ag-rc__line");
+  });
+
+  test("worst case: several changes, a long title and a file name with nowhere to break, every word on the card", async () => {
+    const file = "relatorio_final_consolidado_campanha_black_friday_2026_versao_revisada_pela_diretoria.png";
+    const title = "Página de preços: o botão Assinar não responde no tablet quando o cupom de desconto expira no meio";
+    await open(
+      withActions([
+        action({
+          target: { type: "issue", id: "iss-23", number: 23, title },
+          params: { number: 23, title, files: [file] },
+        }),
+        memory(),
+      ]),
+    );
+    const rows = [...receipts().querySelectorAll<HTMLElement>(".ag-rcg__it")];
+    expect(rows[0]?.querySelector(".ag-rc__sentence")?.textContent).toBe(`Criei a tarefa #23 · ${title}`);
+    expect(rows[0]?.querySelector(".ag-rc__by")?.textContent).toBe(`Anexei ${file}`);
   });
 
   test("on a phone, a tap on a row's words lists each change whole, each opening its own; the message's menu stays shut", async () => {

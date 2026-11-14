@@ -315,6 +315,7 @@
     "offline": "Не в сети с {{time}}",
     "signIn": "Войти",
     "signOut": "Выйти с этого сервера",
+    "addAccount": "Добавить аккаунт",
     "signedOutDone": "Вы вышли с {{host}}",
     "removeFromApp": "Убрать из этого приложения",
     "newsOne": "1 новое уведомление",

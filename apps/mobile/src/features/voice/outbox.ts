@@ -3,7 +3,8 @@ import { upsertMessage } from "@agenteschat/client/lib/timeline";
 import type { QueryClient } from "@tanstack/react-query";
 import { Directory, File, Paths } from "expo-file-system";
 import { authedFetch } from "@/lib/auth";
-import { serverUrl } from "@/lib/server";
+import { placeKey } from "@/lib/server";
+import { serverOf } from "@/lib/server-choice";
 import { retryDelayMs, uploadVerdict } from "./logic";
 
 /**
@@ -145,11 +146,12 @@ async function upload(item: VoiceSend) {
   if (item.threadId) form.append("threadId", item.threadId);
   if (item.replyTo) form.append("replyTo", item.replyTo);
   if (item.language) form.append("language", item.language);
-  const server = item.server ?? serverUrl();
+  // The place it was recorded on (a server, or one of its accounts: ADR 0183): it goes out as that account.
+  const place = item.server ?? placeKey();
   const res = await authedFetch(
-    `${server}/api/app/organizations/${item.orgId}/channels/${item.channelId}/voice`,
+    `${serverOf(place)}/api/app/organizations/${item.orgId}/channels/${item.channelId}/voice`,
     { method: "POST", body: form },
-    server,
+    place,
   );
   if (res.status >= 400 && res.status < 500) {
     const body = (await res.json().catch(() => null)) as { code?: string } | null;
@@ -247,7 +249,7 @@ export function queueVoice(
   if (!folder().exists) folder().create({ intermediates: true });
   const file = `${item.clientId}.m4a`;
   new File(uri).move(new File(folder(), file));
-  const full: VoiceSend = { ...item, file, createdAt: new Date().toISOString(), server: serverUrl() };
+  const full: VoiceSend = { ...item, file, createdAt: new Date().toISOString(), server: placeKey() };
   queue = [...read(), full];
   write();
   showBubble(qc, full);

@@ -81,6 +81,8 @@ test("the week's card: its numbers, what worked, a row per fix and the schedule;
   const week = screen.getAllByRole("article").find((a) => a.contains(group)) as HTMLElement;
   expect(week.querySelector(".ac-msg__text")?.textContent).toContain("Como foi a semana do time");
   expect(group.textContent).not.toContain("Como foi a semana do time");
+  // Two rows to apply: the footer's one button applies both.
+  expect(group.querySelector(".rq__foot .ac-btn--primary")?.textContent).toBe("Aplicar as 2");
 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Criar rotina" }));
@@ -115,4 +117,87 @@ test("applied rows read how they ended, and a card put away keeps only its numbe
   });
   await settle(4);
   expect(s.calls.find((c) => c.method === "orgs.actOnTeamWeek")?.args).toEqual([ORG_ID, "m-week", { dismiss: true }]);
+});
+
+test("the day's card: what waits on the person and what is stuck with its cause, each opened where it is", async () => {
+  const s = lodiWeek(
+    card({
+      period: "day",
+      stats: { done: 2, stuck: 1, waiting: 1, spentNanoUsd: 0, budgetNanoUsd: 0 },
+      rows: [
+        { id: "waiting", kind: "waiting", count: 1, ids: ["n-1"], agentId: ADA_ID, since: "2026-11-05T12:41:00Z" },
+        {
+          id: `stuck:${ADA_ID}`,
+          kind: "stuck",
+          agentId: ADA_ID,
+          channelId: GENERAL_ID,
+          dm: false,
+          code: "plan",
+          count: 1,
+          held: true,
+        },
+      ],
+    }),
+  );
+  const { router } = await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api: createFakeApi(s) });
+  await settle(8);
+  const group = screen.getByRole("group", { name: "Resumo do dia" });
+  expect(group.textContent).toContain("Precisa de você");
+  expect(group.textContent).toContain("1 coisa espera você");
+  expect(group.textContent).toContain("parou e espera para continuar");
+  expect(group.textContent).toContain("O plano chegou ao limite.");
+  // Nothing here is a suggestion to apply: no count of them, no "Aplicar as N", and no money on a day's card.
+  expect(group.textContent).not.toContain("sugest");
+  expect(screen.queryByRole("button", { name: /Aplicar/ })).toBeNull();
+  expect(group.textContent).not.toContain("no mês");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Abrir conversa" }));
+  });
+  await settle(4);
+  expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${GENERAL_ID}`);
+  expect(s.calls.some((c) => c.method === "orgs.actOnTeamWeek")).toBe(false);
+});
+
+test("suggestions: archiving is its own tap, never in the bulk one, and each can be put away alone", async () => {
+  const s = lodiWeek(
+    card({
+      stats: { done: 12, stuck: 0, waiting: 0, spentNanoUsd: 0, budgetNanoUsd: 0 },
+      worked: [],
+      proposalIds: ["p-retire", "p-model"],
+      rows: [
+        { id: "unanswered:g", kind: "unanswered", channelId: GENERAL_ID, count: 4 },
+        { id: `retire:${ADA_ID}`, kind: "retire", agentId: ADA_ID, proposalId: "p-retire" },
+        { id: `model:${ADA_ID}`, kind: "model", agentId: ADA_ID, proposalId: "p-model", from: "big-1", to: "mid-1" },
+      ],
+      skipped: { "unanswered:g": { byUserId: "u-walter", at: new Date().toISOString() } },
+    }),
+  );
+  await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api: createFakeApi(s) });
+  await settle(8);
+  const group = screen.getByRole("group", { name: "Semana da equipe" });
+  expect(group.textContent).toContain("Sem trabalho há 4 semanas, sem rotina e sem tarefa aberta.");
+  expect(group.textContent).toContain("pode usar o mid-1.");
+  expect(group.textContent).toContain("Hoje usa o big-1.");
+  // The one already put away says so and has no button left.
+  expect(group.textContent).toContain("Dispensada");
+  expect(screen.queryByRole("button", { name: "Propor um agente" })).toBeNull();
+  expect(group.textContent).toContain("2 sugestões");
+  // An agent is archived by its own button, never in bulk. The model is the one row to apply and has its own
+  // Aplicar: the footer has no button that would only repeat it.
+  expect(screen.getByRole("button", { name: "Arquivar" })).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Aplicar" })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "Aplicar a sugestão" })).toBeNull();
+  expect(group.querySelector(".rq__foot .ac-btn--primary")).toBeNull();
+  const skips = screen.getAllByRole("button", { name: "Dispensar" });
+  expect(skips).toHaveLength(2);
+  await act(async () => {
+    fireEvent.click(skips[0] as HTMLElement);
+  });
+  await settle(4);
+  expect(s.calls.find((c) => c.method === "orgs.actOnTeamWeek")?.args).toEqual([
+    ORG_ID,
+    "m-week",
+    { rowId: `retire:${ADA_ID}`, skip: true },
+  ]);
+  expect(s.calls.some((c) => c.method === "proposals.accept")).toBe(false);
 });

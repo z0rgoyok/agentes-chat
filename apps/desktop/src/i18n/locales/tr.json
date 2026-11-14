@@ -307,6 +307,7 @@
     "offline": "{{time}} saatinden beri çevrim dışı",
     "signIn": "Giriş yap",
     "signOut": "Bu sunucudan çıkış yap",
+    "addAccount": "Hesap ekle",
     "signedOutDone": "{{host}} sunucusundan çıkış yaptın",
     "removeFromApp": "Bu uygulamadan kaldır",
     "newsOne": "1 yeni bildirim",

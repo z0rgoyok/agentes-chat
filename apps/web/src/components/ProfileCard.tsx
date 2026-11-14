@@ -12,6 +12,7 @@ import {
   useSettings,
   useUpdateAgent,
 } from "@agenteschat/client";
+import { type WorkPlaceNames, workDetail } from "@agenteschat/client/lib/agent-work";
 import {
   audienceLines,
   audienceNotice,
@@ -25,18 +26,10 @@ import {
 } from "@agenteschat/client/lib/audience";
 import { brainLine, engineOfBrain } from "@agenteschat/client/lib/brain";
 import { errorText } from "@agenteschat/client/lib/errors";
-import {
-  clockHour,
-  formatMonthYear,
-  formatPercent,
-  formatTime,
-  relativeTime,
-  shortModel,
-  whenAt,
-} from "@agenteschat/client/lib/format";
+import { clockHour, formatMonthYear, formatPercent, relativeTime, shortModel } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
-import { isOutOfOffice, statusEndNote } from "@agenteschat/client/lib/presence";
+import { agentFaceWord, isOutOfOffice, statusEndNote } from "@agenteschat/client/lib/presence";
 import { apiModelName, autoMakerOf } from "@agenteschat/client/lib/providers";
 import { isRightHand, tellsNameStory } from "@agenteschat/client/lib/right-hand";
 import { rolesOf } from "@agenteschat/client/lib/roles";
@@ -610,7 +603,7 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
             size="lg"
             name={agent.name}
             presence={shown?.presence ?? null}
-            presenceLabel={shown ? t(`presence.${shown.presence}`) : undefined}
+            presenceLabel={shown ? agentFaceWord(t, shown.presence) : undefined}
             asleep={isOutOfOffice(shown?.line)}
           />
         </OpensAgent>
@@ -698,7 +691,22 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
         {shown && (
           <>
             <dt>{t("profile.presence")}</dt>
-            <dd>{`${t(`presence.${shown.presence}`)} · ${agentWhy(t, i18n.language, shown)}`}</dd>
+            <dd>
+              {[
+                agentFaceWord(t, shown.presence),
+                agentWhy(
+                  t,
+                  shown,
+                  {
+                    agentName: (id) => dir.agentById.get(id)?.name,
+                    channelName: (id) => channels?.find((c) => c.id === id)?.name,
+                  },
+                  i18n.language,
+                ),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </dd>
           </>
         )}
         <dt>{t("profile.owner")}</dt>
@@ -806,15 +814,16 @@ function AudienceEdit({ agent }: { agent: Agent }) {
   );
 }
 
-/** Why an agent reads as it does: "Ativo agora", "Num trabalho pesado", "Parado desde 14:20", "Sem IA conectada". */
-function agentWhy(t: TFunction, locale: string, shown: AgentShown) {
+/**
+ * What follows an agent's face word on its card (ADR 0084 addendum): whom it helps or where it works ("ajudando a
+ * Ada"), what it waits on you for ("sua aprovação"), why it is out or paused; free, only a return it set ("retorno às
+ * 00:32").
+ */
+function agentWhy(t: TFunction, shown: AgentShown, names: WorkPlaceNames, locale: string): string | null {
   if (shown.noAi) return t("presence.agentWhy.noAi");
-  if (shown.presence !== "away") return t(`presence.agentWhy.${shown.presence}`);
-  if (!shown.activeAt) return t("presence.agentWhy.awayNever");
-  const today = new Date(shown.activeAt).toDateString() === new Date().toDateString();
-  return t("presence.agentWhy.away", {
-    when: today ? formatTime(locale, shown.activeAt) : whenAt(t, locale, shown.activeAt),
-  });
+  if (shown.presence === "out" || shown.presence === "offline") return t(`presence.agentWhy.${shown.presence}`);
+  if (shown.presence === "online" && shown.work?.state !== "later") return null;
+  return workDetail(t, shown.work, names, locale);
 }
 
 function Spend({ agent, locale }: { agent: Agent; locale: string }) {

@@ -1,4 +1,5 @@
 import { type Database, rowsOf, schema, sql } from "@agenteschat/db";
+import { anchorsSql } from "./agent-work";
 import { replyExcerpt } from "./messages";
 import { requirePermission } from "./organizations";
 import { pendingIds } from "./recovery";
@@ -30,6 +31,10 @@ export interface WorkingRun {
   background: boolean;
   /** Long work (ADR 0121): what it is, its plan's progress and since when. Null: a conversation's run. */
   work: { id: string; title: string; plan: { done: number; total: number } | null; since: string } | null;
+  /** Work another agent handed it (`tell_agent`, `ask_agent`): that agent. Its place is where it was handed off. */
+  forAgentId: string | null;
+  /** The reply that handed it off, once posted (null for the agent's own work). */
+  anchorMessageId: string | null;
 }
 
 /**
@@ -37,8 +42,8 @@ export interface WorkingRun {
  * running, waiting for an approval or an answer) in the channels and DMs
  * they are in, newest first. A run waiting for its computer to come back (a computer brain
  * offline, ADR 0032 §5) isn't working: it's left out. Only conversations they read: never someone
- * else's DM, a private channel they're not in, nor agents' own DMs. No
- * cost, no internals.
+ * else's DM, a private channel they're not in, nor agents' own DMs: work one agent handed another there shows where
+ * it was handed off (`anchorsSql`), with the agent it works for. No cost, no internals.
  */
 export async function listWorkingRuns(db: Database, userId: string, orgId: string): Promise<WorkingRun[]> {
   await requirePermission(db, userId, orgId, "read");
@@ -60,19 +65,25 @@ export async function listWorkingRuns(db: Database, userId: string, orgId: strin
     work_title: string | null;
     work_plan: { state: string }[] | string | null;
     work_started: string | Date | null;
+    for_agent: string | null;
+    anchor_message_id: string | null;
   }>(
-    await db.execute(sql`select r.id, r.agent_id, r.channel_id, r.status, r.thread_root_id, r.trigger_message_id,
+    await db.execute(sql`with ${anchorsSql(orgId)}
+      select r.id, r.agent_id, a.channel_id, r.status, a.thread_root_id, a.trigger_message_id,
         r.started_at, r.created_at, c.kind, c.name, t.title,
         array_to_json(r.pending_message_ids) as pending, r.background,
-        w.id as work_id, w.title as work_title, w.plan as work_plan, w.started_at as work_started
-      from ${agentRuns} r
+        w.id as work_id, w.title as work_title, w.plan as work_plan, w.started_at as work_started,
+        case when a.id <> r.id then an.for_agent end as for_agent,
+        case when a.id <> r.id then a.reply_message_id end as anchor_message_id
+      from anchors an
+      join ${agentRuns} r on r.id = an.run_id
+      join ${agentRuns} a on a.id = an.anchor_id
       left join ${schema.agentWorks} w on w.id = r.work_id
-      join ${channels} c on c.id = r.channel_id and c.org_id = ${orgId}::uuid
+      join ${channels} c on c.id = a.channel_id and c.org_id = ${orgId}::uuid
         and c.archived_at is null and c.kind in ('channel', 'dm')
       join ${channelMembers} cm on cm.org_id = ${orgId}::uuid and cm.channel_id = c.id and cm.user_id = ${userId}
-      left join ${threads} t on t.org_id = ${orgId}::uuid and t.root_message_id = r.thread_root_id
-      where r.org_id = ${orgId}::uuid and r.status in ('queued', 'running', 'waiting_approval', 'waiting_input')
-        and r.waiting_machine_id is null
+      left join ${threads} t on t.org_id = ${orgId}::uuid and t.root_message_id = a.thread_root_id
+      where r.waiting_machine_id is null
       order by r.created_at desc, r.id desc
       limit ${MAX_WORKING_RUNS}`),
   );
@@ -96,6 +107,8 @@ export async function listWorkingRuns(db: Database, userId: string, orgId: strin
       work: r.work_id
         ? workOf(r.work_id, r.work_title ?? "", r.work_plan, iso(r.work_started) ?? iso(r.created_at) ?? "")
         : null,
+      forAgentId: r.for_agent,
+      anchorMessageId: r.anchor_message_id,
     };
   });
 }

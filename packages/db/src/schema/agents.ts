@@ -396,6 +396,13 @@ export const organizationSettings = pgTable("organization_settings", {
    * asks an agent to turn it off (`commit_co_author`); no screen has it.
    */
   agentCoAuthor: boolean().notNull().default(true),
+  /**
+   * "Cuidar da equipe": the right hand watches for what stops the team (an ended sign-in, an app to reconnect) and
+   * tells the one person who can fix it. A workspace with no row here has it on.
+   */
+  teamWatch: boolean().notNull().default(true),
+  /** "Dar boas-vindas a quem entra": the right hand greets each person who joins, once. On without a row too. */
+  welcomePeople: boolean().notNull().default(true),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -452,4 +459,25 @@ export const rightHandBrains = pgTable(
     }).onDelete("cascade"),
     index().on(t.orgId, t.brainAccountId),
   ],
+);
+
+/**
+ * A place of the team's right hand on the workspace's computer (ADR 0175): one agents row answers everyone, so each
+ * person's files, browser and sign-ins there live under a row's id here, which the computer takes for an agent's
+ * (its OS user is named from the first 8 of it), and one more row is the place it works in where others read
+ * (`userId` is then the word `shared`, no person's id). Made on first use. `removedAt`: the person left, or the
+ * shared place ended; the row stays so the computer hears that id is gone, and the next use makes a new one.
+ */
+export const rightHandSeats = pgTable(
+  "right_hand_seats",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [uniqueIndex("right_hand_seats_one_live").on(t.orgId, t.userId).where(sql`${t.removedAt} is null`)],
 );

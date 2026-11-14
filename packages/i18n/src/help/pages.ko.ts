@@ -755,7 +755,7 @@ export const helpKo: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "이메일",
         blocks: [
-          "이메일이 없으면 agentes.chat은 이메일을 보내는 대신 로그에 기록하므로, 초대 링크는 거기서 복사할 수 있습니다. 비밀번호 재설정은 꺼져 있습니다.",
+          "이메일이 없으면 agentes.chat은 이메일을 보내는 대신 로그에 기록하므로, 초대 링크는 거기서 복사할 수 있습니다. 비밀번호 재설정은 꺼져 있고, 계정의 새 이메일은 코드나 링크 없이 바로 바뀝니다.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

@@ -10,7 +10,6 @@ import {
   type PubSub,
   type RateLimiter,
   STREAM_LIMITS,
-  typingTopic,
   type Unsubscribe,
   userTopic,
 } from "@agenteschat/adapters";
@@ -32,6 +31,7 @@ import {
   NotFoundError,
   type OrgEvent,
   profileIdOfKey,
+  publishTyping,
   readRefusal,
   requireBrowserAccess,
   requireChannelAccess,
@@ -69,9 +69,10 @@ import type { StreamSocketData, StreamSockets } from "./streams";
  *   checks the channel belongs to that org and the person is a member of it
  *   (`requireChannelAccess`, the same check as the HTTP API) before
  *   forwarding the channel's events.
- * - `{"type":"typing","channelId","threadId"?}` (throttled by the client; the
- *   server keeps at most two every 2 s) fans out `user.typing` to the channel,
- *   valid for `ttlMs` (5 s).
+ * - `{"type":"typing","channelId","threadId"?,"kind"?}` (throttled by the
+ *   client; the server keeps at most two every 2 s) fans out `user.typing` to
+ *   the channel, valid for `ttlMs` (5 s); `kind: "voice"` while recording a
+ *   voice message ("gravando áudio…"), absent while typing.
  * - Server → client frames: `ready`, `subscribed`, `unsubscribed` (with a
  *   `reason` when the server dropped it: `revoked`, `archived`), `error`, and
  *   channel events (`message.created`, `agent.run`, `agent.typing`,
@@ -159,11 +160,8 @@ const isStream = (ws: Bun.ServerWebSocket<SocketData>): ws is StreamSocket =>
 
 export type ClientFrame =
   | { type: "subscribe" | "unsubscribe"; channelId: string }
-  | { type: "typing"; channelId: string; threadId: string | null }
+  | { type: "typing"; channelId: string; threadId: string | null; kind?: "voice" }
   | { type: "ping" };
-
-/** How long a typing indicator lasts without a new `typing` frame. */
-export const TYPING_TTL_MS = 5000;
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const MAX_SUBSCRIPTIONS = 200;
@@ -205,11 +203,22 @@ export async function personUpgrade(
 export function parseClientFrame(raw: string | Buffer): ClientFrame | null {
   if (raw.length > 4096) return null;
   try {
-    const frame = JSON.parse(String(raw)) as { type?: unknown; channelId?: unknown; threadId?: unknown };
+    const frame = JSON.parse(String(raw)) as {
+      type?: unknown;
+      channelId?: unknown;
+      threadId?: unknown;
+      kind?: unknown;
+    };
     if (frame.type === "ping") return { type: "ping" };
     if (frame.type === "typing" && typeof frame.channelId === "string" && UUID.test(frame.channelId)) {
       const threadId = typeof frame.threadId === "string" && UUID.test(frame.threadId) ? frame.threadId : null;
-      return { type: "typing", channelId: frame.channelId, threadId };
+      // Any other kind (a newer app's) reads as typing.
+      return {
+        type: "typing",
+        channelId: frame.channelId,
+        threadId,
+        ...(frame.kind === "voice" ? { kind: frame.kind } : {}),
+      };
     }
     if (
       (frame.type === "subscribe" || frame.type === "unsubscribe") &&
@@ -842,16 +851,12 @@ export function createRealtime(deps: RealtimeDeps) {
             windowMs: 2000,
           });
           if (!t.allowed) return;
-          const typing = {
-            type: "user.typing",
+          await publishTyping(deps.pubsub, {
             channelId,
             threadId: frame.threadId,
             userId: ws.data.user.id,
-            ttlMs: TYPING_TTL_MS,
-          };
-          await Promise.all(
-            [channelTopic(channelId), typingTopic].map((topic) => deps.pubsub.publish(topic, typing).catch(() => {})),
-          );
+            kind: frame.kind,
+          });
           return;
         }
         if (frame.type === "unsubscribe") {

@@ -151,18 +151,13 @@ describe("Parar is immediate", () => {
     expect(screen().getByRole("complementary", { name: "Perfil da Ada" })).toBeTruthy();
   });
 
-  test("typing while it works: 'Juntar' (↵) joins; ⌘↵ / Ctrl↵ sends with 'Parar e mandar'", async () => {
+  test("typing while it works: ↵ joins, ⌘↵ / Ctrl↵ stops and sends, with no row of options above the box", async () => {
     const { state, ev } = await open();
     await ev({ type: "agent.run", ...ids, status: "running" });
     await settle(2);
     const box = screen().getByRole("combobox", { name: /Mensagem para/ });
     await act(async () => fireEvent.change(box, { target: { value: "olha o refresh" } }));
-    const group = screen().getByRole("radiogroup", { name: "Como mandar enquanto a Ada trabalha" });
-    expect(
-      within(group)
-        .getByRole("radio", { name: /Juntar ao que (a|o) \w+ faz/ })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(screen().queryByRole("radiogroup", { name: /Como mandar/ })).toBeNull();
     await act(async () => fireEvent.keyDown(box, { key: "Enter", ctrlKey: true }));
     await settle(3);
     const posts = state.calls.filter((c) => c.method === "chat.post").map((c) => c.args[2] as { steer?: string });
@@ -174,7 +169,7 @@ describe("Parar is immediate", () => {
     expect(again.at(-1)?.steer).toBeUndefined();
   });
 
-  test("a member who may not stop it still chooses 'Parar e mandar'; there is no stop button", async () => {
+  test("a member who may not stop it still stops and sends with ⌘↵ / Ctrl↵; there is no stop button", async () => {
     const { state, ev } = await open((s) => {
       const o = s.me?.organizations[0];
       if (o) o.role = "member";
@@ -185,7 +180,6 @@ describe("Parar is immediate", () => {
     expect(screen().queryByRole("button", { name: "Parar a Ada" })).toBeNull();
     const box = screen().getByRole("combobox", { name: /Mensagem para/ });
     await act(async () => fireEvent.change(box, { target: { value: "olha o refresh" } }));
-    expect(screen().getByRole("radiogroup", { name: "Como mandar enquanto a Ada trabalha" })).toBeTruthy();
     await act(async () => fireEvent.keyDown(box, { key: "Enter", ctrlKey: true }));
     await settle(3);
     const posts = state.calls.filter((c) => c.method === "chat.post").map((c) => c.args[2] as { steer?: string });

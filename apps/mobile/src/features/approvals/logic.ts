@@ -1,4 +1,5 @@
 import type { Approval } from "@agenteschat/client";
+import { approvalCards } from "@agenteschat/client/lib/approval-card";
 import { approvalWhy } from "@agenteschat/client/lib/approval-origin";
 import { approvalValues } from "@agenteschat/client/lib/approval-words";
 import { plainLine } from "@agenteschat/client/lib/markdown";
@@ -33,11 +34,11 @@ export function approveAlwaysToast(t: TFunction, name: string, routine?: string 
   return { title: t("approval.always.done", { name }), subtitle: t(`mobile.approval.alwaysUndo${genderOf(name)}`) };
 }
 
-/** Waiting on you: pending ones you may decide, the one closest to expiring first. */
+/** Waiting on you: pending ones you may decide, in the order the agents asked (the web's `approvalCards` order). */
 export function waitingApprovals(list: Approval[], now = Date.now()): Approval[] {
-  return list
-    .filter((a) => a.status === "pending" && a.canDecide && new Date(a.expiresAt).getTime() > now)
-    .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+  return approvalCards(
+    list.filter((a) => a.status === "pending" && a.canDecide && new Date(a.expiresAt).getTime() > now),
+  ).flat();
 }
 
 /**

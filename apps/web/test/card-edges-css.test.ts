@@ -48,11 +48,9 @@ test("on a phone a task row is stacked as a card: its facts wrap under its title
 
 test("a version's note longer than its line breaks instead of running past its card", async () => {
   const kit = await sheet("packages/ui/src/styles/components.css");
-  const drive = await sheet("apps/web/src/pages/drive.css");
-  // "alerta confirmado15:15:57Brasília,link/ts/ação" ran past the version card's right edge, in the file viewer's
-  // versions and in the Drive's. break-word, not anywhere: no box sizes itself differently for it.
+  // "alerta confirmado15:15:57Brasília,link/ts/ação" ran past the version card's right edge in the file viewer's
+  // versions. break-word, not anywhere: no box sizes itself differently for it.
   expect(last(declarations(kit, ".ac-navcard"), "overflow-wrap")).toBe("break-word");
-  expect(last(declarations(drive, ".drive-versions__text"), "overflow-wrap")).toBe("break-word");
   // The wiki's versions and how a request ended in its card's footer (an agent's quoted reason, a long answer): text
   // in a flex row, which only anywhere lets shrink below its longest word.
   const wiki = await sheet("apps/web/src/pages/wiki.css");

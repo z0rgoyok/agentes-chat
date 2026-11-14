@@ -1042,8 +1042,11 @@ describe("Diff", () => {
       ["ac-diff__block ac-diff__block--add", "Adicionado: novo"],
     ]);
     const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
-    expect(css).toContain("box-shadow: inset 3px 0 0 var(--ok);");
-    expect(css).toContain("box-shadow: inset 3px 0 0 var(--danger);");
+    // The tint alone says which: no bar on a block's edge.
+    const rule = (name: string) => css.slice(css.indexOf(`.ac-diff__block--${name} {`)).split("}")[0] ?? "";
+    expect(rule("add")).toContain("var(--ok) 12%");
+    expect(rule("del")).toContain("var(--danger) 10%");
+    expect(rule("add") + rule("del")).not.toContain("box-shadow");
   });
 
   test("renders lines with screen-reader labels", async () => {
@@ -1479,9 +1482,9 @@ describe("FilterChip", () => {
   test("each option starts with its face and name; the check sits at its end, kept empty when off", async () => {
     render(
       <FilterChip
-        label="Papel"
+        label="Cargo"
         icon="person"
-        clearLabel="Limpar Papel"
+        clearLabel="Limpar Cargo"
         multiple
         value={["admin"]}
         onChange={() => {}}
@@ -1491,8 +1494,8 @@ describe("FilterChip", () => {
         ]}
       />,
     );
-    await act(async () => fireEvent.click(body().getByRole("button", { name: "Papel: Admin" })));
-    const options = within(body().getByRole("listbox", { name: "Papel" })).getAllByRole("option");
+    await act(async () => fireEvent.click(body().getByRole("button", { name: "Cargo: Admin" })));
+    const options = within(body().getByRole("listbox", { name: "Cargo" })).getAllByRole("option");
     expect(options.map((o) => o.getAttribute("aria-selected"))).toEqual(["true", "false"]);
     expect(options.map((o) => [...o.children].map((c) => c.getAttribute("class")))).toEqual([
       ["face", "ac-filter__label", "ac-tz__check"],

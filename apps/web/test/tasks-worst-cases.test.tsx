@@ -5,7 +5,7 @@ setupDom();
 
 import type { Issue, IssueWork, Member } from "@agenteschat/client";
 import { ISSUES_VIEW_DEFAULT } from "@agenteschat/client/lib/issues-view";
-import { cleanup, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, ATLAS_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle, showIn } from "./render";
 
@@ -228,18 +228,44 @@ describe("Tarefas at their worst", () => {
     );
   });
 
-  test("Agentes trabalhando agora says what each agent is doing, never the cards' state words", async () => {
-    await go();
-    const now = screen().getByRole("region", { name: "Agentes trabalhando agora" });
-    const text = now.textContent ?? "";
-    for (const word of ["Pede aprovação", "Pergunta algo", "Parado há", "Trabalhando"])
+  test("stalled tasks are one line above the board; See stalled says when each stopped and its last step, and Continue asks its agent", async () => {
+    const { api, services } = await go();
+    expect(screen().queryByRole("region", { name: "Agentes trabalhando agora" })).toBeNull();
+    const line = screen().getByRole("region", { name: "Tarefas paradas" });
+    const text = line.textContent ?? "";
+    expect(text).toMatch(/\d+ tarefas? paradas?/);
+    expect(text).toContain("Ada");
+    for (const word of ["Trabalhando", "Pede aprovação", "Pergunta algo", "Nenhuma execução", "Pedir para continuar"])
       expect(text).not.toContain(word);
-    // Waiting on a person: its last step. Stopped: no run, its last step, and a way on.
-    const waiting = now.querySelector(".issues-now__card.is-waiting") as HTMLElement;
-    expect(waiting.textContent).toContain("Último passo: Atualizou uma tarefa · #7");
-    const stalled = now.querySelector(".issues-now__card.is-stalled") as HTMLElement;
-    expect(stalled.textContent).toContain("Nenhuma execução ativa. Último passo: Atualizou uma tarefa · #7");
-    expect(stalled.textContent).toContain("Pedir para continuar");
+    // The same tasks on every fetch (the worst cases are built anew each time, a stall's time with them): a task
+    // counts as asked while its stall is the one it was asked on.
+    const tasks = await api.issues.list(ORG_ID, {});
+    api.issues.list = async () => tasks;
+    await act(async () => {
+      await services.queryClient.invalidateQueries();
+    });
+    await settle(4);
+    const asked: string[] = [];
+    api.issues.askAgent = async (_orgId, id) => {
+      asked.push(id);
+      return tasks.find((i) => i.id === id) as Issue;
+    };
+    await act(async () => fireEvent.click(within(line).getByRole("button", { name: "Ver paradas" })));
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: "Tarefas paradas" });
+    const row = within(dialog).getByRole("button", { name: /9931/ }).closest(".issues-stalled__task") as HTMLElement;
+    // Another task's number stays in the step; "execução" never shows.
+    expect(row.textContent).toContain("Parou em");
+    expect(row.textContent).toContain("Atualizou uma tarefa · #7");
+    expect(row.textContent).not.toContain("execução");
+    await act(async () => fireEvent.click(within(row).getByRole("button", { name: "Continuar" })));
+    await settle(4);
+    expect(asked).toEqual(["w-9931"]);
+    const sent = within(screen().getByRole("dialog", { name: "Tarefas paradas" }))
+      .getByRole("button", { name: /9931/ })
+      .closest(".issues-stalled__task") as HTMLElement;
+    expect(sent.textContent).toContain("Pedido enviado: continua de onde parou.");
+    expect(within(sent).queryByRole("button", { name: "Continuar" })).toBeNull();
   });
 
   test("the list: the same parts in one row, stacked on a phone", async () => {
@@ -248,6 +274,14 @@ describe("Tarefas at their worst", () => {
     expect(row.classList.contains("issue-list__row")).toBe(true);
     expect(row.querySelector(".issue-list__title")?.textContent).toBe(URL_TITLE);
     expect(facts(row)[0]).toBe("#12873");
+    // Each fact says which it is, for the list's columns; with every fact at once there are more columns than a list
+    // has room for, so these rows keep packing their facts.
+    const kinds = [...row.querySelectorAll(".issue-card__facts > .ac-factline__fact")].map((f) =>
+      f.getAttribute("data-fact"),
+    );
+    expect(kinds[0]).toBe("number");
+    expect(kinds).toContain("label");
+    expect((row.closest(".ac-groups") as HTMLElement).hasAttribute("data-fact-columns")).toBe(false);
     expect(cardOf(136).querySelector(".issue-list__title > code.ac-inlinecode")?.textContent).toBe("bun test");
   });
 

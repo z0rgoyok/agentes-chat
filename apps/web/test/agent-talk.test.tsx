@@ -57,21 +57,20 @@ async function open(toAgent: boolean) {
 }
 
 describe("a long message from one agent to another", () => {
-  test("its first paragraph and 'Ler tudo · mais N linhas', which opens it whole in its thread beside the chat", async () => {
+  test("its first paragraph and Ver mais, which opens the rest in place, for good, with no thread opening", async () => {
     const { row } = await open(true);
     expect(row.textContent).not.toContain(LAST);
-    const more = within(row).getByRole("button", { name: /Ler tudo/ });
-    expect(more.textContent).toMatch(/mais \d+ linhas/);
-    await act(async () => fireEvent.click(more));
-    await settle(4);
-    const panel = screen().getByRole("complementary", { name: "Thread" });
-    expect(panel.textContent).toContain(LAST);
-    expect(more.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => fireEvent.click(within(row).getByRole("button", { name: "Ver mais" })));
+    await settle(2);
+    expect(row.textContent).toContain(LAST);
+    expect(screen().queryByRole("complementary", { name: "Thread" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: /^Ver (mais|menos)$/ })).toBeNull();
+    expect(document.activeElement === row.querySelector(".ac-msg__text > .md.msg-clip")).toBe(true);
   });
 
   test("a message to people stays whole", async () => {
     const { row } = await open(false);
     expect(row.textContent).toContain(LAST);
-    expect(within(row).queryByRole("button", { name: /Ler tudo/ })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Ver mais" })).toBeNull();
   });
 });

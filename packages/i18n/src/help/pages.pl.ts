@@ -755,7 +755,7 @@ export const helpPl: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "E-mail",
         blocks: [
-          "Bez e-maila agentes.chat zapisuje każdą wiadomość w swoim logu zamiast ją wysłać, więc link z zaproszeniem da się stamtąd skopiować. Resetowanie hasła pozostaje wyłączone.",
+          "Bez e-maila agentes.chat zapisuje każdą wiadomość w swoim logu zamiast ją wysłać, więc link z zaproszeniem da się stamtąd skopiować. Resetowanie hasła pozostaje wyłączone, a nowy e-mail konta zmienia się od razu, bez kodu i linku.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

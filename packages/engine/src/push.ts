@@ -7,7 +7,7 @@ import {
   type WebPushResult,
   type WebPushSender,
 } from "@agenteschat/adapters";
-import { and, asc, type Database, eq, gt, inArray, isNull, lte, or, schema } from "@agenteschat/db";
+import { and, asc, type Database, eq, gt, inArray, isNull, lte, notInArray, or, schema } from "@agenteschat/db";
 import { mediaOf } from "./media";
 import { voiceOf } from "./message-preview";
 import { type NoticePrefs, noticeOn, readNoticePrefs } from "./notice-prefs";
@@ -57,9 +57,20 @@ export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
  * A device as `POST /push/devices` registers it: a phone's token, or a browser's Web Push subscription
  * with the session that turned it on (`sessionId`: it hears pushes only while that session lasts).
  */
+/**
+ * `sharedWith`: the other accounts signed in on the same device, by id (ADR 0183): their registrations of this token
+ * stay beside this one. Anyone else's goes (the device changed hands).
+ */
 export type PushDeviceInput =
-  | { token: string; platform: PushPlatform; locale: string }
-  | { platform: "web"; endpoint: string; keys: WebPushKeys; locale: string; sessionId: string };
+  | { token: string; platform: PushPlatform; locale: string; sharedWith?: readonly string[] }
+  | {
+      platform: "web";
+      endpoint: string;
+      keys: WebPushKeys;
+      locale: string;
+      sessionId: string;
+      sharedWith?: readonly string[];
+    };
 
 /** An Expo push token as the iPhone app gets it from `getExpoPushTokenAsync`. */
 export const EXPO_PUSH_TOKEN = /^Expo(nent)?PushToken\[[A-Za-z0-9_-]{8,200}\]$/;
@@ -117,10 +128,15 @@ const unpadded = (keys: WebPushKeys): WebPushKeys => ({
   auth: keys.auth.replace(/=+$/, ""),
 });
 
+/** Accounts that may share one device's token (a browser keeps five signed in, a phone a few per server). */
+const MAX_SHARED_ACCOUNTS = 8;
+
 /**
  * Registers (or refreshes) a phone or a browser for a person. A token (a
- * browser's endpoint) already registered moves to this person (the device
- * changed hands or accounts). Keeps the newest `MAX_PUSH_DEVICES` per person.
+ * browser's endpoint) already registered by someone else moves to this person
+ * (the device changed hands), unless they are signed in on the same device too
+ * (`sharedWith`, ADR 0183): then each account hears its own pushes there.
+ * Keeps the newest `MAX_PUSH_DEVICES` per person.
  *
  * A browser belongs to the session that turned it on (ADR 0071): signing out,
  * signing out everywhere, or the session running out stops its pushes, which
@@ -151,20 +167,34 @@ export async function registerPushDevice(
           locale: input.locale,
         }
       : { token: input.token, platform: input.platform, webKeys: null, sessionId: null, locale: input.locale };
-  await db
-    .insert(pushDevices)
-    .values({ userId, ...device, lastSeenAt: now })
-    .onConflictDoUpdate({
-      target: pushDevices.token,
-      set: {
-        userId,
-        platform: device.platform,
-        webKeys: device.webKeys,
-        sessionId: device.sessionId,
-        locale: device.locale,
-        lastSeenAt: now,
-      },
-    });
+  const stays = [userId, ...(input.sharedWith ?? []).slice(0, MAX_SHARED_ACCOUNTS)];
+  const seen = {
+    platform: device.platform,
+    webKeys: device.webKeys,
+    sessionId: device.sessionId,
+    locale: device.locale,
+    lastSeenAt: now,
+  };
+  await db.transaction(async (tx) => {
+    // The device changed hands: whoever isn't signed in on it any more stops hearing it.
+    await tx.delete(pushDevices).where(and(eq(pushDevices.token, device.token), notInArray(pushDevices.userId, stays)));
+    const mine = await tx
+      .update(pushDevices)
+      .set(seen)
+      .where(and(eq(pushDevices.userId, userId), eq(pushDevices.token, device.token)))
+      .returning({ id: pushDevices.id });
+    if (mine.length > 0) return;
+    const made = await tx
+      .insert(pushDevices)
+      .values({ userId, ...device, lastSeenAt: now })
+      .onConflictDoNothing()
+      .returning({ id: pushDevices.id });
+    if (made.length > 0) return;
+    // A database where a token is still one person's (its own unique constraint, until the migration that makes
+    // it one row per account): the token moves to whoever registered last, as it always did.
+    await tx.delete(pushDevices).where(eq(pushDevices.token, device.token));
+    await tx.insert(pushDevices).values({ userId, ...device, lastSeenAt: now });
+  });
   const devices = await db
     .select({ id: pushDevices.id })
     .from(pushDevices)
@@ -407,6 +437,8 @@ export async function deliverPush(
   }
   const data: Record<string, unknown> = { orgId: row.orgId, kind: row.kind, notificationId: row.id };
   if (deps.server) data.server = deps.server;
+  // Whose it is: a phone or browser signed in to this server with several accounts opens it as theirs (ADR 0183).
+  data.user = row.userId;
   for (const key of PUSH_PLACE_KEYS) {
     if (source[key] != null && source[key] !== "") data[key] = String(source[key]);
   }
@@ -424,6 +456,7 @@ export async function deliverPush(
     routine: latest.origin?.kind === "routine" ? latest.origin.routineName : null,
     screen: source.screen ?? null,
     reminder: latest.reminder === true,
+    still: latest.still ?? null,
     status: latest.statusTo ?? null,
     percent: latest.percent ?? null,
     reason: typeof latest.reason === "string" ? latest.reason : null,

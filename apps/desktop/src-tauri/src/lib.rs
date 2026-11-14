@@ -7,6 +7,7 @@
 //! native dialogs and self-update. Everything else lives in the runner and the server (TypeScript) and in the
 //! web view.
 
+mod app_icon;
 mod cover;
 mod deep_link;
 mod discover;
@@ -107,6 +108,10 @@ pub(crate) fn sync_dock(app: &AppHandle) {
             tauri::ActivationPolicy::Accessory
         };
         let _ = app.set_activation_policy(policy);
+        // Back in the Dock: with the person's icon (ADR 0179), not the bundle's.
+        if open {
+            app_icon::show(app);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;
@@ -150,6 +155,8 @@ fn make_window(app: &AppHandle, name: &str) -> Result<tauri::WebviewWindow, Stri
     let window = tauri::WebviewWindowBuilder::from_config(app, &config)
         .and_then(|b| b.build())
         .map_err(|e| e.to_string())?;
+    // On Windows and Linux a new window starts with the bundle's icon: the person's pick (ADR 0179).
+    app_icon::show(app);
     // Named in the app's language (the Dock's list, the Window menu): never a second "agentes.chat".
     let key = match name {
         "welcome" => Some("windowWelcome"),
@@ -804,6 +811,8 @@ pub fn run() {
             }
             // In the Dock from the start, like Slack (the popover then applies the person's choice).
             sync_dock(&handle);
+            // The app icon picked on this computer (ADR 0179).
+            app_icon::show(&handle);
             Ok(())
         });
     // After long in the background macOS may end a window's page to free memory, which leaves it blank:

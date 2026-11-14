@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { requireUserIn } from "@/app/guards";
 import { usePageTextSize } from "@/chat/look";
+import { useFollowPickedAgent } from "@/components/AppIconPicker";
 import { Arrival } from "@/components/arrival/Arrival";
 import { FeedbackHost } from "@/components/arrival/FeedbackDialog";
 import { ArtifactViewerProvider } from "@/components/artifacts/ArtifactViewer";
@@ -71,6 +72,8 @@ function OrgLayout() {
   // …and the ones it still shows for what was already read elsewhere close.
   useWebPushClear();
   usePageTextSize(membership?.chatPrefs);
+  // An agent picked as the app icon follows its name and look in its workspace (ADR 0179).
+  useFollowPickedAgent(orgId);
   useEffect(() => {
     if (!membership) return;
     storage.set(STORAGE_KEYS.lastOrg, membership.id);

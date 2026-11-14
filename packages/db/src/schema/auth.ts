@@ -23,7 +23,7 @@ export const users = pgTable("users", {
   localeAuto: boolean().notNull().default(true),
   /**
    * Blocked by the people who run this server (operator API, ADR 0056): no sign-in and no membership
-   * anywhere (`standing.ts`). Not a Better Auth field, so it never reaches a session or the cookie cache.
+   * anywhere (`standing.ts`). Not a Better Auth field, so it never reaches a session.
    */
   blockedAt: timestamp({ withTimezone: true }),
   blockedReason: text(),

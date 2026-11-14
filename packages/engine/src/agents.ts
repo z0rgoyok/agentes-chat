@@ -181,6 +181,24 @@ export function setupOfAgent(a: Agent): schema.AgentSetup {
   };
 }
 
+/** The workspace's own computer (managed, else the server's own) once it has connected (ADR 0056 §10), else null. */
+export async function workspaceHomeId(db: Executor, orgId: string): Promise<string | null> {
+  const [home] = await db
+    .select({ id: machines.id })
+    .from(machines)
+    .where(
+      and(
+        eq(machines.orgId, orgId),
+        inArray(machines.kind, ["managed", "host"]),
+        isNotNull(machines.tokenHash),
+        isNull(machines.deletedAt),
+      ),
+    )
+    .orderBy(sql`${machines.kind} = 'managed' desc`, asc(machines.createdAt))
+    .limit(1);
+  return home?.id ?? null;
+}
+
 /**
  * What the workspace's new agents start with from now on: the "Quem pensa" someone just saved or used on others.
  * Only whoever creates agents sets it (they start from it), and one on the API only an admin: only admins change an
@@ -247,28 +265,15 @@ export async function createAgent(
   // An agent born on "Automático" is automatic on every brain: switched to Claude Code or Codex later, it
   // starts with the model and effort picked per run (written here, so agents made before Automático keep theirs).
   const brainAuto = isAutoModel(values.model) ? { brainModel: AUTO_MODEL, brainEffort: AUTO_MODEL } : {};
-  // The workspace's own computer (managed, else the server's own) once it has connected (ADR 0056 §10); one
-  // still being prepared gives itself to the agents with none when it is ready.
-  const [home] = await db
-    .select({ id: machines.id })
-    .from(machines)
-    .where(
-      and(
-        eq(machines.orgId, orgId),
-        inArray(machines.kind, ["managed", "host"]),
-        isNotNull(machines.tokenHash),
-        isNull(machines.deletedAt),
-      ),
-    )
-    .orderBy(sql`${machines.kind} = 'managed' desc`, asc(machines.createdAt))
-    .limit(1);
+  // One still being prepared gives itself to the agents with none when it is ready.
+  const home = await workspaceHomeId(db, orgId);
   try {
     const [agent] = await db
       .insert(agents)
       .values({
         ...values,
         ...brainAuto,
-        machineId: home?.id ?? null,
+        machineId: home,
         orgId,
         ownerUserId,
         // Every new agent starts with its setup checklist, whichever way it was made (ADR 0155 §2).

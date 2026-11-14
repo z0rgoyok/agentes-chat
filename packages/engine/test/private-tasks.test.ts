@@ -318,6 +318,17 @@ describe("what still reads a private task", () => {
         .update(schema.issues)
         .set({ status: "done", assigneeType: "agent", assigneeId: f.agent.id })
         .where(eq(schema.issues.id, task.id));
+      // The card counts a task an agent closed, by the task's own history.
+      await f.db.insert(schema.issueActivity).values({
+        orgId: f.org.id,
+        issueId: task.id,
+        kind: "event",
+        authorType: "agent",
+        authorId: f.agent.id,
+        text: "changed the status to Done",
+        event: "status_changed",
+        data: { from: "todo", to: "done" },
+      });
     }
     const parent = await createIssue(deps(), person(f.owner.id), f.org.id, { title: "Aberta" });
     const steps = [];

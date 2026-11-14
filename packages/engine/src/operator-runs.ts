@@ -631,13 +631,15 @@ async function toolCallsIn(db: Database, orgId: string, q: ToolCallFilters, now:
     throw new ValidationError(`from and to are ${OPERATOR_TOOL_CALL_MAX_DAYS} days apart at most`);
 
   const where = and(
+    // The step's own workspace, which is its run's: `agent_run_steps_tool_calls_idx` starts with it.
+    eq(agentRunSteps.orgId, orgId),
     eq(agentRuns.orgId, orgId),
     eq(KIND, "tool_call"),
     gte(agentRunSteps.createdAt, from),
     lt(agentRunSteps.createdAt, to),
-    // No index is on a step's time. A call is recorded only while its run is at work (its own turn, or the bridge,
-    // which refuses a run in any other state), so the workspace's runs at work in the range hold every call in it:
-    // only their steps are read. The minute is for a call in flight when its run was stopped.
+    // A second way in, by the runs' own indexes, for a read that names an agent. A call is recorded only while its
+    // run is at work (its own turn, or the bridge, which refuses a run in any other state), so the workspace's runs
+    // at work in the range hold every call in it. The minute is for a call in flight when its run was stopped.
     lt(agentRuns.createdAt, to),
     or(isNull(agentRuns.finishedAt), gte(agentRuns.finishedAt, new Date(from.getTime() - 60_000))),
     q.runId ? eq(agentRunSteps.runId, q.runId) : undefined,

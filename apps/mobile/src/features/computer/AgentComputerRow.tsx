@@ -7,38 +7,49 @@ import {
 } from "@agenteschat/client";
 import { entryLine, entryState, pictureWhen } from "@agenteschat/client/lib/agent-computer";
 import { computerName } from "@agenteschat/client/lib/computer";
-import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import type { Seat } from "@agenteschat/client/lib/seat";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { Image } from "expo-image";
 import { useIsFocused } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { StyleSheet } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, GroupedFooter, GroupedHeader, PressScale, useToast } from "@/ui";
+import { GroupedRow, useTheme, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useDirectory, useNow } from "../shared/hooks";
 import { phoneEntryButton } from "./logic";
 import { useSetupWait } from "./SetupWait";
 import { useAgentComputer } from "./useAgentComputer";
 
-/** Opens an agent's computer full screen. */
-export const openComputer = (agentId: string) => router.push(`/computer/${agentId}`);
+/**
+ * Opens an agent's computer full screen. `seat`: the right hand's shared place on the workspace's computer instead
+ * of the viewer's own (ADR 0175).
+ */
+export const openComputer = (agentId: string, seat?: Seat) =>
+  router.push(seat ? { pathname: "/computer/[agentId]", params: { agentId, seat } } : `/computer/${agentId}`);
 
 /**
- * The agent's computer on its profile, beside Chat: a named secondary button as wide as Chat ("Computador"), so what
- * it does is read, never guessed from a square. Only for whoever may watch the computer, the wait included; nothing
- * while that loads; a screen reader hears the entry's status line after the word. On a request of the agent's for
- * this person it says "Ajudar" and helps (takes control, then opens): the word is the signal, no dot. It never opens a stream.
+ * The agent's computer on its profile, one card in Hoje: the last picture of its screen on top, when there is one and
+ * this person may see it, and under it a row with its name and the entry's status line ("Ligado · trabalhando agora"),
+ * which a button's one word couldn't carry, with when the picture was taken at its end. Without a picture (the computer
+ * off, none yet) the row alone, the same card. Only for whoever may watch the computer, the wait included; nothing
+ * while that loads. On a request of the agent's for this person the row says "Ajudar" and helps (takes control, then
+ * opens): the word is the signal, no dot. The picture is asked for only while the screen is in view; it never opens a
+ * stream.
  */
-export function AgentComputerButton({ agentId }: { agentId: string }) {
+export function AgentComputerCard({ agentId }: { agentId: string }) {
   const { t, i18n } = useTranslation();
   const { org, orgId } = useOrg();
+  const { colors, shadows } = useTheme();
   const dir = useDirectory();
   const toast = useToast();
   const actions = useBrowserHandoffActions(orgId);
-  const view = useAgentComputer(agentId);
+  const focused = useIsFocused();
+  const view = useAgentComputer(agentId, focused ? PICTURE_IDLE_MS : false);
   const wait = useSetupWait(view.setup);
   const f = view.facts;
+  const asks = !view.forbidden && asksPicture(focused, view.desktopQ.data ?? null);
+  const shot = useDesktopPicture(orgId, agentId, { enabled: asks, working: Boolean(f?.working) });
   // A request's minutes left move on too. While the computer is on its way, the time every other line reads.
   const requestNow = useNow(f?.handoff && isWaitingHandoff(f.handoff) ? 15_000 : 60_000);
   // Only for whoever may watch it; nothing while that loads, never one edition's words before the other's.
@@ -56,7 +67,6 @@ export function AgentComputerButton({ agentId }: { agentId: string }) {
     now: new Date(now),
   });
   const helps = phoneEntryButton(state) === "help";
-  // The press gives its own haptic (`Button`).
   const open = () => openComputer(agentId);
   const help = async () => {
     if (state.kind !== "needsYou") return;
@@ -70,57 +80,42 @@ export function AgentComputerButton({ agentId }: { agentId: string }) {
       });
     }
   };
-  return (
-    <Button
-      variant="secondary"
-      wide
-      label={helps ? t("agentComputer.help") : t("agentComputer.button")}
-      // The entry's status line ("Ligado · trabalhando agora"), which the one word can't carry.
-      {...(line ? { hint: line } : {})}
-      onPress={helps ? () => void help() : open}
-    />
-  );
-}
-
-/**
- * A recent picture of the agent's screen on its profile's Today, as the web's entry shows one: only while its
- * computer runs and the profile is on screen, for whoever may watch it, never a stream. A tap opens the computer;
- * under it, how old the picture is. Nothing otherwise (the button beside Chat stays the way in).
- */
-export function AgentComputerPicture({ agentId }: { agentId: string }) {
-  const { t, i18n } = useTranslation();
-  const { orgId } = useOrg();
-  const dir = useDirectory();
-  const focused = useIsFocused();
-  const view = useAgentComputer(agentId, focused ? PICTURE_IDLE_MS : false);
-  const asks = !view.forbidden && asksPicture(focused, view.desktopQ.data ?? null);
-  const shot = useDesktopPicture(orgId, agentId, { enabled: asks, working: Boolean(view.facts?.working) });
-  const now = useNow(60_000);
+  const press = helps ? () => void help() : open;
   const picture = asks ? shot.data?.picture : null;
-  if (!picture) return null;
-  const g = agentGrammar(dir.agentById.get(agentId)?.name ?? "");
   return (
-    <>
-      <GroupedHeader>{t("agentComputer.button")}</GroupedHeader>
-      {/* The press gives its own haptic (`PressScale`). */}
-      <PressScale
-        onPress={() => openComputer(agentId)}
-        accessibilityRole="button"
-        accessibilityLabel={t("agentComputer.openOf", g)}
-      >
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${picture.data}` }}
-          contentFit="cover"
-          contentPosition="left top"
-          style={styles.picture}
+    // The lists' own card (`GroupedList`'s corner and relief), so it stands as one of them in Hoje.
+    <View style={[styles.card, { backgroundColor: colors.raised, boxShadow: `${shadows.e1}, ${shadows.top}` }]}>
+      {picture ? (
+        // The picture opens the computer too; the row under it is what a screen reader hears.
+        <Pressable
+          onPress={press}
           accessible={false}
-        />
-      </PressScale>
-      <GroupedFooter>{pictureWhen(t, i18n.language, picture.capturedAt, new Date(now))}</GroupedFooter>
-    </>
+          style={{ borderBottomColor: colors.line2, ...styles.pictureEdge }}
+        >
+          <Image
+            source={{ uri: `data:image/jpeg;base64,${picture.data}` }}
+            contentFit="cover"
+            contentPosition="left top"
+            style={styles.picture}
+            accessible={false}
+          />
+        </Pressable>
+      ) : null}
+      <GroupedRow
+        icon="laptop"
+        label={helps ? t("agentComputer.help") : t("agentComputer.button")}
+        {...(line ? { sub: line, subLines: 2 } : {})}
+        {...(picture ? { value: pictureWhen(t, i18n.language, picture.capturedAt, new Date(now)) } : {})}
+        chevron
+        onPress={press}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  picture: { width: "100%", aspectRatio: 16 / 10, borderRadius: 14 },
+  // 16 under what comes before it in Hoje, as the page's other blocks.
+  card: { marginTop: 16, borderRadius: 14, overflow: "hidden" },
+  picture: { width: "100%", aspectRatio: 16 / 10 },
+  pictureEdge: { borderBottomWidth: StyleSheet.hairlineWidth },
 });

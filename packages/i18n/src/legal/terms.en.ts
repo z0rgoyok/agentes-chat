@@ -3,7 +3,7 @@ import type { LegalDocument } from "./types";
 export const termsEn: LegalDocument = {
   title: "Terms of Use",
   summary: "The agreement for using agentes.chat: your workspace, your agents, and what each side is responsible for.",
-  updated: "2026-11-06",
+  updated: "2026-11-13",
   sections: [
     {
       id: "agreement",

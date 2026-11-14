@@ -84,7 +84,7 @@ describe("receipts under an agent's reply", () => {
   });
 });
 
-describe("receipts on one line, as on the web", () => {
+describe("receipts as on the web", () => {
   const task = (n: number) =>
     action({
       id: `a${n}`,
@@ -145,11 +145,11 @@ describe("receipts on one line, as on the web", () => {
     expect(rowFiles(tasks as ReceiptRow)).toEqual(["print.png"]);
   });
 
-  test("a row is one line and opens its sheet; the message's double tap and long press still work on it", () => {
+  test("a row wraps whole and opens its sheet; the message's double tap and long press still work on it", () => {
     // No renderer for the phone's components in these tests: what only the source can say is read from it.
     const src = readFileSync(join(import.meta.dir, "../../src/features/chat/Receipts.tsx"), "utf8");
     const sentence = src.slice(src.indexOf("function Sentence("), src.indexOf("function ChangesSheet("));
-    expect(sentence).toContain("numberOfLines={1}");
+    expect(sentence).not.toContain("numberOfLines");
     // A second tap in the message's window is its double tap, so the sheet waits for that window first.
     expect(sentence).toContain("onPress={whole || onTap ? press : undefined}");
     expect(sentence).toContain("}, DOUBLE_TAP_MS);");

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { BROWSER_VIEW, decodeBrowserFrame, type MachineRequest } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
-import { BROWSER_SCOPE, grantScopes, MachineRequestError } from "@agenteschat/engine";
+import { BROWSER_SCOPE, grantScopes, MachineRequestError, RIGHT_HAND } from "@agenteschat/engine";
 import {
   createViewerPacer,
   FRAME_RENEW_MS,
@@ -10,7 +10,17 @@ import {
   parseFrameSocketMessage,
 } from "../src/realtime/browser";
 import { parseClientFrame } from "../src/realtime/ws";
-import { browser, createTestServer, listen, ORIGIN, pairComputer, seedOrg, signUp, type TestServer } from "./harness";
+import {
+  browser,
+  createTestServer,
+  joinByInvitation,
+  listen,
+  ORIGIN,
+  pairComputer,
+  seedOrg,
+  signUp,
+  type TestServer,
+} from "./harness";
 
 const AGENT = "0193a2b4-0000-7000-8000-000000000000";
 
@@ -525,6 +535,92 @@ describe("handoff routes", () => {
     expect(((await done.json()) as { status: string }).status).toBe("done");
     expect((await api(`/browser/handoffs/${h.id}/done`, { json: {} })).status).toBe(409);
     expect(await (await api(`/agents/${org.agentId}/browser/handoff`)).json()).toEqual({ handoff: null });
+  });
+
+  test("the right hand's desktop: each person takes, reads and ends only their own seat's", async () => {
+    const { owner, org, api, machine } = await seeded();
+    // The workspace's own computer, where each agent is its own OS user.
+    const executors = { desktop: { available: true }, terminal: { available: true }, mode: "system" as const };
+    await t.db
+      .update(schema.machines)
+      .set({ kind: "host", executors })
+      .where(eq(schema.machines.id, machine.machineId));
+    const [lodi] = await t.db
+      .select({ id: schema.agents.id })
+      .from(schema.agents)
+      .where(and(eq(schema.agents.orgId, org.orgId), eq(schema.agents.builtin, RIGHT_HAND)));
+    if (!lodi) throw new Error("no right hand");
+    const member = await joinByInvitation(t, owner, org.orgId, "bia@example.com");
+    const theirs = (path: string, init?: Parameters<typeof member>[1]) =>
+      member(`/api/app/organizations/${org.orgId}${path}`, init);
+
+    const taken = await theirs(`/agents/${lodi.id}/desktop/takeover`, { json: {} });
+    expect(taken.status).toBe(200);
+    const h = (await taken.json()) as { id: string; controllerUserId: string };
+    expect(
+      ((await (await theirs(`/agents/${lodi.id}/desktop/handoff`)).json()) as { handoff: unknown }).handoff,
+    ).toMatchObject({
+      id: h.id,
+    });
+    // The owner, an admin, has their own seat: nothing of hers shows there, and hers is not theirs to read or end.
+    expect(await (await api(`/agents/${lodi.id}/desktop/handoff`)).json()).toEqual({ handoff: null });
+    expect((await api(`/browser/handoffs/${h.id}`)).status).toBe(403);
+    expect((await api(`/browser/handoffs/${h.id}/cancel`, { json: {} })).status).toBe(403);
+    const own = await api(`/agents/${lodi.id}/desktop/takeover`, { json: {} });
+    expect(((await own.json()) as { id: string }).id).not.toBe(h.id);
+    // Its browser's window is on that desktop: no take over of its own.
+    expect((await theirs(`/agents/${lodi.id}/browser/takeover`, { json: {} })).status).toBe(403);
+    expect(
+      ((await (await theirs(`/browser/handoffs/${h.id}/done`, { json: {} })).json()) as { status: string }).status,
+    ).toBe("done");
+  });
+
+  test("the right hand's shared seat: opened by name, by who may open an agent's computer, apart from their own", async () => {
+    const { owner, org, api, machine } = await seeded();
+    const executors = { desktop: { available: true }, terminal: { available: true }, mode: "system" as const };
+    await t.db
+      .update(schema.machines)
+      .set({ kind: "host", executors })
+      .where(eq(schema.machines.id, machine.machineId));
+    const [lodi] = await t.db
+      .select({ id: schema.agents.id })
+      .from(schema.agents)
+      .where(and(eq(schema.agents.orgId, org.orgId), eq(schema.agents.builtin, RIGHT_HAND)));
+    if (!lodi) throw new Error("no right hand");
+    const member = await joinByInvitation(t, owner, org.orgId, "bia@example.com");
+    const theirs = (path: string, init?: Parameters<typeof member>[1]) =>
+      member(`/api/app/organizations/${org.orgId}${path}`, init);
+    const shown = async (as: typeof api) =>
+      ((await (await as("/machines")).json()) as { machines: { sharedSeatOf?: string | null }[] }).machines.map(
+        (m) => m.sharedSeatOf ?? null,
+      );
+    expect(await shown(api)).toContain(lodi.id);
+    expect(await shown(theirs)).toEqual([null]);
+
+    // A member has her own seat, never the shared one.
+    for (const path of ["desktop", "desktop/handoff", "desktop/control", "desktop/picture"]) {
+      expect((await theirs(`/agents/${lodi.id}/${path}?seat=shared`)).status).toBe(403);
+    }
+    expect((await theirs(`/agents/${lodi.id}/desktop/takeover`, { json: { seat: "shared" } })).status).toBe(403);
+    expect((await theirs(`/agents/${lodi.id}/desktop`)).status).toBe(200);
+
+    // The owner takes it: its handoff says whose screen it is, and their own seat's state knows nothing of it.
+    const taken = await api(`/agents/${lodi.id}/desktop/takeover`, { json: { seat: "shared" } });
+    expect(taken.status).toBe(200);
+    const h = (await taken.json()) as { id: string; seat?: string };
+    expect(h.seat).toBe("shared");
+    const open = async (query: string) =>
+      ((await (await api(`/agents/${lodi.id}/desktop/handoff${query}`)).json()) as { handoff: { id: string } | null })
+        .handoff;
+    expect((await open("?seat=shared"))?.id).toBe(h.id);
+    expect(await open("")).toBeNull();
+    expect((await api(`/agents/${lodi.id}/desktop/control?seat=shared`)).status).toBe(200);
+    expect((await theirs(`/browser/handoffs/${h.id}`)).status).toBe(403);
+    expect((await theirs(`/browser/handoffs/${h.id}/cancel`, { json: {} })).status).toBe(403);
+    expect(await (await api(`/browser/handoffs/${h.id}/done`, { json: {} })).json()).toMatchObject({
+      status: "done",
+      seat: "shared",
+    });
   });
 
   test("the agent's browser settings and its open handoff are two routes, each with its own answer", async () => {

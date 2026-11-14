@@ -40,9 +40,9 @@ export const busyChannels = (work: WorkItem[]) => new Set(work.map((w) => w.chan
 /** One agent on Agentes: what waits on you, what it is on (working) or its last conversation (free). */
 export interface TeamLine {
   agent: Agent;
-  /** What it is on now; null when free. */
+  /** What it is on now; null when free, or at work where you don't read (its line says the bare state). */
   work: WorkItem | null;
-  /** Waiting on you: the request closest to expiring (the exact item), and how many there are. */
+  /** Waiting on you: the request asked first (the exact item), and how many there are. */
   approval: Pick<Approval, "id" | "title" | "createdAt"> | null;
   waitingCount: number;
   /** Waiting: since it asked. Working: since when. Free: its DM's last message. */
@@ -58,9 +58,10 @@ export interface TeamLine {
 }
 
 /**
- * Agentes: "Esperando você" (agents with a request you may decide, the one closest to
- * expiring first; `waiting` as `waitingApprovals` gives it), "Trabalhando agora" (in `workByAgent` order:
- * missions, then the newest runs) and "Livres" (the latest conversation first, then by name), each agent once.
+ * Agentes: "Esperando você" (agents with a request you may decide, the one asked
+ * first; `waiting` as `waitingApprovals` gives it), "Trabalhando agora" (in `workByAgent` order:
+ * missions, then the newest runs, then those at work where you don't read, `atWork`) and "Livres" (the latest
+ * conversation first, then by name), each agent once.
  */
 export function teamLines(
   agents: Agent[],
@@ -69,6 +70,11 @@ export function teamLines(
   waitingOnYou: Pick<Approval, "id" | "agentId" | "title" | "createdAt">[] = [],
   /** Agents waiting for an offline computer (`waitingComputerByAgent`): never "working", listed first in Livres. */
   offline: ReadonlyMap<string, { name: string }> = new Map(),
+  /**
+   * Agents at work by their work for you (`AgentStatus.work`, ADR 0084 addendum), with since when: also work in places
+   * you don't read, which `work` leaves out. A routine's is not "working" (the agent is out on it).
+   */
+  atWork: ReadonlyMap<string, string> = new Map(),
 ): { waiting: TeamLine[]; working: TeamLine[]; free: TeamLine[] } {
   const byId = new Map(agents.map((a) => [a.id, a]));
   const waiting: TeamLine[] = [];
@@ -93,6 +99,11 @@ export function teamLines(
     const agent = byId.get(w.agentId);
     if (agent && !asking.has(agent.id) && !offline.has(agent.id))
       working.push({ agent, work: w, approval: null, waitingCount: 0, at: w.since, preview: null });
+  }
+  for (const [id, since] of atWork) {
+    const agent = byId.get(id);
+    if (agent && !asking.has(id) && !offline.has(id) && !firstWork.has(id))
+      working.push({ agent, work: null, approval: null, waitingCount: 0, at: since, preview: null });
   }
   const busy = new Set([...asking, ...working.map((l) => l.agent.id)]);
   const lastOf = new Map<string, NonNullable<DirectMessage["lastMessage"]>>();

@@ -40,6 +40,7 @@ import {
   RECENT_LINES,
   startMachineTask,
   taskModeOf,
+  taskScope,
   taskSeconds,
 } from "./machine-tasks";
 import { MachineOfflineError, machineOnline } from "./machines";
@@ -3443,7 +3444,7 @@ export async function getTaskOutput(
       const agent = await getAgentCached(deps.db, orgId, row.agentId);
       const out = await deps.hub.call<"task.output">(
         row.machineId,
-        { op: "task.output", taskId: row.id, tail, agent: { id: row.agentId, handle: agent?.handle ?? "agent" } },
+        { op: "task.output", taskId: row.id, tail, agent: taskScope(row, agent?.handle ?? "agent") },
         { timeoutMs: 15_000 },
       );
       const lines = (Array.isArray(out?.lines) ? out.lines : []).map((l) => String(l).slice(0, 500)).slice(-tail);

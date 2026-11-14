@@ -58,7 +58,7 @@ const SHAPES: [number, number][] = [
 ];
 
 /** The soft pulse every bone shares: 1 → 0.55 → 1 over 1.4 s, still with reduced motion. */
-function usePulse() {
+export function usePulse() {
   const reduced = useReducedMotion();
   const k = useSharedValue(1);
   useEffect(() => {

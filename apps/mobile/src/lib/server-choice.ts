@@ -1,8 +1,33 @@
 import { normalizeServer, originOf } from "@agenteschat/client/lib/server";
 
-/** The server the app talks to: the one the person chose ("Seu servidor"), else the build's. */
-export const currentServer = (saved: string | null, build: string) =>
-  (saved ? normalizeServer(saved, { allowHttp: true }) : null) ?? build;
+/**
+ * A place is one account's sign-in on a server (ADR 0183): the server's address for the first account there, as
+ * before a server kept several, and `address#id` for each other one. It names a session and what the phone keeps of
+ * it; it is never an address to fetch (`serverOf` is).
+ */
+const PLACE_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+/** The server a place is on (pure). */
+export const serverOf = (place: string): string => {
+  const at = place.indexOf("#");
+  return at < 0 ? place : place.slice(0, at);
+};
+
+/** Another account's place on `server` (pure). */
+export const placeFor = (server: string, id: string) => `${server}#${id}`;
+
+/** A saved place as the app takes it: its server normalized, its id kept when it is one; null for anything else. */
+export function placeFrom(raw: string): string | null {
+  const at = raw.indexOf("#");
+  const server = normalizeServer(at < 0 ? raw : raw.slice(0, at), { allowHttp: true });
+  if (!server) return null;
+  if (at < 0) return server;
+  const id = raw.slice(at + 1);
+  return PLACE_ID.test(id) ? placeFor(server, id) : null;
+}
+
+/** The place the app is on: the one the person chose ("Seu servidor", or one of its accounts), else the build's. */
+export const currentServer = (saved: string | null, build: string) => (saved ? placeFrom(saved) : null) ?? build;
 
 /** What to remember: nothing for the build's own server, so a newer build's default applies. */
 export const savedServer = (server: string, build: string) => (server === build ? null : server);
@@ -92,14 +117,17 @@ export function cookieTo(url: string, server: string, cookie: string): string {
   return origin !== null && origin === originOf(server) ? cookie : "";
 }
 
-/** The servers this phone is signed in to, in the order they were added, from storage (pure; anything else dropped). */
+/**
+ * The places this phone is signed in to (a server, or one of its accounts: ADR 0183), in the order they were added,
+ * from storage (pure; anything else dropped).
+ */
 export function serverListFrom(raw: string | null): string[] {
   try {
     const parsed = JSON.parse(raw ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
     const out: string[] = [];
     for (const v of parsed) {
-      const server = typeof v === "string" ? normalizeServer(v, { allowHttp: true }) : null;
+      const server = typeof v === "string" ? placeFrom(v) : null;
       if (server && !out.includes(server)) out.push(server);
     }
     return out;
@@ -126,18 +154,84 @@ export function connectPlan(current: string, target: { server: string; token?: s
   };
 }
 
+/** Who is signed in at a place, as the phone last saw them (ADR 0183). */
+export interface PlaceAccount {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** The accounts by place, from storage (pure; anything else dropped). */
+export function accountsFrom(raw: string | null): Record<string, PlaceAccount> {
+  const out: Record<string, PlaceAccount> = {};
+  try {
+    const parsed = JSON.parse(raw ?? "null") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return out;
+    for (const [saved, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const place = placeFrom(saved);
+      const v = (value ?? {}) as Partial<PlaceAccount>;
+      if (!place || typeof v.id !== "string" || !v.id || v.id.length > 200) continue;
+      out[place] = {
+        id: v.id,
+        name: typeof v.name === "string" ? v.name.slice(0, 200) : "",
+        email: typeof v.email === "string" ? v.email.slice(0, 320) : "",
+      };
+    }
+  } catch {
+    // Unreadable: nobody known yet.
+  }
+  return out;
+}
+
 /**
- * Where a tapped push opens (pure): `here` on the current server (it names none, an older server's, or this one),
- * `switch` to another server this phone is signed in to, `gone` for one it no longer is.
+ * The place where `userId` is already signed in on the server of `place`, when it is another one (pure): signing in
+ * to an added account as someone the phone already has there lands on theirs, not on a second copy.
+ */
+export function twinPlace(
+  place: string,
+  userId: string,
+  signedIn: readonly string[],
+  accounts: Readonly<Record<string, PlaceAccount>>,
+): string | null {
+  const server = serverOf(place);
+  return signedIn.find((p) => p !== place && serverOf(p) === server && accounts[p]?.id === userId) ?? null;
+}
+
+/** The other accounts this phone is signed in to on the server of `place`, by id (pure): they share its push token. */
+export function sharedAccounts(
+  place: string,
+  signedIn: readonly string[],
+  accounts: Readonly<Record<string, PlaceAccount>>,
+): string[] {
+  const server = serverOf(place);
+  const ids = signedIn.filter((p) => p !== place && serverOf(p) === server).map((p) => accounts[p]?.id);
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+}
+
+/**
+ * Where a tapped push opens (pure): `here` on the place the app is on, `switch` to another place this phone is signed
+ * in to, `gone` for one it no longer is. The push names its server (none, from an older server: the current one) and
+ * whose it is (`who.user`, ADR 0183): among that server's accounts on this phone, theirs. A push that names nobody, or
+ * a server whose accounts the phone hasn't all seen yet, opens as before accounts: on that server.
  */
 export function pushPlace(
   pushServer: string | undefined,
   current: string,
   signedIn: readonly string[],
+  who: { user?: string | undefined; accounts: Readonly<Record<string, PlaceAccount>> } = { accounts: {} },
 ): { kind: "here" } | { kind: "switch"; server: string } | { kind: "gone" } {
-  const server = pushServer ? normalizeServer(pushServer, { allowHttp: true }) : null;
-  if (!server || server === current) return { kind: "here" };
-  return signedIn.includes(server) ? { kind: "switch", server } : { kind: "gone" };
+  const here = serverOf(current);
+  const server = (pushServer ? normalizeServer(pushServer, { allowHttp: true }) : null) ?? here;
+  const there = signedIn.filter((p) => serverOf(p) === server);
+  const places = server === here && !there.includes(current) ? [current, ...there] : there;
+  if (who.user && places.length > 0 && places.every((p) => who.accounts[p])) {
+    const theirs = places.find((p) => who.accounts[p]?.id === who.user);
+    if (!theirs) return { kind: "gone" };
+    return theirs === current ? { kind: "here" } : { kind: "switch", server: theirs };
+  }
+  if (server === here) return { kind: "here" };
+  const [first] = there;
+  return first ? { kind: "switch", server: first } : { kind: "gone" };
 }
 
 /** The server to open after leaving one (pure): the next one still signed in, or none. */

@@ -200,6 +200,38 @@ export const ICONS = {
   replyTo: [p("M9.6 6 4.8 10.8l4.8 4.8M4.8 10.8h8.4a6 6 0 0 1 6 6v1.8")],
   // The web's swap arrows on this grid: one agent asking another, between their faces.
   swap: [p("M4.8 8.4h13.8M15.6 5.4l3 3-3 3M19.2 15.6H5.4M8.4 12.6l-3 3 3 3")],
+  // `down` turned over: Ordenar's ▲ on a cargo.
+  up: [p("M12 19V5M6 11l6-6 6 6")],
+  // The cargos' icons (ADR 0085 `ROLE_ICONS`) the phone didn't draw yet, the web's on this grid, and Todos' and the
+  // owners' marks. The rest of the sixteen (shield, code, mail, bolt, flag, chart, globe, eye, person) are above.
+  wallet: [p("M4.2 7.8a2.4 2.4 0 0 1 2.4-2.4H18v3.6"), r(4.2, 9, 15.6, 10.8, 2.4), p("M16.2 14.4h.01")],
+  book: [
+    p(
+      "M4.8 5.4h5.4A3 3 0 0 1 12 7.2v12a2.4 2.4 0 0 0-2.4-2.4H4.8zM19.2 5.4h-5.4A3 3 0 0 0 12 7.2v12a2.4 2.4 0 0 1 2.4-2.4h4.8z",
+    ),
+  ],
+  bulb: [p("M9 18h6M9.96 21h4.08M12 3a6 6 0 0 0-3.48 10.92v2.04h6.96v-2.04A6 6 0 0 0 12 3z")],
+  pullRequest: [p("M7.2 3.6v16.8M16.8 10.8v9.6M7.2 8.4a3.6 3.6 0 0 0 3.6 3.6h2.4a3.6 3.6 0 0 1 3.6 3.6")],
+  calendar: [
+    p("M7.2 4.2h9.6a3.6 3.6 0 0 1 3.6 3.6v9a3.6 3.6 0 0 1-3.6 3.6H3.6V7.8a3.6 3.6 0 0 1 3.6-3.6z"),
+    p("M3.6 9.6h16.8M8.4 2.4V6M15.6 2.4V6"),
+  ],
+  message: [p("M7.8 4.8h9a3.6 3.6 0 0 1 3.6 3.6v4.8a3.6 3.6 0 0 1-3.6 3.6H3.6V9a4.2 4.2 0 0 1 4.2-4.2z")],
+  plug: [p("M9 3.6v4.8M15 3.6v4.8M6 8.4h12v3a6 6 0 0 1-12 0zM12 17.4v3")],
+  audienceEveryone: [
+    c(12, 8.7, 3),
+    p("M6.6 19.2c.72-3.12 2.76-4.8 5.4-4.8s4.68 1.68 5.4 4.8"),
+    c(5.7, 10.5, 2.1),
+    p("M2.1 18c.36-1.86 1.5-3.06 3-3.42"),
+    c(18.3, 10.5, 2.1),
+    p("M21.9 18c-.36-1.86-1.5-3.06-3-3.42"),
+  ],
+  audienceOwner: [
+    c(9.6, 8.4, 3.3),
+    p("M3.6 19.5c.78-3.42 3-5.28 6-5.28 1.2 0 2.28.3 3.18.84"),
+    r(14.7, 15.3, 6.6, 5.1, 1.2),
+    p("M16.2 15.3v-1.32a1.8 1.8 0 0 1 3.6 0v1.32"),
+  ],
 } satisfies Record<string, IconShape[]>;
 
 export type IconName = keyof typeof ICONS;

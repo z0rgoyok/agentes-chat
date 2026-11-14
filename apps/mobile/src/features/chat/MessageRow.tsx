@@ -87,7 +87,7 @@ import { DeviceWait } from "../devices/DeviceWait";
 import { deviceWaitOf } from "../devices/logic";
 import { WaitToolOffAction } from "../devices/ToolOneClick";
 import { MessageFiles } from "../files/MessageFiles";
-import { chatHref, consultationHref, routineHref } from "../links/logic";
+import { consultationHref, routineHref } from "../links/logic";
 import { DecisionCard, MissionCard, PlanCard, ReviewCard, SetupFailedCard } from "../missions/cards";
 import { AwayPill, BrainWait } from "../outages/WaitCard";
 import { SettingsProposals } from "../right-hand/SettingsCard";
@@ -247,8 +247,8 @@ export const MessageRow = memo(function MessageRow({
   // The person's pick on a choice card (ADR 0124): one compact line, not a bubble.
   const choiceReply = meta?.choiceReply && body ? <ChoiceReply text={choiceReplyLine(body)} /> : null;
   const consulted = isAgent && m.author.id ? consultationsOf(meta) : [];
-  // A long message from one agent to another (ADR 0034): its first paragraph and "Ler tudo", which pushes its
-  // thread's screen with it whole. On that screen, and where it is read only, it stays whole.
+  // A long message from one agent to another (ADR 0034): its first paragraph and "Ver mais", which opens the rest in
+  // place. On its thread's screen, and where it is read only, it stays whole.
   const talk = useMemo(
     () =>
       isAgent &&
@@ -520,7 +520,7 @@ export const MessageRow = memo(function MessageRow({
       >
         {quote ? <QuotePlate reply={quote} onJump={onQuote} {...(solidInk ? { ink: solidInk } : {})} /> : null}
         <View style={bubbled ? styles.bubbleLine : undefined}>
-          <ClippedMessage name={name} body={body} behind={[(bubbled && look.fill) || c.bubble]} ink={solidInk}>
+          <ClippedMessage id={m.id} behind={[(bubbled && look.fill) || c.bubble]} ink={solidInk}>
             <MessageText
               body={body}
               muted={m.local === "pending"}
@@ -709,6 +709,16 @@ export const MessageRow = memo(function MessageRow({
       everyone={m.meta?.mentionsEveryone === true}
     />
   ) : null;
+  const saying = (text: string) => (
+    <MessageText
+      body={text}
+      muted={m.local === "pending" || workOver}
+      selectable={false}
+      accent={accent}
+      channelRefs={channelRefsOf(m.meta)}
+      everyone={m.meta?.mentionsEveryone === true}
+    />
+  );
   const words = deviceWait ? (
     <DeviceWait message={m} fallback={messageWords} />
   ) : brainWait ? (
@@ -716,15 +726,8 @@ export const MessageRow = memo(function MessageRow({
   ) : choiceReply ? (
     choiceReply
   ) : body ? (
-    <ClippedMessage name={name} body={talk ? talk.lead : body} behind={behindWords}>
-      <MessageText
-        body={talk ? talk.lead : body}
-        muted={m.local === "pending" || workOver}
-        selectable={false}
-        accent={accent}
-        channelRefs={channelRefsOf(m.meta)}
-        everyone={m.meta?.mentionsEveryone === true}
-      />
+    <ClippedMessage id={m.id} behind={behindWords} lead={talk ? saying(talk.lead) : undefined}>
+      {saying(body)}
     </ClippedMessage>
   ) : null;
   // The bubble holds its words, the tags of its name line and, at its end, the time; a row with none keeps its line.
@@ -840,22 +843,6 @@ export const MessageRow = memo(function MessageRow({
                   </>
                 )}
               </View>
-            ) : null}
-            {talk && !brainWait ? (
-              <Pressable
-                onPress={() => router.push(chatHref(m.channelId, m.threadId ?? m.id))}
-                accessibilityRole="button"
-                hitSlop={8}
-                style={({ pressed }) => [styles.talkMore, pressed && styles.pressedDim]}
-              >
-                <Text variant="footnote" tone="muted" style={styles.medium}>
-                  {t("chat.talk.readAll")}
-                </Text>
-                <Text variant="footnote" tone="faint">
-                  · {t("chat.talk.more", { count: talk.more })}
-                </Text>
-                <Icon name="right" size={13} color={c.faint} />
-              </Pressable>
             ) : null}
             {media ? <ChatMedia media={media} liveId={m.id} /> : null}
             {voiceOf(meta) ? <VoiceMessage message={m} /> : null}
@@ -1405,13 +1392,6 @@ const styles = StyleSheet.create({
   },
   continueIn: { flexGrow: 1, flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 8, paddingRight: 10 },
   medium: { fontWeight: "600" },
-  talkMore: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 4,
-    minHeight: 28,
-  },
   pressedDim: { opacity: 0.6 },
   shrink: { flexShrink: 1 },
   // The chip's own shrink only works if what holds it can shrink too (a long routine name ends in "…").

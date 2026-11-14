@@ -287,7 +287,8 @@ function ConsentForm({
                 await auth.signOut();
                 storage.set(STORAGE_KEYS.signedOut, "1");
                 qc.clear();
-                window.location.assign(signInPath(window.location.pathname + window.location.search));
+                // `add`: the sign-in shows even when another of the browser's accounts is the one in now (ADR 0183).
+                window.location.assign(`${signInPath(window.location.pathname + window.location.search)}&add=1`);
               }}
             >
               {t("apps.consent.switchAccount")}

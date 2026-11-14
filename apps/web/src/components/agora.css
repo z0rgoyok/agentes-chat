@@ -1,0 +1,218 @@
+/*
+ * Agora (`Agora.tsx`). Its button takes its place's sizes: the sidebar's collapse beside it (layout.css), the title
+ * bar's buttons (desktop.css). Its popover: 360 wide (the window less its room on a phone), at most 560 tall or the
+ * window less its bars, the menu's concentric corner (its rows' 10 plus its 8 of room).
+ */
+.agora.ac-popover {
+  --menu-pad: var(--space-2);
+  width: min(360px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: none;
+  max-height: min(560px, calc(100vh - 120px));
+  padding: var(--menu-pad);
+  border-radius: calc(var(--radius-item) + var(--menu-pad));
+  box-shadow: var(--e3);
+  gap: 0;
+  overflow: hidden;
+}
+.agora__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+.agora__section .ac-grouphead {
+  padding-inline: var(--space-2);
+}
+.agora__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agora__none {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: 13px;
+  color: var(--muted);
+}
+.agora__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * A row, one line as the task manager's: the face, the line (the name, what it does, where and on what in quiet type,
+ * cut with "…"), its time and ⋯. 8 around, the ⋯'s 32 its height. The whole row opens its place (`.tm-hit` reaches every edge); ⋯
+ * stays on top. ⋯ shows on hover and focus, always under a finger: its column is always there, so nothing moves.
+ */
+.agora-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto var(--control-h-sm);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--row-py) var(--space-2);
+  border-radius: var(--radius-item);
+  font-size: 14px;
+  line-height: 20px;
+}
+.agora-row:hover {
+  background: var(--plate);
+}
+html:not([data-pointer]) .agora-row:has(.tm-hit:focus-visible, > a:focus-visible) {
+  box-shadow: var(--focus-ring-inset);
+}
+/*
+ * The line: the name and what it does, then where and on what. What gives way when it is short: where and on what
+ * first (it leaves the line rather than show a stub, `flex-wrap` onto a second line the row hides), then a long name.
+ * What it does stays whole.
+ */
+.agora-row .tm-hit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  height: 20px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--ink2);
+}
+.agora-row__who {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.agora-row__who > b {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 650;
+  color: var(--ink);
+}
+/*
+ * Whole: the name gives way first. A long name keeps its first letters (2.5em, never a stub of a word), and only a
+ * phrase longer than the rest of the line ends in "…". A short name (`data-long` unset) is never cut: its phrase ends
+ * in "…" first ("Ada ajudando o Bartolomeu Co…").
+ */
+.agora-row__phrase {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agora-row__who > b[data-long] {
+  min-width: 2.5em;
+}
+.agora-row__who:has(> b[data-long]) > .agora-row__phrase {
+  max-width: calc(100% - 2.5em - var(--space-1));
+}
+.agora-row__who > b:not([data-long]) {
+  flex: none;
+}
+.agora-row__who:has(> b:not([data-long])) > .agora-row__phrase {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.agora-row .tm-hit > small {
+  flex: 1 1 4em;
+  min-width: 4em;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.agora-row[data-state="you"] .agora-row__phrase {
+  font-weight: 600;
+  color: var(--warn);
+}
+.agora-row__time {
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.agora-row__more.ac-btn {
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) {
+  .agora-row:not(:hover, :focus-within) .agora-row__more.ac-btn:not([data-state="open"]) {
+    opacity: 0;
+  }
+}
+/*
+ * What else waits on the reader past the rows (the sidebar's "Esperando você" count): a line there, in the rows'
+ * columns and height, the still wait mark for a face, ⋯'s place a chevron. The whole row is its link.
+ */
+.agora-row--all {
+  grid-template-columns: 18px minmax(0, 1fr) var(--control-h-sm);
+  min-height: calc(var(--control-h-sm) + 2 * var(--row-py));
+}
+.agora-row--all > :is(.rq-wait, .ac-icon) {
+  justify-self: center;
+}
+.agora-row--all > a {
+  overflow: hidden;
+  color: var(--ink2);
+  white-space: nowrap;
+  text-decoration: none;
+  text-overflow: ellipsis;
+}
+.agora-row--all > a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+html:not([data-pointer]) .agora-row--all > a:focus-visible {
+  outline: none;
+}
+.agora-row--all > .ac-icon {
+  color: var(--muted);
+}
+/* Stopping, a cancel or a Continuar agora going: its spinner says it, and nothing on it acts. */
+.agora-row[data-held] {
+  pointer-events: none;
+}
+.agora-row[data-held] .tm-hit {
+  color: var(--muted);
+}
+/* "Parar" asked: the task manager's confirmation, stacked in the row's width. */
+.agora-row--confirm {
+  display: block;
+  padding: 0;
+  background: var(--plate-soft);
+}
+.agora-row--confirm:hover {
+  background: var(--plate-soft);
+}
+.agora-row__confirm.tm-cfm {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+.agora-row__confirm .tm-cfm__text {
+  max-width: none;
+}
+.agora-row__confirm .tm-cfm__text > :last-child {
+  white-space: normal;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .agora-row__more.ac-btn {
+    transition: opacity 0.15s;
+  }
+}

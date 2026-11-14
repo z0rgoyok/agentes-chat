@@ -4,7 +4,7 @@ import { Icon } from "../icons/Icon";
 import { prefersReducedMotion } from "../sky/engine";
 import { bayerAt, parseColor } from "../sky/math";
 import { DitherLine } from "./ChartPieces";
-import { formatWidgetNumber, formatWithUnit, useCountUp, widgetDigits } from "./format";
+import { formatWidgetNumber, formatWithUnit, isMarkUnit, useCountUp, widgetDigits } from "./format";
 import type {
   BarsWidgetSpec,
   GoalWidgetSpec,
@@ -77,9 +77,13 @@ function KpiBody({
   return (
     <>
       <div className="wk-num" data-value={spec.value}>
-        {spec.prefix && <small className="wk-num__pre">{spec.prefix}</small>}
+        {spec.prefix && (
+          <small className={isMarkUnit(spec.prefix) ? "wk-num__pre wk-num__mark" : "wk-num__pre"}>{spec.prefix}</small>
+        )}
         <span>{formatWidgetNumber(shown, locale, widgetDigits(spec.value))}</span>
-        {spec.suffix && <small className="wk-num__suf">{spec.suffix}</small>}
+        {spec.suffix && (
+          <small className={isMarkUnit(spec.suffix) ? "wk-num__suf wk-num__mark" : "wk-num__suf"}>{spec.suffix}</small>
+        )}
       </div>
       {(spec.delta || spec.note) && (
         <div className="wk-sub wk-clamp">

@@ -1,4 +1,7 @@
+import { usePrefetchMessages } from "@agenteschat/client";
+import { threadWorkState, threadWorkTone, threadWorkWord, workTime } from "@agenteschat/client/lib/agent-work";
 import { previewBody } from "@agenteschat/client/lib/message-body";
+import { agentFaceWord } from "@agenteschat/client/lib/presence";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { Link } from "expo-router";
 import { memo, type ReactNode } from "react";
@@ -11,12 +14,13 @@ import { router } from "@/ui/navigation";
 import { workTitle } from "../agents/work";
 import type { RowAction } from "../categories/menus";
 import { agentIntro } from "../chat/intent";
+import { WaitMark } from "../chat/WaitMark";
 import { chatHref } from "../links/logic";
 import { AgentFace, Face } from "../shared/Face";
-import { useColors, useDirectory, useWhen } from "../shared/hooks";
+import { useColors, useDirectory, useNow, useWhen } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { Tile } from "../shared/parts";
-import { usePresenceOf } from "../status/hooks";
+import { useAgentWorkLine, usePresenceOf } from "../status/hooks";
 import { type ConversationRow, type LastLine, rowBadge, threadRowLines } from "./logic";
 import type { AgentRowState } from "./now";
 
@@ -74,7 +78,7 @@ export const ConversationRowView = memo(function ConversationRowView({
   /** The long press's actions for iOS's own menu under the preview (`onHold`'s sheet elsewhere). */
   holdActions?: (row: ConversationRow) => RowAction[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dir = useDirectory();
   const c = useColors();
   const when = useWhen();
@@ -107,13 +111,16 @@ export const ConversationRowView = memo(function ConversationRowView({
   const personShown = r.kind === "dm" && !agentDm ? presenceOf.person(r.with.id) : null;
   const agentLine = agentShown?.line ?? null;
   const presenceWord = agentShown
-    ? t(`presence.${agentShown.presence}`)
+    ? agentFaceWord(t, agentShown.presence)
     : personShown
       ? t(`presence.${personShown.presence}`)
       : null;
+  // Its work for me, workspace-wide (ADR 0084 addendum): whom it helps, where, what waits on me, how long.
+  const work = useAgentWorkLine(r.kind === "dm" && agentDm ? r.with.id : null);
   // Waiting for its offline computer: dozing, no working orbit (its run only waits).
   const away = agentState?.kind === "computer";
-  const working = r.kind === "channel" || away ? false : r.working || agentState?.kind === "working";
+  const working =
+    r.kind === "channel" || away ? false : r.working || agentState?.kind === "working" || work?.tone === "working";
   const leading =
     r.kind === "dm" ? (
       agentDm ? (
@@ -150,9 +157,39 @@ export const ConversationRowView = memo(function ConversationRowView({
   const badge = lines ? lines.badge : own.count;
   const mention = !lines && own.mention;
 
+  // A thread's work, as the chip under its root says it: one state, and how long (ADR 0084 addendum).
+  const now = useNow(60_000);
+  const threadState = r.kind === "thread" && !r.closed ? threadWorkState(r) : null;
   let line: ReactNode;
   let label: string;
-  if (lines?.state && lines.progress) {
+  if (r.kind === "thread" && threadState) {
+    const word = threadWorkWord(t, threadState, { at: r.laterAt, locale: i18n.language, now });
+    const tone = threadWorkTone(threadState);
+    // A return says when it comes, never for how long.
+    const held = threadState === "later" ? null : workTime(i18n.language, r.since, now);
+    label = [word, held].filter(Boolean).join(" · ");
+    line = (
+      <View style={styles.work}>
+        {tone === "working" ? (
+          <PixelOrbit color={agentLook(dir.agentById.get(r.worker ?? "")).color} size={ORBIT} />
+        ) : tone === "you" ? (
+          <WaitMark size={8} still />
+        ) : (
+          <LineIcon name="clock" size={15} color={c.faint} variant="small" text={LIST_PREVIEW} />
+        )}
+        <Text variant="small" tone="muted" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
+          <Text
+            variant="small"
+            tone={tone === "working" ? "ink2" : "muted"}
+            style={[LIST_PREVIEW, styles.em, tone === "you" ? { color: c.amber } : null]}
+          >
+            {word}
+          </Text>
+          {held ? ` · ${held}` : ""}
+        </Text>
+      </View>
+    );
+  } else if (lines?.state && lines.progress) {
     const progress = t("mobile.chats.missionProgress", lines.progress);
     const state = t(`mobile.chats.missionState.${lines.state}`);
     const lead = lines.state === "working" || lines.state === "waiting";
@@ -170,6 +207,28 @@ export const ConversationRowView = memo(function ConversationRowView({
             {state}
           </Text>
           {` · ${progress}`}
+        </Text>
+      </View>
+    );
+  } else if (work) {
+    // The same line as the web's lists: the orbit at work, amber what waits on me, the clock for a wait elsewhere.
+    label = [work.text, work.time].filter(Boolean).join(" · ");
+    line = (
+      <View style={styles.work}>
+        {work.tone === "working" ? (
+          <PixelOrbit color={orbitColor} size={ORBIT} />
+        ) : work.tone === "neutral" ? (
+          <LineIcon name="clock" size={15} color={c.faint} variant="small" text={LIST_PREVIEW} />
+        ) : null}
+        <Text variant="small" tone="muted" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
+          <Text
+            variant="small"
+            tone={work.tone === "working" ? "ink2" : "muted"}
+            style={[LIST_PREVIEW, styles.em, work.tone === "you" ? { color: c.amber } : null]}
+          >
+            {work.text}
+          </Text>
+          {work.time ? ` · ${work.time}` : ""}
         </Text>
       </View>
     );
@@ -249,6 +308,12 @@ export const ConversationRowView = memo(function ConversationRowView({
     if (onStart && r.kind === "dm") onStart(r.with.id);
     else if (href) router.push(href);
   };
+  // The finger down on a conversation already asks for its messages: they are on their way (or here) by the time
+  // its screen slides in. A thread loads its own replies; a page asked for a moment ago isn't asked for again.
+  const prefetch = usePrefetchMessages(org?.id ?? "");
+  const warm = () => {
+    if (org && r.channelId && r.kind !== "thread" && r.kind !== "mission") prefetch(r.channelId);
+  };
   // iOS's own long press: the conversation itself in the system preview (tapping it opens it), with the row's
   // actions (Pin to the top, a channel's Move to…) in the system menu under it. An agent with no conversation yet
   // peeks at its profile instead, with Talk first; a tap on its row still starts the conversation. Android keeps the
@@ -276,6 +341,7 @@ export const ConversationRowView = memo(function ConversationRowView({
   const row = (press: () => void) => (
     <ListRow
       onPress={press}
+      onPressIn={warm}
       {...(onHold && !peeks
         ? {
             onLongPress: () => onHold(r),

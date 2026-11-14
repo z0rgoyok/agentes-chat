@@ -5,15 +5,17 @@ import {
   finishHandoff,
   getHandoff,
   type HandoffDeps,
-  handoffView,
+  handoffViewFor,
   openHandoffOf,
   openPageInControl,
   PAGE_MOVES,
   requireBrowserAccess,
   requireBrowserControl,
+  SHARED_SEAT,
   startTakeover,
   stopAgentBrowser,
   ValidationError,
+  viewerSeat,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
 import { type AppDeps, body, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
@@ -32,6 +34,9 @@ export const BrowserHandoff = z
     status: z.enum(["pending", "active", "done", "failed", "expired", "cancelled", "withdrawn"]),
     requestedForUserId: z.string().nullable(),
     controllerUserId: z.string().nullable(),
+    seat: z.literal(SHARED_SEAT).optional().openapi({
+      description: "On the workspace's built-in agent: the handoff is of its shared place, not of a person's own.",
+    }),
     note: z.string().nullable(),
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
@@ -41,6 +46,11 @@ export const BrowserHandoff = z
 
 const HandoffParams = OrgParams.extend({ handoffId: z.uuid() });
 const AgentParams = OrgParams.extend({ agentId: z.uuid() });
+
+/** `?seat=shared`: on the right hand, its shared seat (ADR 0175) instead of the asker's own. */
+export const SeatQuery = z.object({ seat: z.literal(SHARED_SEAT).optional() });
+export const SEAT_NOTE =
+  "`seat=shared`: on the workspace's built-in agent, its shared place on the workspace's computer instead of this person's own, for whoever may reach an agent's computer. It means nothing for any other agent.";
 
 /** Where the person in control sends the page: an address they typed, or the address bar's arrows and reload. */
 export const PageTarget = z.union([
@@ -87,14 +97,18 @@ export function browserRoutes(deps: AppDeps) {
         tags,
         security,
         summary: `The open handoff of an agent's ${screen} (who is in control), if any`,
-        request: { params: AgentParams },
+        description: SEAT_NOTE,
+        request: { params: AgentParams, query: SeatQuery },
         responses: { 200: json(z.object({ handoff: BrowserHandoff.nullable() })), ...errors },
       }),
       async (c) => {
         const { orgId, agentId } = c.req.valid("param");
-        await requireBrowserAccess(db, c.get("user").id, orgId, agentId, undefined, screen);
-        const open = await openHandoffOf(db, orgId, agentId, screen);
-        return c.json({ handoff: open ? handoffView(open) : null }, 200);
+        const userId = c.get("user").id;
+        const shared = c.req.valid("query").seat === SHARED_SEAT;
+        await requireBrowserAccess(db, userId, orgId, agentId, undefined, screen, shared);
+        // Whoever asks: on the right hand each person reads only their own seat's, or the shared one's (ADR 0175).
+        const open = await openHandoffOf(db, orgId, agentId, screen, viewerSeat({ userId, shared }));
+        return c.json({ handoff: open ? await handoffViewFor(db, open) : null }, 200);
       },
     );
 
@@ -105,14 +119,16 @@ export function browserRoutes(deps: AppDeps) {
         tags,
         security,
         summary: `Whether this person may drive the agent's ${screen} (take over, open, type); watching needs less`,
-        request: { params: AgentParams },
+        description: SEAT_NOTE,
+        request: { params: AgentParams, query: SeatQuery },
         responses: { 200: json(z.object({ canControl: z.boolean() })), ...errors },
       }),
       async (c) => {
         const { orgId, agentId } = c.req.valid("param");
         const userId = c.get("user").id;
-        await requireBrowserAccess(db, userId, orgId, agentId, undefined, screen);
-        const canControl = await requireBrowserControl(db, userId, orgId, agentId, undefined, screen).then(
+        const shared = c.req.valid("query").seat === SHARED_SEAT;
+        await requireBrowserAccess(db, userId, orgId, agentId, undefined, screen, shared);
+        const canControl = await requireBrowserControl(db, userId, orgId, agentId, undefined, screen, shared).then(
           () => true,
           () => false,
         );
@@ -128,14 +144,19 @@ export function browserRoutes(deps: AppDeps) {
         security,
         summary: `Take over an agent's ${screen} while watching; it waits until handed back`,
         description:
-          "`runId`: the agent's run whose card it was taken from; the take over is bound to it (its card stays in that conversation).",
-        request: { params: AgentParams, body: body(z.object({ runId: z.uuid().optional() })) },
+          "`runId`: the agent's run whose card it was taken from; the take over is bound to it (its card stays in that conversation). `seat: \"shared\"`: on the workspace's built-in agent, its shared place instead of this person's own.",
+        request: {
+          params: AgentParams,
+          body: body(z.object({ runId: z.uuid().optional(), seat: z.literal(SHARED_SEAT).optional() })),
+        },
         responses: { 200: json(BrowserHandoff), ...errors },
       }),
       async (c) => {
         const { orgId, agentId } = c.req.valid("param");
-        const { runId } = c.req.valid("json");
-        return c.json(await startTakeover(handoffDeps, c.get("user").id, orgId, agentId, runId ?? null, screen), 200);
+        const { runId, seat } = c.req.valid("json");
+        const userId = c.get("user").id;
+        const shared = seat === SHARED_SEAT;
+        return c.json(await startTakeover(handoffDeps, userId, orgId, agentId, runId ?? null, screen, shared), 200);
       },
     );
   }
@@ -148,13 +169,15 @@ export function browserRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Close the agent's browser now (its logins stay); its next browser call opens a fresh one",
-      request: { params: AgentParams },
+      description: SEAT_NOTE,
+      request: { params: AgentParams, query: SeatQuery },
       responses: { 204: { description: "Stopped" }, ...errors },
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
       const hub = deps.extras?.sandbox?.machines?.hub;
-      await stopAgentBrowser(db, hub, c.get("user").id, orgId, agentId, adapters.pubsub);
+      const shared = c.req.valid("query").seat === SHARED_SEAT;
+      await stopAgentBrowser(db, hub, c.get("user").id, orgId, agentId, adapters.pubsub, shared);
       return c.body(null, 204);
     },
   );

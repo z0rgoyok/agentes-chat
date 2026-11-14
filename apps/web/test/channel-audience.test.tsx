@@ -24,8 +24,8 @@ const access = async (dialog: HTMLElement, option: RegExp) => {
   await act(async () => fireEvent.keyDown(trigger, { key: "Enter" }));
   await click(screen().getByRole("option", { name: option }));
 };
-/** "Papéis que veem o canal", its own dialog: tick these and "Pronto". */
-const rolesDialog = () => screen().getByRole("dialog", { name: "Papéis que veem o canal" });
+/** "Cargos que veem o canal", its own dialog: tick these and "Pronto". */
+const rolesDialog = () => screen().getByRole("dialog", { name: "Cargos que veem o canal" });
 const pickRoles = async (...names: RegExp[]) => {
   const d = rolesDialog();
   for (const name of names) await click(within(d).getByRole("checkbox", { name }));
@@ -49,7 +49,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     await settle(2);
     const dialog = screen().getByRole("dialog", { name: "Criar canal" });
     await act(async () => fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "vendas" } }));
-    await access(dialog, /Departamentos ou papéis/);
+    await access(dialog, /Departamentos ou cargos/);
     await settle(3);
     // No role yet: their dialog opens by itself. Closed without one, the channel isn't created.
     await click(within(rolesDialog()).getByRole("button", { name: "Cancelar" }));
@@ -57,9 +57,9 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     await click(within(dialog).getByRole("button", { name: "Criar #vendas" }));
     await settle(3);
     expect(calls(state, "chat.createChannel")).toEqual([]);
-    expect(dialog.textContent).toContain("Escolha pelo menos um papel.");
+    expect(dialog.textContent).toContain("Escolha pelo menos um cargo.");
 
-    await click(within(dialog).getByRole("button", { name: "Escolher papéis" }));
+    await click(within(dialog).getByRole("button", { name: "Escolher cargos" }));
     await settle(2);
     await pickRoles(/Admin/);
     // The role picked, under the field, removable.
@@ -79,7 +79,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     // "Quem pode entrar" lives under Permissões (ADR 0134).
     await click(within(dialog).getByRole("button", { name: "Permissões" }));
     await settle(2);
-    await access(dialog, /Departamentos ou papéis/);
+    await access(dialog, /Departamentos ou cargos/);
     await settle(3);
     expect(calls(state, "chat.update")).toEqual([]);
     await pickRoles(/Admin/);
@@ -89,8 +89,8 @@ describe("a channel for departments or roles (ADR 0125)", () => {
     await click(within(dialog).getByRole("button", { name: "Remover Admin" }));
     await settle(3);
     expect(calls(state, "chat.update")).toHaveLength(1);
-    expect(dialog.textContent).toContain("Escolha pelo menos um papel.");
-    await click(within(dialog).getByRole("button", { name: "Escolher papéis" }));
+    expect(dialog.textContent).toContain("Escolha pelo menos um cargo.");
+    await click(within(dialog).getByRole("button", { name: "Escolher cargos" }));
     await settle(2);
     await pickRoles(/Admin/);
     expect(calls(state, "chat.update")).toHaveLength(2);
@@ -151,6 +151,6 @@ describe("a group conversation in a personal workspace (ADR 0159)", () => {
       .map((o) => o.textContent ?? "");
     expect(options.some((o) => o.startsWith("Todos daqui podem entrar"))).toBe(true);
     expect(options.some((o) => o.startsWith("Só quem eu adicionar"))).toBe(true);
-    expect(options.some((o) => o.includes("Departamentos ou papéis"))).toBe(false);
+    expect(options.some((o) => o.includes("Departamentos ou cargos"))).toBe(false);
   });
 });

@@ -325,7 +325,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
       setDir("fwd");
       setTrail(["glance", "done"]);
       // Off the plan it still answers only its owner: one click lets back in whoever it answered before. "Só algumas
-      // pessoas ou papéis" with nobody picked has no one to let back in: no action.
+      // pessoas ou cargos" with nobody picked has no one to let back in: no action.
       if (row.kind === "key" && view.brain !== "model" && view.onlyOwner) {
         const people = (agent.audience?.userIds?.length ?? 0) + (agent.audience?.roleIds?.length ?? 0);
         toast.show(

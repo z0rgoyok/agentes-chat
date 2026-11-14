@@ -2486,7 +2486,7 @@ a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important
 </tr></table>
 <p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">Essa pessoa abriu o link de convite da <b class="ink" style="font-weight:600;color:#151514">Estúdio Alves</b> e pediu <span style="display:inline-block">para entrar.</span></p>
 <table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 16px"><tr>
-<td class="tx" style="padding:14px 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:15px;line-height:22px;color:#2a2a28">Aprove só quem você espera. A pessoa entra como membro, a não ser que você escolha outro papel <span style="display:inline-block">na página.</span></td></tr></table>
+<td class="tx" style="padding:14px 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:15px;line-height:22px;color:#2a2a28">Aprove só quem você espera. A pessoa entra como membro, a não ser que você escolha outro cargo <span style="display:inline-block">na página.</span></td></tr></table>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/org/6f1d2c9a-58c1-4f7e-9d3b-2a7c1e0b9f44/settings/members?request=jr_7&amp;do=approve" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Aprovar</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a><span style="display:inline-block;width:16px;font-size:15px;line-height:20px">&nbsp;&nbsp;&nbsp;&nbsp;</span><a class="ln-d" href="https://agentes.chat/org/6f1d2c9a-58c1-4f7e-9d3b-2a7c1e0b9f44/settings/members?request=jr_7&amp;do=deny" target="_blank" style="display:inline-block;padding:14px 0;color:#b42a20;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;text-underline-color:#e3e3e3"><span style="mso-text-raise:93%">Recusar</span></a></td></tr></table>
 <p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Todos os pedidos <span style="display:inline-block">em espera estão em Membros.</span></p>
 </td></tr>
@@ -4320,6 +4320,621 @@ a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important
 <tr><td style="padding:16px 0 40px">
 <p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Você recebeu este e-mail porque este endereço está em OPS_REPORT_EMAIL neste servidor. Ele sai uma vez <span style="display:inline-block">por dia.</span></p>
 <p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Enviado pelo servidor do agentes.chat <span style="display:inline-block">em x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_change_code.en: snapshot 1`] = `
+"<!doctype html>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>482913 is your code to change your email</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">Type it in agentes.chat to confirm. It works for 10 minutes.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="482913 is your code to change your email" lang="en" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Your code</h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">Type this code to change the email of the account <b class="ink" style="font-weight:600;color:#151514">ana@ souzabakery. com</b> <span style="display:inline-block">to <b class="ink" style="font-weight:600;color:#151514">ana. souza@ example. com</b>.</span></p>
+<table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 20px"><tr>
+<td class="ink" align="center" style="padding:16px 16px 16px 24px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:32px;line-height:40px;font-weight:700;letter-spacing:8px;font-variant-numeric:tabular-nums;color:#151514;text-align:center">482913</td></tr></table>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">It works for 10 minutes, and your email stays the same without it. If it wasn&#39;t you, don&#39;t share it and write <span style="display:inline-block">to <a class="ln-m" href="mailto:help@agentes.chat" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px">help@agentes.chat</a>.</span></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">You got this email because your account asked to change its email <span style="display:inline-block">on agentes.chat.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Sent by the agentes.chat server <span style="display:inline-block">at x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_change_code.pt-BR: snapshot 1`] = `
+"<!doctype html>
+<html lang="pt-BR" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>482913 é seu código para mudar seu e-mail</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">Digite no agentes.chat para confirmar. Vale por 10 minutos.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="482913 é seu código para mudar seu e-mail" lang="pt-BR" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Seu código</h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">Digite este código para mudar o e-mail da conta <b class="ink" style="font-weight:600;color:#151514">ana@ padariasouza. com. br</b> <span style="display:inline-block">para <b class="ink" style="font-weight:600;color:#151514">ana. souza@ example. com</b>.</span></p>
+<table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 20px"><tr>
+<td class="ink" align="center" style="padding:16px 16px 16px 24px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:32px;line-height:40px;font-weight:700;letter-spacing:8px;font-variant-numeric:tabular-nums;color:#151514;text-align:center">482913</td></tr></table>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Vale por 10 minutos, e o seu e-mail não muda sem ele. Se não foi você, não passe para ninguém e avise quem cuida <span style="display:inline-block">deste servidor.</span></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Você recebeu este e-mail porque sua conta pediu para mudar o e-mail <span style="display:inline-block">no agentes.chat.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Enviado pelo servidor do agentes.chat <span style="display:inline-block">em x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_change_link.en: snapshot 1`] = `
+"<!doctype html>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>Confirm your new email for agentes.chat</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">One click to sign in with this address from now on. The link works for an hour.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="Confirm your new email for agentes.chat" lang="en" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Confirm your <span style="display:inline-block">new email</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">One step left: confirm that this address is yours. Your account signs in with it from <span style="display:inline-block">then on.</span></p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Confirm new email</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">The link works for an hour. If you didn&#39;t ask for this, you can ignore <span style="display:inline-block">this email.</span></p>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:13px;line-height:19px;color:#5c5c58">Button not working? Copy this address into <span style="display:inline-block">your browser:</span><br><a class="ln-m" href="https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1" target="_blank" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;word-break:break-all">https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1</a></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">You got this email because someone asked to use this address for an <span style="display:inline-block">agentes.chat account.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Sent by the agentes.chat server <span style="display:inline-block">at x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_change_link.pt-BR: snapshot 1`] = `
+"<!doctype html>
+<html lang="pt-BR" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>Confirme seu novo e-mail no agentes.chat</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">Um clique para entrar com este endereço daqui em diante. O link vale por uma hora.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="Confirme seu novo e-mail no agentes.chat" lang="pt-BR" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Confirme seu <span style="display:inline-block">novo e-mail</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">Falta um passo: confirmar que este endereço é seu. Daí em diante, sua conta entra <span style="display:inline-block">com ele.</span></p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Confirmar novo e-mail</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">O link vale por uma hora. Se não foi você que pediu, pode ignorar <span style="display:inline-block">este e-mail.</span></p>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:13px;line-height:19px;color:#5c5c58">O botão não funcionou? Copie e cole este endereço <span style="display:inline-block">no navegador:</span><br><a class="ln-m" href="https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1" target="_blank" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;word-break:break-all">https://agentes.chat/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFuYUBzb3V6YWJha2VyeS5jb20ifQ.k3J9&amp;callbackURL=%2F%3Femail_confirmed%3D1</a></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Você recebeu este e-mail porque alguém pediu para usar este endereço numa conta <span style="display:inline-block">do agentes.chat.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Enviado pelo servidor do agentes.chat <span style="display:inline-block">em x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_changed.en: snapshot 1`] = `
+"<!doctype html>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>Your agentes.chat email changed</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">If it wasn&#39;t you, you can put this address back for 7 days.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="Your agentes.chat email changed" lang="en" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Your <span style="display:inline-block">email changed</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">The account <b class="ink" style="font-weight:600;color:#151514">ana@ souzabakery. com</b> now signs in <span style="display:inline-block">with <b class="ink" style="font-weight:600;color:#151514">ana. souza@ example. com</b>.</span></p>
+<table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 16px"><tr>
+<td class="tx" style="padding:14px 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:15px;line-height:22px;color:#2a2a28">Wasn&#39;t you? Press the button within 7 days. This address comes back, every session is signed out, the AI apps are disconnected and ways to sign in added since then stop working. The password is cleared too, and “Forgot my password” sets the <span style="display:inline-block">next one.</span></td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">This wasn&#39;t me</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">If it was you, there&#39;s nothing <span style="display:inline-block">to do.</span></p>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:13px;line-height:19px;color:#5c5c58">Button not working? Copy this address into <span style="display:inline-block">your browser:</span><br><a class="ln-m" href="https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue" target="_blank" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;word-break:break-all">https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue</a></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">You got this email because this address was the email of an <span style="display:inline-block">agentes.chat account.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Sent by the agentes.chat server <span style="display:inline-block">at x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages email_changed.pt-BR: snapshot 1`] = `
+"<!doctype html>
+<html lang="pt-BR" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>O e-mail da sua conta do agentes.chat mudou</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">Se não foi você, dá para trazer este endereço de volta por 7 dias.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="O e-mail da sua conta do agentes.chat mudou" lang="pt-BR" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Seu <span style="display:inline-block">e-mail mudou</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">A conta <b class="ink" style="font-weight:600;color:#151514">ana@ padariasouza. com. br</b> agora entra <span style="display:inline-block">com <b class="ink" style="font-weight:600;color:#151514">ana. souza@ example. com</b>.</span></p>
+<table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 16px"><tr>
+<td class="tx" style="padding:14px 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:15px;line-height:22px;color:#2a2a28">Não foi você? Aperte o botão em até 7 dias. Este endereço volta, todas as sessões são encerradas, os apps de IA são desconectados e jeitos de entrar adicionados desde então deixam de valer. A senha também é apagada, e “Esqueci a senha” cria <span style="display:inline-block">a próxima.</span></td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Não fui eu</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Se foi você, não precisa <span style="display:inline-block">fazer nada.</span></p>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:13px;line-height:19px;color:#5c5c58">O botão não funcionou? Copie e cole este endereço <span style="display:inline-block">no navegador:</span><br><a class="ln-m" href="https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue" target="_blank" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;word-break:break-all">https://agentes.chat/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue</a></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Você recebeu este e-mail porque este endereço era o e-mail de uma conta <span style="display:inline-block">do agentes.chat.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Enviado pelo servidor do agentes.chat <span style="display:inline-block">em x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;
+
+exports[`every email, in both languages invitation-starts.en: snapshot 1`] = `
+"<!doctype html>
+<html lang="en" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>You&#39;re invited to a workspace on agentes.chat</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">Accept within 7 days, with this email address.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="You&#39;re invited to a workspace on agentes.chat" lang="en" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px"><tr><td valign="bottom" style="padding:0 8px 0px 0px"><img src="https://x.test/email/agent-amber.png" width="32" height="32" alt="" style="display:block;border:0;outline:none;width:32px;height:32px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:11px;line-height:14px;color:#5c5c58"></td><td valign="bottom" style="padding:0 8px 0px 0px"><img src="https://x.test/email/agent-sky.png" width="32" height="32" alt="" style="display:block;border:0;outline:none;width:32px;height:32px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:11px;line-height:14px;color:#5c5c58"></td></tr></table><h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">You&#39;re invited to <span style="display:inline-block">a workspace</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28"><b class="ink" style="font-weight:600;color:#151514">Carla Dias</b> (carla@ example. com) invited you to join <b class="ink" style="font-weight:600;color:#151514">Acme Logística</b> <span style="display:inline-block">as Suporte.</span></p>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">You&#39;ll start in <span style="display:inline-block">#suporte</span> and <span style="display:inline-block">#chamados-urgentes</span>. You&#39;ll work <span style="display:inline-block">with Max.</span></p>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28">agentes.chat is where people and AI agents <span style="display:inline-block">work together.</span></p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px"><tr><td><a class="btn" href="https://agentes.chat/invite/T7xQ2mVb9KpL" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Accept invitation</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">The invitation works for 7 days. Accept it with this <span style="display:inline-block">email address.</span></p>
+<p class="mu" style="margin:0 0 2px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:13px;line-height:19px;color:#5c5c58">Button not working? Copy this address into <span style="display:inline-block">your browser:</span><br><a class="ln-m" href="https://agentes.chat/invite/T7xQ2mVb9KpL" target="_blank" style="color:#5c5c58;text-decoration:underline;text-decoration-color:#e3e3e3;text-underline-offset:3px;word-break:break-all">https://agentes.chat/invite/T7xQ2mVb9KpL</a></p>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">You got this email because someone at Acme Logística invited this address. If you don&#39;t know them, ignore it. Nothing happens until <span style="display:inline-block">you accept.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Sent by the agentes.chat server <span style="display:inline-block">at x.test.</span></p>
 </td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->

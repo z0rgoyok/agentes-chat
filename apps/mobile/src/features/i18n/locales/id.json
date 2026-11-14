@@ -293,7 +293,7 @@
   },
   "along": {
     "agent": "Seorang agen",
-    "waits": "{{name}} menunggu persetujuanmu",
+    "waits": "{{name}} · menunggumu",
     "on": "{{name}} · {{what}}",
     "working": "{{name}} sedang bekerja",
     "more": "+{{count}}"
@@ -769,7 +769,7 @@
     "teamSectionPersonal": "Agenmu",
     "managerQuiet": "Tidak ada yang berjalan",
     "state": {
-      "waitsYou": "menunggu persetujuanmu",
+      "waitsYou": "menunggumu",
       "noAi": "Belum ada AI terhubung",
       "connect": "Hubungkan",
       "archived": "Diarsipkan",
@@ -1061,6 +1061,9 @@
     "addWorkspaceTeamShort": "Masuk ke server timmu",
     "addWorkspaceTeamSubShort": "Alamat atau kode QR komputer",
     "addWorkspaceFoot": "Kamu tidak keluar dari ruang kerja mana pun.",
+    "addAccount": "Masuk ke akun lain",
+    "addAccountSub": "Di {{host}}, tanpa keluar dari akun ini",
+    "accountNoWorkspace": "Belum ada ruang kerja",
     "teamServerLeadShort": "Yang dibuka timmu di browser.",
     "teamServerQuestion": "Apa alamat timmu?",
     "account": {
@@ -1078,6 +1081,8 @@
       "name": "Nama",
       "namePlaceholder": "Namamu",
       "email": "Email",
+      "emailWebLead": "Masuk lagi di situs web dan ganti di sana, tanpa kode.",
+      "emailWeb": "Masuk lagi di situs web",
       "inWorkspace": "Di ruang kerja ini · {{org}}",
       "handle": "@ kamu",
       "timezone": "Zona waktu",
@@ -1353,7 +1358,7 @@
       "plain": "menyelesaikan sebuah tugas"
     },
     "rowWait": {
-      "approval": "menunggu persetujuanmu",
+      "approval": "menunggumu",
       "question": "menunggu jawabanmu",
       "mission": "menunggu tinjauanmu"
     },
@@ -1391,12 +1396,12 @@
   },
   "intentAgents": {
     "waitingSection": "Menunggumu",
-    "waitingLine": "{{title}} · butuh persetujuanmu",
+    "waitingLine": "{{title}} · menunggumu",
     "waitingMore_other": "{{title}} · dan {{count}} lainnya menunggumu",
-    "waitingLabel": "{{name}}, butuh persetujuanmu",
+    "waitingLabel": "{{name}}, menunggumu",
     "owner": "Pemilik: {{name}}",
     "ownerYou": "Pemilik: kamu",
-    "nowWaiting": "Butuh persetujuanmu: {{title}}",
+    "nowWaiting": "Menunggumu: {{title}}",
     "did": {
       "title": "Apa yang dia lakukan untukmu",
       "title_female": "Apa yang dia lakukan untukmu",
@@ -1414,7 +1419,7 @@
         "image": "Gambar",
         "file": "File"
       },
-      "waitingOnYou": "Butuh persetujuanmu",
+      "waitingOnYou": "Menunggumu",
       "youApproved": "Kamu menyetujui",
       "youRefused": "Kamu menolak",
       "action": {
@@ -2152,14 +2157,158 @@
       "toolsHow": "Ketuk alat yang menyala untuk mematikannya. Untuk menyalakannya lagi: di komputer itu sendiri, atau di sini oleh orang yang menghubungkannya.",
       "toolsHowOwner": "Ketuk alat untuk menyalakan atau mematikannya."
     },
-    "roles": {
-      "onComputer": "Urutan peran dan ikon tiap peran diubah di komputer.",
-      "items": "Satu per satu",
-      "create": "Buat"
-    },
     "import": {
       "preparing": "Menyiapkan file…",
       "failed": "Tidak bisa mengunduh file. Coba lagi."
+    }
+  },
+  "roles": {
+    "create": "Buat",
+    "search": "Cari peran",
+    "baseHint": "Berlaku untuk setiap orang di ruang kerja. Peran menambah di atasnya.",
+    "orderHint": "Yang lebih tinggi mengelola peran dan orang di bawahnya. Warna nama tiap orang berasal dari peran tertingginya.",
+    "order": "Urutkan",
+    "orderDone": "Selesai",
+    "up": "Naikkan {{name}}",
+    "down": "Turunkan {{name}}",
+    "orderChanged": "Daftar peran berubah saat kamu memindahkannya. Muat ulang lalu coba lagi.",
+    "none": "Belum ada peran. Buat satu untuk memberi lebih ke beberapa orang.",
+    "noMatch": "Tidak ada peran yang cocok dengan “{{q}}”.",
+    "tooMany": "Ruang kerja ini sudah punya 100 peran. Hapus satu untuk membuat yang lain.",
+    "loadFailed": "Tidak bisa memuat peran. {{cause}}",
+    "backToList": "Kembali ke peran",
+    "nobody": "Tidak ada",
+    "reach": {
+      "permissions_other": "{{count}} izin",
+      "channels_other": "{{count}} kanal",
+      "agents_other": "{{count}} agen",
+      "more": "+{{what}}",
+      "all": "Bisa semuanya",
+      "owner": "Bisa semuanya, selalu",
+      "none": "Hanya yang bisa dilakukan Semua orang",
+      "baseNone": "Hanya membaca"
+    },
+    "tabs": {
+      "permissions": "Izin",
+      "channels": "Kanal",
+      "agents": "Agen"
+    },
+    "addOwners": "Tambah pemilik",
+    "icons": {
+      "shield": "Perisai",
+      "code": "Kode",
+      "wallet": "Dompet",
+      "mail": "Email",
+      "bolt": "Petir",
+      "flag": "Bendera",
+      "book": "Buku",
+      "chart": "Grafik",
+      "bulb": "Bohlam",
+      "globe": "Bola dunia",
+      "pullRequest": "Permintaan tarik",
+      "calendar": "Kalender",
+      "message": "Pesan",
+      "eye": "Mata",
+      "plug": "Steker",
+      "person": "Orang"
+    },
+    "inviteWith": "Undang dengan peran ini",
+    "searchPermission": "Cari izin",
+    "everyoneCan": "Semua orang bisa",
+    "only": "Hanya {{names}}",
+    "notHeld": "Kamu tidak punya izin ini.",
+    "noPermissionMatch": "Tidak ada izin yang cocok dengan “{{q}}”.",
+    "advanced": "Lanjutan",
+    "peopleOnly": "Peran berlaku untuk orang. Setiap agen punya izinnya sendiri, di halamannya.",
+    "nowAbove": "Peran ini sekarang di atas peranmu. Hanya orang yang lebih tinggi yang bisa mengubahnya.",
+    "admin": {
+      "title": "Nyalakan Administrator untuk {{name}}?",
+      "text": "Siapa pun dengan {{name}} jadi bisa semuanya, kecuali yang hanya untuk pemilik.",
+      "count_other": "Itu {{count}} orang.",
+      "on": "Nyalakan Administrator",
+      "note": "Dengan Administrator, {{name}} bisa semuanya, kecuali yang hanya untuk pemilik."
+    },
+    "computers": {
+      "title": "Komputer agen",
+      "hint": "Browser: browser dan permintaan masuk. Komputer: juga seluruh layar dan terminal. Agen sendiri: agen yang diurus orang itu dan komputer yang ia hubungkan.",
+      "steps": {
+        "0": "Tidak memakai",
+        "1": "Browser agen sendiri",
+        "2": "Komputer agen sendiri",
+        "3": "Browser agen mana pun",
+        "4": "Komputer agen mana pun"
+      },
+      "stepsIn": {
+        "1": "browser agen sendiri",
+        "2": "komputer agen sendiri",
+        "3": "browser agen mana pun",
+        "4": "komputer agen mana pun"
+      },
+      "everyoneTo": "Semua orang mendapat {{step}}.",
+      "everyoneNone": "Semua orang berhenti memakai komputer agen."
+    },
+    "whoCan": "Siapa yang bisa",
+    "everyoneSub": "Setiap orang di ruang kerja",
+    "someRoles": "Hanya beberapa peran",
+    "losing": "Kehilangan akses: {{names}}.",
+    "nobodyLoses": "Tidak ada yang kehilangan.",
+    "everyoneGets": "Semua orang mendapatkannya.",
+    "ownersAlways": "Pemilik selalu bisa.",
+    "noOtherRoles": "Belum ada peran lain.",
+    "channels": {
+      "header": "Yang punya {{name}} melihat",
+      "headerBase": "Semua orang melihat",
+      "hint": "Ini tentang orang. Agen masuk ke kanal saat seseorang menambahkannya.",
+      "search": "Cari kanal",
+      "everyone": "Semua orang melihatnya",
+      "private": "Pribadi",
+      "general": "Semua orang tetap di #general.",
+      "locked": "Hanya pembuat #{{channel}} atau yang mengatur kanal yang mengubah siapa yang melihatnya.",
+      "leaveTitle": "Hapus #{{channel}} dari {{name}}?",
+      "leave_other": "{{names}} keluar dari kanal.",
+      "leaveAction": "Hapus",
+      "openTitle": "Buka #{{channel}} untuk {{name}}?",
+      "openText": "Yang punya {{name}} melihat kanal ini dan seluruh riwayatnya, dan bisa bergabung.",
+      "openAction": "Buka",
+      "openAllTitle": "Buka #{{channel}} untuk semua orang?",
+      "openAllText": "Seluruh riwayatnya terbuka untuk ruang kerja.",
+      "admin": "Dengan Administrator, yang punya {{name}} melihat semua kanal.",
+      "onlyGeneral": "Untuk sekarang hanya ada #general.",
+      "noMatch": "Tidak ada kanal yang cocok dengan “{{q}}”.",
+      "ungrouped": "Kanal",
+      "whoSees": "Siapa yang melihat",
+      "allSub": "Siapa pun di ruang kerja melihatnya dan bisa bergabung.",
+      "invited": "Hanya yang ditambahkan",
+      "invitedSub": "Tidak ada orang baru yang melihatnya. Yang sudah ada tetap.",
+      "unsee": "Yang sudah ada tetap. Tidak melihatnya lagi: {{names}}."
+    },
+    "agents": {
+      "header": "Yang punya {{name}} bicara dengan",
+      "headerBase": "Semua orang bicara dengan",
+      "hint": "Ini tentang orang. Apa yang dilakukan tiap agen ada di halamannya.",
+      "everyone": "Semua orang bicara dengannya",
+      "gate": "Yang hanya punya {{name}} tidak bicara dengan agen.",
+      "gateOn": "Nyalakan Bicara dengan agen",
+      "locked": "Hanya {{owner}}, penanggung jawab {{name}}, atau yang mengedit agen mana pun yang bisa mengubahnya.",
+      "locked_female": "Hanya {{owner}}, penanggung jawab {{name}}, atau yang mengedit agen mana pun yang bisa mengubahnya.",
+      "lockedNoOwner": "Hanya yang mengedit agen mana pun yang bisa mengubahnya.",
+      "none": "Belum ada agen.",
+      "some": "Hanya beberapa peran dan orang",
+      "addPerson": "Tambah orang",
+      "losing": "Tidak bicara lagi dengan {{agent}}: {{names}}."
+    },
+    "people": {
+      "removed": "{{person}} tidak punya {{name}} lagi",
+      "selfTitle": "Keluarkan dirimu dari {{name}}?",
+      "selfText": "Kamu kehilangan apa yang hanya diberikan {{name}}. Hanya orang di atasmu yang bisa mengembalikannya."
+    },
+    "mail": {
+      "title_other": "Agen kehilangan {{count}} kotak surat",
+      "loses": "{{agent}} kehilangan {{address}}, kotak surat milik {{owner}}.",
+      "losesAddress": "{{agent}} kehilangan kotak surat {{address}}.",
+      "only": "Hanya yang memberi kotak surat yang bisa memberinya lagi.",
+      "addAnyway": "Tetap tambahkan",
+      "giveAnyway": "Tetap berikan"
     }
   },
   "vault": {

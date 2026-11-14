@@ -113,10 +113,11 @@ describe("the event pill", () => {
       "features/chat/issue-work.tsx",
     ])
       expect(src(file)).toContain("<EventPill");
-    // No more " · " chains with the time in the notice line; "Cancel" on a follow-up still to come.
+    // No more " · " chains with the time in the notice line. A return has no line here (the dock holds it), so no
+    // "Cancel" either.
     const line = src("features/chat/EventLine.tsx");
     expect(line).toContain("time={when.time(message.createdAt)}");
-    expect(line).toContain('t("chat.notice.followUpCancel")');
+    expect(line).not.toContain("followUpCancel");
     expect(line).not.toContain('" · "');
   });
 

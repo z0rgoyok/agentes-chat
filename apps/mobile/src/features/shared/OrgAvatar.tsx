@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { Image } from "react-native";
 import { appHeaders, lastCookie } from "@/lib/auth";
 import { photoSource } from "@/lib/photo";
-import { serverUrl } from "@/lib/server";
+import { placeKey } from "@/lib/server";
+import { serverOf } from "@/lib/server-choice";
 import { LogoMark } from "@/ui";
 
 /**
@@ -16,13 +17,13 @@ export function OrgAvatar({
 }: {
   logo?: string | null | undefined;
   size?: number;
-  /** The server the logo is on (another one signed in to, in Workspaces: ADR 0154); the current one by default. */
+  /** The place the logo is read from (another server or account signed in to, in Workspaces); the current one by default. */
   server?: string;
 }) {
   // Stable per logo, so the image isn't fetched again on every render.
   const source = useMemo(() => {
-    const on = server ?? serverUrl();
-    return photoSource(logo, on, appHeaders(lastCookie(on)));
+    const on = server ?? placeKey();
+    return photoSource(logo, serverOf(on), appHeaders(lastCookie(on)));
   }, [logo, server]);
   if (!source) return <LogoMark size={size} />;
   const round = size * 0.3;

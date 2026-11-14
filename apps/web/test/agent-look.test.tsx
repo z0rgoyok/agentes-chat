@@ -98,22 +98,22 @@ describe("the agent's name and role", () => {
     await act(() => new Promise((r) => setTimeout(r, 0)));
   };
 
-  test("Mais ações → Editar nome e cargo: edited in Configurações, saved together; the @handle follows", async () => {
+  test("Mais ações → Editar nome e função: edited in Configurações, saved together; the @handle follows", async () => {
     const state = seedState();
     await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(state) });
     await settle(8);
     const trigger = screen().getAllByRole("button", { name: "Mais ações" })[0] as HTMLElement;
     trigger.focus();
     await key(trigger, "Enter");
-    await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Editar nome e cargo" }));
+    await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Editar nome e função" }));
     await settle(4);
     expect(document.body.textContent).toContain("É como todo mundo vê o agente. O @ acompanha o nome.");
     // The name edits in place: the menu opens its field.
     const name = screen().getByLabelText("Nome") as HTMLInputElement;
     await act(async () => fireEvent.change(name, { target: { value: "Ada Lovelace" } }));
     await act(async () => fireEvent.keyDown(name, { key: "Enter" }));
-    await click(screen().getByRole("button", { name: /^Editar cargo/ }));
-    const role = screen().getByRole("combobox", { name: "Cargo" });
+    await click(screen().getByRole("button", { name: /^Editar função/ }));
+    const role = screen().getByRole("combobox", { name: "Função" });
     await act(async () => fireEvent.change(role, { target: { value: "Tech lead" } }));
     await act(async () => fireEvent.keyDown(role, { key: "Enter" }));
     // The page title follows the draft.

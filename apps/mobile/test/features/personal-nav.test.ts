@@ -81,7 +81,8 @@ describe("You in a personal workspace", () => {
   test("a personal workspace in the lists wears your face and says whose it is", () => {
     const pages = read("src/features/me/WorkspacesPages.tsx");
     expect(pages).toContain('if (isPersonal(org) && org.role === "owner")');
-    expect(pages).toContain("<WorkspaceMark org={o} server={g.server} />");
+    // From the place it is listed under: a server, or one of its accounts (ADR 0183).
+    expect(pages).toContain("<WorkspaceMark org={o} server={g.place} />");
     expect(pages).toContain("label={mine(o) && !several && face.name ? face.name : o.name}");
     expect(pages).toContain("sub={notes.get(o.id) ?? t(modeKey(o, `mobile.me.role.");
     for (const tree of [featureKeysEn, featureKeysPtBR]) {

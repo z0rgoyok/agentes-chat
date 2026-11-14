@@ -1,12 +1,17 @@
+import type { Seat } from "@agenteschat/client/lib/seat";
 import { createContext, useContext } from "react";
 
-/** Opens an agent's computer in the workspace's one dialog (`ComputerDialogProvider`). */
-export const OpenComputerContext = createContext<((agentId: string) => void) | null>(null);
+/**
+ * Opens an agent's computer in the workspace's one dialog (`ComputerDialogProvider`). `seat`: the right hand's shared
+ * place on the workspace's computer instead of the viewer's own (ADR 0175).
+ */
+export type OpenComputer = (agentId: string, seat?: Seat) => void;
+export const OpenComputerContext = createContext<OpenComputer | null>(null);
 
 const noop = () => {};
 
 /** Opens an agent's computer in place; does nothing outside a workspace's pages. */
-export const useOpenComputer = (): ((agentId: string) => void) => useContext(OpenComputerContext) ?? noop;
+export const useOpenComputer = (): OpenComputer => useContext(OpenComputerContext) ?? noop;
 
 /**
  * The agent whose computer the dialog shows now, or null: a card behind it leaves the screen to the dialog's own

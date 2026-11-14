@@ -513,12 +513,17 @@ function MissionRow({ m, dir }: { m: Mission; dir: Dir }) {
   );
 }
 
-/** An agent at work: its line (ADR 0084), else what it is on, where and since when. It opens the conversation. */
+/**
+ * An agent at work: whom it helps (work another agent handed it, listed where it was handed off), else its line (ADR
+ * 0084), else what it is on, where and since when. It opens the conversation, at the reply that handed it off.
+ */
 function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const agent = dir.agentById.get(w.agentId);
   const shown = useAgentPresence(w.agentId);
+  const forName = w.forAgentId ? dir.anyAgent(w.forAgentId)?.name : undefined;
+  const helping = forName ? t("chat.consultPanel.helping", agentGrammar(forName)) : null;
   const line = agentLine(t, shown?.line ?? null, i18n.language);
   const name = agent?.name ?? t("channel.unknownAgent");
   const where =
@@ -534,7 +539,7 @@ function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
     <RowBody
       face={<AgentAvatar agentId={w.agentId} name={name} channelId={w.channelId} />}
       title={<b>{name}</b>}
-      sub={line ? [line.emoji, line.text].filter(Boolean).join(" ") : w.what}
+      sub={helping ?? (line ? [line.emoji, line.text].filter(Boolean).join(" ") : w.what)}
       meta={meta}
     />
   );
@@ -545,14 +550,16 @@ function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
           className="home-row ac-mediarow ac-mediarow--row"
           to="/org/$orgId/threads/$threadId"
           params={{ orgId: org.id, threadId: w.threadId }}
+          search={w.messageId ? { m: w.messageId } : {}}
         >
           {body}
         </Link>
       ) : w.where.kind === "dm" ? (
+        // A DM with the agent it works for, when it was handed the work there.
         <Link
           className="home-row ac-mediarow ac-mediarow--row"
           to="/org/$orgId/dm/agent/$agentId"
-          params={{ orgId: org.id, agentId: w.agentId }}
+          params={{ orgId: org.id, agentId: w.forAgentId ?? w.agentId }}
         >
           {body}
         </Link>
@@ -561,6 +568,7 @@ function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
           className="home-row ac-mediarow ac-mediarow--row"
           to="/org/$orgId/c/$channelId"
           params={{ orgId: org.id, channelId: w.channelId }}
+          search={w.messageId ? { m: w.messageId } : {}}
         >
           {body}
         </Link>

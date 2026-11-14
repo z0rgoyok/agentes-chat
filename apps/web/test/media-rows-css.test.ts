@@ -18,7 +18,7 @@ test("rows that became MediaRows lay nothing out of their own: the kit's grid pu
       "src/components/roles/roles.css",
     ),
   );
-  for (const row of [".tp-agent", ".issues-now__card", ".ap-li", ".ap-row", ".nt-item", ".home-row", ".roles-row"]) {
+  for (const row of [".tp-agent", ".ap-li", ".ap-row", ".nt-item", ".home-row", ".roles-row"]) {
     for (const p of ["display", "grid-template-columns", "align-items", "gap", "column-gap", "all"])
       expect([row, p, last(css, row, p)]).toEqual([row, p, undefined]);
   }
@@ -26,12 +26,12 @@ test("rows that became MediaRows lay nothing out of their own: the kit's grid pu
   expect(last(css, ".ac-mediarow", "display")).toBe("grid");
 });
 
-test("Agentes trabalhando agora on a phone: its strip runs out to the work area's edges, its cards' rings and focus whole where it scrolls", async () => {
-  const phone = atRule(await builtCss("src/styles.css", "src/pages/issues.css"), "@media (max-width: 720px)");
-  expect(last(phone, ".issues-now__list", "overflow-x")).toBe("auto");
-  expect(last(phone, ".issues-now__list", "padding")).toBe("4px var(--page-x) 8px");
-  expect(last(phone, ".issues-now__list", "margin")).toBe("-4px calc(-1 * var(--page-x)) -8px");
-  expect(last(phone, ".issues-now__list", "scroll-padding-inline")).toBe("var(--page-x)");
+test("the stalled line wraps on a narrow screen: its words under the icon, its two buttons together at its end", async () => {
+  const css = topLevel(await builtCss("src/styles.css", "src/pages/issues.css"));
+  expect(last(css, ".issues-stalled", "flex-wrap")).toBe("wrap");
+  expect(last(css, ".issues-stalled__text", "min-width")).toBe("0");
+  expect(last(css, ".issues-stalled__acts", "display")).toBe("flex");
+  expect(last(css, ".issues-stalled__acts", "margin-left")).toBe("auto");
 });
 
 test("the task list on a phone: stacked as a card, the title, its facts with the number among them, who has it", async () => {

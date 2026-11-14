@@ -66,6 +66,13 @@ describe("a widget's body, by kind", () => {
     const down = card({ kind: "kpi", value: 4, suffix: "abertos", delta: { text: "+2", up: false } });
     expect(down.container.querySelector(".wk-down")?.textContent).toBe("+2");
     expect(down.container.querySelector(".wk-num__suf")?.textContent).toBe("abertos");
+    expect(down.container.querySelector(".wk-num__mark")).toBeNull();
+    // A unit that is a mark is raised to the digits' middle; a word, a currency or a percent stays on the baseline.
+    cleanup();
+    const stars = card({ kind: "kpi", value: 1349, suffix: "★" });
+    expect(stars.container.querySelector(".wk-num__suf")?.className).toBe("wk-num__suf wk-num__mark");
+    cleanup();
+    expect(card({ kind: "kpi", value: 5, prefix: "$" }).container.querySelector(".wk-num__mark")).toBeNull();
   });
 
   test("a number's trend runs edge to edge at the card's bottom, under the footer", () => {

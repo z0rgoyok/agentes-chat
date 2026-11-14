@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { builtCss, declarations, topLevel } from "./built-css";
+import { atRule, builtCss, declarations, topLevel } from "./built-css";
 
 test("what ships keeps the bar above the composer one low width, the composer's: the words take what is left, the clock ticks in place", async () => {
   const css = topLevel(await builtCss());
@@ -58,4 +58,31 @@ test("what ships keeps the bar above the composer one low width, the composer's:
   ).toBe("auto");
   // The clock's figures are all one width (`ac-num`), so the seconds never nudge it.
   expect(last(".ac-num", "font-variant-numeric")).toBe("tabular-nums");
+});
+
+test("what ships draws who records a voice message: three still bars at every width, moving only where motion is welcome", async () => {
+  const all = await builtCss();
+  const css = topLevel(all);
+  const last = (selector: string, property: string) =>
+    declarations(css, selector)
+      .filter(([p]) => p === property)
+      .at(-1)?.[1];
+  // Three 3 px bars in the voice wave's look, ink and never red; still, at three heights, with reduced motion.
+  expect(last(".ac-typing__bars", "height")).toBe("12px");
+  expect(last(".ac-typing__bars span", "width")).toBe("3px");
+  expect(last(".ac-typing__bars span", "background")).toBe("var(--ink-muted)");
+  expect(last(".ac-typing__bars span", "animation")).toBeUndefined();
+  expect(last(".ac-typing__bars span:nth-child(2)", "transform")).toMatch(/^scaleY\(0?\.75\)$/);
+  const moving = declarations(atRule(all, "@media (prefers-reduced-motion: no-preference)"), ".ac-typing__bars span");
+  expect(moving.find(([p]) => p === "animation")?.[1]).toContain("ac-typing-bar");
+  // Their group: the bars, the faces and the words, keeping its width as who types does (the agents' words give way
+  // first), the names alone giving way after them, never the verb.
+  expect(last(".ac-typing__group", "display")).toBe("flex");
+  expect(last(".ac-typing__group", "flex")).toBe("none");
+  expect(last(".ac-typing__group", "max-width")).toBe("100%");
+  expect(last(".ac-typing__group>.ac-typing__people", "min-width")).toBe("0");
+  // Beside who types, a line of their own when one is short: both verbs whole.
+  expect(
+    last('.ac-typing[data-active="true"] .ac-typing__text:has(>.ac-typing__group+.ac-typing__group)', "flex-wrap"),
+  ).toBe("wrap");
 });

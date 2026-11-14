@@ -8,7 +8,7 @@ import {
   STREAM_LIMITS,
   type StreamRequest,
 } from "@agenteschat/adapters";
-import { and, type Database, eq, gt, inArray, schema } from "@agenteschat/db";
+import { and, type Database, eq, gt, inArray, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "./audit";
 import {
   agentUsesScreen,
@@ -16,7 +16,7 @@ import {
   type BrowserHandoffView,
   browserOnDesktop,
   CONTROL_GRACE_MS,
-  handoffView,
+  handoffViewFor,
   noteComputerTaken,
   openHandoffOn,
   requireBrowserAccess,
@@ -36,11 +36,16 @@ import {
   getMachine,
   machineOnline,
   mayDriveComputer,
+  publishMachineAgentsChanged,
   requireComputerDriver,
 } from "./machines";
 import { can, requireActiveMembership } from "./organizations";
+import { isRightHand, isRightHandId } from "./right-hand";
+import { SHARED_SEAT, seatName, seatOf, toolMachineId, viewerScope, viewerSeat } from "./right-hand-seats";
+import { getSandboxSettings, SANDBOX_SCOPE } from "./sandbox";
 import { closedRefusal, OrgDeletingError, orgStanding, standingRefusal } from "./standing";
 import type { Stream, StreamBroker, StreamInput, StreamTarget } from "./streams";
+import { grantedScopeKeys, grantKey } from "./tools/scopes";
 
 const { agents, browserHandoffs, sessions } = schema;
 
@@ -50,8 +55,8 @@ const refused = (code: number, reason: string) => ({ refused: code, reason });
  * Who may watch an agent's desktop (ADR 0058 §4): the browser's rule on the `desktop` screen, and whoever
  * may drive its computer (`requireBrowserAccess`).
  */
-export const requireDesktopAccess = (db: Database, userId: string, orgId: string, agentId: string) =>
-  requireBrowserAccess(db, userId, orgId, agentId, undefined, "desktop");
+export const requireDesktopAccess = (db: Database, userId: string, orgId: string, agentId: string, shared = false) =>
+  requireBrowserAccess(db, userId, orgId, agentId, undefined, "desktop", shared);
 
 /**
  * The computer a person's stream of an agent goes to, or why it can't: the
@@ -65,14 +70,33 @@ export async function desktopTarget(
   orgId: string,
   agentId: string,
   kind: Exclude<StreamRequest["kind"], "phone">,
+  /** Who asks: the right hand's desktop and terminal are each person's own seat (`viewerScope`). */
+  viewerId: string,
+  /** Tells the workspace's computers of a seat just made. */
+  told?: (orgId: string) => Promise<void>,
+  /** Off for a screen's state: the right hand's seat is made by opening it, never by asking how it is. */
+  make = true,
+  /** The right hand's shared seat, not the viewer's own. */
+  shared = false,
 ): Promise<StreamTarget> {
-  const [agent] = await db
-    .select({ handle: agents.handle, name: agents.name, machineId: agents.machineId })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
+  // A kind that is off for the agent is refused below without making the right hand's seat: one that ended with its
+  // last grant stays ended, and the computer makes no user for a refusal. A seat's terminal is the right hand's
+  // computer too: off with its commands (its grant, the workspace's switch).
+  const off =
+    kind === "desktop"
+      ? !(await agentUsesScreen(db, orgId, agentId, "desktop"))
+      : (await isRightHandId(db, orgId, agentId)) && !(await runsCommands(db, orgId, agentId));
+  const agent = await viewerScope(db, orgId, agentId, viewerId, told, make && !off, shared);
   if (!agent) return refused(STREAM_CLOSE.notFound, "no_agent");
-  if (kind === "desktop" && !(await agentUsesScreen(db, orgId, agentId, "desktop"))) {
-    return refused(STREAM_CLOSE.notFound, "no_desktop");
+  // Why the right hand has no seat here, for the apps to say: no computer of the workspace's own, or one that runs
+  // every agent as one user.
+  if ("reason" in agent) {
+    return refused(STREAM_CLOSE.notFound, agent.reason === "not_system" ? "not_system" : "no_home");
+  }
+  if (off) {
+    return kind === "desktop"
+      ? refused(STREAM_CLOSE.notFound, "no_desktop")
+      : refused(STREAM_CLOSE.refused, "not_allowed");
   }
   const machine = agent.machineId ? await getMachine(db, orgId, agent.machineId) : null;
   if (!machine) return refused(STREAM_CLOSE.notFound, "no_computer");
@@ -84,9 +108,15 @@ export async function desktopTarget(
   if (!machine.executors?.[kind]?.available) return refused(STREAM_CLOSE.refused, `${kind}_unavailable`);
   return {
     machineId: machine.id,
-    agent: { id: agentId, handle: agent.handle, name: agent.name },
+    ...(agent.scope ? { agent: agent.scope } : { unmade: true }),
     ...(kind === "desktop" && machine.protocol >= DESKTOP_SWITCH_PROTOCOL ? { switches: true } : {}),
   };
+}
+
+/** Whether the agent may run commands now: its `sandbox:run` grant, and the workspace's switch for them. */
+async function runsCommands(db: Database, orgId: string, agentId: string) {
+  const keys = await grantedScopeKeys(db, orgId, agentId);
+  return keys.has(grantKey(null, SANDBOX_SCOPE)) && (await getSandboxSettings(db, orgId)).enabled;
 }
 
 /**
@@ -98,23 +128,24 @@ export async function desktopTarget(
  */
 async function streamAccess(
   db: Database,
-  input: Pick<StreamInput, "userId" | "orgId" | "agentId" | "request">,
+  input: Pick<StreamInput, "userId" | "orgId" | "agentId" | "request" | "shared">,
 ): Promise<{ refused: number; reason: string } | { driven: string | null; control: string | null }> {
   const { userId, orgId, agentId, request } = input;
+  const shared = input.shared === true;
   const closed = closedRefusal(await orgStanding(db, orgId));
   if (closed) return refused(STREAM_CLOSE.forbidden, closed instanceof OrgDeletingError ? "deleting" : "suspended");
   let driven: string | null = null;
   try {
     if (request.kind === "terminal" || request.mode === "control") {
-      driven = (await requireComputerDriver(db, userId, orgId, agentId)).id;
-    } else await requireDesktopAccess(db, userId, orgId, agentId);
+      driven = (await requireComputerDriver(db, userId, orgId, agentId, shared)).id;
+    } else await requireDesktopAccess(db, userId, orgId, agentId, shared);
   } catch (error) {
     if (error instanceof ForbiddenError) return refused(STREAM_CLOSE.forbidden, "forbidden");
     if (error instanceof NotFoundError) return refused(STREAM_CLOSE.notFound, "not_found");
     throw error;
   }
   if (request.kind !== "desktop") return { driven, control: null };
-  const open = await openHandoffOn(db, orgId, agentId, "desktop");
+  const open = await openHandoffOn(db, orgId, agentId, "desktop", viewerSeat(input));
   const controller = open?.status === "active" ? open.controllerUserId : null;
   if (controller && controller !== userId) return refused(STREAM_CLOSE.hidden, "someone_in_control");
   if (request.mode === "watch") return { driven, control: null };
@@ -147,16 +178,31 @@ export async function authorizeStream(deps: StreamPolicyDeps, input: StreamInput
   if (rate && !rate.allowed) return refused(STREAM_CLOSE.tooMany, "rate_limited");
   const access = await streamAccess(deps.db, input);
   if ("refused" in access) return access;
-  const target = await desktopTarget(deps.db, deps.hub, input.orgId, input.agentId, input.request.kind);
+  const target = await desktopTarget(
+    deps.db,
+    deps.hub,
+    input.orgId,
+    input.agentId,
+    input.request.kind,
+    input.userId,
+    (org) => publishMachineAgentsChanged(deps.pubsub, org),
+    true,
+    input.shared === true,
+  );
   if (!("machineId" in target)) return target;
+  // Nothing opens on a computer without who it is for there.
+  if (!target.agent) return refused(STREAM_CLOSE.notFound, "no_computer");
   // The agent moved to another computer meanwhile: who drives that one wasn't checked.
   if (access.driven && target.machineId !== access.driven) return refused(STREAM_CLOSE.forbidden, "forbidden");
   if (access.control) await touchControl(deps.db, access.control, input.userId, new Date(), true).catch(() => {});
   // A shell as the agent's user reaches what its screen does (the owner's sign-in): its owner hears it the same way.
   if (input.request.kind === "terminal") {
-    await noteComputerTaken(deps, { orgId: input.orgId, agentId: input.agentId, actorId: input.userId }).catch(
-      () => {},
-    );
+    await noteComputerTaken(deps, {
+      orgId: input.orgId,
+      agentId: input.agentId,
+      actorId: input.userId,
+      shared: input.shared === true,
+    }).catch(() => {});
   }
   if (input.request.kind === "desktop" && (await standingRefusal(deps.db, input.orgId, input.agentId))) {
     return { ...target, held: true };
@@ -206,13 +252,20 @@ export async function recheckStream(db: Database, stream: Stream) {
  */
 export async function streamClosed(db: Database, s: Stream) {
   if (s.request.kind === "desktop" && s.request.mode === "control") {
-    const open = await openHandoffOn(db, s.orgId, s.agentId, "desktop");
+    const open = await openHandoffOn(db, s.orgId, s.agentId, "desktop", viewerSeat(s));
     if (open?.status === "active" && open.controllerUserId === s.userId) {
       await setControlDeadline(db, open.id, s.userId, new Date(Date.now() + CONTROL_GRACE_MS)).catch(() => {});
     }
   }
   await auditStream(db, s);
 }
+
+/**
+ * In an audit row's details: the right hand's shared seat was opened, where every channel's work is, not the person's
+ * own. `scope`: who the computer took the agent for, a seat's id only for the right hand.
+ */
+const sharedSeatDetail = (opened: { shared?: boolean; agentId: string; scope?: { id: string } | undefined }) =>
+  opened.shared && opened.scope && opened.scope.id !== opened.agentId ? { seat: SHARED_SEAT } : {};
 
 /** A stream that ran, in the org's audit log (ADR 0058 §12): who, which agent and computer, how long, how many bytes. */
 export async function auditStream(db: Database, s: Stream) {
@@ -235,6 +288,7 @@ export async function auditStream(db: Database, s: Stream) {
       bytesOut: s.bytesOut,
       // A browser card's view of this screen (ADR 0058 §7): watch only.
       ...(s.preview ? { preview: true } : {}),
+      ...sharedSeatDetail(s),
     },
   });
 }
@@ -249,7 +303,7 @@ export interface DesktopDeps {
 
 /** The REST reaches a computer through whichever server holds its socket (`hub.call`), unlike a stream. */
 const ANYWHERE = { isLocal: () => true };
-const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "not_allowed"];
+const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "no_home", "not_system", "not_allowed"];
 
 /**
  * An agent's desktop as one person sees it: whether it can be shown and runs, who controls it, what they may
@@ -289,11 +343,13 @@ export async function desktopStatus(
   userId: string,
   orgId: string,
   agentId: string,
+  /** The right hand's shared seat's, not this person's own. */
+  shared = false,
 ): Promise<DesktopStatus> {
   const { db } = deps;
-  if ((await screenAccess(db, userId, orgId, agentId, undefined, "desktop")).refusal === "level") {
-    await requireBrowserAccess(db, userId, orgId, agentId);
-    const served = await desktopTarget(db, ANYWHERE, orgId, agentId, "desktop");
+  if ((await screenAccess(db, userId, orgId, agentId, undefined, "desktop", shared)).refusal === "level") {
+    await requireBrowserAccess(db, userId, orgId, agentId, undefined, "browser", shared);
+    const served = await desktopTarget(db, ANYWHERE, orgId, agentId, "desktop", userId, undefined, false, shared);
     if ("machineId" in served) void deps.hub?.wake?.(served.machineId, "view").catch(() => {});
     // An agent with no screen to show isn't one whose browser alone they get.
     const none = "refused" in served && NO_SCREEN.includes(served.reason) ? served.reason : null;
@@ -312,11 +368,11 @@ export async function desktopStatus(
       browserOnDesktop: false,
     };
   }
-  await requireDesktopAccess(db, userId, orgId, agentId);
+  await requireDesktopAccess(db, userId, orgId, agentId, shared);
   const [served, open, controlRefusal, held, onDesk] = await Promise.all([
-    desktopTarget(db, ANYWHERE, orgId, agentId, "desktop"),
-    openHandoffOn(db, orgId, agentId, "desktop"),
-    computerDriving(db, userId, orgId, agentId).then(
+    desktopTarget(db, ANYWHERE, orgId, agentId, "desktop", userId, undefined, false, shared),
+    openHandoffOn(db, orgId, agentId, "desktop", viewerSeat({ userId, shared })),
+    computerDriving(db, userId, orgId, agentId, shared).then(
       (d) => d.refusal,
       (): DriveRefusal => "not_allowed",
     ),
@@ -328,7 +384,8 @@ export async function desktopStatus(
   const desktop: StreamTarget = "refused" in served || online ? served : refused(STREAM_CLOSE.unreachable, "offline");
   let running = false;
   let startedAt: string | null = null;
-  if ("machineId" in desktop && deps.hub) {
+  // A seat not made yet has no screen running: nothing is asked of the computer for it.
+  if ("machineId" in desktop && desktop.agent && deps.hub) {
     try {
       const reply = await deps.hub.call<"desktop.session.status">(
         desktop.machineId,
@@ -345,10 +402,11 @@ export async function desktopStatus(
   let detail: string | null = null;
   if (reasonOf(desktop) === "desktop_unavailable") {
     const [agent] = await db
-      .select({ machineId: agents.machineId })
+      .select({ orgId: agents.orgId, machineId: agents.machineId, builtin: agents.builtin })
       .from(agents)
       .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
-    const machine = agent?.machineId ? await getMachine(db, orgId, agent.machineId) : null;
+    const machineId = await toolMachineId(db, agent);
+    const machine = machineId ? await getMachine(db, orgId, machineId) : null;
     detail = machine?.executors?.desktop?.reason?.slice(0, 500) ?? null;
   }
   return {
@@ -358,8 +416,8 @@ export async function desktopStatus(
     running,
     startedAt,
     controllerUserId: open?.status === "active" ? open.controllerUserId : null,
-    handoff: open ? handoffView(open) : null,
-    viewers: deps.streams?.count(agentId, "desktop") ?? 0,
+    handoff: open ? await handoffViewFor(db, open) : null,
+    viewers: deps.streams?.count(("machineId" in desktop && desktop.agent?.id) || agentId, "desktop") ?? 0,
     canControl: controlRefusal === null,
     controlRefusal,
     held,
@@ -403,17 +461,27 @@ export async function desktopPicture(
   userId: string,
   orgId: string,
   agentId: string,
+  /** The right hand's shared seat's, not this person's own. */
+  shared = false,
 ): Promise<DesktopPictureView> {
   const { db, hub } = deps;
-  const access = await streamAccess(db, { userId, orgId, agentId, request: { kind: "desktop", mode: "watch" } });
+  const access = await streamAccess(db, {
+    userId,
+    orgId,
+    agentId,
+    request: { kind: "desktop", mode: "watch" },
+    shared,
+  });
   if ("refused" in access) {
     if (access.reason === "someone_in_control") return { picture: null, reason: "hidden" };
     if (access.refused === STREAM_CLOSE.notFound) throw new NotFoundError("Agent not found");
     throw new ForbiddenError("You may not watch this agent's computer");
   }
-  const served = await desktopTarget(db, ANYWHERE, orgId, agentId, "desktop");
+  const served = await desktopTarget(db, ANYWHERE, orgId, agentId, "desktop", userId, undefined, false, shared);
   if ("refused" in served || !hub) return { picture: null, reason: "unavailable" };
-  const key = `${orgId}:${agentId}`;
+  if (!served.agent) return { picture: null, reason: "stopped" };
+  // By who the computer takes it for: each person's seat of the right hand has its own picture.
+  const key = `${orgId}:${served.agent?.id ?? agentId}`;
   let view = pictures.get(key);
   if (!view) {
     // Those asking while a capture runs wait for it: the computer's queue is the agent's own too.
@@ -429,14 +497,17 @@ export async function desktopPicture(
     }
     view = await capture;
   }
-  if (view.picture && !pictureAudits.get(`${userId}:${agentId}`)) {
-    pictureAudits.set(`${userId}:${agentId}`, true);
+  // Once an hour per person and screen: the shared seat's picture is another screen than the person's own seat's.
+  const audited = `${userId}:${served.agent.id}`;
+  const scopeDetail = sharedSeatDetail({ shared, agentId, scope: served.agent });
+  if (view.picture && !pictureAudits.get(audited)) {
+    pictureAudits.set(audited, true);
     await recordAudit(db, {
       orgId,
       actor: { type: "person", id: userId },
       action: "desktop.watched",
       target: { type: "agent", id: agentId },
-      details: { machineId: served.machineId, picture: true, seconds: 0 },
+      details: { machineId: served.machineId, picture: true, seconds: 0, ...scopeDetail },
     });
   }
   return view;
@@ -492,14 +563,24 @@ export function createDesktopControl(deps: DesktopControlDeps) {
   /** Last keep-alive per open handoff. */
   const touched = new Map<string, number>();
 
-  async function enforce(orgId: string, agentId: string) {
-    const ofAgent = (s: Stream) => s.orgId === orgId && s.agentId === agentId && s.request.kind === "desktop";
+  /**
+   * `person`: on the right hand, whose seat's handoff changed (ADR 0175): only that person's streams of their own
+   * seat show that screen, and with nobody named only the streams of its shared seat.
+   */
+  async function enforce(orgId: string, agentId: string, person: string | null) {
+    const seats = await isRightHandId(deps.db, orgId, agentId);
+    const ofAgent = (s: Stream) =>
+      s.orgId === orgId &&
+      s.agentId === agentId &&
+      s.request.kind === "desktop" &&
+      (person ? s.userId === person && !s.shared : !seats || s.shared === true);
     if (!deps.streams.some(ofAgent)) return;
-    const open = await openHandoffOn(deps.db, orgId, agentId, "desktop");
+    const open = await openHandoffOn(deps.db, orgId, agentId, "desktop", person ?? (seats ? SHARED_SEAT : null));
     const controller = open?.status === "active" ? open.controllerUserId : null;
     // The browser's holder drives the screen too where they may drive the computer (`streamAccess`).
     const onDesktop =
-      controller && (open?.screen === "desktop" || (await mayDriveComputer(deps.db, controller, orgId, agentId)))
+      controller &&
+      (open?.screen === "desktop" || (await mayDriveComputer(deps.db, controller, orgId, agentId, !person)))
         ? controller
         : null;
     deps.streams.closeWhere(
@@ -518,7 +599,8 @@ export function createDesktopControl(deps: DesktopControlDeps) {
     if (event.type !== "browser.handoff.changed") return;
     if (typeof event.orgId !== "string" || typeof event.agentId !== "string") return;
     const { orgId, agentId } = event;
-    void enforce(orgId, agentId).catch((error) =>
+    const person = typeof event.seatUserId === "string" ? event.seatUserId : null;
+    void enforce(orgId, agentId, person).catch((error) =>
       deps.log?.warn("desktop control change failed", { agentId, error: String(error) }),
     );
   });
@@ -534,14 +616,23 @@ export function createDesktopControl(deps: DesktopControlDeps) {
       const open = await deps.db
         .select({
           id: browserHandoffs.id,
+          orgId: browserHandoffs.orgId,
           agentId: browserHandoffs.agentId,
           machineId: browserHandoffs.machineId,
           handle: agents.handle,
           name: agents.name,
+          builtin: agents.builtin,
         })
         .from(browserHandoffs)
         .innerJoin(agents, eq(agents.id, browserHandoffs.agentId))
-        .where(and(eq(browserHandoffs.screen, "desktop"), inArray(browserHandoffs.status, ["pending", "active"])));
+        .where(
+          and(
+            eq(browserHandoffs.screen, "desktop"),
+            inArray(browserHandoffs.status, ["pending", "active"]),
+            // A person's seat's desktop is started by that person opening it.
+            isNull(browserHandoffs.seatUserId),
+          ),
+        );
       const ids = new Set(open.map((h) => h.id));
       for (const id of touched.keys()) if (!ids.has(id)) touched.delete(id);
       // Only computers held here (each server keeps its own).
@@ -550,15 +641,18 @@ export function createDesktopControl(deps: DesktopControlDeps) {
       );
       for (const h of due) touched.set(h.id, now);
       await Promise.all(
-        due.map((h) =>
-          deps.hub
-            .call(
-              h.machineId,
-              { op: "desktop.session.start", agent: { id: h.agentId, handle: h.handle, name: h.name } },
-              { timeoutMs: 30_000 },
-            )
-            .catch(() => {}),
-        ),
+        due.map(async (h) => {
+          // The right hand's own id reaches no computer (ADR 0175): a handoff of its with no person is its shared
+          // seat's.
+          const seat = isRightHand(h) ? await seatOf(deps.db, h.orgId, SHARED_SEAT, false) : null;
+          if (isRightHand(h) && !seat) return;
+          const agent = seat
+            ? { id: seat.id, handle: h.handle, name: seatName(h.name, { userId: SHARED_SEAT, person: null }) }
+            : { id: h.agentId, handle: h.handle, name: h.name };
+          await deps.hub
+            .call(h.machineId, { op: "desktop.session.start", agent }, { timeoutMs: 30_000 })
+            .catch(() => {});
+        }),
       );
       return due.length;
     },

@@ -16,6 +16,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
+import { waitSinceIn } from "./agent-work";
 import { currentHandles } from "./agents";
 import { type AiStatusDeps, agentAiState } from "./ai-status";
 import { canTalkTo, speakerFor, viaAgent } from "./audience";
@@ -1415,9 +1416,12 @@ export async function noteReplyMatters(
   return (answers.matters?.noul ?? 0) >= 0.5;
 }
 
-/** A question an agent asked from a conversation that is still out (the working line: one agent asking another). */
+/**
+ * A question an agent asked from a conversation, or work it handed off, that is still out (the working line: one agent
+ * asking another, or working on what another handed it).
+ */
 export interface OpenConsultation {
-  /** The asking run (it may have ended: `ask_agent` never waits; the answer wakes the agent). */
+  /** The asking run (it may have ended: `ask_agent` and `tell_agent` never wait; the answer wakes the agent). */
   runId: string;
   agentId: string;
   consultedAgentId: string;
@@ -1426,13 +1430,14 @@ export interface OpenConsultation {
   threadId: string | null;
   /** When the question went out (the line's clock). */
   since: Date;
+  kind: "question" | "note";
 }
 
 /**
- * Questions agents asked from this conversation that have no answer yet, oldest first: the app shows
- * that one agent is asking another until the answer comes (`agent.consulted`), even after a reload and
- * after the asking turn ended. Only what people see live already; no question, no answer. Work handed off
- * (`tell_agent`) shows in the reply that handed it, not on the working line.
+ * Questions agents asked from this conversation and work they handed off that are still out, oldest first: the app
+ * shows that one agent is asking another, or working for it, until the answer comes (`agent.consulted`), even after a
+ * reload and after the asking turn ended (ADR 0095 addendum of 2026-11-13). Only what people see live already; no
+ * question, no answer.
  */
 export async function openConsultationsIn(
   db: Executor,
@@ -1446,6 +1451,7 @@ export async function openConsultationsIn(
       agentId: agentConsultations.askerAgentId,
       consultedAgentId: agentConsultations.targetAgentId,
       since: agentConsultations.createdAt,
+      kind: agentConsultations.kind,
       threadRootId: agentRuns.threadRootId,
       triggerMessageId: agentRuns.triggerMessageId,
     })
@@ -1455,7 +1461,6 @@ export async function openConsultationsIn(
       and(
         eq(agentConsultations.orgId, orgId),
         eq(agentConsultations.status, "open"),
-        eq(agentConsultations.kind, "question"),
         gte(agentConsultations.expiresAt, now),
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.channelId, channelId),
@@ -1470,15 +1475,17 @@ export async function openConsultationsIn(
     channelId,
     threadId: replyThreadOf(r),
     since: r.since,
+    kind: r.kind,
   }));
 }
 
 /**
  * What the consulted agent waits on before it can answer: an approval, a person's answer or secret (`input`), its
  * computer to come back (`computer`: no person can move it), its AI provider to come back (`outage`: parked, it
- * retries by itself), or, its own run done, what it handed on to other agents (`agents`, ADR 0095).
+ * retries by itself), a worker to take its run (`queued`), or, its own run done, what it handed on to other agents
+ * (`agents`, ADR 0095).
  */
-export type ConsultationWait = "approval" | "input" | "computer" | "agents" | "outage";
+export type ConsultationWait = "approval" | "input" | "computer" | "agents" | "outage" | "queued";
 
 /**
  * What a consulted run held now waits on, from its row alone (no transcript read). `waiting_machine_id` is set
@@ -1495,6 +1502,7 @@ export function consultationWait(run: {
   /** Parked on a provider outage (`outageParkedSql`): still on it, nobody to answer. */
   outage?: boolean;
 }): ConsultationWait | null {
+  if (run.status === "queued") return "queued";
   if (run.status === "waiting_approval") return "approval";
   if (run.status === "waiting_input") return run.waitingMachineId ? "computer" : run.outage ? "outage" : "input";
   // Asking its computer from the line it still waits (`computerWaitOf`).
@@ -1527,6 +1535,8 @@ export interface RunConsultation {
   status: "open" | "answered" | "expired" | "failed";
   /** Open and the consulted agent's run is held: on a person, on its computer, or on agents it handed part to. */
   waiting: ConsultationWait | null;
+  /** Since when it is held (`waiting`), for the row's clock; null while it works. */
+  waitingSince: Date | null;
   question: string;
   /** The answer once `answered`; the reason once `failed`; null otherwise. */
   answer: string | null;
@@ -1582,11 +1592,12 @@ export async function consultationsIn(db: Executor, orgId: string, channelId: st
           waitingMachineId: agentRuns.waitingMachineId,
           handedOn: handedOnSql,
           outage: outageParkedSql,
+          since: waitSinceSql(),
         })
         .from(agentRuns)
         .where(and(eq(agentRuns.orgId, orgId), inArray(agentRuns.id, held)))
     : [];
-  const waitOf = new Map(targets.map((t) => [t.id, consultationWait(t)]));
+  const waitOf = new Map(targets.map((t) => [t.id, heldOn(t)]));
   const progressOf = await progressIn(
     db,
     orgId,
@@ -1646,14 +1657,21 @@ type ConsultationRow = Pick<
   "id" | "kind" | "targetRunId" | "status" | "question" | "answer" | "createdAt" | "answeredAt" | "expiresAt"
 > & { runId: string; agentId: string; consultedAgentId: string };
 
+/** What a consulted run is held on, and since when (`waitSinceSql`, ms); null while it works. */
+const heldOn = (run: Parameters<typeof consultationWait>[0] & { since: string | number }) => {
+  const waiting = consultationWait(run);
+  return waiting ? { waiting, since: new Date(Number(run.since)) } : null;
+};
+
 /** `hidden`: the consulted run answers agents only (`answersAgentsOnly`), so its answer stays theirs. */
 function consultationView(
   r: ConsultationRow,
-  waitOf: Map<string, ConsultationWait | null>,
+  waitOf: Map<string, ReturnType<typeof heldOn>>,
   hidden = false,
 ): RunConsultation {
   const status = r.status as RunConsultation["status"];
   const open = status === "open";
+  const held = open && r.targetRunId ? (waitOf.get(r.targetRunId) ?? null) : null;
   return {
     id: r.id,
     kind: r.kind,
@@ -1662,7 +1680,8 @@ function consultationView(
     consultedAgentId: r.consultedAgentId,
     consultedRunId: r.targetRunId,
     status,
-    waiting: open && r.targetRunId ? (waitOf.get(r.targetRunId) ?? null) : null,
+    waiting: held?.waiting ?? null,
+    waitingSince: held?.since ?? null,
     question: cutText(r.question, NOTICE_QUESTION_MAX),
     // Open (what it gathered so far is the agents'), or expired: no answer; a failed one keeps its reason.
     answer:
@@ -1734,14 +1753,15 @@ export async function consultationConversation(
           waitingMachineId: agentRuns.waitingMachineId,
           handedOn: handedOnSql,
           outage: outageParkedSql,
+          since: waitSinceSql(),
           createdAt: agentRuns.createdAt,
         })
         .from(agentRuns)
         .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, target)))
     : [];
   // Still out: what the consulted run waits on now, as the list says it.
-  const waitOf = new Map<string, ConsultationWait | null>();
-  if (target && run && row.status === "open") waitOf.set(target, consultationWait(run));
+  const waitOf = new Map<string, ReturnType<typeof heldOn>>();
+  if (target && run && row.status === "open") waitOf.set(target, heldOn(run));
   // It answers the agent that asked, never the people here: they see where it stands, not its words.
   if (target && (await answersAgentsOnly(db, orgId, target))) {
     return { consultation: consultationView(row, waitOf, true), messages: [] };
@@ -1897,11 +1917,11 @@ function stuckOn(target: {
   return "its computer stayed away";
 }
 
-/** Since when a run waits for its computer, plan or provider, in ms: the wait's own clock, else the run's last change. */
-const waitSinceSql = sql<string>`coalesce((${agentRuns.transcript}->>'roomWaitSince')::bigint,
-  (${agentRuns.transcript}->'waitingForBrain'->>'since')::bigint,
-  (${agentRuns.transcript}->'outage'->>'since')::bigint,
-  (extract(epoch from ${agentRuns.updatedAt}) * 1000)::bigint)`;
+/**
+ * Since when a run over `agent_runs` waits (`waitSinceIn`), in ms. Built per query: `agent-work` imports modules that
+ * import this one, so it may not be loaded yet when this module is.
+ */
+const waitSinceSql = () => sql<string>`(extract(epoch from ${waitSinceIn("agent_runs")}) * 1000)::bigint`;
 
 /**
  * The worker's sweep, every minute (ADR 0095). A colleague at it (queued, running, waiting on a person, or done but
@@ -1920,7 +1940,7 @@ export async function expireConsultations(deps: { db: Database; pubsub?: PubSub 
       code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
       outage: outageParkedSql,
       waitingMachineId: agentRuns.waitingMachineId,
-      since: waitSinceSql,
+      since: waitSinceSql(),
       wake: sql<boolean>`(${agentConsultations.targetRunId} is null and ${wakeWaitsSql(sql`${agentConsultations}`)})`,
     })
     .from(agentConsultations)

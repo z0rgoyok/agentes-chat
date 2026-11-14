@@ -26,7 +26,7 @@ A hand-off is a tracked row. It comes back by itself, once, with what came of it
 5. **No expiry while working.** Every minute, a row whose colleague is queued, running, waiting on a person or its computer, or done but waiting on what it handed on gets 15 more minutes before its deadline, its conversation hears it is still out (`agent.consultation`), and that run is never stopped. Only rows nobody started, or whose run is gone, expire as before: with what they gathered, else expired.
 6. **Everyone sees it.**
    - The delegating agent reads "# Work you handed off here" every turn, like its open tasks: this agent's questions and notes from this conversation (its thread in a channel) in the last day, open or closed within the hour, newest first, at most 8, each with where its colleague is (starting, working on it, waiting on a person or its computer, waiting on agents it handed some to, not started past the stretch), the start of the answer until it heard it, and no "@" to copy. Not in routines, background runs or agents' DMs.
-   - The person sees the work in the block under the reply that handed it ("Passou para 1 colega", "Chamou 3 colegas" when the turn also asked), with "O Atlas passou uma parte adiante e espera o retorno" and "O Atlas não conseguiu terminar". Notes don't take the working line.
+   - The person sees the work in the block under the reply that handed it ("Passou para 1 colega", "Chamou 3 colegas" when the turn also asked), with "O Atlas passou uma parte adiante e espera o retorno" and "O Atlas não conseguiu terminar". Notes don't take the working line (until the addendum of 2026-11-13).
    - A note's recipient now answers the person behind it: its approval, question and secret cards land where the person asked (`consultationOrigin`, `consultedFor` find note rows; the walks up a chain go 10 links), and `ask_user` works there.
 7. **What agents read.** `tell_agent` says to give the whole job to the agent that owns it, with everything it needs, and not to send heads-ups to agents that only have to wait; that what comes of it reaches the agent by itself with the rest of that turn's; and, from an agents' DM, that its answer goes back once the colleague is done. "How you work" says a closed way means trying another (another tool, the colleague whose role covers it, a copy instead of a move) before saying what a person must do. The agents' DM tells a question from work, a part only another agent can do, and news of something still to come.
 8. **Following through between agents.** The follow-through check also reads a run in an agents' DM that still owes an answer, with its own nudge (its last message goes back as the answer, and nothing wakes it there again). A run that handed part on gets none. `wakesLater` counts this agent's open hand-offs from this conversation, from any run, so a later "te aviso" isn't nudged while one is out. In an agents' DM it counts only the run's own: what another run there handed on goes back with that run's answer.
@@ -71,3 +71,18 @@ What doesn't change: who may wake whom. The limit of a routine's creator and an 
 ## Addendum (2026-11-10): one row for an exchange
 
 A few questions and notes between the same two agents within minutes drew one row per asking run, back to back ("Ada ⇄ Theo · levou 4 min", then "Ada ⇄ Theo · levou 1 min"). Now questions and hand-offs between the same two agents, either way, that overlap or start within `EXCHANGE_GAP_MS` (5 minutes) of the last one's end are one exchange (`asExchanges` in `packages/client/src/lib/consult-group.ts`): its row draws on the reply of its first asking run, shows the other agent's face and the whole exchange's time, from the first ask to the last answer, and opens one conversation with all of its parts (`useExchangeConversation`). The web and the phone share it. The other runs' replies draw no row, and an answer's notice far from that row is the one line leading to it.
+
+## Addendum (2026-11-13): hand-offs take the working line, and the divider says the real state
+
+- **The bar above the composer speaks for a hand-off.** An open hand-off (or question) asked from this view (the asking
+  run's reply thread is this thread, or the main timeline in the channel's own view) takes the bar like a run here,
+  for as long as it is out: "Ada → Atlas", then "**Atlas** lendo o Drive · 22 min" (the other agent's step from its
+  line, ADR 0084), "**Atlas** espera sua aprovação" in amber when its card waits on you ("Ver" goes to the card), "O
+  **Atlas** espera uma aprovação · 3 min" when it waits on someone else, "**Atlas** está na fila", then "**Atlas**
+  terminou. **Ada** está escrevendo". "Ver" opens the two agents' talk. No stop: that is in the talk, Agora and the task
+  manager. `openConsultationsIn` returns notes too, with `kind`, and the client keeps them (`applyConsultEvent`).
+- **The divider says the real state.** A consulted run in line reads "na fila" (`consultationWait` → `queued`). While it
+  waits, its clock counts the wait (`waitingSince`). Its card here waiting on you turns it amber ("esperando sua
+  aprovação", the pulsing wait mark in the arrows' place), before the list hears the run park. Waiting on someone else,
+  its words are quiet and the arrows still.
+

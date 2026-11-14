@@ -21,11 +21,20 @@ test("IA e uso: each row says who uses the plan, and its owner chooses in the ro
   expect(notificationHref({ kind: "plan_serves", source: { accountId: "a1" } })).toBe("/usage");
 });
 
-test("Conta › E-mail: a link to the new address keeps the same account", () => {
+test("Conta › E-mail: the code sent to the current address, then a link to the new one keeps the same account", () => {
   const page = source("me/AccountPage.tsx");
   expect(page).toContain('onPress={() => router.push("/me/email")}');
-  expect(page).toContain('authClient().changeEmail({ newEmail: value.trim(), callbackURL: "/" })');
-  expect(page).toContain("emailChangeErrorText(t, {");
+  // The app's one door (ADR 0088 §2, addendum 2026-11-13), never Better Auth's change-email.
+  expect(page).toContain("api.account.changeEmail(withCode ? { newEmail, code } : { newEmail })");
+  expect(page).not.toContain("authClient().changeEmail");
+  expect(page).toContain('textContentType="oneTimeCode"');
+  expect(page).toContain('t("proof.resendIn", { time: formatTimeLeft(left) })');
+  // Can't open that inbox: the same dialog on the website, where a sign-in again stands in for the code.
+  expect(page).toContain('label={t("shell.email.cantOpen")}');
+  expect(page).toContain("/settings/account?account=email`)");
+  // An address never confirmed gets no code (`reauth.sign_in`): the same way on, with no code sent first.
+  expect(page).toContain("if (errorCode(e) === REAUTH_SIGN_IN) setCantOpen(true);");
+  expect(page).not.toContain("{sent && cantOpen ? (");
 });
 
 test("a routine's page lists the Vault keys its commands use, each taken out on its own", () => {

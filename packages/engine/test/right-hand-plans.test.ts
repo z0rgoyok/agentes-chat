@@ -354,7 +354,7 @@ test("its locked turn is never told of a computer's own tools: it has only ours,
   await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, fx.owner.id, fx.org.id, dm.id, { body: "oi" });
   await drainOutbox(fx.db, handlers);
   expect(systems).toHaveLength(1);
-  expect(systems[0]).toContain("You have no computer yet");
+  expect(systems[0]).toContain("You have no computer here");
   expect(systems[0]).not.toContain("# Your computer's tools");
   expect(systems[0]).not.toContain("your computer's own tools");
   // What changes per turn still reaches it in its messages, as for any computer brain.

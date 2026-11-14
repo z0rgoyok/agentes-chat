@@ -12,7 +12,7 @@ import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { GroupedFooter, useToast } from "@/ui";
+import { GroupedFooter, RoleMark, useToast } from "@/ui";
 import { Note } from "../ai/parts";
 import { SettingsPage } from "../settings/parts";
 import { AccessList, type AccessListRow } from "../shared/AccessList";
@@ -158,7 +158,10 @@ function AccessForm({
               <AccessList
                 title={t("mobile.vault.access.roles")}
                 levelName={levelName}
-                rows={roleList.map((r) => pick("roleIds", r.id))}
+                rows={roleList.map((r) => ({
+                  ...pick("roleIds", r.id),
+                  leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
+                }))}
               />
               <AccessList
                 title={t("mobile.vault.access.persons")}

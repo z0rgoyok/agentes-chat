@@ -164,12 +164,16 @@ describe("going to a message", () => {
 describe("back to the latest messages", () => {
   test("the round button sits at the bottom right, above the composer, riding the keyboard with it", () => {
     const screen = src("features/chat/ChatScreen.tsx");
-    const dock = screen.indexOf("style={[styles.jumpAt, { bottom: composerHeight + 10 }]}");
+    // In the composer's own dock, before the box: one view rides the keyboard and both move in the same frame.
+    const dock = screen.indexOf("style={styles.composerDock}");
     expect(dock).toBeGreaterThan(0);
     expect(screen.lastIndexOf("<KeyboardStickyView", dock)).toBeGreaterThan(
       screen.lastIndexOf("</Animated.View>", dock),
     );
-    expect(screen.indexOf("<ToLatest unseen={unseen} onPress={toEnd} />", dock)).toBeGreaterThan(dock);
-    expect(screen.indexOf("styles.composerDock", dock)).toBeGreaterThan(dock);
+    const button = screen.indexOf("<ToLatest unseen={unseen} onPress={toEnd} />", dock);
+    expect(button).toBeGreaterThan(dock);
+    expect(screen.indexOf("ref={composerRef}", dock)).toBeGreaterThan(button);
+    expect(screen).toContain('jumpAt: { alignSelf: "flex-end", marginRight: 14, marginBottom: 10 },');
+    expect(screen).not.toContain("bottom: composerHeight + 10");
   });
 });

@@ -149,7 +149,7 @@ describe("a change proposed for several agents in the chat", () => {
     ]);
     const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
     expect(card.textContent).toContain("Atlas propõe · mudanças em 2 agentes");
-    expect(card.textContent).toContain("Papel: Dev → Revisora de código");
+    expect(card.textContent).toContain("Função: Dev → Revisora de código");
     const waiting = within(card).getByRole("switch", { name: "Incluir Atlas" });
     expect(waiting.getAttribute("aria-checked")).toBe("false");
     expect(waiting.hasAttribute("disabled")).toBe(true);
@@ -192,7 +192,7 @@ describe("a change proposed for several agents in the chat", () => {
   test("a card of one row reads it by id too", async () => {
     await openCard([adaRole("p-role")], pastTheList);
     expect(screen().getByRole("group", { name: "Proposta de mudança de Atlas" }).textContent).toContain(
-      "Papel: Dev → Revisora de código",
+      "Função: Dev → Revisora de código",
     );
   });
 
@@ -223,9 +223,9 @@ describe("a change proposed for several agents in the chat", () => {
   test("one row alone keeps the single card: a new role is taken as proposed, with no Editar", async () => {
     const state = await openCard([adaRole("p-role")]);
     const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas" });
-    expect(card.textContent).toContain("papel da Ada");
-    expect(card.textContent).toContain("Mudar o papel da Ada");
-    expect(card.textContent).toContain("Papel: Dev → Revisora de código");
+    expect(card.textContent).toContain("função da Ada");
+    expect(card.textContent).toContain("Mudar a função da Ada");
+    expect(card.textContent).toContain("Função: Dev → Revisora de código");
     expect(within(card).queryByRole("button", { name: "Editar" })).toBeNull();
     await click(within(card).getByRole("button", { name: "Aceitar mudança" }));
     await settle(4);

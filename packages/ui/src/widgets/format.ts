@@ -4,6 +4,12 @@ import { prefersReducedMotion } from "../sky/engine";
 /** Units a number takes before it, as the chat's charts write them ("$18,420"). */
 const PREFIX_UNITS = new Set(["R$", "US$", "$", "€", "£"]);
 
+/**
+ * A unit that is a mark, not a word, a currency or a percent ("★", "↑"): a mark sits around its own middle, so beside
+ * the number it is raised to the digits' middle instead of standing on their baseline.
+ */
+export const isMarkUnit = (unit: string) => /^[^\p{L}\p{N}\p{Sc}%°]+$/u.test(unit.trim());
+
 /** Fraction digits a widget's number shows: none from 1000 up, one from 10, two below. */
 export const widgetDigits = (value: number) => {
   const a = Math.abs(value);

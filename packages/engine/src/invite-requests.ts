@@ -44,10 +44,23 @@ import {
 } from "./email-codes";
 import { ConflictError, ForbiddenError, NotFoundError, TooManyError, ValidationError } from "./errors";
 import { adminIds } from "./gateway";
+import {
+  forgetStarted,
+  invitableAgentIds,
+  invitableChannelIds,
+  inviteLinkFull,
+  joinChannels,
+  linkExpiry,
+  linkMaxUses,
+  neverExpires,
+  startWith,
+  stillInvitableAgentIds,
+  stillInvitableChannelIds,
+} from "./invite-choices";
 import { assertMemberRoom } from "./limits";
 import { mailboxOf, oneLine } from "./mail/text";
 import { notify, resolveNotifications } from "./notifications";
-import { recordSignUp } from "./operator-events";
+import { recordOperatorEvent, recordSignUp } from "./operator-events";
 import {
   announceMembers,
   assertInviting,
@@ -55,8 +68,10 @@ import {
   findInviteLink,
   getMembership,
   INVITE_LINK_TTL_DAYS,
+  inviteLink,
   inviteLinkOpen,
   joinOrganization,
+  type Membership,
   onUserCreated,
   requirePermission,
   sendInvitation,
@@ -115,6 +130,14 @@ const CODES_PER_SENDER = { limit: 20, windowMs: DAY_MS };
 const REQUESTS_PER_LINK = { limit: 20, windowMs: HOUR_MS };
 const group = (orgId: string) => `join_requests:${orgId}`;
 const closedLink = () => new NotFoundError("This link no longer works", "join.link_closed");
+/** A link that took all the people it may (ADR 0184): the same for every address. */
+const fullLink = () => new ConflictError("This link already took all the people it may", "join.link_full");
+/** Approving through that link: the approver's way out is a bigger maximum, unlike the asker's. */
+const fullLinkApproval = () =>
+  new ConflictError(
+    "This request's link already took all the people it may. Raise its maximum to approve.",
+    "join.link_full_approval",
+  );
 const fullError = () => new ConflictError("This workspace has many requests waiting", "join.full");
 /** A link's hour used up, by asks or by codes: everyone asking through it shares it, unlike `join.rate_limited`. */
 export const linkBusy = () =>
@@ -196,10 +219,11 @@ async function accountOf(db: Executor, userId: string) {
   return row ?? null;
 }
 
-/** An open link, by its token; else `join.link_closed`. */
+/** An open link, by its token; else `join.link_closed`, or `join.link_full` once it took all the people it may. */
 async function openLink(db: Executor, token: string, now: Date) {
   const found = await findInviteLink(db, token);
   if (!found || !inviteLinkOpen(found, now)) throw closedLink();
+  if (inviteLinkFull(found.link)) throw fullLink();
   return found;
 }
 
@@ -547,6 +571,10 @@ async function file(
       if (proven) throw closedLink();
       return null;
     }
+    if (inviteLinkFull(link.link)) {
+      if (proven) throw fullLink();
+      return null;
+    }
     if (usedCode) {
       const used = await tx
         .delete(codes)
@@ -707,7 +735,8 @@ export async function joinStatus(db: Database, user: { id: string }, token: stri
  * confirmed account with it asked; false only on a server without email, or for a request typed before codes.
  * `confirmed` (read by phone builds from before `verified`): approving lets an account in at once, as
  * `approveJoinRequest` decides. `suggestedBy`: the member who suggested the person (ADR 0090), whose request came
- * through no link.
+ * through no link. `link`: the link it came through, who made it, what an approval starts on (ADR 0184) and whether
+ * it is `full`, which refuses the approval.
  */
 export async function listWaitingJoinRequests(db: Database, actorId: string, orgId: string, now = new Date()) {
   await requirePermission(db, actorId, orgId, "invite_people");
@@ -717,6 +746,7 @@ export async function listWaitingJoinRequests(db: Database, actorId: string, org
       name: requests.name,
       email: requests.email,
       note: requests.note,
+      linkId: requests.linkId,
       verified: sql<boolean>`${requests.verifiedAt} is not null or coalesce(${users.id} = ${requests.userId} and ${users.emailVerified}, false)`,
       confirmed: sql<boolean>`coalesce(${users.emailVerified} and ${accountInUse} and (${requests.verifiedAt} is not null or ${users.id} = ${requests.userId}), false)`,
       suggestedBy: sql<string | null>`(select s.name from ${users} s where s.id = ${requests.suggestedByUserId})`,
@@ -727,12 +757,33 @@ export async function listWaitingJoinRequests(db: Database, actorId: string, org
     .leftJoin(users, eq(users.email, requests.email))
     .where(and(eq(requests.orgId, orgId), eq(requests.status, "pending"), gt(requests.expiresAt, now)))
     .orderBy(asc(requests.createdAt));
-  return rows.map((r) => ({
-    ...r,
-    verified: Boolean(r.verified),
-    confirmed: Boolean(r.confirmed),
-    suggestedBy: r.suggestedBy ?? null,
-  }));
+  const linkIds = [...new Set(rows.flatMap((r) => (r.linkId ? [r.linkId] : [])))];
+  const links = linkIds.length
+    ? await db
+        .select({ link: organizationInviteLinks, createdBy: users.name })
+        .from(organizationInviteLinks)
+        .leftJoin(users, eq(users.id, organizationInviteLinks.createdByUserId))
+        .where(and(eq(organizationInviteLinks.orgId, orgId), inArray(organizationInviteLinks.id, linkIds)))
+    : [];
+  return rows.map(({ linkId, ...r }) => {
+    const found = links.find((l) => l.link.id === linkId);
+    return {
+      ...r,
+      verified: Boolean(r.verified),
+      confirmed: Boolean(r.confirmed),
+      suggestedBy: r.suggestedBy ?? null,
+      link: found
+        ? {
+            id: found.link.id,
+            createdBy: found.createdBy ?? null,
+            roleIds: found.link.roleIds,
+            channelIds: found.link.channelIds,
+            agentIds: found.link.agentIds,
+            full: inviteLinkFull(found.link),
+          }
+        : null,
+    };
+  });
 }
 
 /** The request, locked, while it still waits; else why not. */
@@ -815,7 +866,9 @@ export type JoinApproval = { outcome: "joined" } | { outcome: "invited"; url: st
  * confirmed account with it joins at once when the address was proven; a proven ask with no account made with the
  * password it chose (ADR 0090) is made and joins at once; any other request gets an email invitation to it
  * (7 days), which opens sign-up for that address. A person who asked is told by email either way; a member's
- * suggestion gets the invitation email itself, since nobody at that address asked (ADR 0090).
+ * suggestion gets the invitation email itself, since nobody at that address asked (ADR 0090). The channels and agents
+ * they start with (ADR 0184): `start`'s, checked as an invitation's, else the link's, as far as the approver may give
+ * them at that moment. A link that took all its people takes no more approvals (`join.link_full_approval`).
  */
 export async function approveJoinRequest(
   /** `secret`: `AGENTES_SECRET`, so an invitation an approval sends has a link that can be copied again. */
@@ -827,14 +880,30 @@ export async function approveJoinRequest(
   /** Roles (`org_roles`) the person gets, below the approver's own (ADR 0085). */
   roleIds: string[] = [],
   now = new Date(),
+  start: { channelIds?: string[]; agentIds?: string[] } = {},
 ): Promise<JoinApproval> {
   const actor = await requirePermission(deps.db, actorId, orgId, "invite_people");
   assertInviting(actor);
   const role = "member" as const;
   const given = await givableRoleIds(deps.db, actor, orgId, roleIds);
+  const chosen = {
+    channelIds: start.channelIds && (await invitableChannelIds(deps.db, actorId, orgId, start.channelIds, given)),
+    agentIds: start.agentIds && (await invitableAgentIds(deps.db, actor, actorId, orgId, start.agentIds, given)),
+  };
   let made: string | null = null;
+  let opened: string[] = [];
   const result = await deps.db.transaction(async (tx): Promise<JoinApproval> => {
+    // Two approvals through one link take turns, so its uses never pass its maximum.
+    await lockRequests(tx, orgId);
     const row = await waitingRequest(tx, orgId, id, now);
+    const [link] = row.linkId
+      ? await tx.select().from(organizationInviteLinks).where(eq(organizationInviteLinks.id, row.linkId))
+      : [];
+    // A request filed before its link filled waits for a bigger maximum, or a no.
+    if (link && inviteLinkFull(link)) throw fullLinkApproval();
+    const channelIds =
+      chosen.channelIds ?? (await stillInvitableChannelIds(tx, actorId, orgId, link?.channelIds ?? [], given));
+    const agentIds = chosen.agentIds ?? (await stillInvitableAgentIds(tx, actorId, orgId, link?.agentIds ?? [], given));
     let context = await answerContext(tx, orgId, actorId, row);
     // Someone with this address got in meanwhile: nothing to send.
     const already = await addressIsMember(tx, orgId, row.email);
@@ -850,12 +919,16 @@ export async function approveJoinRequest(
     let invitationId: string | null = null;
     if (!already && joining) {
       await joinOrganization(tx, orgId, joining, role, given);
+      await joinChannels(tx, orgId, joining, channelIds);
+      opened = await startWith(tx, { orgId, userId: joining, giverId: actorId, agentIds });
     } else if (!already) {
       const sent = await sendInvitation(tx, {
         orgId,
         email: row.email,
         role,
         roleIds: given,
+        channelIds,
+        agentIds,
         invitedBy: actorId,
         ownersOk: can(actor, "manage_owners"),
         secret: deps.secret,
@@ -895,7 +968,7 @@ export async function approveJoinRequest(
       actor: { type: "person", id: actorId },
       action: "join_request.approved",
       target: { type: "join_request", id: row.id },
-      details: { roleIds: given, joined: approval.outcome === "joined" },
+      details: { roleIds: given, channelIds, agentIds, joined: approval.outcome === "joined" },
     });
     if (!already && row.suggestedByUserId) {
       // Nobody at the address asked (ADR 0090): no answer, only the invitation, as anyone invited gets it.
@@ -922,7 +995,7 @@ export async function approveJoinRequest(
           orgName: context.orgName,
           approverName: context.approverName,
           role,
-          crew: await emailCrew(tx, orgId),
+          crew: await emailCrew(tx, orgId, agentIds),
           // The invitation as its own email would carry it: accepted from here, the address counts as confirmed.
           url:
             approval.outcome !== "invited"
@@ -937,7 +1010,8 @@ export async function approveJoinRequest(
     return approval;
   });
   if (made) await welcomeAccount(deps.db, made);
-  if (result.outcome === "joined") await announceMembers(deps.pubsub, orgId);
+  forgetStarted(orgId, opened);
+  if (result.outcome === "joined") await announceMembers(deps.pubsub, orgId, opened);
   await settleJoinRequests(deps, orgId, now);
   return result;
 }
@@ -993,7 +1067,8 @@ export async function denyJoinRequest(
 
 /**
  * The workspace's active invitation links (`manage_members`), newest first: `token` when it can be shown again
- * (`inviteLinkToken`), null for a link made before that; who made it, and how many requests through it wait.
+ * (`inviteLinkToken`), null for a link made before that; who made it, how many requests through it wait, and what it
+ * gives (ADR 0184): its cargos, channels and agents, its maximum and the people approved through it so far.
  */
 export async function listInviteLinks(db: Database, secret: string, actorId: string, orgId: string, now = new Date()) {
   await requirePermission(db, actorId, orgId, "invite_people");
@@ -1032,11 +1107,155 @@ export async function listInviteLinks(db: Database, secret: string, actorId: str
       id: link.id,
       token: sha256(token) === link.tokenHash ? token : null,
       expiresAt: link.expiresAt,
+      neverExpires: neverExpires(link.expiresAt),
       createdAt: link.createdAt,
       createdBy: createdBy ?? null,
+      createdByUserId: link.createdByUserId,
       waiting: waiting.get(link.id) ?? 0,
+      plain: link.plain,
+      roleIds: link.roleIds,
+      channelIds: link.channelIds,
+      agentIds: link.agentIds,
+      maxUses: link.maxUses,
+      uses: link.uses,
     };
   });
+}
+
+/** What a link gives and how long it works (ADR 0184): each part optional, an omitted one left as it is. */
+export interface InviteLinkChoices {
+  roleIds?: string[];
+  channelIds?: string[];
+  agentIds?: string[];
+  /** One of `INVITE_LINK_MAX_USES`, or null for no limit. */
+  maxUses?: number | null;
+  /** One of `INVITE_LINK_TTLS`' keys, counted from now. */
+  expiresIn?: string;
+}
+
+/** The choices a link starts with when none are given: what the plain workspace link is. */
+const atDefaults = (c: InviteLinkChoices) =>
+  !c.roleIds?.length &&
+  !c.channelIds?.length &&
+  !c.agentIds?.length &&
+  (c.maxUses ?? null) === null &&
+  (c.expiresIn ?? "30d") === "30d";
+
+/** Each choice checked for the actor as an invitation's (`givableRoleIds`, `invitableChannelIds`, `invitableAgentIds`). */
+async function checkedChoices(
+  db: Database,
+  actor: Membership,
+  actorId: string,
+  orgId: string,
+  c: InviteLinkChoices,
+  current: { roleIds: string[] },
+  now: Date,
+) {
+  const roleIds = c.roleIds ? await givableRoleIds(db, actor, orgId, c.roleIds) : current.roleIds;
+  return {
+    ...(c.roleIds ? { roleIds } : {}),
+    ...(c.channelIds ? { channelIds: await invitableChannelIds(db, actorId, orgId, c.channelIds, roleIds) } : {}),
+    ...(c.agentIds ? { agentIds: await invitableAgentIds(db, actor, actorId, orgId, c.agentIds, roleIds) } : {}),
+    ...(c.maxUses !== undefined ? { maxUses: linkMaxUses(c.maxUses) } : {}),
+    ...(c.expiresIn !== undefined ? { expiresAt: linkExpiry(c.expiresIn, now) } : {}),
+  };
+}
+
+/**
+ * A link with choices (ADR 0184): the cargos, channels and agents an approval starts on, how long it works and how
+ * many people it takes, each checked for whoever makes it as an invitation's. Many links can be live at once, each
+ * listed. Choices at the defaults are the workspace's plain link (`inviteLink`), which then works 30 days from now.
+ * Whoever opens any of them still only asks to join (ADR 0068).
+ */
+export async function createInviteLink(
+  db: Database,
+  secret: string,
+  actorId: string,
+  orgId: string,
+  choices: InviteLinkChoices,
+  now = new Date(),
+) {
+  if (atDefaults(choices)) return inviteLink(db, secret, actorId, orgId, now, { renew: true });
+  const actor = await requirePermission(db, actorId, orgId, "invite_people");
+  assertInviting(actor);
+  const checked = await checkedChoices(db, actor, actorId, orgId, choices, { roleIds: [] }, now);
+  const id = crypto.randomUUID();
+  const token = inviteLinkToken(secret, id);
+  const [link] = await db
+    .insert(organizationInviteLinks)
+    .values({
+      id,
+      orgId,
+      role: "member",
+      tokenHash: sha256(token),
+      createdByUserId: actorId,
+      expiresAt: new Date(now.getTime() + INVITE_LINK_TTL_DAYS * DAY_MS),
+      plain: false,
+      ...checked,
+    })
+    .returning();
+  if (!link) throw new Error("invite link insert returned nothing");
+  await recordAudit(db, {
+    orgId,
+    actor: { type: "person", id: actorId },
+    action: "invite_link.created",
+    target: { type: "invite_link", id },
+    details: linkDetails(link),
+  });
+  await recordOperatorEvent(db, { type: "invitation.created", orgId, userId: actorId, data: { link: true } });
+  return { link, token, made: true };
+}
+
+const linkDetails = (link: typeof organizationInviteLinks.$inferSelect) => ({
+  roleIds: link.roleIds,
+  channelIds: link.channelIds,
+  agentIds: link.agentIds,
+  maxUses: link.maxUses,
+  expiresAt: link.expiresAt.toISOString(),
+});
+
+/**
+ * Changes what an active link gives (ADR 0184), each given choice checked as when making one; its address stays the
+ * same. `expiresIn` counts from now. A link changed this way is no longer the workspace's plain one.
+ */
+export async function editInviteLink(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  linkId: string,
+  choices: InviteLinkChoices,
+  now = new Date(),
+) {
+  const actor = await requirePermission(db, actorId, orgId, "invite_people");
+  assertInviting(actor);
+  const [current] = await db
+    .select()
+    .from(organizationInviteLinks)
+    .where(
+      and(
+        eq(organizationInviteLinks.orgId, orgId),
+        eq(organizationInviteLinks.id, linkId),
+        isNull(organizationInviteLinks.revokedAt),
+      ),
+    );
+  // An expired link can still change: a full one's maximum grows so its waiting requests can be approved. It stays
+  // expired unless `expiresIn` is sent, as renewing it would.
+  if (!current) throw new NotFoundError("Invitation link not found");
+  const checked = await checkedChoices(db, actor, actorId, orgId, choices, current, now);
+  const [link] = await db
+    .update(organizationInviteLinks)
+    .set({ ...checked, plain: false })
+    .where(eq(organizationInviteLinks.id, linkId))
+    .returning();
+  if (!link) throw new NotFoundError("Invitation link not found");
+  await recordAudit(db, {
+    orgId,
+    actor: { type: "person", id: actorId },
+    action: "invite_link.changed",
+    target: { type: "invite_link", id: linkId },
+    details: linkDetails(link),
+  });
+  return link;
 }
 
 /** Gives an active invitation link 30 more days from now (ADR 0090): the same link, so whoever has it keeps it. */

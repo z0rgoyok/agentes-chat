@@ -30,9 +30,10 @@ import { useCardTop } from "./look";
 /**
  * What the agent changed with this reply (ADR 0037 round 2), on the card of the reply's tools (a hairline, the cut
  * corner): one change is a row (A); two or more are a group with "N mudanças · há X" and a row each, those of one kind
- * said once ("Criei as tarefas #58, #59 e #60") (B). Every row and every line under it is one line, cut with "…". The
- * bold part of a sentence opens the thing itself, where it is fixed or removed; a tap on the rest of its words lists
- * each change whole in a sheet. One undone elsewhere stays as history: struck through, with "Desfeito por …".
+ * said once ("Criei as tarefas #58, #59 e #60") (B). Every row and every line under it wraps whole, on a card as wide
+ * as its words. The bold part of a sentence opens the thing itself, where it is fixed or removed; a tap on the rest of
+ * its words lists each change whole in a sheet. One undone elsewhere stays as history: struck through, with
+ * "Desfeito por …".
  */
 export function Receipts({
   message: m,
@@ -77,7 +78,7 @@ export function Receipts({
         }
       : undefined;
     return (
-      <View style={styles.grow}>
+      <View style={styles.fit}>
         <Sentence
           row={r}
           channelId={m.channelId}
@@ -106,7 +107,7 @@ export function Receipts({
         ) : (
           <View style={[styles.group, styles.card, { backgroundColor: c.raised, borderColor: c.line2 }]}>
             <View style={styles.hd}>
-              <Text variant="small" tone="muted" style={styles.grow}>
+              <Text variant="small" tone="muted" style={styles.fit}>
                 <Text variant="small" tone="ink" style={styles.bold}>
                   {t("agentActions.changes", { count: list.length })}
                 </Text>
@@ -132,7 +133,7 @@ export function Receipts({
 }
 
 /**
- * The sentence, one line ("Criei a tarefa **#23** · …"): its bold parts open their own thing when the phone has its
+ * The sentence, whole ("Criei a tarefa **#23** · …"): its bold parts open their own thing when the phone has its
  * screen ("Criei as tarefas **#58**, **#59**"), as do a memory's words; a tap on the rest of its words lists each change
  * whole (`whole`), once the message's double tap can no longer be what it was.
  */
@@ -183,7 +184,6 @@ function Sentence({
       variant={variant}
       tone={struck ? "faint" : "ink2"}
       style={struck && styles.struck}
-      numberOfLines={1}
       onPress={whole || onTap ? press : undefined}
       onLongPress={onLongPress}
       accessibilityRole={whole ? "button" : undefined}
@@ -322,9 +322,9 @@ function CopyHook({ action: a }: { action: AgentAction }) {
   );
 }
 
-/** A line under the row ("Anexei …", "Faz sozinha, sem pedir: …"): one line, whole in the sheet. */
+/** A line under the row ("Anexei …", "Faz sozinha, sem pedir: …"), whole. */
 const UnderLine = ({ text }: { text: string }) => (
-  <Text variant="caption" tone="faint" numberOfLines={1} style={styles.under}>
+  <Text variant="caption" tone="faint" style={styles.under}>
     {text}
   </Text>
 );
@@ -341,10 +341,14 @@ function UndoneLine({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
+  // The words in a card as wide as they are: they shrink and wrap where the column ends (`flex: 1` would collapse them).
+  fit: { flexShrink: 1, minWidth: 0 },
   bold: { fontWeight: "600" },
   struck: { textDecorationLine: "line-through" },
-  // The tool block's card (ToolCalls.tsx): a hairline and the cut corner, bottom left.
+  // The tool block's card (ToolCalls.tsx): a hairline and the cut corner, bottom left. As wide as its words.
   card: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
     borderWidth: StyleSheet.hairlineWidth,
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,

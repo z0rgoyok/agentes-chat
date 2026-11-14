@@ -5,6 +5,7 @@ import {
   emailTypoFix,
   excerpt,
   holdsText,
+  jwtClaims,
   jwtEmail,
   looksLikePassword,
   matchesName,
@@ -128,6 +129,12 @@ test("the address in an ID token's email claim, whatever its base64url and paddi
   expect(jwtEmail(token(null))).toBeUndefined();
   expect(jwtEmail("not.a-token!")).toBeUndefined();
   expect(jwtEmail("")).toBeUndefined();
+  // Read as UTF-8, as the signer wrote them: the server matches them against its own rows.
+  expect(jwtClaims(token({ email: "josé@example.com", updateTo: "zoë@example.com" }))).toEqual({
+    email: "josé@example.com",
+    updateTo: "zoë@example.com",
+  });
+  expect(jwtClaims(token("a string"))).toBeUndefined();
 });
 
 test("holdsText: the same words, spacing aside, never a word cut in the middle", () => {

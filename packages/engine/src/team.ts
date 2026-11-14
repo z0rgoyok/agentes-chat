@@ -17,7 +17,8 @@ import { parseMentionHandles } from "./messages";
 import { requirePermission } from "./organizations";
 import { maySql } from "./permissions";
 import { personBehindCall, routineCreatorOfCall } from "./requester";
-import { getSandboxSettings, SANDBOX_SCOPE } from "./sandbox";
+import { getSandboxSettings } from "./sandbox";
+import { SANDBOX_SCOPE } from "./sandbox-scope";
 import type { ToolContext, ToolDefinition, ToolSource } from "./tools/types";
 import { inWorkspaceWords, isPersonalWorkspace } from "./workspace-mode";
 

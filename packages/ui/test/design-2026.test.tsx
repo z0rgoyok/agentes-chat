@@ -53,10 +53,6 @@ describe("buttons and kbd", () => {
     ])
       expect(hidden).toContain(hint);
     expect(narrow).toMatch(/\.ac-mo__kbd \{\s*display: none;/);
-    // The send choice's line of keys goes with them.
-    expect(css).toMatch(
-      /@media \(max-width: 760px\), \(hover: none\), \(pointer: coarse\) \{\s*\.ac-composer-choice__hint \{\s*display: none;/,
-    );
   });
 
   test("a Button that toggles stays pushed in while on (aria-pressed), hovered or not; a ghost one keeps its plate", async () => {

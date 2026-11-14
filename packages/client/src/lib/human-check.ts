@@ -98,11 +98,24 @@ const refusedToken = (outcome: unknown) => (outcome as { code?: unknown } | null
  * Sends a guarded call with the widget's token, then resets the widget. On `human_check` it sends once more with
  * a fresh token, never on `human_check_blocked` (another try can't load the check). `check` null: the server
  * has no check, and the call goes without a token.
+ *
+ * `pass`: what the e-mail's lookup answered with (`SignInOptions.pass`), for the step that follows it. It goes first,
+ * in the token's place, and the widget is asked only when the server no longer takes it (it ran out, or the phone
+ * changed networks): the person who passed the check at their e-mail isn't asked again at their password.
  */
 export async function withHumanCheck<T>(
   check: HumanCheck | null | undefined,
   send: (token: string | undefined) => Promise<T>,
+  pass?: string | null,
 ): Promise<T> {
+  if (check && pass) {
+    try {
+      const outcome = await send(pass);
+      if (!refusedToken(outcome)) return outcome;
+    } catch (error) {
+      if (!refusedToken(error)) throw error;
+    }
+  }
   for (let attempt = 1; ; attempt++) {
     const token = check ? await check.token() : undefined;
     let outcome: T;

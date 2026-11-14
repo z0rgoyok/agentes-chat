@@ -3,7 +3,7 @@ import type { LegalDocument } from "./types";
 export const privacyEn: LegalDocument = {
   title: "Privacy Policy",
   summary: "What we collect, what agents send where, who can see your workspace, and the rights you have.",
-  updated: "2026-11-12",
+  updated: "2026-11-13",
   sections: [
     {
       id: "overview",

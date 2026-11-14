@@ -417,14 +417,15 @@ jobs:
   secrets:
     name: Secret scan and boundaries
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 5
+    # main's whole-history scan passed 4.5 minutes on 2026-11-13 and grows with every migration snapshot.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # Bun first: the boundaries check below still runs when the scan fails.
       - *setup-bun
-      # main and a release tag scan the whole history (about two minutes); a branch or a pull request scans the
+      # main and a release tag scan the whole history (about five minutes); a branch or a pull request scans the
       # commits it adds to main, which main's own runs have already scanned up to there.
       - name: Secret scan
         env:

@@ -293,7 +293,7 @@
   },
   "along": {
     "agent": "エージェント",
-    "waits": "{{name}}があなたのOKを待っています",
+    "waits": "{{name}} · あなたの対応待ち",
     "on": "{{name}} · {{what}}",
     "working": "{{name}}が作業中",
     "more": "+{{count}}"
@@ -769,7 +769,7 @@
     "teamSectionPersonal": "あなたのエージェント",
     "managerQuiet": "進行中のものはありません",
     "state": {
-      "waitsYou": "あなたのOK待ち",
+      "waitsYou": "あなたの対応待ち",
       "noAi": "AI未接続",
       "connect": "接続",
       "archived": "アーカイブ済み",
@@ -1061,6 +1061,9 @@
     "addWorkspaceTeamShort": "チームのサーバーに参加",
     "addWorkspaceTeamSubShort": "アドレスかコンピューターのQRコード",
     "addWorkspaceFoot": "どのワークスペースからも抜けません。",
+    "addAccount": "別のアカウントにログイン",
+    "addAccountSub": "{{host}} で、このアカウントのまま",
+    "accountNoWorkspace": "ワークスペースはまだありません",
     "teamServerLeadShort": "チームがブラウザで開いているアドレスです。",
     "teamServerQuestion": "チームのアドレスは？",
     "account": {
@@ -1078,6 +1081,8 @@
       "name": "名前",
       "namePlaceholder": "あなたの名前",
       "email": "メールアドレス",
+      "emailWebLead": "サイトでもう一度ログインして、コードなしでそこで変更してください。",
+      "emailWeb": "サイトでもう一度ログイン",
       "inWorkspace": "このワークスペース内 · {{org}}",
       "handle": "あなたの@",
       "timezone": "タイムゾーン",
@@ -1353,7 +1358,7 @@
       "plain": "タスクを完了しました"
     },
     "rowWait": {
-      "approval": "があなたのOKを待っています",
+      "approval": "あなたの対応待ち",
       "question": "があなたの回答を待っています",
       "mission": "があなたのレビューを待っています"
     },
@@ -1391,12 +1396,12 @@
   },
   "intentAgents": {
     "waitingSection": "あなたの対応待ち",
-    "waitingLine": "{{title}} · あなたのOK待ち",
+    "waitingLine": "{{title}} · あなたの対応待ち",
     "waitingMore_other": "{{title}} · ほか{{count}}件があなたの対応待ち",
-    "waitingLabel": "{{name}}、あなたのOK待ち",
+    "waitingLabel": "{{name}}、あなたの対応待ち",
     "owner": "オーナー: {{name}}",
     "ownerYou": "オーナー: あなた",
-    "nowWaiting": "あなたのOK待ち: {{title}}",
+    "nowWaiting": "あなたの対応待ち: {{title}}",
     "did": {
       "title": "あなたのためにしたこと",
       "title_female": "あなたのためにしたこと",
@@ -1414,7 +1419,7 @@
         "image": "画像",
         "file": "ファイル"
       },
-      "waitingOnYou": "あなたのOK待ち",
+      "waitingOnYou": "あなたの対応待ち",
       "youApproved": "あなたが承認",
       "youRefused": "あなたが却下",
       "action": {
@@ -2152,14 +2157,158 @@
       "toolsHow": "オンのツールをタップするとオフになります。再びオンにするには、そのコンピューター上で、またはここで接続した人が行います。",
       "toolsHowOwner": "ツールをタップしてオン・オフを切り替えます。"
     },
-    "roles": {
-      "onComputer": "ロールの順番と各ロールのアイコンはコンピューターで変更します。",
-      "items": "項目ごと",
-      "create": "作成"
-    },
     "import": {
       "preparing": "ファイルを準備中…",
       "failed": "ファイルをダウンロードできませんでした。もう一度お試しください。"
+    }
+  },
+  "roles": {
+    "create": "作成",
+    "search": "ロールを検索",
+    "baseHint": "ワークスペースのすべての人に適用されます。ロールはこれに追加されます。",
+    "orderHint": "上位の人は、下のロールと人を管理します。各人の名前の色は、その人の最上位のロールの色です。",
+    "order": "並べ替え",
+    "orderDone": "完了",
+    "up": "{{name}}を上へ",
+    "down": "{{name}}を下へ",
+    "orderChanged": "移動中にロールの一覧が変わりました。再読み込みしてもう一度お試しください。",
+    "none": "ロールはまだありません。一部の人にもっと権限を与えるには、ロールを作成してください。",
+    "noMatch": "「{{q}}」に一致するロールはありません。",
+    "tooMany": "このワークスペースにはすでに100個のロールがあります。新しく作成するには1つ削除してください。",
+    "loadFailed": "ロールを読み込めませんでした。{{cause}}",
+    "backToList": "ロールに戻る",
+    "nobody": "なし",
+    "reach": {
+      "permissions_other": "{{count}}件の権限",
+      "channels_other": "{{count}}チャンネル",
+      "agents_other": "{{count}}エージェント",
+      "more": "+{{what}}",
+      "all": "すべて可能",
+      "owner": "常にすべて可能",
+      "none": "全員ができることのみ",
+      "baseNone": "閲覧のみ"
+    },
+    "tabs": {
+      "permissions": "権限",
+      "channels": "チャンネル",
+      "agents": "エージェント"
+    },
+    "addOwners": "オーナーを追加",
+    "icons": {
+      "shield": "盾",
+      "code": "コード",
+      "wallet": "財布",
+      "mail": "メール",
+      "bolt": "稲妻",
+      "flag": "旗",
+      "book": "本",
+      "chart": "グラフ",
+      "bulb": "電球",
+      "globe": "地球儀",
+      "pullRequest": "プルリクエスト",
+      "calendar": "カレンダー",
+      "message": "メッセージ",
+      "eye": "目",
+      "plug": "プラグ",
+      "person": "人"
+    },
+    "inviteWith": "このロールで招待",
+    "searchPermission": "権限を検索",
+    "everyoneCan": "全員ができます",
+    "only": "{{names}}のみ",
+    "notHeld": "この権限を持っていません。",
+    "noPermissionMatch": "「{{q}}」に一致する権限はありません。",
+    "advanced": "詳細",
+    "peopleOnly": "ロールは人に適用されます。各エージェントの権限は、それぞれのページにあります。",
+    "nowAbove": "このロールはあなたのロールより上位になりました。変更できるのはさらに上位の人だけです。",
+    "admin": {
+      "title": "{{name}}で管理者をオンにしますか？",
+      "text": "{{name}}を持つ人は、オーナーだけができること以外はすべてできるようになります。",
+      "count_other": "対象は{{count}}人です。",
+      "on": "管理者をオンにする",
+      "note": "管理者により、{{name}}はオーナーだけができること以外はすべてできます。"
+    },
+    "computers": {
+      "title": "エージェントのコンピューター",
+      "hint": "ブラウザー：ブラウザーとサインインのリクエスト。コンピューター：画面全体とターミナルも。自分のエージェント：その人が担当するエージェントと、その人が接続したコンピューター。",
+      "steps": {
+        "0": "使わない",
+        "1": "自分のエージェントのブラウザー",
+        "2": "自分のエージェントのコンピューター",
+        "3": "すべてのエージェントのブラウザー",
+        "4": "すべてのエージェントのコンピューター"
+      },
+      "stepsIn": {
+        "1": "自分のエージェントのブラウザー",
+        "2": "自分のエージェントのコンピューター",
+        "3": "すべてのエージェントのブラウザー",
+        "4": "すべてのエージェントのコンピューター"
+      },
+      "everyoneTo": "全員が{{step}}を使えるようになります。",
+      "everyoneNone": "全員がエージェントのコンピューターを使えなくなります。"
+    },
+    "whoCan": "できる人",
+    "everyoneSub": "ワークスペースのすべての人",
+    "someRoles": "一部のロールのみ",
+    "losing": "できなくなる人：{{names}}。",
+    "nobodyLoses": "失う人はいません。",
+    "everyoneGets": "全員ができるようになります。",
+    "ownersAlways": "オーナーはいつでもできます。",
+    "noOtherRoles": "ほかのロールはまだありません。",
+    "channels": {
+      "header": "{{name}}を持つ人に見えるもの",
+      "headerBase": "全員に見えるもの",
+      "hint": "これは人についての設定です。エージェントは、誰かが追加するとチャンネルに入ります。",
+      "search": "チャンネルを検索",
+      "everyone": "全員に表示",
+      "private": "非公開",
+      "general": "全員が#generalにいます。",
+      "locked": "#{{channel}}を作成した人か、チャンネルを整理できる人だけが、見られる人を変更できます。",
+      "leaveTitle": "#{{channel}}を{{name}}から外しますか？",
+      "leave_other": "{{names}}がチャンネルから抜けます。",
+      "leaveAction": "外す",
+      "openTitle": "#{{channel}}を{{name}}に公開しますか？",
+      "openText": "{{name}}を持つ人は、チャンネルとそのすべての履歴を見られ、参加できます。",
+      "openAction": "公開",
+      "openAllTitle": "#{{channel}}を全員に公開しますか？",
+      "openAllText": "すべての履歴がワークスペースに公開されます。",
+      "admin": "管理者により、{{name}}を持つ人はすべてのチャンネルを見られます。",
+      "onlyGeneral": "今は#generalしかありません。",
+      "noMatch": "「{{q}}」に一致するチャンネルはありません。",
+      "ungrouped": "チャンネル",
+      "whoSees": "見られる人",
+      "allSub": "ワークスペースの誰でも見られて、参加できます。",
+      "invited": "追加された人のみ",
+      "invitedSub": "新しい人には見えません。今いる人はそのままです。",
+      "unsee": "今いる人はそのままです。見られなくなる人：{{names}}。"
+    },
+    "agents": {
+      "header": "{{name}}を持つ人が話せる相手",
+      "headerBase": "全員が話せる相手",
+      "hint": "これは人についての設定です。各エージェントが何をするかは、そのページにあります。",
+      "everyone": "全員が話せます",
+      "gate": "{{name}}だけを持つ人は、エージェントと話せません。",
+      "gateOn": "エージェントと話すをオンにする",
+      "locked": "変更できるのは、{{name}}の担当者の{{owner}}か、すべてのエージェントを編集できる人だけです。",
+      "locked_female": "変更できるのは、{{name}}の担当者の{{owner}}か、すべてのエージェントを編集できる人だけです。",
+      "lockedNoOwner": "変更できるのは、すべてのエージェントを編集できる人だけです。",
+      "none": "エージェントはまだいません。",
+      "some": "一部のロールと人のみ",
+      "addPerson": "人を追加",
+      "losing": "{{agent}}と話せなくなる人：{{names}}。"
+    },
+    "people": {
+      "removed": "{{person}}は{{name}}ではなくなりました",
+      "selfTitle": "自分を{{name}}から外しますか？",
+      "selfText": "{{name}}だけが与える権限を失います。戻せるのは、あなたより上位の人だけです。"
+    },
+    "mail": {
+      "title_other": "エージェントが{{count}}件のメールボックスを失います",
+      "loses": "{{agent}}は{{owner}}のメールボックス{{address}}を失います。",
+      "losesAddress": "{{agent}}はメールボックス{{address}}を失います。",
+      "only": "メールボックスを再び与えられるのは、それを与えた人だけです。",
+      "addAnyway": "それでも追加",
+      "giveAnyway": "それでも付与"
     }
   },
   "vault": {

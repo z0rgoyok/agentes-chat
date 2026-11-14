@@ -1,4 +1,4 @@
-/* Settings › Papéis e permissões (ADR 0085): the roles as rows, a role's own page. */
+/* Settings › Cargos (ADR 0085): the roles as rows, a role's own page. */
 .roles {
   display: flex;
   flex-direction: column;

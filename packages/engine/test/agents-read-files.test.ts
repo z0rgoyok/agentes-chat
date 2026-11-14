@@ -15,6 +15,7 @@ import {
   drainOutbox,
   getArtifact,
   invokeToolForRun,
+  missingPermissions,
   openDm,
   openPersonAgentDm,
   postPersonMessage,
@@ -419,7 +420,7 @@ describe("the team's right hand", () => {
 });
 
 describe("its other tools", () => {
-  test("it writes files and brings one along like any agent; a computer it has none, and no card asks for one", async () => {
+  test("it writes files and brings one along like any agent, and holds its computer's scopes from the start", async () => {
     f = await world();
     const lodi = await lodiOf();
     const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, lodi.id);
@@ -441,11 +442,10 @@ describe("its other tools", () => {
     );
     const made = await bridged(run, "create_artifact", { title: "Resumo", kind: "document", markdown: "# Resumo" });
     expect(made.isError).toBeUndefined();
-    const asked = await bridged(run, "request_permission", { permission: "sandbox:run" });
-    expect(asked.isError).toBe(true);
-    expect(asked.content).toContain("you have no computer yet");
-    expect(asked.content).toContain("ask_agent");
-    expect(await f.db.select().from(schema.approvals)).toEqual([]);
+    // Its computer's scopes are its own from the start (ADR 0175): none is among what it could still be given.
+    const missing = await missingPermissions({ db: f.db, orgId: f.org.id, agentId: lodi.id });
+    for (const scope of ["sandbox:run", "browser:use", "desktop:use"])
+      expect(missing.map((m) => m.id)).not.toContain(scope);
   });
 });
 

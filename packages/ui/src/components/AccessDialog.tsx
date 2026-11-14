@@ -14,7 +14,7 @@ export interface AccessLevel<L extends string = string> {
 export interface AccessSubject {
   id: string;
   name: string;
-  /** The line under the name ("Papel · 4 pessoas", an email). */
+  /** The line under the name ("Cargo · 4 pessoas", an email). */
   detail?: string;
   /** Their face or mark. */
   lead: ReactNode;

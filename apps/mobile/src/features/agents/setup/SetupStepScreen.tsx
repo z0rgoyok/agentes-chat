@@ -54,7 +54,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, TextInput, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { EmptyState, fieldText, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Text } from "@/ui";
+import { EmptyState, fieldText, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, RoleMark, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openAgentAi } from "../../ai/AgentAiScreen";
 import { PlanReplies } from "../../ai/parts";
@@ -549,7 +549,7 @@ function WhoStep({ agent }: { agent: Agent }) {
             {roleList.map((r) => (
               <GroupedRow
                 key={r.id}
-                icon="members"
+                leading={<RoleMark color={r.color} icon={r.icon} size={30} />}
                 label={r.name}
                 checked={pickedRoles.has(r.id)}
                 disabled={busy}

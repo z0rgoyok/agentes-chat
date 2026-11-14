@@ -75,7 +75,7 @@ describe("every old address opens its new home", () => {
     ["media", "Workspace", "GIFs e figurinhas"],
     ["voice", "Workspace", "Voz"],
     ["members", "Pessoas", "Membros e convites"],
-    ["roles", "Pessoas", "Papéis e permissões"],
+    ["roles", "Pessoas", "Cargos"],
     ["usage", "IA e uso", undefined],
     ["connectors", "Conectores", "Conectores e MCPs"],
     ["skills", "Conectores", "Skills"],

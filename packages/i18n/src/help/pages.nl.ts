@@ -758,7 +758,7 @@ export const helpNl: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "E-mail",
         blocks: [
-          "Zonder e-mail schrijft agentes.chat elke e-mail in zijn log in plaats van hem te versturen, dus een uitnodigingslink kun je daar nog kopiëren. Wachtwoord herstellen blijft uit.",
+          "Zonder e-mail schrijft agentes.chat elke e-mail in zijn log in plaats van hem te versturen, dus een uitnodigingslink kun je daar nog kopiëren. Wachtwoord herstellen blijft uit, en een nieuw e-mailadres voor een account geldt meteen, zonder code of link.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

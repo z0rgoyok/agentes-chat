@@ -1,9 +1,16 @@
 import type { OrgSummary } from "@agenteschat/client";
 import { CLOUD_SERVER, serverHost } from "@agenteschat/client/lib/server";
 
-/** A server's workspaces in Workspaces (ADR 0154), each with its unread count. */
+/** A server's workspaces in Workspaces (ADR 0154), or one of its accounts' (ADR 0183), each with its unread count. */
 export interface ServerWorkspaces {
+  /** The place these are read from and opened in: a server, or one of its accounts (ADR 0183). */
+  place: string;
+  /** Its server's address. */
   server: string;
+  /** Whose account it is, when known. */
+  email: string | null;
+  /** The phone is signed in to this server with more than one account: each group says whose it is. */
+  several: boolean;
   /** Its header: "agentes.chat" for the Cloud, the address for any other. */
   host: string;
   /** The server the app is on now. */
@@ -22,6 +29,10 @@ export const orderedServers = (signedIn: readonly string[], current: string): st
 /** One server's group (pure): its workspaces with their unread counts (0 when the server didn't say). */
 export function workspacesOf(input: {
   server: string;
+  /** The server's own address when left out (its first account). */
+  place?: string;
+  email?: string | null;
+  several?: boolean;
   current: boolean;
   orgs: readonly OrgSummary[];
   unread: readonly { orgId: string; unread: number }[];
@@ -29,7 +40,10 @@ export function workspacesOf(input: {
 }): ServerWorkspaces {
   const counts = new Map(input.unread.map((u) => [u.orgId, u.unread]));
   return {
+    place: input.place ?? input.server,
     server: input.server,
+    email: input.email ?? null,
+    several: input.several === true,
     host: input.server === CLOUD_SERVER ? "agentes.chat" : serverHost(input.server),
     current: input.current,
     orgs: input.orgs.map((o) => ({ ...o, unread: counts.get(o.id) ?? 0 })),

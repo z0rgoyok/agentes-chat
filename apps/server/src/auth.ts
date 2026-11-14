@@ -1,12 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, sign as signWithKey } from "node:crypto";
 import type { HumanAction, HumanCheck, PubSub, RateLimiter } from "@agenteschat/adapters";
-import { nameIsPassword } from "@agenteschat/client/lib/text";
+import { jwtClaims, nameIsPassword } from "@agenteschat/client/lib/text";
 import type { Config } from "@agenteschat/config";
 import { and, type Database, eq, ne, schema } from "@agenteschat/db";
 import {
   accountBlock,
+  addressHeld,
   announceProfile,
+  askEmailChange,
+  CODE_LIMITS,
+  ConflictError,
+  changeAsked,
+  clearPassword,
   countUsers,
   deriveSecret,
   EARLY_ACCESS_HEADER,
@@ -16,6 +22,7 @@ import {
   enqueueAccountContact,
   ForbiddenError,
   feedbackDestination,
+  finishEmailChange,
   holdsInvitation,
   INVITATION_MAIL_HEADER,
   INVITATION_TOKEN_HEADER,
@@ -28,12 +35,17 @@ import {
   requestLocale,
   revokeUserApps,
   type SignupPolicy,
+  sendProofCode,
   sha256,
   signupAdmission,
   signupOpenToAll,
   spendDeletionCode,
+  spendProofCode,
   TooManyError,
+  UnauthorizedError,
+  undoneSince,
   useEarlyAccess,
+  ValidationError,
   type WorkspacePolicy,
 } from "@agenteschat/engine";
 import { expo } from "@better-auth/expo";
@@ -45,13 +57,16 @@ import {
   createAuthMiddleware,
   formCsrfMiddleware,
   getOAuthState,
+  getSessionFromCtx,
   isAPIError,
 } from "better-auth/api";
-import { setSessionCookie } from "better-auth/cookies";
+import { deleteSessionCookie, expireCookie, parseCookies, setSessionCookie } from "better-auth/cookies";
+import { multiSession } from "better-auth/plugins/multi-session";
 import { z } from "zod";
 import { listOf } from "./app-links";
 import { desktopSignIn, FRESH_SIGN_IN_MS } from "./desktop-sign-in";
 import { humanCheckRefusal } from "./http/human-check";
+import { humanPassesFor } from "./http/human-pass";
 import type { Logger } from "./logger";
 import { ownerSignIn } from "./owner-claim";
 import { phoneBrowserSignIn, phoneFlowStarted } from "./phone-browser-sign-in";
@@ -94,7 +109,13 @@ export function createAuth(deps: {
   // link sent to it (ADR 0078), does.
   const assertSignupAllowed = async (email: string, access: string | null) => {
     const admission = await signupAdmission(db, email, policy, { access });
-    if (admission) return admission;
+    if (admission) {
+      // An address an account just left stays held for it, so "This wasn't me" can put it back (`email-change.ts`).
+      if (await addressHeld(db, email)) {
+        throw new APIError("FORBIDDEN", { code: EMAIL_HELD, message: EMAIL_HELD_MESSAGE });
+      }
+      return admission;
+    }
     if (policy.ownerByLink && (await countUsers(db)) === 0) {
       throw new APIError("FORBIDDEN", {
         code: OWNER_CLAIM_REQUIRED,
@@ -120,6 +141,12 @@ export function createAuth(deps: {
   const appOrigins = [APP_SCHEME, ...(config.NODE_ENV !== "production" ? ["exp://", "exp://**"] : [])];
   const apple = appleSignIn(config);
   const authorizations = socialAuthorizations(config, apple?.clientId ?? null);
+  // A sign-in under way when "This wasn't me" ran read the account as it was: the session, sign-in method or password
+  // it makes lands after the undo took every one back, and goes too.
+  const undoneMeanwhile = async (userId: string) => {
+    const startedAt = await signInStartedAt();
+    return startedAt !== null && (await undoneSince(db, userId, startedAt));
+  };
 
   return betterAuth({
     appName: "agentes.chat",
@@ -128,14 +155,30 @@ export function createAuth(deps: {
     // Over HTTP each would tell any session whether a password is right, with none of the limit `deletionProof` keeps:
     // a stolen session could guess the account's password there, then sign in with it anywhere, or delete with it on
     // a server that sends no email. No app calls them, `deletionProof` calls `verifyPassword` in this process (which
-    // this leaves open), and a forgotten password is reset by email.
-    disabledPaths: ["/verify-password", "/change-password"],
+    // this leaves open), and a forgotten password is reset by email. A new address goes only through
+    // `changeAccountEmail`, which takes a code or a fresh sign-in first and calls `/change-email` in this process.
+    // The multi-session paths take and answer session tokens, and no token reaches the browser: the apps go through
+    // `/api/app/device-accounts`, which names accounts by person and calls these in this process (ADR 0183).
+    disabledPaths: [
+      "/verify-password",
+      "/change-password",
+      "/change-email",
+      "/multi-session/list-device-sessions",
+      "/multi-session/set-active",
+      "/multi-session/revoke",
+      KEEP_DEVICE_SESSIONS,
+      LEAVE_DEVICE_SESSION,
+    ],
     // Derived from AGENTES_SECRET so self-hosters manage a single secret.
     secret: deriveSecret(config.AGENTES_SECRET, "sessions"),
     // Apple posts the sign-in result back from its own origin (`response_mode=form_post`).
     trustedOrigins: [config.PUBLIC_URL, ...devOrigins, ...appOrigins, ...(apple ? [APPLE_ORIGIN] : [])],
     plugins: [
       expo(),
+      // Several accounts signed in on one browser (ADR 0183): every sign-in also leaves a cookie of its own, so the
+      // one before it stays signed in and the browser moves between them.
+      multiSession({ maximumSessions: MAX_DEVICE_ACCOUNTS }),
+      deviceAccounts,
       phoneSignIn,
       phoneBrowserSignIn(),
       desktopSignIn(),
@@ -152,16 +195,15 @@ export function createAuth(deps: {
     }),
     user: {
       additionalFields: { locale: { type: "string", required: false, input: false } },
-      // The same account under a new address (Sua conta › Perfil): a link to the new one confirms it; a server that
-      // sends no e-mail can't, so the address changes at once there.
+      // The same account under a new address (Sua conta › Perfil), only through `changeAccountEmail`: a link to the new
+      // one confirms it, and a server that sends no e-mail can't, so the address changes at once there.
       changeEmail: { enabled: true, updateEmailWithoutVerification: !emailEnabled },
     },
     session: {
       additionalFields: { activeOrganizationId: { type: "string", required: false, input: false } },
-      // Signed cookie cache: most requests don't hit the sessions table.
-      // Trade-off: signing out elsewhere takes up to 5 minutes to propagate.
-      // Permissions are still checked against the database on every request.
-      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      // No signed cookie cache: every request reads its session from the database (once, `sessionOf`), so a session
+      // that ends (signing out, a new password, "This wasn't me", a block) stops working at once everywhere.
+      cookieCache: { enabled: false },
     },
     emailAndPassword: {
       enabled: true,
@@ -200,6 +242,11 @@ export function createAuth(deps: {
           }
         : {}),
       onPasswordReset: async ({ user }: { user: { id: string } }) => {
+        // Its link read before "This wasn't me" dropped it, the new password landed after the undo cleared the old one.
+        if (await undoneMeanwhile(user.id)) {
+          await clearPassword(db, user.id);
+          throw new APIError("UNAUTHORIZED", SIGN_IN_UNDONE);
+        }
         // An emailed link reached the mailbox, as a confirmation link would, and the password nobody proved is gone
         // with every session: the address counts as confirmed, so a provider can join the account (ADR 0006). A link
         // an owner made on a server without email proves nothing about the mailbox (ADR 0158).
@@ -223,7 +270,7 @@ export function createAuth(deps: {
                 url,
                 token,
               }: {
-                user: { email: string; locale?: string | null };
+                user: { id: string; email: string; locale?: string | null };
                 url: string;
                 token: string;
               },
@@ -239,11 +286,19 @@ export function createAuth(deps: {
               if (signingUp && invitation && (await holdsInvitation(db, user.email, invitation, mail))) return;
               if (!(await emailAllowed("verify-email", user.email))) return;
               const locale = emailLocale(user.locale ?? requestLocale(request?.headers.get("accept-language")));
+              // A new address (`changeAccountEmail`): the account still has its old one until this link is opened.
+              const [stored] = await db
+                .select({ email: schema.users.email })
+                .from(schema.users)
+                .where(eq(schema.users.id, user.id));
+              const change = stored !== undefined && stored.email !== user.email.toLowerCase();
               await queueEmail(db, {
                 orgId: null,
                 key: `verify-email:${sha256(token)}`,
                 to: [user.email],
-                template: { kind: "verify_email", locale, url: confirmationLanding(url) },
+                template: change
+                  ? { kind: "email_change_link", locale, url: confirmationLanding(url) }
+                  : { kind: "verify_email", locale, url: confirmationLanding(url) },
               });
             },
           },
@@ -317,10 +372,38 @@ export function createAuth(deps: {
             throw new APIError("BAD_REQUEST", { message: "Invalid authorizationURL" });
           }
         }
+        if (ctx.path === "/verify-email") {
+          // Better Auth's link to a new address is a token signed for an hour that names both addresses and works while
+          // the account has the old one: after "This wasn't me" puts it back, or after a newer ask, it would move the
+          // account again, telling nobody. Only the change its account asked last goes on (`changeAsked`). Read
+          // unchecked: this only refuses, and Better Auth checks the signature next.
+          const claims = jwtClaims(String((ctx.query as { token?: unknown } | undefined)?.token ?? ""));
+          if (
+            claims?.updateTo !== undefined &&
+            !(await changeAsked(
+              db,
+              typeof claims.email === "string" ? claims.email : "",
+              typeof claims.updateTo === "string" ? claims.updateTo : "",
+            ))
+          ) {
+            // Where a link that no longer works lands: never the link's own callbackURL, which nothing checked yet.
+            throw ctx.redirect(`${CONFIRMATION_LANDING}&error=INVALID_TOKEN`);
+          }
+        }
         const action = HUMAN_ACTIONS[ctx.path];
         // Before the sign-up policy: a bot gets the cheap refusal first.
         if (action && ctx.headers) {
-          const refused = await humanCheckRefusal(deps.humanCheck, ctx.headers, action, config.TRUSTED_PROXIES);
+          // The lookup of this address passed the check a moment ago: its pass stands for this step's (ADR 0075).
+          const address = (ctx.body as { email?: unknown } | undefined)?.email;
+          const refused = await humanCheckRefusal(
+            deps.humanCheck,
+            ctx.headers,
+            action,
+            config.TRUSTED_PROXIES,
+            typeof address === "string"
+              ? { passes: humanPassesFor(deriveSecret(config.AGENTES_SECRET, "human-pass")), email: address }
+              : undefined,
+          );
           if (refused) throw new APIError("FORBIDDEN", refused);
         }
         if (ctx.path !== "/sign-up/email") return;
@@ -369,19 +452,30 @@ export function createAuth(deps: {
           },
         },
         update: {
-          // Their name (`/update-user`, from the web or the phone): open apps show the new one at once.
+          // Their name (`/update-user`, from the web or the phone): open apps show the new one at once. A new address
+          // (its link opened): the one it left is told, with "This wasn't me".
           after: async (user) => {
             await announceProfile(db, deps.pubsub, user.id).catch((error) =>
               log.error("profile change not announced", { userId: user.id, error }),
             );
+            const locale = typeof user.locale === "string" ? user.locale : null;
+            await finishEmailChange(
+              { db, publicUrl: config.PUBLIC_URL },
+              { id: user.id, email: user.email, locale },
+            ).catch((error) => log.error("email change notice not queued", { userId: user.id, error }));
           },
         },
       },
-      // The operator API's events feed (ADR 0056). These run after the sign-in has committed: a failure
-      // here is logged and never fails the sign-in.
+      // After the sign-in has committed: the operator API's events feed (ADR 0056), whose failure is logged and never
+      // fails the sign-in, and a sign-in "This wasn't me" overtook (`undoneMeanwhile`), which fails.
       account: {
         create: {
+          // A provider joined (a provider's return from a sign-in begun before the undo included) or a password added.
           after: async (account) => {
+            if (await undoneMeanwhile(account.userId)) {
+              await db.delete(schema.accounts).where(eq(schema.accounts.id, account.id));
+              throw new APIError("UNAUTHORIZED", SIGN_IN_UNDONE);
+            }
             await recordSignUp(db, account).catch((error) =>
               log.error("operator event failed", { type: "user.signed_up", error }),
             );
@@ -403,7 +497,12 @@ export function createAuth(deps: {
               });
             }
           },
+          // Here, not in `before`: the insert may wait for the undo's commit, and only after it can it see the undo.
           after: async (session) => {
+            if (await undoneMeanwhile(session.userId)) {
+              await db.delete(schema.sessions).where(eq(schema.sessions.id, session.id));
+              throw new APIError("UNAUTHORIZED", SIGN_IN_UNDONE);
+            }
             await recordSession(db, session).catch((error) =>
               log.error("operator event failed", { type: "session.created", error }),
             );
@@ -416,14 +515,31 @@ export function createAuth(deps: {
 
 export type Auth = ReturnType<typeof createAuth>;
 
-/** The address a provider gave during this request's sign-in (`noteProviderEmail`), read by `authHandler`. */
-const providerEmail = new AsyncLocalStorage<{ email?: string }>();
+/**
+ * This request to Better Auth (`authHandler`): when it began, and the address a provider gave its sign-in
+ * (`noteProviderEmail`).
+ */
+const authRequest = new AsyncLocalStorage<{ startedAt: number; email?: string }>();
 
 /** Every provider's `mapProfileToUser`: notes the address, changes nothing. */
 function noteProviderEmail(profile: { email?: unknown }) {
-  const seen = providerEmail.getStore();
+  const seen = authRequest.getStore();
   if (seen && typeof profile.email === "string") seen.email = profile.email;
   return {};
+}
+
+/** How long Better Auth's state for a provider's sign-in lasts from its start (`generateState`). */
+const OAUTH_STATE_MS = 600_000;
+
+/**
+ * When this request's sign-in began: the request, or for a provider's return, the sign-in it finishes (a link to the
+ * account names it in its state, and needs no session on its return). Null outside a request (`auth.api` in-process).
+ */
+async function signInStartedAt(): Promise<number | null> {
+  const startedAt = authRequest.getStore()?.startedAt;
+  if (startedAt === undefined) return null;
+  const flow = await getOAuthState().catch(() => null);
+  return typeof flow?.expiresAt === "number" ? Math.min(startedAt, flow.expiresAt - OAUTH_STATE_MS) : startedAt;
 }
 
 /**
@@ -434,8 +550,8 @@ function noteProviderEmail(profile: { email?: unknown }) {
  */
 export function authHandler(auth: Auth, db: Database) {
   return (request: Request) => {
-    const seen: { email?: string } = {};
-    return providerEmail.run(seen, async () => {
+    const seen: { startedAt: number; email?: string } = { startedAt: Date.now() };
+    return authRequest.run(seen, async () => {
       const res = await auth.handler(request);
       const location = res.headers.get("location");
       if (!seen.email || !location) return res;
@@ -462,21 +578,290 @@ export function signInPageUrl(publicUrl: string, query?: Record<string, string>)
   return query ? `${page}?${new URLSearchParams(query)}` : page;
 }
 
+/** Accounts a sign-in keeps beside it in one browser (ADR 0183): past these, the plugin adds no cookie by itself. */
+export const MAX_DEVICE_ACCOUNTS = 5;
+const KEEP_DEVICE_SESSIONS = "/device-accounts/keep";
+const LEAVE_DEVICE_SESSION = "/device-accounts/leave";
+
+/** The cookie the multi-session plugin keeps a session under, beside the browser's own session cookie. */
+const deviceCookieName = (sessionCookie: string, token: string) => `${sessionCookie}_multi-${token.toLowerCase()}`;
+
+/**
+ * What the multi-session plugin leaves open, for the accounts a browser holds (ADR 0183). Only in this process: both
+ * paths are off over HTTP, and they take session tokens, which never leave the server.
+ */
+const deviceAccounts = {
+  id: "device-accounts",
+  endpoints: {
+    /**
+     * Every session the browser holds gets its cookie again: the one in use that has none yet (signed in before a
+     * browser kept several, or past the plugin's count) and the others, whose cookies the plugin sets once and never
+     * renews. A session not in use is never read as the request's own, so it is extended here, as Better Auth
+     * extends the one in use.
+     */
+    keepDeviceSessions: createAuthEndpoint(
+      KEEP_DEVICE_SESSIONS,
+      { method: "POST", requireHeaders: true },
+      async (ctx) => {
+        const cookie = ctx.context.authCookies.sessionToken;
+        const tokens = new Set<string>();
+        for (const name of parseCookies(ctx.headers?.get("cookie") ?? "").keys()) {
+          if (!name.includes("_multi-")) continue;
+          const token = await ctx.getSignedCookie(name, ctx.context.secret);
+          if (typeof token === "string" && token) tokens.add(token);
+        }
+        const current = await getSessionFromCtx(ctx);
+        if (current) tokens.add(current.session.token);
+        if (tokens.size === 0) return ctx.json({ status: true });
+        const now = Date.now();
+        const { expiresIn, updateAge } = ctx.context.sessionConfig;
+        const held = await ctx.context.internalAdapter.findSessions([...tokens], { onlyActiveSessions: true });
+        for (const { session } of held) {
+          const expiresAt = new Date(session.expiresAt).getTime();
+          if (expiresAt <= now) continue;
+          if (session.token !== current?.session.token && expiresAt - now < (expiresIn - updateAge) * 1000) {
+            await ctx.context.internalAdapter.updateSession(session.token, {
+              expiresAt: new Date(now + expiresIn * 1000),
+            });
+          }
+          await ctx.setSignedCookie(
+            deviceCookieName(cookie.name, session.token),
+            session.token,
+            ctx.context.secret,
+            cookie.attributes,
+          );
+        }
+        return ctx.json({ status: true });
+      },
+    ),
+    /**
+     * One session the browser holds ends, and only that one (Better Auth's own sign-out ends them all). When it was
+     * the one in use, the browser moves to `nextToken`'s, or to none.
+     */
+    leaveDeviceSession: createAuthEndpoint(
+      LEAVE_DEVICE_SESSION,
+      {
+        method: "POST",
+        requireHeaders: true,
+        body: z.object({ sessionToken: z.string(), nextToken: z.string().optional() }),
+      },
+      async (ctx) => {
+        const cookie = ctx.context.authCookies.sessionToken;
+        const current = await getSessionFromCtx(ctx);
+        const holds = async (token: string) =>
+          current?.session.token === token ||
+          (await ctx.getSignedCookie(deviceCookieName(cookie.name, token), ctx.context.secret)) === token;
+        const { sessionToken, nextToken } = ctx.body;
+        if (!(await holds(sessionToken))) throw new APIError("UNAUTHORIZED");
+        await ctx.context.internalAdapter.deleteSession(sessionToken);
+        expireCookie(ctx, { name: deviceCookieName(cookie.name, sessionToken), attributes: cookie.attributes });
+        if (current?.session.token !== sessionToken) return ctx.json({ signedIn: Boolean(current) });
+        const next =
+          nextToken && (await holds(nextToken)) ? await ctx.context.internalAdapter.findSession(nextToken) : null;
+        if (next && new Date(next.session.expiresAt).getTime() > Date.now()) {
+          await setSessionCookie(ctx, next);
+          return ctx.json({ signedIn: true });
+        }
+        deleteSessionCookie(ctx);
+        return ctx.json({ signedIn: false });
+      },
+    ),
+  },
+} satisfies BetterAuthPlugin;
+
+/** A person signed in on this browser, and whether the request is theirs. */
+export interface DeviceAccount {
+  user: SessionUser;
+  current: boolean;
+  /** Stays in this process: accounts are named by person outside it. */
+  token: string;
+}
+
+/**
+ * The accounts signed in on the browser that sent `headers` (ADR 0183), the request's own first, the others by
+ * address. `cookies`: every one's cookie again (`keepDeviceSessions`), to send back with the answer.
+ */
+export async function deviceAccountsOf(
+  auth: Auth,
+  headers: Headers,
+): Promise<{ accounts: DeviceAccount[]; cookies: string[] }> {
+  const [current, kept, renewed] = await Promise.all([
+    sessionOf(auth, headers),
+    auth.api.listDeviceSessions({ headers }),
+    auth.api.keepDeviceSessions({ headers, returnHeaders: true }),
+  ]);
+  const cookies = renewed.headers.getSetCookie();
+  const others = kept
+    .filter((k) => k.user.id !== current?.user.id)
+    .map((k) => ({ user: k.user as SessionUser, current: false, token: k.session.token }))
+    .sort((a, b) => a.user.email.localeCompare(b.user.email));
+  if (!current) return { accounts: others, cookies };
+  return {
+    accounts: [{ user: current.user as SessionUser, current: true, token: current.session.token }, ...others],
+    cookies,
+  };
+}
+
+/**
+ * Makes `userId`'s session the browser's (ADR 0183): the cookies to send back, or null when that person isn't signed
+ * in on it (their session ended meanwhile). The account it leaves keeps its own cookie, so it stays one switch away.
+ */
+export async function switchDeviceAccount(auth: Auth, headers: Headers, userId: string): Promise<string[] | null> {
+  const { accounts, cookies } = await deviceAccountsOf(auth, headers);
+  const target = accounts.find((a) => a.user.id === userId);
+  if (!target) return null;
+  if (target.current) return cookies;
+  const moved = await auth.api
+    .setActiveSession({ headers, body: { sessionToken: target.token }, returnHeaders: true })
+    .catch(() => null);
+  return moved ? [...cookies, ...moved.headers.getSetCookie()] : null;
+}
+
+/**
+ * Signs one account out of the browser (ADR 0183), the request's own by default: its session ends and the others stay.
+ * When it was the request's own, the browser moves to the next one still signed in (`signedIn`), else to none.
+ */
+export async function signOutDeviceAccount(
+  auth: Auth,
+  headers: Headers,
+  userId?: string,
+): Promise<{ cookies: string[]; signedIn: boolean } | null> {
+  const { accounts, cookies } = await deviceAccountsOf(auth, headers);
+  const target = userId ? accounts.find((a) => a.user.id === userId) : accounts.find((a) => a.current);
+  if (!target) return null;
+  const next = target.current ? accounts.find((a) => !a.current) : undefined;
+  const left = await auth.api.leaveDeviceSession({
+    headers,
+    body: { sessionToken: target.token, ...(next ? { nextToken: next.token } : {}) },
+    returnHeaders: true,
+  });
+  // The leaving account's cookie was renewed a moment before: its removal comes after, so it wins.
+  return { cookies: [...cookies, ...left.headers.getSetCookie()], signedIn: left.response.signedIn };
+}
+
+const sessionReads = new WeakMap<Headers, ReturnType<Auth["api"]["getSession"]>>();
+
+/**
+ * The session of the request whose `headers` these are, read from the database once for the whole request: its
+ * middleware and route share the read. Only a request's own `headers`, never a set kept across requests.
+ */
+export function sessionOf(auth: Auth, headers: Headers) {
+  let read = sessionReads.get(headers);
+  if (!read) {
+    read = auth.api.getSession({ headers });
+    sessionReads.set(headers, read);
+  }
+  return read;
+}
+
 /** Resolves the signed-in person from request headers (cookie), or null. Used by HTTP and WebSocket. */
 export async function sessionUser(auth: Auth, headers: Headers): Promise<SessionUser | null> {
-  const session = await auth.api.getSession({ headers });
+  const session = await sessionOf(auth, headers);
   return session ? (session.user as SessionUser) : null;
 }
 
 /**
- * Whether this request's session, as `userId`, signed in within `FRESH_SIGN_IN_MS`, as adding a password requires.
- * Read from the database: a cached cookie can't vouch for it. A session minted from another keeps that one's sign-in
- * time.
+ * Whether this request's session, as `userId`, signed in within `FRESH_SIGN_IN_MS`, as adding a password requires. A
+ * session minted from another keeps that one's sign-in time.
  */
 export async function signedInLately(auth: Auth, headers: Headers, userId: string) {
-  const current = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+  const current = await sessionOf(auth, headers);
   if (current?.user.id !== userId) return false;
   return Date.now() - new Date(current.session.createdAt).getTime() < FRESH_SIGN_IN_MS;
+}
+
+/** Links to a new address an account may ask for, after its proof, in an hour and in a day. */
+const EMAIL_LINKS = [
+  ["hour", CODE_LIMITS.hour, 3_600_000],
+  ["day", CODE_LIMITS.day, 86_400_000],
+] as const;
+
+/**
+ * A new address for the signed-in account `userId` (Sua conta › E-mail; ADR 0088 §2, addendum 2026-11-13): the only way
+ * to one, since `/change-email` is off over HTTP. Refused for the address it has (`email.same`) and one another account
+ * just left (`email.held`). On a server that sends email, it takes the code emailed to the account's current address
+ * (`code`, bound to `newEmail`) or a sign-in in the last 10 minutes: without either it emails that code and answers
+ * `code`, or `reauth.sign_in` for an address the account never confirmed. Then Better Auth's link goes to the new
+ * address, which changes once it is opened (`sent`), and the old one is told then (`finishEmailChange`) when the
+ * account had confirmed it or typed its code. On a server that sends none, Better Auth changes it at once, as before
+ * (`changed`): an unconfirmed address only (`email.no_mail` for a confirmed one), and `email.taken` when another account
+ * has it.
+ */
+export async function changeAccountEmail(
+  auth: Auth,
+  deps: {
+    db: Database;
+    rateLimiter: RateLimiter;
+    emailDelivers: boolean;
+    emails: { publicUrl: string; support?: string | null };
+  },
+  headers: Headers,
+  userId: string,
+  input: { newEmail: string; code?: string },
+): Promise<{ status: "changed" | "sent"; email: string } | { status: "code"; email: string; resendIn: number }> {
+  const { db } = deps;
+  const newEmail = input.newEmail.trim().toLowerCase();
+  const current = async () =>
+    (
+      await db
+        .select({ email: schema.users.email, verified: schema.users.emailVerified })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+    )[0];
+  const account = await current();
+  if (!account) throw new UnauthorizedError();
+  const from = account.email;
+  if (from === newEmail) throw new ValidationError("That's already your email", "email.same");
+  if (await addressHeld(db, newEmail, { except: userId })) {
+    throw new ConflictError("This address left another account a moment ago", "email.held");
+  }
+  const noMail = () => new ConflictError("This server sends no email to confirm the new address", "email.no_mail");
+  const change = () =>
+    auth.api.changeEmail({ body: { newEmail, callbackURL: "/" }, headers }).catch((error: unknown) => {
+      if (!isAPIError(error)) throw error;
+      if (error.statusCode === 401) throw new UnauthorizedError();
+      if (/verification email isn't enabled|change email is disabled/i.test(error.message)) throw noMail();
+      if (/email is the same/i.test(error.message))
+        throw new ValidationError("That's already your email", "email.same");
+      throw error;
+    });
+  if (!deps.emailDelivers) {
+    // Better Auth changes only an unconfirmed address at once: a confirmed one waits for a link that can't go.
+    if (account.verified) throw noMail();
+    await change();
+    // Better Auth answers the same when the address is another account's: only the account says whether it changed.
+    if ((await current())?.email !== newEmail)
+      throw new ConflictError("Another account has this address", "email.taken");
+    return { status: "changed", email: newEmail };
+  }
+  if (input.code) await spendProofCode({ db }, userId, "email", input.code, newEmail);
+  else if (!(await signedInLately(auth, headers, userId))) {
+    // Nobody proved that mailbox is the account's: a code there would tell whoever holds it the new address.
+    if (!account.verified) throw new ForbiddenError("Sign in again to change your email", "reauth.sign_in");
+    const sent = await sendProofCode(deps, userId, "email", {
+      bound: newEmail,
+      template: (code, account) => ({
+        kind: "email_change_code",
+        locale: account.locale,
+        code,
+        email: account.email,
+        newEmail,
+        support: deps.emails.support ?? null,
+        url: deps.emails.publicUrl.replace(/\/$/, ""),
+      }),
+    });
+    return { status: "code", ...sent };
+  }
+  for (const [span, limit, windowMs] of EMAIL_LINKS) {
+    if (!(await deps.rateLimiter.consume(`email-link:${span}:${userId}`, { limit, windowMs })).allowed) {
+      throw new TooManyError("Too many new addresses. Try again later.");
+    }
+  }
+  // A code typed just now proves the old mailbox (`spendProofCode` throws otherwise), a fresh sign-in doesn't: an
+  // address never confirmed gets no "This wasn't me", which would hand whoever holds it the account.
+  await askEmailChange(db, { userId, from, to: newEmail, proven: account.verified || Boolean(input.code) });
+  await change();
+  return { status: "sent", email: newEmail };
 }
 
 /** Passwords an account may try in 15 minutes to prove it's them. */
@@ -582,6 +967,12 @@ const HUMAN_ACTIONS: Record<string, HumanAction> = {
 /** Reset and confirmation emails to one address in an hour. */
 const EMAILS_PER_ADDRESS = { limit: 3, windowMs: 3600_000 };
 
+/**
+ * `APIError` code of a sign-up with an address an account just left, held for it while its "This wasn't me" works
+ * (mirrored in packages/client errors.ts).
+ */
+export const EMAIL_HELD = "EMAIL_HELD";
+const EMAIL_HELD_MESSAGE = "This address just left an account here, and stays its own for 7 days.";
 /** A sign-up whose name is its password: the name step got the password (mirrored in packages/client errors.ts). */
 export const NAME_IS_PASSWORD = "NAME_IS_PASSWORD";
 export const NAME_IS_PASSWORD_MESSAGE = "Is this your name? It's the same as the password you typed.";
@@ -606,6 +997,8 @@ export const ACCOUNT_NOT_LINKED = "account_not_linked";
  * address, so it joins no account (`authHandler`, mirrored in packages/client errors.ts).
  */
 export const PROVIDER_EMAIL_UNVERIFIED = "provider_email_unverified";
+/** A sign-in "This wasn't me" overtook (`undoneMeanwhile`): what it made is gone, and a new one starts over. */
+const SIGN_IN_UNDONE = { code: "UNAUTHORIZED", message: "Sign in again." };
 
 /** Every sign-up but the password form's is through a provider (the redirect's callback, or the phone's id token). */
 const isSocial = (context: { path?: string } | null | undefined) => context?.path !== "/sign-up/email";
@@ -622,15 +1015,17 @@ async function accessOf(context: { headers?: Headers | null } | null | undefined
   return typeof value === "string" && EARLY_ACCESS_TOKEN.test(value) ? value : null;
 }
 
+/** Where a confirmation link lands: the web app says how it went there (apps/web/src/lib/email-confirmation.ts). */
+const CONFIRMATION_LANDING = "/?email_confirmed=1";
+
 /**
- * The confirmation link, landing on `/?email_confirmed=1`, where the web app says how it went
- * (apps/web/src/lib/email-confirmation.ts), whenever the request named no other page: the phone app's sign-up
- * and a new link asked for later name none.
+ * The confirmation link, landing on `CONFIRMATION_LANDING` whenever the request named no other page: the phone app's
+ * sign-up, a new link asked for later and every new address name none.
  */
 function confirmationLanding(verifyUrl: string): string {
   const url = new URL(verifyUrl);
   const back = url.searchParams.get("callbackURL");
-  if (!back || back === "/") url.searchParams.set("callbackURL", "/?email_confirmed=1");
+  if (!back || back === "/") url.searchParams.set("callbackURL", CONFIRMATION_LANDING);
   return url.toString();
 }
 

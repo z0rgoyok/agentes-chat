@@ -13,8 +13,8 @@ import {
   enqueueIdleReflections,
   enqueueOverdueAccountDeletions,
   enqueueOverdueDeletions,
+  enqueueRightHandChecks,
   enqueueSkillUpdates,
-  enqueueTeamWeeks,
   enqueueVaultSyncs,
   enqueueWaitlistContacts,
   expireAgentProposalAsks,
@@ -39,6 +39,7 @@ import {
   pollMailWatches,
   postAutonomyDigests,
   pruneDeletionCodes,
+  pruneEmailChanges,
   pruneJoinRequests,
   pruneMessageClientIds,
   pruneOperatorEvents,
@@ -192,8 +193,11 @@ export const WORKER_INTERVALS_MS = {
   skillUpdates: 3600_000,
   /** Vault connections last read over 10 minutes ago, queued once per 10-minute window (ADR 0144). */
   vaultSyncs: 5 * 60_000,
-  /** Lodi's weekly card of admins whose slot just passed (ADR 0137 §9; one per person and week: its dedupe key). */
-  teamWeek: 10 * 60_000,
+  /**
+   * What the right hand does by itself: the day's and the week's cards of whoever's slot just passed (ADR 0137 §9; one
+   * per person and day or week: its dedupe key), then each of its lanes' sweeps.
+   */
+  rightHand: 10 * 60_000,
   /** The coding plans' public lists of models, each replica for itself: also at boot. */
   planModels: 3600_000,
   /** Plans stuck at their limit, read again on their computers (each at most every 5 or 10 minutes). */
@@ -311,6 +315,7 @@ export function startWorkers(deps: WorkerDeps) {
 
   every("deletions", WORKER_INTERVALS_MS.deletions, async () => {
     await pruneDeletionCodes(db);
+    await pruneEmailChanges(db);
     const accounts = await enqueueOverdueAccountDeletions(db);
     const due = await enqueueOverdueDeletions(db);
     if (due + accounts > 0) {
@@ -412,8 +417,8 @@ export function startWorkers(deps: WorkerDeps) {
     if (woke > 0) log.info("snoozed notifications back", { woke });
   });
 
-  every("teamWeek", WORKER_INTERVALS_MS.teamWeek, async () => {
-    if ((await enqueueTeamWeeks(db)) > 0) void ticks.get("outbox")?.();
+  every("rightHand", WORKER_INTERVALS_MS.rightHand, async () => {
+    if ((await enqueueRightHandChecks(db)) > 0) void ticks.get("outbox")?.();
   });
 
   every("routines", WORKER_INTERVALS_MS.routines, async () => {

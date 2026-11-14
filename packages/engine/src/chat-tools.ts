@@ -63,7 +63,7 @@ const origin = (ctx: ToolContext) => ({
 /** Posting where the run already is: a reply. */
 const SAME_CONVERSATION = "That is this conversation: just reply.";
 
-/** `post_message`'s GIF, listed only when the agent may send one (`AgentGifPoster.offered`). */
+/** `post_message`'s and `send_dm`'s GIF, listed only when the agent may send one (`AgentGifPoster.offered`). */
 const GIF_PROPERTY = {
   type: "string",
   maxLength: 100,
@@ -73,7 +73,7 @@ const GIF_HELP =
   ' When someone (or the routine you run) asks for a GIF there, add one with `gif`: what it shows as a short search in English (e.g. "good night moon"), whatever language the conversation is in. It goes in the same message, with the text or alone. Never post a link to a GIF site instead.';
 
 /**
- * The GIF `post_message` posts for `search` in `channelId`, or what to tell the model when none goes: for a person's
+ * The GIF `post_message` or `send_dm` posts for `search` in `channelId`, or what to tell the model when none goes: for a person's
  * request or a routine whose creator is still there (`routine`: its creator asked for its posts, ADR 0091 addendum
  * 2026-11-09), never for a run nobody asked for, with GIFs on for the agent, found the way `send_gif` finds one.
  * Looked up before anything is posted or copied, so a failed search leaves nothing behind.
@@ -84,7 +84,7 @@ async function gifToPost(
   input: { search: unknown; requester: string | null; routine: boolean; channelId: string },
 ): Promise<{ gif: GifMedia } | { error: string }> {
   if (!input.requester && !input.routine) {
-    return { error: "Only a person's request or a routine posts a GIF: post the text alone." };
+    return { error: "Only a person's request or a routine sends a GIF: send the text alone." };
   }
   const found = poster
     ? await poster.find(ctx, input.search, `${ctx.runId}:${input.channelId}`, {
@@ -95,13 +95,13 @@ async function gifToPost(
   if ("gif" in found) return found;
   switch (found.none) {
     case "off":
-      return { error: "GIFs are off here: post the text alone, without `gif`." };
+      return { error: "GIFs are off here: send the text alone, without `gif`." };
     case "empty":
       return { error: 'Say what the GIF shows in a few English words, e.g. "good night".' };
     case "down":
-      return { error: "GIF search isn't answering right now: try again, or post without `gif`." };
+      return { error: "GIF search isn't answering right now: try again, or send it without `gif`." };
     case "not_found":
-      return { error: `No GIF found for "${found.query}". Try other words in English, or post without \`gif\`.` };
+      return { error: `No GIF found for "${found.query}". Try other words in English, or send it without \`gif\`.` };
   }
 }
 
@@ -168,7 +168,7 @@ const SEND_DM_PERSONAL = {
 export function createChatToolSource(deps: {
   pubsub?: PubSub;
   artifacts: ArtifactDeps;
-  /** `post_message`'s GIF (`createAgentGifPoster`); absent: it has no `gif`. */
+  /** `post_message`'s and `send_dm`'s GIF (`createAgentGifPoster`); absent: they have no `gif`. */
   gif?: AgentGifPoster;
 }): ToolSource {
   const tools: ToolDefinition[] = [
@@ -386,7 +386,10 @@ export function createChatToolSource(deps: {
           if (!requester && !creator) return { content: "Only a person's request can send a DM.", isError: true };
           const text = str(input.text).trim();
           const ids = [...new Set((Array.isArray(input.artifact_ids) ? input.artifact_ids : []).map(String))];
-          if (!text && ids.length === 0) return { content: "Give a text or files to send.", isError: true };
+          const gifAsked = str(input.gif).trim() !== "";
+          if (!text && ids.length === 0 && !gifAsked) {
+            return { content: "Give a text, files or a GIF to send.", isError: true };
+          }
           const matches = await findMember(ctx, str(input.person));
           if (matches.length === 0) {
             return { content: `No one called "${str(input.person)}" in this organization.`, isError: true };
@@ -415,6 +418,18 @@ export function createChatToolSource(deps: {
           }
           const dm = await openPersonAgentDm(ctx.db, ctx.orgId, to.userId, ctx.agentId);
           if (dm.id === ctx.channelId) return { content: SAME_CONVERSATION, isError: true };
+          // Found before any file is copied or anything is sent, as post_message finds its GIF.
+          let gif: GifMedia | null = null;
+          if (gifAsked) {
+            const found = await gifToPost(deps.gif, ctx, {
+              search: input.gif,
+              requester,
+              routine: routine !== null,
+              channelId: dm.id,
+            });
+            if ("error" in found) return { content: found.error, isError: true };
+            gif = found.gif;
+          }
           // Files are brought as post_message brings them: the same file when the DM can see it, a copy from
           // another DM or a private channel the person who asked is in. A routine has no requester, so it sends
           // only files from its own room, never ones from its creator's conversations.
@@ -453,6 +468,8 @@ export function createChatToolSource(deps: {
             // Started by the agent on someone's behalf: the person is notified (an agent's reply isn't).
             meta: {
               ...(files.length > 0 ? { artifacts: files } : {}),
+              // Kept as `send_gif` keeps it: no URL, and its title never reaches the model (ADR 0091 §6).
+              ...(gif ? { media: gif } : {}),
               agentDm: origin(ctx),
               ...(unreached.length > 0 ? { unreachedAgents: unreached } : {}),
               ...(missed.length > 0 ? { unreachedPeople: missed } : {}),
@@ -476,6 +493,7 @@ export function createChatToolSource(deps: {
               fromChannelId: ctx.channelId,
               requesterUserId: requester,
               artifactIds: files.map((f) => f.id),
+              ...(gif ? { gifId: gif.id } : {}),
               ...(routine ? { routineId: routine.routineId, creatorUserId: creator } : {}),
             },
           });
@@ -485,7 +503,7 @@ export function createChatToolSource(deps: {
           }
           const note = unreachedNote(unreached, `your DM with ${to.name}`, false, missed, routine !== null);
           return {
-            content: `Sent to ${to.name} in your DM with them${files.length > 0 ? ` with ${files.length} file(s)` : ""}: ${messageLink(ctx.orgId, message)}. Tell the person who asked.${note ? ` ${note}` : ""}`,
+            content: `Sent to ${to.name} in your DM with them${gif ? " with a GIF" : ""}${files.length > 0 ? ` with ${files.length} file(s)` : ""}: ${messageLink(ctx.orgId, message)}. Tell the person who asked.${note ? ` ${note}` : ""}`,
             data: { message: { id: message.id, channelId: dm.id } },
           };
         } catch (error) {
@@ -494,22 +512,26 @@ export function createChatToolSource(deps: {
       },
     },
   ];
-  const [postMessage, ...others] = tools as [ToolDefinition, ...ToolDefinition[]];
-  // The same tool with `gif` where the agent may send one (for a person or a routine); the call checks again.
-  const postWithGif: ToolDefinition = {
-    ...postMessage,
-    description: `${postMessage.description}${GIF_HELP}`,
-    inputSchema: {
-      ...postMessage.inputSchema,
-      properties: { ...(postMessage.inputSchema.properties as Record<string, unknown>), gif: GIF_PROPERTY },
-    },
-  };
+  // The same tools with `gif` where the agent may send one (for a person or a routine); the call checks again.
+  const withGif = (tool: ToolDefinition): ToolDefinition =>
+    tool.name === POST_MESSAGE_TOOL || tool.name === SEND_DM_TOOL
+      ? {
+          ...tool,
+          description: `${tool.description}${GIF_HELP}`,
+          inputSchema: {
+            ...tool.inputSchema,
+            properties: { ...(tool.inputSchema.properties as Record<string, unknown>), gif: GIF_PROPERTY },
+          },
+        }
+      : tool;
+  const toolsWithGif = tools.map(withGif);
+  const personalWithGif = { [SEND_DM_TOOL]: `${SEND_DM_PERSONAL[SEND_DM_TOOL]}${GIF_HELP}` };
   return {
     name: "chat",
     tools: async (ctx) => {
       const gif = ctx.runId && deps.gif ? await deps.gif.offered(ctx) : false;
       // A personal workspace (ADR 0159): the people here are the person and maybe their family.
-      return inWorkspaceWords(ctx.db, ctx.orgId, [gif ? postWithGif : postMessage, ...others], SEND_DM_PERSONAL);
+      return inWorkspaceWords(ctx.db, ctx.orgId, gif ? toolsWithGif : tools, gif ? personalWithGif : SEND_DM_PERSONAL);
     },
   };
 }

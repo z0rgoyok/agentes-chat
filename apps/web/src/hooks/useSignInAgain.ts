@@ -14,6 +14,7 @@ export function useSignInAgain(email: string) {
     const back = `${window.location.pathname}${window.location.search}`;
     await auth.signOut();
     qc.clear();
-    await navigate({ to: "/login", search: { redirect: back, email } });
+    // `add`: the sign-in shows even when another of the browser's accounts is the one in now (ADR 0183).
+    await navigate({ to: "/login", search: { redirect: back, email, add: true } });
   };
 }

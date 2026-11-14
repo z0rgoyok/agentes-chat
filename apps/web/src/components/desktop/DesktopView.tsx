@@ -15,6 +15,7 @@ import {
 } from "@agenteschat/client";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { quoteExcerpt } from "@agenteschat/client/lib/reply";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { Button, cx, Icon, InfoHint } from "@agenteschat/ui";
 import type RFB from "@novnc/novnc";
 import { type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -132,6 +133,8 @@ export function DesktopView({
   const attempts = useRef(0);
   // Nothing says when a screen is handed back: asked often while it may change any moment.
   const [poll, setPoll] = useState(5_000);
+  // The right hand's shared place when the view is inside one of it (the dialog opened for it).
+  const seat = useSeat(agentId);
   const status = useDesktopStatus(org.id, agentId, { poll: preview ? 30_000 : poll });
   // Access lost: React Query keeps the last good status, which would still say who may watch.
   const lost = status.error instanceof ApiError && status.error.status === 403;
@@ -248,8 +251,8 @@ export function DesktopView({
           desktopSocketUrl(
             window.location,
             preview
-              ? { orgId: org.id, agentId, mode: "watch", preview: true }
-              : { orgId: org.id, agentId, mode: opening, switches: true },
+              ? { orgId: org.id, agentId, mode: "watch", preview: true, seat }
+              : { orgId: org.id, agentId, mode: opening, switches: true, seat },
           ),
         ) as unknown as WebSocket;
         const opened = new DesktopLink(socket);
@@ -368,7 +371,7 @@ export function DesktopView({
       window.removeEventListener("pagehide", leave);
       end();
     };
-  }, [connect, round, org.id, agentId, createSocket, refetch, copiedThere, preview]);
+  }, [connect, round, org.id, agentId, seat, createSocket, refetch, copiedThere, preview]);
   // The page's last picture, when the dialog switches from it to the screen, waits here dimmed for the screen's
   // first one; going, the screen leaves its own for the page. Layout effects: the one leaving writes it before the one
   // coming reads it, and nothing paints in between.

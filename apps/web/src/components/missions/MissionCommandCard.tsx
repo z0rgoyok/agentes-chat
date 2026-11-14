@@ -4,12 +4,13 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { formatTime } from "@agenteschat/client/lib/format";
 import { executorName } from "@agenteschat/client/lib/missions";
 import { Button, Checkbox, Chip, DetailsDialog, DetailsSection, Icon, Skeleton, Tip } from "@agenteschat/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { AgentSpinner } from "@/components/AgentAvatar";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useReveal } from "@/hooks/useReveal";
 import { useToast } from "@/lib/toast";
 import "./missions.css";
 
@@ -300,6 +301,8 @@ function BlockedRow({
 }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
+  const code = useRef<HTMLElement>(null);
+  const reveal = useReveal(code, all);
   const long = text.length > 140 || text.includes("\n");
   return (
     <li className="mi-cmd-item">
@@ -310,12 +313,19 @@ function BlockedRow({
         aria-label={t("missions.command.pick", { command: text.slice(0, 80) })}
       />
       <span className="mi-cmd-item__t">
-        <code className="mi-cmd-item__code" data-all={all || undefined}>
+        <code ref={code} className="mi-cmd-item__code" data-all={all || undefined}>
           {text}
         </code>
-        {long && (
-          <button type="button" className="mi-link" aria-expanded={all} onClick={() => setAll((v) => !v)}>
-            {all ? t("missions.sessions.less") : t("missions.command.showAll")}
+        {long && !all && (
+          <button
+            type="button"
+            className="mi-link"
+            onClick={() => {
+              reveal();
+              setAll(true);
+            }}
+          >
+            {t("channel.long.more")}
           </button>
         )}
       </span>

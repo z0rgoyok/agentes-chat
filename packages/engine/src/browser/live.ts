@@ -16,6 +16,7 @@ import { getAgentCached } from "../agents";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { type MachineHub, MachineRequestError } from "../machine-hub";
 import { getMachineById, machineOnline } from "../machines";
+import { isRightHand } from "../right-hand";
 import type { ClaimedStream, StreamSocket } from "../streams";
 import {
   agentBrowserLink,
@@ -934,10 +935,13 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
           machineId = row.machineId;
         }
       } else {
-        [agent] = await deps.db
-          .select({ handle: agents.handle })
+        const [row] = await deps.db
+          .select({ handle: agents.handle, builtin: agents.builtin })
           .from(agents)
           .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
+        // One view per agent goes to everyone watching it, and the right hand's browser is a different one for each
+        // person (ADR 0175): it has no live view. Its desktop shows each person their own.
+        agent = isRightHand(row) ? undefined : row;
         // The computer the browser runs on now (an open handoff's, a mission's, else the agent's).
         machineId = agent ? await browserMachineOf(deps.db, orgId, agentId) : null;
       }

@@ -6,8 +6,14 @@ import {
   cancelSuggestion,
   checkJoinCode,
   claimJoinRequest,
+  createInviteLink,
   denyJoinRequest,
+  editInviteLink,
+  INVITE_CHOICES_MAX,
+  INVITE_LINK_MAX_USES,
+  INVITE_LINK_TTL_KEYS,
   inviteLink,
+  inviteLinkToken,
   JOIN_NAME_MAX,
   JOIN_NOTE_MAX,
   JOIN_REASON_MAX,
@@ -15,6 +21,7 @@ import {
   listInviteLinks,
   listMySuggestions,
   listWaitingJoinRequests,
+  neverExpires,
   randomToken,
   renewInviteLink,
   requestLocale,
@@ -58,13 +65,65 @@ const Code = z.string().regex(new RegExp(`^\\d{${CODE_LENGTH}}$`));
 const Token = z.object({ token: z.string().min(1).max(200) });
 const LinkParams = OrgParams.extend({ linkId: z.uuid() });
 const RequestParams = OrgParams.extend({ requestId: z.uuid() });
+const Ids = z.array(z.string().uuid()).max(INVITE_CHOICES_MAX);
+/** What a link gives and how long it works (ADR 0184), each part optional. */
+const LinkChoices = z.object({
+  roleIds: z.array(z.string().uuid()).max(50).optional().openapi({
+    description: "Cargos an approval starts on, below your own (ADR 0085). None: a member, with what Todos has.",
+  }),
+  channelIds: Ids.optional().openapi({
+    description:
+      "Channels an approval adds besides #general: public ones, ones you are in, private ones limited to one of " +
+      "`roleIds`. Refused: `invitation.channel` (400), naming it with `why`.",
+  }),
+  agentIds: Ids.optional().openapi({
+    description:
+      "Agents an approval starts the person with, as an invitation's (`invitation.agent`, 400, naming the one refused).",
+  }),
+  maxUses: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .openapi({
+      description: `People it takes (${INVITE_LINK_MAX_USES.join(", ")}), counted at approval; null: no limit. Asking through a full link answers \`join.link_full\`, approving \`join.link_full_approval\`.`,
+    }),
+  expiresIn: z
+    .enum(INVITE_LINK_TTL_KEYS as [string, ...string[]])
+    .optional()
+    .openapi({ description: "How long it works, from now: `never` for a link that doesn't expire." }),
+});
+/** A link as made or changed: its address and what it gives. */
+const LinkMade = z.object({
+  id: z.uuid(),
+  url: z.string(),
+  expiresAt: z.string(),
+  neverExpires: z.literal(true).optional(),
+  roleIds: z.array(z.string()),
+  channelIds: z.array(z.string()),
+  agentIds: z.array(z.string()),
+  maxUses: z.number().int().nullable(),
+});
+const LinkChanged = LinkMade.extend({
+  url: z.string().nullable().openapi({ description: "Null for a link made before links could be shown again." }),
+});
+const choicesOf = (b: z.infer<typeof LinkChoices> | undefined) =>
+  Object.fromEntries(Object.entries(b ?? {}).filter(([, v]) => v !== undefined)) as z.infer<typeof LinkChoices>;
 const InviteLink = z.object({
   id: z.uuid(),
   url: z.string().nullable().openapi({ description: "Null for a link made before links could be shown again." }),
   expiresAt: z.string(),
+  neverExpires: z.literal(true).optional().openapi({ description: "It doesn't expire (`expiresAt` is far away)." }),
   createdAt: z.string(),
   createdBy: z.string().nullable().openapi({ description: "Who made it (their name)." }),
+  createdByUserId: z.string().nullable(),
   waiting: z.number().int().openapi({ description: "Requests made through it, still waiting." }),
+  plain: z.boolean().openapi({ description: "The workspace's own link, made with no choices (ADR 0184)." }),
+  roleIds: z.array(z.string()),
+  channelIds: z.array(z.string()),
+  agentIds: z.array(z.string()),
+  maxUses: z.number().int().nullable().openapi({ description: "People it takes; null: no limit." }),
+  uses: z.number().int().openapi({ description: "People approved through it so far." }),
 });
 const JoinRequest = z.object({
   id: z.uuid(),
@@ -83,6 +142,22 @@ const JoinRequest = z.object({
   suggestedBy: z.string().nullable().openapi({
     description: "The member who suggested this person (their name, ADR 0090): no link, no proof.",
   }),
+  link: z
+    .object({
+      id: z.uuid(),
+      createdBy: z.string().nullable(),
+      roleIds: z.array(z.string()),
+      channelIds: z.array(z.string()),
+      agentIds: z.array(z.string()),
+      full: z
+        .boolean()
+        .openapi({ description: "It took all its people: approving is refused until its maximum grows." }),
+    })
+    .nullable()
+    .openapi({
+      description:
+        "The link it came through (ADR 0184): who made it, and the cargos, channels and agents an approval starts on.",
+    }),
   createdAt: z.string(),
   expiresAt: z.string(),
 });
@@ -107,6 +182,27 @@ export function inviteRoutes(deps: AppDeps) {
   app.use("/organizations/*", requireSession(deps.auth));
   const events = { db, pubsub: adapters.pubsub };
   const linkUrl = (token: string) => `${config.PUBLIC_URL.replace(/\/$/, "")}/invite/${token}`;
+  /** A link's token when it can be shown again (ADR 0068 §9), else null. */
+  const linkToken = (link: { id: string; tokenHash: string }) => {
+    const token = inviteLinkToken(config.AGENTES_SECRET, link.id);
+    return sha256(token) === link.tokenHash ? token : null;
+  };
+  const linkOut = (link: {
+    id: string;
+    expiresAt: Date;
+    roleIds: string[];
+    channelIds: string[];
+    agentIds: string[];
+    maxUses: number | null;
+  }) => ({
+    id: link.id,
+    expiresAt: link.expiresAt.toISOString(),
+    ...(neverExpires(link.expiresAt) ? { neverExpires: true as const } : {}),
+    roleIds: link.roleIds,
+    channelIds: link.channelIds,
+    agentIds: link.agentIds,
+    maxUses: link.maxUses,
+  });
 
   app.openapi(
     createRoute({
@@ -123,10 +219,11 @@ export function inviteRoutes(deps: AppDeps) {
       const links = await listInviteLinks(db, config.AGENTES_SECRET, c.get("user").id, orgId);
       return c.json(
         {
-          links: links.map(({ token, ...l }) => ({
+          links: links.map(({ token, neverExpires, ...l }) => ({
             ...l,
             url: token ? linkUrl(token) : null,
             expiresAt: l.expiresAt.toISOString(),
+            ...(neverExpires ? { neverExpires: true as const } : {}),
             createdAt: l.createdAt.toISOString(),
           })),
         },
@@ -141,21 +238,57 @@ export function inviteRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/invite-links",
       tags,
       security,
-      summary: "The workspace's invitation link: the active one, or a new one (admins)",
+      summary: "The workspace's invitation link, or a link with choices (admins)",
       description:
-        "Whoever opens it can only ask to join; an admin approves each person. It works for 30 days. Only a hash " +
-        "of its token is stored, and the same link comes back every time.",
-      request: { params: OrgParams },
+        "Whoever opens a link can only ask to join; an admin approves each person (ADR 0068). With no choices: the " +
+        "workspace's own link, the active one or a new one for 30 days. With choices (ADR 0184): a new link that " +
+        "starts an approval on them, working for `expiresIn` and taking `maxUses` people; at the defaults (no " +
+        "cargo, channel or agent, no limit, 30 days) the workspace's own link, which then works 30 days from now. " +
+        "Only a hash of a token is stored.",
+      request: { params: OrgParams, body: { ...body(LinkChoices), required: false } },
       responses: {
-        200: json(z.object({ id: z.uuid(), url: z.string(), expiresAt: z.string() }), "The active link"),
-        201: json(z.object({ id: z.uuid(), url: z.string(), expiresAt: z.string() }), "Made"),
+        200: json(LinkMade, "The workspace's link"),
+        201: json(LinkMade, "Made"),
         ...errors,
       },
     }),
     async (c) => {
       const { orgId } = c.req.valid("param");
-      const { link, token, made } = await inviteLink(db, config.AGENTES_SECRET, c.get("user").id, orgId);
-      return c.json({ id: link.id, url: linkUrl(token), expiresAt: link.expiresAt.toISOString() }, made ? 201 : 200);
+      const choices = choicesOf(c.req.valid("json"));
+      const userId = c.get("user").id;
+      const { link, token, made } =
+        Object.keys(choices).length > 0
+          ? await createInviteLink(db, config.AGENTES_SECRET, userId, orgId, choices)
+          : await inviteLink(db, config.AGENTES_SECRET, userId, orgId);
+      return c.json({ ...linkOut(link), url: linkUrl(token) }, made ? 201 : 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "patch",
+      path: "/organizations/{orgId}/invite-links/{linkId}",
+      tags,
+      security,
+      summary: "Change what a link gives (admins, ADR 0184): the same address",
+      description:
+        "Each choice sent is checked as when making a link; one left out stays. `expiresIn` counts from now. A " +
+        "workspace's own link changed this way becomes a link of its own. 404 for a link turned off. An expired one " +
+        "can still change, so its maximum can grow for the requests still waiting; it stays expired unless " +
+        "`expiresIn` is sent.",
+      request: {
+        params: LinkParams,
+        body: body(
+          LinkChoices.refine((b) => Object.values(b).some((v) => v !== undefined), { message: "Send a choice" }),
+        ),
+      },
+      responses: { 200: json(LinkChanged), ...errors },
+    }),
+    async (c) => {
+      const { orgId, linkId } = c.req.valid("param");
+      const link = await editInviteLink(db, c.get("user").id, orgId, linkId, choicesOf(c.req.valid("json")));
+      const token = linkToken(link);
+      return c.json({ ...linkOut(link), url: token ? linkUrl(token) : null }, 200);
     },
   );
 
@@ -302,7 +435,8 @@ export function inviteRoutes(deps: AppDeps) {
         "mailbox, or that account asking), and so does a proven ask with a password and no account, whose account " +
         "this makes (ADR 0090). Anyone else gets an email invitation to the address: in the answer to their ask, " +
         "or, for a member's suggestion, as the invitation email itself. `emailed: false` on a server that doesn't " +
-        "send email: hand them `url` yourself.",
+        "send email: hand them `url` yourself. 409 `join.link_full_approval`: the request's link took all its " +
+        "people (ADR 0184). Raise its maximum, or deny the request.",
       request: {
         params: RequestParams,
         body: body(
@@ -312,6 +446,14 @@ export function inviteRoutes(deps: AppDeps) {
               .max(50)
               .optional()
               .openapi({ description: "Roles the person gets, below the approver's own (ADR 0085)." }),
+            channelIds: Ids.optional().openapi({
+              description:
+                "Channels they start in, checked as an invitation's (ADR 0184). Absent: the link's, as far as you may " +
+                "give them now.",
+            }),
+            agentIds: Ids.optional().openapi({
+              description: "Agents they start with, checked as an invitation's. Absent: the link's, as far as you may.",
+            }),
           }),
         ),
       },
@@ -331,13 +473,16 @@ export function inviteRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, requestId } = c.req.valid("param");
+      const { roleIds, channelIds, agentIds } = c.req.valid("json");
       const result = await approveJoinRequest(
         { ...events, secret: config.AGENTES_SECRET },
         config.PUBLIC_URL,
         c.get("user").id,
         orgId,
         requestId,
-        c.req.valid("json").roleIds ?? [],
+        roleIds ?? [],
+        new Date(),
+        { channelIds, agentIds },
       );
       deps.wakeWorkers?.();
       return c.json(

@@ -50,19 +50,34 @@ export interface DatabaseHandle {
   close: () => Promise<void>;
 }
 
+/** A statement, not a comment that names one: a migration is taken out of its transaction on this alone. */
+const CONCURRENT_INDEX = /^\s*(?:create(?:\s+unique)?|drop)\s+index\s+concurrently\b/im;
+
 /**
  * The pending migrations, as Drizzle's `migrate` applies them but in steps. Drizzle runs every pending one in a single
  * transaction, and Postgres refuses a new enum value in the transaction that added it ("unsafe use of new value"), so a
  * database several versions behind stopped at the first migration using a value an earlier pending one adds. Each step
  * ends after a migration that adds one. `upTo`: only the first that many migrations (tests).
+ *
+ * A migration that builds or drops an index CONCURRENTLY is a step of its own, in no transaction: Postgres refuses that
+ * inside one, and it is the only way to build an index of a busy table while the table's writes go on (a plain build
+ * holds them until its transaction commits). Nothing undoes such a migration when a statement of it fails: it is left
+ * unrecorded and runs whole again, so each of its statements has to stand being run twice, and a concurrent build
+ * that failed leaves an invalid index under its name, which only a DROP before the CREATE clears.
  */
 export async function migrateInSteps(db: unknown, folder: string, upTo?: number) {
   // Both of Drizzle's Postgres migrators are `dialect.migrate(readMigrationFiles(config), session, config)`.
   const { dialect, session } = db as { dialect: PgDialect; session: PgSession };
   const all = readMigrationFiles({ migrationsFolder: folder }).slice(0, upTo);
-  const ends = all.flatMap((m, i) => (m.sql.some((s) => /\bADD VALUE\b/i.test(s)) ? [i + 1] : []));
+  // Drizzle's migrate with its transaction taken away: each statement, then the migration's record, commits alone.
+  const outside = Object.create(session, { transaction: { value: (run: (tx: PgSession) => unknown) => run(session) } });
+  const alone = (i: number) => all[i]?.sql.some((s) => CONCURRENT_INDEX.test(s)) ?? false;
+  const ends = all.flatMap((m, i) => {
+    if (alone(i)) return [i, i + 1];
+    return m.sql.some((s) => /\bADD VALUE\b/i.test(s)) ? [i + 1] : [];
+  });
   for (const end of [...ends, all.length]) {
-    await dialect.migrate(all.slice(0, end), session, { migrationsFolder: folder });
+    await dialect.migrate(all.slice(0, end), alone(end - 1) ? outside : session, { migrationsFolder: folder });
   }
 }
 
@@ -84,13 +99,23 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
     db: db as unknown as Database,
     client,
     migrate: async () => {
-      // On a connection of its own: with a pool of one, the migrations need that one.
-      const lock = postgres(options.url, { max: 1, onnotice: () => {} });
+      // On a connection of its own: with a pool of one, the migrations need that one. Never closed for its age, as
+      // postgres.js closes an idle connection after 30 to 60 minutes: the lock is its session's, and a migration that
+      // builds an index concurrently can wait that long behind a dump.
+      const lock = postgres(options.url, { max: 1, max_lifetime: null, onnotice: () => {} });
       try {
-        await lock`select pg_advisory_lock(${MIGRATIONS_LOCK}::bigint)`;
+        // Asked for again and again, never waited for: a session waiting inside `pg_advisory_lock` holds a snapshot
+        // until the lock is its own, and a concurrent index build, in the process that has the lock, ends only when
+        // every snapshot older than its own is gone. Each would wait for the other, and Postgres sees no deadlock in
+        // it, the lock's holder being an idle session. A process of a version that still waits there can stall a
+        // build the same way (SELF_HOSTING.md, Upgrades).
+        while (!(await lock`select pg_try_advisory_lock(${MIGRATIONS_LOCK}::bigint) as ok`)[0]?.ok)
+          await Bun.sleep(500);
         await assertMigrationsMatch(db as unknown as Database, migrationsFolder);
         await migrateInSteps(db, migrationsFolder);
-        await lock`select pg_advisory_unlock(${MIGRATIONS_LOCK}::bigint)`;
+        const [unlocked] = await lock`select pg_advisory_unlock(${MIGRATIONS_LOCK}::bigint) as ok`;
+        // Not held any more: the lock's session ended on the way, and another process may have migrated meanwhile.
+        if (!unlocked?.ok) throw new Error("the migrations lock was lost while migrating");
       } finally {
         // Closing the session releases the lock too, when the migrations failed.
         await lock.end({ timeout: 5 });

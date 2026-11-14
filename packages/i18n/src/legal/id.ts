@@ -8,7 +8,7 @@ export const legalId: Partial<Record<LegalKind, LegalDocument>> = {
       "Perjanjian untuk menggunakan agentes.chat: ruang kerja Anda, agen Anda, dan apa yang menjadi tanggung jawab masing-masing pihak.",
     courtesy:
       "Dokumen ini adalah terjemahan yang disediakan semata-mata untuk kemudahan. Apabila terdapat perbedaan dengan versi bahasa Inggris, versi bahasa Inggris yang berlaku.",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -175,7 +175,7 @@ export const legalId: Partial<Record<LegalKind, LegalDocument>> = {
       "Apa yang kami kumpulkan, apa yang dikirim agen dan ke mana, siapa yang dapat melihat ruang kerja Anda, dan hak-hak yang Anda miliki.",
     courtesy:
       "Dokumen ini adalah terjemahan yang disediakan semata-mata untuk kemudahan. Apabila terdapat perbedaan dengan versi bahasa Inggris, versi bahasa Inggris yang berlaku.",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

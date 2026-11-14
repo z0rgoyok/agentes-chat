@@ -104,4 +104,5 @@ export const strings: Partial<PushStrings> = {
   joinRequestTitlePersonal: (name) => `${name} demande à rejoindre votre espace de travail`,
   joinSuggestionTitlePersonal: (by, name) => `${by} a proposé d’inviter ${name}`,
   teamWeekReadyPersonal: "Votre semaine est prête",
+  teamWatchStill: (n) => (n === 1 ? "1 chose vous attend encore" : `${n} choses vous attendent encore`),
 };

@@ -62,6 +62,29 @@ describe("Agentes: esperando você, trabalhando, livres", () => {
     expect(free.map((l) => l.agent.id)).toEqual(["iris"]);
   });
 
+  test("at work where you don't read: under Trabalhando by its work for you, once, never over what waits on you", () => {
+    const atWork = new Map([
+      ["iris", ago(0.3)],
+      ["nina", ago(2)],
+      ["theo", ago(0.2)],
+    ]);
+    const { waiting, working, free } = teamLines(
+      agents,
+      [work("nina", ago(1))],
+      [],
+      [{ id: "a1", agentId: "theo", title: "Merge PR #128", createdAt: ago(0.1) }],
+      new Map(),
+      atWork,
+    );
+    expect(waiting.map((l) => l.agent.id)).toEqual(["theo"]);
+    // Nina's own item first, as Início lists it; Iris by its work for you alone, with since when.
+    expect(working.map((l) => [l.agent.id, l.work?.what ?? null, l.at])).toEqual([
+      ["nina", "pesquisando os preços", ago(1)],
+      ["iris", null, ago(0.3)],
+    ]);
+    expect(free).toEqual([]);
+  });
+
   test("without requests it is the old split (nothing waiting)", () => {
     const { waiting, working, free } = teamLines(agents, [work("nina", ago(1))], []);
     expect(waiting).toEqual([]);
@@ -97,7 +120,7 @@ describe("Agentes: esperando você, trabalhando, livres", () => {
   });
 });
 
-describe("Perfil: o papel numa frase", () => {
+describe("Perfil: a função numa frase", () => {
   test("skips the prompt's self-introduction and keeps what follows the comma", () => {
     expect(plainRole("Você é o Theo, desenvolvedor do Time Lumen. Cuida do repositório.")).toBe(
       "Desenvolvedor do Time Lumen",
@@ -399,17 +422,11 @@ describe("Perfil: o mês, com os limites do plano (ADR 0063 §5)", () => {
     expect(screen).toContain("label={thinksPlan ?? thinks.text}");
     expect(screen).toContain("{...(thinksUnder ? { sub: thinksUnder, subLines: 2 } : {})}");
     expect(screen).toContain("!isAuto(effortView.effectiveModel)");
-    // Its owner and admins change it in place, in the DM header's sheet; the header shows its maker's logo to all.
-    expect(screen).toContain("sheet.open(<ModelPickerSheet agent={agent} />)");
-    const sheet = await Bun.file(
-      new URL("../../src/features/ai/ModelPickerSheet.tsx", import.meta.url).pathname,
-    ).text();
-    const button = sheet.slice(
-      sheet.indexOf("export function DmModelButton("),
-      sheet.indexOf("export function ModelPickerSheet("),
-    );
-    expect(button).toContain('<ProviderLogo id={thinks.mark} size="sm" />');
-    expect(button).toContain('t("brain.picker.readOnly")');
+    // Its owner and admins change it on its AI page, pushed from this row; the conversation's bar has no button for it.
+    expect(screen).toContain("? { chevron: true, onPress: () => openAgentAi(agent.id) }");
+    expect(screen).not.toContain("ModelPickerSheet");
+    const chat = await Bun.file(new URL("../../src/features/chat/ChatScreen.tsx", import.meta.url).pathname).text();
+    expect(chat).not.toContain("DmModelButton");
     const t = await translator("pt-BR");
     expect(t("agentPage.work.cell.effort", { level: "médio" })).toBe("esforço médio");
   });
@@ -473,15 +490,21 @@ describe("Perfil: agora, cada coisa uma vez", () => {
     // One surface level: grouped lists on the gray, no pills, sections or cards of its own.
     expect(screen).not.toContain("NowPill");
     expect(screen).not.toMatch(/<(Section|Card|Row)\b/);
-    // Mailboxes are rows of "Can use"; the computer is a named button beside Chat, as wide as it.
+    // Mailboxes are rows of "Can use"; Chat stands alone under the name, and the computer is a card on Today.
     expect(mail).toContain("export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[]");
+    expect(screen).not.toContain("AgentComputerButton");
     expect(screen).toContain(
-      "{details && !rightHand ? (\n              <View style={styles.grow}>\n                <AgentComputerButton agentId={id} />",
+      'acts: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },',
     );
-    expect(computer).toContain('wide\n      label={helps ? t("agentComputer.help") : t("agentComputer.button")}');
+    expect(computer).toContain('label={helps ? t("agentComputer.help") : t("agentComputer.button")}');
+    // One card: the picture when there is one, the row with the status line always, in the lists' own relief.
+    expect(computer).toContain("{...(line ? { sub: line, subLines: 2 } : {})}");
+    expect(computer).toContain("{ backgroundColor: colors.raised, boxShadow:");
+    // The screen's views are as tall as its button.
+    expect(screen).toContain('wide\n                size="page"');
     // The screen's recent picture on Today; the rules people gave on Memory, under what it learned; where it merges on
     // Access; the right hand's own AI above how it works: each in the grouped lists, none a section of its own.
-    expect(screen).toContain("      {nowBlock}\n      <AgentComputerPicture agentId={id} />");
+    expect(screen).toContain("      {nowBlock}\n      <AgentComputerCard agentId={id} />");
     expect(computer).toContain("asksPicture(focused, view.desktopQ.data ?? null)");
     expect(screen).toContain(
       "      {knows.data ? memoryKnows : null}\n      {/* What people told it to always do, under what it learned, as the web's Memória. */}\n      <GivenRules agentId={id} name={name} rightHand={rightHand} />",

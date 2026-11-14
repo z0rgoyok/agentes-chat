@@ -40,6 +40,8 @@ export interface StreamInput {
   preview?: boolean;
   /** A phone's screen for the phone app: its pictures go as base64 text frames (React Native draws them so). */
   text?: boolean;
+  /** The right hand's shared seat (ADR 0175) is asked for, not the person's own; it means nothing for another agent. */
+  shared?: boolean;
 }
 
 /**
@@ -47,7 +49,15 @@ export interface StreamInput {
  * the agent or its workspace is held, so a desktop that runs may be watched but none is started for it.
  */
 export type StreamTarget =
-  | { machineId: string; agent?: AgentScope; held?: boolean; switches?: boolean; phone?: PhoneTarget }
+  | {
+      machineId: string;
+      agent?: AgentScope;
+      held?: boolean;
+      switches?: boolean;
+      phone?: PhoneTarget;
+      /** The right hand's seat for this person isn't made yet (a screen's state was asked, nothing opened). */
+      unmade?: boolean;
+    }
   | { refused: number; reason: string };
 
 export interface Stream extends StreamInput {
@@ -56,6 +66,8 @@ export interface Stream extends StreamInput {
   readonly viewer: StreamSocket;
   /** The computer, once `authorize` let it open. */
   machineId: string | null;
+  /** Who the computer takes its agent for, once it opened: the agent, or a seat of the right hand (ADR 0175). */
+  scope?: AgentScope;
   /** The runner's data socket, once its hello named this stream. */
   runner: StreamSocket | null;
   /** Bytes from the person (keys, pointer, a resize) and to them (the screen, the shell's output). */
@@ -65,6 +77,9 @@ export interface Stream extends StreamInput {
   readyAt: number | null;
   closed: boolean;
 }
+
+/** Whose screen or shell a stream is, as its computer knows it: the agent, or the seat of the right hand it opened. */
+const screenOf = (s: Pick<Stream, "agentId" | "scope">) => s.scope?.id ?? s.agentId;
 
 /**
  * A data socket that serves something else than a person's stream: an agent browser's live view (ADR 0040 §7.1),
@@ -215,7 +230,7 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
         if (o.request.kind === "phone" && o.request.phoneId === phoneId) agent++;
         continue;
       }
-      if (o.agentId === s.agentId) agent++;
+      if (screenOf(o) === screenOf(s)) agent++;
       if (o.machineId === machineId) machine++;
     }
     if (s.request.kind === "desktop") return agent >= limits.viewersPerDesktop - (s.preview ? 1 : 0);
@@ -226,7 +241,7 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
   /** The agent's oldest browser card view sent to its computer, which gives its room to a full viewer. */
   function oldestPreview(s: OpenStream) {
     for (const o of streams.values()) {
-      if (o !== s && o.preview && o.machineId !== null && o.agentId === s.agentId && o.request.kind === "desktop") {
+      if (o !== s && o.preview && o.machineId !== null && screenOf(o) === screenOf(s) && o.request.kind === "desktop") {
         return o;
       }
     }
@@ -257,6 +272,8 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
     }
     if (s.closed) return;
     if ("refused" in target) return close(s, target.refused, target.reason);
+    // Before the caps: each seat of the right hand is another screen, counted by itself.
+    if (target.agent) s.scope = target.agent;
     // A person opening the screen itself takes a browser card's room (ADR 0058 §7): the card shows frames again.
     let yielded = false;
     if (s.request.kind === "desktop" && !s.preview && full(s, target.machineId)) {
@@ -444,6 +461,7 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
         ...(input.text ? { text: true } : {}),
         switches: input.switches === true && input.preview !== true,
         ...(input.preview ? { preview: true } : {}),
+        ...(input.shared ? { shared: true } : {}),
         wanted: null,
         switching: false,
         discarding: null,
@@ -603,10 +621,13 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
       return false;
     },
 
-    /** An agent's streams of a kind sent to its computer (ready or still opening). */
-    count(agentId: string, kind: StreamRequest["kind"]) {
+    /**
+     * The streams of a kind sent to a computer for one screen (ready or still opening): an agent's, by its id, or one
+     * seat's of the right hand, by the seat's.
+     */
+    count(screenId: string, kind: StreamRequest["kind"]) {
       let n = 0;
-      for (const s of streams.values()) if (s.agentId === agentId && s.request.kind === kind && s.machineId) n++;
+      for (const s of streams.values()) if (screenOf(s) === screenId && s.request.kind === kind && s.machineId) n++;
       return n;
     },
 

@@ -188,20 +188,37 @@ export function actionRoutes(deps: AppDeps) {
       description:
         "`apply` makes the change as you, with the permissions its screen checks, and puts its receipt (with Undo) on " +
         "the card; `dismiss` is for the person it was for or anyone who may; `ask` sends it to whoever may (the person " +
-        "it was for, when they can't). 409 `action_card.decided` once decided.",
+        "it was for, when they can't). 409 `action_card.decided` once decided. A card that must be read before it is " +
+        "applied (an invitation's addresses and roles, an API key's removal) takes `apply` only with `knows`: 409 " +
+        "`action_card.update_app` without it.",
       request: {
         params: CardParams.extend({ decision: z.enum(["apply", "dismiss", "ask"]) }),
-        body: body(z.object({})),
+        body: body(
+          z.object({
+            knows: z
+              .string()
+              .max(64)
+              .optional()
+              .openapi({
+                description:
+                  "With `apply`: the card's catalog action, sent by an app that shows what that action does in its " +
+                  "own words. An app that would show only a plain sentence sends nothing.",
+              }),
+          }),
+        ),
       },
       responses: { 200: json(z.object({ card: WorkspaceActionCard })), ...errors },
     }),
     async (c) => {
       const { orgId, messageId, decision } = c.req.valid("param");
+      const { knows } = c.req.valid("json");
       const userId = c.get("user").id;
       const card =
         decision === "ask"
           ? await askWorkspaceAction(cardDeps, userId, orgId, messageId)
-          : await decideWorkspaceAction(cardDeps, userId, orgId, messageId, decision);
+          : await decideWorkspaceAction(cardDeps, userId, orgId, messageId, decision, knows);
+      // What an applied card queued (an invitation's email) goes out now, not at the workers' next look.
+      if (decision === "apply") deps.wakeWorkers?.();
       return c.json({ card }, 200);
     },
   );

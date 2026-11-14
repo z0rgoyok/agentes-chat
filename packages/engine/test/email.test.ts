@@ -43,6 +43,7 @@ const TYPED = [
   "inviterName",
   "inviterEmail",
   "email",
+  "newEmail",
   "title",
   "agentName",
   "name",
@@ -58,7 +59,7 @@ const headline = (html: string) =>
   (html.match(/<h1[^>]*>(.*?)<\/h1>/)?.[1] ?? "?").replace(/<[^>]+>/g, "").replaceAll("&#39;", "'");
 const buttons = (t: EmailTemplate) =>
   [...renderEmail(t, art).html.matchAll(/<a class="btn" href="([^"]*)"[^>]*>.*?<span[^>]*>([^<]*)<\/span>/g)].map(
-    (m) => ({ url: (m[1] ?? "").replaceAll("&amp;", "&"), label: m[2] ?? "" }),
+    (m) => ({ url: (m[1] ?? "").replaceAll("&amp;", "&"), label: (m[2] ?? "").replaceAll("&#39;", "'") }),
   );
 
 function poisoned(t: EmailTemplate, value = SENTINEL): EmailTemplate {
@@ -129,6 +130,9 @@ describe("every email, in both languages", () => {
       join_answer: true,
       join_code: true,
       deletion_code: true,
+      email_change_code: true,
+      email_change_link: true,
+      email_changed: true,
       workspace_deleting: true,
       workspace_restored: true,
       account_deleted: true,
@@ -507,6 +511,7 @@ describe("the picture over the headline", () => {
   test("the welcome emails show the workspace's agents in a row, with no computer; the others show none", () => {
     const withCrew: Record<string, string[]> = {
       "invitation.en": faces("sky", "violet", "teal"),
+      "invitation-starts.en": faces("amber", "sky"),
       "invitation.pt-BR": ONBOARDING,
       "early_access.en": ONBOARDING,
       "early_access_allowed.en": ONBOARDING,
@@ -811,6 +816,25 @@ describe("outbox delivery", () => {
         template: { url: `https://x/org/${f.org.id}/approvals?open=${approval?.id}`, afterHours: 4 },
       });
     }
+  });
+
+  test("invitation: what it gives, named, a list cut at five places; an owner's stays an owner's (ADR 0184)", () => {
+    const base = EMAIL_SAMPLES["invitation-starts.en"] as Extract<EmailTemplate, { kind: "invitation" }>;
+    const said = (t: Partial<typeof base>, locale: "en" | "pt-BR" = "pt-BR") =>
+      renderEmail({ ...base, ...t, locale }, art).text.replace(/\s+/g, " ");
+    expect(said({})).toContain("como Suporte. Você já entra em #suporte e #chamados-urgentes. Vai trabalhar com Max.");
+    expect(said({}, "en")).toContain(
+      "as Suporte. You'll start in #suporte and #chamados-urgentes. You'll work with Max.",
+    );
+    // Only agents, or nothing past #general and the right hand: no line at all.
+    expect(said({ channels: [] })).toContain("como Suporte. Vai trabalhar com Max.");
+    expect(said({ channels: [], agents: [] })).not.toContain("Você já entra");
+    const channels = Array.from({ length: 7 }, (_, i) => `canal-${i + 1}`);
+    expect(said({ channels, roles: ["Suporte", "Financeiro"] })).toContain(
+      "como Suporte e Financeiro. Você já entra em #canal-1, #canal-2, #canal-3, #canal-4 e mais 3.",
+    );
+    expect(said({ channels }, "en")).toContain("#canal-1, #canal-2, #canal-3, #canal-4, and 3 more.");
+    expect(said({ role: "owner" })).toContain("como dono.");
   });
 
   test("invitation: the inviter's address goes in the body, so the invitee can judge who sent it", async () => {

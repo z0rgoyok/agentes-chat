@@ -331,6 +331,8 @@ export const desktopEn = {
     offline: "Offline since {{time}}",
     signIn: "Sign in",
     signOut: "Sign out of this server",
+    /** A server with several accounts signed in (ADR 0183): one more beside them, from its menu. */
+    addAccount: "Add account",
     signedOutDone: "You signed out of {{host}}",
     removeFromApp: "Remove from this app",
     /** The system's notification for a server not open in the window: "Oficina · agentes.exemplo.com.br". */

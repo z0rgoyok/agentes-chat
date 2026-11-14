@@ -5,8 +5,8 @@ import { getRandomBytes } from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import i18n from "i18next";
 import { SCHEME } from "@/config";
-import { prefixOf, serverUrl } from "./server";
-import { cookieTo } from "./server-choice";
+import { placeKey, prefixOf } from "./server";
+import { cookieTo, serverOf } from "./server-choice";
 import { challengeOf, newVerifier } from "./sign-in-proof";
 
 /**
@@ -29,15 +29,18 @@ const createClient = (server: string, storagePrefix: string) =>
 
 type AuthClient = ReturnType<typeof createClient>;
 
-/** One client per server, each with its session under its own prefix (ADR 0154): every server stays signed in. */
+/**
+ * One client per place (a server, or one of its accounts), each with its session under its own prefix (ADR 0154,
+ * ADR 0183): every one stays signed in.
+ */
 const clients = new Map<string, AuthClient>();
 
-/** A server's client (the current one's by default). */
-export function authClient(server: string = serverUrl()): AuthClient {
-  let client = clients.get(server);
+/** A place's client (the current one's by default), talking to its server. */
+export function authClient(place: string = placeKey()): AuthClient {
+  let client = clients.get(place);
   if (!client) {
-    client = createClient(server, prefixOf(server));
-    clients.set(server, client);
+    client = createClient(serverOf(place), prefixOf(place));
+    clients.set(place, client);
   }
   return client;
 }
@@ -46,10 +49,10 @@ export function authClient(server: string = serverUrl()): AuthClient {
  * Forgets the stored cookie and session without asking the server, for leaving a server nobody is signed in
  * to: the Expo plugin clears both as a sign-out starts, and this one's request is cancelled before it is sent.
  */
-export async function forgetSession(server: string = serverUrl()): Promise<void> {
+export async function forgetSession(place: string = placeKey()): Promise<void> {
   const cancelled = new AbortController();
   cancelled.abort();
-  await authClient(server)
+  await authClient(place)
     .signOut({ fetchOptions: { signal: cancelled.signal } })
     .catch(() => {});
 }
@@ -58,8 +61,8 @@ export async function forgetSession(server: string = serverUrl()): Promise<void>
  * Trades a one-time sign-in for a session (a connect link's token, the claim of an approved request): false when it
  * was refused (expired or already used) or never reached the server. The session arrives a moment after the answer.
  */
-export async function signInOneTime(token: string, server: string = serverUrl()): Promise<boolean> {
-  const res = await authClient(server)
+export async function signInOneTime(token: string, place: string = placeKey()): Promise<boolean> {
+  const res = await authClient(place)
     .$fetch("/sign-in/one-time-token", { method: "POST", body: { token } })
     .catch(() => null);
   return Boolean(res && !res.error);
@@ -78,9 +81,9 @@ export async function signInWithBrowser(
     errorCallbackURL?: string;
     additionalData?: Record<string, unknown>;
   },
-  server: string = serverUrl(),
+  place: string = placeKey(),
 ) {
-  const client = authClient(server);
+  const client = authClient(place);
   const verifier = newVerifier(getRandomBytes);
   const res = await client.signIn.social({
     ...request,
@@ -93,19 +96,19 @@ export async function signInWithBrowser(
 const cookies = new Map<string, string>();
 
 /** A server's session cookie (the current one's by default), read fresh from SecureStore and kept for the synchronous callers. */
-export async function readCookie(server: string = serverUrl()): Promise<string> {
+export async function readCookie(place: string = placeKey()): Promise<string> {
   let cookie = "";
   try {
-    cookie = await authClient(server).getCookie();
+    cookie = await authClient(place).getCookie();
   } catch {
     cookie = "";
   }
-  cookies.set(server, cookie);
+  cookies.set(place, cookie);
   return cookie;
 }
 
 /** The last cookie read for a server (the WebSocket factory is synchronous). */
-export const lastCookie = (server: string = serverUrl()) => cookies.get(server) ?? "";
+export const lastCookie = (place: string = placeKey()) => cookies.get(place) ?? "";
 
 /** Headers every app request carries (ADR 0035 §3: no `Origin`, the app header and the cookie). */
 export function appHeaders(currentCookie: string): Record<string, string> {
@@ -122,10 +125,10 @@ export function appHeaders(currentCookie: string): Record<string, string> {
 export async function authedFetch(
   input: string,
   init: RequestInit = {},
-  server: string = serverUrl(),
+  place: string = placeKey(),
 ): Promise<Response> {
   const headers = new Headers(init.headers);
-  const cookie = cookieTo(input, server, await readCookie(server));
+  const cookie = cookieTo(input, serverOf(place), await readCookie(place));
   for (const [name, value] of Object.entries(appHeaders(cookie))) headers.set(name, value);
   return fetch(input, { ...init, headers, credentials: "omit" });
 }

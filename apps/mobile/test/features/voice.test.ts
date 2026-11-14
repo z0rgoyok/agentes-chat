@@ -1,15 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { VOICE_MAX_MS } from "@agenteschat/client/lib/voice";
 import { hidesBody } from "../../src/features/chat/logic";
 import {
+  handleAt,
   hasWords,
   levelOf,
   nextSpeed,
   peaksOf,
+  playedColumns,
   retryDelayMs,
   secondsLeft,
   slideIntent,
   uploadVerdict,
+  WAVE_CELL,
+  WAVE_HANDLE,
+  WAVE_PITCH,
+  waveAt,
 } from "../../src/features/voice/logic";
 import { joinM4a } from "../../src/features/voice/m4a";
 
@@ -94,6 +102,28 @@ describe("voice gestures and wave", () => {
   });
   test("speed goes round", () => {
     expect([nextSpeed(1), nextSpeed(1.5), nextSpeed(2)]).toEqual([1.5, 2, 1]);
+  });
+  test("a played wave's handle stands flush with its left end before the first column at 0:00, and flush with its right end after the last at the end, as WhatsApp's dot", () => {
+    // Every room the columns leave over (0 to 5), a width between whole points, and the phones' own.
+    for (const width of [180, 181, 182, 183, 184, 185, 233.5, 300]) {
+      const { count, start } = playedColumns(width);
+      const end = start + count * WAVE_PITCH - (WAVE_PITCH - WAVE_CELL);
+      expect([width, handleAt(0, width), handleAt(1, width) + WAVE_HANDLE]).toEqual([width, 0, width]);
+      // Never on a column: 2 or more between the handle and the first column, and the last column and the handle.
+      expect(start - WAVE_HANDLE).toBeGreaterThanOrEqual(2);
+      expect(handleAt(1, width) - end).toBeGreaterThanOrEqual(2);
+      expect(Number.isInteger(start)).toBe(true);
+      // A finger on the handle's middle keeps it there; past the ends it holds there.
+      expect(waveAt(handleAt(0.5, width) + WAVE_HANDLE / 2, width)).toBeCloseTo(0.5, 9);
+      expect([waveAt(0, width), waveAt(WAVE_HANDLE / 2, width)]).toEqual([0, 0]);
+      expect([waveAt(width - WAVE_HANDLE / 2, width), waveAt(width, width)]).toEqual([0.999, 0.999]);
+    }
+    // The drawing goes through the same numbers: the columns where `playedColumns` puts them, the handle at
+    // `handleAt`, the played tones up to its middle.
+    const bars = readFileSync(join(import.meta.dir, "../../src/features/voice/VoiceBars.tsx"), "utf8");
+    expect(bars).toContain("const spread = tail ? null : playedColumns(width);");
+    expect(bars).toContain("handleAt(progress.value, width) + HANDLE / 2");
+    expect(bars).toContain("const handleX = useDerivedValue(() => at.value - HANDLE / 2);");
   });
 });
 

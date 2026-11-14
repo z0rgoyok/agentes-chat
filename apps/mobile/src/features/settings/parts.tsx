@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionSheetIOS, Alert, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { ActionSheetIOS, ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { LayoutAnimationConfig } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GroupedList, GroupedRow, Locked, Text, useToast } from "@/ui";
@@ -25,6 +25,7 @@ export function SettingsPage({
   title,
   subtitle,
   action,
+  busy = false,
   locked = false,
   frozen = false,
   bottom,
@@ -33,6 +34,8 @@ export function SettingsPage({
   title: string;
   subtitle?: string | undefined;
   action?: HeaderWordAction;
+  /** The action's word is saving: a spinner in its place, the page locked under it. */
+  busy?: boolean;
   /** The page's form is sending: its controls are off, the page still scrolls. */
   locked?: boolean;
   /** The workspace is being deleted and this page would change it (`settingsFrozen`): greyed out, as on the web. */
@@ -50,7 +53,7 @@ export function SettingsPage({
         {...(subtitle ? { subtitle } : {})}
         solid={false}
         grouped
-        {...(action ? { action } : {})}
+        {...(busy ? { right: <ActivityIndicator color={c.muted} /> } : action ? { action } : {})}
       />
       <ScrollView
         style={styles.fill}
@@ -60,7 +63,7 @@ export function SettingsPage({
         contentContainerStyle={[styles.body, { paddingBottom: 24 + insets.bottom }]}
       >
         {/* What is there as the screen opens doesn't fade in; what loads while it is watched does (`Loaded`). */}
-        <Locked when={locked || frozen} readable={frozen && !locked}>
+        <Locked when={locked || busy || frozen} readable={frozen && !locked && !busy}>
           <LayoutAnimationConfig skipEntering>{children}</LayoutAnimationConfig>
         </Locked>
       </ScrollView>

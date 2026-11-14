@@ -480,6 +480,7 @@
       "nameLead": "팀에서 뭐라고 부르나요?",
       "namePlaceholder": "이름",
       "nameIsPassword": "이게 이름인가요? 입력한 비밀번호와 같아요.",
+      "emailHeld": "이 이메일은 방금 여기 계정에서 빠져서 7일 동안 예약돼 있어요. 그 계정이 내 것이라면, 이 주소로 보낸 메일에서 “제가 아니에요”를 누르세요.",
       "nameLooksLikePassword": "비밀번호처럼 보여요. 여기에는 이름을 적어요.",
       "newPassword": "이제 비밀번호를 정하세요.",
       "newPasswordNamed": "좋아요, {{name}}님. 이제 비밀번호를 정하세요.",
@@ -501,6 +502,7 @@
       "noPassword": "이 계정은 agentes.chat 앱에서 로그인해요.",
       "noPasswordLead": "이 서버를 실행하는 컴퓨터에서 앱을 열고 설정 › 내 계정에서 비밀번호 추가를 선택하세요.",
       "backToSignIn": "로그인으로 돌아가기",
+      "backToAccount": "{{name}}(으)로 돌아가기",
       "toAuthorizeApp": "agentes.chat에 앱을 연결하려면."
     },
     "desktop": {
@@ -1545,6 +1547,22 @@
       "settingUp": "agentes-chat ({{version}}) 설정하는 중입니다 ..."
     }
   },
+  "appIcon": {
+    "title": "앱 아이콘",
+    "hintWeb": "이 브라우저 탭에 표시되는 아이콘이에요.",
+    "hintMac": "앱이 열려 있는 동안 Dock에 표시되는 아이콘이에요. Finder와 Launchpad에는 기본 아이콘이 유지돼요.",
+    "hintDesktop": "앱이 열려 있는 동안 작업 표시줄에 표시되는 아이콘이에요.",
+    "hintAndroid": "일부 홈 화면은 새 아이콘을 표시하는 데 몇 초가 걸려요.",
+    "failed": "아이콘을 바꾸지 못했어요. 다시 시도해 주세요.",
+    "agentsOf": "{{org}}의 에이전트",
+    "names": {
+      "night": "밤",
+      "moon": "달",
+      "sky": "하늘",
+      "peekNight": "밤에 빼꼼",
+      "peekSky": "하늘에서 빼꼼"
+    }
+  },
   "legal": {
     "updated": "최종 업데이트 {{date}}",
     "contents": "이 페이지의 내용",
@@ -1743,7 +1761,12 @@
       "sent": "{{email}}(으)로 링크를 보냈어요. 링크를 열면 이메일이 바뀌어요.",
       "changed": "완료: 이제 {{email}}(으)로 로그인해요.",
       "same": "이미 사용 중인 이메일이에요.",
-      "noMail": "이 서버는 이메일을 보내지 않아 새 주소를 확인할 수 없어요. 서버 관리자에게 이메일 발송 설정을 요청하세요."
+      "noMail": "이 서버는 이메일을 보내지 않아 새 주소를 확인할 수 없어요. 서버 관리자에게 이메일 발송 설정을 요청하세요.",
+      "held": "이 이메일은 방금 다른 계정에서 빠져서 7일 동안 그 계정에 예약돼 있어요. 다른 이메일을 쓰세요.",
+      "taken": "다른 계정이 이미 이 이메일을 쓰고 있어요. 다른 이메일을 쓰세요.",
+      "cantOpen": "그 메일함을 열 수 없나요?",
+      "signInInstead": "다시 로그인하면 코드 없이 바꿀 수 있어요. 로그인하면 여기로 돌아와요.",
+      "useCode": "코드 사용"
     },
     "openOnPhone": "휴대폰에서 열기",
     "openOnPhoneHint": "QR 코드로 앱에 로그인",
@@ -1763,6 +1786,8 @@
     "newWorkspace": "새 워크스페이스",
     "addWorkspace": "워크스페이스 추가",
     "addWorkspaceHint": "기존 워크스페이스에 들어가거나, 새로 만들거나, 팀 서버를 사용하세요",
+    "addAccount": "계정 추가",
+    "addAccountHint": "이 계정을 유지한 채 다른 계정으로 로그인",
     "yourServer": "내 서버",
     "serverHere": "이 {{device}}의 agentes.chat",
     "serverStopped": "중지됨",
@@ -2233,8 +2258,7 @@
       "fileName": "message.txt"
     },
     "long": {
-      "more": "더 보기",
-      "title": "{{name}}의 메시지"
+      "more": "더 보기"
     },
     "retrySend": "다시 시도",
     "thinking": "{{name}}이(가) 생각 중…",
@@ -2382,7 +2406,18 @@
       "budgetHelp": "한도에 닿으면 다른 에이전트처럼 멈추고 알려 줘요.",
       "audience": "사용할 수 있는 사람",
       "audienceHelp": "대상이 아닌 사람에게는 사이드바에 {{name}}이(가) 보이지 않아요.",
-      "lock": "{{name}}은(는) 보관하거나 삭제할 수 없어요. 말을 걸지 않아도 올리는 건 관리자에게 보내는 팀의 한 주뿐이에요.",
+      "lock": "{{name}}은(는) 보관하거나 삭제할 수 없어요.",
+      "own": {
+        "title": "{{name}}이(가) 스스로 하는 일",
+        "digest": "기다리는 승인 요약하기",
+        "digestHelp": "여러 승인이 당신을 기다릴 때 {{name}}이(가) DM으로 카드 한 장을 보내 일상적인 것과 위험한 것을 나눠 보여줘요.",
+        "reminders": "정한 일 기억하기",
+        "remindersHelp": "{{name}}은(는) 넘긴 작업을 끝까지 지켜보고, 시간을 정해 약속한 일을 알려줘요.",
+        "teamWatch": "팀 돌보기",
+        "teamWatchHelp": "{{name}}은(는) 끝난 AI 로그인이나 다시 연결해야 하는 앱처럼 팀을 멈추게 하는 것을 알아채고, 해결할 수 있는 사람에게 알려줘요.",
+        "welcome": "들어온 사람 맞이하기",
+        "welcomeHelp": "{{name}}은(는) 들어온 사람마다 인사하고 첫 에이전트를 만들도록 도와줘요."
+      },
       "audit": "{{name}}이(가) 한 일 보기",
       "planHelp": "비용은 요금제 주인이 내요. 그 컴퓨터를 쓸 수 없으면 대화에서 알려 주고 API 키를 제안해요.",
       "lookEdit": "{{name}}의 모습 바꾸기",
@@ -2416,6 +2451,11 @@
       "groupWorkspace": "워크스페이스 전체",
       "groupAdmins": "관리자만"
     },
+    "computerYours": "워크스페이스 컴퓨터에 있는 당신만의 공간이에요. 당신만 보고 제어할 수 있어요.",
+    "sharedName": "{{name}} (공유)",
+    "sharedPlace": "채널과 스스로 실행되는 작업에서 사용돼요. 워크스페이스 전체가 이 공간을 함께 써요. 비공개 내용은 여기에 두지 마세요.",
+    "computerNoHome": "아직 컴퓨터가 없어요. 이 워크스페이스에 자체 컴퓨터가 설정의 컴퓨터에서 추가되면 생겨요.",
+    "computerOneUser": "여기에는 컴퓨터가 없어요. 워크스페이스 컴퓨터가 모든 에이전트를 하나의 사용자로 실행해서 사람마다 공간을 나눌 수 없어요. 설치 프로그램의 --system 옵션으로 설치한 Linux 서버는 나눌 수 있어요.",
     "powers": {
       "title": "워크스페이스 권한",
       "help": "이 일은 오른팔만 해요.",
@@ -2427,6 +2467,7 @@
     "card": {
       "settings": "{{name}} · 설정",
       "apply": "적용",
+      "delete": "삭제",
       "dismiss": "버리기",
       "decline": "거절",
       "askAdmin": "관리자에게 요청",
@@ -2515,6 +2556,16 @@
       "title": "내 승인을 기다리는 요청",
       "done": "결정됨"
     },
+    "digest": {
+      "waiting_other": "승인 {{count}}개가 기다리고 있어요.",
+      "split": "일상적인 요청 {{routine}}개, 꼼꼼히 볼 요청 {{careful}}개예요.",
+      "allRoutine": "모두 일상적인 요청이에요.",
+      "more_other": "나머지 {{count}}개 보기",
+      "routine_other": "일상적인 요청 {{count}}개",
+      "help": "연결된 앱에서 보내기, 삭제, 결제, 머지, 배포를 하지 않는 작업이에요. 그 밖의 요청은 각자 카드에 그대로 있어요.",
+      "approve_other": "이 {{count}}개 승인",
+      "each": "하나씩 보기"
+    },
     "open": {
       "open": "열기",
       "web": "사이트에서 열기",
@@ -2529,6 +2580,9 @@
       "update_role": "역할 <b>{{name}}</b> 변경",
       "delete_role": "역할 <b>{{name}}</b> 영구 삭제",
       "move_role": "역할 <b>{{name}}</b> 순서 바꾸기",
+      "set_permission_holders": "<b>{{short}}</b> 권한을 가진 사람 변경",
+      "set_permission_holders_computers": "<b>에이전트 컴퓨터</b>를 쓰는 사람 변경",
+      "holdersOwnersOnly": "소유자만",
       "set_member_roles": "<b>{{name}}</b>님의 역할 변경: {{change}}",
       "set_channel_permissions": "<b>#{{channel}}</b>에서 {{who}}이(가) 할 수 있는 일 변경",
       "set_my_status": "상태 설정: <b>{{what}}</b>",
@@ -2550,7 +2604,11 @@
       "continue_work": "<b>{{agent}}</b>이(가) 계속하게 하기",
       "update_workspace": "워크스페이스 <b>{{name}}</b> 변경",
       "set_action_check_on": "팀이 이미 한 일 확인 켜기",
-      "set_action_check_off": "팀이 이미 한 일 확인 끄기"
+      "set_action_check_off": "팀이 이미 한 일 확인 끄기",
+      "invite_people": "<b>{{emails}}</b>을(를) 워크스페이스에 초대합니다.",
+      "invite_roles_other": "{{roles}} 역할로 초대해요.",
+      "invite_people_sent_other": "<b>{{emails}}</b>에게 초대를 보냈어요.",
+      "remove_ai_key": "API 키 \"{{name}}\"을(를) 삭제합니다."
     }
   },
   "teamWeek": {
@@ -2567,6 +2625,7 @@
     "workedRuns_other": "{{name}} 님이 #{{channel}}에서 작업 {{count}}개를 했어요",
     "workedTasks_other": "{{name}} 님이 작업 {{count}}개를 끝냈어요",
     "improve": "개선할 일",
+    "needsYou": "확인이 필요해요",
     "approvals": {
       "title_other": "{{name}} 님의 요청 {{count}}개가 기다리고 있어요",
       "line": "{{since}}부터 기다리는 중이에요.",
@@ -2608,6 +2667,40 @@
       "messageNoAgent": "단계 {{steps}}는 #{{on}}을 기다릴 필요가 없어요. 동시에 진행할 수 있어요.",
       "done": "메시지를 보냈어요"
     },
+    "waiting": {
+      "title_other": "{{count}}개가 기다리고 있어요",
+      "line_other": "{{since}}부터 기다리는 중이에요.",
+      "action": "열기",
+      "done": "기다리는 것이 없어요"
+    },
+    "stuck": {
+      "title_other": "{{name}} 님이 오류로 {{count}}번 멈췄어요",
+      "heldTitle": "{{name}} 님이 멈춰서 다시 시작하기를 기다려요",
+      "why": {
+        "budget": "월 예산을 다 썼어요.",
+        "plan": "요금제가 한도에 도달했어요.",
+        "computer": "컴퓨터가 응답하지 않았어요.",
+        "key": "AI 키 또는 로그인이 거부됐어요.",
+        "ai": "AI가 응답하지 않았어요.",
+        "other": "문제가 생겼어요. 대화에서 무엇인지 볼 수 있어요."
+      },
+      "action": "대화 열기"
+    },
+    "retire": {
+      "title": "{{name}} 님 보관하기",
+      "line": "4주 동안 작업이 없고, 루틴도 열린 작업도 없어요.",
+      "action": "보관"
+    },
+    "model": {
+      "title": "{{name}} 님은 {{to}}을(를) 쓸 수 있어요.",
+      "line": "지금은 {{from}}을(를) 써요."
+    },
+    "skip": "무시",
+    "skipped": "무시함",
+    "why": {
+      "idle": "4주 동안 작업이 없고, 루틴도 열린 작업도 없어요.",
+      "lightWork": "더 작은 모델로도 충분할 만큼 작업이 가벼워요."
+    },
     "applied": "적용됨",
     "undo": "실행 취소",
     "gone": "더 이상 해당하지 않아요",
@@ -2638,7 +2731,7 @@
       "label": "팀의 한 주",
       "help": "매주 {{name}} 님이 DM으로 팀의 한 주와 개선할 점을 알려 줘요. 관리자만 받아요.",
       "dayLabel": "오늘의 정리",
-      "dayHelp": "매일 {{name}}이(가) DM으로 팀이 한 일과 당신을 기다리는 일을 알려줘요. 전할 것이 있는 날에만요."
+      "dayHelp": "매일 {{name}}이(가) DM으로 당신을 기다리는 일, 당신의 에이전트가 끝낸 일, 막힌 일을 알려줘요. 새로운 것이 있는 날에만요."
     }
   },
   "routing": {
@@ -3260,6 +3353,8 @@
       "changed_update_role": "역할 <b>{{name}}</b>을(를) 변경했어요",
       "changed_delete_role": "역할 <b>{{name}}</b>을(를) 삭제했어요",
       "changed_move_role": "역할 <b>{{name}}</b>의 순서를 바꿨어요",
+      "changed_set_permission_holders": "<b>{{short}}</b> 권한을 가진 사람을 변경했어요",
+      "changed_set_permission_holders_computers": "<b>에이전트 컴퓨터</b>를 쓰는 사람을 변경했어요",
       "changed_set_member_roles": "<b>{{name}}</b>님의 역할을 변경했어요: {{change}}",
       "changed_set_channel_permissions": "<b>#{{channel}}</b>에서 {{who}}이(가) 할 수 있는 일을 변경했어요",
       "changed_set_my_status": "상태를 설정했어요: <b>{{what}}</b>",
@@ -3281,7 +3376,9 @@
       "changed_continue_work": "<b>{{agent}}</b>이(가) 계속하게 했어요",
       "changed_update_workspace": "워크스페이스 <b>{{name}}</b>을(를) 변경했어요",
       "changed_set_action_check_on": "팀이 이미 한 일 확인을 켰어요",
-      "changed_set_action_check_off": "팀이 이미 한 일 확인을 껐어요"
+      "changed_set_action_check_off": "팀이 이미 한 일 확인을 껐어요",
+      "changed_invite_people": "<b>{{invited}}</b>을(를) 워크스페이스에 초대했어요",
+      "changed_remove_ai_key": "API 키 <b>{{name}}</b>을(를) 삭제했어요"
     },
     "other": "변경 사항을 적용했어요",
     "copyWebhook": "웹훅 주소 복사",
@@ -3527,6 +3624,9 @@
     "hidden": "숨김",
     "offline": "오프라인",
     "out": "부재 중",
+    "available": "응답 가능",
+    "working": "작업 중",
+    "waiting": "내 확인 대기",
     "lower": {
       "online": "온라인",
       "away": "자리 비움",
@@ -3615,6 +3715,44 @@
     "bySelf": "{{name}}이(가) 작성 · 끝나면 지워져요",
     "byAuto": "지금 하고 있는 일"
   },
+  "agentWork": {
+    "working": "작업 중",
+    "you": "내 확인 대기",
+    "waiting": "대기 중",
+    "queued": "차례 대기 중",
+    "here": "여기",
+    "routine": "루틴 진행 중",
+    "yourApproval": "내 승인",
+    "yourAnswer": "내 답변",
+    "later": "후속 확인 {{when}}",
+    "laterShort": "후속 확인",
+    "plan": "요금제 초기화 대기 중",
+    "budget": "예산 초기화 대기 중",
+    "stopping": "중지하는 중…"
+  },
+  "followUps": {
+    "when": {
+      "at": "{{time}}",
+      "today": "오늘 {{time}}",
+      "tomorrow": "내일 {{time}}"
+    },
+    "whenLabel": {
+      "at": "{{time}}",
+      "today": "오늘 {{time}}",
+      "tomorrow": "내일 {{time}}"
+    },
+    "bar": {
+      "at": "{{name}}이(가) {{when}}에 후속 확인해요",
+      "short": "{{name}} {{time}}",
+      "heldYou": "{{name}}이(가) 내가 답하면 후속 확인해요",
+      "held": "{{name}}이(가) 답변을 받은 뒤 후속 확인해요"
+    },
+    "title": "후속 확인",
+    "see": "메시지 보기",
+    "cancel": "후속 확인 취소",
+    "cancelOf": "{{name}}의 {{when}} 후속 확인 취소",
+    "inTime": "{{time}} 후"
+  },
   "mentions": {
     "list": "사람과 에이전트",
     "inChannel": "이 채널에 있음",
@@ -3669,7 +3807,6 @@
     "issue": "이슈"
   },
   "folded": {
-    "more": "더 보기",
     "less": "간단히 보기"
   },
   "secret": {
@@ -4167,6 +4304,10 @@
   "approval": {
     "expiredChip": "만료됨 · {{when}}",
     "canceledChip": "취소됨 · {{when}}",
+    "line": {
+      "after": "“{{title}}” 다음에 실행",
+      "notRun": "실행 안 됨: 앞의 요청이 승인되지 않았어요"
+    },
     "waitingFor": "{{name}}님 대기 중",
     "waitingAdmin": "관리자 대기 중",
     "reasonLine": "이유: {{reason}}",
@@ -4227,8 +4368,6 @@
       "noSubject": "(제목 없음)",
       "toSender": "메시지를 보낸 사람에게",
       "toList": "받는 사람: {{to}}",
-      "more": "전체 읽기",
-      "less": "간단히 보기",
       "answers": "<b>“{{subject}}”</b>에 답장",
       "answersFrom": "{{from}}의 <b>“{{subject}}”</b>에 답장",
       "forwards": "<b>“{{subject}}”</b> 전달",
@@ -4396,6 +4535,21 @@
       "onlyMe": "나만 사용으로 변경",
       "done": "이제 이 플랜은 나만 사용해요."
     },
+    "teamWatch": {
+      "sign_in_other": "{{names}} 로그인이 끝났어요.",
+      "connector_other": "{{names}}을(를) 다시 연결해야 해요.",
+      "mailbox_other": "메일함 {{names}}을(를) 다시 연결해야 해요.",
+      "database_other": "데이터베이스 {{names}}을(를) 다시 연결해야 해요.",
+      "budget_out_other": "{{names}}의 예산을 다 썼어요.",
+      "budget_low_other": "{{names}}의 예산이 곧 바닥나요.",
+      "computer_other": "{{names}}이(가) 오프라인이고 에이전트가 기다리고 있어요.",
+      "act": {
+        "sign_in": "다시 로그인",
+        "reconnect": "다시 연결",
+        "budget": "예산 늘리기",
+        "computer": "컴퓨터 바꾸기"
+      }
+    },
     "docTitleUnread": "({{count}}) 알림",
     "summaryWaiting_other": "내 확인을 기다리는 항목 {{count}}개",
     "summaryUnread_other": "{{count}}개 읽지 않음",
@@ -4506,6 +4660,7 @@
       "changeRequest": "<b>{{name}}</b>님이 <b>{{agent}}</b> 변경을 요청해요",
       "proposalWaiting": "<b>{{names}}</b>의 개선 제안",
       "changeRequestAgent": "<b>{{name}}</b>님이 새 에이전트를 요청해요: <b>{{agent}}</b>",
+      "changeRequestAction": "<b>{{name}}</b>님이 워크스페이스 변경을 요청해요",
       "approvalCover": "<b>{{name}}</b>님이 '나 대신 승인할 사람'으로 나를 골랐어요",
       "approvalCoverDeclined": "<b>{{name}}</b>님이 더 이상 나 대신 승인하지 않아요",
       "approvalCoverEnded": "<b>{{name}}</b>님이 나 대신 승인할 사람을 해제했어요",
@@ -4701,8 +4856,15 @@
       "canceled": "취소됨",
       "failed": "실패",
       "running": "실행 중",
-      "scheduled": "예약됨"
+      "scheduled": "예약됨",
+      "queued": "순서 대기 중",
+      "notRun": "실행 안 됨"
     },
+    "queuedLine": "승인됨. 먼저 요청된 “{{title}}” 다음에 실행돼요.",
+    "notRunRefused": "먼저 요청된 “{{title}}”이(가) 이 요청이 승인된 뒤에 거절되어 이 요청은 실행되지 않았어요.",
+    "notRunExpired": "먼저 요청된 “{{title}}”이(가) 이 요청이 승인된 뒤에 결정 없이 만료되어 이 요청은 실행되지 않았어요.",
+    "notRunEarlier": "이 요청이 승인된 뒤에 앞의 요청이 거절되거나 만료되어 이 요청은 실행되지 않았어요.",
+    "position": "{{total}}개 중 {{n}}번째",
     "expiredLine": "24시간 안에 아무도 결정하지 않아 아무것도 하지 않았어요.",
     "canceledLine": "결정 전에 실행이 중지됐어요.",
     "supersededLine": "에이전트가 더 새로운 버전으로 다시 요청해서 이 요청은 실행되지 않았어요.",
@@ -4769,10 +4931,10 @@
       "email": "이메일",
       "text": "게시될 내용",
       "textDone": "게시한 내용",
+      "textNot": "게시될 뻔한 내용",
       "values": "할 일",
       "valuesDone": "한 일",
-      "more": "모두 보기",
-      "less": "간단히 보기",
+      "valuesNot": "하려던 일",
       "trail": "여기까지 온 과정",
       "showSteps": "단계별로 보기",
       "hideSteps": "단계 숨기기",
@@ -6716,6 +6878,7 @@
     "batch": {
       "already_member": "{{email}}은(는) 이미 워크스페이스에 있어요.",
       "already_invited": "{{email}}에게는 이미 대기 중인 초대가 있어요. 다시 보내기를 사용하세요.",
+      "had_invite": "{{email}}에게는 이미 대기 중인 초대가 있었어요.",
       "invalid_email": "{{email}}은(는) 올바른 이메일이 아닌 것 같아요."
     },
     "activeNow": "지금 활동 중",
@@ -7127,8 +7290,22 @@
     "auto": "자동",
     "autoHint": "에이전트의 작업에 따라 열이 자동으로 바뀌었어요.",
     "now": {
-      "title": "지금 작업 중인 에이전트",
-      "stalled_other": "멈춤 {{count}}개"
+      "stalledCount_other": "멈춘 작업 {{count}}개",
+      "viewStalled": "멈춘 작업 보기",
+      "continue": "계속하기",
+      "continueAll": "모두 계속하기",
+      "continueAllCount": "모두 계속하기 ({{count}})",
+      "sent_other": "요청했어요. {{names}}이(가) 멈춘 곳부터 이어서 해요.",
+      "rowSent": "요청했어요: 멈춘 곳부터 이어서 해요.",
+      "stalledTitle": "멈춘 작업",
+      "stalledSub": "{{tasks}} · {{agents}}",
+      "tasks_other": "작업 {{count}}개",
+      "agents_other": "에이전트 {{count}}명",
+      "stalledText": "에이전트가 끝내기 전에 멈췄어요. 계속하기를 누르면 멈춘 곳부터 이어서 하도록 요청해요.",
+      "stoppedNow": "방금 멈춤",
+      "stoppedAgo": "{{ago}} 멈춤",
+      "stoppedYesterday": "어제 멈춤",
+      "stoppedOn": "{{date}}에 멈춤"
     },
     "work": {
       "label": "{{name}}의 작업",
@@ -7139,8 +7316,6 @@
       "started": "{{when}} 시작",
       "starting": "시작하는 중…",
       "stalled": "{{when}} 멈춤",
-      "noRun": "진행 중인 실행이 없어요.",
-      "noRunStep": "진행 중인 실행이 없어요. 마지막 단계: {{step}}",
       "lastStep": "마지막 단계: {{step}}",
       "waitingApproval": "승인을 요청해요",
       "waitingInput": "질문이 있어요",
@@ -8242,8 +8417,7 @@
       "releasePaused": "미션이 일시 중지 상태예요. 세션을 계속하려면 미션을 재개하세요.",
       "releaseClosed": "미션이 종료됐어요. 세션은 계속되지 않아요.",
       "onlyDeciders": "이 미션의 결정권자만 명령을 허용할 수 있어요.",
-      "pick": "{{command}} 허용",
-      "showAll": "모두 보기"
+      "pick": "{{command}} 허용"
     },
     "decision": {
       "approveAll_other": "임시 결정 {{count}}개 승인",
@@ -8628,6 +8802,11 @@
     "status": {
       "needsYou": "내 확인 대기",
       "working": "작업 중",
+      "approval": "승인 대기 중",
+      "input": "답변 대기 중",
+      "computer": "컴퓨터 대기 중",
+      "queued": "차례 대기 중",
+      "later": "후속 확인 {{when}}",
       "open": "열림",
       "closed": "닫힘",
       "archived": "보관됨"
@@ -9623,6 +9802,7 @@
     "noMic": "마이크를 찾을 수 없어요.",
     "failed": "마이크를 열지 못했어요. 다시 시도해 주세요.",
     "noPlayback": "지금은 재생할 수 없어요. 그래도 보내거나 계속 녹음할 수 있어요.",
+    "cantPlay": "오디오를 재생하지 못했어요.",
     "settings": {
       "title": "음성 메시지",
       "on": "음성 메시지",
@@ -10514,15 +10694,6 @@
       "nowYours": "멈추고 내 메모를 읽었어요",
       "nowOf": "멈추고 {{name}}의 메모를 읽었어요"
     },
-    "choice": {
-      "label": "{{name}}이(가) 작업 중일 때 보내는 방식",
-      "label_female": "{{name}}이(가) 작업 중일 때 보내는 방식",
-      "join": "{{name}}의 작업에 추가",
-      "join_female": "{{name}}의 작업에 추가",
-      "interrupt": "중지하고 보내기",
-      "joins": "추가",
-      "interrupts": "중지 후 전송"
-    },
     "strip": {
       "see": "보기",
       "toStop": "중지"
@@ -10958,8 +11129,6 @@
     "thousand": "천",
     "building": "정리하는 중…",
     "openBig": "크게 열기",
-    "showAll": "모두 보기",
-    "showLess": "간단히 보기",
     "keep": "Drive에 보관",
     "kept": "Drive에 보관됨",
     "inDrive": "Drive에 있음",
@@ -12905,6 +13074,8 @@
     },
     "join": {
       "linkClosed": "이 링크는 더 이상 작동하지 않아요. 보낸 사람에게 새 링크를 요청하세요.",
+      "linkFull": "이 링크로 들어올 수 있는 인원이 이미 다 찼어요. 보낸 사람에게 새 링크를 요청하세요.",
+      "linkFullApproval": "이 요청의 링크로 들어올 수 있는 인원이 이미 다 찼어요. 승인하려면 링크의 최대 인원을 늘리세요.",
       "full": "이 워크스페이스에 대기 중인 요청이 많아요. 나중에 다시 시도하거나 그곳 사람에게 초대를 요청하세요.",
       "rateLimited": "이곳에서 보낸 요청이 너무 많아요. 1시간 후에 다시 시도하세요.",
       "linkBusy": "지난 1시간 동안 이 링크로 요청한 사람이 많아요. 나중에 다시 시도하세요.",
@@ -12986,6 +13157,9 @@
       "titleTooLong": "제목은 최대 {{max}}자예요.",
       "noContext": "이 스레드는 대화의 범위에서 만든 게 아니에요.",
       "notUndoable": "범위에서 만든 스레드만 되돌릴 수 있어요."
+    },
+    "followUp": {
+      "notYours": "해당하는 사람, 에이전트 소유자 또는 관리자만 이 후속 확인을 취소할 수 있어요."
     },
     "routine": {
       "tooFrequent": "루틴은 최대 15분마다 한 번 실행돼요. 더 긴 간격을 고르세요.",
@@ -13082,7 +13256,9 @@
       "tooMany": "이 워크스페이스에는 이미 부서가 {{max}}개 있어요. 먼저 하나를 삭제하세요."
     },
     "rightHand": {
-      "permanent": "오른팔은 워크스페이스의 일부라 채널에 들어가지 않아요. @멘션하면 어느 채널에서든 부를 수 있어요."
+      "permanent": "오른팔은 워크스페이스의 일부라 채널에 들어가지 않아요. @멘션하면 어느 채널에서든 부를 수 있어요.",
+      "updateApp": "이 앱은 너무 오래돼서 이 카드를 적용할 수 없어요. 앱을 업데이트하거나 설정에서 직접 변경하세요.",
+      "nobodyNew": "이 카드의 모든 사람이 이미 참여 중이거나 이미 초대됐어요. 카드를 버리거나 멤버와 초대에서 초대를 다시 보내세요."
     },
     "agent": {
       "ownerOrAdmin": "에이전트 소유자나 관리자만 할 수 있어요.",
@@ -14363,6 +14539,10 @@
         "role_changed": "멤버의 역할을 변경했어요",
         "password_link": "멤버의 새 비밀번호 링크를 만들었어요"
       },
+      "role": {
+        "permission_set": "{{short}} 권한을 가진 사람을 변경했어요",
+        "permission_set_computers": "에이전트 컴퓨터를 쓰는 사람을 변경했어요"
+      },
       "apps": {
         "connected": "{{app}}을(를) 연결했어요",
         "scopes_changed": "{{app}}이(가) 작업을 보낼 수 있게 했어요",
@@ -15179,7 +15359,13 @@
       "asking": "{{from}}이(가) {{to}}에게 묻는 중",
       "answered": "{{to}}이(가) 답했어요. {{from}}이(가) 작성 중",
       "writing": "{{from}}이(가) 작성 중",
-      "clock": "{{time}} 대기 중"
+      "clock": "{{time}} 대기 중",
+      "doing": "{{name}} {{doing}}",
+      "yourApproval": "{{name}}이(가) 내 승인을 기다려요",
+      "yourAnswer": "{{name}}이(가) 내 답변을 기다려요",
+      "done": "{{to}}이(가) 끝냈어요. {{from}}이(가) 작성 중",
+      "notDone": "{{to}}이(가) 끝내지 못했어요. {{from}}이(가) 작성 중",
+      "handedOff": "{{to}}이(가) {{from}}이(가) 넘긴 일을 하는 중"
     },
     "consultation": {
       "answered": "{{name}}이(가) 답했어요",
@@ -15198,7 +15384,8 @@
       "waitingInput": "{{name}}이(가) 답을 기다리는 중",
       "waitingComputer": "{{name}}이(가) 컴퓨터를 기다리는 중",
       "waitingProvider": "{{name}}: AI 제공업체 장애 · 자동으로 다시 시도해요",
-      "waitingAgents": "{{name}}이(가) 일부를 넘기고 결과를 기다리는 중"
+      "waitingAgents": "{{name}}이(가) 일부를 넘기고 결과를 기다리는 중",
+      "queued": "{{name}}이(가) 차례를 기다리는 중"
     },
     "consultPair": {
       "took": "{{time}} 걸렸어요",
@@ -15208,15 +15395,14 @@
       "waitingInput": "답변 대기 중",
       "waitingComputer": "컴퓨터 대기 중",
       "waitingProvider": "AI 제공업체 장애",
+      "waitingYourApproval": "내 승인 대기 중",
+      "waitingYourAnswer": "내 답변 대기 중",
+      "queued": "차례 대기 중",
       "handedOn": "다른 에이전트 대기 중",
       "noAnswer": "답하지 않음",
       "notFinished": "끝내지 못함",
       "someAnswered": "{{total}}명 중 {{done}}명 답함",
       "labelMany": "{{from}}와 {{to}}의 대화"
-    },
-    "talk": {
-      "readAll": "전체 읽기",
-      "more_other": "{{count}}줄 더"
     },
     "consultPanel": {
       "label": "{{from}}과(와) {{to}}의 대화",
@@ -15245,14 +15431,6 @@
       "agentNote": "{{from}}의 메모",
       "agentNoteAnon": "다른 에이전트의 메모",
       "waitResult": "{{name}}이(가) 기다리던 결과가 도착했어요",
-      "followUp": "{{name}}이(가) {{time}}에 «{{about}}» 건으로 돌아올 거예요",
-      "followUpOn": "{{name}}이(가) {{day}} {{time}}에 «{{about}}» 건으로 돌아올 거예요",
-      "followUpDone": "{{name}}이(가) {{time}}에 «{{about}}» 건으로 돌아왔어요",
-      "followUpDoneOn": "{{name}}이(가) {{day}} {{time}}에 «{{about}}» 건으로 돌아왔어요",
-      "followUpCanceled": "{{name}}이(가) {{time}}에 «{{about}}» 건으로 돌아오지 않아요",
-      "followUpCanceledOn": "{{name}}이(가) {{day}} {{time}}에 «{{about}}» 건으로 돌아오지 않아요",
-      "followUpWake": "{{name}}이(가) «{{about}}» 건으로 돌아왔어요",
-      "followUpCancel": "취소",
       "other": "{{name}}에게 온 알림",
       "wakeSkipped": "{{name}}의 멘션이 {{agents}}에게 전달되지 않았어요",
       "wakeSkippedAnon": "{{name}}의 멘션이 다른 에이전트에게 닿지 않았어요",
@@ -15439,6 +15617,7 @@
         "usingTool": "{{tool}} 도구를 사용했어요",
         "thinking": "생각했어요",
         "typing": "작성했어요",
+        "recordingVoice": "오디오를 녹음했어요",
         "writing": "작성했어요"
       }
     },
@@ -15448,6 +15627,7 @@
       "updatingRoutine": "루틴을 변경하는 중",
       "thinking": "작업 중",
       "typing": "입력 중",
+      "recordingVoice": "오디오 녹음 중",
       "writing": "작성 중",
       "consulting": "{{app}} 확인 중",
       "creatingIssue": "작업을 만드는 중",
@@ -15697,6 +15877,7 @@
       "action_install_skill": "스킬 설치",
       "action_update_skills": "스킬 업데이트",
       "action_approvals": "내 승인을 기다리는 요청",
+      "welcome_member": "방금 {{org}}에 들어오셨네요. **여기서 어떤 일을 맡고 있나요?** 알려주시면 첫 에이전트를 함께 만들어 드릴게요.",
       "action_open_page": "화면 열기",
       "calendar_proposal": "일정 제안: {{title}}",
       "action_workspace": "워크스페이스 변경을 제안했어요",
@@ -16495,6 +16676,17 @@
     "type": "확인하려면 {{name}}을(를) 입력하세요",
     "submit": "워크스페이스 삭제"
   },
+  "emailUndo": {
+    "title": "이메일 되돌리기",
+    "lead": "이 링크를 받은 주소가 다시 계정의 이메일이 돼요. 모든 세션에서 로그아웃되고, AI 앱 연결이 끊기고, 변경 후에 추가된 로그인 방법은 더 이상 쓸 수 없어요. 비밀번호도 지워지고, 다음 비밀번호는 “비밀번호를 잊었어요”에서 정해요.",
+    "button": "제가 아니에요",
+    "done": "이메일이 돌아왔어요",
+    "doneLead": "{{email}}이(가) 다시 계정의 이메일이 됐고, 모든 세션에서 로그아웃됐어요. 변경 후에 추가된 로그인 방법은 더 이상 쓸 수 없고, 비밀번호도 지워졌어요. 로그인할 때 “비밀번호를 잊었어요”를 눌러 다음 비밀번호를 정하세요.",
+    "gone": "이 링크는 더 이상 쓸 수 없어요",
+    "goneLead": "이미 사용됐거나 7일이 지났어요.",
+    "taken": "다른 계정이 이 이메일을 쓰고 있어요",
+    "takenLead": "{{email}}은(는) 이제 다른 계정의 이메일이라 되돌릴 수 없어요. 아무것도 바뀌지 않았어요."
+  },
   "proof": {
     "willSend": "본인 확인을 위해 {{email}}(으)로 코드를 보낼게요.",
     "send": "코드 보내기",
@@ -16928,6 +17120,19 @@
       "chooseOnWeb": "agentes.chat의 설정 › 기기에서 선택하세요."
     }
   },
+  "agora": {
+    "label": "지금",
+    "working_other": "에이전트 {{count}}개 작업 중",
+    "waiting_other": "{{count}}개 내 확인 대기",
+    "sections": {
+      "you": "내 확인 대기",
+      "working": "작업 중",
+      "waiting": "대기 중"
+    },
+    "allWaiting_other": "내 확인 대기 {{count}}개 보기",
+    "actions": "더 보기",
+    "openManager": "작업 관리자 열기"
+  },
   "taskManager": {
     "title": "작업 관리자",
     "subtitle": "에이전트가 지금 하는 일과 오늘 끝난 일이에요.",
@@ -16957,11 +17162,12 @@
     "sections": {
       "asked": "사람이 요청한 작업",
       "delegated": "에이전트가 요청한 작업",
-      "background": "백그라운드 루틴"
+      "background": "백그라운드 루틴",
+      "returns": "후속 확인"
     },
     "state": {
       "working": "작업 중",
-      "ok": "내 승인 대기 중",
+      "ok": "내 확인 대기",
       "answer": "답변 대기 중",
       "computerBusy": "컴퓨터 자리 대기 중",
       "inLine": "차례 대기 · {{position}}번째",
@@ -17045,6 +17251,9 @@
       "stopped": "내가 중지함",
       "stoppedBy": "{{name}}이(가) 중지함",
       "failed": "끝내지 못함",
+      "returnCanceled": "후속 확인 취소됨",
+      "returnCanceledYou": "내가 후속 확인을 취소함",
+      "returnCanceledBy": "{{name}}이(가) 후속 확인을 취소함",
       "none": "오늘 끝난 작업이 아직 없어요."
     },
     "empty": {

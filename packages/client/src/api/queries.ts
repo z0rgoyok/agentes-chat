@@ -46,6 +46,7 @@ import { setMyReaction } from "../lib/reactions";
 import { recentConversations } from "../lib/recent";
 import { replyOf } from "../lib/reply";
 import { firstVisitOf, teamAnswered } from "../lib/right-hand";
+import { type LodiPrefs, type LodiPrefsPatch, legacyPatch } from "../lib/right-hand-prefs";
 import { usagePauseRefetchMs } from "../lib/routine-view";
 import { withRead } from "../lib/seen";
 import {
@@ -57,7 +58,7 @@ import {
 } from "../lib/sidebar-items";
 import { repinAgent, SIDEBAR_VIEW_DEFAULT, unpinAgents } from "../lib/sidebar-view";
 import { playSound } from "../lib/sounds";
-import type { TeamWeekAct, TeamWeekPrefs } from "../lib/team-week";
+import type { TeamWeekAct } from "../lib/team-week";
 import { threadStartOf } from "../lib/threads";
 import { upsertMessage, withLocalCopies } from "../lib/timeline";
 import { voiceOf } from "../lib/voice";
@@ -121,6 +122,7 @@ import type {
   GifCategory,
   GifKey,
   InviteBatch,
+  InviteLinkChoices,
   Issue,
   IssueActivity,
   IssueActivityEvent,
@@ -145,6 +147,7 @@ import type {
   NotificationEvent,
   NotificationFilter,
   OrgRoles,
+  PendingReturn,
   Person,
   PersonalTokenInput,
   PersonLimits,
@@ -159,6 +162,7 @@ import type {
   RoutineHook,
   RoutineInput,
   RoutinePatch,
+  RowHolders,
   S3Input,
   SandboxSettingsInput,
   SearchFilterInput,
@@ -199,6 +203,7 @@ import type {
   WorkspaceActionCardView,
   WorkView,
 } from "./types";
+import { WORKSPACE_ACTION_IDS } from "./types";
 
 /**
  * React Query hooks over the `ApiClient`. Reads are cached per organization;
@@ -558,14 +563,31 @@ export function useReorderRoles(orgId: string) {
   });
 }
 
-/** Sets a person's roles (exactly these). */
+/**
+ * "Quem pode…": who holds one row, `everyone` and the roles in one call (`PUT …/permissions/{row}`); the roles it
+ * answers with replace the cached ones.
+ */
+export function useSetRowHolders(orgId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ row, holders }: { row: string; holders: RowHolders }) => api.roles.setRow(orgId, row, holders),
+    onSuccess: (roles) => qc.setQueryData(keys.roles(orgId), roles),
+    onSettled: () => refreshRoles(qc, orgId),
+  });
+}
+
+/**
+ * Sets a person's roles (exactly these). `mailLossSeen`: the mailboxes they were told agents lose
+ * (`api.roles.mailLoss`); one given since refuses it with `agent.mail_loss_changed`, to ask again.
+ */
 export function useSetMemberRoles(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
   const via = useCardVia();
   return useMutation({
-    mutationFn: ({ userId, roleIds }: { userId: string; roleIds: string[] }) =>
-      api.roles.setFor(orgId, userId, roleIds, via),
+    mutationFn: ({ userId, roleIds, mailLossSeen }: { userId: string; roleIds: string[]; mailLossSeen?: string[] }) =>
+      api.roles.setFor(orgId, userId, roleIds, via, mailLossSeen),
     onMutate: async ({ userId, roleIds }) => {
       await qc.cancelQueries({ queryKey: keys.people(orgId) });
       const before = qc.getQueryData<Person[]>(keys.people(orgId));
@@ -763,17 +785,32 @@ export function useActionCard(orgId: string, messageId: string | null) {
  * Aplicar, Descartar or Pedir a quem pode on the right hand's card of a workspace change: the card comes back as it is
  * now, and what the change touches (roles, people, channels) is read again.
  */
-export function useDecideActionCard(orgId: string, where: { channelId: string; messageId: string }) {
+export function useDecideActionCard(
+  orgId: string,
+  /** `action`: the card's catalog action. Sent back as `knows` when this build words it, so the server can refuse to
+   * apply a change this build would show without saying what it is. */
+  where: { channelId: string; messageId: string; action?: string },
+) {
   const api = useApi();
   const qc = useQueryClient();
+  const knows = (WORKSPACE_ACTION_IDS as readonly string[]).includes(where.action ?? "") ? where.action : undefined;
   return useMutation({
     mutationFn: (decision: "apply" | "dismiss" | "ask") =>
-      part(api, "actionCards").decide(orgId, where.messageId, decision),
+      part(api, "actionCards").decide(orgId, where.messageId, decision, knows),
     onSuccess: ({ card }) => {
       cacheActionCard(qc, orgId, where, card);
-      for (const key of [keys.roles(orgId), keys.members(orgId), keys.channels(orgId)])
+      for (const key of [
+        keys.roles(orgId),
+        keys.members(orgId),
+        keys.channels(orgId),
+        keys.invitations(orgId),
+        keys.credentials(orgId),
+      ])
         void qc.invalidateQueries({ queryKey: key });
     },
+    // A refusal may have rewritten the card (what it names moved): read it again before anyone taps a second time.
+    // Who reads it from their inbox is not in its conversation, so no event brings them the new card.
+    onError: () => void qc.invalidateQueries({ queryKey: keys.actionCard(orgId, where.messageId) }),
   });
 }
 
@@ -2019,6 +2056,8 @@ export function useDecideApproval(orgId: string) {
       playSound(decision === "approve" ? "approved" : "error");
       cacheApproval(qc, orgId, approval);
       void qc.invalidateQueries({ queryKey: keys.approvals(orgId) });
+      // Its run moves on: the chips of the threads it held say so (a hand-off's run posts nothing where they are).
+      void qc.invalidateQueries({ queryKey: keys.threads(orgId) });
       if (always) void qc.invalidateQueries({ queryKey: keys.approvalRules(orgId, approval.agentId) });
       if (always && approval.approveAlways?.routineId) void qc.invalidateQueries({ queryKey: keys.routines(orgId) });
     },
@@ -2038,19 +2077,23 @@ export function useCancelApproval(orgId: string) {
   });
 }
 
-/** A card's "Aprovar tudo" / "Agora não para todos": exactly the ids it listed at the click. */
+/**
+ * A card's "Aprovar tudo" / "Agora não para todos": exactly the ids it listed at the click. `only: "routine"` leaves
+ * to the server which of them one tap may decide: the others come back in `skipped`, still pending.
+ */
 export function useDecideApprovals(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
   const via = useCardVia();
   return useMutation({
     mutationKey: decidingKey(orgId),
-    mutationFn: (input: { ids: string[]; decision: "approve" | "refuse"; reason?: string }) =>
+    mutationFn: (input: { ids: string[]; decision: "approve" | "refuse"; reason?: string; only?: "routine" }) =>
       api.approvals.decideMany(orgId, via ? { ...input, via } : input),
     onSuccess: (result, { decision }) => {
       playSound(decision === "approve" ? "approved" : "error");
       for (const approval of result.approvals) cacheApproval(qc, orgId, approval);
       void qc.invalidateQueries({ queryKey: keys.approvals(orgId) });
+      void qc.invalidateQueries({ queryKey: keys.threads(orgId) });
     },
   });
 }
@@ -2759,13 +2802,13 @@ export function useInviteMany(orgId: string) {
   });
 }
 
-/** The roles a pending invitation gives (ADR 0090): the same link, nothing is sent. */
-export function useSetInvitationRoles(orgId: string) {
+/** What a pending invitation gives (ADR 0090, 0184): its cargos, channels and agents. The same link, nothing is sent. */
+export function useUpdateInvitation(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; roleIds: string[] }) =>
-      api.orgs.setInvitationRoles(orgId, input.id, input.roleIds),
+    mutationFn: ({ id, ...change }: { id: string; roleIds?: string[]; channelIds?: string[]; agentIds?: string[] }) =>
+      api.orgs.updateInvitation(orgId, id, change),
     onSettled: () => qc.invalidateQueries({ queryKey: keys.invitations(orgId) }),
   });
 }
@@ -2824,13 +2867,23 @@ export const useInviteLinks = (orgId: string, enabled = true) => {
   return useQuery({ queryKey: keys.inviteLinks(orgId), queryFn: () => api.invites.links(orgId), enabled });
 };
 
-/** "Make a link": the active one, or a new one. */
+/** "Make a link": the active one, or a new one; with choices, a link of its own (ADR 0184). */
 export function useMakeInviteLink(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.invites.createLink(orgId),
+    mutationFn: (choices?: InviteLinkChoices) => api.invites.createLink(orgId, choices),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.inviteLinks(orgId) }),
+  });
+}
+
+/** "Editar link" (ADR 0184): what it gives, at the same address. */
+export function useEditInviteLink(orgId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...choices }: InviteLinkChoices & { id: string }) => api.invites.editLink(orgId, id, choices),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.inviteLinks(orgId) }),
   });
 }
 
@@ -2875,7 +2928,13 @@ export function useApproveJoinRequest(orgId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; roleIds?: string[] }) => api.joinRequests.approve(orgId, input.id, input.roleIds),
+    mutationFn: (input: { id: string; roleIds?: string[]; channelIds?: string[]; agentIds?: string[] }) =>
+      input.channelIds || input.agentIds
+        ? api.joinRequests.approve(orgId, input.id, input.roleIds, {
+            channelIds: input.channelIds,
+            agentIds: input.agentIds,
+          })
+        : api.joinRequests.approve(orgId, input.id, input.roleIds),
     onSettled: () => refreshAnswered(qc, orgId),
   });
 }
@@ -2992,7 +3051,7 @@ export const useRefuseMoreUsage = (orgId: string) => {
   return usePeopleUsageMutation(orgId, (userId: string) => api.orgs.refuseMoreUsage(orgId, userId));
 };
 
-/** When Lodi's weekly card comes for me (ADR 0137 §9), or that it is off. */
+/** What Lodi does for me by itself: when its daily and weekly cards come, and its other switches (ADR 0137 §9). */
 export const useTeamWeekPrefs = (orgId: string, enabled = true) => {
   const api = useApi();
   return useQuery({ queryKey: keys.teamWeek(orgId), queryFn: () => api.orgs.teamWeek(orgId), enabled });
@@ -3002,7 +3061,12 @@ export const useSetTeamWeekPrefs = (orgId: string) => {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<Omit<TeamWeekPrefs, "timezone">>) => api.orgs.setTeamWeek(orgId, patch),
+    // A server from before the two cards is saved in the words it knows: it would drop these and answer 200.
+    mutationFn: (patch: LodiPrefsPatch) =>
+      api.orgs.setTeamWeek(
+        orgId,
+        qc.getQueryData<LodiPrefs>(keys.teamWeek(orgId))?.legacy ? legacyPatch(patch) : patch,
+      ),
     onSuccess: (prefs) => qc.setQueryData(keys.teamWeek(orgId), prefs),
   });
 };
@@ -6230,6 +6294,48 @@ export function applyUnreadEvent(qc: QueryClient, orgId: string, event: { type: 
     clearThreadUnread(qc, orgId, e.threadId);
     refreshThreadUnread(qc, orgId);
   }
+}
+
+/**
+ * The returns agents set in a conversation, still to come, the soonest first (ADR 0037): the bar above the composer
+ * holds them. Live: a `follow_up` line's `message.created` refreshes it (`isReturnLine`).
+ */
+export function useFollowUps(orgId: string, channelId: string, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.followUps(orgId, channelId),
+    queryFn: () => api.chat.followUps(orgId, channelId),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Cancels a return: it leaves the conversation's list at once (also when it had already come or gone: there is nothing
+ * left to cancel), then the lists read again.
+ */
+export function useCancelFollowUp(orgId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const drop = (channelId: string, messageId: string) =>
+    qc.setQueryData<PendingReturn[]>(keys.followUps(orgId, channelId), (old) =>
+      old?.filter((r) => r.messageId !== messageId),
+    );
+  return useMutation({
+    mutationFn: async ({ messageId }: { channelId: string; messageId: string }) => {
+      try {
+        await api.chat.cancelFollowUp(orgId, messageId);
+      } catch (error) {
+        if (!(error instanceof ApiError && (error.status === 404 || error.status === 409))) throw error;
+      }
+    },
+    onSuccess: (_done, { channelId, messageId }) => drop(channelId, messageId),
+    onSettled: (_done, _error, { channelId }) => {
+      void qc.invalidateQueries({ queryKey: keys.followUps(orgId, channelId) });
+      void qc.invalidateQueries({ queryKey: keys.taskManager(orgId) });
+      void qc.invalidateQueries({ queryKey: keys.agentStatus(orgId) });
+    },
+  });
 }
 
 /** A channel's pinned messages, newest pin first (live: `message.pinned` / `message.unpinned`). */

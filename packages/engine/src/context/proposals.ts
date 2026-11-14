@@ -11,6 +11,7 @@ import {
   isNull,
   ne,
   or,
+  rowsOf,
   schema,
   sql,
 } from "@agenteschat/db";
@@ -90,12 +91,31 @@ export const ASKED_IN_CONVERSATION = "Asked in conversation.";
 /** The team week's reasons for a settings row. */
 export const OVER_BUDGET_REASON = "It stopped at its monthly budget this week.";
 export const NO_CHANNEL_REASON = "It is in no channel.";
+export const IDLE_REASON = "It has not worked in four weeks, has no routine and no open task.";
+/** The four weeks `IDLE_REASON` speaks of. */
+export const IDLE_MS = 28 * 24 * 3_600_000;
+/**
+ * What `IDLE_REASON` says, over `agents a`: no run since `since`, no active routine, no open task. The week's card
+ * offers to archive an agent only while this holds, and the offer is applied only while it still does.
+ */
+export const idleAgentSql = (since: Date) => sql`(
+  not exists (select 1 from agent_runs r where r.org_id = a.org_id and r.agent_id = a.id
+    and r.created_at >= ${since.toISOString()}::timestamptz)
+  and not exists (select 1 from routines ro where ro.org_id = a.org_id and ro.agent_id = a.id
+    and ro.active and ro.deleted_at is null)
+  and not exists (select 1 from issues i where i.org_id = a.org_id and i.assignee_type = 'agent'
+    and i.assignee_id = a.id::text and i.status not in ('done', 'canceled')))`;
+export const LIGHT_WORK_REASON = "Its work is light enough for a smaller model.";
 /** The reasons the server writes itself: the agent reads them as they are, people through `whyCode`, in their language. */
-export const SERVER_REASONS: Record<string, "asked" | "budget" | "no_channel"> = {
+export const SERVER_REASONS: Record<string, "asked" | "budget" | "no_channel" | "idle" | "light_work"> = {
   [ASKED_IN_CONVERSATION]: "asked",
   [OVER_BUDGET_REASON]: "budget",
   [NO_CHANNEL_REASON]: "no_channel",
+  [IDLE_REASON]: "idle",
+  [LIGHT_WORK_REASON]: "light_work",
 };
+/** Reasons added after the first app builds: those builds have no words for the code, so they get the sentence too. */
+export const LATER_REASONS: ReadonlySet<string> = new Set(["idle", "light_work"]);
 
 /** When an item is strong enough to propose turning it into instructions or org context. */
 export const PROMOTION = { minRecurrence: 2, minConfidence: 0.8, minRelevance: 0.7 };
@@ -507,7 +527,15 @@ export async function decideProposal(
         : [];
       if (!agent) status = "stale";
       else if (p.target === "agent_settings") {
-        if (!(await applySettings({ db: as, pubsub: events.pubsub }, actorId, p, agent))) status = "stale";
+        // An offer to archive an idle agent says why under its button: one that went back to work since is not
+        // archived on that word.
+        const idle =
+          p.rationale !== IDLE_REASON ||
+          rowsOf(
+            await tx.execute(sql`select 1 from agents a where a.id = ${agent.id}
+              and ${idleAgentSql(new Date(Date.now() - IDLE_MS))}`),
+          ).length > 0;
+        if (!idle || !(await applySettings({ db: as, pubsub: events.pubsub }, actorId, p, agent))) status = "stale";
         else {
           const card = await cardOf(tx, p);
           if (card) await recordSettingsReceipt(tx, p, actorId, card, agent.name, UNDO_WINDOW_MS);

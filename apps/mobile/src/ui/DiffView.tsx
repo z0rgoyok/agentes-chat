@@ -6,8 +6,8 @@ import { useSystemText } from "./Text";
 import { fonts, useTheme } from "./theme";
 
 /**
- * A line diff drawn as the web's, as GitHub shows a change: added lines on green with a green bar, removed ones on red,
- * struck through. `prose`: words, not code, so no mono (a proposed change to a text). With `render` and `folded`,
+ * A line diff drawn as the web's, as GitHub shows a change: added lines on green, removed ones on red, struck through
+ * (the tint alone says which). `prose`: words, not code, so no mono (a proposed change to a text). With `render` and `folded`,
  * words in Markdown: each run of lines drawn as one block by `render` (told which kind, so a removed one reads muted),
  * long unchanged runs folded to the line beside each change, `folded` saying how many.
  */
@@ -27,9 +27,9 @@ export function DiffView({
   const words = useSystemText("footnote");
   const band = (kind: DiffKind) =>
     kind === "add"
-      ? { backgroundColor: withAlpha(colors.ok, 0.12), borderLeftColor: colors.ok }
+      ? { backgroundColor: withAlpha(colors.ok, 0.12) }
       : kind === "del"
-        ? { backgroundColor: withAlpha(colors.danger, 0.1), borderLeftColor: colors.danger }
+        ? { backgroundColor: withAlpha(colors.danger, 0.1) }
         : null;
   if (render && folded) {
     return (
@@ -76,8 +76,8 @@ const styles = StyleSheet.create({
   diff: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   lines: { paddingVertical: 8 },
   line: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 19 },
-  // Every line and block 12 from the edge, its bar (when it has one) on the edge.
-  edge: { paddingLeft: 9, paddingRight: 12, borderLeftWidth: 3, borderLeftColor: "transparent" },
+  // Every line and block 12 from the edge.
+  edge: { paddingHorizontal: 12 },
   block: { paddingVertical: 8 },
   fold: { paddingVertical: 4, paddingHorizontal: 12 },
   removed: { textDecorationLine: "line-through" },

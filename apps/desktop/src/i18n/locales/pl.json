@@ -315,6 +315,7 @@
     "offline": "Offline od {{time}}",
     "signIn": "Zaloguj się",
     "signOut": "Wyloguj z tego serwera",
+    "addAccount": "Dodaj konto",
     "signedOutDone": "Wylogowano z {{host}}",
     "removeFromApp": "Usuń z tej aplikacji",
     "newsOne": "1 nowe powiadomienie",

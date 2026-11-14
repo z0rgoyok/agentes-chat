@@ -1,4 +1,11 @@
-import { confirmWaitlist, joinWaitlist, WAITLIST_LOCALES } from "@agenteschat/engine";
+import {
+  confirmWaitlist,
+  joinPartnerWaitlist,
+  joinWaitlist,
+  PARTNER_ANSWER_MAX_CHARS,
+  PARTNER_ANSWER_MAX_PICKS,
+  WAITLIST_LOCALES,
+} from "@agenteschat/engine";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { requestLimitIp } from "../http/client-ip";
@@ -66,10 +73,57 @@ const confirm = createRoute({
   },
 });
 
+const partners = createRoute({
+  method: "post",
+  path: "/partners/waitlist",
+  tags: ["Public"],
+  summary: "Join the partner program's waiting list",
+  description:
+    "Public, from the landing page's partner page (`LANDING_URL` or our origin, JSON only). Sending it again with the same email updates the entry; no confirmation email. `answers` holds the form's other questions, each key (`a-z0-9_`) to a text or to the options picked. Guarded by the bot check when this server has one.",
+  request: {
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: z.object({
+            email: z.string().max(254).openapi({ example: "ana@example.com" }),
+            name: z.string().max(120).openapi({ example: "Ana Souza" }),
+            whatsapp: z.string().max(40).openapi({ example: "+5511912345678" }),
+            locale: z.enum(WAITLIST_LOCALES).optional(),
+            answers: z
+              .record(
+                z.string().max(40),
+                z.union([
+                  z.string().max(PARTNER_ANSWER_MAX_CHARS),
+                  z.array(z.string().max(100)).max(PARTNER_ANSWER_MAX_PICKS),
+                ]),
+              )
+              .optional()
+              .openapi({ example: { clients: "6-20", segments: ["health", "retail"], consent: "yes" } }),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    202: {
+      description: "On the list",
+      content: { "application/json": { schema: z.object({ ok: z.literal(true) }) } },
+    },
+    400: errorResponse(
+      "Invalid email (`invalid_email`), name (`invalid_name`), WhatsApp (`invalid_whatsapp`) or body (`invalid_request`)",
+    ),
+    403: errorResponse(
+      "Not from our origin (`bad_origin`), or the bot check refused (`human_check`, `human_check_blocked`)",
+    ),
+    429: errorResponse("Too many attempts (`rate_limited`)"),
+  },
+});
+
 /**
- * `POST /api/waitlist` and `/api/waitlist/confirm`: the landing page's only call to action.
- * The landing page is its own site (`LANDING_URL`), so these two routes, and only these,
- * answer it through CORS: JSON only, no cookies.
+ * `POST /api/waitlist`, `/api/waitlist/confirm` and `/api/partners/waitlist`: the landing
+ * page's calls to action. The landing page is its own site (`LANDING_URL`), so these
+ * routes, and only these, answer it through CORS: JSON only, no cookies.
  */
 export function registerWaitlist(api: OpenAPIHono, deps: AppDeps) {
   const { config } = deps;
@@ -85,6 +139,7 @@ export function registerWaitlist(api: OpenAPIHono, deps: AppDeps) {
     });
     api.use("/waitlist", landingCors);
     api.use("/waitlist/confirm", landingCors);
+    api.use("/partners/waitlist", landingCors);
   }
 
   api.openapi(join, async (c) => {
@@ -113,5 +168,20 @@ export function registerWaitlist(api: OpenAPIHono, deps: AppDeps) {
     if (!(await confirmWaitlist(deps.db, c.req.valid("json").token)))
       return apiError(c, 400, "invalid_token", "This link is unknown or expired. Join the list again for a new one.");
     return c.json({ ok: true as const }, 200);
+  });
+
+  // The launch list's checks, on buckets of its own: one list's traffic never throttles the other.
+  api.openapi(partners, async (c) => {
+    const origin = c.req.header("origin");
+    if (!origin || !origins.has(origin)) return apiError(c, 403, "bad_origin", "Cross-origin request refused");
+    const ip = requestLimitIp(c.req.raw.headers, config.TRUSTED_PROXIES);
+    if (!(await rateLimiter.consume(`partner-waitlist:${ip}`, JOIN_PER_IP)).allowed)
+      return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+    const refused = await humanCheckRefusal(humanCheck, c.req.raw.headers, "waitlist", config.TRUSTED_PROXIES);
+    if (refused) return apiError(c, 403, refused.code, refused.message);
+    if (!(await rateLimiter.consume("partner-waitlist:all", JOIN_TOTAL)).allowed)
+      return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+    await joinPartnerWaitlist(deps.db, c.req.valid("json"));
+    return c.json({ ok: true as const }, 202);
   });
 }

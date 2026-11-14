@@ -1,8 +1,11 @@
-import { useStopTasks, useTaskManager } from "@agenteschat/client";
+import { type ManagedTask, useStopTasks, useTaskManager } from "@agenteschat/client";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { todayStart } from "@agenteschat/client/lib/task-manager";
 import { useIsFocused } from "expo-router";
+import type { TFunction } from "i18next";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Alert } from "react-native";
 import { haptics, useToast } from "@/ui";
 import { useOrgId } from "../shared/hooks";
 import { agentTasksOf, doneTodayOf, type Place } from "./logic";
@@ -93,4 +96,29 @@ export function useStopper() {
     [mutate, release, toast, t],
   );
   return { stopping, stop };
+}
+
+/**
+ * "Parar" asked by one alert, the system's: what stops and what the agent does; a task that asked other agents stops
+ * them too. A task's screen and the work-along line's long press ask it.
+ */
+export function askToStop(
+  t: TFunction,
+  task: Pick<ManagedTask, "runId" | "helpers">,
+  title: string,
+  agentName: string,
+  stop: (runIds: readonly string[], reason?: string, chain?: boolean) => void,
+) {
+  Alert.alert(
+    t("mobile.taskManager.stopTitle", { title }),
+    task.helpers ? t("taskManager.confirm.chainBody") : t("mobile.taskManager.stopBody", agentGrammar(agentName)),
+    [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("taskManager.confirm.stop", { count: 1 + (task.helpers ?? 0) }),
+        style: "destructive",
+        onPress: () => stop([task.runId], undefined, true),
+      },
+    ],
+  );
 }

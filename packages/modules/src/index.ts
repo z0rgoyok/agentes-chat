@@ -35,9 +35,9 @@ export interface AdapterOverrides extends Partial<Adapters> {
 /**
  * Extension point that lets optional modules (Cloud-only behavior among them)
  * add behaviour without the core ever importing them. The core only knows
- * this interface. Modules are public code: outside contributions come in under
- * the AGPL with no contributor license agreement, so nothing private may run
- * in this process (ADR 0002 §5).
+ * this interface. Modules are public code: outside contributions merged before
+ * the contributor license agreement are held only under the AGPL, so nothing
+ * private may run in this process (ADR 0002 §5, ADR 0180).
  *
  * Rule enforced by `bun run check:boundaries`: nothing under `apps/` or
  * `packages/` may import `@agenteschat/cloud` or `@agenteschat/ee`.

@@ -83,6 +83,10 @@
   max-width: 100%;
   margin-top: 2px;
 }
+/* Its face's word under its face: the badge at work wears the face's blue (the kit gives it on faces only). */
+.dm-side__status .ac-presence[data-presence="working"] {
+  --presence: var(--agent);
+}
 .dm-side__sec {
   padding: 12px 16px 2px;
   border-top: 1px solid var(--line);

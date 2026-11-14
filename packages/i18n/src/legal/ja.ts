@@ -7,7 +7,7 @@ export const legalJa: Partial<Record<LegalKind, LegalDocument>> = {
     summary:
       "agentes.chat を利用するための契約です。お客様のワークスペース、お客様のエージェント、および各当事者が負う責任について定めます。",
     courtesy: "本書は便宜上の翻訳であり、英語版と内容が異なる場合は英語版が優先します。",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -173,7 +173,7 @@ export const legalJa: Partial<Record<LegalKind, LegalDocument>> = {
     summary:
       "当社が収集する情報、エージェントが何をどこへ送信するか、誰がお客様のワークスペースを閲覧できるか、およびお客様が有する権利について説明します。",
     courtesy: "本書は便宜上の翻訳であり、英語版と内容が異なる場合は英語版が優先します。",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

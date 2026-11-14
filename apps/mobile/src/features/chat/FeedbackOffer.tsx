@@ -117,7 +117,8 @@ export function FeedbackOfferRow({ message: m }: { message: Message }) {
 
 const styles = StyleSheet.create({
   bold: { fontWeight: "600" },
-  // The receipts' card (TeamChecks.tsx): a hairline, the cut corner, the icon on the first line's middle.
+  // The receipts' card (TeamChecks.tsx): a hairline, the cut corner, the icon on the first line's middle. The column's
+  // width from the start, as a request's: the report opening inside never widens it.
   one: {
     flexDirection: "row",
     alignItems: "flex-start",

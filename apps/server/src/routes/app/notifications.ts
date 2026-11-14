@@ -135,6 +135,10 @@ const Notification = z
         description:
           "`org_standing` on agentes.chat Cloud: the apps read `text` as the restriction, with how to contest it.",
       }),
+      still: z.number().optional().openapi({
+        description:
+          "A reminder of what the person left unread in the waiting inbox: how many things still wait, this one included.",
+      }),
     }),
     readAt: z.string().nullable(),
     doneAt: z.string().nullable(),

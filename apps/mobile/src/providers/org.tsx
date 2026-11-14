@@ -2,7 +2,7 @@ import { type OrgSummary, useApi, useMe } from "@agenteschat/client";
 import { useLocaleSync } from "@agenteschat/client/lib/locale-sync";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { accountFailed, chooseOrg, openOrgs } from "@/lib/org-choice";
-import { orgValueName, useServer } from "@/lib/server";
+import { orgValueName, usePlace } from "@/lib/server";
 import { readValue, writeValue } from "@/lib/storage";
 import { deviceLocale, i18n, readLocaleState, rememberLocale, setLocale } from "./i18n";
 import { useSession } from "./session";
@@ -51,7 +51,8 @@ const OrgContext = createContext<OrgGate>({
  */
 export function OrgProvider({ children }: { children: ReactNode }) {
   const me = useMe();
-  const server = useServer();
+  // The place: each server, and each account on one, remembers its own workspace.
+  const server = usePlace();
   const session = useSession();
   const api = useApi();
   // The person's language here and on the server, matched once their `me` arrives (ADR 0122).

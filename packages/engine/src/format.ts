@@ -52,6 +52,10 @@ export const cutTextEnd = (text: string, max: number) =>
 export const stringsOf = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
+/** `value` when it is a whole number from `min` to `max`, else null: a stored hour or weekday that may hold anything. */
+export const wholeIn = (value: unknown, min: number, max: number): number | null =>
+  typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
+
 /** Postgres text and jsonb refuse NUL and lone UTF-16 surrogates: `text` without either. */
 export const pgSafeText = (text: string) =>
   text.replaceAll("\0", "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");

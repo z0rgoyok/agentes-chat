@@ -53,10 +53,11 @@ export const RIGHT_HAND_AUTO = {
 
 /**
  * What it holds whatever its grant rows say (`loadScopeKeys` adds the rows on top: apps, mailboxes, databases, a
- * tool turned off): every built-in scope an agent can be given, and the setup cards. Not a computer's (`sandbox:run`,
- * `browser:use`, `desktop:use`): it has none of its own, and a row for one gives it nothing. One row answers
- * everyone, so what is one person's stays in that person's own DM with it (`rightHandReader`): their Vault items,
- * their mailbox, their tasks, and what it remembers for them.
+ * tool turned off): every built-in scope an agent can be given but a computer's, and the setup cards. A computer's
+ * (`sandbox:run`, `browser:use`, `desktop:use`) are rows like any agent's, given when it is made
+ * (`RIGHT_HAND_COMPUTER_GRANTS`, ADR 0175), so an admin turns them off on its page. One row answers everyone, so what
+ * is one person's stays in that person's own DM with it (`rightHandReader`): their Vault items, their mailbox, their
+ * tasks, what it remembers for them, and their seat on the workspace's computer (`right-hand-seats.ts`).
  */
 export const RIGHT_HAND_GRANTS: readonly string[] = [
   "setup:write",
@@ -76,9 +77,20 @@ export const RIGHT_HAND_GRANTS: readonly string[] = [
   "vault:write",
 ];
 
-/** What it reads for a computer tool: it has no computer, and no card or admin can give it one. */
-export const RIGHT_HAND_NO_COMPUTER =
-  "you have no computer yet, so you run no commands, keep no files there and open no browser. Hand this to an agent that has one (ask_agent, tell_agent, or create_issue assigned to it) or propose one, and never ask the person to try again";
+/**
+ * Tools it is never offered, whatever its grants: each acts on a computer under the agent's own id, which reaches
+ * none (ADR 0175 §2), so offering it would only end in a refusal. A folder outside its own, its browser's own hand-off
+ * (its browser shows on the seat's desktop, asked for there), missions, and keeping something running after the run.
+ */
+export const RIGHT_HAND_NOT_OFFERED: ReadonlySet<string> = new Set([
+  "request_folder_access",
+  "browser_ask_person",
+  "propose_mission",
+  "keep_running",
+]);
+
+/** The grant rows it is made with: its computer's scopes, used in a seat there, a person's own or the shared one (ADR 0175). */
+export const RIGHT_HAND_COMPUTER_GRANTS = ["sandbox:run", "browser:use", "desktop:use"] as const;
 
 /**
  * Its owner (the person accountable for it) is the workspace's longest-standing owner who can still sign in: set
@@ -137,6 +149,10 @@ export async function ensureRightHand(db: Executor, orgId: string): Promise<stri
     .insert(agentBudgetPeriods)
     // The month's counter exists from the start, as for any new agent (`resyncBudgetCounter`): nothing spent yet.
     .values({ orgId, agentId: made.id, periodStart: sql`date_trunc('month', now() at time zone 'utc')::date` })
+    .onConflictDoNothing();
+  await db
+    .insert(schema.agentScopes)
+    .values(RIGHT_HAND_COMPUTER_GRANTS.map((scope) => ({ orgId, agentId: made.id, connectionId: null, scope })))
     .onConflictDoNothing();
   return made.id;
 }
@@ -258,22 +274,23 @@ export async function rightHandReader(
 }
 
 /**
- * Whether `person` is the one person who reads `channelId`: their own DM with an agent, where nobody else reads a
- * reply. With `agentId`, no other agent is in it either.
+ * The one person who reads `channelId`: their own DM with an agent, where nobody else reads a reply. Null where no
+ * person or more than one reads, and with `agentId` where another agent is in it too.
  */
-export async function readsAlone(db: Executor, channelId: string, person: string, agentId?: string) {
+export async function soleReader(db: Executor, channelId: string, agentId?: string): Promise<string | null> {
   const members = await db
     .select({ userId: channelMembers.userId, agentId: channelMembers.agentId })
     .from(channelMembers)
     .innerJoin(channels, eq(channels.id, channelMembers.channelId))
     .where(and(eq(channelMembers.channelId, channelId), eq(channels.kind, "dm")));
   const people = members.filter((m) => m.userId);
-  return (
-    people.length === 1 &&
-    people[0]?.userId === person &&
-    (!agentId || members.every((m) => !m.agentId || m.agentId === agentId))
-  );
+  const alone = people.length === 1 && (!agentId || members.every((m) => !m.agentId || m.agentId === agentId));
+  return alone ? (people[0]?.userId ?? null) : null;
 }
+
+/** Whether `person` is the one person who reads `channelId` (`soleReader`). */
+export const readsAlone = async (db: Executor, channelId: string, person: string, agentId?: string) =>
+  (await soleReader(db, channelId, agentId)) === person;
 
 /** The right hand anywhere but a person's own DM with it: what only reads or writes for that person stays out. */
 export async function rightHandAway(

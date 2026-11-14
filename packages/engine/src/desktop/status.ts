@@ -3,6 +3,7 @@ import type { Database } from "@agenteschat/db";
 import { getAgentCached } from "../agents";
 import type { MachineCaller } from "../machine-hub";
 import { REMOVED_COMPUTER_MESSAGE } from "../machines";
+import { toolMachineId } from "../right-hand-seats";
 
 /** Why the agent can't use its desktop, as a code (for the app) and a sentence (for the agent). */
 export type DesktopUseUnavailable =
@@ -47,7 +48,7 @@ export async function agentDesktopUseStatus(
     detail: null,
   });
   const agent = await getAgentCached(db, orgId, agentId);
-  const machineId = agent?.machineId ?? null;
+  const machineId = await toolMachineId(db, agent);
   if (!machineId || !hub) return none("no_machine");
   const status = await hub.status(machineId);
   if (!status || status.orgId !== orgId) return none("machine_removed", machineId);

@@ -4,6 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import {
+  type ActiveRun,
   type ApiClient,
   asksPicture,
   PICTURE_IDLE_MS,
@@ -22,6 +23,7 @@ import {
   fakeBrowserOf,
   fakeMachinesOf,
   ORG_ID,
+  seedDm,
   seedState,
   withRightHand,
 } from "./fake-api";
@@ -187,6 +189,36 @@ describe("the toggle", () => {
 });
 
 describe("what the viewer sees", () => {
+  test("at work, heard here: the word under its name wears the face's badge, in the face's blue", async () => {
+    widthIs(DM_SIDE_WIDE_QUERY);
+    const state = seedState();
+    state.agentStatuses = [{ agentId: ADA_ID, presence: "online", status: null, activeAt: null }];
+    const channelId = seedDm(state, { type: "agent", id: ADA_ID });
+    const at = new Date(Date.now() - 60_000).toISOString();
+    state.activeRuns = {
+      [channelId]: [
+        {
+          runId: "r-ada",
+          agentId: ADA_ID,
+          channelId,
+          threadId: `m-${channelId}`,
+          status: "running",
+          triggerMessageId: `m-${channelId}`,
+          startedAt: at,
+          heartbeatAt: at,
+          createdAt: at,
+        } as ActiveRun,
+      ],
+    };
+    await openDm({ state });
+    const status = (side() as HTMLElement).querySelector("p.dm-side__status") as HTMLElement;
+    expect(status.textContent).toBe("Trabalhando agora");
+    expect(status.querySelector(".ac-presence")?.getAttribute("data-presence")).toBe("working");
+    // The kit gives the working badge its blue on faces only: this line takes it too.
+    const css = await Bun.file(new URL("../src/components/agents/agent-sidebar.css", import.meta.url)).text();
+    expect(css).toMatch(/\.dm-side__status \.ac-presence\[data-presence="working"\] \{\s*--presence: var\(--agent\);/);
+  });
+
   test("whoever may watch: the picture, Assumir o controle, the eye", async () => {
     widthIs(DM_SIDE_WIDE_QUERY);
     const { calls } = await openDm();

@@ -18,7 +18,7 @@ import { withOpacity } from "../chat/turn";
 import { Face } from "../shared/Face";
 import { useColors, useDirectory } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
-import { CANCEL_X, HOLD_MS, LOCK_Y, secondsLeft, slideIntent } from "./logic";
+import { CANCEL_X, HOLD_MS, LOCK_Y, secondsLeft, slideIntent, waveAt } from "./logic";
 import { LIVE_WAVE, useVoiceTake, type VoiceTarget } from "./useVoiceTake";
 import { PixelWave } from "./VoiceBars";
 
@@ -200,12 +200,12 @@ export function useVoiceComposer(
     activeOffsetX: [-2, 2],
     onBegin: (e) => {
       "worklet";
-      if (scrubWidth.value > 0) scrubStart.value = Math.max(0, Math.min(0.999, e.x / scrubWidth.value));
+      if (scrubWidth.value > 0) scrubStart.value = waveAt(e.x, scrubWidth.value);
       take.progress.value = scrubStart.value;
     },
     onUpdate: (e) => {
       "worklet";
-      if (scrubWidth.value > 0) take.progress.value = Math.max(0, Math.min(0.999, e.x / scrubWidth.value));
+      if (scrubWidth.value > 0) take.progress.value = waveAt(e.x, scrubWidth.value);
     },
     onFinalize: () => {
       "worklet";

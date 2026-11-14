@@ -307,6 +307,7 @@
     "offline": "Offline sinds {{time}}",
     "signIn": "Aanmelden",
     "signOut": "Afmelden bij deze server",
+    "addAccount": "Account toevoegen",
     "signedOutDone": "Je bent afgemeld bij {{host}}",
     "removeFromApp": "Uit deze app verwijderen",
     "newsOne": "1 nieuwe melding",

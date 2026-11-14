@@ -89,7 +89,7 @@ test("a handoff needs a signed-in browser with a fresh sign-in", async () => {
   const site = browser(t);
   await signUp(site, "caio@acme.com");
   await t.db.update(schema.sessions).set({ createdAt: new Date(Date.now() - 60 * 60_000) });
-  // The cookie cache still has the old copy for a few minutes: a new browser on the same session row.
+  // A new browser on the same session row.
   const stale = browser(t);
   const token = site
     .cookie()
@@ -105,7 +105,7 @@ test("a handoff needs a signed-in browser with a fresh sign-in", async () => {
   expect(rows).toHaveLength(0);
 });
 
-test("a revoked browser session cannot hand off through its signed cookie cache", async () => {
+test("a revoked browser session cannot hand off with its old cookies", async () => {
   t = await createTestServer();
   const site = browser(t);
   const window = browser(t);

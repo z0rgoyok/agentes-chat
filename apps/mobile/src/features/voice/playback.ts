@@ -12,6 +12,8 @@ export interface PlayRequest {
   speed: number;
   onProgress: (fraction: number) => void;
   onEnd: () => void;
+  /** It didn't load or play: playback stopped, and the row says so. */
+  onError: () => void;
 }
 
 const TICK_MS = 50;
@@ -45,10 +47,23 @@ export function stopPlayback() {
   say();
 }
 
+function makePlayer() {
+  const p = createAudioPlayer(null, { updateInterval: 100 });
+  // A source that fails says so only in this event: `currentStatus`, which the timer reads, never carries the error
+  // (expo-audio 58). Without it a row would stay on pause with its wave still.
+  p.addListener("playbackStatusUpdate", (status) => {
+    if (!status.error || !now) return;
+    const { onError } = now;
+    stopPlayback();
+    onError();
+  });
+  return p;
+}
+
 export async function startPlayback(request: PlayRequest) {
   stopPlayback();
   await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, interruptionMode: "doNotMix" });
-  const p = player ?? createAudioPlayer(null, { updateInterval: 100 });
+  const p = player ?? makePlayer();
   player = p;
   p.replace(request.source);
   p.setPlaybackRate(request.speed);

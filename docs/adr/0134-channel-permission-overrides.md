@@ -27,7 +27,7 @@ allow per role or member). People who never used Discord need it said plainly.
    (`everyone`, "Todos", included) or a person. One row per target in `channel_permission_overrides`, with `allow`
    and `deny` key lists; a check constraint keeps them apart and within the three keys. At most 100 rows per channel.
    Rows go with their channel, their role, or the person leaving the workspace (foreign keys, cascade).
-2. **Left out on purpose.** Who sees a channel stays ADR 0125's choice (Público, Privado, Departamentos ou papéis,
+2. **Left out on purpose.** Who sees a channel stays ADR 0125's choice (Público, Privado, Departamentos ou cargos,
    plus people added by name): one model for seeing, no View deny until guests arrive. Pinning follows Enviar
    mensagens. Routines and webhooks post as their creator, so they follow the creator's Enviar mensagens there.
    Agents get no exceptions: they are in the channel or not, with their reply mode, and act by their scopes.

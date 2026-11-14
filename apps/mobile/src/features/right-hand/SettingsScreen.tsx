@@ -5,13 +5,14 @@ import {
   keys,
   useAgentBrain,
   useApi,
-  useMachines,
   useModelLabel,
   usePlatformKey,
   useRoles,
   useSetTeamWeekPrefs,
+  useSettings,
   useTeamWeekPrefs,
   useUpdateAgent,
+  useUpdateSettings,
   useWorkspaceUsesApi,
 } from "@agenteschat/client";
 import { agentsReach, audienceOf, audiencePatch } from "@agenteschat/client/lib/audience";
@@ -20,8 +21,9 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
 import { brainPlan } from "@agenteschat/client/lib/plans";
 import { AUTO } from "@agenteschat/client/lib/providers";
-import { mineStatus, RIGHT_HAND_POWERS, rightHandOf } from "@agenteschat/client/lib/right-hand";
-import { dayText, hourText, teamWeekOn } from "@agenteschat/client/lib/team-week";
+import { mineStatus, RIGHT_HAND_POWERS, rightHandNoComputer, rightHandOf } from "@agenteschat/client/lib/right-hand";
+import { type LodiPrefsPatch, type LodiSwitch, teamWeekOn } from "@agenteschat/client/lib/right-hand-prefs";
+import { dayText, hourText } from "@agenteschat/client/lib/team-week";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
@@ -60,18 +62,16 @@ import { RightHandApprovalsGroup } from "./Approvals";
 export const openRightHandSettings = () => router.push("/settings/right-hand" as never);
 
 /**
- * The right hand's settings (ADR 0137), as on the web: its computer when it has one, then two groups, then what only it
- * does. "Só para você": the AI the person's own
- * conversation thinks with, when its weekly card comes, and what it creates and adjusts for them without asking. "Para
- * todo o workspace", only for who manages agents: its name and look, the AI of people with no plan of their own and
+ * The right hand's settings (ADR 0137), as on the web: its computer when it has one, then three groups, then what only
+ * it does. "Só para você": the AI the person's own conversation thinks with, and what it creates and adjusts for them
+ * without asking. What it does by itself, each with its switch. "Para todo o workspace", only for who manages agents: its name and look, the AI of people with no plan of their own and
  * the switch that lends it, its monthly budget where something bills per use, and who may use it; one line says it
  * can't be archived or deleted, and its audit log is a tap away. Its instructions are the product's.
  */
 export function RightHandSettingsScreen() {
   const { t } = useTranslation();
-  const { org, orgId } = useOrg();
+  const { org } = useOrg();
   const agent = rightHandOf(useDirectory().agents);
-  const hasComputer = (useMachines(orgId).data ?? []).some((m) => m.agents.some((a) => a.id === agent?.id));
   if (!agent)
     return (
       <SettingsPage title={t("settings.section.right_hand")}>
@@ -80,12 +80,12 @@ export function RightHandSettingsScreen() {
     );
   return (
     <SettingsPage title={agent.name} subtitle={t("rightHand.label")}>
-      {hasComputer ? <Computer agentId={agent.id} /> : null}
+      <Computer agentId={agent.id} />
       <GroupTitle>{t("rightHand.settings.groupMine")}</GroupTitle>
       <GroupedHeader>{t("rightHand.settings.mine")}</GroupedHeader>
       <RightHandMine agent={agent} />
-      <TeamWeekRows name={agent.name} />
       <RightHandApprovalsGroup />
+      <OwnRows name={agent.name} />
       {can(org, "manage_agents") ? (
         <>
           <GroupTitle note={t("rightHand.settings.groupAdmins")}>{t("rightHand.settings.groupWorkspace")}</GroupTitle>
@@ -121,25 +121,32 @@ function GroupTitle({ children, note }: { children: string; note?: string }) {
 }
 
 /**
- * "Computador", once the right hand has one of its own: the row opens the computer every agent's profile opens, for
- * whoever may watch it.
+ * "Computador": the row opens the computer every agent's profile opens, which for the right hand is the viewer's own
+ * seat on the workspace's computer and nobody else's. Where it has none for anyone (the workspace has no computer of
+ * its own, or one that can't keep people apart) the row stays and says why, with nothing to open.
  */
 function Computer({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
   const view = useAgentComputer(agentId);
   if (view.forbidden || !view.ready || !view.facts) return null;
+  const none = rightHandNoComputer(view.desktopQ.data?.reason);
   return (
     <>
       <Gap />
       <GroupedList>
-        <GroupedRow
-          icon="laptop"
-          label={t("agentComputer.button")}
-          {...(view.machine ? { sub: view.machine.name } : {})}
-          chevron
-          onPress={() => openComputer(agentId)}
-        />
+        {none ? (
+          <GroupedRow icon="laptop" label={t("agentComputer.button")} />
+        ) : (
+          <GroupedRow
+            icon="laptop"
+            label={t("agentComputer.button")}
+            {...(view.machine ? { sub: view.machine.name } : {})}
+            chevron
+            onPress={() => openComputer(agentId)}
+          />
+        )}
       </GroupedList>
+      <GroupedFooter>{t(none ?? "rightHand.computerYours")}</GroupedFooter>
     </>
   );
 }
@@ -529,62 +536,127 @@ function Form({ agent }: { agent: Agent }) {
 }
 
 /**
- * "Semana da equipe" (ADR 0137 §9): an admin's own day and hour of Lodi's weekly card, every day instead, or off;
- * anyone else's "Resumo do dia", every day or not at all, as on the web.
+ * What the right hand does without being asked, one list of rows with a switch each, as on the web (ADR 0177): the
+ * daily card for everyone and the weekly card for admins (while one is on, its hour and day under its row), then the
+ * switches of whatever else this server has built: the person's own, and the workspace's for who configures it, which
+ * say that they are for everyone.
  */
-function TeamWeekRows({ name }: { name: string }) {
+function OwnRows({ name }: { name: string }) {
   const { t, i18n } = useTranslation();
   const { orgId, org } = useOrg();
   const failed = useFailed();
   const admin = can(org, "administrator");
   const prefs = useTeamWeekPrefs(orgId).data;
   const set = useSetTeamWeekPrefs(orgId);
+  const settings = useSettings(orgId).data;
+  const setSettings = useUpdateSettings(orgId);
   if (!prefs) return null;
-  const save = (patch: Parameters<typeof set.mutate>[0]) => set.mutate(patch, { onError: failed });
+  const g = agentGrammar(name);
+  const save = (patch: LodiPrefsPatch) => set.mutate(patch, { onError: failed });
   const locale = i18n.language;
-  const on = teamWeekOn(prefs, admin);
-  const label = t(admin ? "teamWeek.settings.label" : "teamWeek.settings.dayLabel");
+  const about = (label: string, text: string) => ({ name: t("common.about", { label }), text });
+  const hours = Array.from({ length: 24 }, (_, h) => ({ value: h, label: hourText(locale, h) }));
+  const dayOn = teamWeekOn(prefs, "day", admin);
+  const weekOn = teamWeekOn(prefs, "week", admin);
+  const dayLabel = t("teamWeek.settings.dayLabel");
+  const weekLabel = t("teamWeek.settings.label");
+  const shows = (s: LodiSwitch) => prefs.switches.includes(s);
+  const mine = (
+    [
+      { id: "digest", off: "digestOff", icon: "shield" },
+      { id: "reminders", off: "remindOff", icon: "bell" },
+    ] as const
+  ).filter((r) => shows(r.id));
+  const everyones =
+    can(org, "configure") && settings
+      ? (
+          [
+            { id: "teamWatch", words: "teamWatch", icon: "eye" },
+            { id: "welcomePeople", words: "welcome", icon: "person" },
+          ] as const
+        ).filter((r) => shows(r.id))
+      : [];
   return (
     <>
-      <GroupedHeader>{label}</GroupedHeader>
-      {/* The day and the hour are rows of the switch's group, as any settings group. */}
+      <GroupTitle>{t("rightHand.settings.own.title", g)}</GroupTitle>
+      <Gap />
       <GroupedList>
         <GroupedRow
           icon="clock"
-          label={label}
-          hint={{
-            name: t("common.about", { label }),
-            text: t(admin ? "teamWeek.settings.help" : "teamWeek.settings.dayHelp", agentGrammar(name)),
-          }}
-          toggle={on}
-          onPress={() => save(admin ? { off: !prefs.off } : on ? { daily: false } : { daily: true, off: false })}
+          label={dayLabel}
+          hint={about(dayLabel, t("teamWeek.settings.dayHelp", g))}
+          toggle={dayOn}
+          disabled={set.isPending}
+          onPress={() => save({ dayOff: dayOn })}
         />
-        {on && admin ? (
-          <Pills
-            label={t("teamWeek.schedule.day")}
-            value={prefs.daily ? EVERY_DAY : prefs.day}
-            options={[
-              ...[1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: d, label: dayText(locale, d) })),
-              { value: EVERY_DAY, label: t("teamWeek.schedule.daily") },
-            ]}
-            onPick={(day) => save(day === EVERY_DAY ? { daily: true } : { daily: false, day })}
-          />
-        ) : null}
-        {!on ? null : (
+        {dayOn ? (
           <Pills
             label={t("teamWeek.schedule.hour")}
-            value={prefs.hour}
-            options={Array.from({ length: 24 }, (_, h) => ({ value: h, label: hourText(locale, h) }))}
-            onPick={(hour) => save({ hour })}
+            value={prefs.dayHour}
+            options={hours}
+            onPick={(dayHour) => save({ dayHour })}
           />
-        )}
+        ) : null}
+        {admin ? (
+          <GroupedRow
+            icon="clock"
+            label={weekLabel}
+            hint={about(weekLabel, t("teamWeek.settings.help", g))}
+            toggle={weekOn}
+            disabled={set.isPending}
+            onPress={() => save({ weekOff: weekOn })}
+          />
+        ) : null}
+        {admin && weekOn ? (
+          <Pills
+            label={t("teamWeek.schedule.day")}
+            value={prefs.day}
+            options={[1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: d, label: dayText(locale, d) }))}
+            onPick={(day) => save({ day })}
+          />
+        ) : null}
+        {admin && weekOn ? (
+          <Pills
+            label={t("teamWeek.schedule.hour")}
+            value={prefs.weekHour}
+            options={hours}
+            onPick={(weekHour) => save({ weekHour })}
+          />
+        ) : null}
+        {mine.map((r) => {
+          const label = t(`rightHand.settings.own.${r.id}`);
+          return (
+            <GroupedRow
+              key={r.id}
+              icon={r.icon}
+              label={label}
+              hint={about(label, t(`rightHand.settings.own.${r.id}Help`, g))}
+              toggle={!prefs[r.off]}
+              disabled={set.isPending}
+              onPress={() => save({ [r.off]: !prefs[r.off] })}
+            />
+          );
+        })}
+        {everyones.map((r) => {
+          const label = t(`rightHand.settings.own.${r.words}`);
+          const on = settings?.[r.id] !== false;
+          return (
+            <GroupedRow
+              key={r.id}
+              icon={r.icon}
+              label={label}
+              sub={t("rightHand.settings.groupWorkspace")}
+              hint={about(label, t(`rightHand.settings.own.${r.words}Help`, g))}
+              toggle={on}
+              disabled={setSettings.isPending}
+              onPress={() => setSettings.mutate({ [r.id]: !on }, { onError: failed })}
+            />
+          );
+        })}
       </GroupedList>
     </>
   );
 }
-
-/** The day pills' "every day" ("Resumo do dia"). */
-const EVERY_DAY = -1;
 
 /** A choice of a few short values as pills that wrap (the days, the hours), the picked one filled. */
 function Pills({

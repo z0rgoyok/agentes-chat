@@ -3,7 +3,7 @@ import { CLOUD_SERVER, serverHost } from "@agenteschat/client/lib/server";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
-import { setServer, useServer, useServerToReturn } from "@/lib/server";
+import { accountLabel, setServer, useServer, useServerToReturn } from "@/lib/server";
 import { router } from "@/ui/navigation";
 import { useTheme } from "@/ui/theme";
 import { Icon } from "../Icon";
@@ -54,7 +54,7 @@ export function AuthFootLine() {
       </Pressable>
       {back ? (
         <AuthLink
-          label={t("mobile.auth.server.backTo", { host: serverHost(back) })}
+          label={t("mobile.auth.server.backTo", { host: accountLabel(back) ?? serverHost(back) })}
           onPress={() => void setServer(back)}
         />
       ) : null}

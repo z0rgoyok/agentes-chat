@@ -1,12 +1,12 @@
 import { PERMISSION_TOOL, type PubSub } from "@agenteschat/adapters";
 import { and, type Database, type Executor, eq, inArray, isNull, type SQL, schema, sql } from "@agenteschat/db";
 import { linkRunActions, publishMessageActions } from "./agent-actions";
-import { followWork } from "./agent-status";
+import { announceAgentStatus, followWork } from "./agent-status";
 import { openApprovalCard, publishApproval, supersedeApprovals } from "./approvals";
 import { runAuthorityById } from "./authority";
 import type { BrainTool, ToolResult } from "./brains/types";
 import { readableChannelIds } from "./channels";
-import { consultationCardThread, consultationOrigin } from "./consultations";
+import { announceConsultationChange, consultationCardThread, consultationOrigin } from "./consultations";
 import { NotFoundError } from "./errors";
 import { type MemoryUpdate, publishChannelEvent, publishMessageCreated, takeStepWords } from "./events";
 import { type PendingFeedbackOffer, pendingFeedbackOfferOf } from "./feedback-offers";
@@ -1143,6 +1143,10 @@ export async function suspendRunForTool(
       status: posted.status,
       ...(run.background ? { background: true as const } : {}),
     });
+    // It parked mid-turn: its face and lists say so now, and so does the conversation that handed it the work (its
+    // own events reach only the agents' DM, which nobody has open). The turn's end says it again.
+    await announceAgentStatus(deps.pubsub, run.orgId, run.agentId).catch(() => {});
+    await announceConsultationChange(deps, run).catch(() => {});
   }
 
   if (gated.type === "approval") {

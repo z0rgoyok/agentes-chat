@@ -109,6 +109,10 @@ export const LONG_JOB_KINDS = [
   "channel.delete",
   "org.files.purge",
   "user.files.purge",
+  // The right hand's sweeps: a card per member at the same hour, a look at each workspace every few minutes.
+  "team_week.post",
+  "team_day.post",
+  "team_watch.check",
 ];
 
 const longJobSql = inArray(outbox.kind, LONG_JOB_KINDS);

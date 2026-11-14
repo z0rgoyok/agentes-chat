@@ -6,7 +6,7 @@ export const legalEs: Partial<Record<LegalKind, LegalDocument>> = {
     title: "Términos de uso",
     summary: "El acuerdo para usar agentes.chat: su espacio de trabajo, sus agentes y de qué responde cada parte.",
     courtesy: "Esta es una traducción de cortesía. Si difiere de la versión en inglés, prevalece la versión en inglés.",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -172,7 +172,7 @@ export const legalEs: Partial<Record<LegalKind, LegalDocument>> = {
     summary:
       "Qué recopilamos, qué envían los agentes y adónde, quién puede ver su espacio de trabajo y qué derechos tiene usted.",
     courtesy: "Esta es una traducción de cortesía. Si difiere de la versión en inglés, prevalece la versión en inglés.",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

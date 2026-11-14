@@ -480,6 +480,7 @@
       "nameLead": "チームでは何と呼ばれていますか？",
       "namePlaceholder": "名前",
       "nameIsPassword": "これはあなたの名前ですか？入力したパスワードと同じです。",
+      "emailHeld": "このメールアドレスはこちらのアカウントから外れたばかりで、7日間は予約されています。そのアカウントがあなたのものなら、このアドレスに送ったメールの「自分ではありません」を押してください。",
       "nameLooksLikePassword": "パスワードのようです。ここには名前を入力します。",
       "newPassword": "次はパスワードです。",
       "newPasswordNamed": "{{name}}さん、ありがとうございます。次はパスワードです。",
@@ -501,6 +502,7 @@
       "noPassword": "このアカウントはagentes.chatアプリからログインします。",
       "noPasswordLead": "このサーバーを動かしているコンピューターでアプリを開き、「設定 › あなたのアカウント」で「パスワードを追加」を選んでください。",
       "backToSignIn": "ログインに戻る",
+      "backToAccount": "{{name}} に戻る",
       "toAuthorizeApp": "アプリをagentes.chatに接続するために。"
     },
     "desktop": {
@@ -1545,6 +1547,22 @@
       "settingUp": "agentes-chat ({{version}}) を設定しています ..."
     }
   },
+  "appIcon": {
+    "title": "アプリのアイコン",
+    "hintWeb": "このブラウザのタブに表示されるアイコン。",
+    "hintMac": "アプリが開いている間のDockのアイコン。FinderとLaunchpadは標準のままです。",
+    "hintDesktop": "アプリが開いている間のタスクバーのアイコン。",
+    "hintAndroid": "ホーム画面によっては、新しいアイコンが表示されるまで数秒かかります。",
+    "failed": "アイコンを変更できませんでした。もう一度お試しください。",
+    "agentsOf": "{{org}} のエージェント",
+    "names": {
+      "night": "夜",
+      "moon": "月",
+      "sky": "空",
+      "peekNight": "夜にのぞく",
+      "peekSky": "空からのぞく"
+    }
+  },
   "legal": {
     "updated": "最終更新日 {{date}}",
     "contents": "このページの内容",
@@ -1743,7 +1761,12 @@
       "sent": "{{email}} にリンクを送りました。リンクを開くとメールが変わります。",
       "changed": "完了: これからは {{email}} でログインします。",
       "same": "すでにあなたのメールです。",
-      "noMail": "このサーバーはメールを送らないため、新しいアドレスを確認できません。サーバーの管理者にメール送信の設定を頼んでください。"
+      "noMail": "このサーバーはメールを送らないため、新しいアドレスを確認できません。サーバーの管理者にメール送信の設定を頼んでください。",
+      "held": "このメールアドレスは別のアカウントから外れたばかりで、7日間はそのアカウント用に予約されています。別のアドレスを使ってください。",
+      "taken": "このメールアドレスはすでに別のアカウントで使われています。別のアドレスを使ってください。",
+      "cantOpen": "そのメールを開けませんか？",
+      "signInInstead": "もう一度ログインすると、コードなしで変更できます。ログイン後はここに戻ります。",
+      "useCode": "コードを使う"
     },
     "openOnPhone": "スマートフォンで開く",
     "openOnPhoneHint": "QRコードでアプリにログイン",
@@ -1763,6 +1786,8 @@
     "newWorkspace": "新しいワークスペース",
     "addWorkspace": "ワークスペースを追加",
     "addWorkspaceHint": "既存のワークスペースに参加、新規作成、またはチームのサーバーを使う",
+    "addAccount": "アカウントを追加",
+    "addAccountHint": "このアカウントのまま、別のアカウントにログイン",
     "yourServer": "自分のサーバー",
     "serverHere": "この{{device}}の agentes.chat",
     "serverStopped": "停止中",
@@ -2233,8 +2258,7 @@
       "fileName": "message.txt"
     },
     "long": {
-      "more": "もっと見る",
-      "title": "{{name}}のメッセージ"
+      "more": "もっと見る"
     },
     "retrySend": "もう一度試す",
     "thinking": "{{name}}が考えています…",
@@ -2382,7 +2406,18 @@
       "budgetHelp": "上限に達すると、ほかのエージェントと同じく止まって知らせます。",
       "audience": "使える人",
       "audienceHelp": "対象外の人には、サイドバーに{{name}}が表示されません。",
-      "lock": "{{name}}はアーカイブも削除もできません。話しかけられなくても投稿するのは、管理者向けのチームの1週間だけです。",
+      "lock": "{{name}}はアーカイブも削除もできません。",
+      "own": {
+        "title": "{{name}}が自分から行うこと",
+        "digest": "待っている承認をまとめる",
+        "digestHelp": "複数の承認があなたを待っているとき、{{name}}があなたの DM にカードを 1 枚送り、日常的なものとリスクのあるものを分けて示します。",
+        "reminders": "決めたことを覚えておく",
+        "remindersHelp": "{{name}}は引き継いだタスクを最後まで見届け、時刻を決めて約束したことをあなたに知らせます。",
+        "teamWatch": "チームを見守る",
+        "teamWatchHelp": "{{name}}は、AI のログイン切れや再接続が必要なアプリなど、チームを止めているものに気づき、直せる人に知らせます。",
+        "welcome": "参加した人を迎える",
+        "welcomeHelp": "{{name}}は参加した人ひとりひとりにあいさつし、最初のエージェントの設定を手伝います。"
+      },
       "audit": "{{name}}がしたことを見る",
       "planHelp": "料金はプランの持ち主が払います。そのコンピューターが使えないときは、会話でそう伝え、APIキーを提案します。",
       "lookEdit": "{{name}}の見た目を変更",
@@ -2416,6 +2451,11 @@
       "groupWorkspace": "ワークスペース全体",
       "groupAdmins": "管理者のみ"
     },
+    "computerYours": "ワークスペースのコンピューター上の、あなた専用の場所です。見たり操作したりできるのはあなただけです。",
+    "sharedName": "{{name}}(共有)",
+    "sharedPlace": "チャンネルや、自動で動く作業で使われます。この場所はワークスペース全体で共有されます。非公開のものはここに置かないでください。",
+    "computerNoHome": "まだコンピューターがありません。このワークスペースに専用のコンピューターが「設定」の「コンピューター」で追加されると使えるようになります。",
+    "computerOneUser": "ここではコンピューターを使えません。ワークスペースのコンピューターはすべてのエージェントを 1 人のユーザーとして動かすため、人ごとの場所を分けられません。インストーラーの --system オプションでセットアップした Linux サーバーなら分けられます。",
     "powers": {
       "title": "ワークスペースでの権限",
       "help": "これができるのはあなたの右腕だけです。",
@@ -2427,6 +2467,7 @@
     "card": {
       "settings": "{{name}} · 設定",
       "apply": "適用",
+      "delete": "削除",
       "dismiss": "破棄",
       "decline": "却下",
       "askAdmin": "管理者に頼む",
@@ -2515,6 +2556,16 @@
       "title": "あなたの承認待ち",
       "done": "決定済み"
     },
+    "digest": {
+      "waiting_other": "承認待ちが {{count}} 件あります。",
+      "split": "定型的なものが {{routine}} 件、じっくり確認するものが {{careful}} 件です。",
+      "allRoutine": "すべて定型的なものです。",
+      "more_other": "残りの {{count}} 件を表示",
+      "routine_other": "定型的なリクエスト {{count}} 件",
+      "help": "連携アプリでの操作のうち、送信、削除、支払い、マージ、デプロイを行わないものです。それ以外のリクエストは個別のカードのままです。",
+      "approve_other": "この {{count}} 件を承認",
+      "each": "1 件ずつ見る"
+    },
     "open": {
       "open": "開く",
       "web": "サイトで開く",
@@ -2529,6 +2580,9 @@
       "update_role": "ロール<b>{{name}}</b>を変更",
       "delete_role": "ロール<b>{{name}}</b>を完全に削除",
       "move_role": "ロール<b>{{name}}</b>の順番を変える",
+      "set_permission_holders": "「<b>{{short}}</b>」ができる人を変更",
+      "set_permission_holders_computers": "<b>エージェントのコンピューター</b>を使える人を変更",
+      "holdersOwnersOnly": "オーナーのみ",
       "set_member_roles": "<b>{{name}}</b>のロールを変更: {{change}}",
       "set_channel_permissions": "<b>#{{channel}}</b>で{{who}}ができることを変更",
       "set_my_status": "ステータスを設定: <b>{{what}}</b>",
@@ -2550,7 +2604,11 @@
       "continue_work": "<b>{{agent}}</b>に続けさせる",
       "update_workspace": "ワークスペース<b>{{name}}</b>を変更",
       "set_action_check_on": "チームの過去の対応の確認をオンにする",
-      "set_action_check_off": "チームの過去の対応の確認をオフにする"
+      "set_action_check_off": "チームの過去の対応の確認をオフにする",
+      "invite_people": "<b>{{emails}}</b>をワークスペースに招待します。",
+      "invite_roles_other": "{{roles}}のロールで招待します。",
+      "invite_people_sent_other": "<b>{{emails}}</b>に招待を送信しました。",
+      "remove_ai_key": "APIキー「{{name}}」を削除します。"
     }
   },
   "teamWeek": {
@@ -2567,6 +2625,7 @@
     "workedRuns_other": "{{name}} が #{{channel}} で {{count}} 件の仕事をしました",
     "workedTasks_other": "{{name}} がタスクを {{count}} 件完了しました",
     "improve": "改善できること",
+    "needsYou": "あなたの対応が必要",
     "approvals": {
       "title_other": "{{name}} の依頼 {{count}} 件があなたを待っています",
       "line": "{{since}} から待っています。",
@@ -2608,6 +2667,40 @@
       "messageNoAgent": "ステップ {{steps}} は #{{on}} を待つ必要はありません。並行して進められます。",
       "done": "メッセージを送信しました"
     },
+    "waiting": {
+      "title_other": "{{count}} 件があなたを待っています",
+      "line_other": "{{since}} から待っています。",
+      "action": "開く",
+      "done": "待っているものはありません"
+    },
+    "stuck": {
+      "title_other": "{{name}} がエラーで {{count}} 回止まりました",
+      "heldTitle": "{{name}} は止まって再開を待っています",
+      "why": {
+        "budget": "月間予算を使い切りました。",
+        "plan": "プランが上限に達しました。",
+        "computer": "コンピューターが応答しませんでした。",
+        "key": "AI のキーまたはログインが拒否されました。",
+        "ai": "AI が応答しませんでした。",
+        "other": "問題が起きました。会話で内容を確認できます。"
+      },
+      "action": "会話を開く"
+    },
+    "retire": {
+      "title": "{{name}} をアーカイブ",
+      "line": "4 週間仕事がなく、ルーティンも未完了のタスクもありません。",
+      "action": "アーカイブ"
+    },
+    "model": {
+      "title": "{{name}} は {{to}} を使えます。",
+      "line": "現在は {{from}} を使っています。"
+    },
+    "skip": "却下",
+    "skipped": "却下済み",
+    "why": {
+      "idle": "4 週間仕事がなく、ルーティンも未完了のタスクもありません。",
+      "lightWork": "より小さいモデルで足りる軽さの仕事です。"
+    },
     "applied": "適用済み",
     "undo": "元に戻す",
     "gone": "もう当てはまりません",
@@ -2638,7 +2731,7 @@
       "label": "チームの1週間",
       "help": "毎週 {{name}} があなたの DM で、チームの様子と改善できることを伝えます。管理者だけが受け取ります。",
       "dayLabel": "今日のまとめ",
-      "dayHelp": "毎日 {{name}} があなたの DM で、チームがしたことと、あなたを待っていることを伝えます。伝えることがある日だけです。"
+      "dayHelp": "毎日 {{name}} があなたの DM で、あなたを待っていること、あなたのエージェントが終えたこと、止まっていることを伝えます。新しいことがある日だけです。"
     }
   },
   "routing": {
@@ -3262,6 +3355,8 @@
       "changed_update_role": "ロール<b>{{name}}</b>を変更しました",
       "changed_delete_role": "ロール<b>{{name}}</b>を削除しました",
       "changed_move_role": "ロール<b>{{name}}</b>の順番を変えました",
+      "changed_set_permission_holders": "「<b>{{short}}</b>」ができる人を変更しました",
+      "changed_set_permission_holders_computers": "<b>エージェントのコンピューター</b>を使える人を変更しました",
       "changed_set_member_roles": "<b>{{name}}</b>のロールを変更しました: {{change}}",
       "changed_set_channel_permissions": "<b>#{{channel}}</b>で{{who}}ができることを変更しました",
       "changed_set_my_status": "ステータスを設定しました: <b>{{what}}</b>",
@@ -3283,7 +3378,9 @@
       "changed_continue_work": "<b>{{agent}}</b>に続けさせました",
       "changed_update_workspace": "ワークスペース<b>{{name}}</b>を変更しました",
       "changed_set_action_check_on": "チームの過去の対応の確認をオンにしました",
-      "changed_set_action_check_off": "チームの過去の対応の確認をオフにしました"
+      "changed_set_action_check_off": "チームの過去の対応の確認をオフにしました",
+      "changed_invite_people": "<b>{{invited}}</b>をワークスペースに招待しました",
+      "changed_remove_ai_key": "APIキー<b>{{name}}</b>を削除しました"
     },
     "other": "変更を加えました",
     "copyWebhook": "Webhook のアドレスをコピー",
@@ -3529,6 +3626,9 @@
     "hidden": "非表示",
     "offline": "オフライン",
     "out": "不在",
+    "available": "対応可能",
+    "working": "作業中",
+    "waiting": "あなたの対応待ち",
     "lower": {
       "online": "オンライン",
       "away": "離席中",
@@ -3617,6 +3717,44 @@
     "bySelf": "{{name}}が設定 · 完了するとクリアされます",
     "byAuto": "今やっていること"
   },
+  "agentWork": {
+    "working": "作業中",
+    "you": "あなたの対応待ち",
+    "waiting": "待機中",
+    "queued": "順番待ち",
+    "here": "ここ",
+    "routine": "ルーティン中",
+    "yourApproval": "あなたの承認",
+    "yourAnswer": "あなたの回答",
+    "later": "フォローアップ {{when}}",
+    "laterShort": "フォローアップ",
+    "plan": "プランのリセット待ち",
+    "budget": "予算のリセット待ち",
+    "stopping": "停止しています…"
+  },
+  "followUps": {
+    "when": {
+      "at": "{{time}}",
+      "today": "今日 {{time}}",
+      "tomorrow": "明日 {{time}}"
+    },
+    "whenLabel": {
+      "at": "{{time}}",
+      "today": "今日 {{time}}",
+      "tomorrow": "明日 {{time}}"
+    },
+    "bar": {
+      "at": "{{name}}は{{when}}にフォローアップします",
+      "short": "{{name}} {{time}}",
+      "heldYou": "{{name}}はあなたの回答後にフォローアップします",
+      "held": "{{name}}は回答があり次第フォローアップします"
+    },
+    "title": "フォローアップ",
+    "see": "メッセージを見る",
+    "cancel": "フォローアップを取り消す",
+    "cancelOf": "{{name}}の{{when}}のフォローアップを取り消す",
+    "inTime": "{{time}}後"
+  },
   "mentions": {
     "list": "人とエージェント",
     "inChannel": "このチャンネル内",
@@ -3671,7 +3809,6 @@
     "issue": "Issue"
   },
   "folded": {
-    "more": "さらに表示",
     "less": "表示を減らす"
   },
   "secret": {
@@ -4169,6 +4306,10 @@
   "approval": {
     "expiredChip": "期限切れ · {{when}}",
     "canceledChip": "キャンセル済み · {{when}}",
+    "line": {
+      "after": "「{{title}}」の後に実行",
+      "notRun": "未実行：前の依頼が承認されませんでした"
+    },
     "waitingFor": "{{name}}の対応待ち",
     "waitingAdmin": "管理者の対応待ち",
     "reasonLine": "理由: {{reason}}",
@@ -4229,8 +4370,6 @@
       "noSubject": "（件名なし）",
       "toSender": "メッセージの送信者へ",
       "toList": "宛先: {{to}}",
-      "more": "すべて読む",
-      "less": "表示を減らす",
       "answers": "<b>「{{subject}}」</b>に返信",
       "answersFrom": "{{from}}からの<b>「{{subject}}」</b>に返信",
       "forwards": "<b>「{{subject}}」</b>を転送",
@@ -4398,6 +4537,21 @@
       "onlyMe": "自分だけに変更",
       "done": "このプランは今あなただけが使います。"
     },
+    "teamWatch": {
+      "sign_in_other": "{{names}}のサインインが切れました。",
+      "connector_other": "{{names}}の再接続が必要です。",
+      "mailbox_other": "メールボックス {{names}} の再接続が必要です。",
+      "database_other": "データベース {{names}} の再接続が必要です。",
+      "budget_out_other": "{{names}}の予算を使い切りました。",
+      "budget_low_other": "{{names}}の予算がまもなくなくなります。",
+      "computer_other": "{{names}} がオフラインで、エージェントが待っています。",
+      "act": {
+        "sign_in": "もう一度サインイン",
+        "reconnect": "再接続",
+        "budget": "予算を増やす",
+        "computer": "コンピューターを切り替える"
+      }
+    },
     "docTitleUnread": "（{{count}}）通知",
     "summaryWaiting_other": "あなたの対応待ち{{count}}件",
     "summaryUnread_other": "未読{{count}}件",
@@ -4508,6 +4662,7 @@
       "changeRequest": "<b>{{name}}</b>が<b>{{agent}}</b>の変更を依頼しています",
       "proposalWaiting": "<b>{{names}}</b> からの改善提案",
       "changeRequestAgent": "<b>{{name}}</b>が新しいエージェントを依頼しています：<b>{{agent}}</b>",
+      "changeRequestAction": "<b>{{name}}</b>がワークスペースの変更を依頼しています",
       "approvalCover": "<b>{{name}}</b>が「代わりに承認する人」にあなたを選びました",
       "approvalCoverDeclined": "<b>{{name}}</b>はあなたの代わりに承認しなくなりました",
       "approvalCoverEnded": "<b>{{name}}</b>があなたの代わりに承認する人を解除しました",
@@ -4703,8 +4858,15 @@
       "canceled": "キャンセル済み",
       "failed": "失敗",
       "running": "実行中",
-      "scheduled": "予定済み"
+      "scheduled": "予定済み",
+      "queued": "順番待ち",
+      "notRun": "未実行"
     },
+    "queuedLine": "承認済み。先に依頼された「{{title}}」の後に実行されます。",
+    "notRunRefused": "先に依頼された「{{title}}」が、これを承認した後に却下されたため、これは実行されませんでした。",
+    "notRunExpired": "先に依頼された「{{title}}」が、これを承認した後に判断のないまま期限切れになったため、これは実行されませんでした。",
+    "notRunEarlier": "これを承認した後に前の依頼が却下されたか期限切れになったため、これは実行されませんでした。",
+    "position": "{{n}} / {{total}}",
     "expiredLine": "24時間以内に誰も判断しなかったため、何も行われていません。",
     "canceledLine": "判断の前に実行が停止しました。",
     "supersededLine": "エージェントが新しい版で依頼し直したため、これは実行されませんでした。",
@@ -4771,10 +4933,10 @@
       "email": "メール",
       "text": "公開される内容",
       "textDone": "公開した内容",
+      "textNot": "公開されるはずだった内容",
       "values": "実行する内容",
       "valuesDone": "実行した内容",
-      "more": "すべて表示",
-      "less": "表示を減らす",
+      "valuesNot": "実行するはずだった内容",
       "trail": "ここまでの流れ",
       "showSteps": "各ステップを見る",
       "hideSteps": "ステップを隠す",
@@ -6719,6 +6881,7 @@
     "batch": {
       "already_member": "{{email}}はすでにワークスペースにいます。",
       "already_invited": "{{email}}にはすでに保留中の招待があります。「再送信」を使ってください。",
+      "had_invite": "{{email}}にはすでに保留中の招待がありました。",
       "invalid_email": "{{email}}は有効なメールアドレスではないようです。"
     },
     "activeNow": "アクティブ",
@@ -7130,8 +7293,22 @@
     "auto": "自動",
     "autoHint": "エージェントの作業に応じて、自動で列が変わりました。",
     "now": {
-      "title": "作業中のエージェント",
-      "stalled_other": "{{count}}件が停滞中"
+      "stalledCount_other": "{{count}}件のタスクが停止中",
+      "viewStalled": "停止中を見る",
+      "continue": "続ける",
+      "continueAll": "すべて続ける",
+      "continueAllCount": "すべて続ける（{{count}}）",
+      "sent_other": "依頼しました。{{names}}が止まったところから再開します。",
+      "rowSent": "依頼しました。止まったところから再開します。",
+      "stalledTitle": "停止中のタスク",
+      "stalledSub": "{{tasks}} · {{agents}}",
+      "tasks_other": "{{count}}件のタスク",
+      "agents_other": "{{count}}人のエージェント",
+      "stalledText": "エージェントは終わる前に止まりました。「続ける」で止まったところから再開を依頼します。",
+      "stoppedNow": "たった今停止",
+      "stoppedAgo": "{{ago}}に停止",
+      "stoppedYesterday": "昨日停止",
+      "stoppedOn": "{{date}}に停止"
     },
     "work": {
       "label": "{{name}}の作業",
@@ -7142,8 +7319,6 @@
       "started": "{{when}}に開始",
       "starting": "開始中…",
       "stalled": "{{when}}から停滞中",
-      "noRun": "実行中の処理はありません。",
-      "noRunStep": "実行中の処理はありません。最後のステップ: {{step}}",
       "lastStep": "最後のステップ: {{step}}",
       "waitingApproval": "承認を求めています",
       "waitingInput": "質問があります",
@@ -8246,8 +8421,7 @@
       "releasePaused": "ミッションは一時停止中です。セッションを続けるには再開してください。",
       "releaseClosed": "ミッションは終了しています。セッションは続行しません。",
       "onlyDeciders": "コマンドを許可できるのは、このミッションで判断する人だけです。",
-      "pick": "{{command}}を許可",
-      "showAll": "すべて表示"
+      "pick": "{{command}}を許可"
     },
     "decision": {
       "approveAll_other": "暫定の{{count}}件を承認",
@@ -8634,6 +8808,11 @@
     "status": {
       "needsYou": "あなたの対応待ち",
       "working": "作業中",
+      "approval": "承認待ち",
+      "input": "回答待ち",
+      "computer": "コンピューター待ち",
+      "queued": "順番待ち",
+      "later": "フォローアップ {{when}}",
       "open": "オープン",
       "closed": "終了",
       "archived": "アーカイブ済み"
@@ -9629,6 +9808,7 @@
     "noMic": "マイクが見つかりません。",
     "failed": "マイクを開けませんでした。もう一度試してください。",
     "noPlayback": "今は再生できません。このまま送信するか、録音を続けられます。",
+    "cantPlay": "音声を再生できませんでした。",
     "settings": {
       "title": "ボイスメッセージ",
       "on": "ボイスメッセージ",
@@ -10520,15 +10700,6 @@
       "nowYours": "手を止めてあなたのメモを読みました",
       "nowOf": "手を止めて{{name}}のメモを読みました"
     },
-    "choice": {
-      "label": "{{name}}の作業中の送信方法",
-      "label_female": "{{name}}の作業中の送信方法",
-      "join": "{{name}}の作業に追加",
-      "join_female": "{{name}}の作業に追加",
-      "interrupt": "止めて送信",
-      "joins": "追加",
-      "interrupts": "止めて送信"
-    },
     "strip": {
       "see": "表示",
       "toStop": "で停止"
@@ -10964,8 +11135,6 @@
     "thousand": "K",
     "building": "まとめています…",
     "openBig": "大きく開く",
-    "showAll": "すべて表示",
-    "showLess": "表示を減らす",
     "keep": "Driveに保存",
     "kept": "Driveに保存済み",
     "inDrive": "Drive内",
@@ -12911,6 +13080,8 @@
     },
     "join": {
       "linkClosed": "このリンクはもう使えません。送ってくれた人に新しいリンクを頼んでください。",
+      "linkFull": "このリンクで参加できる人数はもう上限です。送ってくれた人に新しいリンクを頼んでください。",
+      "linkFullApproval": "このリクエストのリンクで参加できる人数はもう上限です。承認するには、リンクの上限人数を増やしてください。",
       "full": "このワークスペースには保留中のリクエストがたくさんあります。あとでもう一度試すか、メンバーに招待を頼んでください。",
       "rateLimited": "ここからのリクエストが多すぎます。1時間後にお試しください。",
       "linkBusy": "この1時間に、このリンクから多くのリクエストがありました。あとでお試しください。",
@@ -12992,6 +13163,9 @@
       "titleTooLong": "タイトルは最大{{max}}文字です。",
       "noContext": "このスレッドは会話の範囲から作られたものではありません。",
       "notUndoable": "元に戻せるのは、範囲から作られたスレッドだけです。"
+    },
+    "followUp": {
+      "notYours": "このフォローアップを取り消せるのは、その対象の人、エージェントの所有者、または管理者だけです。"
     },
     "routine": {
       "tooFrequent": "ルーティンの実行間隔は最短15分です。もっと長い間隔を選んでください。",
@@ -13088,7 +13262,9 @@
       "tooMany": "このワークスペースにはすでに {{max}} 個の部署があります。先に 1 つ削除してください。"
     },
     "rightHand": {
-      "permanent": "右腕はワークスペースの一部で、チャンネルには入りません。@メンションすれば、どのチャンネルでも呼べます。"
+      "permanent": "右腕はワークスペースの一部で、チャンネルには入りません。@メンションすれば、どのチャンネルでも呼べます。",
+      "updateApp": "このアプリは古いため、このカードを適用できません。アプリを更新するか、設定で変更してください。",
+      "nobodyNew": "このカードの全員が、すでに参加しているか招待済みです。カードを破棄するか、「メンバーと招待」で招待を再送してください。"
     },
     "agent": {
       "ownerOrAdmin": "これができるのは、エージェントのオーナーか管理者だけです。",
@@ -14371,6 +14547,10 @@
         "role_changed": "メンバーのロールを変更",
         "password_link": "メンバーの新しいパスワードのリンクを作成しました"
       },
+      "role": {
+        "permission_set": "「{{short}}」ができる人を変更",
+        "permission_set_computers": "エージェントのコンピューターを使える人を変更"
+      },
       "apps": {
         "connected": "{{app}}を接続",
         "scopes_changed": "{{app}}にタスクの送信を許可",
@@ -15187,7 +15367,13 @@
       "asking": "{{from}}が{{to}}に質問しています",
       "answered": "{{to}}が回答しました。{{from}}が書いています",
       "writing": "{{from}}が書いています",
-      "clock": "{{time}}まで待機中"
+      "clock": "{{time}}まで待機中",
+      "doing": "{{name}} {{doing}}",
+      "yourApproval": "{{name}}があなたの承認を待っています",
+      "yourAnswer": "{{name}}があなたの回答を待っています",
+      "done": "{{to}}が完了しました。{{from}}が書いています",
+      "notDone": "{{to}}は完了できませんでした。{{from}}が書いています",
+      "handedOff": "{{to}}は{{from}}から任された作業をしています"
     },
     "consultation": {
       "answered": "{{name}}が回答しました",
@@ -15206,7 +15392,8 @@
       "waitingInput": "{{name}}は回答を待っています",
       "waitingComputer": "{{name}}はコンピューターを待っています",
       "waitingProvider": "{{name}}: AIプロバイダーが停止中 · 自動で再試行します",
-      "waitingAgents": "{{name}}は一部を引き継ぎ、返事を待っています"
+      "waitingAgents": "{{name}}は一部を引き継ぎ、返事を待っています",
+      "queued": "{{name}}は順番待ちです"
     },
     "consultPair": {
       "took": "{{time}}かかりました",
@@ -15216,15 +15403,14 @@
       "waitingInput": "回答待ち",
       "waitingComputer": "コンピューター待ち",
       "waitingProvider": "AIプロバイダー停止中",
+      "waitingYourApproval": "あなたの承認待ち",
+      "waitingYourAnswer": "あなたの回答待ち",
+      "queued": "順番待ち",
       "handedOn": "ほかのエージェント待ち",
       "noAnswer": "回答なし",
       "notFinished": "完了せず",
       "someAnswered": "{{total}}件中{{done}}件回答",
       "labelMany": "{{from}}と{{to}}の会話"
-    },
-    "talk": {
-      "readAll": "すべて読む",
-      "more_other": "あと{{count}}行"
     },
     "consultPanel": {
       "label": "{{from}}と{{to}}の会話",
@@ -15253,14 +15439,6 @@
       "agentNote": "{{from}}からのメモ",
       "agentNoteAnon": "別のエージェントからのメモ",
       "waitResult": "{{name}}が待っていたものが届きました",
-      "followUp": "{{name}}は{{time}}に「{{about}}」のために戻ります",
-      "followUpOn": "{{name}}は{{day}} {{time}}に「{{about}}」のために戻ります",
-      "followUpDone": "{{name}}は{{time}}に「{{about}}」のために戻りました",
-      "followUpDoneOn": "{{name}}は{{day}} {{time}}に「{{about}}」のために戻りました",
-      "followUpCanceled": "{{name}}は{{time}}に「{{about}}」のために戻りません",
-      "followUpCanceledOn": "{{name}}は{{day}} {{time}}に「{{about}}」のために戻りません",
-      "followUpWake": "{{name}}が「{{about}}」のために戻りました",
-      "followUpCancel": "キャンセル",
       "other": "{{name}}へのお知らせ",
       "wakeSkipped": "{{name}}のメンションは{{agents}}に届きませんでした",
       "wakeSkippedAnon": "{{name}} のメンションはほかのエージェントに届きませんでした",
@@ -15447,6 +15625,7 @@
         "usingTool": "ツール{{tool}}を使いました",
         "thinking": "考えました",
         "typing": "書きました",
+        "recordingVoice": "音声を録音しました",
         "writing": "書きました"
       }
     },
@@ -15456,6 +15635,7 @@
       "updatingRoutine": "ルーティンを変更中",
       "thinking": "作業中",
       "typing": "入力中",
+      "recordingVoice": "音声を録音中",
       "writing": "書いています",
       "consulting": "{{app}}を確認中",
       "creatingIssue": "タスクを作成中",
@@ -15705,6 +15885,7 @@
       "action_install_skill": "スキルをインストール",
       "action_update_skills": "スキルを更新",
       "action_approvals": "あなたの承認待ち",
+      "welcome_member": "{{org}}に参加しましたね。**ここでは何を担当していますか？** 教えてもらえれば、最初のエージェントを一緒に設定します。",
       "action_open_page": "画面を開く",
       "calendar_proposal": "予定の提案: {{title}}",
       "action_workspace": "ワークスペースの変更を提案しました",
@@ -16503,6 +16684,17 @@
     "type": "確認のため{{name}}と入力してください",
     "submit": "ワークスペースを削除"
   },
+  "emailUndo": {
+    "title": "メールアドレスを元に戻す",
+    "lead": "このリンクを受け取ったアドレスが、もう一度アカウントのメールアドレスになります。すべてのセッションがログアウトされ、AIアプリの接続が解除され、変更後に追加されたログイン方法は使えなくなります。パスワードも消去され、次のパスワードは「パスワードを忘れた場合」から設定します。",
+    "button": "自分ではありません",
+    "done": "メールアドレスを元に戻しました",
+    "doneLead": "{{email}} がもう一度アカウントのメールアドレスになり、すべてのセッションがログアウトされました。変更後に追加されたログイン方法は使えなくなり、パスワードも消去されました。ログイン時に「パスワードを忘れた場合」から次のパスワードを設定してください。",
+    "gone": "このリンクはもう使えません",
+    "goneLead": "すでに使われたか、7日間が過ぎています。",
+    "taken": "別のアカウントがこのメールアドレスを使っています",
+    "takenLead": "{{email}} は現在、別のアカウントのメールアドレスなので元に戻せません。何も変わっていません。"
+  },
   "proof": {
     "willSend": "本人確認のため、{{email}}にコードをメールで送ります。",
     "send": "コードを送信",
@@ -16936,6 +17128,19 @@
       "chooseOnWeb": "agentes.chatの「設定 › デバイス」で選択してください。"
     }
   },
+  "agora": {
+    "label": "今",
+    "working_other": "エージェント {{count}} 件が作業中",
+    "waiting_other": "{{count}}件があなたの対応待ち",
+    "sections": {
+      "you": "あなたの対応待ち",
+      "working": "作業中",
+      "waiting": "待機中"
+    },
+    "allWaiting_other": "対応待ちの{{count}}件を見る",
+    "actions": "その他の操作",
+    "openManager": "タスクマネージャーを開く"
+  },
   "taskManager": {
     "title": "タスクマネージャー",
     "subtitle": "エージェントが今していることと、今日終わったこと。",
@@ -16965,11 +17170,12 @@
     "sections": {
       "asked": "人からの依頼",
       "delegated": "エージェントの依頼",
-      "background": "バックグラウンドのルーティン"
+      "background": "バックグラウンドのルーティン",
+      "returns": "フォローアップ"
     },
     "state": {
       "working": "作業中",
-      "ok": "あなたの承認待ち",
+      "ok": "あなたの対応待ち",
       "answer": "回答待ち",
       "computerBusy": "コンピューターの空き待ち",
       "inLine": "順番待ち · {{position}}番目",
@@ -17053,6 +17259,9 @@
       "stopped": "あなたが停止",
       "stoppedBy": "{{name}}が停止",
       "failed": "完了できませんでした",
+      "returnCanceled": "フォローアップを取り消し済み",
+      "returnCanceledYou": "あなたがフォローアップを取り消しました",
+      "returnCanceledBy": "{{name}}がフォローアップを取り消しました",
       "none": "今日終了したものはまだありません。"
     },
     "empty": {

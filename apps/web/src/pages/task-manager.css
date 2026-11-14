@@ -255,54 +255,8 @@ html:not([data-pointer]) .tm-row:has(.tm-hit:focus-visible) {
   padding-inline: 0 var(--action-clear);
 }
 
-/*
- * A row's words and its press (`RowName`): the title, then what it is about in quiet type, on one line that ends in "…"
- * when it doesn't fit. The whole row picks it (its button reaches every edge); the buttons on it stay on top.
- */
-.tm-hit {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-weight: 500;
-  line-height: 1.35;
-  color: var(--ink);
-  white-space: nowrap;
-  text-align: left;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.tm-hit > small {
-  margin-left: var(--space-2);
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--faint);
-}
-.tm-hit::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-html:not([data-pointer]) .tm-hit:focus-visible {
-  outline: none;
-}
 .tm-row--agent .tm-hit {
   font-weight: 650;
-}
-/* A row's tip: the title, then one fact a line. */
-.tm-tip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tm-tip > b {
-  font-weight: 600;
-}
-.tm-tip > span {
-  color: var(--ink2);
 }
 .tm-cell--act > * {
   position: relative;

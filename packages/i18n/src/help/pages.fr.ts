@@ -763,7 +763,7 @@ export const helpFr: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "E-mail",
         blocks: [
-          "Sans e-mail, agentes.chat écrit chaque e-mail dans son journal au lieu de l'envoyer, vous pouvez donc y copier un lien d'invitation. La réinitialisation du mot de passe reste désactivée.",
+          "Sans e-mail, agentes.chat écrit chaque e-mail dans son journal au lieu de l'envoyer, vous pouvez donc y copier un lien d'invitation. La réinitialisation du mot de passe reste désactivée, et un nouvel e-mail pour un compte change aussitôt, sans code ni lien.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

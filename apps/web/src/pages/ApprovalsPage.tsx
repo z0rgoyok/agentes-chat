@@ -13,11 +13,15 @@ import {
 } from "@agenteschat/client";
 import {
   approvalCards,
+  approvalLines,
   approvalRuns,
   approveAllScope,
   approveAlwaysAlso,
   approveAlwaysOn,
+  byAsked,
   cardDeadline,
+  type LinePlace,
+  RUNNING_FOR_MS,
   runKeys,
 } from "@agenteschat/client/lib/approval-card";
 import { aheadPhase, approveAlwaysOffered } from "@agenteschat/client/lib/approval-kind";
@@ -70,11 +74,14 @@ import {
 import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import {
+  createContext,
   type KeyboardEvent,
   type PointerEvent,
   type ReactElement,
   type ReactNode,
+  useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -107,6 +114,7 @@ import { useOrg } from "@/components/org-context";
 import { colorOf, prepareBurst } from "@/components/Sky";
 import { TaskStepsBlock, useCallLogo } from "@/components/ToolCalls";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useReveal } from "@/hooks/useReveal";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
 import { TYPED_VALUES } from "@/i18n";
 import { inlineWords, Markdown } from "@/lib/markdown";
@@ -118,49 +126,61 @@ type Filter = "pending" | "approved" | "refused" | "expired" | "all";
 const FILTERS: Filter[] = ["pending", "approved", "refused", "expired", "all"];
 const TTL_MS = 24 * 3_600_000;
 const URGENT_MS = 3_600_000;
-/** Approved without a result for this long: it ran before results were kept (or the run died); stop showing "running". */
-const RUNNING_FOR_MS = 15 * 60_000;
 
-/** Where an approval goes on this screen. */
+/**
+ * Where an approval goes on this screen. `queued`: approved, its turn not come yet (a request the agent asked before
+ * it on its card still waits or runs); `notRun`: approved, but one asked before it was refused or expired after that.
+ */
 export type ApprovalPhase =
   | "waiting"
+  | "queued"
   | "running"
   | "scheduled"
   | "done"
   | "failed"
+  | "notRun"
   | "refused"
   | "expired"
   | "canceled";
 
-export function approvalPhase(a: Approval, now = Date.now()): ApprovalPhase {
+/** `place`: where it stands on its card (`approvalLine`); without it, an approved one runs from its decision. */
+export function approvalPhase(a: Approval, now = Date.now(), place?: LinePlace): ApprovalPhase {
   if (a.status === "pending") return "waiting";
   if (a.status === "approved") {
+    if (a.result?.notRunAfter) return "notRun";
     if (a.result) return a.result.ok ? "done" : "failed";
     if (a.executedAt) return "done";
     // Approved ahead: it waits for its time, when its routine's run does it.
     if (aheadPhase(a) === "scheduled") return "scheduled";
-    const decided = a.decidedAt ? new Date(a.decidedAt).getTime() : 0;
-    return now - decided < RUNNING_FOR_MS ? "running" : "done";
+    if (place?.waitsOn) return "queued";
+    const since = place?.freeSince ?? a.decidedAt;
+    return now - (since ? new Date(since).getTime() : 0) < RUNNING_FOR_MS ? "running" : "done";
   }
   return a.status;
 }
 
+/** Each request's place on its card (`approvalLine`), for the rows and the review under them. */
+const LinesContext = createContext<ReadonlyMap<string, LinePlace>>(new Map());
+const useLinePlace = (a: Approval) => useContext(LinesContext).get(a.id);
+/** A request with its place on its card ("Criar issue (1 de 2)"): two requests of one kind tell apart by it. */
+const titleOnCard = (t: TFunction, b: Approval, place: Pick<LinePlace, "position" | "count"> | undefined) =>
+  place && place.count > 1
+    ? `${approvalTitle(t, b)} (${t("approvals.position", { n: place.position, total: place.count })})`
+    : approvalTitle(t, b);
+const usePhase = (a: Approval) => approvalPhase(a, Date.now(), useLinePlace(a));
+
 const bucketOf = (p: ApprovalPhase): Exclude<Filter, "all"> =>
-  p === "waiting" || p === "running"
+  p === "waiting" || p === "queued" || p === "running"
     ? "pending"
-    : p === "done" || p === "failed" || p === "scheduled"
+    : p === "done" || p === "failed" || p === "scheduled" || p === "notRun"
       ? "approved"
       : p === "refused"
         ? "refused"
         : "expired";
 
-/** Waiting first, the one closest to expiring on top; running after them. */
+/** In the order the agents asked (each card's requests together at its first, `approvalCards`). */
 export function sortOpen(list: Approval[]) {
-  return [...list].sort((a, b) => {
-    const ra = approvalPhase(a) === "running" ? 1 : 0;
-    const rb = approvalPhase(b) === "running" ? 1 : 0;
-    return ra - rb || a.expiresAt.localeCompare(b.expiresAt);
-  });
+  return [...list].sort(byAsked);
 }
 
 const decidedAt = (a: Approval) => a.decidedAt ?? (a.status === "expired" ? a.expiresAt : a.createdAt);
@@ -204,7 +224,9 @@ export function ApprovalsPage() {
   const [refusing, setRefusing] = useState<string | null>(null);
   // Unfolded runs, by card and `runKeys`: here, not in the run's card, which remounts when its card regroups.
   const [openRuns, setOpenRuns] = useState<ReadonlySet<string>>(new Set());
-  const all = approvals.data ?? [];
+  const all = useMemo(() => approvals.data ?? [], [approvals.data]);
+  const lines = useMemo(() => approvalLines(all), [all]);
+  const phaseOf = (a: Approval) => approvalPhase(a, Date.now(), lines.get(a.id));
   const channelName = (id: string) => channels.data?.find((c) => c.id === id)?.name ?? "";
   const query = q.trim().toLowerCase();
   const look = useRightHandLook();
@@ -219,23 +241,27 @@ export function ApprovalsPage() {
       .join(" ")
       .toLowerCase()
       .includes(query);
-  const open = sortOpen(all.filter((a) => bucketOf(approvalPhase(a)) === "pending"));
+  const open = sortOpen(all.filter((a) => bucketOf(phaseOf(a)) === "pending"));
   const decided = all
-    .filter((a) => bucketOf(approvalPhase(a)) !== "pending")
+    .filter((a) => bucketOf(phaseOf(a)) !== "pending")
     .sort((a, b) => decidedAt(b).localeCompare(decidedAt(a)));
   const waiting = open.filter((a) => a.status === "pending");
   const mine = waiting.filter((a) => a.canDecide);
-  const urgent = mine[0];
+  // The list goes in the order asked; the header's warning is about the one closest to its deadline.
+  const urgent = mine.reduce<Approval | undefined>((u, a) => (!u || a.expiresAt < u.expiresAt ? a : u), undefined);
   const urgentLeft = urgent && new Date(urgent.expiresAt).getTime() - Date.now();
   const shownOpen = filter === "pending" || filter === "all" ? open.filter(matches) : [];
   const shownDecided = decided.filter(
-    (a) => matches(a) && (filter === "all" || filter === "pending" || bucketOf(approvalPhase(a)) === filter),
+    (a) => matches(a) && (filter === "all" || filter === "pending" || bucketOf(phaseOf(a)) === filter),
   );
-  // The rows in the order shown; the open one (`?open=<id>`), else the first, is the request beside the list.
-  const order = [...shownOpen, ...(filter === "pending" ? shownDecided.slice(0, 3) : shownDecided)].map((a) => a.id);
+  // The rows in the order shown (each card's requests together): what J/K walk, and the first opens beside the list.
+  const shownCards = approvalCards(shownOpen);
+  const order = [...shownCards.flat(), ...(filter === "pending" ? shownDecided.slice(0, 3) : shownDecided)].map(
+    (a) => a.id,
+  );
   const selectedId = openId && order.includes(openId) ? openId : (order[0] ?? null);
   const selected = all.find((a) => a.id === selectedId) ?? null;
-  const cardOf = new Map(approvalCards(shownOpen).flatMap((items) => items.map((a) => [a.id, items] as const)));
+  const cardOf = new Map(shownCards.flatMap((items) => items.map((a) => [a.id, items] as const)));
   // A newly opened request starts at its top, not where the last one was scrolled to: in its own column on a wide
   // window, in the page under the list on a narrow one.
   useEffect(() => {
@@ -250,6 +276,22 @@ export function ApprovalsPage() {
     if (id !== selectedId) setRefusing(null);
     setOpenId(id);
   };
+  // Decided while open: the next request waiting on you, in the order shown, opens in its place.
+  const decidedHere = useRef<{ id: string; status: Approval["status"] } | null>(null);
+  const nextUp = (() => {
+    const at = selectedId ? order.indexOf(selectedId) : -1;
+    const ids = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))];
+    return ids.find((id) => mine.some((a) => a.id === id));
+  })();
+  useEffect(() => {
+    const before = decidedHere.current;
+    decidedHere.current = selected ? { id: selected.id, status: selected.status } : null;
+    if (!selected || before?.id !== selected.id || before.status !== "pending" || selected.status === "pending") return;
+    if (nextUp) {
+      setRefusing(null);
+      setOpenId(nextUp);
+    }
+  }, [selected, nextUp, setOpenId]);
   // Missions you own or decide in: the executor's commands and what waits on you (decisions, reviews).
   const { missions } = useMissionsWaitingYou();
   const commands = pendingCommandCount(missions);
@@ -295,238 +337,254 @@ export function ApprovalsPage() {
   }, [order, selected, selectedId, refusing, setOpenId]);
 
   const countOf = (f: Filter) =>
-    f === "all"
-      ? all.length
-      : all.filter((a) => bucketOf(approvalPhase(a)) === f).length + (f === "pending" ? commands : 0);
+    f === "all" ? all.length : all.filter((a) => bucketOf(phaseOf(a)) === f).length + (f === "pending" ? commands : 0);
   const waiters = [...new Set(mine.map((a) => a.agentId))];
 
   return (
-    <div className="page page--list ap">
-      <div className="ap__main">
-        <PageHeader
-          title={t("approvals.title")}
-          meta={
-            waitingYou > 0 ? (
-              <>
-                {t("approvals.summary", { count: waitingYou })}
-                {urgentLeft && urgentLeft <= 2 * URGENT_MS
-                  ? ` · ${t("approvals.urgent", { time: timeLeft(t, urgent.expiresAt) ?? "" })}`
-                  : ""}
-              </>
-            ) : (
-              t("approvals.nothing")
-            )
-          }
-        />
-        <ApprovalsTabs value="requests" />
-        <Toolbar
-          label={t("approvals.filters")}
-          search={
-            <SearchInput
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t("approvals.search")}
-              aria-label={t("approvals.search")}
-              className="ap-tools__search"
-            />
-          }
-        >
-          <Segmented
-            label={t("approvals.filters")}
-            value={filter}
-            onValueChange={setFilter}
-            options={FILTERS.map((f) => ({ value: f, label: t(`approvals.filter.${f}`), count: countOf(f) }))}
+    <LinesContext.Provider value={lines}>
+      <div className="page page--list ap">
+        <div className="ap__main">
+          <PageHeader
+            title={t("approvals.title")}
+            meta={
+              waitingYou > 0 ? (
+                <>
+                  {t("approvals.summary", { count: waitingYou })}
+                  {urgentLeft && urgentLeft <= 2 * URGENT_MS
+                    ? ` · ${t("approvals.urgent", { time: timeLeft(t, urgent.expiresAt) ?? "" })}`
+                    : ""}
+                </>
+              ) : (
+                t("approvals.nothing")
+              )
+            }
           />
-        </Toolbar>
-
-        {filter === "pending" && waiters.length > 1 && (
-          <div className="ap-waiters">
-            <span className="ap-waiters__faces">
-              {waiters.map((id) => (
-                <AgentAvatar key={id} agentId={id} name={dir.agentById.get(id)?.name ?? ""} size="sm" state="waiting" />
-              ))}
-            </span>
-            <span className="ap-waiters__text">
-              <Trans
-                i18nKey="approvals.waiters"
-                count={waiters.length}
-                values={{
-                  names: joinNames(
-                    waiters.map((id) => dir.agentById.get(id)?.name ?? ""),
-                    t,
-                  ),
-                }}
-                components={{ b: <b /> }}
-                {...TYPED_VALUES}
+          <ApprovalsTabs value="requests" />
+          <Toolbar
+            label={t("approvals.filters")}
+            search={
+              <SearchInput
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t("approvals.search")}
+                aria-label={t("approvals.search")}
+                className="ap-tools__search"
               />
-            </span>
-          </div>
-        )}
+            }
+          >
+            <Segmented
+              label={t("approvals.filters")}
+              value={filter}
+              onValueChange={setFilter}
+              options={FILTERS.map((f) => ({ value: f, label: t(`approvals.filter.${f}`), count: countOf(f) }))}
+            />
+          </Toolbar>
 
-        {approvals.isLoading && <LoadingCards count={2} />}
-        {approvals.isError && !approvals.data && (
-          <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
-        )}
-        {approvals.isSuccess &&
-          filter === "pending" &&
-          shownOpen.length === 0 &&
-          !query &&
-          commands === 0 &&
-          !missionWaiting &&
-          shownDecided.length === 0 && (
-            <EmptyState size="page" agent={look} mood="deal" title={t("approvals.emptyTitle")}>
-              <HelpLink slug="approvals">{t("approvals.how")}</HelpLink>
+          {filter === "pending" && waiters.length > 1 && (
+            <div className="ap-waiters">
+              <span className="ap-waiters__faces">
+                {waiters.map((id) => (
+                  <AgentAvatar
+                    key={id}
+                    agentId={id}
+                    name={dir.agentById.get(id)?.name ?? ""}
+                    size="sm"
+                    state="waiting"
+                  />
+                ))}
+              </span>
+              <span className="ap-waiters__text">
+                <Trans
+                  i18nKey="approvals.waiters"
+                  count={waiters.length}
+                  values={{
+                    names: joinNames(
+                      waiters.map((id) => dir.agentById.get(id)?.name ?? ""),
+                      t,
+                    ),
+                  }}
+                  components={{ b: <b /> }}
+                  {...TYPED_VALUES}
+                />
+              </span>
+            </div>
+          )}
+
+          {approvals.isLoading && <LoadingCards count={2} />}
+          {approvals.isError && !approvals.data && (
+            <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
+          )}
+          {approvals.isSuccess &&
+            filter === "pending" &&
+            shownOpen.length === 0 &&
+            !query &&
+            commands === 0 &&
+            !missionWaiting &&
+            shownDecided.length === 0 && (
+              <EmptyState size="page" agent={look} mood="deal" title={t("approvals.emptyTitle")}>
+                <HelpLink slug="approvals">{t("approvals.how")}</HelpLink>
+              </EmptyState>
+            )}
+          {approvals.isSuccess && query && shownOpen.length === 0 && shownDecided.length === 0 && (
+            <EmptyState size="panel" actions={<Button onClick={() => setQ("")}>{t("filters.clearSearch")}</Button>}>
+              {t("approvals.noResults")}
             </EmptyState>
           )}
-        {approvals.isSuccess && query && shownOpen.length === 0 && shownDecided.length === 0 && (
-          <EmptyState size="panel" actions={<Button onClick={() => setQ("")}>{t("filters.clearSearch")}</Button>}>
-            {t("approvals.noResults")}
-          </EmptyState>
-        )}
 
-        {(shownOpen.length > 0 || shownDecided.length > 0) && (
-          // A split ends its page (over-pages.css): with the missions listed under it, the page scrolls as one.
-          <div className={cx("ap-split", !missionsBelow && "page-split")}>
-            <nav
-              className="ap-list"
-              data-scroll-restoration-id="approvals-list"
-              aria-label={t("approvals.review.list")}
-            >
-              {shownOpen.length > 0 &&
-                approvalCards(shownOpen).map((items) => {
-                  const always = approveAlwaysOn(items);
-                  const row = (a: Approval) => (
-                    <ReqRow key={a.id} approval={a} selected={selectedId === a.id} onOpen={() => select(a.id)} />
-                  );
-                  // Waiting requests of one kind in a row: one row that unfolds into them.
-                  // Keyed by `runKeys`: an unfolded run stays open while its requests are decided one by one.
-                  const runs = approvalRuns(items);
-                  const keys = runKeys(runs).map((key) => `${items[0]?.messageId ?? ""}:${key}`);
-                  const rows = runs.map((run, i) =>
-                    run.length > 1 && run[0] ? (
-                      <RunRow
-                        key={keys[i]}
-                        open={openRuns.has(keys[i] ?? "")}
-                        onToggle={() =>
-                          setOpenRuns((o) => {
-                            const next = new Set(o);
-                            if (!next.delete(keys[i] ?? "")) next.add(keys[i] ?? "");
-                            return next;
-                          })
-                        }
-                        run={run}
-                        items={items}
-                        always={always}
-                        agent={dir.agentById.get(run[0].agentId)}
-                      >
-                        {run.map(row)}
-                      </RunRow>
-                    ) : (
-                      run[0] && row(run[0])
-                    ),
-                  );
-                  const first = items[0];
-                  if (!first || runs.length < 2) return rows;
-                  // Requests sharing one card in the conversation: together, with "Aprovar tudo".
-                  const agent = dir.agentById.get(first.agentId);
-                  const partial = approveAllPartial(
-                    t,
-                    items,
-                    approvalGroupWaitsFor(
-                      items,
-                      dir.memberById.get(first.ownerUserId ?? agent?.ownerUserId ?? "")?.name,
-                    ),
-                  );
-                  return (
-                    <section key={first.messageId ?? first.id} className="ap-group" aria-label={agent?.name}>
-                      <div className="ap-group__head">
-                        <span className="ap-group__who">
-                          <Trans
-                            i18nKey="approvals.groupHead"
-                            count={items.length}
-                            values={{ name: agent?.name ?? t("channel.unknownAgent") }}
-                            components={{
-                              b: <AgentWho agentId={first.agentId} name={agent?.name ?? t("channel.unknownAgent")} />,
-                            }}
-                            {...TYPED_VALUES}
-                          />
-                        </span>
-                        <span className="ap-group__acts">
-                          <ApproveAll items={items} />
-                        </span>
-                      </div>
-                      {partial && <p className="ap-group__note">{partial}</p>}
-                      {rows}
-                    </section>
-                  );
-                })}
-              {filter === "pending"
-                ? shownDecided.length > 0 && (
-                    <section className="ap-list__section">
-                      <GroupHeading
-                        title={t("approvals.recent")}
-                        aside={
-                          <button type="button" className="ac-link ac-link--muted" onClick={() => setFilter("all")}>
-                            {t("approvals.seeHistory")}
-                          </button>
-                        }
-                      />
-                      <div className="ap-list__rows">
-                        {shownDecided.slice(0, 3).map((a) => (
-                          <ReqRow key={a.id} approval={a} selected={selectedId === a.id} onOpen={() => select(a.id)} />
-                        ))}
-                      </div>
-                    </section>
-                  )
-                : groups(shownDecided).map(([key, list]) => (
-                    <section key={key} className="ap-list__section">
-                      <GroupHeading title={t(`approvals.groups.${key}`)} count={list.length} />
-                      <div className="ap-list__rows">
-                        {list.map((a) => (
-                          <ReqRow key={a.id} approval={a} selected={selectedId === a.id} onOpen={() => select(a.id)} />
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-            </nav>
-            {selected && (
-              <section
-                className="ap-review"
-                data-scroll-restoration-id="approvals-request"
-                data-burst=""
-                aria-label={approvalTitle(t, selected)}
+          {(shownOpen.length > 0 || shownDecided.length > 0) && (
+            // A split ends its page (over-pages.css): with the missions listed under it, the page scrolls as one.
+            <div className={cx("ap-split", !missionsBelow && "page-split")}>
+              <nav
+                className="ap-list"
+                data-scroll-restoration-id="approvals-list"
+                aria-label={t("approvals.review.list")}
               >
-                <ReviewHead approval={selected} channel={channelName(selected.channelId)} />
-                <ReviewBody key={selected.id} approval={selected} channel={channelName(selected.channelId)} />
-                <DecisionBar
-                  approval={selected}
-                  refusing={refusing === selected.id}
-                  onRefuse={() => setRefusing(selected.id)}
-                  onCancelRefuse={() => setRefusing(null)}
-                  also={selectedCard ? approveAlwaysAlso(selectedCard, selected) : undefined}
-                  floating
-                />
-              </section>
-            )}
-          </div>
-        )}
+                {shownOpen.length > 0 &&
+                  shownCards.map((items) => {
+                    const always = approveAlwaysOn(items);
+                    const row = (a: Approval) => (
+                      <ReqRow key={a.id} approval={a} selected={selectedId === a.id} onOpen={() => select(a.id)} />
+                    );
+                    // Waiting requests of one kind in a row: one row that unfolds into them.
+                    // Keyed by `runKeys`: an unfolded run stays open while its requests are decided one by one.
+                    const runs = approvalRuns(items);
+                    const keys = runKeys(runs).map((key) => `${items[0]?.messageId ?? ""}:${key}`);
+                    const rows = runs.map((run, i) =>
+                      run.length > 1 && run[0] ? (
+                        <RunRow
+                          key={keys[i]}
+                          open={openRuns.has(keys[i] ?? "")}
+                          onToggle={() =>
+                            setOpenRuns((o) => {
+                              const next = new Set(o);
+                              if (!next.delete(keys[i] ?? "")) next.add(keys[i] ?? "");
+                              return next;
+                            })
+                          }
+                          run={run}
+                          items={items}
+                          always={always}
+                          agent={dir.agentById.get(run[0].agentId)}
+                        >
+                          {run.map(row)}
+                        </RunRow>
+                      ) : (
+                        run[0] && row(run[0])
+                      ),
+                    );
+                    const first = items[0];
+                    if (!first || runs.length < 2) return rows;
+                    // Requests sharing one card in the conversation: together, with "Aprovar tudo".
+                    const agent = dir.agentById.get(first.agentId);
+                    const partial = approveAllPartial(
+                      t,
+                      items,
+                      approvalGroupWaitsFor(
+                        items,
+                        dir.memberById.get(first.ownerUserId ?? agent?.ownerUserId ?? "")?.name,
+                      ),
+                    );
+                    return (
+                      <section key={first.messageId ?? first.id} className="ap-group" aria-label={agent?.name}>
+                        <div className="ap-group__head">
+                          <span className="ap-group__who">
+                            <Trans
+                              i18nKey="approvals.groupHead"
+                              count={items.length}
+                              values={{ name: agent?.name ?? t("channel.unknownAgent") }}
+                              components={{
+                                b: <AgentWho agentId={first.agentId} name={agent?.name ?? t("channel.unknownAgent")} />,
+                              }}
+                              {...TYPED_VALUES}
+                            />
+                          </span>
+                          <span className="ap-group__acts">
+                            <ApproveAll items={items} />
+                          </span>
+                        </div>
+                        {partial && <p className="ap-group__note">{partial}</p>}
+                        {rows}
+                      </section>
+                    );
+                  })}
+                {filter === "pending"
+                  ? shownDecided.length > 0 && (
+                      <section className="ap-list__section">
+                        <GroupHeading
+                          title={t("approvals.recent")}
+                          aside={
+                            <button type="button" className="ac-link ac-link--muted" onClick={() => setFilter("all")}>
+                              {t("approvals.seeHistory")}
+                            </button>
+                          }
+                        />
+                        <div className="ap-list__rows">
+                          {shownDecided.slice(0, 3).map((a) => (
+                            <ReqRow
+                              key={a.id}
+                              approval={a}
+                              selected={selectedId === a.id}
+                              onOpen={() => select(a.id)}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  : groups(shownDecided).map(([key, list]) => (
+                      <section key={key} className="ap-list__section">
+                        <GroupHeading title={t(`approvals.groups.${key}`)} count={list.length} />
+                        <div className="ap-list__rows">
+                          {list.map((a) => (
+                            <ReqRow
+                              key={a.id}
+                              approval={a}
+                              selected={selectedId === a.id}
+                              onOpen={() => select(a.id)}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+              </nav>
+              {selected && (
+                <section
+                  className="ap-review"
+                  data-scroll-restoration-id="approvals-request"
+                  data-burst=""
+                  aria-label={approvalTitle(t, selected)}
+                >
+                  <ReviewHead approval={selected} channel={channelName(selected.channelId)} />
+                  <ReviewBody key={selected.id} approval={selected} channel={channelName(selected.channelId)} />
+                  <DecisionBar
+                    approval={selected}
+                    refusing={refusing === selected.id}
+                    onRefuse={() => setRefusing(selected.id)}
+                    onCancelRefuse={() => setRefusing(null)}
+                    also={selectedCard ? approveAlwaysAlso(selectedCard, selected) : undefined}
+                    floating
+                  />
+                </section>
+              )}
+            </div>
+          )}
 
-        {filter === "pending" && (
-          <div className="ac-groups">
-            <MissionCommandsPending missions={missions} query={query} />
-            <MissionsWaitingList missions={missions} query={query} />
-          </div>
-        )}
-        {approvals.isSuccess && filter !== "pending" && !query && shownOpen.length + shownDecided.length === 0 && (
-          <EmptyState
-            size="panel"
-            actions={<Button onClick={() => setFilter("pending")}>{t("filters.clearAll")}</Button>}
-          >
-            {t("approvals.noResults")}
-          </EmptyState>
-        )}
+          {filter === "pending" && (
+            <div className="ac-groups">
+              <MissionCommandsPending missions={missions} query={query} />
+              <MissionsWaitingList missions={missions} query={query} />
+            </div>
+          )}
+          {approvals.isSuccess && filter !== "pending" && !query && shownOpen.length + shownDecided.length === 0 && (
+            <EmptyState
+              size="panel"
+              actions={<Button onClick={() => setFilter("pending")}>{t("filters.clearAll")}</Button>}
+            >
+              {t("approvals.noResults")}
+            </EmptyState>
+          )}
+        </div>
       </div>
-    </div>
+    </LinesContext.Provider>
   );
 }
 
@@ -937,11 +995,14 @@ function ReqRow({ approval: a, selected, onOpen }: { approval: Approval; selecte
   const dir = useDirectory(org.id);
   const agent = dir.agentById.get(a.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
-  const p = approvalPhase(a);
+  const p = usePhase(a);
+  const place = useLinePlace(a);
   const via = useApprovalVia(a);
   const leftMs = new Date(a.expiresAt).getTime() - Date.now();
   const waits = approvalWaitsFor(a, dir.memberById.get(a.ownerUserId ?? agent?.ownerUserId ?? "")?.name);
   const where = approvalTarget(a) ?? via.name;
+  // On its way (waiting for you, in line, running): when it was asked; decided: who decided and when.
+  const live = p === "waiting" || p === "queued" || p === "running";
   const end =
     p === "waiting" ? (
       <span className={cx("ap-li__left", leftMs <= URGENT_MS && "is-urgent")}>
@@ -967,13 +1028,15 @@ function ReqRow({ approval: a, selected, onOpen }: { approval: Approval; selecte
           agentId={a.agentId}
           name={name}
           size="sm"
-          state={p === "waiting" ? "waiting" : p === "running" ? "writing" : "idle"}
-          expression={p === "done" ? "happy" : p === "refused" || p === "expired" ? "closed" : undefined}
+          state={p === "waiting" || p === "queued" ? "waiting" : p === "running" ? "writing" : "idle"}
+          expression={
+            p === "done" ? "happy" : p === "refused" || p === "expired" || p === "notRun" ? "closed" : undefined
+          }
         />
       </span>
       <span className="ac-mediarow__head">
         <span className="ap-li__line">
-          {p === "waiting" || p === "running" ? (
+          {live ? (
             <Trans
               i18nKey="notifications.wait.wants"
               values={{ name, action: approvalDoing(t, a, i18n.language) }}
@@ -991,7 +1054,9 @@ function ReqRow({ approval: a, selected, onOpen }: { approval: Approval; selecte
           <ViaGlyph via={via} />
           {where && <span className="ap-li__where">{where}</span>}
           <span className="ap-li__when">
-            {p === "waiting" || p === "running"
+            {/* Its place on its card, in the order the agent asked, when it shares one. */}
+            {place && place.count > 1 && `${t("approvals.position", { n: place.position, total: place.count })} · `}
+            {live
               ? relativeTime(t, i18n.language, a.createdAt)
               : decisionLabel(t, i18n.language, a, me.user.id, dir.memberById)}
           </span>
@@ -1071,7 +1136,7 @@ const EFFECT_ICON: Record<ApprovalEffect, IconName> = {
   readsOnly: "eye",
 };
 const UNDO_ICON: Record<ApprovalUndo, IconName> = { irreversible: "alert", reversible: "undo", deletable: "undo" };
-/** Its text folds past this many characters ("Ver inteiro"). */
+/** Its text folds past this many characters ("Ver mais"). */
 const TEXT_FOLD = 360;
 
 /** The request's head on the page: the agent, who asked and from where, and the action in one line. */
@@ -1081,7 +1146,8 @@ function ReviewHead({ approval: a, channel }: { approval: Approval; channel: str
   const dir = useDirectory(org.id);
   const agent = dir.agentById.get(a.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
-  const p = approvalPhase(a);
+  const p = usePhase(a);
+  const place = useLinePlace(a);
   const origin = approvalOriginShort(a);
   const tt = t as unknown as (key: string, options?: Record<string, unknown>) => string;
   const title = approvalTitle(t, a);
@@ -1089,6 +1155,7 @@ function ReviewHead({ approval: a, channel }: { approval: Approval; channel: str
     agent?.role,
     origin ? tt(origin.key, origin.values) : "",
     channel ? `#${channel}` : "",
+    place && place.count > 1 ? t("approvals.position", { n: place.position, total: place.count }) : "",
     relativeTime(t, i18n.language, a.createdAt),
   ]
     .filter(Boolean)
@@ -1100,7 +1167,7 @@ function ReviewHead({ approval: a, channel }: { approval: Approval; channel: str
           agentId={a.agentId}
           name={name}
           size="md"
-          state={p === "running" ? "writing" : p === "waiting" ? "waiting" : "idle"}
+          state={p === "running" ? "writing" : p === "waiting" || p === "queued" ? "waiting" : "idle"}
           running={p === "running"}
           expression={p === "done" ? "happy" : undefined}
         />
@@ -1144,9 +1211,13 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
   const dir = useDirectory(org.id);
   const agent = dir.agentById.get(a.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
-  const p = approvalPhase(a);
+  const p = usePhase(a);
+  // Won't happen (refused, kept from running, expired, canceled): what it would have done, not what it did.
+  const never = p === "refused" || p === "notRun" || p === "expired" || p === "canceled";
   const via = useApprovalVia(a);
   const [unfold, setUnfold] = useState(false);
+  const textBox = useRef<HTMLDivElement>(null);
+  const reveal = useReveal(textBox, unfold);
   const [steps, setSteps] = useState(false);
   const [tech, setTech] = useState(false);
   const { effect } = approvalEffects(a);
@@ -1189,7 +1260,16 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
         }
       : {
           key: "when",
-          icon: p === "done" ? "check" : p === "failed" ? "alert" : "clock",
+          icon:
+            p === "done"
+              ? "check"
+              : p === "failed"
+                ? "alert"
+                : p === "queued"
+                  ? "waiting"
+                  : p === "notRun"
+                    ? "block"
+                    : "clock",
           label: t("approvals.review.state"),
           value: t(`approvals.status.${PHASE_STATUS[p]}`),
           tone: p === "done" ? "done" : p === "failed" ? "waiting" : undefined,
@@ -1243,7 +1323,7 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
     })),
   ];
   const durationMs = around ? workFromSteps(around.before, run.data?.run).durationMs : null;
-  const long = (text?.text.length ?? 0) > TEXT_FOLD || (text?.text.split("\n").length ?? 0) > 6;
+  const folded = !unfold && ((text?.text.length ?? 0) > TEXT_FOLD || (text?.text.split("\n").length ?? 0) > 6);
 
   return (
     <div className="ap-review__body">
@@ -1274,23 +1354,42 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
             a.email
               ? t("approvals.review.email")
               : text
-                ? t(p === "done" ? "approvals.review.textDone" : "approvals.review.text")
-                : t(p === "waiting" ? "approvals.review.values" : "approvals.review.valuesDone")
+                ? t(
+                    p === "done"
+                      ? "approvals.review.textDone"
+                      : never
+                        ? "approvals.review.textNot"
+                        : "approvals.review.text",
+                  )
+                : t(
+                    p === "done" || p === "failed"
+                      ? "approvals.review.valuesDone"
+                      : never
+                        ? "approvals.review.valuesNot"
+                        : "approvals.review.values",
+                  )
           }
           subtitle={[via.name, target].filter(Boolean).join(" · ") || undefined}
-          action={
-            text && long ? (
-              <Button variant="ghost" size="sm" aria-expanded={unfold} onClick={() => setUnfold((o) => !o)}>
-                {unfold ? t("approvals.review.less") : t("approvals.review.more")}
-              </Button>
-            ) : undefined
-          }
         />
         {a.email ? (
           <EmailLetter email={a.email} full />
         ) : text ? (
-          <div className={cx("ap-review__text", long && !unfold && "is-folded")}>
-            <Markdown source={text.text} variant="message" />
+          <div>
+            <div ref={textBox} className={cx("ap-review__text", folded && "is-folded")}>
+              <Markdown source={text.text} variant="message" />
+            </div>
+            {folded && (
+              <button
+                type="button"
+                className="ac-link folded-body__more"
+                onClick={() => {
+                  reveal();
+                  setUnfold(true);
+                }}
+              >
+                {t("channel.long.more")}
+              </button>
+            )}
           </div>
         ) : (
           <ExactAction approval={a} bare />
@@ -1369,8 +1468,10 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
 /** The `approvals.status.*` word of each phase. */
 const PHASE_STATUS: Record<
   Exclude<ApprovalPhase, "waiting">,
-  "approved" | "failed" | "refused" | "expired" | "running" | "canceled" | "scheduled"
+  "approved" | "failed" | "refused" | "expired" | "running" | "canceled" | "scheduled" | "queued" | "notRun"
 > = {
+  queued: "queued",
+  notRun: "notRun",
   running: "running",
   scheduled: "scheduled",
   done: "approved",
@@ -1406,8 +1507,25 @@ function DecisionBar({
   const agent = dir.agentById.get(a.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
   const g = agentGrammar(name);
-  const p = approvalPhase(a);
+  const p = usePhase(a);
+  const place = useLinePlace(a);
+  const waitsOn = place?.waitsOn;
   const deciding = useApprovalsDeciding(org.id, [a.id]);
+  // Approved, its turn not come yet: it runs once what the agent asked before it is decided and done.
+  if (p === "queued" && waitsOn)
+    return (
+      <div className={cx("ap-bar", floating && "ap-bar--float")}>
+        <p className="ap-bar__text">
+          {t("approvals.queuedLine", {
+            title: titleOnCard(
+              t,
+              waitsOn,
+              place?.waitsOnAt ? { position: place.waitsOnAt, count: place.count } : undefined,
+            ),
+          })}
+        </p>
+      </div>
+    );
   if (p === "running")
     return (
       <div className={cx("ap-bar", floating && "ap-bar--float")}>
@@ -1454,21 +1572,25 @@ function DecisionBar({
 /** A decided request's state at the end of its list row: only its icon (the row's line already says who decided). */
 function PhaseMark({ approval }: { approval: Approval }) {
   const { t } = useTranslation();
-  const p = approvalPhase(approval);
-  const [icon, key]: [IconName, "approved" | "failed" | "refused" | "expired" | "running" | "canceled" | "scheduled"] =
-    p === "done"
-      ? ["check", "approved"]
-      : p === "scheduled"
-        ? ["calendar", "scheduled"]
-        : p === "failed"
-          ? ["alert", "failed"]
-          : p === "refused"
-            ? ["close", "refused"]
-            : p === "expired"
-              ? ["clock", "expired"]
-              : p === "running"
-                ? ["play", "running"]
-                : ["block", "canceled"];
+  const p = usePhase(approval);
+  const [icon, key]: [IconName, (typeof PHASE_STATUS)[keyof typeof PHASE_STATUS]] =
+    p === "queued"
+      ? ["waiting", "queued"]
+      : p === "notRun"
+        ? ["block", "notRun"]
+        : p === "done"
+          ? ["check", "approved"]
+          : p === "scheduled"
+            ? ["calendar", "scheduled"]
+            : p === "failed"
+              ? ["alert", "failed"]
+              : p === "refused"
+                ? ["close", "refused"]
+                : p === "expired"
+                  ? ["clock", "expired"]
+                  : p === "running"
+                    ? ["play", "running"]
+                    : ["block", "canceled"];
   const label = t(`approvals.status.${key}`);
   return (
     <span className={cx("ap-li__state", `is-${p}`)} role="img" aria-label={label} title={label}>
@@ -1513,21 +1635,24 @@ export function ApprovalDetailsDialog({ approvalId, onClose }: { approvalId: str
   const approvals = useApprovals(org.id);
   const channels = useChannels(org.id);
   const [refusing, setRefusing] = useState(false);
-  const all = approvals.data ?? [];
+  const all = useMemo(() => approvals.data ?? [], [approvals.data]);
+  const lines = useMemo(() => approvalLines(all), [all]);
   const approval = all.find((a) => a.id === approvalId);
   useEffect(() => {
     if (approvals.isSuccess && !approval) onClose();
   }, [approvals.isSuccess, approval, onClose]);
   if (!approval) return null;
   return (
-    <ApprovalDetails
-      approval={approval}
-      channel={channels.data?.find((c) => c.id === approval.channelId)?.name ?? ""}
-      refusing={refusing}
-      onRefuse={() => setRefusing(true)}
-      onCancelRefuse={() => setRefusing(false)}
-      onClose={onClose}
-    />
+    <LinesContext.Provider value={lines}>
+      <ApprovalDetails
+        approval={approval}
+        channel={channels.data?.find((c) => c.id === approval.channelId)?.name ?? ""}
+        refusing={refusing}
+        onRefuse={() => setRefusing(true)}
+        onCancelRefuse={() => setRefusing(false)}
+        onClose={onClose}
+      />
+    </LinesContext.Provider>
   );
 }
 
@@ -1552,7 +1677,7 @@ function ApprovalDetails({
   const dir = useDirectory(org.id);
   const agent = dir.agentById.get(a.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
-  const p = approvalPhase(a);
+  const p = usePhase(a);
   return (
     <DetailsDialog
       open
@@ -1572,7 +1697,7 @@ function ApprovalDetails({
           agentId={a.agentId}
           name={name}
           size="md"
-          state={p === "running" ? "writing" : p === "waiting" ? "waiting" : "idle"}
+          state={p === "running" ? "writing" : p === "waiting" || p === "queued" ? "waiting" : "idle"}
           running={p === "running"}
           expression={p === "done" ? "happy" : undefined}
         />
@@ -1607,7 +1732,10 @@ function Outcome({ approval: a, agent }: { approval: Approval; agent: Agent | un
   const [returned, setReturned] = useState(false);
   const name = agent?.name ?? t("channel.unknownAgent");
   const g = agentGrammar(name);
-  const p = approvalPhase(a);
+  const p = usePhase(a);
+  // Kept from running: the request asked before it whose refusal or expiry did that.
+  const earlier = useApprovals(org.id).data?.find((x) => x.id === a.result?.notRunAfter);
+  const earlierPlace = useContext(LinesContext).get(earlier?.id ?? "");
   if (p === "waiting") return null;
   const who =
     a.decidedByUserId === me.user.id
@@ -1615,34 +1743,46 @@ function Outcome({ approval: a, agent }: { approval: Approval; agent: Agent | un
       : (dir.memberById.get(a.decidedByUserId ?? "")?.name ?? "");
   const when = a.decidedAt ? relativeTime(t, i18n.language, a.decidedAt) : "";
   const approvedBy = t("approvals.panel.approvedBy", { name: who, when });
+  const notRunLine = !earlier
+    ? t("approvals.notRunEarlier")
+    : earlier.status === "refused"
+      ? t("approvals.notRunRefused", { title: titleOnCard(t, earlier, earlierPlace) })
+      : t("approvals.notRunExpired", { title: titleOnCard(t, earlier, earlierPlace) });
   const [icon, title, subtitle]: [IconName, string, string | undefined] =
-    p === "running"
-      ? ["play", t("approvals.panel.runningLine", { context: g.context, name }), approvedBy]
-      : p === "done"
-        ? ["check", t("approvals.panel.done"), approvedBy]
-        : p === "failed"
-          ? ["alert", t("approvals.panel.failed"), approvedBy]
-          : p === "refused"
-            ? [
-                "close",
-                t("approvals.panel.refusedBy", { name: who, when }),
-                a.reason ? `“${a.reason}”` : t("approvals.panel.noReason"),
-              ]
-            : p === "scheduled"
-              ? [
-                  "calendar",
-                  a.runAt ? t("approval.ahead.scheduled", { when: nextLabel(i18n.language, a.runAt) }) : "",
-                  approvedBy,
-                ]
-              : p === "expired"
-                ? ["clock", t("approvals.status.expired"), aheadEndLine(t, a) ?? t("approvals.expiredLine")]
-                : [
-                    "block",
-                    t("approvals.status.canceled"),
-                    a.supersededById
-                      ? t("approvals.supersededLine")
-                      : (aheadEndLine(t, a) ?? t("approvals.canceledLine")),
-                  ];
+    // In line: the bar under the request says what it runs after.
+    p === "queued"
+      ? ["waiting", t("approvals.status.queued"), approvedBy]
+      : p === "notRun"
+        ? ["block", t("approvals.status.notRun"), notRunLine]
+        : p === "running"
+          ? ["play", t("approvals.panel.runningLine", { context: g.context, name }), approvedBy]
+          : p === "done"
+            ? ["check", t("approvals.panel.done"), approvedBy]
+            : p === "failed"
+              ? ["alert", t("approvals.panel.failed"), approvedBy]
+              : p === "refused"
+                ? [
+                    "close",
+                    t("approvals.panel.refusedBy", { name: who, when }),
+                    a.reason ? `“${a.reason}”` : t("approvals.panel.noReason"),
+                  ]
+                : p === "scheduled"
+                  ? [
+                      "calendar",
+                      a.runAt ? t("approval.ahead.scheduled", { when: nextLabel(i18n.language, a.runAt) }) : "",
+                      approvedBy,
+                    ]
+                  : p === "expired"
+                    ? ["clock", t("approvals.status.expired"), aheadEndLine(t, a) ?? t("approvals.expiredLine")]
+                    : [
+                        "block",
+                        t("approvals.status.canceled"),
+                        a.supersededById
+                          ? t("approvals.supersededLine")
+                          : (aheadEndLine(t, a) ?? t("approvals.canceledLine")),
+                      ];
+  // What the action returned; one kept from running returned nothing (its line above says why).
+  const shownResult = p !== "notRun" && a.result?.text ? a.result.text : null;
   const action =
     p === "scheduled" && a.canCancel ? (
       <CancelAhead id={a.id} />
@@ -1655,12 +1795,12 @@ function Outcome({ approval: a, agent }: { approval: Approval; agent: Agent | un
       {p === "refused" && a.reason && (
         <p className="ap-outcome__lesson">{t("approvals.lesson", { name, reason: a.reason })}</p>
       )}
-      {returned && a.result?.text && (
+      {returned && shownResult && (
         <pre className="ap-code ap-review__tech">
-          <code>{a.result.text}</code>
+          <code>{shownResult}</code>
         </pre>
       )}
-      {a.result?.text && (
+      {shownResult && (
         <p className="ac-card__foot ap-review__foot">
           <button type="button" className="ap-link" aria-expanded={returned} onClick={() => setReturned((o) => !o)}>
             {t("approvals.panel.returned")}

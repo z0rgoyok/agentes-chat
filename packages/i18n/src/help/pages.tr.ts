@@ -761,7 +761,7 @@ export const helpTr: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "E-posta",
         blocks: [
-          "E-posta yoksa agentes.chat her e-postayı göndermek yerine günlüğüne yazar, böylece bir davet bağlantısını oradan kopyalayabilirsiniz. Parola sıfırlama kapalı kalır.",
+          "E-posta yoksa agentes.chat her e-postayı göndermek yerine günlüğüne yazar, böylece bir davet bağlantısını oradan kopyalayabilirsiniz. Parola sıfırlama kapalı kalır ve bir hesabın yeni e-postası kod ya da bağlantı olmadan hemen geçerli olur.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

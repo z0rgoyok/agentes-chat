@@ -61,17 +61,27 @@ export function emailsFrom(text: string, already: readonly string[] = []): { val
 }
 
 /**
- * The address in a JWT's `email` claim (an ID token's), read without checking its signature: only to name the address
- * a sign-in was refused for, never to trust it. Undefined when there is none.
+ * A JWT's claims, read as UTF-8 without checking its signature: never to trust them, only to tell what a token is
+ * about. Undefined when it has none.
  */
-export function jwtEmail(token: string): string | undefined {
+export function jwtClaims(token: string): Record<string, unknown> | undefined {
   const payload = (token.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/");
   try {
-    const { email } = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, "=")));
-    return typeof email === "string" && isEmail(email) ? email : undefined;
+    const binary = atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, "="));
+    const claims: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0))));
+    return claims !== null && typeof claims === "object" ? (claims as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The address in a JWT's `email` claim (an ID token's): only to name the address a sign-in was refused for. Undefined
+ * when there is none.
+ */
+export function jwtEmail(token: string): string | undefined {
+  const email = jwtClaims(token)?.email;
+  return typeof email === "string" && isEmail(email) ? email : undefined;
 }
 
 /** Password rules from Better Auth (8–128 characters, nothing else). */

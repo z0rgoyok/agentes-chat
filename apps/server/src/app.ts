@@ -122,6 +122,7 @@ export interface AppOptions {
  * - `/api/native/*`       public: the packages that run agentes.chat without Docker, for the installer (ADR 0060)
  * - `/api/hooks/*`        public: a webhook routine's own address (its chosen methods, ADR 0106)
  * - `/api/waitlist`       public: join the waiting list and confirm the email (the landing page, only with LANDING_URL)
+ * - `/api/partners/waitlist` public: join the partner program's waiting list (the landing page, only with LANDING_URL)
  * - `/api/oauth/*`        public: the OAuth 2.1 authorization server for AI apps (ADR 0119)
  * - `/api/push-relay/v1/*` other installations' Android pushes, server to server (only with PUSH_RELAY_SERVE, ADR 0152)
  * - `/mcp`                AI apps' MCP endpoint, bearer tokens only (ADR 0119); `/.well-known/oauth-*` its discovery

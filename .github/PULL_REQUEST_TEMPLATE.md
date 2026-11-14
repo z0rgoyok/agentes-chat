@@ -11,3 +11,4 @@
 - [ ] Schema changes come with a new migration; committed migrations are untouched
 - [ ] New environment variables are in `packages/config/src/schema.ts`, and `.env.example` is regenerated (`bun run docs:env`)
 - [ ] No API keys, secrets or personal data in code, fixtures or logs
+- [ ] I accepted the [Contributor License Agreement](https://github.com/agentes-chat/agentes-chat/blob/main/CLA.md) (the CLA bot asks on your first pull request)

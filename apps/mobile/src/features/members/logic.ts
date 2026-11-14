@@ -104,11 +104,20 @@ export function memberLine(
 }
 
 /**
- * What a person's row offers in its menu, in order: a message to anyone but oneself, then removing them (or leaving,
- * on one's own row) when the viewer may. Empty: the row has no menu.
+ * What a person's row offers in its menu, in order: a message to anyone but oneself, their cargos when the viewer may
+ * give one (P11, "Cargos de Carla"), then removing them (or leaving, on one's own row) when the viewer may. Empty: the
+ * row has no menu.
  */
-export function memberActions(mine: boolean, removable: boolean): ("dm" | "remove" | "leave")[] {
-  return [...(mine ? [] : (["dm"] as const)), ...(removable ? ([mine ? "leave" : "remove"] as const) : [])];
+export function memberActions(
+  mine: boolean,
+  removable: boolean,
+  cargos = false,
+): ("dm" | "roles" | "remove" | "leave")[] {
+  return [
+    ...(mine ? [] : (["dm"] as const)),
+    ...(cargos ? (["roles"] as const) : []),
+    ...(removable ? ([mine ? "leave" : "remove"] as const) : []),
+  ];
 }
 
 /** The people who may invite here (ADR 0085): the owners, and whoever holds a role that gives it. */
@@ -193,14 +202,21 @@ export interface InviteAddress {
   roleId: string | null;
 }
 
-/** The addresses with the new ones in `text` after them, read the way mail apps and spreadsheets paste them. */
-export function withAddresses(addresses: readonly InviteAddress[], text: string): InviteAddress[] {
+/**
+ * The addresses with the new ones in `text` after them, read the way mail apps and spreadsheets paste them; the new
+ * ones with `roleId` (a cargo's "Convidar com este cargo"), else none.
+ */
+export function withAddresses(
+  addresses: readonly InviteAddress[],
+  text: string,
+  roleId: string | null = null,
+): InviteAddress[] {
   const seen = new Set(addresses.map((a) => a.email));
   return [
     ...addresses,
     ...addressesIn(text)
       .filter((a) => !seen.has(a.email))
-      .map((a) => ({ ...a, roleId: null })),
+      .map((a) => ({ ...a, roleId })),
   ];
 }
 

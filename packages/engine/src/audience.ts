@@ -107,6 +107,23 @@ async function audienceEditable(db: Database, actorId: string, orgId: string, ag
   return agent;
 }
 
+/** The agents `added` roles newly let `userId` talk to: their audience lists one, and `rolesBefore` didn't let them. */
+async function agentsOpenedBy(
+  db: Executor,
+  orgId: string,
+  userId: string,
+  rolesBefore: readonly string[],
+  added: readonly string[],
+) {
+  if (added.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.orgId, orgId), eq(agents.audienceMode, "people")));
+  const speaker: Speaker = { talks: true, roleIds: [...rolesBefore] };
+  return rows.filter((a) => a.audienceRoleIds.some((id) => added.includes(id)) && !canTalkTo(a, userId, speaker));
+}
+
 /**
  * `userId` now holds `added` roles: every agent those roles newly let them talk to loses the mailboxes others gave it
  * (theirs aside), as if its audience had widened to them. A mailbox's owner gave it for the people it answered then.
@@ -119,17 +136,26 @@ export async function dropMailForNewRoleMember(
   added: readonly string[],
   actorId: string,
 ) {
-  if (added.length === 0) return;
-  const rows = await db
-    .select()
-    .from(agents)
-    .where(and(eq(agents.orgId, orgId), eq(agents.audienceMode, "people")));
-  const speaker: Speaker = { talks: true, roleIds: [...rolesBefore] };
-  for (const agent of rows) {
-    if (!agent.audienceRoleIds.some((id) => added.includes(id))) continue;
-    if (canTalkTo(agent, userId, speaker)) continue;
+  for (const agent of await agentsOpenedBy(db, orgId, userId, rolesBefore, added))
     await dropForeignMailGrants(db, orgId, agent.id, userId, actorId);
-  }
+}
+
+/** A mailbox an agent would lose (`ForeignMailbox`), with the agent. */
+export type AgentMailLoss = ForeignMailbox & { agentId: string; agentName: string };
+
+/** What `dropMailForNewRoleMember` would take, taking nothing: the apps ask the person first. */
+export async function newRoleMemberMailLoss(
+  db: Executor,
+  orgId: string,
+  userId: string,
+  rolesBefore: readonly string[],
+  added: readonly string[],
+): Promise<AgentMailLoss[]> {
+  const out: AgentMailLoss[] = [];
+  for (const agent of await agentsOpenedBy(db, orgId, userId, rolesBefore, added))
+    for (const m of await foreignMailboxes(db, orgId, agent.id, userId))
+      out.push({ ...m, agentId: agent.id, agentName: agent.name });
+  return out;
 }
 
 /** Someone besides its owner can talk to the agent. */
@@ -379,6 +405,7 @@ export const PLAN_OPENED_JOB = "agent.plan_opened";
 /**
  * Who may talk to the agent changed from `from` to `to`, saved as `after`. Audited, naming whose plan it is when it
  * thinks with its owner's (ADR 0059 §5), and told to that owner (`planOpened`, from `planFrom`: who its plan answered).
+ * `via`: what made the change other than a save of it (`invitation`, ADR 0184).
  */
 export async function audienceChanged(
   db: Executor,
@@ -388,6 +415,7 @@ export async function audienceChanged(
   from: AgentAudience,
   to: AgentAudience,
   planFrom = from,
+  via?: string,
 ): Promise<boolean> {
   const planOwner = await planOwnerOf(db, orgId, after);
   await recordAudit(db, {
@@ -395,7 +423,7 @@ export async function audienceChanged(
     actor: { type: "person", id: actorId },
     action: "agent.audience_changed",
     target: { type: "agent", id: after.id },
-    details: { from, to, ...(planOwner ? { planOwner } : {}) },
+    details: { from, to, ...(planOwner ? { planOwner } : {}), ...(via ? { via } : {}) },
   });
   return planOpened(db, orgId, actorId, after, planFrom, to);
 }

@@ -76,7 +76,7 @@ export function BrowserHandoffCard({ handoff }: { handoff: BrowserHandoff }) {
   // The agent's browser opens right here, under the request; on its screen, in the computer dialog.
   const [here, setHere] = useState(false);
   const openComputer = useOpenComputer();
-  const show = () => (opensDesktop ? openComputer(current.agentId) : setHere(true));
+  const show = () => (opensDesktop ? openComputer(current.agentId, current.seat) : setHere(true));
   const take = () =>
     actions.takeControl.mutate(current.id, {
       onSuccess: show,
@@ -138,6 +138,7 @@ export function BrowserHandoffCard({ handoff }: { handoff: BrowserHandoff }) {
         id={current.id}
         kind={onDesktop ? "desktop" : "browser"}
         agent={agent}
+        runId={current.runId}
         label={groupLabel}
         mine={mine}
         waitingFor={
@@ -162,7 +163,9 @@ export function BrowserHandoffCard({ handoff }: { handoff: BrowserHandoff }) {
           ...(waiting ? { more: t("ask.seeScreen") } : {}),
         }}
         open={!opensDesktop && showBrowser}
-        onOpenChange={waiting ? (open) => (opensDesktop ? openComputer(current.agentId) : setHere(open)) : undefined}
+        onOpenChange={
+          waiting ? (open) => (opensDesktop ? openComputer(current.agentId, current.seat) : setHere(open)) : undefined
+        }
         actions={
           mine ? (
             <Button

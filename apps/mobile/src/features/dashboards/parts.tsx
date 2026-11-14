@@ -25,6 +25,7 @@ import {
   MEDIA_ROW,
   MediaRow,
   PressScale,
+  RoleMark,
   Segmented,
   Text,
   useTheme,
@@ -146,24 +147,6 @@ export function BoardRow({
   );
 }
 
-/** A role's mark: a square of dither in its color (the web's role chips), 10 points by default. */
-export function RoleMark({ color, size = 10 }: { color: string; size?: number }) {
-  const { scheme } = useTheme();
-  const tones = widgetTones(color, scheme === "dark");
-  return (
-    <Canvas style={{ width: size, height: size }}>
-      <DitherShape
-        width={size}
-        height={size}
-        shape={roundRectPath(0, 0, size, size, size * 0.3)}
-        fill={tones.stroke}
-        density={0.7}
-        cell={size >= 20 ? 2 : 1}
-      />
-    </Canvas>
-  );
-}
-
 /** Who sees a board, as its meta line says it: the whole workspace, its roles (each with its mark), or only you. */
 export function AudienceLine({ board, after }: { board: Pick<Dashboard, "audience" | "roleIds">; after?: string }) {
   const { t } = useTranslation();
@@ -176,7 +159,7 @@ export function AudienceLine({ board, after }: { board: Pick<Dashboard, "audienc
       {board.audience === "roles" ? (
         picked.map((r) => (
           <View key={r.id} style={styles.role}>
-            <RoleMark color={r.color} />
+            <RoleMark color={r.color} icon={r.icon} size={14} />
             <Text variant="footnote" tone="muted" style={styles.semibold}>
               {r.name}
             </Text>
@@ -467,7 +450,7 @@ export function AudienceFields({
                     contentStyle={[styles.roleChip, { backgroundColor: on ? c.ink : c.chip }]}
                   >
                     <View style={on ? null : styles.faded}>
-                      <RoleMark color={r.color} />
+                      <RoleMark color={r.color} icon={r.icon} size={18} />
                     </View>
                     <Text variant="subhead" style={[styles.semibold, { color: on ? c.bg : c.ink2 }]}>
                       {r.name}

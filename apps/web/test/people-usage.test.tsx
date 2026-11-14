@@ -224,7 +224,7 @@ describe("IA e uso › Pessoas", () => {
     await click(screen().getByRole("button", { name: "Defina um limite por pessoa em Limites" }));
     expect(screen().getByRole("heading", { name: "Limite de uso por pessoa" })).toBeTruthy();
     expect(text(document.body)).toContain(
-      "Vale o limite da pessoa. Sem ele, o maior entre os papéis dela. Sem nenhum, o padrão. Donos não têm limite.",
+      "Vale o limite da pessoa. Sem ele, o maior entre os cargos dela. Sem nenhum, o padrão. Donos não têm limite.",
     );
     // One list of settings rows. With no default, the default's select says Sem limite, never an empty box.
     const limits = document.querySelector(".pu-limits") as HTMLElement;

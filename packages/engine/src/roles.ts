@@ -1,9 +1,25 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, asc, type Database, type Executor, eq, inArray, schema, sql } from "@agenteschat/db";
+import {
+  and,
+  asc,
+  type Database,
+  type Executor,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  or,
+  schema,
+  sql,
+} from "@agenteschat/db";
+import type { AgentMailLoss } from "./audience";
 import { recordAudit } from "./audit";
+import { caches } from "./cache";
 import { memberCardVia } from "./card-via";
+import { CHANNEL_OVERRIDES_MAX } from "./channel-permissions";
 import { announceChannelLeavers, type ChannelLeaver, dropRoleLeavers } from "./channels";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
+import { publishAgentsChanged, publishChannelsChanged } from "./events";
 import {
   announceMembers,
   can,
@@ -15,9 +31,12 @@ import {
   requirePermission,
 } from "./organizations";
 import {
+  COMPUTER_STEPS,
+  COMPUTERS_ROW,
   EVERYONE_DEFAULTS,
   isRolePermission,
   PERMISSION_AREAS,
+  PERMISSION_ROWS,
   ROLE_COLORS,
   ROLE_ICONS,
   type RoleColor,
@@ -33,7 +52,15 @@ import {
  * never gives a key they don't hold themselves.
  */
 
-const { orgRoles, organizationMemberRoles, organizationMembers } = schema;
+const {
+  agents,
+  channelMembers,
+  channelPermissionOverrides: overrides,
+  channels,
+  orgRoles,
+  organizationMemberRoles,
+  organizationMembers,
+} = schema;
 
 export const ROLE_NAME_MAX = 40;
 /** A workspace's roles at most, `everyone` aside. */
@@ -58,6 +85,18 @@ export interface RoleView {
    * keys they all hold.
    */
   givable: boolean;
+  /**
+   * The channels it opens that the person asking sees: those limited to it (ADR 0125), and every public channel for
+   * `everyone`. Archived ones aside.
+   */
+  channelIds: string[];
+  /** Channels limited to it that the person asking doesn't see: counted, never named. */
+  hiddenChannels: number;
+  /**
+   * The agents it lets people talk to: those whose audience lists it, and for `everyone` those that answer the whole
+   * workspace. The right hand (everyone's) and archived agents aside.
+   */
+  agentIds: string[];
 }
 
 /** The base role and an "Admin" that holds `administrator` (listed apart in the members column), for a new workspace. */
@@ -120,13 +159,63 @@ export async function listRoles(db: Database, actorId: string, orgId: string) {
     })
     .from(orgRoles)
     .where(eq(orgRoles.orgId, orgId));
+  const reach = await reachOf(db, actor, actorId, orgId);
   const roles: RoleView[] = rows.sort(byOrder).map((r) => ({
     ...r,
     permissions: r.permissions.filter(isRolePermission),
     editable: mayEdit(actor, r),
     givable: r.kind === "custom" && outranks(actor, r.position) && holdsAll(actor, r.permissions),
+    ...reach(r),
   }));
   return { roles, areas: PERMISSION_AREAS, colors: ROLE_COLORS, icons: ROLE_ICONS };
+}
+
+/**
+ * What each role opens besides its keys, for `listRoles`: its channels (seen by `actor` as their channel list does:
+ * public, theirs, limited to a role of theirs, every one for an administrator, ADR 0151) and its agents.
+ */
+async function reachOf(db: Database, actor: Membership, actorId: string, orgId: string) {
+  const [rooms, mine, bots] = await Promise.all([
+    db
+      .select({ id: channels.id, visibility: channels.visibility, roleIds: channels.audienceRoleIds })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.orgId, orgId),
+          eq(channels.kind, "channel"),
+          isNull(channels.archivedAt),
+          or(eq(channels.visibility, "public"), sql`cardinality(${channels.audienceRoleIds}) > 0`),
+        ),
+      )
+      .orderBy(asc(channels.position), asc(channels.name)),
+    db
+      .select({ id: channelMembers.channelId })
+      .from(channelMembers)
+      .where(and(eq(channelMembers.orgId, orgId), eq(channelMembers.userId, actorId))),
+    db
+      .select({ id: agents.id, mode: agents.audienceMode, roleIds: agents.audienceRoleIds })
+      .from(agents)
+      .where(and(eq(agents.orgId, orgId), isNull(agents.archivedAt), isNull(agents.builtin)))
+      .orderBy(asc(agents.createdAt), asc(agents.name)),
+  ]);
+  const member = new Set(mine.map((m) => m.id));
+  const admin = can(actor, "administrator");
+  const sees = (c: (typeof rooms)[number]) =>
+    admin || c.visibility === "public" || member.has(c.id) || c.roleIds.some((id) => actor.roleIds.includes(id));
+  return (role: { id: string; kind: string }) => {
+    if (role.kind === "everyone")
+      return {
+        channelIds: rooms.filter((c) => c.visibility === "public").map((c) => c.id),
+        hiddenChannels: 0,
+        agentIds: bots.filter((a) => a.mode === "everyone").map((a) => a.id),
+      };
+    const limited = rooms.filter((c) => c.visibility === "private" && c.roleIds.includes(role.id));
+    return {
+      channelIds: limited.filter(sees).map((c) => c.id),
+      hiddenChannels: limited.filter((c) => !sees(c)).length,
+      agentIds: bots.filter((a) => a.mode === "people" && a.roleIds.includes(role.id)).map((a) => a.id),
+    };
+  };
 }
 
 async function loadRole(db: Executor, orgId: string, roleId: string) {
@@ -174,7 +263,12 @@ const announceRoles = async (pubsub: PubSub | undefined, orgId: string) => {
   await announceMembers(pubsub, orgId);
 };
 
-/** Creates a role at the bottom of the others (just above `everyone`). Needs `manage_roles`. */
+/**
+ * Creates a role at the bottom of the others (just above `everyone`). Needs `manage_roles`. `copyFrom` (Duplicar): a
+ * role below the actor whose keys they all hold, whose keys, look and switches fill what `input` leaves out, and
+ * whose channels and agents the new role joins (their `audience_role_ids`), with its channel exceptions, in the same
+ * transaction. It has nobody yet, so nobody reaches anything new until someone is given it.
+ */
 export async function createRole(
   db: Database,
   actorId: string,
@@ -186,12 +280,19 @@ export async function createRole(
     permissions?: string[];
     mentionable?: boolean;
     hoist?: boolean;
+    copyFrom?: string;
   },
   options: { pubsub?: PubSub } = {},
 ) {
   const actor = await requirePermission(db, actorId, orgId, "manage_roles");
   const name = cleanName(input.name);
-  const permissions = settableKeys(actor, input.permissions ?? []);
+  const source = input.copyFrom ? await copySource(db, actor, orgId, input.copyFrom) : null;
+  const permissions = settableKeys(actor, input.permissions ?? source?.permissions ?? []);
+  const reach = {
+    channelIds: [] as string[],
+    agentIds: [] as string[],
+    exceptions: [] as { channelId: string; allow: string[]; deny: string[] }[],
+  };
   const role = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`org-roles:${orgId}`}))`);
     const [count] = await tx
@@ -204,26 +305,100 @@ export async function createRole(
       .values({
         orgId,
         name,
-        icon: pickIcon(input.icon, "shield"),
-        color: pickColor(input.color, "graphite"),
+        icon: pickIcon(input.icon, (source?.icon as RoleIcon | undefined) ?? "shield"),
+        color: pickColor(input.color, (source?.color as RoleColor | undefined) ?? "graphite"),
         position: (count?.last ?? -1) + 1,
         permissions,
-        mentionable: input.mentionable ?? true,
-        hoist: input.hoist ?? false,
+        mentionable: input.mentionable ?? source?.mentionable ?? true,
+        hoist: input.hoist ?? source?.hoist ?? false,
       })
       .returning();
     if (!row) throw new Error("role insert returned nothing");
+    if (source) {
+      // The copy carries the source's channel exceptions (ADR 0134), or its people would escape a deny there. A
+      // channel with no room for one more exception is left out of the copy's reach instead.
+      const exceptions = await tx
+        .select({ channelId: overrides.channelId, allow: overrides.allow, deny: overrides.deny })
+        .from(overrides)
+        .where(and(eq(overrides.orgId, orgId), eq(overrides.roleId, source.id)));
+      const full =
+        exceptions.length === 0
+          ? []
+          : (
+              await tx
+                .select({ channelId: overrides.channelId })
+                .from(overrides)
+                .where(
+                  inArray(
+                    overrides.channelId,
+                    exceptions.map((e) => e.channelId),
+                  ),
+                )
+                .groupBy(overrides.channelId)
+                .having(sql`count(*) >= ${CHANNEL_OVERRIDES_MAX}`)
+            ).map((c) => c.channelId);
+      reach.exceptions = exceptions.filter((e) => !full.includes(e.channelId));
+      if (reach.exceptions.length > 0)
+        await tx.insert(overrides).values(reach.exceptions.map((e) => ({ orgId, roleId: row.id, ...e })));
+      reach.channelIds = (
+        await tx
+          .update(channels)
+          .set({ audienceRoleIds: sql`array_append(${channels.audienceRoleIds}, ${row.id}::uuid)` })
+          .where(
+            and(
+              eq(channels.orgId, orgId),
+              sql`${source.id}::uuid = any(${channels.audienceRoleIds})`,
+              full.length > 0 ? notInArray(channels.id, full) : undefined,
+            ),
+          )
+          .returning({ id: channels.id })
+      ).map((c) => c.id);
+      reach.agentIds = (
+        await tx
+          .update(agents)
+          .set({
+            audienceRoleIds: sql`array_append(${agents.audienceRoleIds}, ${row.id}::uuid)`,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(agents.orgId, orgId), sql`${source.id}::uuid = any(${agents.audienceRoleIds})`))
+          .returning({ id: agents.id })
+      ).map((a) => a.id);
+    }
     await recordAudit(tx, {
       orgId,
       actor: { type: "person", id: actorId },
       action: "role.created",
       target: { type: "role", id: row.id },
-      details: { name, permissions },
+      details: {
+        name,
+        permissions,
+        ...(source ? { copiedFrom: { id: source.id, name: source.name }, ...reach } : {}),
+      },
     });
     return row;
   });
+  for (const id of reach.channelIds) caches.channels.delete(`${orgId}:${id}`);
+  for (const id of reach.agentIds) caches.agents.delete(`${orgId}:${id}`);
+  if (reach.agentIds.length > 0) {
+    caches.agents.delete(`${orgId}:team`);
+    await publishAgentsChanged(options.pubsub, orgId);
+  }
+  if (reach.channelIds.length > 0) await publishChannelsChanged(options.pubsub, orgId);
   await announceRoles(options.pubsub, orgId);
   return role;
+}
+
+/** The role Duplicar copies: one of the workspace's own, below the actor, every key of it theirs. */
+async function copySource(db: Executor, actor: Membership, orgId: string, roleId: string) {
+  const [source] = await db
+    .select()
+    .from(orgRoles)
+    .where(and(eq(orgRoles.orgId, orgId), eq(orgRoles.id, roleId), eq(orgRoles.kind, "custom")));
+  if (!source) throw new ValidationError("Unknown role", "role.unknown");
+  if (!mayEdit(actor, source)) throw new ForbiddenError("Only someone above this role copies it", "role.above_you");
+  if (!holdsAll(actor, source.permissions))
+    throw new ForbiddenError("You can only copy a role whose permissions you hold", "role.grant_forbidden");
+  return source;
 }
 
 /**
@@ -279,6 +454,99 @@ export async function updateRole(
   return row ?? role;
 }
 
+/**
+ * A role's own level on a row of the roles screen (`PERMISSION_ROWS`): 0 or 1 for a key, the step of the computers'
+ * ladder (0 to 4, `COMPUTER_STEPS`). `administrator` aside: what it gives isn't the role's own, and what is comes
+ * back when it goes off.
+ */
+export function rowLevel(keys: readonly string[], row: string): number {
+  const own = roleGrants(keys.filter((k) => k !== "administrator"));
+  if (row !== COMPUTERS_ROW) return own.has(row as RolePermission) ? 1 : 0;
+  return COMPUTER_STEPS.reduce((step, k, i) => (own.has(k) ? i + 1 : step), 0);
+}
+
+/** `keys` with `row` at `level` (on the ladder, its step's key alone), the rest untouched. */
+export function withRowLevel(keys: readonly string[], row: string, level: number): string[] {
+  const rowKeys: readonly string[] = row === COMPUTERS_ROW ? COMPUTER_STEPS : [row];
+  const key = row === COMPUTERS_ROW ? COMPUTER_STEPS[level - 1] : level > 0 ? row : undefined;
+  return [...keys.filter((k) => !rowKeys.includes(k)), ...(key ? [key] : [])];
+}
+
+/** Who holds a row: `everyone`'s level and each custom role's, by id. */
+export interface RowLevels {
+  everyone: number;
+  roles: Record<string, number>;
+}
+
+/**
+ * "Quem pode…": who holds one row of the roles screen, Todos and the roles in one call (ADR 0085, addendum of
+ * 2026-11-13). `everyone` gets `next.everyone`, each listed role its level, and every other role the actor may change
+ * goes to 0 on that row. A role above the actor never changes (listing one at another level is refused,
+ * `role.above_you`), nor does one with `administrator`, which may everything anyway. Needs `manage_roles`; anyone but
+ * an owner only adds or takes keys they hold (`role.grant_forbidden`). One transaction under the roles' lock, one
+ * audit row (`role.permission_set`). Returns the row's levels before and after.
+ */
+export async function setRowHolders(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  row: string,
+  next: { everyone: number; roles: readonly { id: string; level: number }[] },
+  options: { pubsub?: PubSub } = {},
+): Promise<{ before: RowLevels; after: RowLevels }> {
+  const actor = await requirePermission(db, actorId, orgId, "manage_roles");
+  if (!PERMISSION_ROWS.includes(row)) throw new ValidationError("Unknown permission", "role.row_unknown", { row });
+  const max = row === COMPUTERS_ROW ? COMPUTER_STEPS.length : 1;
+  if ([next.everyone, ...next.roles.map((r) => r.level)].some((l) => !Number.isInteger(l) || l < 0 || l > max))
+    throw new ValidationError(`Each level is 0 to ${max}`, "role.level_invalid", { max });
+  const listed = new Map(next.roles.map((r) => [r.id, r.level]));
+  const done = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`org-roles:${orgId}`}))`);
+    const rows = (await tx.select().from(orgRoles).where(eq(orgRoles.orgId, orgId))).sort(byOrder);
+    const custom = new Set(rows.filter((r) => r.kind === "custom").map((r) => r.id));
+    if ([...listed.keys()].some((id) => !custom.has(id))) throw new ValidationError("Unknown role", "role.unknown");
+    const before: RowLevels = { everyone: 0, roles: {} };
+    const after: RowLevels = { everyone: 0, roles: {} };
+    const changed: { role: (typeof rows)[number]; from: number; to: number; keys: string[] }[] = [];
+    for (const role of rows) {
+      const from = rowLevel(role.permissions, row);
+      let to = from;
+      if (role.kind === "everyone") to = next.everyone;
+      else if (role.permissions.includes("administrator")) to = from;
+      else if (mayEdit(actor, role)) to = listed.get(role.id) ?? 0;
+      else if ((listed.get(role.id) ?? from) !== from)
+        throw new ForbiddenError("Only someone above this role changes it", "role.above_you", { name: role.name });
+      if (role.kind === "everyone") [before.everyone, after.everyone] = [from, to];
+      else [before.roles[role.id], after.roles[role.id]] = [from, to];
+      if (to !== from)
+        changed.push({
+          role,
+          from,
+          to,
+          keys: settableKeys(actor, withRowLevel(role.permissions, row, to), role.permissions),
+        });
+    }
+    if (changed.length === 0) return { before, after, changed: false };
+    for (const c of changed) await tx.update(orgRoles).set({ permissions: c.keys }).where(eq(orgRoles.id, c.role.id));
+    await recordAudit(tx, {
+      orgId,
+      actor: { type: "person", id: actorId },
+      action: "role.permission_set",
+      target: { type: "organization", id: orgId },
+      details: {
+        row,
+        everyone: [before.everyone, after.everyone],
+        roles: changed
+          .filter((c) => c.role.kind === "custom")
+          .map((c) => ({ id: c.role.id, name: c.role.name, before: c.from, after: c.to })),
+      },
+    });
+    return { before, after, changed: true };
+  });
+  if (done.changed) await announceRoles(options.pubsub, orgId);
+  return { before: done.before, after: done.after };
+}
+
 /** Deletes a role below the actor; whoever held it keeps the rest. `everyone` can't go. */
 export async function deleteRole(
   db: Database,
@@ -307,6 +575,13 @@ export async function deleteRole(
       .update(schema.channels)
       .set({ audienceRoleIds: sql`array_remove(${schema.channels.audienceRoleIds}, ${role.id}::uuid)` })
       .where(and(eq(schema.channels.orgId, orgId), sql`${role.id}::uuid = any(${schema.channels.audienceRoleIds})`));
+    // Invitations and links forget it too, or an app starting an approval or a change on their cargos sends one gone.
+    for (const t of [schema.organizationInvitations, schema.organizationInviteLinks]) {
+      await tx
+        .update(t)
+        .set({ roleIds: sql`array_remove(${t.roleIds}, ${role.id}::uuid)` })
+        .where(and(eq(t.orgId, orgId), sql`${role.id}::uuid = any(${t.roleIds})`));
+    }
     // Boards forget it too: a `roles` board with no role left is its owner's (and admins') alone (ADR 0135 §8).
     await tx
       .update(schema.dashboards)
@@ -472,8 +747,12 @@ export async function setMemberRoles(
   orgId: string,
   targetUserId: string,
   roleIds: string[],
-  /** `via`: the people card it was applied from (the audit's "via", `memberCardVia`). */
-  options: { pubsub?: PubSub; via?: string } = {},
+  /**
+   * `via`: the people card it was applied from (the audit's "via", `memberCardVia`). `mailLossSeen`: the mailboxes
+   * the person agreed agents lose (`roleMailLoss`); losing any other refuses the change (409
+   * `agent.mail_loss_changed`), so a mailbox given after they were asked is never taken unasked.
+   */
+  options: { pubsub?: PubSub; via?: string; mailLossSeen?: readonly string[] } = {},
 ) {
   const actor = await requirePermission(db, actorId, orgId, "manage_members");
   const via = await memberCardVia(db, orgId, options.via, targetUserId);
@@ -492,6 +771,16 @@ export async function setMemberRoles(
     const removed = before.filter((id) => !next.includes(id));
     await givableRoleIds(tx, actor, orgId, [...added, ...removed]);
     if (added.length === 0 && removed.length === 0) return false;
+    const seen = options.mailLossSeen;
+    if (seen) {
+      const { newRoleMemberMailLoss } = await import("./audience");
+      const lost = await newRoleMemberMailLoss(tx, orgId, targetUserId, before, added);
+      if (lost.some((m) => !seen.includes(m.accountId)))
+        throw new ConflictError("An agent holds a mailbox you weren't asked about", "agent.mail_loss_changed");
+    }
+    // Added before the others go: the mailboxes drop by the roles held before, as the check above and the preview
+    // count them, so swapping one role for another that opens the same agent takes nothing.
+    await addMemberRolesInTx(tx, orgId, targetUserId, added, actorId);
     if (removed.length > 0)
       await tx
         .delete(organizationMemberRoles)
@@ -502,7 +791,6 @@ export async function setMemberRoles(
             inArray(organizationMemberRoles.roleId, removed),
           ),
         );
-    await addMemberRolesInTx(tx, orgId, targetUserId, added, actorId);
     // Channels limited to the roles taken away (ADR 0125) let them go, unless another of theirs still opens them.
     const left = await dropRoleLeavers(tx, orgId, { people: [targetUserId], roleIds: removed });
     const names = await tx
@@ -528,6 +816,32 @@ export async function setMemberRoles(
     await announceMembers(options.pubsub, orgId);
   }
   return next;
+}
+
+/**
+ * The mailboxes agents would lose if `userIds` got the role (`dropMailForNewRoleMember`), taking nothing: the apps
+ * ask first, and pass what was asked as `mailLossSeen`. For who may give it to them (`manage_members`, a role they
+ * may give); someone already holding it, or no longer a member, costs nothing.
+ */
+export async function roleMailLoss(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  roleId: string,
+  userIds: readonly string[],
+): Promise<AgentMailLoss[]> {
+  const actor = await requirePermission(db, actorId, orgId, "manage_members");
+  await givableRoleIds(db, actor, orgId, [roleId]);
+  const { newRoleMemberMailLoss } = await import("./audience");
+  const lost = new Map<string, AgentMailLoss>();
+  for (const userId of new Set(userIds)) {
+    if (!(await getMembership(db, userId, orgId, { includeBlocked: true }))) continue;
+    const before = await memberRoleIds(db, orgId, userId);
+    if (before.includes(roleId)) continue;
+    for (const m of await newRoleMemberMailLoss(db, orgId, userId, before, [roleId]))
+      lost.set(`${m.agentId}:${m.accountId}`, m);
+  }
+  return [...lost.values()];
 }
 
 /** The people who hold a role (ids), for the role's screen. Every member may read it. */

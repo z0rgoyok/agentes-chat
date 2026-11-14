@@ -46,9 +46,12 @@ export async function revokeGrantTokens(tx: Executor, grantIds: string[]) {
     .where(and(inArray(appTokens.grantId, grantIds), isNull(appTokens.revokedAt)));
 }
 
-/** A new password: every app and token of the person, in every workspace, stops now. */
-export const revokeUserApps = (db: Executor, userId: string) =>
-  revokeAppGrants(db, eq(appGrants.userId, userId), { type: "system", reason: "password_reset" });
+/**
+ * A new password, or an email change undone ("This wasn't me"): every app and token of the person, in every
+ * workspace, stops now. `reason` goes into the audit log.
+ */
+export const revokeUserApps = (db: Executor, userId: string, reason = "password_reset") =>
+  revokeAppGrants(db, eq(appGrants.userId, userId), { type: "system", reason });
 
 /** A person removed from (or leaving) a workspace: their apps and tokens there stop now. */
 export const revokeMemberApps = (db: Executor, orgId: string, userId: string) =>

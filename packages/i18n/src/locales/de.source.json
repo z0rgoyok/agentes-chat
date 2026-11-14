@@ -1154,6 +1154,9 @@
   "auth.flow.nameIsPassword": {
     "value": "Is this your name? It's the same as the password you typed."
   },
+  "auth.flow.emailHeld": {
+    "value": "This email just left an account here and is held for 7 days. If that account is yours, press “This wasn't me” in the email we sent to it."
+  },
   "auth.flow.nameLooksLikePassword": {
     "value": "That looks like a password. Your name goes here."
   },
@@ -1216,6 +1219,9 @@
   },
   "auth.flow.backToSignIn": {
     "value": "Back to sign in"
+  },
+  "auth.flow.backToAccount": {
+    "value": "Back to {{name}}"
   },
   "auth.flow.toAuthorizeApp": {
     "value": "To connect an app to agentes.chat."
@@ -3920,6 +3926,42 @@
   "install.scene.settingUp": {
     "value": "Setting up agentes-chat ({{version}}) ..."
   },
+  "appIcon.title": {
+    "value": "App icon"
+  },
+  "appIcon.hintWeb": {
+    "value": "The icon on this browser's tabs."
+  },
+  "appIcon.hintMac": {
+    "value": "The Dock's icon while the app is open. Finder and Launchpad keep the default one."
+  },
+  "appIcon.hintDesktop": {
+    "value": "The taskbar's icon while the app is open."
+  },
+  "appIcon.hintAndroid": {
+    "value": "Some home screens take a few seconds to show the new icon."
+  },
+  "appIcon.failed": {
+    "value": "Couldn't change the icon. Try again."
+  },
+  "appIcon.agentsOf": {
+    "value": "Agents in {{org}}"
+  },
+  "appIcon.names.night": {
+    "value": "Night"
+  },
+  "appIcon.names.moon": {
+    "value": "Moon"
+  },
+  "appIcon.names.sky": {
+    "value": "Sky"
+  },
+  "appIcon.names.peekNight": {
+    "value": "Peeking at night"
+  },
+  "appIcon.names.peekSky": {
+    "value": "Peeking in the sky"
+  },
   "legal.updated": {
     "value": "Last updated {{date}}"
   },
@@ -4379,6 +4421,21 @@
   "shell.email.noMail": {
     "value": "This server sends no email, so the new address can't be confirmed. Ask whoever runs the server to set up email."
   },
+  "shell.email.held": {
+    "value": "This email just left another account and is held for it for 7 days. Use another one."
+  },
+  "shell.email.taken": {
+    "value": "Another account already uses this email. Use another one."
+  },
+  "shell.email.cantOpen": {
+    "value": "Can't open that inbox?"
+  },
+  "shell.email.signInInstead": {
+    "value": "Sign in again and change it without the code. You'll come back here."
+  },
+  "shell.email.useCode": {
+    "value": "Use the code"
+  },
   "shell.openOnPhone": {
     "value": "Open on your phone"
   },
@@ -4432,6 +4489,12 @@
   },
   "shell.addWorkspaceHint": {
     "value": "Join one you already have, create one, or use your team's server"
+  },
+  "shell.addAccount": {
+    "value": "Add account"
+  },
+  "shell.addAccountHint": {
+    "value": "Sign in to another account without leaving this one"
   },
   "shell.yourServer": {
     "value": "Your server"
@@ -5720,9 +5783,6 @@
   "channel.long.more": {
     "value": "See more"
   },
-  "channel.long.title": {
-    "value": "Message from {{name}}"
-  },
   "channel.retrySend": {
     "value": "Try again"
   },
@@ -6126,7 +6186,34 @@
     "value": "Outside it, a person doesn't see {{name}} in the sidebar."
   },
   "rightHand.settings.lock": {
-    "value": "{{name}} can't be archived or deleted. The only thing it posts without being asked is Team week, for admins."
+    "value": "{{name}} can't be archived or deleted."
+  },
+  "rightHand.settings.own.title": {
+    "value": "What {{name}} does by itself"
+  },
+  "rightHand.settings.own.digest": {
+    "value": "Summarize approvals waiting"
+  },
+  "rightHand.settings.own.digestHelp": {
+    "value": "When several approvals wait for you, {{name}} sends one card in your DM that tells the routine ones from the risky ones."
+  },
+  "rightHand.settings.own.reminders": {
+    "value": "Remember what we agreed on"
+  },
+  "rightHand.settings.own.remindersHelp": {
+    "value": "{{name}} follows the tasks it handed over until they end, and reminds you of what you two agreed on with a time."
+  },
+  "rightHand.settings.own.teamWatch": {
+    "value": "Look after the team"
+  },
+  "rightHand.settings.own.teamWatchHelp": {
+    "value": "{{name}} notices what stops the team, like an AI sign-in that ended or an app to reconnect, and tells the person who can fix it."
+  },
+  "rightHand.settings.own.welcome": {
+    "value": "Welcome people who join"
+  },
+  "rightHand.settings.own.welcomeHelp": {
+    "value": "{{name}} greets each person who joins and helps them set up their first agent."
   },
   "rightHand.settings.audit": {
     "value": "See what {{name}} did"
@@ -6224,6 +6311,21 @@
   "rightHand.settings.groupAdmins": {
     "value": "admins only"
   },
+  "rightHand.computerYours": {
+    "value": "Your own place on the workspace's computer. Only you can watch or control it."
+  },
+  "rightHand.sharedName": {
+    "value": "{{name}} (shared)"
+  },
+  "rightHand.sharedPlace": {
+    "value": "Used in channels and in work that runs on its own. The whole workspace shares this place. Keep nothing private here."
+  },
+  "rightHand.computerNoHome": {
+    "value": "No computer yet. It gets one when this workspace has a computer of its own, added in Settings, Computers."
+  },
+  "rightHand.computerOneUser": {
+    "value": "No computer here. The workspace's computer runs every agent as one user, so it can't keep each person's place apart. A Linux server set up with the installer's --system option can."
+  },
   "rightHand.powers.title": {
     "value": "Workspace powers"
   },
@@ -6247,6 +6349,9 @@
   },
   "rightHand.card.apply": {
     "value": "Apply"
+  },
+  "rightHand.card.delete": {
+    "value": "Delete"
   },
   "rightHand.card.dismiss": {
     "value": "Dismiss"
@@ -6485,6 +6590,42 @@
   "rightHand.approvals.done": {
     "value": "Decided"
   },
+  "rightHand.digest.waiting": {
+    "value": {
+      "one": "{{count}} approval waiting.",
+      "other": "{{count}} approvals waiting."
+    }
+  },
+  "rightHand.digest.split": {
+    "value": "{{routine}} routine, {{careful}} to look at with care."
+  },
+  "rightHand.digest.allRoutine": {
+    "value": "All routine."
+  },
+  "rightHand.digest.more": {
+    "value": {
+      "one": "See {{count}} more",
+      "other": "See the other {{count}}"
+    }
+  },
+  "rightHand.digest.routine": {
+    "value": {
+      "one": "{{count}} routine request",
+      "other": "{{count}} routine requests"
+    }
+  },
+  "rightHand.digest.help": {
+    "value": "An action in a connected app that sends, deletes, pays, merges or deploys nothing. Every other request keeps its own card."
+  },
+  "rightHand.digest.approve": {
+    "value": {
+      "one": "Approve {{count}} request",
+      "other": "Approve these {{count}}"
+    }
+  },
+  "rightHand.digest.each": {
+    "value": "One by one"
+  },
   "rightHand.open.open": {
     "value": "Open"
   },
@@ -6517,6 +6658,15 @@
   },
   "rightHand.action.move_role": {
     "value": "Move the role <b>{{name}}</b>"
+  },
+  "rightHand.action.set_permission_holders": {
+    "value": "Change who can <b>{{short}}</b>"
+  },
+  "rightHand.action.set_permission_holders_computers": {
+    "value": "Change who uses <b>the agents' computers</b>"
+  },
+  "rightHand.action.holdersOwnersOnly": {
+    "value": "Only owners"
   },
   "rightHand.action.set_member_roles": {
     "value": "Change the roles of <b>{{name}}</b>: {{change}}"
@@ -6584,6 +6734,24 @@
   "rightHand.action.set_action_check_off": {
     "value": "Turn off the check of what the team already did"
   },
+  "rightHand.action.invite_people": {
+    "value": "Invite <b>{{emails}}</b> to the workspace."
+  },
+  "rightHand.action.invite_roles": {
+    "value": {
+      "one": "With the role {{roles}}.",
+      "other": "With the roles {{roles}}."
+    }
+  },
+  "rightHand.action.invite_people_sent": {
+    "value": {
+      "one": "Invitation sent to <b>{{emails}}</b>.",
+      "other": "Invitations sent to <b>{{emails}}</b>."
+    }
+  },
+  "rightHand.action.remove_ai_key": {
+    "value": "Delete the API key \"{{name}}\"."
+  },
   "teamWeek.title": {
     "value": "Team week"
   },
@@ -6625,6 +6793,9 @@
   },
   "teamWeek.improve": {
     "value": "To improve"
+  },
+  "teamWeek.needsYou": {
+    "value": "Needs you"
   },
   "teamWeek.approvals.title": {
     "value": {
@@ -6722,6 +6893,81 @@
   "teamWeek.stalled.done": {
     "value": "Message sent"
   },
+  "teamWeek.waiting.title": {
+    "value": {
+      "one": "{{count}} thing waits for you",
+      "other": "{{count}} things wait for you"
+    }
+  },
+  "teamWeek.waiting.line": {
+    "value": {
+      "one": "Waiting since {{since}}.",
+      "other": "The oldest since {{since}}."
+    }
+  },
+  "teamWeek.waiting.action": {
+    "value": "Open"
+  },
+  "teamWeek.waiting.done": {
+    "value": "Nothing left waiting"
+  },
+  "teamWeek.stuck.title": {
+    "value": {
+      "one": "{{name}} stopped on an error",
+      "other": "{{name}} stopped on an error {{count}} times"
+    }
+  },
+  "teamWeek.stuck.heldTitle": {
+    "value": "{{name}} stopped and waits to go on"
+  },
+  "teamWeek.stuck.why.budget": {
+    "value": "The monthly budget ran out."
+  },
+  "teamWeek.stuck.why.plan": {
+    "value": "The plan reached its limit."
+  },
+  "teamWeek.stuck.why.computer": {
+    "value": "The computer did not answer."
+  },
+  "teamWeek.stuck.why.key": {
+    "value": "The AI key or sign-in was refused."
+  },
+  "teamWeek.stuck.why.ai": {
+    "value": "The AI did not answer."
+  },
+  "teamWeek.stuck.why.other": {
+    "value": "Something went wrong. The conversation shows what."
+  },
+  "teamWeek.stuck.action": {
+    "value": "Open conversation"
+  },
+  "teamWeek.retire.title": {
+    "value": "Archive {{name}}"
+  },
+  "teamWeek.retire.line": {
+    "value": "No work in 4 weeks, no routine and no open task."
+  },
+  "teamWeek.retire.action": {
+    "value": "Archive"
+  },
+  "teamWeek.model.title": {
+    "value": "{{name}} can use {{to}}."
+  },
+  "teamWeek.model.line": {
+    "value": "It uses {{from}} today."
+  },
+  "teamWeek.skip": {
+    "value": "Dismiss"
+  },
+  "teamWeek.skipped": {
+    "value": "Dismissed"
+  },
+  "teamWeek.why.idle": {
+    "value": "No work in 4 weeks, no routine and no open task."
+  },
+  "teamWeek.why.lightWork": {
+    "value": "Its work is light enough for a smaller model."
+  },
   "teamWeek.applied": {
     "value": "Applied"
   },
@@ -6801,7 +7047,7 @@
     "value": "Daily summary"
   },
   "teamWeek.settings.dayHelp": {
-    "value": "Every day {{name}} tells you in your DM what the team did and what waits for you, on days with something to say."
+    "value": "Every day {{name}} tells you in your DM what waits for you, what your agents finished and what is stuck, on days with something new."
   },
   "routing.title": {
     "value": "Who picks the agents"
@@ -8224,6 +8470,12 @@
   "agentActions.workspace.changed_move_role": {
     "value": "Moved the role <b>{{name}}</b>"
   },
+  "agentActions.workspace.changed_set_permission_holders": {
+    "value": "Changed who can <b>{{short}}</b>"
+  },
+  "agentActions.workspace.changed_set_permission_holders_computers": {
+    "value": "Changed who uses <b>the agents' computers</b>"
+  },
   "agentActions.workspace.changed_set_member_roles": {
     "value": "Changed the roles of <b>{{name}}</b>: {{change}}"
   },
@@ -8289,6 +8541,12 @@
   },
   "agentActions.workspace.changed_set_action_check_off": {
     "value": "Turned off the check of what the team already did"
+  },
+  "agentActions.workspace.changed_invite_people": {
+    "value": "Invited <b>{{invited}}</b> to the workspace"
+  },
+  "agentActions.workspace.changed_remove_ai_key": {
+    "value": "Deleted the API key <b>{{name}}</b>"
   },
   "agentActions.other": {
     "value": "Made a change"
@@ -8919,6 +9177,15 @@
   "presence.out": {
     "value": "Out of office"
   },
+  "presence.available": {
+    "value": "Available"
+  },
+  "presence.working": {
+    "value": "Working"
+  },
+  "presence.waiting": {
+    "value": "Waiting for you"
+  },
   "presence.lower.online": {
     "value": "online"
   },
@@ -9144,6 +9411,90 @@
   "presence.byAuto": {
     "value": "What it's doing now"
   },
+  "agentWork.working": {
+    "value": "working"
+  },
+  "agentWork.you": {
+    "value": "waiting for you"
+  },
+  "agentWork.waiting": {
+    "value": "waiting"
+  },
+  "agentWork.queued": {
+    "value": "in line"
+  },
+  "agentWork.here": {
+    "value": "here"
+  },
+  "agentWork.routine": {
+    "value": "on a routine"
+  },
+  "agentWork.yourApproval": {
+    "value": "your approval"
+  },
+  "agentWork.yourAnswer": {
+    "value": "your answer"
+  },
+  "agentWork.later": {
+    "value": "follow-up {{when}}"
+  },
+  "agentWork.laterShort": {
+    "value": "follow-up"
+  },
+  "agentWork.plan": {
+    "value": "waiting for its plan"
+  },
+  "agentWork.budget": {
+    "value": "waiting for its budget"
+  },
+  "agentWork.stopping": {
+    "value": "stopping…"
+  },
+  "followUps.when.at": {
+    "value": "at {{time}}"
+  },
+  "followUps.when.today": {
+    "value": "today at {{time}}"
+  },
+  "followUps.when.tomorrow": {
+    "value": "tomorrow at {{time}}"
+  },
+  "followUps.whenLabel.at": {
+    "value": "At {{time}}"
+  },
+  "followUps.whenLabel.today": {
+    "value": "Today at {{time}}"
+  },
+  "followUps.whenLabel.tomorrow": {
+    "value": "Tomorrow at {{time}}"
+  },
+  "followUps.bar.at": {
+    "value": "{{name}} follows up {{when}}"
+  },
+  "followUps.bar.short": {
+    "value": "{{name}} {{time}}"
+  },
+  "followUps.bar.heldYou": {
+    "value": "{{name}} follows up once you answer"
+  },
+  "followUps.bar.held": {
+    "value": "{{name}} follows up after an answer"
+  },
+  "followUps.title": {
+    "value": "Follow-ups"
+  },
+  "followUps.see": {
+    "value": "See the message"
+  },
+  "followUps.cancel": {
+    "value": "Cancel follow-up"
+  },
+  "followUps.cancelOf": {
+    "value": "Cancel {{name}}'s follow-up {{when}}"
+  },
+  "followUps.inTime": {
+    "value": "in {{time}}"
+  },
   "mentions.list": {
     "value": "People and agents"
   },
@@ -9278,9 +9629,6 @@
   },
   "linkPills.issue": {
     "value": "Issue"
-  },
-  "folded.more": {
-    "value": "Show more"
   },
   "folded.less": {
     "value": "Show less"
@@ -10545,6 +10893,12 @@
   "approval.canceledChip": {
     "value": "Canceled · {{when}}"
   },
+  "approval.line.after": {
+    "value": "runs after “{{title}}”"
+  },
+  "approval.line.notRun": {
+    "value": "not run: the request before it wasn't approved"
+  },
   "approval.waitingFor": {
     "value": "Waiting for {{name}}"
   },
@@ -10703,12 +11057,6 @@
   },
   "approval.email.toList": {
     "value": "To {{to}}"
-  },
-  "approval.email.more": {
-    "value": "Read all"
-  },
-  "approval.email.less": {
-    "value": "Show less"
   },
   "approval.email.answers": {
     "value": "Answers <b>“{{subject}}”</b>"
@@ -11082,6 +11430,60 @@
   "notifications.planServes.done": {
     "value": "Only you use this plan now."
   },
+  "notifications.teamWatch.sign_in": {
+    "value": {
+      "one": "The sign-in for {{names}} ended.",
+      "other": "The sign-ins for {{names}} ended."
+    }
+  },
+  "notifications.teamWatch.connector": {
+    "value": {
+      "one": "{{names}} needs reconnecting.",
+      "other": "{{names}} need reconnecting."
+    }
+  },
+  "notifications.teamWatch.mailbox": {
+    "value": {
+      "one": "The mailbox {{names}} needs reconnecting.",
+      "other": "The mailboxes {{names}} need reconnecting."
+    }
+  },
+  "notifications.teamWatch.database": {
+    "value": {
+      "one": "The database {{names}} needs reconnecting.",
+      "other": "The databases {{names}} need reconnecting."
+    }
+  },
+  "notifications.teamWatch.budget_out": {
+    "value": {
+      "one": "{{names}} is out of budget.",
+      "other": "{{names}} are out of budget."
+    }
+  },
+  "notifications.teamWatch.budget_low": {
+    "value": {
+      "one": "{{names}} is about to run out of budget.",
+      "other": "{{names}} are about to run out of budget."
+    }
+  },
+  "notifications.teamWatch.computer": {
+    "value": {
+      "one": "{{names}} is offline with agents waiting.",
+      "other": "{{names}} are offline with agents waiting."
+    }
+  },
+  "notifications.teamWatch.act.sign_in": {
+    "value": "Sign in again"
+  },
+  "notifications.teamWatch.act.reconnect": {
+    "value": "Reconnect"
+  },
+  "notifications.teamWatch.act.budget": {
+    "value": "Raise budget"
+  },
+  "notifications.teamWatch.act.computer": {
+    "value": "Switch computer"
+  },
   "notifications.docTitleUnread": {
     "value": "({{count}}) Notifications"
   },
@@ -11408,6 +11810,9 @@
   },
   "notifications.what.changeRequestAgent": {
     "value": "<b>{{name}}</b> asks for a new agent: <b>{{agent}}</b>"
+  },
+  "notifications.what.changeRequestAction": {
+    "value": "<b>{{name}}</b> asks for a change in the workspace"
   },
   "notifications.what.approvalCover": {
     "value": "<b>{{name}}</b> picked you in Who approves for me"
@@ -11943,6 +12348,27 @@
   "approvals.status.scheduled": {
     "value": "Scheduled"
   },
+  "approvals.status.queued": {
+    "value": "In line"
+  },
+  "approvals.status.notRun": {
+    "value": "Not run"
+  },
+  "approvals.queuedLine": {
+    "value": "Approved. Runs after “{{title}}”, asked before it."
+  },
+  "approvals.notRunRefused": {
+    "value": "“{{title}}”, asked before this, was refused after this was approved, so this didn't run."
+  },
+  "approvals.notRunExpired": {
+    "value": "“{{title}}”, asked before this, expired undecided after this was approved, so this didn't run."
+  },
+  "approvals.notRunEarlier": {
+    "value": "A request asked before this was refused or expired after this was approved, so this didn't run."
+  },
+  "approvals.position": {
+    "value": "{{n}} of {{total}}"
+  },
   "approvals.expiredLine": {
     "value": "Nobody decided within 24 h, so nothing was done."
   },
@@ -12120,17 +12546,17 @@
   "approvals.review.textDone": {
     "value": "What it published"
   },
+  "approvals.review.textNot": {
+    "value": "What it would have published"
+  },
   "approvals.review.values": {
     "value": "What it will do"
   },
   "approvals.review.valuesDone": {
     "value": "What it did"
   },
-  "approvals.review.more": {
-    "value": "Show all"
-  },
-  "approvals.review.less": {
-    "value": "Show less"
+  "approvals.review.valuesNot": {
+    "value": "What it would have done"
   },
   "approvals.review.trail": {
     "value": "How it got here"
@@ -16991,6 +17417,9 @@
   "members.batch.already_invited": {
     "value": "{{email}} already has a pending invitation. Use Resend."
   },
+  "members.batch.had_invite": {
+    "value": "{{email}} already had a pending invitation."
+  },
   "members.batch.invalid_email": {
     "value": "{{email}} doesn't look like a valid email."
   },
@@ -17859,14 +18288,65 @@
   "issues.autoHint": {
     "value": "It changed column on its own, from the agent's work."
   },
-  "issues.now.title": {
-    "value": "Agents working now"
-  },
-  "issues.now.stalled": {
+  "issues.now.stalledCount": {
     "value": {
-      "one": "{{count}} stalled",
-      "other": "{{count}} stalled"
+      "one": "{{count}} stalled task",
+      "other": "{{count}} stalled tasks"
     }
+  },
+  "issues.now.viewStalled": {
+    "value": "See stalled"
+  },
+  "issues.now.continue": {
+    "value": "Continue"
+  },
+  "issues.now.continueAll": {
+    "value": "Continue all"
+  },
+  "issues.now.continueAllCount": {
+    "value": "Continue all ({{count}})"
+  },
+  "issues.now.sent": {
+    "value": {
+      "one": "Asked. {{names}} picks up where they left off.",
+      "other": "Asked. {{names}} pick up where they left off."
+    }
+  },
+  "issues.now.rowSent": {
+    "value": "Asked: picks up where it left off."
+  },
+  "issues.now.stalledTitle": {
+    "value": "Stalled tasks"
+  },
+  "issues.now.stalledSub": {
+    "value": "{{tasks}} · {{agents}}"
+  },
+  "issues.now.tasks": {
+    "value": {
+      "one": "{{count}} task",
+      "other": "{{count}} tasks"
+    }
+  },
+  "issues.now.agents": {
+    "value": {
+      "one": "{{count}} agent",
+      "other": "{{count}} agents"
+    }
+  },
+  "issues.now.stalledText": {
+    "value": "The agents stopped before finishing. Continue asks them to pick up where they left off."
+  },
+  "issues.now.stoppedNow": {
+    "value": "Stopped just now"
+  },
+  "issues.now.stoppedAgo": {
+    "value": "Stopped {{ago}}"
+  },
+  "issues.now.stoppedYesterday": {
+    "value": "Stopped yesterday"
+  },
+  "issues.now.stoppedOn": {
+    "value": "Stopped on {{date}}"
   },
   "issues.work.label": {
     "value": "{{name}}'s work"
@@ -17891,12 +18371,6 @@
   },
   "issues.work.stalled": {
     "value": "Stalled {{when}}"
-  },
-  "issues.work.noRun": {
-    "value": "No run going."
-  },
-  "issues.work.noRunStep": {
-    "value": "No run going. Last step: {{step}}"
   },
   "issues.work.lastStep": {
     "value": "Last step: {{step}}"
@@ -20707,9 +21181,6 @@
   "missions.command.pick": {
     "value": "Allow {{command}}"
   },
-  "missions.command.showAll": {
-    "value": "Show all"
-  },
   "missions.decision.approveAll": {
     "value": {
       "one": "Approve {{count}} provisional",
@@ -21722,6 +22193,21 @@
   },
   "threads.status.working": {
     "value": "Working"
+  },
+  "threads.status.approval": {
+    "value": "Waiting for approval"
+  },
+  "threads.status.input": {
+    "value": "Waiting for an answer"
+  },
+  "threads.status.computer": {
+    "value": "Waiting for its computer"
+  },
+  "threads.status.queued": {
+    "value": "In line"
+  },
+  "threads.status.later": {
+    "value": "Follow-up {{when}}"
   },
   "threads.status.open": {
     "value": "Open"
@@ -24310,6 +24796,9 @@
   "voice.noPlayback": {
     "value": "Can't play it right now. You can still send it or keep recording."
   },
+  "voice.cantPlay": {
+    "value": "Couldn't play the audio."
+  },
   "voice.settings.title": {
     "value": "Voice messages"
   },
@@ -26707,21 +27196,6 @@
   "run.well.nowOf": {
     "value": "Stopped to read {{name}}'s note"
   },
-  "run.choice.label": {
-    "value": "How to send while {{name}} works"
-  },
-  "run.choice.join": {
-    "value": "Add to what {{name}} is doing"
-  },
-  "run.choice.interrupt": {
-    "value": "Stop and send"
-  },
-  "run.choice.joins": {
-    "value": "adds"
-  },
-  "run.choice.interrupts": {
-    "value": "stops and sends"
-  },
   "run.strip.see": {
     "value": "View"
   },
@@ -27802,12 +28276,6 @@
   },
   "blocks.openBig": {
     "value": "Open large"
-  },
-  "blocks.showAll": {
-    "value": "Show all"
-  },
-  "blocks.showLess": {
-    "value": "Show less"
   },
   "blocks.keep": {
     "value": "Keep in Drive"
@@ -32506,6 +32974,12 @@
   "errors.join.linkClosed": {
     "value": "This link no longer works. Ask whoever sent it for a new one."
   },
+  "errors.join.linkFull": {
+    "value": "This link already took everyone it could. Ask whoever sent it for a new one."
+  },
+  "errors.join.linkFullApproval": {
+    "value": "This request's link already took everyone it could. To approve it, raise the link's maximum."
+  },
   "errors.join.full": {
     "value": "This workspace has many requests waiting. Try again later, or ask someone there to invite you."
   },
@@ -32712,6 +33186,9 @@
   },
   "errors.thread.notUndoable": {
     "value": "Only a thread made from a range can be undone."
+  },
+  "errors.followUp.notYours": {
+    "value": "Only the person it's for, the agent's owner or an admin can cancel this follow-up."
   },
   "errors.routine.tooFrequent": {
     "value": "A routine runs at most every 15 minutes. Pick a longer interval."
@@ -32952,6 +33429,12 @@
   },
   "errors.rightHand.permanent": {
     "value": "The right hand is part of the workspace and stays out of channels. An @mention reaches it in any of them."
+  },
+  "errors.rightHand.updateApp": {
+    "value": "This app is too old to apply this card. Update it, or make the change in Settings."
+  },
+  "errors.rightHand.nobodyNew": {
+    "value": "Everyone on this card is already here or already invited. Dismiss it, or resend an invitation in Members and invitations."
   },
   "errors.agent.ownerOrAdmin": {
     "value": "Only the agent's owner or an admin can do this."
@@ -36201,6 +36684,12 @@
   "audit.change.member.password_link": {
     "value": "Made a new-password link for a member"
   },
+  "audit.change.role.permission_set": {
+    "value": "Changed who can {{short}}"
+  },
+  "audit.change.role.permission_set_computers": {
+    "value": "Changed who uses the agents' computers"
+  },
   "audit.change.apps.connected": {
     "value": "Connected {{app}}"
   },
@@ -38259,6 +38748,24 @@
   "chat.consult.clock": {
     "value": "Waiting for {{time}}"
   },
+  "chat.consult.doing": {
+    "value": "{{name}} {{doing}}"
+  },
+  "chat.consult.yourApproval": {
+    "value": "{{name}} is waiting for your approval"
+  },
+  "chat.consult.yourAnswer": {
+    "value": "{{name}} is waiting for your answer"
+  },
+  "chat.consult.done": {
+    "value": "{{to}} is done. {{from}} is writing"
+  },
+  "chat.consult.notDone": {
+    "value": "{{to}} didn't finish. {{from}} is writing"
+  },
+  "chat.consult.handedOff": {
+    "value": "{{to}} is working on what {{from}} handed off"
+  },
   "chat.consultation.answered": {
     "value": "{{name}} answered"
   },
@@ -38304,6 +38811,9 @@
   "chat.consultGroup.waitingAgents": {
     "value": "{{name}} handed part of it on and is waiting to hear back"
   },
+  "chat.consultGroup.queued": {
+    "value": "{{name}} is in line"
+  },
   "chat.consultPair.took": {
     "value": "took {{time}}"
   },
@@ -38325,6 +38835,15 @@
   "chat.consultPair.waitingProvider": {
     "value": "AI provider down"
   },
+  "chat.consultPair.waitingYourApproval": {
+    "value": "waiting for your approval"
+  },
+  "chat.consultPair.waitingYourAnswer": {
+    "value": "waiting for your answer"
+  },
+  "chat.consultPair.queued": {
+    "value": "in line"
+  },
   "chat.consultPair.handedOn": {
     "value": "waiting on other agents"
   },
@@ -38339,15 +38858,6 @@
   },
   "chat.consultPair.labelMany": {
     "value": "{{from}}'s talks with {{to}}"
-  },
-  "chat.talk.readAll": {
-    "value": "Read all"
-  },
-  "chat.talk.more": {
-    "value": {
-      "one": "{{count}} more line",
-      "other": "{{count}} more lines"
-    }
   },
   "chat.consultPanel.label": {
     "value": "Conversation between {{from}} and {{to}}"
@@ -38423,30 +38933,6 @@
   },
   "chat.notice.waitResult": {
     "value": "What {{name}} was waiting for came in"
-  },
-  "chat.notice.followUp": {
-    "value": "{{name}} will be back at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpOn": {
-    "value": "{{name}} will be back on {{day}} at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpDone": {
-    "value": "{{name}} came back at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpDoneOn": {
-    "value": "{{name}} came back on {{day}} at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpCanceled": {
-    "value": "{{name}} won't be back at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpCanceledOn": {
-    "value": "{{name}} won't be back on {{day}} at {{time}} to «{{about}}»"
-  },
-  "chat.notice.followUpWake": {
-    "value": "{{name}} is back to «{{about}}»"
-  },
-  "chat.notice.followUpCancel": {
-    "value": "Cancel"
   },
   "chat.notice.other": {
     "value": "Notice for {{name}}"
@@ -38981,6 +39467,9 @@
   "chat.work.step.typing": {
     "value": "Wrote"
   },
+  "chat.work.step.recordingVoice": {
+    "value": "Recorded audio"
+  },
   "chat.work.step.writing": {
     "value": "Wrote"
   },
@@ -38998,6 +39487,9 @@
   },
   "chat.activity.typing": {
     "value": "typing"
+  },
+  "chat.activity.recordingVoice": {
+    "value": "recording audio"
   },
   "chat.activity.writing": {
     "value": "writing"
@@ -39724,6 +40216,9 @@
   },
   "chat.body.action_approvals": {
     "value": "Approvals waiting for you"
+  },
+  "chat.body.welcome_member": {
+    "value": "You just joined {{org}}. **What do you look after here?** Tell me and I set up your first agent with you."
   },
   "chat.body.action_open_page": {
     "value": "Open a screen"
@@ -41430,6 +41925,33 @@
   "deleteOrg.submit": {
     "value": "Delete workspace"
   },
+  "emailUndo.title": {
+    "value": "Bring your email back"
+  },
+  "emailUndo.lead": {
+    "value": "The address this link went to becomes your account's email again. Every session is signed out, the AI apps are disconnected and ways to sign in added since the change stop working. The password is cleared too, and “Forgot my password” sets the next one."
+  },
+  "emailUndo.button": {
+    "value": "This wasn't me"
+  },
+  "emailUndo.done": {
+    "value": "Your email is back"
+  },
+  "emailUndo.doneLead": {
+    "value": "{{email}} is your account's email again. Every session is signed out, ways to sign in added since the change no longer work, and the password was cleared: “Forgot my password” sets the next one when you sign in."
+  },
+  "emailUndo.gone": {
+    "value": "This link no longer works"
+  },
+  "emailUndo.goneLead": {
+    "value": "It was already used, or its 7 days are over."
+  },
+  "emailUndo.taken": {
+    "value": "Another account has this email"
+  },
+  "emailUndo.takenLead": {
+    "value": "{{email}} is another account's email now, so it can't come back. Nothing changed."
+  },
   "proof.willSend": {
     "value": "We'll email a code to {{email}} to confirm it's you."
   },
@@ -42427,6 +42949,42 @@
   "agentComputer.phone.chooseOnWeb": {
     "value": "Choose it on agentes.chat, in Settings › Devices."
   },
+  "agora.label": {
+    "value": "Now"
+  },
+  "agora.working": {
+    "value": {
+      "one": "{{count}} agent working",
+      "other": "{{count}} agents working"
+    }
+  },
+  "agora.waiting": {
+    "value": {
+      "one": "{{count}} thing waiting for you",
+      "other": "{{count}} things waiting for you"
+    }
+  },
+  "agora.sections.you": {
+    "value": "Waiting for you"
+  },
+  "agora.sections.working": {
+    "value": "Working"
+  },
+  "agora.sections.waiting": {
+    "value": "On hold"
+  },
+  "agora.allWaiting": {
+    "value": {
+      "one": "{{count}} thing waiting for you",
+      "other": "All {{count}} things waiting for you"
+    }
+  },
+  "agora.actions": {
+    "value": "More actions"
+  },
+  "agora.openManager": {
+    "value": "Open the task manager"
+  },
   "taskManager.title": {
     "value": "Task manager"
   },
@@ -42517,11 +43075,14 @@
   "taskManager.sections.background": {
     "value": "Routines in the background"
   },
+  "taskManager.sections.returns": {
+    "value": "Follow-ups"
+  },
   "taskManager.state.working": {
     "value": "Working"
   },
   "taskManager.state.ok": {
-    "value": "Waits for your ok"
+    "value": "Waiting for you"
   },
   "taskManager.state.answer": {
     "value": "Waits for an answer"
@@ -42741,6 +43302,15 @@
   },
   "taskManager.ended.failed": {
     "value": "Couldn't finish"
+  },
+  "taskManager.ended.returnCanceled": {
+    "value": "Follow-up canceled"
+  },
+  "taskManager.ended.returnCanceledYou": {
+    "value": "You canceled the follow-up"
+  },
+  "taskManager.ended.returnCanceledBy": {
+    "value": "Follow-up canceled by {{name}}"
   },
   "taskManager.ended.none": {
     "value": "Nothing ended today yet."

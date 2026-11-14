@@ -4,8 +4,8 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { authedFetch } from "./auth";
 import { createHolder, deviceBody, devicePath, quietWhileOpen, readPushData, systemToken } from "./push-payload";
-import { serverUrl, signedInServers } from "./server";
-import { pushPlace } from "./server-choice";
+import { accountsSharing, placeAccounts, placeKey, signedInServers } from "./server";
+import { pushPlace, serverOf } from "./server-choice";
 import { readValue, STORED, writeValue } from "./storage";
 
 /**
@@ -49,7 +49,9 @@ export function configureForegroundPush() {
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = readPushData(notification.request.content.data);
-      const here = pushPlace(data.server, serverUrl(), signedInServers()).kind === "here";
+      const here =
+        pushPlace(data.server, placeKey(), signedInServers(), { user: data.user, accounts: placeAccounts() }).kind ===
+        "here";
       const quiet = here && (islandLive || quietWhileOpen(data, openConversation.get()));
       return { shouldShowBanner: !quiet, shouldShowList: !quiet, shouldPlaySound: false, shouldSetBadge: false };
     },
@@ -130,8 +132,13 @@ async function register({ ask, locale, token: given }: Registration): Promise<bo
   if (permission !== "granted") return false;
   const token = given ?? (await phoneToken());
   if (!token) return false;
-  // On every server this phone is signed in to, so pushes come from all of them (ADR 0154).
-  const results = await Promise.all(pushServers().map((server) => registerOn(server, token, locale)));
+  // On every server this phone is signed in to, so pushes come from all of them (ADR 0154), and as every account on
+  // one (ADR 0183). The account in use goes last: on a server that still keeps a token for one person, it is the one
+  // that hears it.
+  const here = placeKey();
+  const places = pushServers();
+  const results = await Promise.all(places.filter((p) => p !== here).map((p) => registerOn(p, token, locale)));
+  if (places.includes(here)) results.push(await registerOn(here, token, locale));
   if (!results.some(Boolean)) return false;
   // A token this phone registered before (the system rolled it, or an Expo token from an older Android build) is
   // forgotten on the servers, so pushes don't go to a token nothing answers.
@@ -142,21 +149,24 @@ async function register({ ask, locale, token: given }: Registration): Promise<bo
   return true;
 }
 
-/** The servers that push to this phone: every one signed in to, or the current one before any session is known. */
+/**
+ * The places that push to this phone: every server signed in to and every account on one (ADR 0183), or the current
+ * one before any session is known.
+ */
 const pushServers = () => {
   const list = signedInServers();
-  return list.length ? [...list] : [serverUrl()];
+  return list.length ? [...list] : [placeKey()];
 };
 
 async function registerOn(server: string, token: string, locale: string): Promise<boolean> {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), REGISTER_WAIT_MS);
   const res = await authedFetch(
-    `${server}/api/app/push/devices`,
+    `${serverOf(server)}/api/app/push/devices`,
     {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(deviceBody(token, Platform.OS, locale)),
+      body: JSON.stringify(deviceBody(token, Platform.OS, locale, accountsSharing(server))),
       signal: abort.signal,
     },
     server,
@@ -198,9 +208,11 @@ export const SIGN_OUT_WAIT_MS = 5000;
 async function forgetToken(token: string, server: string): Promise<void> {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), SIGN_OUT_WAIT_MS);
-  await authedFetch(`${server}${devicePath(token)}`, { method: "DELETE", signal: abort.signal }, server).catch(
-    () => null,
-  );
+  await authedFetch(
+    `${serverOf(server)}${devicePath(token)}`,
+    { method: "DELETE", signal: abort.signal },
+    server,
+  ).catch(() => null);
   clearTimeout(timer);
 }
 

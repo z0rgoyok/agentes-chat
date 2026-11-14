@@ -8,24 +8,28 @@ import {
   useCardProposals,
   useChannels,
   useDecideProposal,
+  useModelLabel,
   useTeamWeekPrefs,
+  useWaitingOnMe,
 } from "@agenteschat/client";
 import { clockAt, formatUsd, joinNames } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
+import { teamWeekOn, teamWeekWhen } from "@agenteschat/client/lib/right-hand-prefs";
 import {
   appliesInBulk,
+  skipsAlone,
   type TeamWeekCard,
   type TeamWeekNames,
   type TeamWeekRow,
+  type TeamWeekRowState,
   teamWeekCardOf,
   teamWeekDoneText,
-  teamWeekOn,
   teamWeekRowMessage,
+  teamWeekRowPlace,
   teamWeekRowState,
   teamWeekRowText,
   teamWeekTitleKey,
-  teamWeekWhen,
 } from "@agenteschat/client/lib/team-week";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -36,6 +40,7 @@ import { useOrg } from "@/providers/org";
 import { Button, LineIcon, Text, useReducedMotion } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useCardTop } from "../chat/look";
+import { chatHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory } from "../shared/hooks";
@@ -46,7 +51,8 @@ const NANO = 1_000_000_000;
 /**
  * Lodi's weekly card (ADR 0137 §9), as on the web: the four numbers two by two, what worked, then each fix stacked
  * with its button under its words, applied as whoever taps; "Aplicar as N", "Agora não", and the day and hour,
- * changed in Configurações › Lodi.
+ * changed in Configurações › Lodi. The day's card (ADR 0177 §2) is led by what waits on its reader and what is stuck,
+ * each opened where it is.
  */
 export function TeamWeek({ message: m }: { message: Message }) {
   const card = m.author.type === "agent" ? teamWeekCardOf(m.meta) : null;
@@ -70,7 +76,12 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   const decide = useDecideProposal(orgId);
   const act = useActOnTeamWeek(orgId);
   const prefs = useTeamWeekPrefs(orgId).data;
+  const waiting = useWaitingOnMe(orgId);
+  const admin = can(org, "administrator");
+  // A weekly card kept by someone who no longer administers: the daily one is what they get now.
+  const period = admin ? (card.period ?? "week") : "day";
   const failed = useFailed();
+  const modelLabel = useModelLabel();
   const [applying, setApplying] = useState(false);
   const locale = i18n.language;
   const names: TeamWeekNames = {
@@ -80,19 +91,34 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
     usd: (n) => formatUsd(locale, Math.round(n / NANO)),
     join: (list) => joinNames(list, t),
     since: (iso) => clockAt(locale, iso),
+    model: (id) => modelLabel(id) ?? id,
   };
   const rows = card.rows.map((row) => ({
     row,
-    state: teamWeekRowState(card, row, { proposals, approvals: approvals.data }),
+    state: teamWeekRowState(card, row, {
+      proposals,
+      approvals: approvals.data,
+      waiting: waiting.data?.items.map((i) => i.id),
+    }),
     text: teamWeekRowText(t, locale, row, names),
   }));
   const open = rows.filter((r) => r.state === "open");
   const bulk = open.filter((r) => appliesInBulk(r.row));
+  // What waits or is stuck is opened, not applied: the head counts only what the card suggests.
+  const suggested = open.filter((r) => !teamWeekRowPlace(r.row));
   const dismissed = !!card.dismissedAt;
   const lodi = dir.agents.find(isRightHand);
   const apply = async (row: TeamWeekRow) => {
-    if (row.kind === "budget" || row.kind === "channel")
-      await decide.mutateAsync({ id: row.proposalId, decision: "accept" });
+    const place = teamWeekRowPlace(row);
+    if (place)
+      router.push(
+        (place.to === "waiting"
+          ? "/activity"
+          : place.to === "task"
+            ? `/issues/${place.number}`
+            : chatHref(place.channelId)) as never,
+      );
+    else if ("proposalId" in row) await decide.mutateAsync({ id: row.proposalId, decision: "accept" });
     else if (row.kind === "approvals") {
       const next = row.approvalIds.find((id) => approvals.data?.find((a) => a.id === id)?.status === "pending");
       router.push(`/approval/${next ?? row.approvalIds[0]}` as never);
@@ -110,10 +136,10 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
     }
   };
   const { stats } = card;
-  // Flat on the card, two by two. Amber only for what waits on the person; "stuck" counts the week's failed runs
-  // (the server's `failed`), errors, so red.
+  // Flat on the card: three on one line, or two by two with the workspace's money. Amber only for what waits on the
+  // person; "stuck" counts the week's failed runs (the server's `failed`), errors, so red.
   const stat = (value: string, label: string, color?: string) => (
-    <View key={label} style={styles.stat}>
+    <View key={label} style={[styles.stat, stats.budgetNanoUsd > 0 ? styles.statOfFour : styles.statOfThree]}>
       <Text variant="title" style={[styles.statValue, color ? { color } : null]} numberOfLines={1}>
         {value}
       </Text>
@@ -130,9 +156,9 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
           <Text variant="footnote" tone="muted" style={styles.semibold}>
             {t(teamWeekTitleKey(card))}
           </Text>
-          {open.length > 0 && !dismissed ? (
+          {suggested.length > 0 && !dismissed ? (
             <Text variant="caption" style={[styles.semibold, { color: c.amber }]}>
-              {t("teamWeek.suggestions", { count: open.length })}
+              {t("teamWeek.suggestions", { count: suggested.length })}
             </Text>
           ) : null}
         </View>
@@ -173,7 +199,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
         ) : rows.length > 0 ? (
           <View style={styles.section}>
             <Text variant="caption" tone="muted" style={styles.semibold}>
-              {t("teamWeek.improve")}
+              {t(card.period === "day" ? "teamWeek.needsYou" : "teamWeek.improve")}
             </Text>
             {rows.map(({ row, state, text }, i) => (
               <Fix
@@ -187,14 +213,20 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
                 action={text.action}
                 proposal={proposals.find((p) => "proposalId" in row && p.id === row.proposalId)}
                 doneText={teamWeekDoneText(t, row, lodi?.name ?? "Lodi")}
-                busy={applying}
+                busy={applying || act.isPending}
                 onApply={() => apply(row).catch(failed)}
+                onSkip={
+                  skipsAlone(row)
+                    ? () => act.mutateAsync({ messageId: message.id, act: { rowId: row.id, skip: true } }).catch(failed)
+                    : undefined
+                }
               />
             ))}
           </View>
         ) : null}
         <View style={[styles.foot, { borderTopColor: c.line2 }]}>
-          {!dismissed && bulk.length > 0 ? (
+          {/* One row to apply has its own button for it: the footer's would only repeat it. */}
+          {!dismissed && bulk.length > 1 ? (
             <Button
               variant="primary"
               wide
@@ -220,7 +252,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
               style={({ pressed }) => [styles.when, pressed && styles.pressed]}
             >
               <Text variant="footnote" tone="muted">
-                {teamWeekOn(prefs, can(org, "administrator")) ? teamWeekWhen(t, locale, prefs) : t("teamWeek.off")}
+                {teamWeekOn(prefs, period, admin) ? teamWeekWhen(t, locale, prefs, period) : t("teamWeek.off")}
                 {" · "}
                 <Text variant="footnote" tone="ink" style={styles.semibold}>
                   {t("teamWeek.change")}
@@ -246,12 +278,13 @@ function Fix({
   doneText,
   busy,
   onApply,
+  onSkip,
 }: {
   /** A hairline above it: every fix but the first. */
   divider: boolean;
   message: Message;
   row: TeamWeekRow;
-  state: "open" | "done" | "gone";
+  state: TeamWeekRowState;
   title: string;
   line: string;
   action: string;
@@ -259,6 +292,8 @@ function Fix({
   doneText: string;
   busy: boolean;
   onApply: () => Promise<void>;
+  /** "Dispensar": puts this one suggestion away for good. Absent on a row that has none. */
+  onSkip?: () => Promise<unknown>;
 }) {
   const { t } = useTranslation();
   const { orgId } = useOrg();
@@ -268,6 +303,7 @@ function Fix({
   const failed = useFailed();
   const actions = useAgentActions(orgId, message.channelId);
   const [pending, setPending] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const agentId = "agentId" in row ? row.agentId : null;
   const receipt = proposal?.undoActionId ? message.actions?.find((a) => a.id === proposal.undoActionId) : undefined;
   const undoable =
@@ -276,14 +312,16 @@ function Fix({
   return (
     // A flat row on the card, divided by a hairline (never a plate or a box in a card).
     <View style={[styles.fix, divider && [styles.divided, { borderTopColor: c.line2 }]]}>
-      <View style={styles.fixTop}>
+      {/* The face and the title on one line, the rest under them at the row's width: a face never owns a column
+          beside lines of words. */}
+      <View style={[styles.fixTop, agentId ? styles.fixFace : null]}>
         <View style={styles.lead}>
           {agentId ? (
             <AgentFace agentId={agentId} size={32} live={false} />
           ) : (
             <LineIcon
               name={
-                row.kind === "unanswered"
+                row.kind === "unanswered" || row.kind === "waiting"
                   ? "help"
                   : row.kind === "stalled"
                     ? "issue"
@@ -297,15 +335,13 @@ function Fix({
             />
           )}
         </View>
-        <View style={styles.fill}>
-          <Text variant="small" tone={done ? "muted" : "ink"} style={styles.semibold}>
-            {title}
-          </Text>
-          <Text variant="footnote" tone="ink2">
-            {line}
-          </Text>
-        </View>
+        <Text variant="small" tone={done ? "muted" : "ink"} style={[styles.semibold, styles.fill]}>
+          {title}
+        </Text>
       </View>
+      <Text variant="footnote" tone="ink2">
+        {line}
+      </Text>
       {state === "done" ? (
         <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={styles.doneRow}>
           <View style={[styles.line, styles.fill]}>
@@ -329,23 +365,39 @@ function Fix({
             />
           ) : null}
         </Animated.View>
-      ) : state === "gone" ? (
+      ) : state === "gone" || state === "skipped" ? (
         <Text variant="footnote" tone="muted">
-          {t("teamWeek.gone")}
+          {t(state === "gone" ? "teamWeek.gone" : "teamWeek.skipped")}
         </Text>
       ) : (
-        <Button
-          variant="secondary"
-          size="sm"
-          wide
-          label={action}
-          loading={pending}
-          disabled={busy}
-          onPress={() => {
-            setPending(true);
-            void onApply().finally(() => setPending(false));
-          }}
-        />
+        <>
+          <Button
+            variant="secondary"
+            size="sm"
+            wide
+            label={action}
+            loading={pending}
+            disabled={busy || skipping}
+            onPress={() => {
+              setPending(true);
+              void onApply().finally(() => setPending(false));
+            }}
+          />
+          {onSkip ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              wide
+              label={t("teamWeek.skip")}
+              loading={skipping}
+              disabled={busy || pending}
+              onPress={() => {
+                setSkipping(true);
+                void onSkip().finally(() => setSkipping(false));
+              }}
+            />
+          ) : null}
+        </>
       )}
     </View>
   );
@@ -363,7 +415,9 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   semibold: { fontWeight: "600" },
   stats: { flexDirection: "row", flexWrap: "wrap", rowGap: 12, columnGap: 8, marginTop: 12 },
-  stat: { flexBasis: "47%", flexGrow: 1, gap: 2 },
+  stat: { flexGrow: 1, gap: 2 },
+  statOfFour: { flexBasis: "47%" },
+  statOfThree: { flexBasis: "30%" },
   statValue: { fontVariant: ["tabular-nums"] },
   section: { marginTop: 16, gap: 8 },
   // An icon on the first line of the words beside it.
@@ -373,6 +427,8 @@ const styles = StyleSheet.create({
   // 12 above the hairline (with the section's gap) and 12 under it.
   divided: { marginTop: 4, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   fixTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  // Beside a face the title centres on it. An icon keeps the title's first line.
+  fixFace: { alignItems: "center" },
   // One column for whatever leads (a face, or an icon on the title's first line): the words start at one place.
   lead: { width: 32, alignItems: "center" },
   doneRow: { flexDirection: "row", alignItems: "center", gap: 6 },

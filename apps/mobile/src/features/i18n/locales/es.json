@@ -311,7 +311,7 @@
   },
   "along": {
     "agent": "Un agente",
-    "waits": "{{name}} espera tu ok",
+    "waits": "{{name}} · esperándote",
     "on": "{{name}} · {{what}}",
     "working": "{{name}} está trabajando",
     "more": "+{{count}}"
@@ -815,7 +815,7 @@
     "teamSectionPersonal": "Tus agentes",
     "managerQuiet": "Nada en curso",
     "state": {
-      "waitsYou": "espera tu ok",
+      "waitsYou": "esperándote",
       "noAi": "Sin IA conectada",
       "connect": "Conectar",
       "archived": "Archivado",
@@ -1212,6 +1212,9 @@
     "addWorkspaceTeamShort": "Entrar en el servidor de tu equipo",
     "addWorkspaceTeamSubShort": "Dirección o código QR de la computadora",
     "addWorkspaceFoot": "No sales de ningún espacio de trabajo.",
+    "addAccount": "Iniciar sesión con otra cuenta",
+    "addAccountSub": "En {{host}}, sin salir de esta",
+    "accountNoWorkspace": "Aún sin espacio de trabajo",
     "teamServerLeadShort": "Lo que tu equipo abre en el navegador.",
     "teamServerQuestion": "¿Cuál es la dirección de tu equipo?",
     "account": {
@@ -1229,6 +1232,8 @@
       "name": "Nombre",
       "namePlaceholder": "Tu nombre",
       "email": "Correo",
+      "emailWebLead": "Vuelve a iniciar sesión en el sitio y cámbialo allí, sin el código.",
+      "emailWeb": "Volver a iniciar sesión en el sitio",
       "inWorkspace": "En este espacio de trabajo · {{org}}",
       "handle": "Tu @",
       "timezone": "Zona horaria",
@@ -1520,7 +1525,7 @@
       "plain": "terminó una tarea"
     },
     "rowWait": {
-      "approval": "espera tu aprobación",
+      "approval": "esperándote",
       "question": "espera tu respuesta",
       "mission": "espera tu revisión"
     },
@@ -1558,14 +1563,14 @@
   },
   "intentAgents": {
     "waitingSection": "Esperándote",
-    "waitingLine": "{{title}} · necesita tu aprobación",
+    "waitingLine": "{{title}} · esperándote",
     "waitingMore_one": "{{title}} · y {{count}} más esperándote",
     "waitingMore_many": "{{title}} · y {{count}} más esperándote",
     "waitingMore_other": "{{title}} · y {{count}} más esperándote",
-    "waitingLabel": "{{name}}, necesita tu aprobación",
+    "waitingLabel": "{{name}}, esperándote",
     "owner": "Responsable: {{name}}",
     "ownerYou": "Responsable: tú",
-    "nowWaiting": "Necesita tu aprobación: {{title}}",
+    "nowWaiting": "Esperándote: {{title}}",
     "did": {
       "title": "Lo que hizo por ti",
       "title_female": "Lo que hizo por ti",
@@ -1585,7 +1590,7 @@
         "image": "Imagen",
         "file": "Archivo"
       },
-      "waitingOnYou": "Necesita tu aprobación",
+      "waitingOnYou": "Esperándote",
       "youApproved": "Aprobaste",
       "youRefused": "Rechazaste",
       "action": {
@@ -2353,14 +2358,170 @@
       "toolsHow": "Toca una herramienta activada para desactivarla. Para volver a activarla: en el propio ordenador, o aquí quien lo conectó.",
       "toolsHowOwner": "Toca una herramienta para activarla o desactivarla."
     },
-    "roles": {
-      "onComputer": "El orden de los roles y el ícono de cada uno se cambian en la computadora.",
-      "items": "Uno por uno",
-      "create": "Crear"
-    },
     "import": {
       "preparing": "Preparando el archivo…",
       "failed": "No se pudo descargar el archivo. Inténtalo de nuevo."
+    }
+  },
+  "roles": {
+    "create": "Crear",
+    "search": "Buscar rol",
+    "baseHint": "Vale para cada persona del espacio de trabajo. Los roles se suman a esto.",
+    "orderHint": "Quien está más arriba gestiona los roles y las personas de abajo. El color del nombre de cada persona viene de su rol más alto.",
+    "order": "Ordenar",
+    "orderDone": "Listo",
+    "up": "Subir {{name}}",
+    "down": "Bajar {{name}}",
+    "orderChanged": "La lista de roles cambió mientras la movías. Recarga e inténtalo de nuevo.",
+    "none": "Todavía no hay roles. Crea uno para darles más a algunas personas.",
+    "noMatch": "Ningún rol coincide con “{{q}}”.",
+    "tooMany": "Este espacio de trabajo ya tiene 100 roles. Elimina uno para crear otro.",
+    "loadFailed": "No pude cargar los roles. {{cause}}",
+    "backToList": "Volver a los roles",
+    "nobody": "Nadie",
+    "reach": {
+      "permissions_one": "{{count}} permiso",
+      "permissions_many": "{{count}} permisos",
+      "permissions_other": "{{count}} permisos",
+      "channels_one": "{{count}} canal",
+      "channels_many": "{{count}} canales",
+      "channels_other": "{{count}} canales",
+      "agents_one": "{{count}} agente",
+      "agents_many": "{{count}} agentes",
+      "agents_other": "{{count}} agentes",
+      "more": "+{{what}}",
+      "all": "Puede todo",
+      "owner": "Puede todo, siempre",
+      "none": "Solo lo que Todos pueden",
+      "baseNone": "Solo leer"
+    },
+    "tabs": {
+      "permissions": "Permisos",
+      "channels": "Canales",
+      "agents": "Agentes"
+    },
+    "addOwners": "Agregar propietarios",
+    "icons": {
+      "shield": "Escudo",
+      "code": "Código",
+      "wallet": "Billetera",
+      "mail": "Correo",
+      "bolt": "Rayo",
+      "flag": "Bandera",
+      "book": "Libro",
+      "chart": "Gráfico",
+      "bulb": "Foco",
+      "globe": "Globo",
+      "pullRequest": "Solicitud de cambios",
+      "calendar": "Calendario",
+      "message": "Mensaje",
+      "eye": "Ojo",
+      "plug": "Enchufe",
+      "person": "Persona"
+    },
+    "inviteWith": "Invitar con este rol",
+    "searchPermission": "Buscar permiso",
+    "everyoneCan": "Todos pueden",
+    "only": "Solo {{names}}",
+    "notHeld": "No tienes este permiso.",
+    "noPermissionMatch": "Ningún permiso coincide con “{{q}}”.",
+    "advanced": "Avanzado",
+    "peopleOnly": "Los roles son para personas. Cada agente tiene sus propios permisos, en su página.",
+    "nowAbove": "Este rol ahora está por encima del tuyo. Solo alguien más arriba lo cambia.",
+    "admin": {
+      "title": "¿Activar Administrador en {{name}}?",
+      "text": "Quien tiene {{name}} pasa a poder todo, menos lo que es solo del propietario.",
+      "count_one": "Es {{count}} persona.",
+      "count_many": "Son {{count}} personas.",
+      "count_other": "Son {{count}} personas.",
+      "on": "Activar Administrador",
+      "note": "Con Administrador, {{name}} puede todo, menos lo que es solo del propietario."
+    },
+    "computers": {
+      "title": "Computadoras de los agentes",
+      "hint": "Navegador: el navegador y las solicitudes de inicio de sesión. Computadora: también la pantalla completa y la terminal. Agentes propios: los que la persona tiene a su cargo y las computadoras que conectó.",
+      "steps": {
+        "0": "No usa",
+        "1": "Navegador de los agentes propios",
+        "2": "Computadora de los agentes propios",
+        "3": "Navegador de cualquier agente",
+        "4": "Computadora de cualquier agente"
+      },
+      "stepsIn": {
+        "1": "el navegador de los agentes propios",
+        "2": "la computadora de los agentes propios",
+        "3": "el navegador de cualquier agente",
+        "4": "la computadora de cualquier agente"
+      },
+      "everyoneTo": "Todos pasan a tener {{step}}.",
+      "everyoneNone": "Todos dejan de usar las computadoras de los agentes."
+    },
+    "whoCan": "Quién puede",
+    "everyoneSub": "Cada persona del espacio de trabajo",
+    "someRoles": "Solo algunos roles",
+    "losing": "Dejan de poder: {{names}}.",
+    "nobodyLoses": "Nadie pierde nada.",
+    "everyoneGets": "Todo el mundo pasa a poder.",
+    "ownersAlways": "Los propietarios siempre pueden.",
+    "noOtherRoles": "Todavía no hay otros roles.",
+    "channels": {
+      "header": "Quien tiene {{name}} ve",
+      "headerBase": "Todo el mundo ve",
+      "hint": "Esto es sobre personas. Un agente entra a un canal cuando alguien lo agrega.",
+      "search": "Buscar canal",
+      "everyone": "Todos lo ven",
+      "private": "Privado",
+      "general": "Todo el mundo se queda en #general.",
+      "locked": "Solo quien creó #{{channel}} u organiza los canales cambia quién lo ve.",
+      "leaveTitle": "¿Quitar #{{channel}} de {{name}}?",
+      "leave_one": "{{names}} sale del canal.",
+      "leave_many": "{{names}} salen del canal.",
+      "leave_other": "{{names}} salen del canal.",
+      "leaveAction": "Quitar",
+      "openTitle": "¿Abrir #{{channel}} para {{name}}?",
+      "openText": "Quien tiene {{name}} ve el canal y todo su historial, y puede entrar.",
+      "openAction": "Abrir",
+      "openAllTitle": "¿Abrir #{{channel}} para todos?",
+      "openAllText": "Todo el historial queda abierto para el espacio de trabajo.",
+      "admin": "Con Administrador, quien tiene {{name}} ve todos los canales.",
+      "onlyGeneral": "Por ahora solo existe #general.",
+      "noMatch": "Ningún canal coincide con “{{q}}”.",
+      "ungrouped": "Canales",
+      "whoSees": "Quién ve",
+      "allSub": "Cualquier persona del espacio de trabajo lo ve y puede entrar.",
+      "invited": "Solo quien sea agregado",
+      "invitedSub": "Nadie nuevo lo ve. Quien está, sigue.",
+      "unsee": "Quien ya está sigue. Dejan de verlo: {{names}}."
+    },
+    "agents": {
+      "header": "Quien tiene {{name}} habla con",
+      "headerBase": "Todo el mundo habla con",
+      "hint": "Esto es sobre personas. Lo que hace cada agente está en su página.",
+      "everyone": "Todos hablan con él",
+      "gate": "Quien solo tiene {{name}} no habla con agentes.",
+      "gateOn": "Activar Hablar con agentes",
+      "locked": "Solo {{owner}}, responsable de {{name}}, o quien edita cualquier agente lo cambia.",
+      "locked_female": "Solo {{owner}}, responsable de {{name}}, o quien edita cualquier agente lo cambia.",
+      "lockedNoOwner": "Solo quien edita cualquier agente lo cambia.",
+      "none": "Todavía no hay agentes.",
+      "some": "Solo algunos roles y personas",
+      "addPerson": "Agregar persona",
+      "losing": "Dejan de hablar con {{agent}}: {{names}}."
+    },
+    "people": {
+      "removed": "{{person}} ya no tiene {{name}}",
+      "selfTitle": "¿Quitarte de {{name}}?",
+      "selfText": "Dejas de poder lo que solo {{name}} da. Solo alguien por encima de ti lo devuelve."
+    },
+    "mail": {
+      "title_one": "Un agente pierde un buzón",
+      "title_many": "Los agentes pierden {{count}} buzones",
+      "title_other": "Los agentes pierden {{count}} buzones",
+      "loses": "{{agent}} pierde {{address}}, el buzón de {{owner}}.",
+      "losesAddress": "{{agent}} pierde el buzón {{address}}.",
+      "only": "Solo quien dio un buzón lo vuelve a dar.",
+      "addAnyway": "Agregar de todos modos",
+      "giveAnyway": "Dar de todos modos"
     }
   },
   "vault": {

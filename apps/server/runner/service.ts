@@ -68,18 +68,27 @@ export const allAgentsLimitsPath = (unitPath = SYSTEM_UNIT_PATH) =>
 export const AGENTS_CGROUP = "/sys/fs/cgroup/agents.slice";
 export const agentCgroup = (uid: number) => path.join(AGENTS_CGROUP, agentSlice(uid));
 /**
- * Each agent's own /tmp, /dev/shm and /run/lock (`<uid>/tmp`, `shm`, `lock`): in memory as the computer's are, on a
- * tmpfs of the agent's own at `<uid>`, in a folder only root can reach.
+ * Each agent's own /dev/shm and /run/lock (`<uid>/shm`, `lock`): in memory as the computer's are, on a tmpfs of the
+ * agent's own at `<uid>`, in a folder only root can reach. Its /tmp is `<uid>/tmp` there too, in that tmpfs or
+ * (`agentTmpOnDisk`) bound from `AGENT_DISK_TMP_ROOT`.
  */
 export const AGENT_RAM_ROOT = "/run/agentes-runner-tmp";
 /** Each agent's own /var/tmp (`<uid>/var-tmp`): on disk as the computer's is, in a folder only root can reach. */
 export const AGENT_TMP_ROOT = "/var/lib/agentes-runner-tmp";
+/**
+ * The agents' /tmp on disk (`agentTmpOnDisk`), in a folder only root can reach: a filesystem of their own, `image`,
+ * made anew at every boot and mounted at `fs`, each agent's /tmp `fs/<uid>`. On the system disk: never under the
+ * workspace's paths, which the Cloud keeps on a data disk that moves and backups copy.
+ */
+export const AGENT_DISK_TMP_ROOT = "/var/cache/agentes-runner-tmp";
 export const agentTmp = (uid: number) => path.join(AGENT_RAM_ROOT, String(uid), "tmp");
 /**
- * systemd-tmpfiles' lines for them: what agents leave goes after 10 days, 30 in /var/tmp, as in a stock system. Each
- * agent's runtime dir (`run`, ADR 0169) never ages, as logind's don't: a container up for weeks keeps its state there.
+ * systemd-tmpfiles' lines for them: what agents leave goes after 10 days, 30 in /var/tmp, as in a stock system (the
+ * agents' /tmp on disk too, through its bind in the agent's tmpfs). The boot removes the image of the agents' /tmp on
+ * disk (`r!`: never on a later `--remove`), so a computer switched back to memory doesn't keep its room. Each agent's
+ * runtime dir (`run`, ADR 0169) never ages, as logind's don't: a container up for weeks keeps its state there.
  */
-export const AGENT_TMP_CLEANUP = `# agentes.chat runner: each agent's own temporary folders\ne ${AGENT_RAM_ROOT}/*/* - - - 10d\nx ${AGENT_RAM_ROOT}/*/run\ne ${AGENT_TMP_ROOT}/*/* - - - 30d\n`;
+export const AGENT_TMP_CLEANUP = `# agentes.chat runner: each agent's own temporary folders\ne ${AGENT_RAM_ROOT}/*/* - - - 10d\nx ${AGENT_RAM_ROOT}/*/run\ne ${AGENT_TMP_ROOT}/*/* - - - 30d\nr! ${AGENT_DISK_TMP_ROOT}/image\n`;
 /** In `/etc/tmpfiles.d`, two folders up from the unit's (`/etc/systemd/system`). */
 export const agentTmpCleanupPath = (unitPath = SYSTEM_UNIT_PATH) =>
   path.join(path.dirname(unitPath), "..", "..", "tmpfiles.d", `${SERVICE_NAME}.conf`);

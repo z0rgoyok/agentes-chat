@@ -7,6 +7,7 @@ import type {
   MessageConsultation,
   MessagePin,
   ReactionCount,
+  TypingWho,
 } from "@agenteschat/client";
 import { agentProposalOf, costlyProposalOf, stretchCardOf } from "@agenteschat/client/lib/action-cards";
 import { type ActivityEntry, barEntries, type barWords, markedPieces, markInk } from "@agenteschat/client/lib/activity";
@@ -208,17 +209,13 @@ export function standsAlone(m: Message) {
  * routine's call written as its creator is left out, like the web's `buildTimeline`. The sticker or GIF an agent
  * adds right after its own reply (ADR 0091) always groups under that reply, whatever the reply carries.
  */
-export function buildRows(
-  messages: Message[],
-  hidden: (m: Message) => boolean = () => false,
-  /** The agents at work in this conversation: an event over once they happened is left out (`settledNotices`). */
-  working: ReadonlySet<string> = new Set(),
-): ChatRow[] {
+export function buildRows(messages: Message[], hidden: (m: Message) => boolean = () => false): ChatRow[] {
   const rows: ChatRow[] = [];
   let lastDay = "";
   let prev: Message | null = null;
   const answered = answeredNotices(messages);
-  const settled = settledNotices(messages, working);
+  // A return's line (the dock holds it), a mention its message's own line explains.
+  const settled = settledNotices(messages);
   for (const m of [...messages].sort(byTime)) {
     if (
       hidden(m) ||
@@ -266,17 +263,14 @@ const NOTICE_ICON: Record<string, EventLineView["icon"]> = {
   consult_reply: "agent",
   agent_note: "chat",
   wait_result: "check",
-  follow_up: "clock",
   wake_skipped: "info",
 };
 
 export function eventLineOf(
   m: Pick<Message, "body" | "meta">,
   names: { author: string; agentByHandle: (handle: string) => string | null },
-  /** A follow-up's time for the reader ("18:30"), and the reader's locale for its day. */
-  when: { time: (iso: string) => string; locale: string } = { time: (iso) => iso, locale: "pt-BR" },
 ): EventLineView | null {
-  const view = noticeView(m, names, when);
+  const view = noticeView(m, names);
   const kind = noticeOf(m.meta)?.kind ?? "";
   return view ? { ...view, kind: "notice", icon: NOTICE_ICON[kind] ?? "bell" } : null;
 }
@@ -408,13 +402,13 @@ export const hidesBody = (m: Message) =>
  * Who shows in the working line, as on the web's bar (`barEntries`): agents
  * asking another agent, then agents at work, one entry per agent even when it
  * has two runs (a provisional "thinking" row and the real run, or two tasks at
- * once), then the people typing.
+ * once), then the people typing or recording a voice message.
  */
 export function workingEntries(
   runs: LiveRun[],
   consults: LiveConsult[],
   agentName: (id: string) => string,
-  typing: string[] = [],
+  typing: TypingWho[] = [],
   personName: (id: string) => string | undefined = () => undefined,
 ): ActivityEntry[] {
   return barEntries(runs, typing, agentName, personName, consults);
@@ -467,6 +461,13 @@ export function mayStopRun(
 /** Names in a sentence: in ink, or with the agent's face (shared with the web's `WorkingLine`). */
 export const markName = markInk;
 
+/**
+ * Whether a return's words fit whole beside its sentence on the dock's line (widths in points, as laid out): they show
+ * whole or not at all, never cut.
+ */
+export const aboutFits = (room: number, sentence: number, about: number) =>
+  room > 0 && sentence > 0 && about > 0 && sentence + about <= room + 0.5;
+
 /** A marked sentence split into plain and bold (name) pieces; a faced name carries its agent's id. */
 export const markedParts = markedPieces;
 
@@ -474,6 +475,7 @@ export const markedParts = markedPieces;
 export interface LineDrawn {
   agents?: number;
   typers?: number;
+  recorders?: number;
 }
 
 /** A piece only narrows: kept to what it drew, it can't draw wider, and a narrower room cuts it again. */
@@ -484,16 +486,23 @@ export const narrowDrawn = (drawn: LineDrawn, part: keyof LineDrawn, width: numb
 export const AGENT_WORDS_MIN = 40;
 
 /**
- * The widths the working line's pieces keep (whole points) while someone types: iOS keeps a cut text's whole box,
- * a gap before what follows, so each keeps to what it drew and the next piece comes right after its "…".
+ * The widths the working line's pieces keep (whole points) while someone types or records: iOS keeps a cut text's
+ * whole box, a gap before what follows, so each keeps to what it drew and the next piece comes right after its "…".
  * `agents: null` drops the agents' words, their " · " with them, when they'd be a sliver: who types keeps the room,
  * as on the web. Alone, the agents' words keep the line as it is (nothing follows them).
  */
-export function lineFit(drawn: LineDrawn, someoneTypes: boolean): { agents?: number | null; typers?: number } {
+export function lineFit(
+  drawn: LineDrawn,
+  someoneTypes: boolean,
+): { agents?: number | null; typers?: number; recorders?: number } {
   if (!someoneTypes) return {};
   const whole = (width?: number) => (width === undefined ? undefined : Math.ceil(width));
   const sliver = drawn.agents !== undefined && drawn.agents < AGENT_WORDS_MIN;
-  return { agents: sliver ? null : whole(drawn.agents), typers: whole(drawn.typers) };
+  return {
+    agents: sliver ? null : whole(drawn.agents),
+    typers: whole(drawn.typers),
+    recorders: whole(drawn.recorders),
+  };
 }
 
 /** The working line's words in the pieces that give way in turn (`barWords`). */

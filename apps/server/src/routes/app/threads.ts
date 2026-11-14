@@ -67,9 +67,26 @@ const Thread = z
     participants: z.array(Actor),
     working: z.boolean().openapi({
       description:
-        "An agent run is in progress (or waiting for an approval or an answer) in this thread; not one waiting for its computer.",
+        "An agent run is queued or running in this thread, or one a run here handed work to (`tell_agent`, `ask_agent`) is.",
     }),
-    needsYou: z.boolean(),
+    needsYou: z.boolean().openapi({
+      description: "An agent's question here waits on you, or an approval here that you may decide.",
+    }),
+    wait: z.enum(["approval", "input", "computer", "queued"]).nullable().openapi({
+      description:
+        "With nothing of its work running and nothing waiting on you: what it waits on (someone's approval or answer, its computer, a place in line).",
+    }),
+    since: z.string().nullable().openapi({
+      description:
+        "Since when the thread's state holds: what waits on you, the work (since it started or was handed off), or the wait.",
+    }),
+    worker: z.uuid().nullable().openapi({
+      description: "The agent of the run at it longest (working, else waiting): the state's orbit takes its tones.",
+    }),
+    laterAt: z.string().nullable().openapi({
+      description:
+        'The soonest return an agent set here, still ahead (`GET …/channels/{channelId}/follow-ups`): "Retorno às 00:32" when nothing else is on.',
+    }),
     openedByReplyAt: z.string().nullable().openapi({
       description:
         "When someone first replied from the thread panel (`openThread` on the reply): replies from then on live in the panel and the channel shows one line. Null: the channel shows its replies in the timeline.",

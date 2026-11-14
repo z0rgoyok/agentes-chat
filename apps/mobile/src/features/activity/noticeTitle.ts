@@ -3,6 +3,7 @@ import { appCreatedLine } from "@agenteschat/client/lib/apps";
 import { formatUsd } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { restrictionOf, workspaceHeadline } from "@agenteschat/client/lib/notifications";
+import { teamWatchLine } from "@agenteschat/client/lib/team-watch";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/providers/org";
 import { isDashboardNotice } from "../dashboards/logic";
@@ -48,48 +49,52 @@ export function useNoticeTitle(n: AppNotification) {
   const device = deviceNoticeOf(n);
   const person = useNoticePerson(n);
   const orgName = useOrg().org?.name ?? "";
+  // What the right hand found (ADR 0177 §1): the problem itself, in the reader's language. Who found it is the face.
+  const problem = teamWatchLine(t, n);
   // A widget's alert or failure, an agent asking to publish a dashboard (ADR 0135): the dashboards' own words.
   const template = held
     ? t("standing.notification.agentHold", { name: NAMES })
-    : device
-      ? deviceNoticeTitle(t, device, NAMES, person, orgName)
-      : n.kind === "app_created"
-        ? appCreatedLine(t, n)
-        : isDashboardNotice(n.kind)
-          ? t(`mobile.dashboards.notice.${n.kind}`, { names: NAMES, count: who.total, defaultValue: NAMES })
-          : n.kind === "skill_update"
-            ? t(workspaceHeadline(n) ?? "skills.notice.updated", { name: n.source.label ?? "" })
-            : t(`mobile.activity.kind.${kind}`, {
-                names: NAMES,
-                // `catch_up_closed`: the conversations it skipped.
-                count: n.kind === "catch_up_closed" ? n.count : who.total,
-                // `plan_reset_unknown`: the plan's name (`plan_lent`, `plan_model_dropped`: in `plan`).
-                plan:
-                  (n.kind === "plan_lent" || n.kind === "plan_serves" || n.kind === "plan_model_dropped"
-                    ? n.latest.plan
-                    : n.latest.title) ?? "",
-                // `plan_model_dropped`: the model that left the plan's list and what runs now.
-                model: n.latest.title ?? "",
-                runs: n.latest.nowModel ?? "",
-                // `catch_up_closed_asker`: who was credited.
-                who: n.latest.title ?? "",
-                // `usage_limit`: the limit (who decides only) and the share used.
-                amount: n.latest.limitUsd !== undefined ? formatUsd(i18n.language, n.latest.limitUsd) : "",
-                percent: Math.round(n.latest.percent ?? 0),
-                // `desktop_taken`: whose computer, said with its name's gender; `plan_lent`: the agent given the plan.
-                ...(n.kind === "desktop_taken" || n.kind === "plan_lent"
-                  ? { agent: n.source.label ?? "", context: agentGrammar(n.source.label ?? "").context }
-                  : {}),
-                // `admin_ask`: the agent to add and where, or the service whose webhook.
-                ...(n.kind === "admin_ask"
-                  ? {
-                      agent: n.source.agentId ? dir.nameOf({ type: "agent", id: n.source.agentId }) : "",
-                      label: n.source.label ?? "",
-                      service: n.latest.title ?? "",
-                    }
-                  : {}),
-                defaultValue: NAMES,
-              });
+    : problem !== null
+      ? problem
+      : device
+        ? deviceNoticeTitle(t, device, NAMES, person, orgName)
+        : n.kind === "app_created"
+          ? appCreatedLine(t, n)
+          : isDashboardNotice(n.kind)
+            ? t(`mobile.dashboards.notice.${n.kind}`, { names: NAMES, count: who.total, defaultValue: NAMES })
+            : n.kind === "skill_update"
+              ? t(workspaceHeadline(n) ?? "skills.notice.updated", { name: n.source.label ?? "" })
+              : t(`mobile.activity.kind.${kind}`, {
+                  names: NAMES,
+                  // `catch_up_closed`: the conversations it skipped.
+                  count: n.kind === "catch_up_closed" ? n.count : who.total,
+                  // `plan_reset_unknown`: the plan's name (`plan_lent`, `plan_model_dropped`: in `plan`).
+                  plan:
+                    (n.kind === "plan_lent" || n.kind === "plan_serves" || n.kind === "plan_model_dropped"
+                      ? n.latest.plan
+                      : n.latest.title) ?? "",
+                  // `plan_model_dropped`: the model that left the plan's list and what runs now.
+                  model: n.latest.title ?? "",
+                  runs: n.latest.nowModel ?? "",
+                  // `catch_up_closed_asker`: who was credited.
+                  who: n.latest.title ?? "",
+                  // `usage_limit`: the limit (who decides only) and the share used.
+                  amount: n.latest.limitUsd !== undefined ? formatUsd(i18n.language, n.latest.limitUsd) : "",
+                  percent: Math.round(n.latest.percent ?? 0),
+                  // `desktop_taken`: whose computer, said with its name's gender; `plan_lent`: the agent given the plan.
+                  ...(n.kind === "desktop_taken" || n.kind === "plan_lent"
+                    ? { agent: n.source.label ?? "", context: agentGrammar(n.source.label ?? "").context }
+                    : {}),
+                  // `admin_ask`: the agent to add and where, or the service whose webhook.
+                  ...(n.kind === "admin_ask"
+                    ? {
+                        agent: n.source.agentId ? dir.nameOf({ type: "agent", id: n.source.agentId }) : "",
+                        label: n.source.label ?? "",
+                        service: n.latest.title ?? "",
+                      }
+                    : {}),
+                  defaultValue: NAMES,
+                });
   // Agents that failed for one cause close together: one line for all, who they are under it.
   const failed = runFailedLines(t, n, (id) => dir.nameOf({ type: "agent", id }));
   const parts = failed ? [failed.title] : template.split(NAMES);

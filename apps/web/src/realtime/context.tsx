@@ -28,7 +28,7 @@ import {
   applyNotificationEvent,
   applyReactions,
   applyReceiptEvent,
-  applyTyping,
+  applyTypingEvent,
   applyUnreadEvent,
   applyWorkspaceEvent,
   type BrowserFrame,
@@ -82,7 +82,7 @@ import {
   seedReceipt,
   staleProvisional,
   startThreadCache,
-  stopTyping,
+  type TypingKind,
   type TypingState,
   touchRun,
   typingThrottle,
@@ -95,6 +95,7 @@ import { newerBlockState } from "@agenteschat/client/lib/blocks";
 import { deviceWaitEventOf } from "@agenteschat/client/lib/devices";
 import { knownErrorText } from "@agenteschat/client/lib/errors";
 import { formatPercent } from "@agenteschat/client/lib/format";
+import { isReturnLine } from "@agenteschat/client/lib/notices";
 import { nextMonthIso, usageWhen } from "@agenteschat/client/lib/plan-usage";
 import { playSound, soundForNotification } from "@agenteschat/client/lib/sounds";
 import { playAgentReaction } from "@agenteschat/ui";
@@ -231,9 +232,7 @@ export function createStreamsStore(
   return {
     get: () => state,
     apply: (event: ChannelEvent) => {
-      let typing = state.typing;
-      if (event.type === "user.typing")
-        typing = applyTyping(typing, event.channelId, event.userId, now(), event.ttlMs, event.threadId);
+      const typing = applyTypingEvent(state.typing, event, now());
       const memory =
         event.type === "memory.updated"
           ? {
@@ -253,9 +252,6 @@ export function createStreamsStore(
           : event.type === "message.created" && event.message
             ? dropMemoryCards(state.memory, event.channelId, event.message)
             : state.memory;
-      if (event.type === "message.created" && event.message?.author?.type === "person" && event.message.author.id) {
-        typing = stopTyping(typing, event.channelId, event.message.author.id);
-      }
       const questions =
         event.type === "question.asked" || event.type === "question.answered"
           ? { ...state.questions, [event.question.id]: event.question }
@@ -869,7 +865,10 @@ export function useChannelRealtime(orgId: string, channelId: string, enabled: bo
       }
       if (event.type === "message.created") {
         if (event.message) cacheMessage(qc, orgId, event.message);
-        else {
+        // A return set, canceled or come: the bar's list reads again.
+        if (event.message && isReturnLine(event.message.meta))
+          void qc.invalidateQueries({ queryKey: keys.followUps(orgId, channelId) });
+        if (!event.message) {
           // Too big for its event: the open lists read it (its live block holds until it lands); a closed one, when
           // it opens again.
           void qc.invalidateQueries({ queryKey: ["org", orgId, "channel", channelId], refetchType: "none" });
@@ -981,12 +980,15 @@ export function useLiveStore() {
   return useRealtime().streams;
 }
 
-/** Throttled "I'm typing" for a channel, or for one of its threads. */
+/**
+ * Throttled "I'm typing" for a channel, or for one of its threads; `voice` while recording a voice message, with
+ * `keepAlive` while it uploads (`typingThrottle`).
+ */
 export function useTypingSender(channelId: string, threadId?: string) {
   const { connection } = useRealtime();
   const throttle = useMemo(() => typingThrottle(), []);
-  return (text?: string) => {
-    if (connection && throttle(Date.now(), text)) connection.sendTyping(channelId, threadId);
+  return (text?: string, kind?: TypingKind, keepAlive?: boolean) => {
+    if (connection && throttle(Date.now(), text, kind, keepAlive)) connection.sendTyping(channelId, threadId, kind);
   };
 }
 

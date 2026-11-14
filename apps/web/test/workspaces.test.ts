@@ -77,3 +77,57 @@ test("a server not answering keeps its last workspaces, marked; this computer's 
   });
   expect(mine).toMatchObject({ thisComputer: true, state: "ok" });
 });
+
+test("several accounts on this browser: a group for each, the open one first, each row one switch away", () => {
+  const account = (id: string, current: boolean, orgs: { id: string; name: string }[]) => ({
+    current,
+    user: { id, name: id, email: `${id}@example.com`, image: null },
+    organizations: orgs.map((o) => ({ ...o, role: "member" as const })) as never,
+    unread: orgs.map((o) => ({ orgId: o.id, unread: 4, waiting: 0 })),
+  });
+  const groups = workspaceGroups({
+    here: OWN,
+    desktop: false,
+    orgs: [{ id: "oficina", name: "Oficina" }],
+    currentOrgId: "oficina",
+    unread: null,
+    accounts: [
+      account("ana", true, [{ id: "oficina", name: "Oficina" }]),
+      account("bia", false, [{ id: "atelie", name: "Ateliê" }]),
+    ],
+    others: [],
+  });
+  expect(groups.map((g) => [g.account?.email, g.here, g.sameServer, g.several, g.desktop])).toEqual([
+    ["ana@example.com", true, true, true, false],
+    ["bia@example.com", false, true, true, false],
+  ]);
+  // The open account's counts come from the list when `/me/unread` didn't answer.
+  expect(groups[0]?.rows).toEqual([{ id: "oficina", name: "Oficina", logo: null, unread: 4, current: true }]);
+  expect(groups[1]?.rows).toEqual([{ id: "atelie", name: "Ateliê", logo: null, unread: 4, current: false }]);
+});
+
+test("another server's accounts, as the desktop app read them: one group each, named only when there are several", () => {
+  const org = (id: string) => ({ id, name: id, logo: null, unread: 0, waiting: 0 });
+  const groups = workspaceGroups({
+    here: CLOUD_SERVER,
+    orgs: [{ id: "acme", name: "Acme" }],
+    currentOrgId: "acme",
+    unread: null,
+    others: [
+      {
+        server: OWN,
+        signedIn: true,
+        orgs: [org("oficina")],
+        accounts: [
+          { userId: "u1", name: "Ana", email: "ana@example.com", current: true, orgs: [org("oficina")] },
+          { userId: "u2", name: "Bia", email: "bia@example.com", current: false, orgs: [org("atelie")] },
+        ],
+      },
+    ],
+  });
+  expect(groups.map((g) => [g.server, g.account?.userId ?? null, g.several, g.rows.map((r) => r.id)])).toEqual([
+    [CLOUD_SERVER, null, false, ["acme"]],
+    [OWN, "u1", true, ["oficina"]],
+    [OWN, "u2", true, ["atelie"]],
+  ]);
+});

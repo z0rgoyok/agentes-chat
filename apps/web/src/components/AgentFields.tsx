@@ -783,7 +783,7 @@ export function InPlaceText({
 }
 
 /**
- * The agent's role as a tag: the icon "Criar agente" gives that role (`roleIcon`) and its name ("Sem cargo" when
+ * The agent's role as a tag: the icon "Criar agente" gives that role (`roleIcon`) and its name ("Sem função" when
  * empty), a pencil on hover. With `onChange`, a click turns it into a field of the same shape over the roles the app
  * knows (a combobox): every one as it opens, the one it has highlighted and marked; typing filters them and offers
  * what was typed as a role of its own. Arrows move, Enter picks the highlighted one (or what was typed), Esc puts it

@@ -77,6 +77,7 @@ export class ScreenSession {
       agentId: string;
       base: Parameters<typeof desktopSocketUrl>[0];
       preview?: boolean;
+      seat?: Parameters<typeof desktopSocketUrl>[1]["seat"];
     },
     private readonly deps: ScreenDeps,
   ) {}
@@ -163,12 +164,14 @@ export class ScreenSession {
     const holding = heldPicture(this.target) !== null || holdPicture(this.target);
     this.end();
     if (!holding) this.say("connecting");
-    const { orgId, agentId, base, preview } = this.place;
+    const { orgId, agentId, base, preview, seat } = this.place;
     const mode = this.want.mode;
     const socket = this.deps.createSocket(
       desktopSocketUrl(
         base,
-        preview ? { orgId, agentId, mode: "watch", preview: true } : { orgId, agentId, mode, switches: true },
+        preview
+          ? { orgId, agentId, mode: "watch", preview: true, seat }
+          : { orgId, agentId, mode, switches: true, seat },
       ),
     );
     const link = new DesktopLink(socket);

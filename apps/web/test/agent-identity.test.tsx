@@ -27,9 +27,9 @@ const updates = (state: ReturnType<typeof seedState>) =>
 
 const nameButton = () => screen().getByRole("button", { name: /^Editar nome/ });
 const nameField = () => screen().getByLabelText("Nome") as HTMLInputElement;
-const roleButton = () => screen().getByRole("button", { name: /^Editar cargo/ });
-const roleField = () => screen().getByRole("combobox", { name: "Cargo" }) as HTMLInputElement;
-const options = () => within(screen().getByRole("listbox", { name: "Cargos" })).getAllByRole("option");
+const roleButton = () => screen().getByRole("button", { name: /^Editar função/ });
+const roleField = () => screen().getByRole("combobox", { name: "Função" }) as HTMLInputElement;
+const options = () => within(screen().getByRole("listbox", { name: "Funções" })).getAllByRole("option");
 const card = () => document.querySelector(".agp-id") as HTMLElement;
 
 async function settings(state = seedState()) {
@@ -82,7 +82,7 @@ describe("the agent's identity as a card", () => {
   test("the role is a tag: picked from the roles the app knows, or typed as one of its own", async () => {
     const state = await settings();
     expect(roleButton().textContent).toBe("Dev");
-    expect(roleButton().getAttribute("aria-label")).toBe("Editar cargo: Dev");
+    expect(roleButton().getAttribute("aria-label")).toBe("Editar função: Dev");
 
     await click(roleButton());
     expect(roleField().value).toBe("Dev");
@@ -132,14 +132,14 @@ describe("the agent's identity as a card", () => {
     await click(roleButton());
     await typeIn(roleField(), "Suporte N2");
     await press(roleField(), "Escape");
-    expect(screen().queryByRole("combobox", { name: "Cargo" })).toBeNull();
+    expect(screen().queryByRole("combobox", { name: "Função" })).toBeNull();
     expect(roleButton().textContent).toBe("Pesquisa de preços");
     await click(roleButton());
     await typeIn(roleField(), "Suporte N2");
     await act(async () => fireEvent.blur(roleField()));
     expect(roleButton().textContent).toBe("Suporte N2");
     expect(card().querySelector(".agp-id__was")?.textContent).toContain("Dev");
-    expect(saveBar()?.textContent).toContain("Cargo");
+    expect(saveBar()?.textContent).toContain("Função");
 
     await save();
     expect(updates(state)).toEqual([{ role: "Suporte N2" }]);
@@ -155,7 +155,7 @@ describe("the agent's identity as a card", () => {
     expect(within(card()).queryAllByRole("button")).toEqual([]);
     expect(card().querySelector(".agp-inplace__pen, .agp-roletag__pen")).toBeNull();
     expect(screen().queryByLabelText("Nome")).toBeNull();
-    expect(screen().queryByRole("combobox", { name: "Cargo" })).toBeNull();
+    expect(screen().queryByRole("combobox", { name: "Função" })).toBeNull();
     expect(card().querySelector(".agp-id__name")?.textContent).toBe("Ada");
     expect(card().querySelector(".agp-id__handle")?.textContent).toBe("@ada");
     const tag = card().querySelector(".agp-roletag") as HTMLElement;
@@ -173,7 +173,7 @@ describe("the agent's identity as a card", () => {
     const ada = noRole.agents.find((a) => a.id === ADA_ID);
     if (ada) ada.role = "";
     await settings(noRole);
-    expect(card().querySelector(".agp-roletag")?.textContent).toBe("Sem cargo");
+    expect(card().querySelector(".agp-roletag")?.textContent).toBe("Sem função");
   });
 
   test("a long name and role read whole, as the screen's worst case: nothing cut to fit the card", async () => {

@@ -325,7 +325,7 @@ describe("the wiki", () => {
     await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Acesso" }));
     const dialog = screen().getByRole("dialog", { name: "Acesso a Deploy" });
     await pickLevel(dialog, "O que Todos do workspace pode fazer", "Sem acesso");
-    await pickLevel(dialog, "Adicionar pessoa, papel ou agente", "Admin");
+    await pickLevel(dialog, "Adicionar pessoa, cargo ou agente", "Admin");
     await click(within(dialog).getByRole("button", { name: "Salvar" }));
     await settle(6);
     const call = state.calls.find((c) => c.method === "wiki.audience");
@@ -349,7 +349,7 @@ describe("the wiki", () => {
     await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Acesso" }));
     const dialog = screen().getByRole("dialog", { name: "Acesso a Deploy" });
     await pickLevel(dialog, "O que Todos do workspace pode fazer", "Ver");
-    await pickLevel(dialog, "Adicionar pessoa, papel ou agente", "Admin");
+    await pickLevel(dialog, "Adicionar pessoa, cargo ou agente", "Admin");
     await pickLevel(dialog, "O que Todos os agentes pode fazer", "Sem acesso");
     await click(within(dialog).getByRole("button", { name: "Salvar" }));
     await settle(6);
@@ -371,7 +371,7 @@ describe("the wiki", () => {
     await act(() => new Promise((r) => setTimeout(r, 0)));
     await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Acesso" }));
     const dialog = screen().getByRole("dialog", { name: "Acesso a Deploy" });
-    await pickLevel(dialog, "Adicionar pessoa, papel ou agente", "Admin");
+    await pickLevel(dialog, "Adicionar pessoa, cargo ou agente", "Admin");
     expect(within(dialog).getByRole("combobox", { name: "O que Todos do workspace pode fazer" }).textContent).toContain(
       "Sem acesso",
     );
@@ -809,7 +809,13 @@ describe("Obsidian vaults", () => {
 
   test("import: pick .md files → review → import sends the notes; done opens the home note", async () => {
     const { state, router } = await go("wiki");
-    // "Import" is in the header and at the foot of the side column: either opens the dialog.
+    // "Import" is in the header; the side column keeps it in the "…" beside "New page", no button at its foot.
+    expect(document.querySelector(".wiki-nav .wiki-import-btn")).toBeNull();
+    expect(
+      within(document.querySelector(".wiki-nav__head") as HTMLElement).getByRole("button", {
+        name: "Mais ações: Wiki",
+      }),
+    ).toBeTruthy();
     const [open] = screen().getAllByRole("button", { name: /^Importar$/ });
     await click(open as HTMLElement);
     const dialog = screen().getByRole("dialog", { name: "Importar para a wiki" });

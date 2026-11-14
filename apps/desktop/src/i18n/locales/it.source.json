@@ -818,6 +818,9 @@
   "servers.signOut": {
     "value": "Sign out of this server"
   },
+  "servers.addAccount": {
+    "value": "Add account"
+  },
   "servers.signedOutDone": {
     "value": "You signed out of {{host}}"
   },

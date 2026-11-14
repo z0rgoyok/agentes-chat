@@ -7,8 +7,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet } from "react-native";
 import { useOrg } from "@/providers/org";
-import { EmptyState, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
-import { RoleMark } from "../dashboards/parts";
+import { EmptyState, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, RoleMark, useToast } from "@/ui";
 import { Gap, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
 import { useColors, useDirectory, useMeId } from "../shared/hooks";
@@ -157,7 +156,7 @@ function AudienceForm({
             {roleList.map((r) => (
               <GroupedRow
                 key={r.id}
-                leading={<RoleMark color={r.color} size={22} />}
+                leading={<RoleMark color={r.color} icon={r.icon} size={22} />}
                 label={r.name}
                 checked={audience.roleIds.includes(r.id)}
                 {...(canAdd("roleIds", r.id)

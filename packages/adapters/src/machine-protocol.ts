@@ -2194,6 +2194,7 @@ export interface MachineAgent {
   /**
    * Its containers service may run here (ADR 0169). Absent for a brain whose shell runs in a sandbox of the CLI's own,
    * which that service, outside it, would be a way out of, and for the team's right hand, which thinks on several.
+   * A person's seat of the right hand (an entry of its own here, ADR 0175) has it.
    */
   containers?: boolean;
 }
@@ -2341,6 +2342,8 @@ export interface FileEntry {
  * The agent a request is for (protocol 2+). The runner gives each agent its
  * own folder inside the workspace, `<handle>-<first 8 of id>`, and treats it
  * as that request's workspace; a renamed agent keeps its folder (found by id).
+ * The id isn't always an agent's row: a browser profile's, or a person's seat of the team's right hand (ADR 0175),
+ * which the runner serves like any agent.
  */
 export interface AgentScope {
   id: string;

@@ -303,6 +303,7 @@
     "offline": "自 {{time}} 起离线",
     "signIn": "登录",
     "signOut": "退出此服务器",
+    "addAccount": "添加账号",
     "signedOutDone": "你已退出 {{host}}",
     "removeFromApp": "从此应用中移除",
     "newsOne": "1 条新通知",

@@ -124,7 +124,7 @@ describe("the receipt of a task an agent made with a file", () => {
     await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}`, { api: createFakeApi(state) });
     await settle(8);
     const receipt = row().querySelector(".ag-rcs") as HTMLElement;
-    expect([...receipt.querySelectorAll(".ag-rc__line")].map((l) => l.textContent)).toEqual([
+    expect([...receipt.querySelectorAll(".ag-rc__sentence, .ag-rc__by")].map((l) => l.textContent)).toEqual([
       "Criei a tarefa #131 · Widget flutuante",
       "Anexei print.png",
     ]);

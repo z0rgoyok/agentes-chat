@@ -11,9 +11,11 @@ import {
   ingestMail,
   insertMessage,
   listApprovals,
+  memberRoleIds,
   notifyApproval,
   type RoutineBrief,
   removeMember,
+  roleMailLoss,
   setAgentAudience,
   setAgentBrain,
   setMemberRoles,
@@ -357,6 +359,66 @@ test("someone who joins a role the agent answers gets no mailbox its owner gave 
   expect((await mailScopes()).length).toBeGreaterThan(0);
   await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [finance.id]);
   expect(await mailScopes()).toEqual([]);
+});
+
+test("giving a role asks first: the preview names the mailbox that would go, and one given since refuses the change", async () => {
+  m = await mailSetup();
+  const { f } = m;
+  const finance = await createRole(f.db, f.owner.id, f.org.id, { name: "Finance", permissions: ["talk_to_agents"] });
+  const lia = await addMember(f.db, f.org.id, "member", "lia");
+  const caio = await addMember(f.db, f.org.id, "member", "caio");
+  await f.db
+    .update(schema.agents)
+    .set({ ownerUserId: f.owner.id, audienceMode: "people", audienceRoleIds: [finance.id] })
+    .where(eq(schema.agents.id, f.agent.id));
+  // Nothing to lose yet.
+  expect(await roleMailLoss(f.db, f.owner.id, f.org.id, finance.id, [lia.id])).toEqual([]);
+  const account = await imapAccount(m);
+  await giveMail(m, account.id, "read");
+  const lost = {
+    agentId: f.agent.id,
+    agentName: f.agent.name,
+    accountId: account.id,
+    address: account.address,
+    ownerUserId: f.owner.id,
+    ownerName: f.owner.name,
+  };
+  // Once per mailbox, however many people get it, and nothing is taken.
+  expect(await roleMailLoss(f.db, f.owner.id, f.org.id, finance.id, [lia.id, caio.id, lia.id])).toEqual([lost]);
+  expect((await mailScopes()).length).toBeGreaterThan(0);
+  // Only who may give the role asks.
+  await expect(roleMailLoss(f.db, lia.id, f.org.id, finance.id, [caio.id])).rejects.toBeInstanceOf(ForbiddenError);
+  // Told of none, the change is refused and nothing moves.
+  await expect(
+    setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [finance.id], { mailLossSeen: [] }),
+  ).rejects.toMatchObject({ code: "agent.mail_loss_changed" });
+  expect(await memberRoleIds(f.db, f.org.id, lia.id)).toEqual([]);
+  expect((await mailScopes()).length).toBeGreaterThan(0);
+  // Told of it, the role is given and the mailbox goes.
+  await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [finance.id], { mailLossSeen: [account.id] });
+  expect(await memberRoleIds(f.db, f.org.id, lia.id)).toEqual([finance.id]);
+  expect(await mailScopes()).toEqual([]);
+  // Someone who holds it already costs nothing.
+  expect(await roleMailLoss(f.db, f.owner.id, f.org.id, finance.id, [lia.id])).toEqual([]);
+});
+
+test("swapping a role for another that opens the same agent keeps the mailbox, as the preview said", async () => {
+  m = await mailSetup();
+  const { f } = m;
+  const finance = await createRole(f.db, f.owner.id, f.org.id, { name: "Finance", permissions: ["talk_to_agents"] });
+  const support = await createRole(f.db, f.owner.id, f.org.id, { name: "Support", permissions: ["talk_to_agents"] });
+  const lia = await addMember(f.db, f.org.id, "member", "lia");
+  await f.db
+    .update(schema.agents)
+    .set({ ownerUserId: f.owner.id, audienceMode: "people", audienceRoleIds: [finance.id, support.id] })
+    .where(eq(schema.agents.id, f.agent.id));
+  await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [finance.id]);
+  const account = await imapAccount(m);
+  await giveMail(m, account.id, "read");
+  expect(await roleMailLoss(f.db, f.owner.id, f.org.id, support.id, [lia.id])).toEqual([]);
+  await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [support.id], { mailLossSeen: [] });
+  expect(await memberRoleIds(f.db, f.org.id, lia.id)).toEqual([support.id]);
+  expect((await mailScopes()).length).toBeGreaterThan(0);
 });
 
 test("a mail watch stops feeding the routine once the agent lost the mailbox", async () => {

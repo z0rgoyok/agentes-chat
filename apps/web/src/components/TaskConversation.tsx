@@ -107,7 +107,7 @@ function ConversationLineBody({
     <ThreadLineBody
       people={line.people}
       label={t("issues.conversation.messages", { count: line.count })}
-      status={working ? "working" : undefined}
+      work={working ? { state: "working" } : null}
       at={line.lastAt}
     />
   );

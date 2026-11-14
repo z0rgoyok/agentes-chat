@@ -16,7 +16,7 @@ const roles = [
 function Harness({ onChange }: { onChange?: (v: string) => void }) {
   const [value, setValue] = useState("member");
   return (
-    <Field label="Papel" id="role">
+    <Field label="Cargo" id="role">
       <Select
         value={value}
         onValueChange={(v) => {
@@ -43,7 +43,7 @@ describe("Select", () => {
   test("is a labelled button with the current value, never a native select", () => {
     const { container } = render(<Harness />);
     expect(container.querySelector("select")).toBeNull();
-    const trigger = body().getByRole("combobox", { name: "Papel" });
+    const trigger = body().getByRole("combobox", { name: "Cargo" });
     expect(trigger.tagName).toBe("BUTTON");
     expect(trigger.textContent).toContain("Membro");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
@@ -52,7 +52,7 @@ describe("Select", () => {
   test("keyboard: opens with Enter, moves with arrows, picks with Enter, focus returns", async () => {
     const changes: string[] = [];
     render(<Harness onChange={(v) => changes.push(v)} />);
-    const trigger = body().getByRole("combobox", { name: "Papel" });
+    const trigger = body().getByRole("combobox", { name: "Cargo" });
     trigger.focus();
     await key(trigger, "Enter");
     const listbox = body().getByRole("listbox");
@@ -107,7 +107,7 @@ describe("Select", () => {
   test("Escape closes without changing the value", async () => {
     const changes: string[] = [];
     render(<Harness onChange={(v) => changes.push(v)} />);
-    const trigger = body().getByRole("combobox", { name: "Papel" });
+    const trigger = body().getByRole("combobox", { name: "Cargo" });
     trigger.focus();
     await key(trigger, "ArrowDown");
     expect(body().getByRole("listbox")).toBeTruthy();
@@ -120,9 +120,9 @@ describe("Select", () => {
   test("the list opens on the trigger's start edge, or on its end edge for a select that ends its row", async () => {
     for (const align of [undefined, "end"] as const) {
       const { unmount } = render(
-        <Select aria-label="Papel" value="member" onValueChange={() => {}} options={roles} align={align} />,
+        <Select aria-label="Cargo" value="member" onValueChange={() => {}} options={roles} align={align} />,
       );
-      const trigger = body().getByRole("combobox", { name: "Papel" });
+      const trigger = body().getByRole("combobox", { name: "Cargo" });
       trigger.focus();
       await key(trigger, "Enter");
       expect(body().getByRole("listbox").getAttribute("data-align")).toBe(align ?? "start");

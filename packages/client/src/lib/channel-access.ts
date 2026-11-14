@@ -16,7 +16,7 @@ export const accessOf = (c: Visible): ChannelAccess => ({
   roleIds: limited(c) ? [...(c.audienceRoleIds ?? [])] : [],
 });
 
-/** "Departamentos ou papéis" needs a role picked before it means anything. */
+/** "Departamentos ou cargos" needs a role picked before it means anything. */
 export const accessValid = (a: ChannelAccess) => a.mode !== "roles" || a.roleIds.length > 0;
 
 /** What the server takes for it; a public channel drops its roles on its own. */

@@ -10,7 +10,7 @@
   `http/error-page.ts`, `app.ts`; tokens `message-links.ts` (`filePath`, `parseFileLink`); client `lib/drive.ts`
   (`isPrivateArtifact`, `onlyItsConversation`, `toggledSharing`), `useSetArtifactSharing`; web
   `components/artifacts/ShareDialog.tsx`, `ArtifactActions.tsx`, `ArtifactViewer.tsx`, `ArtifactCard.tsx`,
-  `drive/DriveDetails.tsx`, `drive/DriveItems.tsx`, `pages/DrivePage.tsx`, `chat/FileRef.tsx`, `lib/markdown.tsx`;
+  `drive/DriveItems.tsx`, `pages/DrivePage.tsx`, `chat/FileRef.tsx`, `lib/markdown.tsx`;
   phone `features/files/ShareSheet.tsx`, `app/(app)/file-share.tsx`, `features/files/actions.ts`,
   `features/chat/FileRefText.tsx`, `features/links/app-links.ts`; migration `0243_file_sharing.sql`
 

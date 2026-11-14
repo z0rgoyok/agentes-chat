@@ -21,107 +21,148 @@
   gap: var(--space-4);
 }
 
-/* ── Agents working now ─────────────────────────────────────────────────── */
+/* ── Stalled tasks, above the board ──────────────────────────────────────── */
 .issues-now {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
-.issues-now__title {
+
+/* The stalled tasks as one line: how many, whose, "See stalled" and "Continue all". Every piece stands on the first
+   line's 32px axis (the buttons' plate), so a line that wraps keeps the icon and the buttons with its first words. */
+.issues-stalled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 12px;
+  min-height: 48px;
+  padding: 8px 12px 8px 14px;
+  border-radius: 14px 14px 14px 4px;
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+.issues-stalled.is-sent {
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.issues-stalled__icon {
+  flex: none;
+  margin-block: 8px;
+  color: var(--warn);
+}
+.issues-stalled.is-sent .issues-stalled__icon {
+  color: var(--agent);
+}
+.issues-stalled__text {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.issues-stalled__text > b {
+  font-weight: 650;
+}
+.issues-stalled__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-muted);
+}
+.issues-stalled__who > .ac-avatar-stack {
+  flex: none;
+}
+.issues-stalled__acts {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 4px;
+  height: 32px;
+  margin-left: auto;
+}
+
+/* The stalled tasks' dialog: grouped by agent, each task its title, then when it stopped and its last step. */
+.issues-stalled__group + .issues-stalled__group {
+  margin-top: 8px;
+}
+.issues-stalled__grouphead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0 2px;
+  color: var(--ink-muted);
   font-size: 13px;
-  font-weight: 650;
-  color: var(--ink2);
+  font-weight: 600;
+  line-height: 20px;
 }
-.issues-now__title span {
-  font-weight: 500;
-  font-size: 12.5px;
-  color: var(--faint);
+.issues-stalled__grouphead > span {
+  font-weight: 400;
 }
-.issues-now__list {
+.issues-stalled__task {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 16px;
+  padding: 12px 0;
 }
-/* A MediaRow: the agent and the task's number and time on the face's line, the task and its step under them. */
-.issues-now__card {
-  position: relative;
-  padding: 12px 14px 16px;
+.issues-stalled__task + .issues-stalled__task {
+  border-top: 1px solid var(--line);
+}
+.issues-stalled__tasktext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.issues-stalled__title {
+  padding: 0;
   border: 0;
-  border-radius: 18px;
-  background: var(--raised);
-  box-shadow: var(--e1), var(--top);
-  color: inherit;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink);
   font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
   text-align: left;
+  overflow-wrap: anywhere;
   cursor: pointer;
-  overflow: hidden;
-  transition:
-    transform 0.22s var(--spring),
-    box-shadow 0.2s var(--out);
 }
-.issues-now__card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--e2), var(--top);
+.issues-stalled__title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
 }
-html:not([data-pointer]) .issues-now__card:focus-visible {
+html:not([data-pointer]) .issues-stalled__title:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-.issues-now__card.is-stalled {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--line2);
+.issues-stalled__title > .ac-mediarow__num {
+  margin-right: 1px;
 }
-/* The task and its step read as one: closer than the row's 8. */
-.issues-now__card > .ac-mediarow__body {
+.issues-stalled__meta {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+/* Its pause mark leads the line (.ac-iconline), a little closer than the kit's 8. */
+.issues-stalled__meta.ac-iconline {
   gap: 4px;
 }
-.issues-now__task {
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 20px;
-  overflow-wrap: anywhere;
+.issues-stalled__meta > .ac-icon {
+  color: var(--warn);
 }
-.issues-now__step {
-  font-size: 12.5px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
+.issues-stalled__task.is-sent .issues-stalled__meta {
+  color: var(--agent);
 }
-.issues-now__step.is-live {
-  color: var(--ink2);
-}
-.issues-now__step.is-live::after {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 12px;
-  margin-left: 3px;
-  vertical-align: -2px;
-  border-radius: 2px;
-  background: var(--agent);
-  animation: issues-caret 1s steps(2) infinite;
-}
-@keyframes issues-caret {
-  50% {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .issues-now__step.is-live::after {
-    animation: none;
-  }
-}
-.issues-now__go {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--ink);
+/* The 32px button centred on the title's 20px first line, its words ending on the list's edge (the ghost's plate past
+   it). */
+.issues-stalled__task > .ac-btn {
+  margin-top: -6px;
+  margin-right: calc(-1 * var(--ghost-plate));
+  padding-inline: var(--ghost-plate);
 }
 
 /* ── Toolbar end: "Exibição" and "Mais opções" ──────────────────────────── */
@@ -563,6 +604,8 @@ html:not([data-pointer]) .issue-card:focus-visible {
   margin-top: var(--space-4);
 }
 .issue-list {
+  /* Its rows ask how wide it is, to stand their facts in columns only with room for them. */
+  container: issue-list / inline-size;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -589,8 +632,9 @@ html:not([data-pointer]) .issue-card:focus-visible {
 .issue-list__row {
   position: relative;
   display: grid;
-  /* The facts take what they need up to 40% of the row and wrap inside it: the title keeps the rest. */
-  grid-template-columns: 52px minmax(0, 1fr) fit-content(40%) minmax(0, 200px);
+  /* The facts take what they need up to 40% of the row and wrap inside it: the title keeps the rest. Standing in the
+     list's columns (below), they take the columns' whole width. */
+  grid-template-columns: var(--row-columns, 52px minmax(0, 1fr) fit-content(40%) minmax(0, 200px));
   grid-template-areas: "num title facts who";
   /* On one line of words: a part that wraps (a long title, a stopped run's reason) grows down from it. */
   align-items: baseline;
@@ -626,6 +670,141 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
 .issue-list__row > .issue-card__facts {
   grid-area: facts;
   justify-content: flex-end;
+}
+/* Wide, the facts stand in columns the whole list shares (`--issue-facts`, one for each fact some task shown has):
+   labels under labels, priorities under priorities, down every group. A row leaves empty the column of a fact it
+   doesn't have; a name longer than its column ends in "…". Only where the list has room for the columns beside a
+   title: what they take, counted in steps of 80 (`data-fact-columns`), plus 500 for the number, a title's least and
+   who has it. Narrower, a row packs its facts against its end as before. */
+.issue-list__row > .issue-card__facts {
+  display: var(--facts-display, flex);
+  grid-template-columns: var(--issue-facts, none);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+}
+.issue-list__row > .issue-card__facts > .ac-factline__fact {
+  grid-row: 1;
+  white-space: var(--fact-space, normal);
+}
+.issue-list__row > .issue-card__facts > :is([data-fact="project"], [data-fact="label"], [data-fact="github"]) {
+  justify-self: start;
+  overflow: var(--fact-clip, visible);
+  text-overflow: ellipsis;
+}
+/* A name with its mark, as one line of words that can end in "…": the mark sits in the line, on its middle. */
+.issue-list__row > .issue-card__facts > :is([data-fact="project"], [data-fact="github"]) {
+  display: var(--fact-name, inline-flex);
+}
+.issue-list__row > .issue-card__facts > :is([data-fact="project"], [data-fact="github"]) > :is(svg, .ac-colordot) {
+  margin-inline-end: var(--fact-name-gap, 0);
+  vertical-align: -2px;
+}
+.issue-list__row > .issue-card__facts > [data-fact="project"] {
+  grid-column: project;
+}
+.issue-list__row > .issue-card__facts > [data-fact="label"] {
+  grid-column: label;
+}
+.issue-list__row > .issue-card__facts > [data-fact="labels"] {
+  grid-column: labels;
+}
+.issue-list__row > .issue-card__facts > [data-fact="priority"] {
+  grid-column: priority;
+}
+.issue-list__row > .issue-card__facts > [data-fact="due"] {
+  grid-column: due;
+}
+.issue-list__row > .issue-card__facts > [data-fact="criteria"] {
+  grid-column: criteria;
+}
+.issue-list__row > .issue-card__facts > [data-fact="pr"] {
+  grid-column: pr;
+}
+.issue-list__row > .issue-card__facts > [data-fact="github"] {
+  grid-column: github;
+}
+.issue-list__row > .issue-card__facts > [data-fact="talk"] {
+  grid-column: talk;
+}
+@container issue-list (min-width: 580px) {
+  [data-fact-columns="80"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 660px) {
+  [data-fact-columns="160"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 740px) {
+  [data-fact-columns="240"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 820px) {
+  [data-fact-columns="320"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 900px) {
+  [data-fact-columns="400"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 980px) {
+  [data-fact-columns="480"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 1060px) {
+  [data-fact-columns="560"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
+}
+@container issue-list (min-width: 1140px) {
+  [data-fact-columns="640"] .issue-list__row {
+    --row-columns: 52px minmax(0, 1fr) auto minmax(0, 200px);
+    --facts-display: grid;
+    --fact-space: nowrap;
+    --fact-clip: hidden;
+    --fact-name: block;
+    --fact-name-gap: var(--space-1);
+  }
 }
 /* Wide, the number has its own column. */
 .issue-list__row > .issue-card__facts > :first-child {
@@ -1295,21 +1474,6 @@ html:not([data-pointer]) .issue-ask__other:focus-visible {
   }
   .issues-col {
     scroll-snap-align: start;
-  }
-  /* A strip that scrolls clips what it holds at its padding edge: out to the work area's edges as the board is, the
-     room up and down keeping the cards' rings and focus whole, the negative margin keeping the cards where they were. */
-  .issues-now__list {
-    grid-auto-flow: column;
-    grid-template-columns: none;
-    grid-auto-columns: minmax(78vw, 1fr);
-    margin: -4px calc(-1 * var(--page-x)) -8px;
-    padding: 4px var(--page-x) 8px;
-    scroll-padding-inline: var(--page-x);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .issues-now__list::-webkit-scrollbar {
-    display: none;
   }
   /* Stacked as a card: the title, its facts with the number among them, who has it. */
   .issue-list__row {

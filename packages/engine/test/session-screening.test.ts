@@ -133,6 +133,15 @@ test("a control stream reads the screen every 30 s as its agent; a watch stream 
   ]);
 });
 
+test("the screen read is the one the stream shows: a seat's, by the id its computer knows it by", async () => {
+  const t = await screening();
+  const seat = { id: "0199a3a0-0000-7000-8000-0000000000aa", handle: "lodi", name: "Lodi (Ana)" };
+  await t.s.ready({ ...t.stream(), scope: seat });
+  t.machine.answer("one");
+  await t.time.advance(SESSION_SCREEN_MS);
+  expect(t.machine.calls).toEqual([{ op: "desktop.text", agent: seat }]);
+});
+
 test("a close ends the segment: one event with ids, times and a count, never the text; nothing read after", async () => {
   const t = await screening();
   const control = t.stream();

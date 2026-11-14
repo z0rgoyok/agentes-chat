@@ -138,6 +138,22 @@ export const approvalAskLine = (t: TFunction, mine: boolean, count?: number) =>
     ? t(mine ? "approval.askPlain" : "approval.askPlainOther")
     : t(mine ? "approval.askMany" : "approval.askManyOther", { count });
 
+/**
+ * A digest's first line (ADR 0177 §4): how many approvals wait, then how many are routine and how many are to read
+ * one by one. Nothing once none waits.
+ */
+export function digestLine(t: TFunction, counts: { waiting: number; routine: number; careful: number }): string {
+  const tt = t as unknown as Tt;
+  if (counts.waiting === 0) return "";
+  const waiting = tt("rightHand.digest.waiting", { count: counts.waiting });
+  if (counts.routine === 0) return waiting;
+  const split =
+    counts.careful === 0
+      ? tt("rightHand.digest.allRoutine")
+      : tt("rightHand.digest.split", { routine: counts.routine, careful: counts.careful });
+  return tt("common.joinSentences", { a: waiting, b: split });
+}
+
 /** What `request_permission` asks to turn on: a built-in scope in the person's language, a connector by its name. */
 function permissionLabel(t: TFunction, permission: string, title: string) {
   const fromServer = title.replace(/^Turn on: /, "");

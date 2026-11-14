@@ -21,7 +21,7 @@ import {
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { Locked, Row, SCREEN_X, Text, useToast } from "@/ui";
+import { Locked, RoleMark, Row, SCREEN_X, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
 import { AccessList, type AccessListRow } from "../shared/AccessList";
@@ -203,9 +203,10 @@ function Form({
           <AccessList
             title={t("wiki.audienceRoles")}
             levelName={levelName}
-            rows={roleList.map((r) =>
-              row("roles", draft.people, wikiRowCap(cap.people, cap.roles[r.id]), r.id, "shield", r.name),
-            )}
+            rows={roleList.map((r) => ({
+              ...row("roles", draft.people, wikiRowCap(cap.people, cap.roles[r.id]), r.id, "shield", r.name),
+              leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
+            }))}
           />
           <AccessList
             title={t("wiki.audiencePeople")}

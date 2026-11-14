@@ -303,6 +303,7 @@
     "offline": "{{time}}부터 오프라인",
     "signIn": "로그인",
     "signOut": "이 서버에서 로그아웃",
+    "addAccount": "계정 추가",
     "signedOutDone": "{{host}}에서 로그아웃했어요",
     "removeFromApp": "이 앱에서 제거",
     "newsOne": "새 알림 1개",

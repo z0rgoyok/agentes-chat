@@ -3,12 +3,11 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GroupedHeader, GroupedList, GroupedRow, useTheme } from "@/ui";
+import { GroupedHeader, GroupedList, GroupedRow, RoleMark, useTheme } from "@/ui";
 import { goBack, PushedHeader } from "../shared/parts";
 import { updateEditRoles, useEditRolesPick } from "./edit-roles";
 import { useCustomRoles } from "./hooks";
 import { toggledEditRoles } from "./logic";
-import { RoleMark } from "./parts";
 
 /**
  * "Who edits › Some roles…", pushed over Share or New dashboard (ADR 0135 §8): the workspace's roles to check; people
@@ -53,7 +52,7 @@ export function EditRolesScreen() {
                 return (
                   <GroupedRow
                     key={r.id}
-                    leading={<RoleMark color={r.color} />}
+                    leading={<RoleMark color={r.color} icon={r.icon} size={22} />}
                     label={r.name}
                     {...(sees ? {} : { sub: t("dashboards.edit.cantSee") })}
                     checked={pick.editRoleIds.includes(r.id)}

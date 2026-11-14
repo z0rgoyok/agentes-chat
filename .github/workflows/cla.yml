@@ -1,0 +1,85 @@
+name: CLA
+
+# Asks every outside contributor to accept the contributor license agreement (CLA.md) before their pull request
+# can merge (ADR 0180).
+#
+# It runs on pull_request_target, so the workflow file is always main's and the pull request's code is never
+# checked out or run here; the token can write only what the CLA bot needs. A contributor accepts by commenting
+# the sentence the bot asks for; the bot records it in signatures/version1/cla.json on the cla-signatures branch
+# (outside main, and unprotected so the bot can write it) and locks the pull request's conversation once it
+# merges, so the comment stays. A new version of CLA.md gets a new tag and a new signatures path, which asks
+# everyone again.
+#
+# Every pull request is checked, commit by commit: a maintainer's integration branch can carry an outside
+# author's commits, and a check that went by who opened the pull request would miss them. The maintainers are
+# exempt by name in `allowlist`, so a maintainer's fix on a contributor's pull request doesn't ask the
+# maintainer to sign. Bots are exempt only on a branch of this repository.
+#
+# A pull request that was open before this workflow existed has no run of it. Adding the `cla` label starts
+# one: a comment can't, because its run belongs to main and leaves no check on the pull request.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+
+jobs:
+  cla:
+    name: CLA
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Of a pull request's events: no label but `cla` starts a run, and a close only when it merged (the action
+    # locks the conversation on every close, and a contributor must still be able to comment on a pull request
+    # closed without merging). Of the comments: only one that signs or asks for a recheck, so the others leave
+    # no runs behind. `contains` and not `==`, since the action itself accepts the sentence with a full stop or
+    # a line break after it.
+    if: >-
+      (github.event_name == 'pull_request_target'
+        && (github.event.action != 'labeled' || github.event.label.name == 'cla')
+        && (github.event.action != 'closed' || github.event.pull_request.merged))
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+        && (contains(github.event.comment.body, 'recheck')
+          || contains(github.event.comment.body, 'I hereby sign the CLA')))
+    steps:
+      # A branch of this repository can only be pushed by the team and its own agents, so their bots' commits
+      # are the team's. A fork's pull request can come from anyone, whoever wrote its commits: one of this
+      # product's agents working for someone else commits under the same bot name as the team's, and exempting
+      # it there would let a whole pull request through with nobody having accepted. Asked of the API, since a
+      # comment's event doesn't say where the branch lives. Nothing of the pull request's is run or read here
+      # but its number.
+      - name: Whose branch it is
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER" --jq '.head.repo.full_name')
+          if [ "$head" = "$GITHUB_REPOSITORY" ]; then
+            echo 'bots=,agentes-chat-connector[bot],dependabot[bot],claude' >> "$GITHUB_OUTPUT"
+          else
+            echo 'bots=' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Ask for the CLA
+        # v2.6.1
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: https://github.com/agentes-chat/agentes-chat/blob/cla-v1.0/CLA.md
+          path-to-signatures: signatures/version1/cla.json
+          branch: cla-signatures
+          allowlist: heliocosta-dev,wescld${{ steps.branch.outputs.bots }}
+          custom-notsigned-prcomment: >-
+            Thank you for your contribution! Before we can merge it, please read our
+            [Contributor License Agreement](https://github.com/agentes-chat/agentes-chat/blob/cla-v1.0/CLA.md)
+            and accept it by commenting on this pull request with the sentence below. You keep the copyright in
+            your work; the agreement lets Codari Global, LLC also license it outside the AGPL. You only do this
+            once.

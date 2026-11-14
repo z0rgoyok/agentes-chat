@@ -758,7 +758,7 @@ export const helpJa: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "メール",
         blocks: [
-          "メールを設定しないと、agentes.chat はメールを送らずにログに書き出すので、招待リンクはそこからコピーできます。パスワードの再設定は使えません。",
+          "メールを設定しないと、agentes.chat はメールを送らずにログに書き出すので、招待リンクはそこからコピーできます。パスワードの再設定は使えません。アカウントのメールアドレスの変更は、コードもリンクもなくすぐに反映されます。",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

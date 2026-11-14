@@ -149,7 +149,7 @@ export function EmailChips<T extends ChipAddress>({
   );
 }
 
-/** A chip's role: one choice from a short list, named "Papel de {email}". */
+/** A chip's role: one choice from a short list, named "Cargo de {email}". */
 export function ChipRole<V extends string>({
   email,
   value,

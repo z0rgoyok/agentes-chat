@@ -1,5 +1,5 @@
 import { plural } from "@agenteschat/i18n/format";
-import { atHost } from "./en";
+import { atHost, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -44,6 +44,12 @@ export const words: EmailWords = {
             ` en tant que ${role}.`,
           ]
         : ["Vous êtes invité à rejoindre ", { b: org }, ` en tant que ${role}.`],
+    starts: (channels, agents) =>
+      sentences(
+        channels && ["Vous rejoindrez directement ", ...channels, "."],
+        agents && ["Vous travaillerez avec ", ...agents, "."],
+      ),
+    more: (n) => `${n} autres`,
     what: "agentes.chat, c’est l’endroit où les personnes et les agents IA travaillent ensemble.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter} : ` : "Son message : " }, `« ${note} »`],
     button: "Accepter l’invitation",
@@ -343,6 +349,48 @@ export const words: EmailWords = {
         { b: org },
         ". Il passe aussitôt en lecture seule et sera supprimé définitivement 7 jours plus tard.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `${code} est votre code pour changer votre e-mail`,
+      preheader: "Saisissez-le dans agentes.chat pour confirmer. Il est valable 10 minutes.",
+      headline: "Votre code",
+      body: (email, newEmail) => [
+        "Saisissez ce code pour remplacer l’e-mail du compte ",
+        { b: email },
+        " par ",
+        { b: newEmail },
+        ".",
+      ],
+      support: (address) => [
+        "Il est valable 10 minutes, et votre e-mail ne change pas sans lui. Si ce n’était pas vous, ne le partagez pas et écrivez à ",
+        { mail: address },
+        ".",
+      ],
+      noSupport:
+        "Il est valable 10 minutes, et votre e-mail ne change pas sans lui. Si ce n’était pas vous, ne le partagez pas et prévenez les personnes qui gèrent ce serveur.",
+      why: "Vous recevez cet e-mail car votre compte a demandé à changer d’e-mail sur agentes.chat.",
+    },
+    link: {
+      subject: "Confirmez votre nouvel e-mail pour agentes.chat",
+      preheader: "Un clic pour vous connecter avec cette adresse désormais. Le lien est valable une heure.",
+      headline: "Confirmez votre nouvel e-mail",
+      body: "Plus qu’une étape : confirmer que cette adresse est bien la vôtre. Votre compte se connectera ensuite avec elle.",
+      button: "Confirmer le nouvel e-mail",
+      small: "Le lien est valable une heure. Si vous n’avez rien demandé, vous pouvez ignorer cet e-mail.",
+      why: "Vous recevez cet e-mail car quelqu’un a demandé à utiliser cette adresse pour un compte agentes.chat.",
+    },
+    changed: {
+      subject: "L’e-mail de votre compte agentes.chat a changé",
+      preheader: "Si ce n’était pas vous, vous pouvez récupérer cette adresse pendant 7 jours.",
+      headline: "Votre e-mail a changé",
+      body: (email, newEmail) => ["Le compte ", { b: email }, " se connecte désormais avec ", { b: newEmail }, "."],
+      notYou:
+        "Ce n’était pas vous ? Appuyez sur le bouton dans les 7 jours. Cette adresse revient, toutes les sessions sont fermées, les apps d’IA sont déconnectées et les moyens de connexion ajoutés depuis ne fonctionnent plus. Le mot de passe est aussi effacé, et « Mot de passe oublié » définit le suivant.",
+      button: "Ce n’était pas moi",
+      small: "Si c’était vous, il n’y a rien à faire.",
+      why: "Vous recevez cet e-mail car cette adresse était l’e-mail d’un compte agentes.chat.",
     },
   },
   deleting: {

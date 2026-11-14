@@ -303,6 +303,7 @@
     "offline": "{{time}} からオフライン",
     "signIn": "サインイン",
     "signOut": "このサーバーからサインアウト",
+    "addAccount": "アカウントを追加",
     "signedOutDone": "{{host}} からサインアウトしました",
     "removeFromApp": "このアプリから削除",
     "newsOne": "新しい通知が1件",

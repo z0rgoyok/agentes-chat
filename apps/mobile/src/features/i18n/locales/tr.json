@@ -302,7 +302,7 @@
   },
   "along": {
     "agent": "Bir ajan",
-    "waits": "{{name}} onayınızı bekliyor",
+    "waits": "{{name}} · sizi bekliyor",
     "on": "{{name}} · {{what}}",
     "working": "{{name}} çalışıyor",
     "more": "+{{count}}"
@@ -792,7 +792,7 @@
     "teamSectionPersonal": "Ajanlarınız",
     "managerQuiet": "Devam eden bir şey yok",
     "state": {
-      "waitsYou": "onayınızı bekliyor",
+      "waitsYou": "sizi bekliyor",
       "noAi": "Bağlı yapay zeka yok",
       "connect": "Bağla",
       "archived": "Arşivlendi",
@@ -1138,6 +1138,9 @@
     "addWorkspaceTeamShort": "Ekibinizin sunucusuna katıl",
     "addWorkspaceTeamSubShort": "Adres veya bilgisayardaki QR kod",
     "addWorkspaceFoot": "Hiçbir çalışma alanından çıkmazsınız.",
+    "addAccount": "Başka bir hesapla giriş yap",
+    "addAccountSub": "{{host}} üzerinde, bu hesaptan çıkmadan",
+    "accountNoWorkspace": "Henüz çalışma alanı yok",
     "teamServerLeadShort": "Ekibinizin tarayıcıda açtığı adres.",
     "teamServerQuestion": "Ekibinizin adresi nedir?",
     "account": {
@@ -1155,6 +1158,8 @@
       "name": "Ad",
       "namePlaceholder": "Adınız",
       "email": "E-posta",
+      "emailWebLead": "Web sitesinde yeniden giriş yap ve orada kodsuz değiştir.",
+      "emailWeb": "Web sitesinde yeniden giriş yap",
       "inWorkspace": "Bu çalışma alanında · {{org}}",
       "handle": "@ adınız",
       "timezone": "Saat dilimi",
@@ -1439,7 +1444,7 @@
       "plain": "bir işi bitirdi"
     },
     "rowWait": {
-      "approval": "onayınızı bekliyor",
+      "approval": "sizi bekliyor",
       "question": "yanıtınızı bekliyor",
       "mission": "incelemenizi bekliyor"
     },
@@ -1477,13 +1482,13 @@
   },
   "intentAgents": {
     "waitingSection": "Sizi bekleyenler",
-    "waitingLine": "{{title}} · onayınızı bekliyor",
+    "waitingLine": "{{title}} · sizi bekliyor",
     "waitingMore_one": "{{title}} · ve sizi bekleyen {{count}} şey daha",
     "waitingMore_other": "{{title}} · ve sizi bekleyen {{count}} şey daha",
-    "waitingLabel": "{{name}}, onayınızı bekliyor",
+    "waitingLabel": "{{name}}, sizi bekliyor",
     "owner": "Sorumlu: {{name}}",
     "ownerYou": "Sorumlu: siz",
-    "nowWaiting": "Onayınızı bekliyor: {{title}}",
+    "nowWaiting": "Sizi bekliyor: {{title}}",
     "did": {
       "title": "Sizin için yaptıkları",
       "title_female": "Sizin için yaptıkları",
@@ -1502,7 +1507,7 @@
         "image": "Görsel",
         "file": "Dosya"
       },
-      "waitingOnYou": "Onayınızı bekliyor",
+      "waitingOnYou": "Sizi bekliyor",
       "youApproved": "Onayladınız",
       "youRefused": "Reddettiniz",
       "action": {
@@ -2256,14 +2261,164 @@
       "toolsHow": "Kapatmak için açık bir araca dokunun. Yeniden açmak için: bilgisayarın kendisinde, ya da burada onu bağlayan kişi tarafından.",
       "toolsHowOwner": "Açmak ya da kapatmak için bir araca dokunun."
     },
-    "roles": {
-      "onComputer": "Rollerin sırası ve her rolün simgesi bilgisayardan değiştirilir.",
-      "items": "Tek tek",
-      "create": "Oluştur"
-    },
     "import": {
       "preparing": "Dosya hazırlanıyor…",
       "failed": "Dosya indirilemedi. Tekrar deneyin."
+    }
+  },
+  "roles": {
+    "create": "Oluştur",
+    "search": "Rol ara",
+    "baseHint": "Çalışma alanındaki herkes için geçerlidir. Roller bunun üstüne eklenir.",
+    "orderHint": "Daha üstte olan, alttaki rolleri ve kişileri yönetir. Her kişinin ad rengi en yüksek rolünden gelir.",
+    "order": "Sırala",
+    "orderDone": "Bitti",
+    "up": "{{name}} yukarı taşı",
+    "down": "{{name}} aşağı taşı",
+    "orderChanged": "Siz taşırken rol listesi değişti. Yeniden yükleyip tekrar deneyin.",
+    "none": "Henüz rol yok. Bazı kişilere daha fazlasını vermek için bir rol oluşturun.",
+    "noMatch": "“{{q}}” ile eşleşen rol yok.",
+    "tooMany": "Bu çalışma alanında zaten 100 rol var. Yenisini oluşturmak için birini silin.",
+    "loadFailed": "Roller yüklenemedi. {{cause}}",
+    "backToList": "Rollere dön",
+    "nobody": "Kimse",
+    "reach": {
+      "permissions_one": "{{count}} izin",
+      "permissions_other": "{{count}} izin",
+      "channels_one": "{{count}} kanal",
+      "channels_other": "{{count}} kanal",
+      "agents_one": "{{count}} ajan",
+      "agents_other": "{{count}} ajan",
+      "more": "+{{what}}",
+      "all": "Her şeyi yapabilir",
+      "owner": "Her şeyi yapabilir, her zaman",
+      "none": "Yalnızca Herkes'in yapabildikleri",
+      "baseNone": "Yalnızca okuma"
+    },
+    "tabs": {
+      "permissions": "İzinler",
+      "channels": "Kanallar",
+      "agents": "Ajanlar"
+    },
+    "addOwners": "Sahip ekle",
+    "icons": {
+      "shield": "Kalkan",
+      "code": "Kod",
+      "wallet": "Cüzdan",
+      "mail": "E-posta",
+      "bolt": "Şimşek",
+      "flag": "Bayrak",
+      "book": "Kitap",
+      "chart": "Grafik",
+      "bulb": "Ampul",
+      "globe": "Küre",
+      "pullRequest": "Çekme isteği",
+      "calendar": "Takvim",
+      "message": "Mesaj",
+      "eye": "Göz",
+      "plug": "Fiş",
+      "person": "Kişi"
+    },
+    "inviteWith": "Bu rolle davet et",
+    "searchPermission": "İzin ara",
+    "everyoneCan": "Herkes yapabilir",
+    "only": "Yalnızca {{names}}",
+    "notHeld": "Bu izne sahip değilsiniz.",
+    "noPermissionMatch": "“{{q}}” ile eşleşen izin yok.",
+    "advanced": "Gelişmiş",
+    "peopleOnly": "Roller kişiler içindir. Her ajanın kendi izinleri kendi sayfasındadır.",
+    "nowAbove": "Bu rol artık sizinkinin üstünde. Yalnızca daha üstteki biri değiştirebilir.",
+    "admin": {
+      "title": "{{name}} için Yönetici açılsın mı?",
+      "text": "{{name}} rolüne sahip olanlar, yalnızca sahibin yapabilecekleri dışında her şeyi yapabilir.",
+      "count_one": "Bu {{count}} kişi.",
+      "count_other": "Bu {{count}} kişi.",
+      "on": "Yöneticiyi aç",
+      "note": "Yönetici ile {{name}}, yalnızca sahibin yapabilecekleri dışında her şeyi yapabilir."
+    },
+    "computers": {
+      "title": "Ajanların bilgisayarları",
+      "hint": "Tarayıcı: tarayıcı ve oturum açma istekleri. Bilgisayar: ayrıca tüm ekran ve terminal. Kendi ajanları: kişinin sorumlu olduğu ajanlar ve bağladığı bilgisayarlar.",
+      "steps": {
+        "0": "Kullanmaz",
+        "1": "Kendi ajanlarının tarayıcısı",
+        "2": "Kendi ajanlarının bilgisayarı",
+        "3": "Herhangi bir ajanın tarayıcısı",
+        "4": "Herhangi bir ajanın bilgisayarı"
+      },
+      "stepsIn": {
+        "1": "kendi ajanlarının tarayıcısı",
+        "2": "kendi ajanlarının bilgisayarı",
+        "3": "herhangi bir ajanın tarayıcısı",
+        "4": "herhangi bir ajanın bilgisayarı"
+      },
+      "everyoneTo": "Herkes şunu alır: {{step}}.",
+      "everyoneNone": "Herkes ajanların bilgisayarlarını kullanmayı bırakır."
+    },
+    "whoCan": "Kim yapabilir",
+    "everyoneSub": "Çalışma alanındaki her kişi",
+    "someRoles": "Yalnızca bazı roller",
+    "losing": "Kaybedenler: {{names}}.",
+    "nobodyLoses": "Kimse bir şey kaybetmez.",
+    "everyoneGets": "Herkes bunu alır.",
+    "ownersAlways": "Sahipler her zaman yapabilir.",
+    "noOtherRoles": "Henüz başka rol yok.",
+    "channels": {
+      "header": "{{name}} rolüne sahip olanların gördükleri",
+      "headerBase": "Herkesin gördükleri",
+      "hint": "Bu, kişilerle ilgilidir. Bir ajan, biri onu eklediğinde kanala girer.",
+      "search": "Kanal ara",
+      "everyone": "Herkes görür",
+      "private": "Özel",
+      "general": "Herkes #general kanalında kalır.",
+      "locked": "Kimin göreceğini yalnızca #{{channel}} kanalını oluşturan ya da kanalları düzenleyen biri değiştirir.",
+      "leaveTitle": "#{{channel}}, {{name}} rolünden kaldırılsın mı?",
+      "leave_one": "{{names}} kanaldan çıkar.",
+      "leave_other": "{{names}} kanaldan çıkar.",
+      "leaveAction": "Kaldır",
+      "openTitle": "#{{channel}}, {{name}} için açılsın mı?",
+      "openText": "{{name}} rolüne sahip olanlar kanalı ve tüm geçmişini görür, katılabilir.",
+      "openAction": "Aç",
+      "openAllTitle": "#{{channel}} herkese açılsın mı?",
+      "openAllText": "Tüm geçmiş çalışma alanına açılır.",
+      "admin": "Yönetici ile {{name}} rolüne sahip olanlar tüm kanalları görür.",
+      "onlyGeneral": "Şimdilik yalnızca #general var.",
+      "noMatch": "“{{q}}” ile eşleşen kanal yok.",
+      "ungrouped": "Kanallar",
+      "whoSees": "Kim görür",
+      "allSub": "Çalışma alanındaki herkes görür ve katılabilir.",
+      "invited": "Yalnızca eklenenler",
+      "invitedSub": "Yeni kimse görmez. İçeride olan kalır.",
+      "unsee": "İçeride olan kalır. Artık göremeyenler: {{names}}."
+    },
+    "agents": {
+      "header": "{{name}} rolüne sahip olanların konuştukları",
+      "headerBase": "Herkesin konuştukları",
+      "hint": "Bu, kişilerle ilgilidir. Her ajanın ne yaptığı kendi sayfasındadır.",
+      "everyone": "Herkes konuşur",
+      "gate": "Yalnızca {{name}} rolüne sahip olanlar ajanlarla konuşmaz.",
+      "gateOn": "Ajanlarla konuşmayı aç",
+      "locked": "Bunu yalnızca {{name}} sorumlusu {{owner}} ya da herhangi bir ajanı düzenleyen biri değiştirir.",
+      "locked_female": "Bunu yalnızca {{name}} sorumlusu {{owner}} ya da herhangi bir ajanı düzenleyen biri değiştirir.",
+      "lockedNoOwner": "Bunu yalnızca herhangi bir ajanı düzenleyen biri değiştirir.",
+      "none": "Henüz ajan yok.",
+      "some": "Yalnızca bazı roller ve kişiler",
+      "addPerson": "Kişi ekle",
+      "losing": "{{agent}} ile artık konuşamayanlar: {{names}}."
+    },
+    "people": {
+      "removed": "{{person}} artık {{name}} rolüne sahip değil",
+      "selfTitle": "Kendinizi {{name}} rolünden çıkarmak istiyor musunuz?",
+      "selfText": "Yalnızca {{name}} rolünün verdiklerini kaybedersiniz. Bunu yalnızca sizden üstteki biri geri verir."
+    },
+    "mail": {
+      "title_one": "Bir ajan bir posta kutusunu kaybeder",
+      "title_other": "Ajanlar {{count}} posta kutusunu kaybeder",
+      "loses": "{{agent}}, {{owner}} kişisinin posta kutusu {{address}} adresini kaybeder.",
+      "losesAddress": "{{agent}}, {{address}} posta kutusunu kaybeder.",
+      "only": "Bir posta kutusunu yalnızca onu veren kişi yeniden verebilir.",
+      "addAnyway": "Yine de ekle",
+      "giveAnyway": "Yine de ver"
     }
   },
   "vault": {

@@ -275,7 +275,13 @@ export function withWebPushSignOut(auth: AuthClient, api: ApiClient): AuthClient
   return {
     ...auth,
     signOut: async () => {
-      await forgetWebPush(api);
+      // Other accounts stay signed in on this browser (ADR 0183) and hear their notifications on the same
+      // subscription: only this account's registration goes, and what is shown stays theirs to read.
+      const staying = (await api.account.deviceAccounts().catch(() => [])).some((a) => !a.current);
+      if (staying) {
+        const endpoint = (await currentSubscription().catch(() => null))?.endpoint;
+        if (endpoint) await api.push.unregister(endpoint).catch(() => {});
+      } else await forgetWebPush(api);
       await auth.signOut();
     },
   };

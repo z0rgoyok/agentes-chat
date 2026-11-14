@@ -11,7 +11,15 @@ import {
 } from "@agenteschat/client";
 import { questionWaitsOn } from "@agenteschat/client/lib/agent-questions";
 import {
+  threadWorkState,
+  threadWorkTone,
+  threadWorkWord,
+  WORK_TICK_MS,
+  workTime,
+} from "@agenteschat/client/lib/agent-work";
+import {
   approvalCardItems,
+  approvalLine,
   approvalRuns,
   approveAllScope,
   approveAlwaysAlso,
@@ -19,6 +27,7 @@ import {
   asOfNow,
   cardDeadline,
   itemOwnWords,
+  type LinePlace,
   runKeys,
 } from "@agenteschat/client/lib/approval-card";
 import { aheadPhase } from "@agenteschat/client/lib/approval-kind";
@@ -42,7 +51,7 @@ import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
-import { ACT_LINE, Button, Count, HoldButton, Icon, Text, useReducedMotion, useToast } from "@/ui";
+import { ACT_LINE, Button, Count, HoldButton, Icon, PixelOrbit, Text, useReducedMotion, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { approvalAction, approvalRisk, approveAlwaysToast } from "../approvals/logic";
 import {
@@ -66,7 +75,7 @@ import {
 } from "../approvals/parts";
 import { chatHref } from "../links/logic";
 import { Face } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
+import { useColors, useDirectory, useMeId, useNow, useOrgId, useWhen } from "../shared/hooks";
 import { agentLook, genderOf } from "../shared/logic";
 import { PromptForm } from "../shared/PromptForm";
 import { successHaptic, tapHaptic, useSurface } from "../shared/parts";
@@ -74,6 +83,7 @@ import { useSheet } from "../shared/SheetHost";
 import { type AskAnswer, AskCard, AskFoot, ExpiryLine, useAskStore } from "./asks";
 import { markName, parseInline, threadFaces } from "./logic";
 import { Spans } from "./MessageSpans";
+import { WaitMark } from "./WaitMark";
 
 /**
  * The cards inside a message: the approval it asks for, an agent's question and a change
@@ -189,6 +199,7 @@ function ApprovalGroupAsk({ items }: { items: Approval[] }) {
   const always = approveAlwaysOn(items);
   const runs = approvalRuns(items);
   const keys = runKeys(runs);
+  const line = approvalLine(items);
   const [only] = runs;
   const single = runs.length === 1 && only && only.length > 1 ? only : null;
   const busy = one.isPending || all.isPending;
@@ -247,6 +258,7 @@ function ApprovalGroupAsk({ items }: { items: Approval[] }) {
       lead={leadItem}
       name={name}
       always={!inRun && always.has(a.id)}
+      place={line.get(a.id)}
       busy={busy}
       onApprove={() => approveOne(a)}
       onAlways={() => approveAlways(a)}
@@ -418,6 +430,7 @@ function ApprovalGroupItem({
   lead,
   name,
   always,
+  place,
   busy,
   onApprove,
   onAlways,
@@ -428,6 +441,8 @@ function ApprovalGroupItem({
   lead: Approval;
   name: string;
   always: boolean;
+  /** Where it stands on the card: an approved one runs after what the agent asked before it (`approvalLine`). */
+  place: LinePlace | undefined;
   busy: boolean;
   onApprove: () => void;
   onAlways: () => void;
@@ -555,6 +570,12 @@ function ApprovalGroupItem({
                 {[
                   decisionOutcome(t, a, meId, (id) => dir.memberById.get(id)?.name),
                   scheduled && t("approval.ahead.scheduled", { when: nextLabel(i18n.language, scheduled) }),
+                  place?.waitsOn
+                    ? t("approval.line.after", {
+                        // With its place on the card: two requests of one kind tell apart by it ("1 de 2").
+                        title: `${approvalTitleText(t, place.waitsOn)} (${t("approvals.position", { n: place.waitsOnAt, total: place.count })})`,
+                      })
+                    : a.result?.notRunAfter && t("approval.line.notRun"),
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -874,11 +895,18 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
 
 /** "3 respostas" with who wrote; opens the thread. */
 export function ThreadLink({ thread }: { thread: ThreadInfo }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const c = useColors();
+  const dir = useDirectory();
   const surface = useSurface();
   const when = useWhen();
+  const now = useNow(WORK_TICK_MS);
   const faces = threadFaces(thread.participants, 2);
+  // How its work stands, as the web's chip says it (ADR 0084 addendum): one state, and how long in place of the time.
+  const state = thread.state === "open" ? threadWorkState(thread) : null;
+  const tone = state ? threadWorkTone(state) : null;
+  // A return says when it comes ("Retorno às 00:32"), never for how long.
+  const held = state && state !== "later" ? workTime(i18n.language, thread.since, now) : null;
   return (
     <Pressable
       onPress={() => router.push(chatHref(thread.channelId, thread.id))}
@@ -907,8 +935,32 @@ export function ThreadLink({ thread }: { thread: ThreadInfo }) {
           {t("mobile.chat.thread")}
         </Text>
       )}
+      {state ? (
+        <View style={styles.tstate}>
+          {tone === "working" ? (
+            <PixelOrbit color={agentLook(dir.agentById.get(thread.worker ?? "")).color} size={14} />
+          ) : tone === "you" ? (
+            <WaitMark size={8} still />
+          ) : (
+            <Icon name="clock" size={14} color={c.faint} />
+          )}
+          <Text
+            variant="small"
+            numberOfLines={1}
+            style={[styles.bold, { color: tone === "working" ? c.agent : tone === "you" ? c.amberInk : c.muted }]}
+          >
+            {threadWorkWord(t, state, { at: thread.laterAt, locale: i18n.language, now })}
+          </Text>
+        </View>
+      ) : null}
       <Text variant="small" tone="faint" numberOfLines={1} style={styles.shrink}>
-        {thread.state === "closed" ? ` · ${t("mobile.chat.closed")}` : ` · ${when.short(thread.lastActivityAt)}`}
+        {thread.state === "closed"
+          ? ` · ${t("mobile.chat.closed")}`
+          : state
+            ? held
+              ? ` · ${held}`
+              : ""
+            : ` · ${when.short(thread.lastActivityAt)}`}
       </Text>
       <Icon name="right" size={15} color={c.faint} />
     </Pressable>
@@ -919,6 +971,8 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   shrink: { flexShrink: 1 },
   bold: { fontWeight: "600" },
+  // A thread's state beside its count: the mark centred on the words' line, 4 apart.
+  tstate: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
   flip: { transform: [{ rotate: "180deg" }] },
   pressed: { opacity: 0.85 },
   origin: { flexDirection: "row", alignItems: "flex-start", gap: 6 },

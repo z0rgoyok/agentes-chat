@@ -24,8 +24,14 @@ export const AVAILABILITIES: readonly Availability[] = ["auto", "away", "busy", 
 /** How you appear for what you picked (to yourself: hidden stays hidden). */
 export const presenceOfAvailability = (a: Availability): MemberPresence => (a === "auto" ? "online" : a);
 
+/**
+ * What an agent's face says (ADR 0084 addendum of 2026-11-13): free (`online`, "Disponível"), at work, waiting on
+ * you, out of office, or offline (held, or no AI). Never a person's "Ocupado" or "Ausente".
+ */
+export type AgentFace = "online" | "working" | "waiting" | "out" | "offline";
+
 /** Any presence a badge draws: people's and agents'. */
-export type AnyPresence = MemberPresence | AgentPresence;
+export type AnyPresence = MemberPresence | AgentPresence | AgentFace;
 
 export type UntilChoice = "never" | "m30" | "h1" | "h2" | "h4" | "today" | "week";
 export const UNTIL_CHOICES: readonly UntilChoice[] = ["never", "m30", "h1", "h2", "h4", "today", "week"];
@@ -182,13 +188,23 @@ export function agentStatusShort(
 }
 
 /**
- * An agent's presence as the apps draw it: no AI to think with reads as offline (ADR 0084 §3). At work it is online
- * (busy on heavy work) whatever this person reads of its AI, which for the right hand is their own, and before the
- * list says it: `working` is a run of its this app hears. Held by the server's operators, it stays offline.
+ * An agent's face as the apps draw it (ADR 0084, addendum of 2026-11-13), first match: held by the server's operators
+ * (offline), out of office, no AI to think with (offline, §3), waiting on you (its work for this person, `work`), at
+ * work, else free. At work it has an AI whatever this person reads of it, which for the right hand is their own, and
+ * before the list says it: `working` is a run of its this app hears.
  */
-export function agentPresenceShown(status: AgentStatus | undefined, hasAi: boolean, working = false): AgentPresence {
+export function agentPresenceShown(status: AgentStatus | undefined, hasAi: boolean, working = false): AgentFace {
   const presence = status?.presence ?? "away";
   if (presence === "offline") return "offline";
-  if (working || status?.working) return presence === "busy" ? "busy" : "online";
-  return hasAi ? presence : "offline";
+  if (presence === "out" && !working) return "out";
+  // The server's `busy` is also long work that waits and a run in line: it stands for work only from an older server,
+  // which sends no `working`.
+  const atWork = working || (status?.working ?? presence === "busy");
+  if (!hasAi && !atWork) return "offline";
+  if (status?.work?.state === "you") return "waiting";
+  return atWork ? "working" : "online";
 }
+
+/** An agent's face in a word: "Disponível", "Trabalhando", "Esperando você", "Fora do escritório", "Offline". */
+export const agentFaceWord = (t: TFunction, face: AgentFace) =>
+  face === "online" ? t("presence.available") : t(`presence.${face}`);

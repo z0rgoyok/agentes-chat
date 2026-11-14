@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
-import { RoleScreen } from "@/features/settings/RolesScreen";
+import { RoleScreen } from "@/features/roles/RoleScreen";
 
-/** A role (`roleId`; `owner`: the owners), pushed over the roles. */
+/** A cargo (`roleId`; `owner`: the owners), pushed over the cargos. */
 export default function SettingsRoleRoute() {
   const { roleId } = useLocalSearchParams<{ roleId: string }>();
   return <RoleScreen roleId={roleId ?? ""} />;

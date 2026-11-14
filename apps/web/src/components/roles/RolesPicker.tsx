@@ -60,7 +60,7 @@ export function RolesPicker({
 
 /**
  * The roles the viewer may give, as checkable items of a menu that stays open, and the note about everyone's base
- * role: the picker's own list, and a person's "Mudar papéis" in their row's menu.
+ * role: the picker's own list, and a person's "Mudar cargos" in their row's menu.
  */
 export function RoleChoices({
   roles,

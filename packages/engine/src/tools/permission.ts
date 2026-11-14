@@ -1,6 +1,5 @@
 import { and, eq, isNull, schema, sql } from "@agenteschat/db";
 import { grantBrowserProfile, onSingleModeMachine } from "../browser/profiles";
-import { isRightHandId, RIGHT_HAND_NO_COMPUTER } from "../right-hand";
 import {
   ALL_TOOLS,
   BUILTIN_SCOPES,
@@ -33,15 +32,13 @@ export interface MissingPermission {
  */
 export async function missingPermissions(ctx: Pick<ToolContext, "db" | "orgId" | "agentId">) {
   const granted = await grantedScopeKeys(ctx.db, ctx.orgId, ctx.agentId);
-  // The right hand has no computer: nothing of one can be turned on for it.
-  const noComputer = await isRightHandId(ctx.db, ctx.orgId, ctx.agentId);
   const all = granted.has(grantKey(null, ALL_TOOLS));
   const out: MissingPermission[] = [];
   for (const [scope, info] of Object.entries(BUILTIN_SCOPES)) {
     if (granted.has(grantKey(null, scope))) continue;
     const write = impliedByWrite(scope);
     if (write && granted.has(grantKey(null, write))) continue;
-    if (NOT_IN_ALL.has(scope) ? noComputer : all) continue;
+    if (all && !NOT_IN_ALL.has(scope)) continue;
     out.push({ id: scope, label: info.label, connectionId: null, scope });
   }
   const connections = await ctx.db
@@ -58,7 +55,6 @@ export async function missingPermissions(ctx: Pick<ToolContext, "db" | "orgId" |
     if (own.has(c.id) || held.has(c.id) || all) continue;
     out.push({ id: `connector:${c.id}`, label: c.label, connectionId: c.id, scope: CONNECTOR_ALL });
   }
-  if (noComputer) return out;
   const { browserProfiles: p, browserProfileGrants: g } = schema;
   const profiles = await ctx.db
     .select({ id: p.id, name: p.name })
@@ -119,12 +115,6 @@ export function createPermissionToolSource(): ToolSource {
         describe(input) {
           const id = String(input.permission ?? "");
           return { title: `Turn on: ${labels.get(id) ?? id}` };
-        },
-        // The right hand has no computer: a card asking for one would turn on nothing.
-        async checkCall(input, c) {
-          return NOT_IN_ALL.has(String(input.permission ?? "")) && (await isRightHandId(c.db, c.orgId, c.agentId))
-            ? { ok: false, message: `Nothing to turn on: ${RIGHT_HAND_NO_COMPUTER}` }
-            : { ok: true };
         },
         async execute(input, c) {
           const id = String(input.permission ?? "");

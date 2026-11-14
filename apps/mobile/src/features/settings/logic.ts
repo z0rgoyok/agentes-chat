@@ -6,10 +6,7 @@ import type {
   MachineOs,
   MachinePause,
   MachineToolName,
-  OrgRole,
-  OrgRoles,
   OrgSummary,
-  Person,
   S3Input,
   Skill,
   StorageConfig,
@@ -21,18 +18,6 @@ import { clockAt, formatPercent, relativeTime } from "@agenteschat/client/lib/fo
 import { folderName, hostDescKey, isPaused } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
 import { type ModeSwitchLine, personalSettingsHost, personalSettingsNav } from "@agenteschat/client/lib/personal-view";
-import {
-  type AreaLevel,
-  areaLine,
-  computerChoice,
-  everyoneOf,
-  isBelow,
-  isEveryone,
-  levelLabel,
-  levelOf,
-  levelOptions,
-  type PermissionAreaId,
-} from "@agenteschat/client/lib/roles";
 import { zoneDisplayName } from "@agenteschat/client/lib/routines";
 import { skillWaitingChip } from "@agenteschat/client/lib/skills";
 import type { TFunction } from "i18next";
@@ -100,7 +85,7 @@ export const SETTINGS_SECTIONS: readonly SettingsEntry[] = [
   { id: "media", group: "org", icon: "sticker", href: "/settings/media", allowed: (o) => can(o, "configure") },
   // Everyone, as on the web: who invites finds the requests there, a member who may not suggests someone (ADR 0090).
   { id: "members", group: "people", icon: "members", href: "/me/members", allowed: (o) => can(o, "read") },
-  // Papéis e permissões (ADR 0085): who manages roles, as on the web.
+  // Cargos (ADR 0085): who manages roles, as on the web.
   { id: "roles", group: "people", icon: "lock", href: "/settings/roles", allowed: (o) => can(o, "manage_roles") },
   // "IA e uso", for everyone (ADR 0063): the workspace's AI accounts with their meters and the agents whose details
   // they see, in tokens and percentages; money only for who has `view_usage`. It leads to the AI accounts screen.
@@ -508,73 +493,3 @@ export function s3Missing(f: S3Form, keysSaved: boolean) {
 
 /** The export's file name, as the web saves it: `agentes-chat-2026-10-28.json`. */
 export const exportFileName = (now: Date) => `agentes-chat-${now.toISOString().slice(0, 10)}.json`;
-
-// ── Papéis e permissões ─────────────────────────────────────────────────────
-
-/** The owners' page in the roles' routes (owner isn't a role on the server: `organization_members.role`). */
-export const OWNER_ROLE = "owner";
-/** The agents' computers' choice in the area routes: one choice, beside the areas (`computerChoice`). */
-export const COMPUTER_AREA = "computer";
-
-/** Each area's icon on a role's screen (the web's `AREA_ICONS`, in the phone's set). */
-export const ROLE_AREA_ICON: Record<string, IconName> = {
-  chat: "chat",
-  agents: "agent",
-  tools: "bolt",
-  knowledge: "doc",
-  org: "home",
-  [COMPUTER_AREA]: "laptop",
-};
-
-export interface RoleAreaRow {
-  id: string;
-  label: string;
-  /** What the role reaches there. */
-  line: string;
-  /** Its level; empty as Administrador (it has every area). */
-  value: string;
-}
-
-/** A role's areas on its screen, as the web's card: each with its line and level, the computers right after Ferramentas. */
-export function roleAreaRows(t: TFunction, locale: string, role: OrgRole, data: OrgRoles): RoleAreaRow[] {
-  const everyone = everyoneOf(data.roles);
-  const admin = !isEveryone(role) && role.permissions.includes("administrator");
-  return data.areas.flatMap((a) => {
-    const row = {
-      id: a.id,
-      label: t(`permissions.areas.${a.id as PermissionAreaId}`),
-      line: areaLine(t, locale, role, a, everyone),
-      value: admin ? "" : levelLabel(t, role, levelOf(role, a, everyone)),
-    };
-    if (a.id !== "tools") return [row];
-    const c = computerChoice(role, everyone);
-    return [
-      row,
-      {
-        id: COMPUTER_AREA,
-        label: t("rolesPage.computer.title"),
-        line: t(`rolesPage.computer.${c.reach}.${c.shown}`),
-        value: admin ? "" : t(`rolesPage.computer.levels.${c.shown}`),
-      },
-    ];
-  });
-}
-
-/** The levels an area's screen lists: those offered, and "Personalizado" while it is that (never picked). */
-export function areaChoices(role: OrgRole, area: OrgRoles["areas"][number], everyone: OrgRole | undefined) {
-  const level = levelOf(role, area, everyone);
-  const options: AreaLevel[] = levelOptions(role, area, everyone);
-  return { level, options: level === "custom" ? [...options, level] : options };
-}
-
-/** Who may get a role from this viewer: without it, and below them (the server checks it again). */
-export const roleCandidates = (
-  viewer: { role: string; rank?: number | null; userId: string },
-  role: Pick<OrgRole, "id">,
-  people: readonly Person[],
-  roles: readonly OrgRole[],
-) => people.filter((p) => !(p.roleIds ?? []).includes(role.id) && isBelow(viewer, p, roles));
-
-/** Whether the viewer gives and takes this role: not Todos, below them, and they manage members. */
-export const givesRole = (org: OrgSummary | null | undefined, role: Pick<OrgRole, "kind" | "givable">) =>
-  !isEveryone(role) && role.givable && can(org, "manage_members");

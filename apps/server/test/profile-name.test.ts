@@ -43,7 +43,7 @@ test("a new name reaches every workspace the person is in", async () => {
     });
   expect((await bia("/api/auth/update-user", { json: { name: "Bia Souza" } })).status).toBe(200);
   expect(heard.sort()).toEqual([...orgIds].sort());
-  // Her other devices read it in `me`, past their session's cached cookie.
+  // Her other devices read it in `me`.
   const me = (await (await phone("/api/app/me")).json()) as { user: { name: string } };
   expect(me.user.name).toBe("Bia Souza");
   // The photo is theirs everywhere too; a handle is one workspace's.

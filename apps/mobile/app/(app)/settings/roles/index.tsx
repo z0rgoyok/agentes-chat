@@ -1,6 +1,6 @@
-import { RolesScreen } from "@/features/settings/RolesScreen";
+import { RolesScreen } from "@/features/roles/RolesScreen";
 
-/** Configurações › Papéis e permissões (who manages roles). */
+/** Configurações › Cargos. */
 export default function SettingsRolesRoute() {
   return <RolesScreen />;
 }

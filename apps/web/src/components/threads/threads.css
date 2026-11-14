@@ -201,6 +201,19 @@ html:not([data-pointer]) .pins-pop__item:has(> .thread-pop__row:focus-visible) {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* "Retornos" (the bar's ⋯, ADR 0037 addendum): her words whole, however long (80 characters at most). A return whose
+   run posted nothing goes nowhere: its row doesn't light. */
+.returns-pop .returns-pop__about {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow: visible;
+}
+.returns-pop__still {
+  cursor: default;
+}
+.pins-pop__item:has(> .returns-pop__still):hover {
+  background: transparent;
+}
 .thread-pop__foot {
   display: flex;
   justify-content: flex-end;
@@ -853,7 +866,8 @@ html:not([data-pointer]) .thread-line:focus-visible {
    the count, each ending in "…"; the faces and what it needs keep their width. */
 .thread-line > b,
 .thread-line__when,
-.thread-line__when > time {
+.thread-line__when > time,
+.thread-line__when > .thread-line__held {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -879,11 +893,39 @@ html:not([data-pointer]) .thread-line:focus-visible {
   gap: 4px;
   font-weight: 600;
 }
-.thread-line__state--needsYou {
+/* One state at a time (ADR 0084 addendum): amber when it waits on you, blue at work, quiet otherwise. */
+.thread-line__state--you {
   color: var(--warn);
 }
 .thread-line__state--working {
   color: var(--agent);
+}
+.thread-line__state--neutral {
+  color: var(--muted);
+}
+.thread-line__clock {
+  color: var(--faint);
+}
+.thread-line__held {
+  font-variant-numeric: tabular-nums;
+}
+/* A phone-wide window: the state keeps its mark and its time, its words go to screen readers, so the count stays
+   whole. */
+@media (max-width: 420px) {
+  .thread-line__state-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+/* A return's time is in its words ("Retorno às 00:32"): it shows on its own only where they go to screen readers. */
+@media (min-width: 421px) {
+  .thread-line__later-at {
+    display: none;
+  }
 }
 .thread-line__dot {
   color: var(--faint);

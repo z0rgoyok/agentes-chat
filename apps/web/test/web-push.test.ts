@@ -149,6 +149,8 @@ describe("signing out", () => {
     const auth = { signIn, signOut } as unknown as AuthClient;
     const calls: string[] = [];
     const api = {
+      // Nobody else signed in on this browser: the whole subscription goes (ADR 0183).
+      account: { deviceAccounts: async () => [] },
       push: {
         webKey: async () => "BPk",
         register: async () => {

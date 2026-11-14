@@ -9,7 +9,16 @@ import {
 } from "@agenteschat/engine";
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
-import { type Browser, browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
+import {
+  type Browser,
+  browser,
+  createTestServer,
+  joinByInvitation,
+  planOfLast,
+  seedOrg,
+  signUp,
+  type TestServer,
+} from "./harness";
 
 /**
  * ADR 0056, runs and conversations: a workspace's runs, one run's trace, a conversation's timeline and why a message
@@ -771,6 +780,15 @@ test("tool calls: which tool and whose, how each ended and how big it was; filte
     const res = await calls(bad);
     expect({ bad, status: res.status }).toEqual({ bad, status: 400 });
   }
+});
+
+test("a workspace's tool calls are found by its id and their dates, through the index of tool calls alone", async () => {
+  const plan = await planOfLast(t, "agent_run_steps", () => get(`/orgs/${org.orgId}/tool-calls`), [
+    "enable_bitmapscan",
+  ]);
+  expect(plan).toMatch(
+    /Index Scan using agent_run_steps_tool_calls_idx on agent_run_steps\s+Index Cond: \(\(org_id = .+ AND \(created_at >= .+ AND \(created_at < /,
+  );
 });
 
 test("a conversation's timeline: messages by who and how long, decisions, runs and asks, in order", async () => {

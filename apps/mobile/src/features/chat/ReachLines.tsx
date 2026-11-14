@@ -296,8 +296,11 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   lockedText: { textAlign: "center" },
   bold: { fontWeight: "600" },
-  // The icon on the words' first line, the words across the card; the action under them on their column.
+  // The icon on the words' first line, the words across the card, as wide as they are; the action under them on their
+  // column.
   one: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
     gap: 4,
     paddingVertical: 12,
     ...ROW_CARD_INSET,
@@ -308,7 +311,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 6,
   },
   head: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  words: { flex: 1, minWidth: 0 },
+  words: { flexShrink: 1, minWidth: 0 },
   // The text column: the icon's 15 and the 8 after it.
   act: { paddingLeft: 15 + 8, alignItems: "flex-start" },
   detail: { marginTop: 2 },

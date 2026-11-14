@@ -37,7 +37,15 @@ function readOpenData(raw) {
   const data = { orgId: raw.orgId, notificationId: raw.notificationId };
   if (typeof raw.kind === "string" && /^[a-z_]{1,40}$/.test(raw.kind)) data.kind = raw.kind;
   for (const key of PLACE_KEYS) if (isId(raw[key])) data[key] = raw[key];
+  // Whose it is: a browser signed in with several accounts opens it as theirs (`?as=`, apps/web/src/lib/accounts.ts).
+  if (isId(raw.user)) data.user = raw.user;
   return data;
+}
+
+/** The address a new tab opens for a click: as the account the push is for, when it names one. */
+function asAccount(url, open) {
+  if (!open || !open.user) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}as=${encodeURIComponent(open.user)}`;
 }
 
 /**
@@ -119,7 +127,17 @@ self.addEventListener("notificationclick", (event) => {
         client.postMessage({ type: OPEN_MESSAGE, url, data: open });
         return;
       }
-      await self.clients.openWindow(url);
+      // No tab to ask: the browser moves to the account the notification is for (ADR 0183), then the tab opens. The
+      // address names it only so the tab starts clean; a link alone never moves the account.
+      if (open?.user) {
+        await fetch("/api/app/device-accounts/switch", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userId: open.user }),
+        }).catch(() => {});
+      }
+      await self.clients.openWindow(asAccount(url, open));
     })(),
   );
 });

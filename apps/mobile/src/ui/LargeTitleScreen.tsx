@@ -1,6 +1,6 @@
 import { type NativeStackNavigationOptions, Stack, useIsFocused } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { type ReactElement, type ReactNode, useMemo } from "react";
+import { createContext, type ReactElement, type ReactNode, useContext, useMemo } from "react";
 import { Platform, type RefreshControlProps, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOutUp, LayoutAnimationConfig } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,12 @@ import { type HeaderAction, useHeaderActionOptions } from "./headerActions";
 import { SCREEN_X } from "./rhythm";
 import { Text } from "./Text";
 import { useTheme } from "./theme";
+
+/**
+ * What the tab roots keep at their foot, over the tab bar (the work-along strip where the bar has no accessory): what
+ * it draws, and the room their lists keep for it at their end, so no row moves under it.
+ */
+export const TabFoot = createContext<{ node: ReactNode; height: number } | null>(null);
 
 export interface LargeTitleScreenProps {
   title: string;
@@ -78,6 +84,8 @@ export function LargeTitleScreen({
   const focused = useIsFocused();
   const headerHeight = useHeaderHeight();
   const safe = useSafeAreaInsets();
+  const foot = useContext(TabFoot);
+  const footRoom = foot?.height ?? 0;
   // On iOS the scroll view is inset by the clear bar ourselves (contentInset, resting at minus the header
   // height): the automatic adjustment didn't apply inside the system tabs, so the list rested under the bar
   // with the large title hidden, shown only while pulled. Android lays it out from the top, under the bar.
@@ -109,14 +117,17 @@ export function LargeTitleScreen({
           contentInsetAdjustmentBehavior="never"
           {...(IOS
             ? {
-                contentInset: { top: headerHeight, bottom: safe.bottom + TAB_BAR },
-                scrollIndicatorInsets: { top: headerHeight, bottom: safe.bottom + TAB_BAR },
+                contentInset: { top: headerHeight, bottom: safe.bottom + TAB_BAR + footRoom },
+                scrollIndicatorInsets: { top: headerHeight, bottom: safe.bottom + TAB_BAR + footRoom },
                 contentOffset: { x: 0, y: -headerHeight },
               }
             : {})}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingTop: IOS ? 0 : headerHeight, paddingBottom: bottomInset }}
+          contentContainerStyle={{
+            paddingTop: IOS ? 0 : headerHeight,
+            paddingBottom: bottomInset + (IOS ? 0 : footRoom),
+          }}
         >
           {/* The art reaches up behind the clear bar and the status bar on both platforms (no band above it). */}
           <View style={backdrop ? { marginTop: -headerHeight, paddingTop: headerHeight } : undefined}>
@@ -155,6 +166,7 @@ export function LargeTitleScreen({
         </Animated.ScrollView>
       </LivePause>
       <CoverBarBackdrop y={y} from={0} to={12} height={headerHeight} tone={grouped ? colors.grouped : colors.bg} />
+      {foot?.node}
     </View>
   );
 }

@@ -244,7 +244,7 @@ describe("Aprovações: asked of a role (request_approval)", () => {
       f.querySelector(".ac-facts__value")?.textContent,
     ]);
     expect(facts).toContainEqual(["Quem decide", "Aguardando Diretoria"]);
-    expect(pane.querySelector(".ap-bar__text")?.textContent).toContain("Pedido por quem também aprova pela função");
+    expect(pane.querySelector(".ap-bar__text")?.textContent).toContain("Pedido por quem também aprova pelo cargo");
     expect(pane.querySelector("[data-approve]")).toBeNull();
   });
 });

@@ -143,6 +143,8 @@ describe("web push devices", () => {
     await signUp(owner, "owner@example.com");
     const { orgId, channelId } = await seedOrg(owner);
     const bia = await joinByInvitation(t, owner, orgId, "bia@example.com");
+    // The right hand greets who joins: that push is not this one, so it goes out before their device is known.
+    await t.drain();
     expect((await bia("/api/app/push/devices", { json: subscription() })).status).toBe(204);
     const members = (await (await owner(`/api/app/organizations/${orgId}/members`)).json()) as {
       members: { email: string; handle: string }[];

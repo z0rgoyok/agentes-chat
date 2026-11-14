@@ -99,4 +99,5 @@ export const ptBR: PushStrings = {
   joinRequestTitlePersonal: (name) => `${name} pede para entrar no seu workspace`,
   joinSuggestionTitlePersonal: (by, name) => `${by} sugeriu convidar ${name}`,
   teamWeekReadyPersonal: "Sua semana está pronta",
+  teamWatchStill: (n) => (n === 1 ? "1 coisa ainda espera você" : `${n} coisas ainda esperam você`),
 };

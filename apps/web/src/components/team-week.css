@@ -1,4 +1,4 @@
-/* Lodi's weekly card (TeamWeekCard): four numbers, what worked, a row per fix, the footer with the schedule. */
+/* Lodi's weekly card (TeamWeekCard): its numbers, what worked, a row per fix, the footer with the schedule. */
 .tw {
   max-width: var(--msg-card-w);
   container-type: inline-size;
@@ -6,17 +6,19 @@
 .tw__card {
   max-width: none;
 }
+/* As many equal columns as tiles (three, or four with the workspace's money): none leaves a hole beside the last. */
 .tw__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .tw__stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
+  flex: 1 1 88px;
+  gap: var(--space-1);
+  padding: var(--space-3);
   border-radius: 12px 12px 12px 4px;
   background: var(--card-well);
   box-shadow: var(--card-well-shadow);
@@ -36,22 +38,23 @@
   font-size: 12px;
   line-height: 16px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .tw__stat[data-warn] b {
   color: var(--attention);
 }
 .tw__sec {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 .tw__sec-t {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 .tw__worked {
-  gap: 6px;
+  gap: var(--space-2);
   font-size: 13px;
 }
 .tw__worked .ac-icon {
@@ -61,10 +64,10 @@
 .tw__rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .tw__fix {
-  padding: 10px 12px;
+  padding: var(--space-3);
   border-radius: 12px 12px 12px 4px;
   background: var(--card-well);
   box-shadow: var(--card-well-shadow);
@@ -73,10 +76,13 @@
   background: transparent;
   box-shadow: 0 0 0 1px var(--line);
 }
+/* The title's capitals start at the face's or the tile's top (`.ac-captop` on it), however many lines it wraps to. */
 .tw__fix-row {
+  /* The face's size, and the tile's that stands in its place. */
+  --tw-face: 36px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: var(--space-3);
 }
 .tw__fix-row > .ac-avatar,
 .tw__tile {
@@ -85,8 +91,8 @@
 .tw__tile {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: var(--tw-face);
+  height: var(--tw-face);
   border-radius: 10px 10px 10px 3px;
   background: var(--plate);
   color: var(--ink2);
@@ -96,11 +102,13 @@
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  gap: 1px;
+  gap: var(--space-1);
 }
+/* Neither the title nor its line leaves one word alone on a last line. */
 .tw__fix-t b {
   font-weight: 650;
   color: var(--ink);
+  text-wrap: pretty;
   overflow-wrap: anywhere;
 }
 .tw__fix[data-done] .tw__fix-t b {
@@ -111,18 +119,20 @@
   color: var(--ink2);
   font-size: 13px;
   line-height: 18px;
+  text-wrap: pretty;
   overflow-wrap: anywhere;
 }
 .tw__fix-side {
   display: flex;
+  align-self: center;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex: none;
 }
 .tw__done {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--icon-gap);
   color: var(--ok);
   font-size: 13px;
   font-weight: 600;
@@ -136,11 +146,11 @@
 .tw__approvals {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .tw__dismissed {
-  margin: 16px 0 0;
+  margin: var(--space-4) 0 0;
   color: var(--muted);
   font-size: 13px;
 }
@@ -160,31 +170,60 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
+  gap: var(--space-2);
+  padding: var(--space-2);
 }
-/* A narrow column (the phone's browser, a side panel): two numbers a line, the button under its words. */
+/* A narrow column (the phone's browser, a side panel): four numbers go two a line, three stay on one line while each
+   keeps its 88 and else the third takes the next line whole. A fix is a MediaRow: the face and the title on one line,
+   then its line and its button under them at the row's width (rule 23), a quiet button beside it keeping its own. The
+   face never owns a column beside them. */
 @container (max-width: 520px) {
-  .tw__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .tw__stat:first-child:nth-last-child(4),
+  .tw__stat:first-child:nth-last-child(4) ~ .tw__stat {
+    flex-basis: calc(50% - var(--space-2));
   }
   .tw__fix-row {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2) var(--space-3);
+  }
+  .tw__fix-t {
+    display: contents;
+  }
+  /* The title ends half a line under the face's middle, held from the bottom of their line: one line centres on the
+     face, and a title of two lines or more, taller than the face with that room under it, grows the line downwards
+     and keeps its rise (`.ac-captop`), its capitals starting at the face's top. Either way its line stands as far
+     under it. */
+  .tw__fix-t b {
+    align-self: end;
+    /* Browsers without the lh unit: the page's 22px line. */
+    margin-block-end: calc((var(--tw-face) - 22px) / 2);
+  }
+  @supports (top: 1lh) {
+    .tw__fix-t b {
+      margin-block-end: calc((var(--tw-face) - 1lh) / 2);
+    }
+  }
+  .tw__fix-t span,
+  .tw__fix-side {
+    grid-column: 1 / -1;
   }
   .tw__fix-side {
-    width: 100%;
     justify-content: flex-end;
   }
+  .tw__fix-side > .ac-btn:not(.ac-btn--ghost) {
+    flex: 1;
+  }
+  /* The schedule still ends the footer's last line, its words wrapping when they are longer than it. */
   .tw__when.tw__when {
-    margin-left: 0;
     white-space: normal;
   }
 }
-/* Settings › Lodi: the same selects and switch as the card's "Mudar". */
+/* Settings › Lodi: the card's day and hour beside its name, before the row's switch. */
 .rh-set__week {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   max-width: 100%;
 }

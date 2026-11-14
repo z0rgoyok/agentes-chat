@@ -293,7 +293,7 @@
   },
   "along": {
     "agent": "一个智能体",
-    "waits": "{{name}} 在等你确认",
+    "waits": "{{name}} · 等你处理",
     "on": "{{name}} · {{what}}",
     "working": "{{name}} 正在工作",
     "more": "+{{count}}"
@@ -769,7 +769,7 @@
     "teamSectionPersonal": "你的智能体",
     "managerQuiet": "没有进行中的事项",
     "state": {
-      "waitsYou": "等你确认",
+      "waitsYou": "等你处理",
       "noAi": "未连接 AI",
       "connect": "连接",
       "archived": "已归档",
@@ -1061,6 +1061,9 @@
     "addWorkspaceTeamShort": "加入团队的服务器",
     "addWorkspaceTeamSubShort": "地址或电脑上的二维码",
     "addWorkspaceFoot": "你不会退出任何工作区。",
+    "addAccount": "登录其他账号",
+    "addAccountSub": "在 {{host}} 上，无需退出当前账号",
+    "accountNoWorkspace": "还没有工作区",
     "teamServerLeadShort": "你的团队在浏览器中打开的地址。",
     "teamServerQuestion": "你团队的地址是什么？",
     "account": {
@@ -1078,6 +1081,8 @@
       "name": "名称",
       "namePlaceholder": "你的名字",
       "email": "邮箱",
+      "emailWebLead": "在网站上重新登录，然后在那里更改，不用验证码。",
+      "emailWeb": "在网站上重新登录",
       "inWorkspace": "在此工作区 · {{org}}",
       "handle": "你的 @",
       "timezone": "时区",
@@ -1353,7 +1358,7 @@
       "plain": "完成了一项任务"
     },
     "rowWait": {
-      "approval": "等你确认",
+      "approval": "等你处理",
       "question": "等你回答",
       "mission": "等你审阅"
     },
@@ -1391,12 +1396,12 @@
   },
   "intentAgents": {
     "waitingSection": "等你处理",
-    "waitingLine": "{{title}} · 需要你确认",
+    "waitingLine": "{{title}} · 等你处理",
     "waitingMore_other": "{{title}} · 还有 {{count}} 项等你处理",
-    "waitingLabel": "{{name}}，需要你确认",
+    "waitingLabel": "{{name}}，等你处理",
     "owner": "所有者：{{name}}",
     "ownerYou": "所有者：你",
-    "nowWaiting": "需要你确认：{{title}}",
+    "nowWaiting": "等你处理：{{title}}",
     "did": {
       "title": "他为你做了什么",
       "title_female": "她为你做了什么",
@@ -1414,7 +1419,7 @@
         "image": "图片",
         "file": "文件"
       },
-      "waitingOnYou": "需要你确认",
+      "waitingOnYou": "等你处理",
       "youApproved": "你已批准",
       "youRefused": "你已拒绝",
       "action": {
@@ -2152,14 +2157,158 @@
       "toolsHow": "点按已打开的工具即可关闭。要重新打开：在那台电脑上，或由连接它的人在这里打开。",
       "toolsHowOwner": "点按工具即可打开或关闭。"
     },
-    "roles": {
-      "onComputer": "角色的顺序和每个角色的图标需在电脑上更改。",
-      "items": "逐项",
-      "create": "创建"
-    },
     "import": {
       "preparing": "正在准备文件…",
       "failed": "无法下载文件，请重试。"
+    }
+  },
+  "roles": {
+    "create": "创建",
+    "search": "搜索角色",
+    "baseHint": "适用于工作区中的每个人。角色在此基础上增加。",
+    "orderHint": "位置更高的人管理下面的角色和成员。每个人名字的颜色来自其最高的角色。",
+    "order": "排序",
+    "orderDone": "完成",
+    "up": "上移 {{name}}",
+    "down": "下移 {{name}}",
+    "orderChanged": "你移动时角色列表发生了变化。请重新加载后再试。",
+    "none": "还没有角色。创建一个，给部分成员更多权限。",
+    "noMatch": "没有与“{{q}}”匹配的角色。",
+    "tooMany": "这个工作区已有 100 个角色。删除一个才能创建新的。",
+    "loadFailed": "无法加载角色。{{cause}}",
+    "backToList": "返回角色",
+    "nobody": "无人",
+    "reach": {
+      "permissions_other": "{{count}} 项权限",
+      "channels_other": "{{count}} 个频道",
+      "agents_other": "{{count}} 个智能体",
+      "more": "+{{what}}",
+      "all": "可以做任何事",
+      "owner": "始终可以做任何事",
+      "none": "仅限所有人可做的事",
+      "baseNone": "仅可查看"
+    },
+    "tabs": {
+      "permissions": "权限",
+      "channels": "频道",
+      "agents": "智能体"
+    },
+    "addOwners": "添加所有者",
+    "icons": {
+      "shield": "盾牌",
+      "code": "代码",
+      "wallet": "钱包",
+      "mail": "邮件",
+      "bolt": "闪电",
+      "flag": "旗帜",
+      "book": "书本",
+      "chart": "图表",
+      "bulb": "灯泡",
+      "globe": "地球仪",
+      "pullRequest": "拉取请求",
+      "calendar": "日历",
+      "message": "消息",
+      "eye": "眼睛",
+      "plug": "插头",
+      "person": "人物"
+    },
+    "inviteWith": "用此角色邀请",
+    "searchPermission": "搜索权限",
+    "everyoneCan": "所有人都可以",
+    "only": "仅 {{names}}",
+    "notHeld": "你没有此权限。",
+    "noPermissionMatch": "没有与“{{q}}”匹配的权限。",
+    "advanced": "高级",
+    "peopleOnly": "角色适用于成员。每个智能体有自己的权限，在其页面上。",
+    "nowAbove": "这个角色现在比你的高。只有更高级别的人才能修改。",
+    "admin": {
+      "title": "为 {{name}} 开启管理员？",
+      "text": "拥有 {{name}} 的人将可以做任何事，所有者专属的事除外。",
+      "count_other": "共 {{count}} 人。",
+      "on": "开启管理员",
+      "note": "有了管理员，{{name}} 可以做任何事，所有者专属的事除外。"
+    },
+    "computers": {
+      "title": "智能体的电脑",
+      "hint": "浏览器：浏览器和登录请求。电脑：还包括整个屏幕和终端。自己的智能体：此人负责的智能体以及其连接的电脑。",
+      "steps": {
+        "0": "不使用",
+        "1": "自己智能体的浏览器",
+        "2": "自己智能体的电脑",
+        "3": "任何智能体的浏览器",
+        "4": "任何智能体的电脑"
+      },
+      "stepsIn": {
+        "1": "自己智能体的浏览器",
+        "2": "自己智能体的电脑",
+        "3": "任何智能体的浏览器",
+        "4": "任何智能体的电脑"
+      },
+      "everyoneTo": "所有人都获得{{step}}。",
+      "everyoneNone": "所有人不再使用智能体的电脑。"
+    },
+    "whoCan": "谁可以",
+    "everyoneSub": "工作区中的每个人",
+    "someRoles": "仅部分角色",
+    "losing": "将失去此权限：{{names}}。",
+    "nobodyLoses": "没有人失去。",
+    "everyoneGets": "所有人都将获得。",
+    "ownersAlways": "所有者始终可以。",
+    "noOtherRoles": "还没有其他角色。",
+    "channels": {
+      "header": "拥有 {{name}} 的人可以看到",
+      "headerBase": "所有人可以看到",
+      "hint": "这是关于成员的。有人添加智能体后，它才会进入频道。",
+      "search": "搜索频道",
+      "everyone": "所有人可见",
+      "private": "私密",
+      "general": "所有人都留在 #general。",
+      "locked": "只有创建 #{{channel}} 的人或整理频道的人可以更改谁能看到它。",
+      "leaveTitle": "从 {{name}} 移除 #{{channel}}？",
+      "leave_other": "{{names}} 将离开频道。",
+      "leaveAction": "移除",
+      "openTitle": "向 {{name}} 开放 #{{channel}}？",
+      "openText": "拥有 {{name}} 的人可以看到该频道及其全部历史，并可以加入。",
+      "openAction": "开放",
+      "openAllTitle": "向所有人开放 #{{channel}}？",
+      "openAllText": "全部历史将向工作区开放。",
+      "admin": "有了管理员，拥有 {{name}} 的人可以看到所有频道。",
+      "onlyGeneral": "目前只有 #general。",
+      "noMatch": "没有与“{{q}}”匹配的频道。",
+      "ungrouped": "频道",
+      "whoSees": "谁能看到",
+      "allSub": "工作区中的任何人都能看到并加入。",
+      "invited": "仅被添加的人",
+      "invitedSub": "新的人看不到。已在其中的人保留。",
+      "unsee": "已在其中的人保留。将看不到的人：{{names}}。"
+    },
+    "agents": {
+      "header": "拥有 {{name}} 的人可以对话的",
+      "headerBase": "所有人可以对话的",
+      "hint": "这是关于成员的。每个智能体做什么，在其页面上。",
+      "everyone": "所有人都可对话",
+      "gate": "只拥有 {{name}} 的人不与智能体对话。",
+      "gateOn": "开启与智能体对话",
+      "locked": "只有 {{name}} 的负责人 {{owner}} 或能编辑任何智能体的人可以更改。",
+      "locked_female": "只有 {{name}} 的负责人 {{owner}} 或能编辑任何智能体的人可以更改。",
+      "lockedNoOwner": "只有能编辑任何智能体的人可以更改。",
+      "none": "还没有智能体。",
+      "some": "仅部分角色和成员",
+      "addPerson": "添加成员",
+      "losing": "将不能再与 {{agent}} 对话：{{names}}。"
+    },
+    "people": {
+      "removed": "{{person}} 不再拥有 {{name}}",
+      "selfTitle": "将自己从 {{name}} 移除？",
+      "selfText": "你将失去只有 {{name}} 提供的权限。只有比你更高的人才能还给你。"
+    },
+    "mail": {
+      "title_other": "智能体将失去 {{count}} 个邮箱",
+      "loses": "{{agent}} 将失去 {{owner}} 的邮箱 {{address}}。",
+      "losesAddress": "{{agent}} 将失去邮箱 {{address}}。",
+      "only": "只有给出邮箱的人才能再次给出。",
+      "addAnyway": "仍然添加",
+      "giveAnyway": "仍然授予"
     }
   },
   "vault": {

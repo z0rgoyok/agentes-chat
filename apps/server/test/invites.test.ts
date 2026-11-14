@@ -599,3 +599,75 @@ test("a batch of invitations takes `emails` or `invites`, never both nor neither
   expect((await batch({})).status).toBe(400);
   expect((await batch({ invites: [{ email: "b@example.com" }] })).status).toBe(200);
 });
+
+test("links and invitations carry cargos, channels and agents; a link has a lifetime and a maximum (ADR 0184)", async () => {
+  const { owner, orgId, agentId, link } = await start();
+  const org = (path: string) => `/api/app/organizations/${orgId}${path}`;
+  const { id: suporte } = (await (await owner(org("/roles"), { json: { name: "Suporte" } })).json()) as { id: string };
+
+  // An older app's call, with no choices: the workspace's own link.
+  const bare = await owner(org("/invite-links"), { json: {} });
+  expect(bare.status).toBe(200);
+  expect(((await bare.json()) as Link).id).toBe(link.id);
+  // With choices: a link of its own, shown again in the list with what it gives.
+  const made = await owner(org("/invite-links"), {
+    json: { roleIds: [suporte], agentIds: [agentId], maxUses: 1, expiresIn: "never" },
+  });
+  expect(made.status).toBe(201);
+  const chosen = (await made.json()) as Link & { neverExpires?: true; roleIds: string[]; maxUses: number | null };
+  expect(chosen).toMatchObject({ roleIds: [suporte], agentIds: [agentId], maxUses: 1, neverExpires: true });
+  expect(chosen.url).not.toBe(link.url);
+  const listed = (await (await owner(org("/invite-links"))).json()) as { links: Record<string, unknown>[] };
+  expect(listed.links.find((l) => l.id === chosen.id)).toMatchObject({
+    plain: false,
+    roleIds: [suporte],
+    channelIds: [],
+    agentIds: [agentId],
+    maxUses: 1,
+    uses: 0,
+    neverExpires: true,
+    createdBy: expect.any(String),
+  });
+  // At the defaults, the workspace's link again; values off the lists are refused.
+  const plain = await owner(org("/invite-links"), { json: { expiresIn: "30d" } });
+  expect([plain.status, ((await plain.json()) as Link).id]).toEqual([200, link.id]);
+  const odd = await owner(org("/invite-links"), { json: { maxUses: 3 } });
+  expect([odd.status, await errorCode(odd)]).toEqual([400, "invite_link.choice"]);
+  expect((await owner(org("/invite-links"), { json: { expiresIn: "2d" } })).status).toBe(400);
+
+  // Editing keeps the address; an empty change is refused.
+  const edit = (json: Record<string, unknown>) => owner(org(`/invite-links/${chosen.id}`), { method: "PATCH", json });
+  const edited = await edit({ maxUses: 5 });
+  expect(edited.status).toBe(200);
+  expect(await edited.json()).toMatchObject({ id: chosen.id, url: chosen.url, maxUses: 5 });
+  expect((await edit({})).status).toBe(400);
+
+  // A batch with an agent: the invitation carries it; one that isn't the workspace's is named in the refusal.
+  const batch = (json: Record<string, unknown>) => owner(org("/invitations/batch"), { json });
+  expect((await batch({ emails: ["nina@example.com"], roleIds: [suporte], agentIds: [agentId] })).status).toBe(200);
+  const gone = crypto.randomUUID();
+  const refused = await batch({ emails: ["olga@example.com"], agentIds: [gone] });
+  expect(refused.status).toBe(400);
+  expect(await refused.json()).toMatchObject({
+    error: { code: "invitation.agent", params: { agentId: gone, why: "gone" } },
+  });
+  const { invitations } = (await (await owner(org("/invitations/all"))).json()) as {
+    invitations: { id: string; email: string; agentIds: string[] }[];
+  };
+  const nina = invitations.find((i) => i.email === "nina@example.com");
+  expect(nina?.agentIds).toEqual([agentId]);
+  const changed = await owner(org(`/invitations/${nina?.id}`), { method: "PATCH", json: { agentIds: [] } });
+  expect(await changed.json()).toEqual({ roleIds: [suporte], channelIds: [], agentIds: [] });
+  expect((await owner(org(`/invitations/${nina?.id}`), { method: "PATCH", json: {} })).status).toBe(400);
+
+  // Full: the page says so before anyone asks, and asking is refused.
+  await t.db
+    .update(schema.organizationInviteLinks)
+    .set({ uses: 5 })
+    .where(eq(schema.organizationInviteLinks.id, chosen.id));
+  const chosenToken = chosen.url.split("/invite/")[1] ?? "";
+  const anon = browser(t);
+  expect(await (await anon(`/api/app/invitations/${chosenToken}`)).json()).toMatchObject({ kind: "link", full: true });
+  const asked = await ask(anon, chosenToken, { name: "Gus", email: "gus@example.com" });
+  expect([asked.status, await errorCode(asked)]).toEqual([409, "join.link_full"]);
+});

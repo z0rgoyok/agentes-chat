@@ -6,7 +6,8 @@
  *
  * Outputs (all ignored by git):
  *   src-tauri/icons/tray/{idle,working,paused,offline,update,browsing,needs}.png  36×36 template images (18 pt @2x)
- *   app-icon.png                                                   1024×1024 app icon master
+ *   app-icon.png                                                   1024×1024 app icon master (ADR 0179)
+ *   src-tauri/icons/app/<id>.png, <id>-tile.png                    the icons a person may pick, Dock and window
  *
  * No dependencies: a tiny PNG encoder over node:zlib.
  */
@@ -14,7 +15,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { bodyTones, eyeShapes, inBody, toneAt } from "../../../packages/ui/src/agent/engine.js";
+import { png, render, resize } from "../../../packages/ui/scripts/app-icons/raster.mjs";
+import { APP_ICON_IDS, macLayers, SCENES, tiled } from "../../../packages/ui/scripts/app-icons/scenes.mjs";
+import { eyeShapes, inBody } from "../../../packages/ui/src/agent/engine.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -174,64 +177,26 @@ function trayPng(state: TrayState): Uint8Array {
   return encodePng(TRAY_PX, TRAY_PX, rgba);
 }
 
-/* ---------- App icon: 1024 px, the agent in the sky's dither on a dark tile ---------- */
+/* ---------- App icon (ADR 0179): from the app icons' generator (packages/ui/scripts/app-icons) ---------- */
 
-const hex = (h: string): [number, number, number] => {
-  const n = Number.parseInt(h.slice(1, 7), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-};
-
-function appIconPng(): Uint8Array {
-  const S = 1024;
-  const tile = { x: 100, y: 100, s: 824, r: 185 };
-  const body = { x: 232, y: 222, s: 560 };
-  const cells = 22;
-  const tones = (bodyTones("sky") as string[]).map(hex);
-  const bg = hex("#151514");
-  const rgba = new Uint8Array(S * S * 4);
-  const inTile = (x: number, y: number) => {
-    const cx = Math.min(Math.max(x, tile.x + tile.r), tile.x + tile.s - tile.r);
-    const cy = Math.min(Math.max(y, tile.y + tile.r), tile.y + tile.s - tile.r);
-    return (x - cx) ** 2 + (y - cy) ** 2 <= tile.r * tile.r;
-  };
-  const n = 3; // supersampling for the icon's edges
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let sy = 0; sy < n; sy++)
-        for (let sx = 0; sx < n; sx++) {
-          const px = x + (sx + 0.5) / n;
-          const py = y + (sy + 0.5) / n;
-          if (!inTile(px, py)) continue;
-          let c = bg;
-          const u = (px - body.x) / body.s;
-          const v = (py - body.y) / body.s;
-          if (inBody(u, v)) {
-            const eye = ROUND_EYES.some((e) => inPill(u, v, e));
-            if (eye) c = [255, 255, 255];
-            else {
-              const cx = Math.min(cells - 1, Math.floor(u * cells));
-              const cy = Math.min(cells - 1, Math.floor(v * cells));
-              c = tones[toneAt(cx, cy, cells) as number] ?? tones[2] ?? bg;
-            }
-          }
-          r += c[0];
-          g += c[1];
-          b += c[2];
-          a += 1;
-        }
-      const i = (y * S + x) * 4;
-      if (a > 0) {
-        rgba[i] = Math.round(r / a);
-        rgba[i + 1] = Math.round(g / a);
-        rgba[i + 2] = Math.round(b / a);
-      }
-      rgba[i + 3] = Math.round((a / (n * n)) * 255);
-    }
-  return encodePng(S, S, rgba);
+/**
+ * The bundle's master (1024, macOS's shape and shadow: `tauri icon` makes the .icns, .ico and PNGs from it) is the
+ * shipped icon; every icon's Dock picture (512) and window picture (256, a rounded square) are what the person may pick
+ * while the app runs (src/app_icon.rs embeds them).
+ */
+function appIcons(): { master: Uint8Array; dock: Map<string, Uint8Array>; window: Map<string, Uint8Array> } {
+  const dock = new Map<string, Uint8Array>();
+  const window = new Map<string, Uint8Array>();
+  let master: Uint8Array | null = null;
+  for (const id of APP_ICON_IDS) {
+    const scene = SCENES[id];
+    const mac = render(1024, macLayers(scene.light()));
+    if (id === APP_ICON_IDS[0]) master = png(mac);
+    dock.set(id, png(resize(mac, 512)));
+    window.set(id, png(resize(render(1024, tiled(scene.light())), 256)));
+  }
+  if (!master) throw new Error("icons: no app icons");
+  return { master, dock, window };
 }
 
 /* ---------- Write ---------- */
@@ -241,5 +206,10 @@ mkdirSync(trayDir, { recursive: true });
 for (const state of ["idle", "working", "paused", "offline", "update", "browsing", "needs"] as const) {
   writeFileSync(join(trayDir, `${state}.png`), trayPng(state));
 }
-writeFileSync(join(root, "app-icon.png"), appIconPng());
-console.log("icons: tray (7 states) and app-icon.png written");
+const icons = appIcons();
+writeFileSync(join(root, "app-icon.png"), icons.master);
+const appDir = join(root, "src-tauri", "icons", "app");
+mkdirSync(appDir, { recursive: true });
+for (const [id, bytes] of icons.dock) writeFileSync(join(appDir, `${id}.png`), bytes);
+for (const [id, bytes] of icons.window) writeFileSync(join(appDir, `${id}-tile.png`), bytes);
+console.log(`icons: tray (7 states), app-icon.png and ${icons.dock.size} app icons written`);

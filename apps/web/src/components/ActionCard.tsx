@@ -72,8 +72,8 @@ import {
   RequestOpen,
   useExpired,
 } from "@/components/RequestCard";
+import { ApprovalsCardView } from "@/components/RightHandApprovalsCard";
 import {
-  ApprovalsCardView,
   MemberChangesCardView,
   OpenPageCardView,
   SettingsProposalCardView,

@@ -129,7 +129,7 @@ describe("the card's phrase and the waiting row's step line", () => {
     const theo = { ...base, status: "running" as const };
     const iris = { ...base, runId: "r2", agentId: "iris", status: "running" as const };
     const names = (id: string) => (id === "theo" ? "Theo" : "Iris");
-    const entries = barEntries([theo, iris], ["u-marina"], names, () => "Marina");
+    const entries = barEntries([theo, iris], [{ id: "u-marina", kind: "typing" }], names, () => "Marina");
     const shown = (inView: string[]) =>
       entriesOffScreen(entries, [theo, iris], (r) => inView.includes(r.runId)).map((e) => e.name);
     expect(shown([])).toEqual(["Theo", "Iris", "Marina"]);
@@ -298,7 +298,9 @@ describe("humanized activity", () => {
     const bar = () =>
       activityText(
         t,
-        barEntries(runsInChannel(s, "c"), ["u1"], names, (id) => (id === "u1" ? "Marina" : undefined)),
+        barEntries(runsInChannel(s, "c"), [{ id: "u1", kind: "typing" }], names, (id) =>
+          id === "u1" ? "Marina" : undefined,
+        ),
       );
     expect(bar()).toBe("Theo está trabalhando · Marina está digitando…");
     s = applyChannelEvent(s, { type: "agent.tool", ...base, tool: "github_list_prs" });

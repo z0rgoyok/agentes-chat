@@ -16,6 +16,7 @@ import { usePageUrl } from "@/components/artifacts/HtmlFrame";
 import { useOrg } from "@/components/org-context";
 import { CardSky, colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useReveal } from "@/hooks/useReveal";
 import { useDarkTheme } from "@/lib/grow";
 import { useToast } from "@/lib/toast";
 import { SpecBlock } from "./SpecBlock";
@@ -212,13 +213,16 @@ export function LiveBlock({
   const [sent, setSent] = useState(keptOf(blockKey).sent ?? null);
   const [height, setHeight] = useState(keptOf(blockKey).height ?? 0);
   const [open, setOpen] = useState(keptOf(blockKey).open ?? false);
+  const shown = useRef<HTMLDivElement>(null);
+  const reveal = useReveal(shown, open);
   const [run, setRun] = useState(big || (keptOf(blockKey).run ?? false));
   const changedAt = useRef(0);
-  // Taller than the card: cut with a fade, "Show all" under it.
+  // Taller than the card: cut with a fade, "Ver mais" under it, which opens it whole for good.
   const tall = !big && height > INLINE_HEIGHT;
-  const toggleOpen = () => {
-    keptOf(blockKey).open = !open;
-    setOpen(!open);
+  const openWhole = () => {
+    reveal();
+    keptOf(blockKey).open = true;
+    setOpen(true);
   };
   const reply = useBlockReply(org.id, id);
   const shared = useSharedBlock(org.id, id, version);
@@ -291,6 +295,7 @@ export function LiveBlock({
   return (
     <div ref={ref}>
       <div
+        ref={shown}
         className="live-block__view"
         data-cut={(tall && !open) || undefined}
         style={big ? undefined : { height: tall && open ? height : INLINE_HEIGHT }}
@@ -311,16 +316,10 @@ export function LiveBlock({
           <div className="live-block__room" style={{ height: big ? (keptOf(blockKey).height ?? 120) : "100%" }} />
         )}
       </div>
-      {tall && (
+      {tall && !open && (
         <div className="live-block__more">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={open ? "chevronUp" : "chevronDown"}
-            aria-expanded={open}
-            onClick={toggleOpen}
-          >
-            {open ? t("blocks.showLess") : t("blocks.showAll")}
+          <Button variant="ghost" size="sm" icon="chevronDown" onClick={openWhole}>
+            {t("channel.long.more")}
           </Button>
         </div>
       )}

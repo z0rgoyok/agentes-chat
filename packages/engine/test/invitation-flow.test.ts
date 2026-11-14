@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createMemoryRateLimiter } from "@agenteschat/adapters";
-import { and, eq, schema, sql } from "@agenteschat/db";
+import { and, eq, isNotNull, schema, sql } from "@agenteschat/db";
 import {
   acceptInvitation,
   approveJoinRequest,
@@ -8,10 +8,12 @@ import {
   cancelSuggestion,
   changeMemberRole,
   claimJoinRequest,
+  createAgent,
   createInvitation,
   createRole,
   denyJoinRequest,
   type EmailTemplate,
+  ensureRightHand,
   holdsInvitation,
   invitationMailProof,
   invitationState,
@@ -31,13 +33,14 @@ import {
   pruneJoinRequests,
   queueInvitationEmail,
   removeMember,
+  renderEmail,
   renewInviteLink,
   resendInvitation,
   sendJoinCode,
-  setInvitationRoles,
   sha256,
   spentClaimHash,
   suggestPerson,
+  updateInvitation,
 } from "../src";
 import { addMember, adminRoleId, type Fixture, SECRET, setup } from "./fixtures";
 
@@ -431,7 +434,7 @@ describe("email invitations (ADR 0090)", () => {
     // Sending it again keeps its link.
     const again = await resendInvitation(fx().db, fx().owner.id, fx().org.id, rita.invitationId, at(1), SECRET);
     expect(again.token).toBe(rita.token);
-    await setInvitationRoles(fx().db, fx().owner.id, fx().org.id, rita.invitationId, [], at(1));
+    await updateInvitation(fx().db, fx().owner.id, fx().org.id, rita.invitationId, { roleIds: [] }, at(1));
     expect(
       (await listInvitationsWithStatus(fx().db, fx().owner.id, fx().org.id, NOW, SECRET)).find(
         (i) => i.email === "rita@example.com",
@@ -447,7 +450,7 @@ describe("email invitations (ADR 0090)", () => {
     const fromEmail = { secret: SECRET, proof: invitationMailProof(SECRET, rita.invitationId) };
     const ritaUser = { id: "u_rita", email: "rita@example.com" };
     const joined = await acceptInvitation(fx().db, ritaUser, rita.token, at(1), fromEmail);
-    expect(joined).toEqual({ orgId: fx().org.id, invitedBy: fx().owner.id });
+    expect(joined).toEqual({ orgId: fx().org.id, invitedBy: fx().owner.id, agents: [] });
     // In #produto too, and the address counts as confirmed: accepted from its email, the message reached that mailbox.
     const channels = await fx()
       .db.select({ channelId: schema.channelMembers.channelId })
@@ -540,8 +543,8 @@ describe("email invitations (ADR 0090)", () => {
     if (sent?.status !== "invited") throw new Error("expected an invitation");
     const { invitationId } = sent;
     const setRoles = (roleIds: string[], now: Date) =>
-      setInvitationRoles(fx().db, fx().owner.id, fx().org.id, invitationId, roleIds, now);
-    expect(await setRoles([admin], at(1))).toEqual({ roleIds: [admin] });
+      updateInvitation(fx().db, fx().owner.id, fx().org.id, invitationId, { roleIds }, now);
+    expect(await setRoles([admin], at(1))).toEqual({ roleIds: [admin], channelIds: [], agentIds: [] });
     // Run out: sending it again is what brings it back.
     await expect(setRoles([], at(8))).rejects.toMatchObject({ code: "conflict" });
     // A workspace on hold changes no invitation.
@@ -682,5 +685,305 @@ describe("email invitations (ADR 0090)", () => {
     const ninaUser = { id: "u_nina", email: "nina@example.com" };
     await acceptInvitation(fx().db, ninaUser, nina.token, NOW, fromEmail(nina.invitationId));
     expect(await verified("u_nina")).toBe(true);
+  });
+});
+
+describe("what an invitation gives (ADR 0184)", () => {
+  /** A cargo with `permissions` beyond Todos'. One made earlier ranks above the ones made after it. */
+  const cargo = (name: string, permissions: string[] = []) =>
+    createRole(fx().db, fx().owner.id, fx().org.id, { name, permissions });
+  /** An agent with this audience, owned by `ownerUserId`; on its owner's plan when `plan`. */
+  async function agentWith(
+    handle: string,
+    audience: { mode: "everyone" | "people" | "owner"; userIds?: string[]; roleIds?: string[] },
+    ownerUserId: string | null = null,
+    plan = false,
+  ) {
+    const name = handle.replace(/^./, (c) => c.toUpperCase());
+    const made = await createAgent(fx().db, fx().owner.id, fx().org.id, { name, handle, ownerUserId }, MODEL);
+    const [row] = await fx()
+      .db.update(schema.agents)
+      .set({
+        audienceMode: audience.mode,
+        audienceUserIds: audience.userIds ?? [],
+        audienceRoleIds: audience.roleIds ?? [],
+        ...(plan ? { brain: "claude_code" as const } : {}),
+      })
+      .where(eq(schema.agents.id, made.id))
+      .returning();
+    if (!row) throw new Error("no agent");
+    return row;
+  }
+  /** A mailbox `ownerId` connected and gave to the agent (ADR 0038). */
+  async function mailboxOn(agentId: string, ownerId: string) {
+    const [box] = await fx()
+      .db.insert(schema.mailAccounts)
+      .values({
+        orgId: fx().org.id,
+        provider: "gmail",
+        via: "composio",
+        address: `caixa-${agentId.slice(0, 6)}@example.com`,
+        label: "Caixa",
+        status: "active",
+        createdByUserId: ownerId,
+      })
+      .returning();
+    if (!box) throw new Error("no mailbox");
+    await fx()
+      .db.insert(schema.agentScopes)
+      .values({ orgId: fx().org.id, agentId, connectionId: box.id, scope: "mail:read", grantedByUserId: ownerId });
+    return box;
+  }
+  const agentRow = async (id: string) =>
+    (await fx().db.select().from(schema.agents).where(eq(schema.agents.id, id)))[0];
+  /** `inviterId` invites `email` with these choices; its token. */
+  async function invite(
+    inviterId: string,
+    email: string,
+    choices: { roleIds?: string[]; channelIds?: string[]; agentIds?: string[] },
+  ) {
+    const [sent] = await inviteMany(fx().db, inviterId, fx().org.id, { emails: [email], ...choices }, NOW);
+    if (sent?.status !== "invited") throw new Error(`expected an invitation, got ${sent?.status}`);
+    return sent;
+  }
+  /** A new account at `email` accepts `token`. */
+  async function joinAs(email: string, token: string, now = at(1)) {
+    const id = `u_${email.split("@")[0]}`;
+    await fx()
+      .db.insert(schema.users)
+      .values({ id, name: email.split("@")[0] ?? id, email });
+    const joined = await acceptInvitation(fx().db, { id, email }, token, now);
+    return { id, joined };
+  }
+  const pinsOf = async (userId: string) =>
+    ((await memberOf(userId))?.sidebarItems as { view?: { pins?: { agents?: string[] } } } | undefined)?.view?.pins
+      ?.agents;
+  const channelsOf = async (userId: string) =>
+    (
+      await fx()
+        .db.select({ id: schema.channelMembers.channelId })
+        .from(schema.channelMembers)
+        .where(eq(schema.channelMembers.userId, userId))
+    ).map((r) => r.id);
+  const MODEL = { model: "claude-sonnet-5-5" };
+
+  /** Lia may invite (`Recrutamento`), not manage agents; Suporte ranks below her cargo. */
+  async function world() {
+    await start();
+    const recrutamento = await cargo("Recrutamento", ["invite_people"]);
+    const suporte = await cargo("Suporte");
+    const lia = await addMember(fx().db, fx().org.id, "member", "lia");
+    await fx()
+      .db.insert(schema.organizationMemberRoles)
+      .values({ orgId: fx().org.id, userId: lia.id, roleId: recrutamento.id });
+    const bruno = await addMember(fx().db, fx().org.id, "member", "bruno");
+    return { lia, bruno, suporte, recrutamento };
+  }
+
+  test("who may start someone with which agent: never past what the inviter may open, a mailbox or a plan", async () => {
+    const { lia, bruno, suporte } = await world();
+    const aberto = await agentWith("aberto", { mode: "everyone" });
+    const sup = await agentWith("sup", { mode: "people", roleIds: [suporte.id] });
+    const fin = await agentWith("fin", { mode: "people" }, lia.id);
+    const obra = await agentWith("obra", { mode: "people" }, fx().owner.id);
+    const leitor = await agentWith("leitor", { mode: "people" }, fx().owner.id);
+    await mailboxOn(leitor.id, bruno.id);
+    const plano = await agentWith("plano", { mode: "owner" }, lia.id, true);
+    const velho = await agentWith("velho", { mode: "everyone" });
+    await fx().db.update(schema.agents).set({ archivedAt: NOW }).where(eq(schema.agents.id, velho.id));
+    await ensureRightHand(fx().db, fx().org.id);
+    const [lodi] = await fx().db.select().from(schema.agents).where(isNotNull(schema.agents.builtin));
+    const refused = (inviterId: string, agentIds: string[], roleIds: string[] = []) =>
+      inviteMany(fx().db, inviterId, fx().org.id, { emails: ["x@example.com"], agentIds, roleIds }, NOW).then(
+        () => null,
+        (e: { code: string; params?: unknown }) => ({ code: e.code, params: e.params }),
+      );
+    const locked = (a: { id: string; name: string }) => ({
+      code: "invitation.agent",
+      params: { agentId: a.id, name: a.name, why: "locked" },
+    });
+
+    // Lia: one that talks to everyone, one limited to the cargo she gives, and her own restricted one. The right hand
+    // is everyone's: it is left out, not refused.
+    const sent = await invite(lia.id, "nina@example.com", {
+      roleIds: [suporte.id],
+      agentIds: [aberto.id, sup.id, fin.id, lodi?.id ?? ""],
+    });
+    const [row] = await fx()
+      .db.select()
+      .from(schema.organizationInvitations)
+      .where(eq(schema.organizationInvitations.id, sent.invitationId));
+    expect(row?.agentIds).toEqual([aberto.id, sup.id, fin.id]);
+    // Someone else's restricted agent, or the cargo's agent without giving the cargo: only who may open it.
+    expect(await refused(lia.id, [obra.id])).toEqual(locked(obra));
+    expect(await refused(lia.id, [sup.id])).toEqual(locked(sup));
+    // A mailbox someone else gave it, or a plan kept for its owner: nobody picks it here, its owner included.
+    expect(await refused(fx().owner.id, [leitor.id])).toEqual(locked(leitor));
+    expect(await refused(lia.id, [plano.id])).toEqual(locked(plano));
+    // Gone: archived, or never this workspace's.
+    const unknown = crypto.randomUUID();
+    expect(await refused(fx().owner.id, [velho.id])).toEqual({
+      code: "invitation.agent",
+      params: { agentId: velho.id, name: "Velho", why: "gone" },
+    });
+    expect(await refused(fx().owner.id, [unknown])).toEqual({
+      code: "invitation.agent",
+      params: { agentId: unknown, name: null, why: "gone" },
+    });
+    // Who manages agents opens any restricted one that holds nothing of someone else's.
+    expect(await refused(fx().owner.id, [obra.id, fin.id])).toBeNull();
+  });
+
+  test("accepting starts them with the agents: a restricted one opens to them, all pinned, audited", async () => {
+    const { lia, suporte } = await world();
+    const aberto = await agentWith("aberto", { mode: "everyone" });
+    const sup = await agentWith("sup", { mode: "people", roleIds: [suporte.id] });
+    const fin = await agentWith("fin", { mode: "owner" }, lia.id);
+    const sent = await invite(lia.id, "nina@example.com", {
+      roleIds: [suporte.id],
+      agentIds: [fin.id, aberto.id, sup.id],
+    });
+    const { id: nina, joined } = await joinAs("nina@example.com", sent.token);
+    expect(joined.agents).toEqual([fin.id]);
+    // Fin, Lia's, starts answering Nina; the others already did, one through the cargo.
+    expect(await agentRow(fin.id)).toMatchObject({
+      audienceMode: "people",
+      audienceUserIds: [nina],
+      audienceRoleIds: [],
+    });
+    expect(await agentRow(sup.id)).toMatchObject({ audienceUserIds: [], audienceRoleIds: [suporte.id] });
+    expect((await agentRow(aberto.id))?.audienceMode).toBe("everyone");
+    const [audit] = await fx()
+      .db.select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, "agent.audience_changed"), eq(schema.auditLog.targetId, fin.id)));
+    expect(audit).toMatchObject({ actorId: lia.id, details: { via: "invitation" } });
+    // On top of their list, in the invitation's order.
+    expect(await pinsOf(nina)).toEqual([fin.id, aberto.id, sup.id]);
+  });
+
+  test("at accept, only what the inviter may still give: an agent given a mailbox since, or no longer theirs, stays shut", async () => {
+    const { lia, bruno } = await world();
+    const fin = await agentWith("fin", { mode: "people" }, lia.id);
+    const obra = await agentWith("obra", { mode: "people" }, lia.id);
+    const agents = [
+      fin.id,
+      obra.id,
+      ...(await Promise.all(["a", "b", "c", "d"].map((h) => agentWith(`open${h}`, { mode: "everyone" })))).map(
+        (a) => a.id,
+      ),
+    ];
+    const sent = await invite(lia.id, "nina@example.com", { agentIds: agents });
+    // Bruno gives Fin his mailbox, and Obra changes hands, before Nina accepts.
+    const box = await mailboxOn(fin.id, bruno.id);
+    await fx().db.update(schema.agents).set({ ownerUserId: bruno.id }).where(eq(schema.agents.id, obra.id));
+    const { id: nina, joined } = await joinAs("nina@example.com", sent.token);
+    expect(joined.agents).toEqual([]);
+    expect((await agentRow(fin.id))?.audienceUserIds).toEqual([]);
+    expect((await agentRow(obra.id))?.audienceUserIds).toEqual([]);
+    // Fin keeps Bruno's mailbox: a mailbox is never taken unasked.
+    const scopes = await fx().db.select().from(schema.agentScopes).where(eq(schema.agentScopes.connectionId, box.id));
+    expect(scopes).toHaveLength(1);
+    // The four that talk to everyone are pinned, at most five.
+    expect(await pinsOf(nina)).toEqual(agents.slice(2));
+  });
+
+  test("channels: a private one limited to a cargo goes with that cargo; a refusal names the channel and why", async () => {
+    const { lia, suporte } = await world();
+    const channel = async (name: string, values: Partial<typeof schema.channels.$inferInsert> = {}) => {
+      const [row] = await fx()
+        .db.insert(schema.channels)
+        .values({ orgId: fx().org.id, name, createdByUserId: fx().owner.id, ...values })
+        .returning();
+      if (!row) throw new Error("no channel");
+      return row;
+    };
+    const chamados = await channel("chamados", { visibility: "private", audienceRoleIds: [suporte.id] });
+    const diretoria = await channel("diretoria", { visibility: "private" });
+    const antigo = await channel("antigo", { archivedAt: NOW });
+    const refused = (channelIds: string[], roleIds: string[] = []) =>
+      inviteMany(fx().db, lia.id, fx().org.id, { emails: ["x@example.com"], channelIds, roleIds }, NOW).then(
+        () => null,
+        (e: { code: string; params?: unknown }) => ({ code: e.code, params: e.params }),
+      );
+    const why = (c: { id: string; name: string } | string, reason: string) => ({
+      code: "invitation.channel",
+      params:
+        typeof c === "string"
+          ? { channelId: c, name: null, why: reason }
+          : { channelId: c.id, name: c.name, why: reason },
+    });
+    // Lia isn't in #chamados: it goes only with the cargo it is limited to.
+    expect(await refused([chamados.id])).toEqual(why(chamados, "left"));
+    expect(await refused([diretoria.id], [suporte.id])).toEqual(why(diretoria, "left"));
+    expect(await refused([antigo.id])).toEqual(why(antigo, "archived"));
+    const unknown = crypto.randomUUID();
+    expect(await refused([unknown])).toEqual(why(unknown, "gone"));
+    const sent = await invite(lia.id, "nina@example.com", { roleIds: [suporte.id], channelIds: [chamados.id] });
+    const { id: nina } = await joinAs("nina@example.com", sent.token);
+    expect(await channelsOf(nina)).toContain(chamados.id);
+
+    // Lia can no longer invite by the time Olga accepts: no cargo, so no channel limited to it either.
+    const olga = await invite(lia.id, "olga@example.com", { roleIds: [suporte.id], channelIds: [chamados.id] });
+    await fx().db.delete(schema.organizationMemberRoles).where(eq(schema.organizationMemberRoles.userId, lia.id));
+    const { id: olgaId } = await joinAs("olga@example.com", olga.token);
+    expect(await channelsOf(olgaId)).not.toContain(chamados.id);
+  });
+
+  test("changing an invitation checks its cargos, channels and agents as when sent; one left out stays", async () => {
+    const { lia, suporte } = await world();
+    const fin = await agentWith("fin", { mode: "people" }, lia.id);
+    const obra = await agentWith("obra", { mode: "people" }, fx().owner.id);
+    const sent = await invite(lia.id, "nina@example.com", { agentIds: [fin.id] });
+    const change = (c: { roleIds?: string[]; channelIds?: string[]; agentIds?: string[] }) =>
+      updateInvitation(fx().db, lia.id, fx().org.id, sent.invitationId, c, at(1));
+    expect(await change({ roleIds: [suporte.id] })).toEqual({
+      roleIds: [suporte.id],
+      channelIds: [],
+      agentIds: [fin.id],
+    });
+    await expect(change({ agentIds: [obra.id] })).rejects.toMatchObject({
+      code: "invitation.agent",
+      params: { agentId: obra.id, why: "locked" },
+    });
+    expect(await change({ agentIds: [] })).toEqual({ roleIds: [suporte.id], channelIds: [], agentIds: [] });
+    const audits = await fx().db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "invitation.changed"));
+    expect(audits.map((a) => a.details)).toContainEqual(
+      expect.objectContaining({ email: "nina@example.com", roleIds: [suporte.id], agentIds: [] }),
+    );
+  });
+
+  test("the invite page and the email name the cargos, the channels and the agents, theirs first", async () => {
+    const { lia, suporte } = await world();
+    const first = await agentWith("antigo", { mode: "everyone" });
+    const fin = await agentWith("fin", { mode: "people" }, lia.id);
+    const [suporteChannel] = await fx()
+      .db.insert(schema.channels)
+      .values({ orgId: fx().org.id, name: "suporte", createdByUserId: fx().owner.id })
+      .returning();
+    const sent = await invite(lia.id, "nina@example.com", {
+      roleIds: [suporte.id],
+      channelIds: [suporteChannel?.id ?? ""],
+      agentIds: [fin.id],
+    });
+    const page = await previewInvitation(fx().db, sent.token, at(1));
+    expect(page).toMatchObject({ roles: [{ name: "Suporte", color: "graphite", icon: "shield" }], yours: 1 });
+    // Fin leads, though the workspace's own agents are older: the page's host is the invitation's first agent.
+    expect(page?.agents[0]?.id).toBe(fin.id);
+    expect(page?.agents.map((a) => a.id)).toContain(first.id);
+
+    await queueInvitationEmail(fx().db, {
+      orgId: fx().org.id,
+      invitationId: sent.invitationId,
+      email: "nina@example.com",
+      role: "member",
+      url: `${PUBLIC}/invite/${sent.token}`,
+      inviterId: lia.id,
+    });
+    const [mail] = (await outboxEmails()).filter((e) => e.template.kind === "invitation");
+    expect(mail?.template).toMatchObject({ roles: ["Suporte"], channels: ["suporte"], agents: ["Fin"] });
+    const text = renderEmail({ ...(mail?.template as EmailTemplate), locale: "pt-BR" }).text;
+    expect(text).toContain("como Suporte.");
+    expect(text).toContain("Você já entra em #suporte. Vai trabalhar com Fin.");
   });
 });

@@ -708,7 +708,7 @@
     "value": "An agent"
   },
   "along.waits": {
-    "value": "{{name}} is waiting for your ok"
+    "value": "{{name}} · waiting for you"
   },
   "along.on": {
     "value": "{{name}} · {{what}}"
@@ -1875,7 +1875,7 @@
     "value": "Nothing in progress"
   },
   "agents.state.waitsYou": {
-    "value": "waits for your OK"
+    "value": "waiting for you"
   },
   "agents.state.noAi": {
     "value": "No AI connected"
@@ -2798,6 +2798,15 @@
   "me.addWorkspaceFoot": {
     "value": "You don't leave any workspace."
   },
+  "me.addAccount": {
+    "value": "Sign in to another account"
+  },
+  "me.addAccountSub": {
+    "value": "On {{host}}, without leaving this one"
+  },
+  "me.accountNoWorkspace": {
+    "value": "No workspace yet"
+  },
   "me.teamServerLeadShort": {
     "value": "What your team opens in the browser."
   },
@@ -2845,6 +2854,12 @@
   },
   "me.account.email": {
     "value": "Email"
+  },
+  "me.account.emailWebLead": {
+    "value": "Sign in again on the website and change it there, without the code."
+  },
+  "me.account.emailWeb": {
+    "value": "Sign in again on the website"
   },
   "me.account.inWorkspace": {
     "value": "In this workspace · {{org}}"
@@ -3544,7 +3559,7 @@
     "value": "finished a task"
   },
   "homeNow.rowWait.approval": {
-    "value": "waits for your ok"
+    "value": "waiting for you"
   },
   "homeNow.rowWait.question": {
     "value": "waits for your answer"
@@ -3619,7 +3634,7 @@
     "value": "Waiting on you"
   },
   "intentAgents.waitingLine": {
-    "value": "{{title}} · needs your ok"
+    "value": "{{title}} · waiting for you"
   },
   "intentAgents.waitingMore": {
     "value": {
@@ -3628,7 +3643,7 @@
     }
   },
   "intentAgents.waitingLabel": {
-    "value": "{{name}}, needs your ok"
+    "value": "{{name}}, waiting for you"
   },
   "intentAgents.owner": {
     "value": "Owner: {{name}}"
@@ -3637,7 +3652,7 @@
     "value": "Owner: you"
   },
   "intentAgents.nowWaiting": {
-    "value": "Needs your ok: {{title}}"
+    "value": "Waiting for you: {{title}}"
   },
   "intentAgents.did.title": {
     "value": "What he did for you",
@@ -3683,7 +3698,7 @@
     "value": "File"
   },
   "intentAgents.did.waitingOnYou": {
-    "value": "Needs your ok"
+    "value": "Waiting for you"
   },
   "intentAgents.did.youApproved": {
     "value": "You approved"
@@ -5537,20 +5552,402 @@
   "settings.machine.toolsHowOwner": {
     "value": "Tap a tool to turn it on or off."
   },
-  "settings.roles.onComputer": {
-    "value": "The roles' order and each role's icon change on the computer."
-  },
-  "settings.roles.items": {
-    "value": "Item by item"
-  },
-  "settings.roles.create": {
-    "value": "Create"
-  },
   "settings.import.preparing": {
     "value": "Preparing the file…"
   },
   "settings.import.failed": {
     "value": "Couldn't download the file. Try again."
+  },
+  "roles.create": {
+    "value": "Create"
+  },
+  "roles.search": {
+    "value": "Search roles"
+  },
+  "roles.baseHint": {
+    "value": "Applies to every person in the workspace. Roles add to it."
+  },
+  "roles.orderHint": {
+    "value": "Whoever is higher manages the roles and the people below. Each person's name color comes from their highest role."
+  },
+  "roles.order": {
+    "value": "Reorder"
+  },
+  "roles.orderDone": {
+    "value": "Done"
+  },
+  "roles.up": {
+    "value": "Move {{name}} up"
+  },
+  "roles.down": {
+    "value": "Move {{name}} down"
+  },
+  "roles.orderChanged": {
+    "value": "The roles changed while you were moving them. Reload and try again."
+  },
+  "roles.none": {
+    "value": "No roles yet. Create one to give some people more."
+  },
+  "roles.noMatch": {
+    "value": "No role matches “{{q}}”."
+  },
+  "roles.tooMany": {
+    "value": "This workspace already has 100 roles. Delete one to create another."
+  },
+  "roles.loadFailed": {
+    "value": "Couldn't load the roles. {{cause}}"
+  },
+  "roles.backToList": {
+    "value": "Back to roles"
+  },
+  "roles.nobody": {
+    "value": "Nobody"
+  },
+  "roles.reach.permissions": {
+    "value": {
+      "one": "{{count}} permission",
+      "other": "{{count}} permissions"
+    }
+  },
+  "roles.reach.channels": {
+    "value": {
+      "one": "{{count}} channel",
+      "other": "{{count}} channels"
+    }
+  },
+  "roles.reach.agents": {
+    "value": {
+      "one": "{{count}} agent",
+      "other": "{{count}} agents"
+    }
+  },
+  "roles.reach.more": {
+    "value": "+{{what}}"
+  },
+  "roles.reach.all": {
+    "value": "Can do everything"
+  },
+  "roles.reach.owner": {
+    "value": "Can do everything, always"
+  },
+  "roles.reach.none": {
+    "value": "Only what Everyone can"
+  },
+  "roles.reach.baseNone": {
+    "value": "Read only"
+  },
+  "roles.tabs.permissions": {
+    "value": "Permissions"
+  },
+  "roles.tabs.channels": {
+    "value": "Channels"
+  },
+  "roles.tabs.agents": {
+    "value": "Agents"
+  },
+  "roles.addOwners": {
+    "value": "Add owners"
+  },
+  "roles.icons.shield": {
+    "value": "Shield"
+  },
+  "roles.icons.code": {
+    "value": "Code"
+  },
+  "roles.icons.wallet": {
+    "value": "Wallet"
+  },
+  "roles.icons.mail": {
+    "value": "Email"
+  },
+  "roles.icons.bolt": {
+    "value": "Bolt"
+  },
+  "roles.icons.flag": {
+    "value": "Flag"
+  },
+  "roles.icons.book": {
+    "value": "Book"
+  },
+  "roles.icons.chart": {
+    "value": "Chart"
+  },
+  "roles.icons.bulb": {
+    "value": "Light bulb"
+  },
+  "roles.icons.globe": {
+    "value": "Globe"
+  },
+  "roles.icons.pullRequest": {
+    "value": "Pull request"
+  },
+  "roles.icons.calendar": {
+    "value": "Calendar"
+  },
+  "roles.icons.message": {
+    "value": "Message"
+  },
+  "roles.icons.eye": {
+    "value": "Eye"
+  },
+  "roles.icons.plug": {
+    "value": "Plug"
+  },
+  "roles.icons.person": {
+    "value": "Person"
+  },
+  "roles.inviteWith": {
+    "value": "Invite with this role"
+  },
+  "roles.searchPermission": {
+    "value": "Search permissions"
+  },
+  "roles.everyoneCan": {
+    "value": "Everyone can"
+  },
+  "roles.only": {
+    "value": "Only {{names}}"
+  },
+  "roles.notHeld": {
+    "value": "You don't have this permission."
+  },
+  "roles.noPermissionMatch": {
+    "value": "No permission matches “{{q}}”."
+  },
+  "roles.advanced": {
+    "value": "Advanced"
+  },
+  "roles.peopleOnly": {
+    "value": "Roles are for people. Each agent has its own permissions, on its page."
+  },
+  "roles.nowAbove": {
+    "value": "This role is now above yours. Only someone higher changes it."
+  },
+  "roles.admin.title": {
+    "value": "Turn on Administrator for {{name}}?"
+  },
+  "roles.admin.text": {
+    "value": "Everyone with {{name}} can then do everything but what only the owner does."
+  },
+  "roles.admin.count": {
+    "value": {
+      "one": "That's {{count}} person.",
+      "other": "That's {{count}} people."
+    }
+  },
+  "roles.admin.on": {
+    "value": "Turn on Administrator"
+  },
+  "roles.admin.note": {
+    "value": "With Administrator, {{name}} can do everything but what only the owner does."
+  },
+  "roles.computers.title": {
+    "value": "Agents' computers"
+  },
+  "roles.computers.hint": {
+    "value": "Browser: the browser and the sign-in requests. Computer: also the whole screen and the terminal. Their own agents: the ones the person looks after and the computers they connected."
+  },
+  "roles.computers.steps.0": {
+    "value": "Doesn't use"
+  },
+  "roles.computers.steps.1": {
+    "value": "Their own agents' browser"
+  },
+  "roles.computers.steps.2": {
+    "value": "Their own agents' computer"
+  },
+  "roles.computers.steps.3": {
+    "value": "Any agent's browser"
+  },
+  "roles.computers.steps.4": {
+    "value": "Any agent's computer"
+  },
+  "roles.computers.stepsIn.1": {
+    "value": "their own agents' browser"
+  },
+  "roles.computers.stepsIn.2": {
+    "value": "their own agents' computer"
+  },
+  "roles.computers.stepsIn.3": {
+    "value": "any agent's browser"
+  },
+  "roles.computers.stepsIn.4": {
+    "value": "any agent's computer"
+  },
+  "roles.computers.everyoneTo": {
+    "value": "Everyone gets {{step}}."
+  },
+  "roles.computers.everyoneNone": {
+    "value": "Everyone stops using the agents' computers."
+  },
+  "roles.whoCan": {
+    "value": "Who can"
+  },
+  "roles.everyoneSub": {
+    "value": "Every person in the workspace"
+  },
+  "roles.someRoles": {
+    "value": "Only some roles"
+  },
+  "roles.losing": {
+    "value": "Losing it: {{names}}."
+  },
+  "roles.nobodyLoses": {
+    "value": "Nobody loses it."
+  },
+  "roles.everyoneGets": {
+    "value": "Everyone gets it."
+  },
+  "roles.ownersAlways": {
+    "value": "Owners always can."
+  },
+  "roles.noOtherRoles": {
+    "value": "There are no other roles yet."
+  },
+  "roles.channels.header": {
+    "value": "People with {{name}} see"
+  },
+  "roles.channels.headerBase": {
+    "value": "Everyone sees"
+  },
+  "roles.channels.hint": {
+    "value": "This is about people. An agent joins a channel when someone adds it."
+  },
+  "roles.channels.search": {
+    "value": "Search channels"
+  },
+  "roles.channels.everyone": {
+    "value": "Everyone sees it"
+  },
+  "roles.channels.private": {
+    "value": "Private"
+  },
+  "roles.channels.general": {
+    "value": "Everyone stays in #general."
+  },
+  "roles.channels.locked": {
+    "value": "Only whoever created #{{channel}} or arranges channels changes who sees it."
+  },
+  "roles.channels.leaveTitle": {
+    "value": "Remove #{{channel}} from {{name}}?"
+  },
+  "roles.channels.leave": {
+    "value": {
+      "one": "{{names}} leaves the channel.",
+      "other": "{{names}} leave the channel."
+    }
+  },
+  "roles.channels.leaveAction": {
+    "value": "Remove"
+  },
+  "roles.channels.openTitle": {
+    "value": "Open #{{channel}} to {{name}}?"
+  },
+  "roles.channels.openText": {
+    "value": "People with {{name}} see the channel and all its history, and can join."
+  },
+  "roles.channels.openAction": {
+    "value": "Open"
+  },
+  "roles.channels.openAllTitle": {
+    "value": "Open #{{channel}} to everyone?"
+  },
+  "roles.channels.openAllText": {
+    "value": "All its history opens to the workspace."
+  },
+  "roles.channels.admin": {
+    "value": "With Administrator, people with {{name}} see every channel."
+  },
+  "roles.channels.onlyGeneral": {
+    "value": "There's only #general for now."
+  },
+  "roles.channels.noMatch": {
+    "value": "No channel matches “{{q}}”."
+  },
+  "roles.channels.ungrouped": {
+    "value": "Channels"
+  },
+  "roles.channels.whoSees": {
+    "value": "Who sees"
+  },
+  "roles.channels.allSub": {
+    "value": "Anyone in the workspace sees it and can join."
+  },
+  "roles.channels.invited": {
+    "value": "Only who is added"
+  },
+  "roles.channels.invitedSub": {
+    "value": "Nobody new sees it. Who's in stays."
+  },
+  "roles.channels.unsee": {
+    "value": "Who's in stays. No longer see it: {{names}}."
+  },
+  "roles.agents.header": {
+    "value": "People with {{name}} talk to"
+  },
+  "roles.agents.headerBase": {
+    "value": "Everyone talks to"
+  },
+  "roles.agents.hint": {
+    "value": "This is about people. What each agent does is on its page."
+  },
+  "roles.agents.everyone": {
+    "value": "Everyone talks to it"
+  },
+  "roles.agents.gate": {
+    "value": "People with only {{name}} don't talk to agents."
+  },
+  "roles.agents.gateOn": {
+    "value": "Turn on Talk to agents"
+  },
+  "roles.agents.locked": {
+    "value": "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it.",
+    "female": "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it."
+  },
+  "roles.agents.lockedNoOwner": {
+    "value": "Only someone who edits any agent changes it."
+  },
+  "roles.agents.none": {
+    "value": "No agents yet."
+  },
+  "roles.agents.some": {
+    "value": "Only some roles and people"
+  },
+  "roles.agents.addPerson": {
+    "value": "Add a person"
+  },
+  "roles.agents.losing": {
+    "value": "No longer talk to {{agent}}: {{names}}."
+  },
+  "roles.people.removed": {
+    "value": "{{person}} no longer has {{name}}"
+  },
+  "roles.people.selfTitle": {
+    "value": "Take yourself out of {{name}}?"
+  },
+  "roles.people.selfText": {
+    "value": "You lose what only {{name}} gives. Only someone above you gives it back."
+  },
+  "roles.mail.title": {
+    "value": {
+      "one": "An agent loses a mailbox",
+      "other": "Agents lose {{count}} mailboxes"
+    }
+  },
+  "roles.mail.loses": {
+    "value": "{{agent}} loses {{address}}, {{owner}}'s mailbox."
+  },
+  "roles.mail.losesAddress": {
+    "value": "{{agent}} loses the mailbox {{address}}."
+  },
+  "roles.mail.only": {
+    "value": "Only whoever gave a mailbox gives it again."
+  },
+  "roles.mail.addAnyway": {
+    "value": "Add anyway"
+  },
+  "roles.mail.giveAnyway": {
+    "value": "Give it anyway"
   },
   "vault.newItem": {
     "value": "New item"

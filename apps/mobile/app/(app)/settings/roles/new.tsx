@@ -1,6 +1,6 @@
-import { NewRoleScreen } from "@/features/settings/RolesScreen";
+import { NewRoleScreen } from "@/features/roles/LookScreen";
 
-/** Criar papel, pushed over the roles. */
+/** Criar cargo, pushed over the cargos. */
 export default function SettingsNewRoleRoute() {
   return <NewRoleScreen />;
 }

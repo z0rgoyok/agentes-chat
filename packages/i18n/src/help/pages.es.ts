@@ -762,7 +762,7 @@ export const helpEs: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "email",
         heading: "Correo",
         blocks: [
-          "Sin correo, agentes.chat escribe cada correo en su registro en vez de enviarlo, así que puedes copiar de ahí un enlace de invitación. Restablecer la contraseña queda desactivado.",
+          "Sin correo, agentes.chat escribe cada correo en su registro en vez de enviarlo, así que puedes copiar de ahí un enlace de invitación. Restablecer la contraseña queda desactivado, y un correo nuevo para una cuenta cambia al instante, sin código ni enlace.",
           {
             code: "docker compose logs agentes | grep 'email (not sent'",
           },

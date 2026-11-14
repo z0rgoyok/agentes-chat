@@ -66,8 +66,9 @@ export function Servers() {
   // The server here has its own card, above.
   const others = list.servers.filter((server) => !isHereServer(local, server));
 
-  const open = async (server: string) => {
-    await host.chooseServer(server).catch(() => toast(t("desktop.common.error"), "alert"));
+  // `page`: the server's sign-in for one more account, or its first page as one of its accounts (ADR 0183).
+  const open = async (server: string, page?: string) => {
+    await host.chooseServer(server, page).catch(() => toast(t("desktop.common.error"), "alert"));
     read();
   };
 
@@ -136,7 +137,14 @@ export function Servers() {
                     </>
                   }
                   under={
-                    known?.signedIn && known.orgs.length > 1 ? (
+                    known?.signedIn && (known.accounts?.length ?? 0) > 1 ? (
+                      <AccountRows
+                        accounts={known.accounts ?? []}
+                        dim={offline}
+                        open={now}
+                        onOpen={(userId) => void open(server, `/?as=${userId}`)}
+                      />
+                    ) : known?.signedIn && known.orgs.length > 1 ? (
                       <WorkspaceRows orgs={known.orgs} dim={offline} />
                     ) : undefined
                   }
@@ -168,6 +176,11 @@ export function Servers() {
                           />
                         }
                       >
+                        {known?.signedIn && (
+                          <MenuItem icon="plus" onSelect={() => void open(server, "/login?add=1")}>
+                            {t("desktop.servers.addAccount")}
+                          </MenuItem>
+                        )}
                         {known?.signedIn && (
                           <MenuItem icon="arrowRight" onSelect={() => void signOut(server)}>
                             {t("desktop.servers.signOut")}
@@ -233,6 +246,47 @@ function WorkspaceRows({ orgs, dim = false }: { orgs: ServerWorkspaces["orgs"]; 
           <OrgTile logo={o.logo} size="sm" />
           <span className="dk-ws-name">{o.name}</span>
           {o.unread > 0 && <span className="dk-ws-count">{o.unread}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A server's accounts under its row, when the window is signed in there with several (ADR 0183): who each is, its
+ * workspaces, and the way to it. The one the window shows now says so in words, never a pill (ADR 0158).
+ */
+function AccountRows({
+  accounts,
+  dim,
+  open,
+  onOpen,
+}: {
+  accounts: NonNullable<ServerWorkspaces["accounts"]>;
+  dim: boolean;
+  /** The window is on this server now. */
+  open: boolean;
+  onOpen: (userId: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ul className="dk-accts" data-dim={dim || undefined}>
+      {accounts.map((a) => (
+        <li key={a.userId}>
+          <div className="dk-acct">
+            <span className="dk-acct__who">
+              <span className="dk-ws-name">{a.name}</span>
+              <span className="dk-ws-count">{a.email}</span>
+            </span>
+            {a.current && open ? (
+              <span className="dk-ws-count">{t("desktop.servers.openNow")}</span>
+            ) : (
+              <Button size="sm" variant="ghost" onClick={() => onOpen(a.userId)}>
+                {t("desktop.servers.open")}
+              </Button>
+            )}
+          </div>
+          {a.orgs.length > 0 && <WorkspaceRows orgs={a.orgs} />}
         </li>
       ))}
     </ul>

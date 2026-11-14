@@ -53,7 +53,7 @@ describe("voice messages in Configurações (ADR 0100)", () => {
     expect(screen().queryByRole("region", { name: "Mensagens de voz" })).toBeNull();
     expect(screen().getByRole("heading", { level: 2, name: "Sua conta" })).toBeTruthy();
     // Nothing about the person's role: no one has Voz on the Cloud.
-    expect(screen().queryByText(/não abre com o seu papel/)).toBeNull();
+    expect(screen().queryByText(/não abre com o seu cargo/)).toBeNull();
   });
 
   test("a key the provider refuses: said under the field, nothing kept", async () => {

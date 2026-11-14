@@ -724,7 +724,7 @@ describe("Members › Esperando você", () => {
     const sidebarCount = () => document.querySelector(".sidebar__org-meta")?.textContent;
     expect(sidebarCount()).toBe("2 membros · 2 agentes");
     // Roles to give (ADR 0085), "Membro" with none: a menu that stays open, one switch per role below the approver's.
-    const roles = within(ana).getByRole("button", { name: "Papéis para Ana Souza" });
+    const roles = within(ana).getByRole("button", { name: "Cargos para Ana Souza" });
     expect(roles.textContent).toBe("Membro");
     roles.focus();
     await act(async () => fireEvent.keyDown(roles, { key: "Enter" }));
@@ -946,7 +946,7 @@ describe("Members › Convidar pessoas", () => {
     expect([...invite.querySelectorAll(".invite-how li")].map((li) => li.textContent)).toEqual([
       "1A pessoa abre o link e diz quem é.",
       "2O pedido chega para quem convida, aqui e no celular.",
-      "3Você aprova e escolhe com que papel a pessoa entra.",
+      "3Você aprova e escolhe com que cargo a pessoa entra.",
     ]);
     // Who waits, and the way to answer them in Members.
     await settle(2);

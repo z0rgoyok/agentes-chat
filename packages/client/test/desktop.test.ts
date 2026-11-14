@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 // By path: the client doesn't depend on the adapters, so the package isn't linked here.
 import { STREAM_CLOSE } from "../../adapters/src/machine-protocol";
 import type { BrowserHandoff, DesktopStatus } from "../src/index";
 import {
+  applyBrowserHandoff,
   askControlWords,
   browserScreenKey,
   browserShowsDesktop,
@@ -15,9 +17,11 @@ import {
   desktopSwitch,
   desktopWithHandoff,
   drivesOnDesktop,
+  keys,
   previewGivesUp,
   screenRefusalMs,
 } from "../src/index";
+import { conversationSeat, SHARED_SEAT, screenId } from "../src/lib/seat";
 
 const handoff = (over: Partial<BrowserHandoff> = {}): BrowserHandoff => ({
   id: "h1",
@@ -153,6 +157,37 @@ describe("the agent's screen", () => {
     expect(desktopSocketUrl(base, card)).toBe(
       "wss://agentes.chat/api/desktop?orgId=o1&agentId=a1&preview=1&mode=watch",
     );
+    // The right hand's shared place is asked for by name; the viewer's own needs none.
+    expect(desktopSocketUrl(base, { orgId: "o1", agentId: "a1", mode: "watch", seat: SHARED_SEAT })).toBe(
+      "wss://agentes.chat/api/desktop?orgId=o1&agentId=a1&seat=shared&mode=watch",
+    );
+  });
+
+  test("the built-in agent's work in a conversation is on its shared place, except in the viewer's own DM with it", () => {
+    expect(conversationSeat("lodi", false)).toEqual({ agentId: "lodi", seat: SHARED_SEAT });
+    expect(conversationSeat("lodi", true)).toBeUndefined();
+    expect(conversationSeat(undefined, false)).toBeUndefined();
+  });
+
+  test("a handoff of the right hand's shared place never changes what is kept of a person's own", () => {
+    const qc = new QueryClient();
+    const own: DesktopStatus = { ...({} as DesktopStatus), handoff: null, controllerUserId: null };
+    qc.setQueryData(keys.agentDesktop("o1", "a1"), own);
+    qc.setQueryData(keys.agentDesktop("o1", screenId("a1", SHARED_SEAT)), own);
+    const taken = handoff({ screen: "desktop", status: "active", controllerUserId: "u2", seat: SHARED_SEAT });
+    applyBrowserHandoff(qc, "o1", taken);
+    expect(qc.getQueryData<DesktopStatus>(keys.agentDesktop("o1", "a1"))).toMatchObject({ handoff: null });
+    expect(qc.getQueryData<DesktopStatus>(keys.agentDesktop("o1", screenId("a1", SHARED_SEAT)))).toMatchObject({
+      handoff: { id: taken.id },
+      controllerUserId: "u2",
+    });
+    expect(qc.getQueryData(keys.agentBrowserHandoff("o1", "a1", "desktop"))).toBeUndefined();
+    // And a person's own leaves the shared place's alone.
+    applyBrowserHandoff(qc, "o1", handoff({ id: "h2", screen: "desktop", status: "active", controllerUserId: "me" }));
+    expect(qc.getQueryData<DesktopStatus>(keys.agentDesktop("o1", "a1"))).toMatchObject({ handoff: { id: "h2" } });
+    expect(qc.getQueryData<DesktopStatus>(keys.agentDesktop("o1", screenId("a1", SHARED_SEAT)))).toMatchObject({
+      handoff: { id: taken.id },
+    });
   });
 });
 

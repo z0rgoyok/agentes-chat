@@ -36,15 +36,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text as RNText, StyleSheet, useWindowDimensions, View } from "react-native";
-import Animated, {
-  FadeIn,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
 import { Sky } from "@/sky/Sky";
 import {
@@ -82,6 +74,7 @@ import { LineStop } from "./LiveRows";
 import { approvalIdOf, lineStops, markedParts, markName, parseInline, questionOf, workingEntries } from "./logic";
 import { useCardTop, useOwnTop } from "./look";
 import { Spans } from "./MessageSpans";
+import { WaitMark } from "./WaitMark";
 
 /**
  * A request in the conversation (an approval, a secret, a question, help in the agent's browser or on its
@@ -372,24 +365,7 @@ function lookAtAsks(store: AskStore, view: AskView, look: number, latest: () => 
 
 // ── The card ─────────────────────────────────────────────────────────────────
 
-/** The small amber square that breathes while a request waits on the person. */
-export function WaitMark({ size = 8 }: { size?: number }) {
-  const c = useColors();
-  const reduced = useReducedMotion();
-  const fade = useSharedValue(1);
-  useEffect(() => {
-    if (reduced) return;
-    fade.value = withRepeat(withSequence(withTiming(0.55, { duration: 800 }), withTiming(1, { duration: 800 })), -1);
-  }, [reduced, fade]);
-  const style = useAnimatedStyle(() => ({ opacity: fade.value }));
-  return (
-    <Animated.View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[{ width: size, height: size, borderRadius: 2, backgroundColor: c.amber }, style]}
-    />
-  );
-}
+export { WaitMark };
 
 export interface AskWell {
   /** The app or thing it goes through: its mark alone, 20 points (no tile inside the card). */
@@ -450,6 +426,7 @@ export interface AskAnswer {
 export function AskCard({
   id,
   kind,
+  headless = false,
   kindNote,
   agentId,
   waitsFor,
@@ -464,6 +441,8 @@ export function AskCard({
 }: {
   id: string;
   kind: AskKind;
+  /** No kind line over it: its words already say what happened (an applied invite card's "Convites enviados"). */
+  headless?: boolean;
   /** Said after the kind on the top line ("sai da empresa" for a request that leaves the workspace). */
   kindNote?: string | undefined;
   agentId: string;
@@ -554,17 +533,19 @@ export function AskCard({
       >
         <View style={styles.clip}>
           <Sky color={sky} depth={0.55} fade={0.15} surface="raised" style={styles.sky} />
-          <View style={styles.head}>
-            <Icon name={ASK_ICON[kind]} size={13} color={c.muted} />
-            <Text variant="footnote" tone="muted" numberOfLines={1} style={[styles.medium, styles.grow]}>
-              {kindNote ? `${kindWords} · ${kindNote}` : kindWords}
-            </Text>
-            {waitsFor && waitsFor !== "you" && !ended ? (
-              <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.waits}>
-                {waitsFor}
+          {headless ? null : (
+            <View style={styles.head}>
+              <Icon name={ASK_ICON[kind]} size={13} color={c.muted} />
+              <Text variant="footnote" tone="muted" numberOfLines={1} style={[styles.medium, styles.grow]}>
+                {kindNote ? `${kindWords} · ${kindNote}` : kindWords}
               </Text>
-            ) : null}
-          </View>
+              {waitsFor && waitsFor !== "you" && !ended ? (
+                <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.waits}>
+                  {waitsFor}
+                </Text>
+              ) : null}
+            </View>
+          )}
           {lead ? (
             <Text variant={well ? "body" : "title"} tone="ink" style={well ? styles.lead : undefined}>
               <Spans inline={parseInline(lead)} />

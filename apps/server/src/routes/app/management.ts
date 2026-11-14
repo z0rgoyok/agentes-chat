@@ -18,6 +18,7 @@ import {
   getMembership,
   getOrgSettings,
   getRun,
+  INVITE_CHOICES_MAX,
   INVITE_NOTE_MAX,
   ISSUES_GROUPS,
   ISSUES_LAYOUTS,
@@ -60,7 +61,6 @@ import {
   setAgentChannels,
   setAgentStyle,
   setChatPrefs,
-  setInvitationRoles,
   setMyIssuesView,
   setMySidebarItem,
   setMySidebarItems,
@@ -75,6 +75,7 @@ import {
   speakerOf,
   taskManager,
   taskSteps,
+  updateInvitation,
   updateMyProfile,
   updateOrgSettings,
   usageReport,
@@ -98,13 +99,16 @@ import { credentialOut } from "./credential-view";
 import {
   AgentAppearance,
   AgentAudience,
+  CanceledReturn,
   ChatPrefs,
   Credential,
   Model,
   ModelTier,
+  PendingReturn,
   ProviderId,
   Role,
   StartChoice,
+  WorkState,
 } from "./schemas";
 
 const usd = (nano: number | null) => (nano === null ? null : nanoUsdToUsd(nano));
@@ -195,6 +199,13 @@ const Settings = z
       description:
         "Who the workspace is for (ADR 0159): `team` (the default) or `personal`. It changes the apps' defaults and words, never what anyone may do; a change is audited (`organization.mode_changed`) and reaches every member's apps (`org.mode`).",
     }),
+    teamWatch: z.boolean().openapi({
+      description:
+        "The right hand watches for what stops the team (an ended AI sign-in, an app to reconnect) and tells the one person who can fix it. On by default.",
+    }),
+    welcomePeople: z.boolean().openapi({
+      description: "The right hand greets each person who joins the workspace, once. On by default.",
+    }),
     voiceAvailable: z.boolean().openapi({
       description: "Read only: this server has a speech engine now, from its environment or from its owner's Settings.",
     }),
@@ -279,6 +290,7 @@ const InvitationWithStatus = z
     role: Role,
     roleIds: z.array(z.string()),
     channelIds: z.array(z.string()).openapi({ description: "Channels it adds them to, besides #general (ADR 0090)." }),
+    agentIds: z.array(z.string()).openapi({ description: "Agents they start with (ADR 0184), pinned on joining." }),
     status: z.enum(["pending", "expired"]),
     expiresAt: z.string(),
     createdAt: z.string(),
@@ -413,9 +425,23 @@ const ManagedTask = z
           z.object({ kind: z.literal("routine"), name: z.string() }),
           z.object({ kind: z.literal("agent") }),
         ]),
+        from: z
+          .object({
+            channelId: z.uuid(),
+            channelKind: z.enum(["channel", "dm", "task"]),
+            channelName: z.string().nullable(),
+            threadId: z.uuid().nullable(),
+            messageId: z.uuid().nullable(),
+            label: z.string().nullable().openapi({ description: "The thread's title; null without one." }),
+          })
+          .nullable()
+          .openapi({
+            description:
+              "Where it was handed off, when you read that conversation: its thread and the reply that handed it (once posted).",
+          }),
       })
       .nullable()
-      .openapi({ description: "Another agent asked it: who, and what started the chain." }),
+      .openapi({ description: "Another agent asked it: who, what started the chain and where." }),
     helpers: z
       .number()
       .int()
@@ -469,6 +495,20 @@ const ManagedTask = z
         description:
           "Why a `waiting_input` run waits: its code, the plan or budget (`key` groups the runs on the same one), how far a pause got, since when it waits on its plan or budget (`since`, null when unknown), when the limit resets, and whether you may press Continuar agora.",
       }),
+    work: z
+      .object({
+        state: WorkState,
+        since: z.string(),
+        card: z
+          .uuid()
+          .nullable()
+          .openapi({ description: "The card it waits on, when it waits on a person: its message." }),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "How it stands for you, as an agent's line says it: `you` (it waits on your decision or answer), `working`, a wait on someone or something else, or `queued`, and since when (a wait from its own start). Null: it waits on its plan or budget (`held`).",
+      }),
   })
   .openapi("ManagedTask");
 const EndedTask = z
@@ -503,6 +543,12 @@ const TaskManagerView = z
     activity: z
       .record(z.string(), z.array(z.number().int()))
       .openapi({ description: "Per agent: tool calls per minute over the last 60 minutes, oldest first." }),
+    followUps: z
+      .array(PendingReturn)
+      .openapi({ description: '"Retornos": returns agents set, still to come, where you read; the soonest first.' }),
+    canceledFollowUps: z
+      .array(CanceledReturn)
+      .openapi({ description: "Returns canceled since `since`, the latest first." }),
   })
   .openapi("TaskManagerView");
 
@@ -578,6 +624,8 @@ export function managementRoutes(deps: AppDeps) {
             agentStickers: z.boolean().optional(),
             agentMedia: z.enum(AGENT_MEDIA_LEVELS).optional(),
             mode: z.enum(WORKSPACE_MODES).optional().openapi({ description: "`team` or `personal` (ADR 0159)." }),
+            teamWatch: z.boolean().optional(),
+            welcomePeople: z.boolean().optional(),
           }),
         ),
       },
@@ -1060,6 +1108,7 @@ export function managementRoutes(deps: AppDeps) {
             role: i.role,
             roleIds: i.roleIds,
             channelIds: i.channelIds,
+            agentIds: i.agentIds,
             status: i.status,
             expiresAt: i.expiresAt.toISOString(),
             createdAt: i.createdAt.toISOString(),
@@ -1080,9 +1129,10 @@ export function managementRoutes(deps: AppDeps) {
       security,
       summary: "Invite several emails at once",
       description:
-        "One outcome per email: exactly one of `invites`, each address with its own roles (ADR 0090), or `emails`, " +
-        "all with `roleIds`. `channelIds` and `note` go with every one. Only a hash of each token is stored " +
-        "(7-day expiry); the link can be copied again from the list.",
+        "One outcome per email: exactly one of `emails`, all with `roleIds` (ADR 0184), or `invites`, each address " +
+        "with its own roles (ADR 0090). `channelIds`, `agentIds` and `note` go with every one, checked against the " +
+        "cargos all of them get: `invitation.channel` and `invitation.agent` (400) name the one refused, with `why`. " +
+        "Only a hash of each token is stored (7-day expiry); the link can be copied again from the list.",
       request: {
         params: OrgParams,
         body: body(
@@ -1106,9 +1156,22 @@ export function managementRoutes(deps: AppDeps) {
                 .openapi({ description: "Roles they get on accepting, below your own (ADR 0085)." }),
               channelIds: z
                 .array(z.string().uuid())
-                .max(20)
+                .max(INVITE_CHOICES_MAX)
                 .optional()
-                .openapi({ description: "Channels they join on accepting, besides #general (ADR 0090)." }),
+                .openapi({
+                  description:
+                    "Channels they join on accepting, besides #general (ADR 0090): public ones, ones you are in, and " +
+                    "private ones limited to a cargo they get (ADR 0184).",
+                }),
+              agentIds: z
+                .array(z.string().uuid())
+                .max(INVITE_CHOICES_MAX)
+                .optional()
+                .openapi({
+                  description:
+                    "Agents they start with (ADR 0184): pinned on joining, and a restricted one you may open starts " +
+                    "answering them. Never one holding someone else's mailbox, nor one keeping its plan for its owner.",
+                }),
               note: z
                 .string()
                 .max(INVITE_NOTE_MAX)
@@ -1212,16 +1275,34 @@ export function managementRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/invitations/{invitationId}",
       tags: ["Members"],
       security,
-      summary: "Change the roles a pending invitation gives (ADR 0090): the same link, nothing is sent",
+      summary: "Change what a pending invitation gives (ADR 0090, 0184): the same link, nothing is sent",
+      description:
+        "Its cargos, channels and agents, each checked as when sending it; an omitted one stays. Only while it still " +
+        "works (409 once it ran out: send it again).",
       request: {
         params: OrgParams.extend({ invitationId: z.uuid() }),
-        body: body(z.object({ roleIds: z.array(z.string().uuid()).max(50) })),
+        body: body(
+          z
+            .object({
+              roleIds: z.array(z.string().uuid()).max(50).optional(),
+              channelIds: z.array(z.string().uuid()).max(INVITE_CHOICES_MAX).optional(),
+              agentIds: z.array(z.string().uuid()).max(INVITE_CHOICES_MAX).optional(),
+            })
+            .refine((b) => b.roleIds || b.channelIds || b.agentIds, {
+              message: "Send `roleIds`, `channelIds` or `agentIds`",
+            }),
+        ),
       },
-      responses: { 200: json(z.object({ roleIds: z.array(z.string()) })), ...errors },
+      responses: {
+        200: json(
+          z.object({ roleIds: z.array(z.string()), channelIds: z.array(z.string()), agentIds: z.array(z.string()) }),
+        ),
+        ...errors,
+      },
     }),
     async (c) => {
       const { orgId, invitationId } = c.req.valid("param");
-      const result = await setInvitationRoles(db, c.get("user").id, orgId, invitationId, c.req.valid("json").roleIds);
+      const result = await updateInvitation(db, c.get("user").id, orgId, invitationId, c.req.valid("json"));
       return c.json(result, 200);
     },
   );

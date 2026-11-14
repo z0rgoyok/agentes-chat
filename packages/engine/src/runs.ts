@@ -1,5 +1,6 @@
 import { and, type Executor, eq, type SQL, schema, sql } from "@agenteschat/db";
 import { PROVIDERS, type ProviderCause, ProviderError, providerCause } from "@agenteschat/providers";
+import { wakeLineOfRun } from "./approval-order";
 import { BRAIN_NAMES, type ComputerBrainKind, planName } from "./brains/types";
 import { cutText, pgSafeJson } from "./format";
 import { recordRunFinished } from "./operator-events";
@@ -269,6 +270,15 @@ const PROVIDER_ACCOUNT = "account: ";
 
 const OUR_KEY_CAUSES: ReadonlySet<ProviderCause> = new Set(["no_credit", "invalid_key", "no_access", "rate_limit"]);
 
+/** A key refused for what the key is, on every call until someone fixes it: no retry and no wait gets past it. */
+const KEY_REFUSALS: ReadonlySet<ProviderCause> = new Set(["no_credit", "invalid_key", "no_access"]);
+
+/** Whether a provider refused the call for its key (no credit, a wrong key, no access), whoever's key it is. */
+export function keyRefused(error: ProviderError) {
+  const cause = providerCause(error);
+  return cause !== null && KEY_REFUSALS.has(cause);
+}
+
 /**
  * A provider failure in the terms the apps word it: a known cause, `ours` (it came on the server's own key, so nothing
  * of the person's is wrong), or `said` (only the provider's own words, masked and cut, tell).
@@ -482,6 +492,9 @@ export async function transitionRun(
         : undefined,
     );
     await releaseProfileTurns(db, row.id);
+    // Failed or stopped, its requests no longer hold the agent's later actions on their cards (ADR 0182). A run that
+    // ends done settled its own on resuming (and woke the line there): no query on every reply.
+    if (to !== "done") await wakeLineOfRun(db, row.id);
   }
   return row ?? null;
 }

@@ -1,8 +1,8 @@
 import {
+  CardVia,
   type Message,
   useAgents,
   useAllInvitations,
-  useApprovals,
   useCalendarProposal,
   useCatalog,
   useChannels,
@@ -16,7 +16,6 @@ import {
   connectAppDone,
   installSkillDone,
   inviteDone,
-  memberRowDone,
   skillUpdateState,
 } from "@agenteschat/client/lib/action-cards";
 import { APP_PAGES, appPagePath } from "@agenteschat/client/lib/app-pages";
@@ -30,13 +29,16 @@ import { connectorName } from "@agenteschat/client/lib/scopes";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { EventPillAction, EventPillText, type IconName, Text, useToast } from "@/ui";
+import { EventPillAction, EventPillText, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AskDone, AskWaiting } from "../chat/asks";
 import { openWebPath } from "../links/open-web";
 import { openedFromCard } from "../settings/install-from-card";
 import { useDirectory, useMeId } from "../shared/hooks";
 import { PersonLimitNote } from "../usage/people";
+import { OfferApprovals } from "./OfferApprovals";
+import { OfferPeople } from "./OfferPeople";
+import { OfferShell } from "./OfferShell";
 
 /**
  * The web's cards to connect an app or an MCP server (`offer_connect_app`) and to invite people (`offer_invites`) in
@@ -53,8 +55,13 @@ export function OfferCard({ message: m }: { message: Message }) {
   if (card.kind === "invite_people") return <Invite card={card} />;
   if (card.kind === "install_skill") return <InstallSkill card={card} agentId={m.author.id} />;
   if (card.kind === "update_skills") return <UpdateSkills card={card} postedAt={m.createdAt} />;
-  if (card.kind === "approvals") return <Approvals card={card} />;
-  if (card.kind === "member_changes") return <People card={card} />;
+  if (card.kind === "approvals")
+    return (
+      <CardVia messageId={m.id}>
+        <OfferApprovals card={card} />
+      </CardVia>
+    );
+  if (card.kind === "member_changes") return <OfferPeople card={card} message={m} />;
   if (card.kind === "open_page") return <OpenScreen card={card} />;
   if (card.kind === "person_limit") return <PersonLimitNote card={card} />;
   if (card.kind === "calendar_proposal") return <CalendarProposalOffer message={m} card={card} />;
@@ -76,7 +83,7 @@ function ConnectApp({ card }: { card: Extract<Card, { kind: "connect_app" }> }) 
   const done = connectAppDone(card, connectedItems(connections.data ?? [], servers.data ?? [], defs));
   const query = def ? `connect=${encodeURIComponent(def.id)}` : `mcp=${encodeURIComponent(card.url ?? "")}`;
   return (
-    <Shell
+    <OfferShell
       icon="globe"
       title={title}
       why={card.why}
@@ -101,7 +108,7 @@ function Invite({ card }: { card: Extract<Card, { kind: "invite_people" }> }) {
   ];
   const emails = card.emails.join(", ");
   return (
-    <Shell
+    <OfferShell
       icon="person"
       title={t("actionCard.invite.title", { count: card.emails.length })}
       why={card.why}
@@ -121,7 +128,7 @@ function InstallSkill({ card, agentId }: { card: Extract<Card, { kind: "install_
   const may = can(org, "manage_agents");
   const skills = useSkills(orgId);
   return (
-    <Shell
+    <OfferShell
       icon="brain"
       title={t("actionCard.install_skill.title")}
       why={card.why}
@@ -154,7 +161,7 @@ function UpdateSkills({ card, postedAt }: { card: Extract<Card, { kind: "update_
     .filter(Boolean)
     .join(", ");
   return (
-    <Shell
+    <OfferShell
       icon="brain"
       title={t("actionCard.update_skills.title", { count: rows.length })}
       why={card.why}
@@ -163,50 +170,6 @@ function UpdateSkills({ card, postedAt }: { card: Extract<Card, { kind: "update_
       action={can(org, "manage_agents") ? t("actionCard.update_skills.review") : null}
       onAction={() => router.push(`/settings/skills/${next?.id ?? ""}` as never)}
       blocked={t("actionCard.update_skills.adminOnly")}
-    />
-  );
-}
-
-function Approvals({ card }: { card: Extract<Card, { kind: "approvals" }> }) {
-  const { t } = useTranslation();
-  const { orgId } = useOrg();
-  const approvals = useApprovals(orgId);
-  const rows = card.approvalIds.map((id) => approvals.data?.find((a) => a.id === id));
-  const next = rows.find((a) => a?.status === "pending");
-  const titles = rows
-    .map((a) => a?.title)
-    .filter(Boolean)
-    .join(", ");
-  return (
-    <Shell
-      icon="shield"
-      title={t("rightHand.approvals.title")}
-      why={card.why}
-      detail={titles}
-      done={approvals.isSuccess && !next ? `${t("rightHand.approvals.done")}: ${titles}` : null}
-      action={next ? t("rightHand.open.open") : null}
-      onAction={() => router.push(`/approval/${next?.id ?? ""}` as never)}
-      blocked=""
-    />
-  );
-}
-
-function People({ card }: { card: Extract<Card, { kind: "member_changes" }> }) {
-  const { t } = useTranslation();
-  const { orgId } = useOrg();
-  const members = useMembers(orgId);
-  const names = [...new Set(card.rows.map((r) => r.name))].join(", ");
-  const done = members.isSuccess && card.rows.every((r) => memberRowDone(r, members.data));
-  return (
-    <Shell
-      icon="members"
-      title={t("rightHand.people.title")}
-      why={card.why}
-      detail={names}
-      done={done ? `${t("rightHand.people.done")}: ${names}` : null}
-      action={t("rightHand.open.open")}
-      onAction={() => router.push("/me/members" as never)}
-      blocked=""
     />
   );
 }
@@ -227,7 +190,7 @@ function OpenScreen({ card }: { card: Extract<Card, { kind: "open_page" }> }) {
   const web = appPagePath(page.web, card);
   const allowed = !page.may || can(org, page.may);
   return (
-    <Shell
+    <OfferShell
       icon="out"
       title={title}
       why={card.why}
@@ -316,64 +279,6 @@ function CalendarProposalOffer({
             </Text>
           ) : null}
         </EventPillText>
-      }
-    />
-  );
-}
-
-/**
- * One offer as a waiting pill: its title, the action (tinted) for who may take it, else who may in the text under it;
- * the agent's why and the detail (an address, names) under the pill too. Done, a decided request's pill.
- */
-function Shell({
-  icon,
-  title,
-  why,
-  detail,
-  done,
-  action,
-  onAction,
-  blocked,
-}: {
-  icon: IconName;
-  title: string;
-  why: string;
-  detail?: string;
-  done: string | null;
-  action: string | null;
-  onAction: () => void;
-  blocked: string;
-}) {
-  if (done) {
-    return (
-      <View>
-        <AskDone done words={done} />
-      </View>
-    );
-  }
-  const note = action ? null : blocked;
-  return (
-    <AskWaiting
-      forMe={action !== null}
-      mark={icon}
-      words={title}
-      actions={action ? <EventPillAction key="act" primary label={action} onPress={onAction} /> : null}
-      below={
-        why || detail || note ? (
-          <EventPillText>
-            {why ? <Text variant="footnote">{why}</Text> : null}
-            {detail ? (
-              <Text variant="footnote" tone="muted">
-                {detail}
-              </Text>
-            ) : null}
-            {note ? (
-              <Text variant="footnote" tone="muted">
-                {note}
-              </Text>
-            ) : null}
-          </EventPillText>
-        ) : null
       }
     />
   );

@@ -12,7 +12,7 @@ import { Modal, StyleSheet, View } from "react-native";
 import { signOut } from "@/features/account";
 import { useNow } from "@/features/shared/hooks";
 import { SERVER_GIVE_UP_MS, SERVER_STUCK_MS, serverDownOf } from "@/lib/org-choice";
-import { serverUrl, setServer, useServerToReturn } from "@/lib/server";
+import { accountLabel, serverUrl, setServer, useServerToReturn } from "@/lib/server";
 import { useOrgGate } from "@/providers/org";
 import { Fuse } from "@/sky/Fuse";
 import { AuthLink } from "@/ui/auth/AuthLink";
@@ -146,7 +146,7 @@ export function ServerDownPanel({ down }: { down: ServerDown }) {
       <View style={styles.links}>
         {back ? (
           <AuthLink
-            label={t("mobile.auth.server.backTo", { host: serverHost(back) })}
+            label={t("mobile.auth.server.backTo", { host: accountLabel(back) ?? serverHost(back) })}
             onPress={() => void setServer(back)}
           />
         ) : null}

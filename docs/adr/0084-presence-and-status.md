@@ -1,6 +1,6 @@
 # 0084. Presence and written status, for people and agents
 
-- Status: Accepted (built: the server, the shared client, §7–§11, the web and the phone app). Addendum 2026-10-31: a run reads how its teammates are now
+- Status: Accepted (built: the server, the shared client, §7–§11, the web and the phone app). Addendum 2026-10-31: a run reads how its teammates are now. Addendum 2026-11-13: an agent's face says its work, and its work shows where it was handed off
 - Date: 2026-10-30
 - Code: `packages/engine/src/member-status.ts`, `packages/engine/src/agent-status.ts` (`loadAgentStatuses`, `statusCandidates`, `statusQuestions`, `askRunStatus`, `startRunStatus`, `followWork`, `set_status`; called from `executor.ts` and `run-tools.ts` `invokeWithChip`), `packages/engine/src/judge.ts` (`score`), `packages/engine/src/team.ts` (`find_agent`), `packages/engine/src/tools/run-policy.ts` (kind `self`), `packages/db/src/schema/tenancy.ts` (`organization_members.availability`, `status_*`), `packages/db/src/schema/agents.ts` (`agents.status_*`), `apps/server/src/routes/app/management.ts` (`/people`, `PUT …/me/status`), `apps/server/src/routes/app/agents.ts` (`GET …/agent-status`), `apps/server/src/realtime/ws.ts`; shared: `packages/client/src/lib/presence.ts`, `packages/ui/src/presence/badge.ts`; web: `packages/ui` `PresenceBadge` (Avatar `presence`), `apps/web/src/components/StatusDialog.tsx`, `Presence.tsx`, `hooks/usePresence.ts`; phone: `apps/mobile/src/ui/PresenceBadge.tsx`, `src/features/status/*` (route `/me/status`)
 
@@ -56,3 +56,40 @@ It is a per-turn block, read whole (`found`): after "Where you are" it would be 
 15. **Away is for an agent idle a while since it last worked.** One that never worked counts from its making: online for
     30 minutes after it was made, then away, instead of away from the start. The team's right hand (ADR 0137) is never
     away: it is where the workspace's people come to talk, so it reads online unless busy, out, held or with no AI.
+
+## Addendum (2026-11-13): an agent's face says its work, and its work shows where it was handed off
+
+Work one agent handed another (`tell_agent`, `ask_agent`) runs in the two agents' DM, which nobody reads. Only the
+hand-off's divider said the other agent worked: its face read red "Ocupado" (a run over 2 minutes), and the lists, the
+thread's chip and Início knew nothing of it. And "Ocupado" reads as "do not disturb", while an agent at work takes more
+work; "Ausente" told people an agent due back later was gone.
+
+16. **An agent's face says one of five things**, first match: offline (held, or no AI), out of office, **waiting on you**
+    (amber, a hollow 3×3 square: its run waits on your decision or your answer), **working** (`--agent` blue, three white
+    dots: a run is running, or it said it's busy) or **available** (green, "Disponível"). Agents never read red "Ocupado"
+    or amber "Ausente" again. The server keeps `busy` and `away` (§3) for agents' own tools (`find_agent`) and the
+    router; the apps map them (`agentPresenceShown`, `AgentFace`). People's badges don't change.
+17. **Work has one place, per viewer** (`agent-work.ts`). A run is placed at its anchor (`anchorsSql`): up the hand-offs
+    it answers (`agent_consultations.target_run_id`, the latest at each step, at most `MAX_HANDOFF_LINKS`) to the first
+    run outside two agents' DM. A routine's run is its own. The viewer reads the place and the agent it works for only
+    where they read that conversation (`channelReaderSql`); anyone else reads the bare state, which the face already
+    says, so nothing new leaks.
+18. **State per run, per viewer**: `working`; `you` when it waits on an approval the viewer may decide (`decidableBySql`,
+    the one rule of `decides`) or a question or secret asked of them; else a neutral wait (someone's approval, someone's
+    answer, its computer, its AI provider); `queued` (in line for a worker, or for room on its computer). A wait on its
+    plan or budget is none: out of office (§12) says it.
+19. **Where it reads.** `GET …/agent-status` gains `work` (the agent's most important item for the viewer: you, working,
+    a neutral wait, queued, then the oldest; with since when and how many), in one more SQL statement whatever the number
+    of agents. `GET …/active-runs` lists delegated runs at their anchor with `forAgentId`. A thread's `working` counts
+    queued or running work anchored there (one hop of hand-offs), with `wait` and `since`, and its `needsYou` follows
+    `decidableBySql`. The task manager's delegated rows say where they were handed off (`delegation.from`). A computer
+    brain that parks mid-turn announces its status and its consultation at once (`suspendRunForTool`).
+20. **One set of words and one clock.** Lists say "ajudando a Ada · 22 min", "#vendas", "esperando você · 3 min",
+    "esperando aprovação", "na fila"; chips "Trabalhando · 22 min"; the profile card "Trabalhando · ajudando a Ada". Work
+    counts from the hand-off, or the run's start; a wait from when it began (`formatLineTime`); lists tick once a minute
+    and show no time in the first one.
+21. **The right hand is each person's own** (ADR 0137). Its face, its busy state and its work come only from the
+    viewer's own talk with it (`rightHandFor`). Its line never shows: it is one value for the whole agent, written by
+    whichever run spoke last (`set_status` included), so it could carry someone else's private conversation. Out of
+    office still says so to everyone.
+

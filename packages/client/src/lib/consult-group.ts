@@ -12,9 +12,17 @@ import { noticeOf } from "./notices";
 /**
  * Where one question is. `waiting`: the consulted agent waits on a person; `offline`: for its computer or its AI
  * provider to come back (still out, paused, on no one); `handedOn`: its part done, it waits on agents it handed
- * some to.
+ * some to; `queued`: its run waits for a worker.
  */
-export type ConsultLineState = "working" | "waiting" | "offline" | "handedOn" | "answered" | "failed" | "expired";
+export type ConsultLineState =
+  | "working"
+  | "waiting"
+  | "offline"
+  | "handedOn"
+  | "queued"
+  | "answered"
+  | "failed"
+  | "expired";
 
 /** Reloads the list this often while a question is out (a consulted agent that stops waiting sends no event). */
 export const CONSULT_GROUP_POLL_MS = 10_000;
@@ -33,6 +41,7 @@ export function consultLineState(
   if (Date.parse(c.expiresAt) < now) return "expired";
   if (c.waiting === "computer" || c.waiting === "outage") return "offline";
   if (c.waiting === "agents") return "handedOn";
+  if (c.waiting === "queued") return "queued";
   return c.waiting ? "waiting" : "working";
 }
 
@@ -53,6 +62,8 @@ export function consultLineKey(state: ConsultLineState, c: Pick<RunConsultation,
         : ("chat.consultGroup.waitingComputer" as const);
     case "handedOn":
       return "chat.consultGroup.waitingAgents" as const;
+    case "queued":
+      return "chat.consultGroup.queued" as const;
     case "answered":
       return "chat.consultation.answered" as const;
     case "expired":
@@ -176,8 +187,14 @@ export function consultGroupSummary(
  */
 export type ConsultPairItem = Pick<
   RunConsultation,
-  "id" | "kind" | "consultedAgentId" | "status" | "waiting" | "question" | "answer" | "expiresAt"
-> & { agentId?: string; createdAt: string | null; answeredAt: string | null };
+  "id" | "kind" | "consultedAgentId" | "status" | "waiting" | "question" | "answer" | "expiresAt" | "waitingSince"
+> & {
+  agentId?: string;
+  /** The consulted agent's run, from the list: whose card here waits on the reader. */
+  consultedRunId?: string | null;
+  createdAt: string | null;
+  answeredAt: string | null;
+};
 
 export const pairItemOf = (c: MessageConsultation): ConsultPairItem => ({
   id: c.consultationId,
@@ -205,10 +222,15 @@ function pairOpenKey(state: ConsultLineState, c: ConsultPairItem) {
         : ("chat.consultPair.waitingComputer" as const);
     case "handedOn":
       return "chat.consultPair.handedOn" as const;
+    case "queued":
+      return "chat.consultPair.queued" as const;
     default:
       return isNote(c) ? ("chat.consultPair.working" as const) : ("chat.consultPair.asking" as const);
   }
 }
+
+/** What waits on the person reading: the consulted agent's card here is theirs to decide or answer. */
+export type ConsultYours = "approval" | "answer";
 
 export interface ConsultPair {
   /** The consulted agents, each once, in the order asked; `off`: it didn't answer (its face dims). */
@@ -219,23 +241,38 @@ export interface ConsultPair {
   word: {
     key:
       | ReturnType<typeof pairOpenKey>
+      | "chat.consultPair.waitingYourApproval"
+      | "chat.consultPair.waitingYourAnswer"
       | "chat.consultGroup.progress"
       | "chat.consultPair.noAnswer"
       | "chat.consultPair.notFinished"
       | "chat.consultPair.someAnswered";
     values?: { done: number; total: number };
   } | null;
-  /** `live`: some question is still out (accent, the clock ticks); `bad`: some went unanswered. */
-  tone: "live" | "bad" | null;
-  /** How long it took, or has been out while live; null without times (a reply's `meta.consulted`). */
+  /**
+   * `live`: some question is still out and at work (accent, the clock ticks); `you`: it waits on the person reading
+   * (amber); `wait`: it waits on someone or something else (quiet); `bad`: some went unanswered.
+   */
+  tone: "live" | "you" | "wait" | "bad" | null;
+  /**
+   * How long it took, or has been out while live (while one waits, how long it has waited); null without times (a
+   * reply's `meta.consulted`).
+   */
   seconds: number | null;
 }
 
 /**
  * The pair row of a run's questions: "Theo ⇄ Atlas · 2 min", "Theo ⇄ Atlas e mais 2 · 1 de 3 42 s". `askerId`: the
  * row's asker; in an exchange the other agent may have asked it too, and its face is still the other agent's.
+ * `yours`: one question out whose consulted agent has a card here waiting on the person reading (it wins over the
+ * list, which may not have heard the run park yet).
  */
-export function consultPair(group: readonly ConsultPairItem[], now: number, askerId?: string): ConsultPair | null {
+export function consultPair(
+  group: readonly ConsultPairItem[],
+  now: number,
+  askerId?: string,
+  yours?: ConsultYours | null,
+): ConsultPair | null {
   const first = group[0];
   if (!first) return null;
   const states = group.map((c) => consultLineState(c, now));
@@ -254,15 +291,22 @@ export function consultPair(group: readonly ConsultPairItem[], now: number, aske
   const opens = group[out]?.id ?? first.id;
   if (summary.open) {
     const state = states[0] ?? "working";
+    const one = group.length === 1;
+    const you = one ? (yours ?? null) : null;
+    const waits = one && !you && (["waiting", "offline", "handedOn", "queued"] as const).some((s) => s === state);
+    // While it waits, the clock counts the wait (the bar and the lists say the same).
+    const waited = (you || waits) && first.waitingSince ? Date.parse(first.waitingSince) : Number.NaN;
+    const from = Number.isNaN(waited) ? start : waited;
     return {
       faces,
       opens,
-      word:
-        group.length === 1
+      word: you
+        ? { key: you === "approval" ? "chat.consultPair.waitingYourApproval" : "chat.consultPair.waitingYourAnswer" }
+        : one
           ? { key: pairOpenKey(state, first) }
           : { key: "chat.consultGroup.progress", values: { done: summary.closed, total: summary.total } },
-      tone: "live",
-      seconds: Number.isNaN(start) ? null : Math.max(1, Math.round((now - start) / 1000)),
+      tone: you ? "you" : waits ? "wait" : "live",
+      seconds: Number.isNaN(from) ? null : Math.max(1, Math.round((now - from) / 1000)),
     };
   }
   const ends = group.map((c) => (c.answeredAt ? Date.parse(c.answeredAt) : Number.NaN));

@@ -5,7 +5,9 @@ import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/tran
 import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/types.js";
 import { ARTIFACT_LIMITS, type ArtifactDeps, createFileArtifact, fileReach } from "../artifacts";
 import { recordAudit } from "../audit";
+import { runAuthorityById } from "../authority";
 import { connectorKeyOf } from "../connector-usage";
+import { signJwtHs256 } from "../crypto";
 import { cutText } from "../format";
 import { type GitHubAppAccess, githubCallAuth, githubListingHeaders } from "../git/github-call";
 import { githubItemOfCall, recordGitHubItem } from "../git/github-events";
@@ -62,7 +64,8 @@ export interface McpCallResult {
 /** An open MCP client session. Only the connector tool source uses it, behind the Tool Gateway. */
 export interface McpSession {
   listTools(): Promise<McpTool[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>;
+  /** `meta`: what the request carries in `params._meta`, beside the tool's arguments. */
+  callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>): Promise<McpCallResult>;
   /** Who the server said it is in `initialize` (name, title, icons); null when it said nothing. */
   serverInfo?(): McpServerInfo | null;
   close(): Promise<void>;
@@ -111,8 +114,8 @@ export async function mcpSessionOver(transport: Transport): Promise<McpSession> 
       }
       return tools;
     },
-    async callTool(name, args) {
-      const res = (await client.callTool({ name, arguments: args })) as {
+    async callTool(name, args, meta) {
+      const res = (await client.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as {
         content?: { type: string; text?: string; resource?: { text?: unknown } }[];
         isError?: boolean;
         structuredContent?: unknown;
@@ -234,6 +237,10 @@ export const exposedToolName = (connector: string, tool: string) =>
 
 const LIST_TTL_MS = 60_000;
 
+/** Where a tool call's signed caller statement goes in the request's `params._meta` (ADR 0181). */
+export const CALLER_META_KEY = "chat.agentes/caller";
+const CALLER_STATEMENT_SECONDS = 60;
+
 /** Read before Composio's own words in its executor's description: what asks a person and what doesn't. */
 const EXECUTOR_NOTE =
   "Reads such as list, get and search run without asking a person. GraphQL and SQL actions, the workbench and bash ask a person, unless you are set to never ask or a person approved that kind for good. Keep sync_response_to_workbench false unless you must script over the output.";
@@ -255,6 +262,8 @@ export function createConnectorToolSource(
     judge?: Judge;
     /** The server's GitHub App (ADR 0156): GitHub's tools act as it wherever the workspace installed it. */
     githubApp?: GitHubAppAccess;
+    /** `MCP_CALLER_IDENTITY`, secret by host: a server by address there is told who calls its tools (ADR 0181). */
+    callerIdentity?: ReadonlyMap<string, string>;
   },
 ): ToolSource {
   const connect = deps.connect ?? connectOverHttp;
@@ -323,6 +332,35 @@ export function createConnectorToolSource(
     if (typeof given !== "string") return input;
     const lines = await runCoAuthors({ db: at.db, http: github, token: at.token }, at);
     return lines.length > 0 ? { ...input, [sign.field]: creditedMessage(given, ...lines) } : input;
+  }
+
+  /**
+   * What a tool call to a listed host carries in `params._meta` (ADR 0181): a JWT signed with that host's secret that
+   * says which workspace, agent, run and connection is calling, and the person the run acts for. Nothing for any other
+   * host, nor over http, where anyone on the way could read it and send it again within its life.
+   */
+  async function callerStatement(connection: ConnectorConnection, ctx: ToolContext) {
+    if (!deps.callerIdentity?.size) return undefined;
+    const url = new URL(connection.serverUrl);
+    // `host` keeps a port that isn't https's own, and the list holds bare names: the audience is one origin.
+    const secret = url.protocol === "https:" ? deps.callerIdentity?.get(url.host) : undefined;
+    if (!secret) return undefined;
+    // Who the audit log's `tool.call` row says is behind the run; a call with no run has nobody.
+    const user = ctx.runId ? (await runAuthorityById(ctx.db, ctx.orgId, ctx.runId)).personId : null;
+    const iat = Math.floor((deps.now?.() ?? new Date()).getTime() / 1000);
+    const claims = {
+      iss: new URL(deps.publicUrl).origin,
+      aud: url.host,
+      org: ctx.orgId,
+      agent: ctx.agentId,
+      ...(ctx.runId ? { run: ctx.runId } : {}),
+      conn: connection.id,
+      ...(user ? { user } : {}),
+      iat,
+      exp: iat + CALLER_STATEMENT_SECONDS,
+      jti: crypto.randomUUID(),
+    };
+    return { [CALLER_META_KEY]: signJwtHs256(claims, secret) };
   }
 
   /** Which of a connection's tools are watched for changes (ADR 0117): not Composio's (pinned by toolkit version), not ours. */
@@ -406,9 +444,11 @@ export function createConnectorToolSource(
             };
           },
           execute: async (input, ctx) => {
+            // Never through Composio: no server at its address ever reads a request of ours.
+            const meta = composio ? undefined : await callerStatement(connection, ctx);
             let result: McpCallResult;
             try {
-              result = await withSession(connection, (s) => s.callTool(tool.name, input));
+              result = await withSession(connection, (s) => s.callTool(tool.name, input, meta));
             } catch (error) {
               if (!composio) throw error;
               return composioFailure(deps, connection, error);

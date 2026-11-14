@@ -27,6 +27,7 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { STATUS_ICON } from "@agenteschat/client/lib/issues";
 import { can } from "@agenteschat/client/lib/permissions";
 import { usageShown } from "@agenteschat/client/lib/plan-usage";
+import { agentFaceWord } from "@agenteschat/client/lib/presence";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { siteHost } from "@agenteschat/client/lib/secret-requests";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
@@ -159,7 +160,7 @@ function AgentHead({ agent }: { agent: Agent }) {
   const shown = useAgentPresence(agent.id);
   const busy = useStreams((s) => agentStateIn(s, agent.id) !== "idle");
   const line = agentLine(t, shown?.line ?? null, i18n.language);
-  const word = busy ? t("team.workingNow") : shown ? t(`presence.${shown.presence}`) : null;
+  const word = busy ? t("team.workingNow") : shown ? agentFaceWord(t, shown.presence) : null;
   // The right hand's one role name, as the sidebar and its DM's header say it.
   const role = isRightHand(agent) ? t("rightHand.labelCapitalized") : agent.role || `@${agent.handle}`;
   return (
@@ -179,8 +180,8 @@ function AgentHead({ agent }: { agent: Agent }) {
       ) : (
         word && (
           <p className="dm-side__status">
-            {/* The presence's own badge, as beside its face everywhere: away wears its clock, offline its outline. */}
-            <PresenceBadge presence={busy ? "online" : (shown?.presence ?? "offline")} ring={false} />
+            {/* The face's own badge, as beside its face everywhere: at work its dots, offline its outline. */}
+            <PresenceBadge presence={busy ? "working" : (shown?.presence ?? "offline")} ring={false} />
             {word}
           </p>
         )

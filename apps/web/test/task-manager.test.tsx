@@ -6,10 +6,12 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import type {
+  CanceledReturn,
   ComputerQueue,
   EndedTask,
   ManagedTask,
   Message,
+  PendingReturn,
   RunStep,
   TaskManagerView,
   TaskSteps,
@@ -17,6 +19,7 @@ import type {
   WorkingRun,
 } from "@agenteschat/client";
 import { keys, TASK_MANAGER_POLL_MS } from "@agenteschat/client";
+import { formatTime } from "@agenteschat/client/lib/format";
 import { usageWhenShort } from "@agenteschat/client/lib/plan-usage";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, type FakeState, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
@@ -437,7 +440,7 @@ describe("the task manager page", () => {
     expect(tipOf(link)).toBe("Conversa direta · Você pediu. Trabalhando. Claude Code · Navegador · página de cancelar");
     expect(link.textContent).not.toContain("MacBook");
     expect(link.querySelector(".tm-cell--time")?.textContent).toMatch(/^6:0\d$/);
-    expect(rowOf("Revisar o PR #231").textContent).toContain("Espera seu ok");
+    expect(rowOf("Revisar o PR #231").textContent).toContain("Esperando você");
     expect(rowOf("Revisar o PR #231").textContent).toContain("#eng · João pediu");
     // A wait says how long it has waited, as people say it: no clock.
     expect(rowOf("Revisar o PR #231").querySelector(".tm-cell--time")?.textContent).toBe("18 min");
@@ -860,6 +863,140 @@ describe("the task manager page", () => {
   });
 });
 
+describe("returns agents set (Retornos)", () => {
+  const ret = (over: Partial<PendingReturn> & Pick<PendingReturn, "messageId">): PendingReturn => ({
+    agentId: ATLAS_ID,
+    channelId: ENG_ID,
+    channelKind: "channel",
+    channelName: "eng",
+    threadId: null,
+    at: in_(33),
+    about: "rever o deploy de hoje",
+    runId: "r-1",
+    replyMessageId: "m-reply",
+    held: false,
+    canCancel: true,
+    ...over,
+  });
+  const canceled = (over: Partial<CanceledReturn> & Pick<CanceledReturn, "messageId">): CanceledReturn => ({
+    agentId: ATLAS_ID,
+    channelId: ENG_ID,
+    channelKind: "channel",
+    channelName: "eng",
+    threadId: null,
+    at: in_(20),
+    about: "ver o deploy",
+    canceledAt: ago(1),
+    canceledBy: null,
+    ...over,
+  });
+  const menuOf = async (row: HTMLElement) => {
+    await act(async () =>
+      fireEvent.pointerDown(within(row).getByRole("button", { name: /^Retornos: / }), { button: 0, ctrlKey: false }),
+    );
+    await settle(2);
+    return screen().getByRole("menu");
+  };
+
+  test("after the routines, one line a return: her words and where, when it comes, how soon; ⋯ opens or cancels", async () => {
+    const view = busy();
+    // More than 12 h away and on the next day at any hour the suite runs: at 00:44, 23 h ahead is still today.
+    const tomorrow = new Date(Math.max(Date.now() + 13 * 3600_000, new Date().setHours(24, 30, 0, 0))).toISOString();
+    // Its own time, read back: one taken again later can fall in the next minute.
+    const soon = ret({ messageId: "f-1" });
+    view.followUps = [
+      soon,
+      ret({
+        messageId: "f-2",
+        agentId: ADA_ID,
+        channelKind: "dm",
+        channelName: null,
+        about: "rever a fila do suporte",
+        at: tomorrow,
+        canCancel: false,
+      }),
+    ];
+    const state = seedState({ taskManager: view });
+    const r = await open(state, "task-manager");
+    const sections = [...document.querySelectorAll(".tm-section")].map((el) => el.getAttribute("aria-label"));
+    expect(sections.at(-1)).toBe("Retornos");
+    const row = rowOf("rever o deploy de hoje");
+    expect(row.querySelector(".tm-hit small")?.textContent).toBe("Atlas · #eng");
+    expect(row.querySelector(".tm-cell--state")?.textContent).toBe(`Às ${formatTime("pt-BR", soon.at)}`);
+    expect(row.querySelector(".tm-cell--time")?.textContent).toBe("em 33 min");
+    expect(row.querySelector(".tm-cell--use")?.textContent).toBe("—");
+    // One line: what it leaves out is in its tip.
+    expect(tipOf(row)).toContain("Atlas · #eng");
+    const other = rowOf("rever a fila do suporte");
+    expect(other.querySelector(".tm-hit small")?.textContent).toBe("Ada · Conversa direta");
+    expect(other.querySelector(".tm-cell--state")?.textContent).toBe(`Amanhã às ${formatTime("pt-BR", tomorrow)}`);
+
+    // Who may cancel gets the item; everyone gets the way to the conversation.
+    let menu = await menuOf(other);
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent),
+    ).toEqual(["Abrir na conversa"]);
+    await act(async () => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" }));
+    await settle(2);
+    menu = await menuOf(row);
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent),
+    ).toEqual(["Abrir na conversa", "Cancelar retorno"]);
+    await click(within(menu).getByRole("menuitem", { name: "Cancelar retorno" }));
+    expect(state.calls.filter((c) => c.method === "chat.cancelFollowUp").map((c) => c.args)).toEqual([[ORG_ID, "f-1"]]);
+
+    // The row opens the conversation at the reply that set it.
+    await click(screen().getByRole("button", { name: "rever o deploy de hoje" }));
+    expect(r.router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
+    expect((r.router.state.location.search as Record<string, unknown>).m).toBe("m-reply");
+  });
+
+  test("with no task on, the returns still list; canceled ones end today, by whom", async () => {
+    const view: TaskManagerView = {
+      tasks: [],
+      ended: [],
+      activity: {},
+      followUps: [ret({ messageId: "f-1", held: true, at: ago(20) })],
+      canceledFollowUps: [
+        canceled({ messageId: "c-1", canceledBy: { kind: "person", userId: "u-joao", name: "João" } }),
+        canceled({ messageId: "c-2", about: "ver o CI", canceledAt: ago(5) }),
+        // The worst case (break-ui, measured by CI's geometry step): a long name, and her 80 characters.
+        canceled({
+          messageId: "c-4",
+          about: "rever os pedidos de reembolso de outubro e responder quem pediu o valor em dobro",
+          canceledAt: ago(7),
+          canceledBy: { kind: "person", userId: "u-maria", name: LONG_NAME },
+        }),
+        canceled({
+          messageId: "c-3",
+          about: "ver o build",
+          canceledAt: ago(3),
+          canceledBy: { kind: "agent", agentId: ATLAS_ID },
+        }),
+      ],
+    };
+    await open(seedState({ taskManager: view }), "task-manager");
+    const row = rowOf("rever o deploy de hoje");
+    // Its time passed waiting on an answer: that is its state, and no time to wait for.
+    expect(row.querySelector(".tm-cell--state")?.textContent).toBe("Esperando uma resposta");
+    expect(row.querySelector(".tm-cell--time")?.textContent).toBe("");
+    await click(screen().getByRole("button", { name: /Terminadas hoje/ }));
+    const ends = [...document.querySelectorAll(".tm-row--ended")].map(
+      (el) => el.querySelector(".tm-cell--state .ac-chip, .tm-cell--state > :first-child")?.textContent,
+    );
+    expect(ends).toEqual([
+      "Retorno cancelado por João",
+      "Retorno cancelado por Atlas",
+      "Retorno cancelado",
+      `Retorno cancelado por ${LONG_NAME}`,
+    ]);
+  });
+});
+
 describe("an agent's tasks beside its DM", () => {
   const PILL = "3 tarefas · 1 espera você";
 
@@ -891,7 +1028,7 @@ describe("an agent's tasks beside its DM", () => {
     // A wait on a person is its mark's job: the line under the title stays quiet (where, the program, how long).
     const sub = (i: number) => cards[i]?.querySelector(".tm-taskcard__label small")?.textContent ?? "";
     expect(sub(0)).toMatch(/^#eng · /);
-    expect(sub(0)).not.toContain("Espera seu ok");
+    expect(sub(0)).not.toContain("Esperando você");
     expect(cards[0]?.querySelector(".tm-taskcard__label small[data-wait]")).toBeNull();
     // This conversation's says so on its line, with no chip beside the title.
     expect(cards[1]?.querySelector(".tm-here")).toBeNull();
@@ -1291,7 +1428,7 @@ describe("why a task waits", () => {
     ]);
     expect(stateOf(rowOf("Computador longe"))).toEqual(["Computador desligado", "Volta quando ele ligar"]);
     expect(stateOf(rowOf("Sem login"))).toEqual(["Esperando o computador", "Volta quando ele estiver pronto"]);
-    expect(stateOf(rowOf("Falta o ok"))).toEqual(["Espera seu ok", "Segue quando alguém aprovar"]);
+    expect(stateOf(rowOf("Falta o ok"))).toEqual(["Esperando você", "Segue quando alguém aprovar"]);
     expect(stateOf(rowOf("Falta a resposta"))).toEqual(["Espera resposta", "Segue quando alguém responder"]);
   });
 
@@ -1303,7 +1440,10 @@ describe("why a task waits", () => {
     // The title, its place and the state on the row cut at their end; the rest of the wait only in the tip.
     const read = (file: string) => readFileSync(join(import.meta.dir, "../src", file), "utf8");
     const css = read("pages/task-manager.css");
-    expect(css).toMatch(/\.tm-hit \{[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/);
+    // The row's words and press are the shared pieces' (Agora's rows are the same).
+    expect(read("components/tasks/tasks.css")).toMatch(
+      /\.tm-hit \{[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/,
+    );
     expect(css).toMatch(/\.tm-cell--state \.tm-state__text b,\s*\.tm-cell--use \.tm-use__text b \{[^}]*ellipsis/);
     // No row stacks its cells, not even with no room for the columns.
     expect(/line-clamp|grid-row/.test(css)).toBe(false);

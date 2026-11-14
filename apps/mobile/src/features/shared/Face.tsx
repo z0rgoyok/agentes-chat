@@ -203,10 +203,8 @@ function Badged({
   children: ReactNode;
 }) {
   const of = usePresenceOf();
-  const said = who.type === "agent" ? of.agent(who.id)?.presence : of.person(who.id)?.presence;
-  // An agent at rest ("away" once its last run is a while back) wears no badge: its badge is amber, the color of what
-  // waits on the person, and resting is no news. People's "away" is theirs to say, so it stays.
-  const presence = who.type === "agent" && said === "away" ? undefined : said;
+  // An agent's face says free, at work, waiting on you, out or offline (ADR 0084 addendum); a person's, theirs.
+  const presence = who.type === "agent" ? of.agent(who.id)?.presence : of.person(who.id)?.presence;
   return (
     <WithPresence size={size} presence={presence} inset={inset} {...(ring !== undefined ? { ring } : {})}>
       {children}

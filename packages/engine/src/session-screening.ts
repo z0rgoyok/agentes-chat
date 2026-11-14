@@ -202,7 +202,8 @@ export function createSessionScreening(deps: SessionScreeningDeps) {
       const w: Watch = {
         stream,
         machineId,
-        agent: { id: agent.id, handle: agent.handle, name: agent.name },
+        // The screen read is the one the stream shows: a person's seat of the right hand, never the agent's own id.
+        agent: stream.scope ?? { id: agent.id, handle: agent.handle, name: agent.name },
         segment: begin(stream),
         reading: null,
         cancel: null,

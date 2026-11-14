@@ -1,10 +1,13 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
+import { type AgentWork, agentWorkFor, bareWork } from "./agent-work";
 import { publishOrgEvent } from "./events";
+import { type PendingReturn, pendingReturns } from "./follow-through";
 import { cutText } from "./format";
 import type { Judge } from "./judge";
 import { requirePermission } from "./organizations";
 import { type OutOfOffice, type OutOfOfficeOptions, outOfOffice } from "./out-of-office";
+import { rightHandId } from "./right-hand";
 import { routineSeer } from "./routines";
 import { outageParkedSql } from "./runs";
 import { toolGroupKey } from "./tools/directory";
@@ -86,6 +89,8 @@ export interface AgentStatusView {
    * its AI, which for the right hand is each viewer's own.
    */
   working: boolean;
+  /** For one viewer (`agentStatuses`): its most important work and where it shows (`agent-work.ts`); null: none. */
+  work?: AgentWork | null;
 }
 
 /** A run going this long is heavy work: the agent reads as busy. */
@@ -113,8 +118,9 @@ const ACTIVE = ["queued", "running"] as const;
 const WAITING = ["waiting_approval", "waiting_input"] as const;
 
 /**
- * Every agent's presence and written status, for a member of the organization. An agent hidden from them (the
- * agents list's rule, `routineSeer`) keeps its presence but not its line, which can name a routine, task or channel.
+ * Every agent's presence and written status, for a member of the organization, with its work as they may read it
+ * (`agentWorkFor`). An agent hidden from them (the agents list's rule, `routineSeer`) keeps its presence and its
+ * work's state, but not its line or where it works, which can name a routine, task or channel.
  */
 export async function agentStatuses(
   db: Database,
@@ -122,14 +128,65 @@ export async function agentStatuses(
   orgId: string,
   now = new Date(),
   options: Pick<OutOfOfficeOptions, "hasModel"> = {},
-) {
+): Promise<(AgentStatusView & { work: AgentWork | null })[]> {
   await requirePermission(db, actorId, orgId, "read");
-  const [list, sees] = await Promise.all([
+  const [list, sees, work, rightHand, returns] = await Promise.all([
     loadAgentStatuses(db, orgId, now, undefined, options),
     routineSeer(db, orgId, actorId),
+    agentWorkFor(db, actorId, orgId, new Date(now.getTime() - AGENT_HEARTBEAT_FRESH_MS)),
+    rightHandId(db, orgId),
+    pendingReturns(db, actorId, orgId),
   ]);
-  return list.map((s) => (sees({ agentId: s.agentId, createdByUserId: null }) ? s : { ...s, status: null }));
+  const later = laterWork(returns);
+  return list.map((s) => {
+    const w = work.get(s.agentId) ?? later.get(s.agentId) ?? null;
+    const seen = s.agentId === rightHand ? rightHandFor(s, w) : s;
+    return sees({ agentId: s.agentId, createdByUserId: null })
+      ? { ...seen, work: w }
+      : { ...seen, status: null, work: w && bareWork(w) };
+  });
 }
+
+/**
+ * An agent with nothing on and a return still ahead where the viewer reads (`pendingReturns`, soonest first): its work
+ * is `later`, the lists' "retorno às 00:32". A held one (past its time, waiting on an answer) says nothing there: the
+ * conversation's bar says it.
+ */
+function laterWork(returns: PendingReturn[]): Map<string, AgentWork> {
+  const out = new Map<string, AgentWork>();
+  for (const r of returns) {
+    if (r.held || out.has(r.agentId)) continue;
+    out.set(r.agentId, {
+      state: "later",
+      ask: null,
+      since: r.at,
+      runId: r.runId,
+      channelId: r.channelId,
+      channelKind: r.channelKind,
+      channelName: r.channelName,
+      threadId: r.threadId,
+      messageId: r.replyMessageId,
+      forAgentId: null,
+      routine: false,
+      count: 0,
+      at: r.at,
+    });
+  }
+  return out;
+}
+
+/**
+ * The right hand as one person sees it (ADR 0137: each person's own): at work and busy only on their work, never on
+ * someone else's talk with it. Its line is one for the whole agent, written by whichever run spoke last (its own words
+ * with `set_status` included), so it never shows: each person's own work shows through `work`. Out of office says so to
+ * everyone, and held stays held.
+ */
+const rightHandFor = (s: AgentStatusView, w: AgentWork | null): AgentStatusView => ({
+  ...s,
+  working: w?.state === "working",
+  presence: s.presence === "busy" && w?.state !== "working" ? "online" : s.presence,
+  status: s.status?.kind === "out_of_plan" || s.status?.kind === "out_of_budget" ? s.status : null,
+});
 
 /**
  * Every agent's presence and line in an organization, at `now` (no permission check), or only `ids`'. Checked on

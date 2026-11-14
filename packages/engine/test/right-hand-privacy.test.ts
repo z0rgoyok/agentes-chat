@@ -327,7 +327,7 @@ describe("its access, on its page", () => {
   const stateOf = (tree: Tree, name: string) =>
     tree.builtins.flatMap((b) => b.tools).find((t) => t.name === name)?.state;
 
-  test("shows what it holds, leaves a computer's out, and a built-in area turned off stays off until turned on", async () => {
+  test("shows what it holds, a computer's too, and a built-in area turned off stays off until turned on", async () => {
     const v = await vaultSetup();
     open = v.f;
     const { f } = v;
@@ -335,7 +335,7 @@ describe("its access, on its page", () => {
     const save = (body: AccessInput) => setAgentAccess(f.db, f.owner.id, f.org.id, lodi.id, body);
     const before = await getAgentAccess(f.db, f.owner.id, f.org.id, lodi.id);
     const shown = before.builtins.map((b) => b.scope);
-    for (const scope of ["sandbox:run", "browser:use", "desktop:use"]) expect(shown).not.toContain(scope);
+    for (const scope of ["sandbox:run", "browser:use", "desktop:use"]) expect(shown).toContain(scope);
     for (const name of ["vault_list", "create_artifact", "load_skill", "remember"])
       expect(stateOf(before, name)).toBe("granted");
 

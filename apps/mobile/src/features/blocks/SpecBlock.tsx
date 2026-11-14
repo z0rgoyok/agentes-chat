@@ -107,10 +107,10 @@ export function SpecBlock({
   }
 
   const tall = !screen && height > INLINE_HEIGHT;
-  const toggleOpen = () => {
+  const openWhole = () => {
     tapHaptic();
-    keptOf(blockKey).open = !open;
-    setOpen(!open);
+    keptOf(blockKey).open = true;
+    setOpen(true);
   };
   const send = () => {
     const draft = view.send;
@@ -149,15 +149,9 @@ export function SpecBlock({
           <LinearGradient pointerEvents="none" colors={[`${c.raised}00`, c.raised]} style={styles.fade} />
         ) : null}
       </View>
-      {tall ? (
+      {tall && !open ? (
         <View style={styles.more}>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={open ? undefined : "down"}
-            label={open ? t("blocks.showLess") : t("blocks.showAll")}
-            onPress={toggleOpen}
-          />
+          <Button variant="ghost" size="sm" icon="down" label={t("channel.long.more")} onPress={openWhole} />
         </View>
       ) : null}
       {view.send ? (

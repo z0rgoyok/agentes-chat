@@ -18,10 +18,15 @@ import {
   sql,
 } from "@agenteschat/db";
 import { type ActiveCover, activeCoversFrom, activeCoversTo } from "./approval-covers";
+import { resumeHeldRuns, wakeLine } from "./approval-order";
 import { addApprovalRules, addRoutineOwnActions, type RememberedKind, rememberedKindOf } from "./approval-rules";
+import { queueApprovalsDigest } from "./approvals-digest";
 import { recordAudit } from "./audit";
 import { approvalCardVia } from "./card-via";
 import { CONNECTOR_CATALOG } from "./connectors/catalog";
+import { toolPrefixOfConnection } from "./connectors/connections";
+import { isCustom } from "./connectors/custom";
+import { exposedToolName } from "./connectors/mcp";
 import { learnFromRefusal } from "./context/feedback";
 import type { MemoryJudging } from "./context/items";
 import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
@@ -34,7 +39,7 @@ import { quietEnd, withMootRequest } from "./parked-asks";
 import { maySql, type RolePermission } from "./permissions";
 import { accountInUse } from "./standing";
 import { taskReaderSql } from "./task-access";
-import { AHEAD_GRACE_MS, type Approval } from "./tools/gateway";
+import { AHEAD_GRACE_MS, type Approval, readsSqlOnly, routineCall } from "./tools/gateway";
 import { canonicalJson } from "./tools/json-schema";
 import { REQUEST_PERMISSION_TOOL } from "./tools/permission";
 import type { ApprovalOrigin } from "./tools/run-policy";
@@ -49,9 +54,11 @@ const {
   agentRuns,
   agentRunSteps,
   connectorConnections,
+  customTools,
   issues,
   mailAccounts,
   messages,
+  notifications,
   routines,
   users,
 } = schema;
@@ -98,8 +105,11 @@ export interface ApprovalView {
   ownerUserId: string | null;
   /** When the approved action ran (null: not yet, or never). */
   executedAt: string | null;
-  /** What the action returned once it ran (raw tool output, short). */
-  result: { ok: boolean; text: string } | null;
+  /**
+   * What the action returned once it ran (raw tool output, short). `notRunAfter`: it didn't run, because the request
+   * asked before it on its card (that id) was refused or expired after it was approved (`approval-order.ts`).
+   */
+  result: { ok: boolean; text: string; notRunAfter?: string } | null;
   /** The connector the action goes through (`github`), and its account (`acme`); null for built-in tools. */
   connector: string | null;
   connectorAccount: string | null;
@@ -125,6 +135,11 @@ export interface ApprovalView {
    * whose request it was, who decides it only when `requesterDecides` (an approver by role). Null: any other approval.
    */
   approvers: { label: string; requestedByUserId: string | null; requesterDecides: boolean } | null;
+  /**
+   * Still waiting, and plain enough to approve along with others in one tap (`routineIds`). The server alone says
+   * so: `decideApprovals` with `only: "routine"` decides nothing else.
+   */
+  routine: boolean;
 }
 
 /** What the approval row alone doesn't say: the connector, the issue (and, for one, the trail). */
@@ -150,9 +165,12 @@ export function approvalOriginOf(value: Approval["origin"]): ApprovalOrigin | nu
 }
 
 const resultOf = (a: Approval): ApprovalView["result"] => {
-  const r = a.result as { content?: unknown; isError?: unknown } | null;
+  const r = a.result as { content?: unknown; isError?: unknown; notRunAfter?: unknown } | null;
   if (!r) return null;
-  return { ok: r.isError !== true, text: typeof r.content === "string" ? r.content.slice(0, 600) : "" };
+  const text = typeof r.content === "string" ? r.content.slice(0, 600) : "";
+  return typeof r.notRunAfter === "string"
+    ? { ok: false, text, notRunAfter: r.notRunAfter }
+    : { ok: r.isError !== true, text };
 };
 
 /** Batched: connections, the runs' narration up to each approval step, the runs' issues. */
@@ -357,11 +375,64 @@ export async function openApprovalCard(
   return open?.messageId ?? null;
 }
 
+/**
+ * The waiting calls among `rows` that go together in one tap (the right hand's digest): `routineCall` by the row, and
+ * a tool its own connection still lists as a plain write. A row does not say why its call asked, so the connection
+ * has the last word: a tool an admin set to ask every time or turned off, one our rules or the judge would have ask,
+ * one marked sensitive (our words, the catalog) or that its server says destroys, and one the connection no longer
+ * lists, each stay on their own card whatever their name. SQL proven read-only needs no such word.
+ */
+export async function routineIds(db: Executor, rows: Approval[]): Promise<Set<string>> {
+  const plain = rows.filter((r) => r.status === "pending" && routineCall(r));
+  const out = new Set(plain.filter(readsSqlOnly).map((r) => r.id));
+  const asked = plain.filter((r) => !out.has(r.id));
+  const ids = [...new Set(asked.flatMap((r) => r.connectionId ?? []))];
+  if (ids.length === 0) return out;
+  const [connections, tools] = await Promise.all([
+    db
+      .select({
+        id: connectorConnections.id,
+        connector: connectorConnections.connector,
+        label: connectorConnections.label,
+        toolPrefix: connectorConnections.toolPrefix,
+      })
+      .from(connectorConnections)
+      .where(and(inArray(connectorConnections.id, ids), isNull(connectorConnections.revokedAt))),
+    db
+      .select()
+      .from(customTools)
+      .where(and(inArray(customTools.connectionId, ids), isNull(customTools.removedAt))),
+  ]);
+  /** A connection and its tool as the agent calls it. */
+  const vouched = new Set<string>();
+  for (const c of connections) {
+    const prefix = toolPrefixOfConnection(c);
+    const names = isCustom(c)
+      ? tools
+          .filter(
+            (t) =>
+              t.connectionId === c.id &&
+              (t.access === "read" || t.access === "write") &&
+              t.suggestedAccess !== "approval" &&
+              !t.sensitive &&
+              t.destructiveHint !== true,
+          )
+          .map((t) => t.name)
+      : Object.entries(CONNECTOR_CATALOG[c.connector]?.tools ?? {})
+          .filter(([, tool]) => !tool.sensitive && !tool.ours)
+          .map(([name]) => name);
+    for (const name of names) vouched.add(`${c.id} ${exposedToolName(prefix, name)}`);
+  }
+  for (const r of asked) if (vouched.has(`${r.connectionId} ${r.tool}`)) out.add(r.id);
+  return out;
+}
+
 /** Views with their context (connector, issue); `trail` only when asked (one approval's details). */
 async function viewsOf(db: Database, rows: Approval[], canDecide: (row: Approval) => boolean, trail = false) {
-  const [contexts, cardThreads] = await Promise.all([
+  const [contexts, cardThreads, routine] = await Promise.all([
     approvalContexts(db, rows).catch(() => new Map<string, ApprovalContext>()),
     approvalCardThreads(db, rows).catch(() => new Map<string, string | null>()),
+    routineIds(db, rows).catch(() => new Set<string>()),
   ]);
   return rows.map((r) => {
     const { trail: steps, ...context } = contexts.get(r.id) ?? {
@@ -371,7 +442,7 @@ async function viewsOf(db: Database, rows: Approval[], canDecide: (row: Approval
       issue: null,
       trail: [],
     };
-    const view = approvalView(r, canDecide(r));
+    const view = approvalView(r, canDecide(r), routine.has(r.id));
     const threadId = cardThreads.has(r.id) ? (cardThreads.get(r.id) ?? null) : view.threadId;
     return { ...view, threadId, ...context, ...(trail ? { trail: steps } : {}) };
   });
@@ -387,7 +458,7 @@ export function scalarParams(params: Record<string, unknown>) {
   return out;
 }
 
-export const approvalView = (a: Approval, canDecide = false): ApprovalView => ({
+export const approvalView = (a: Approval, canDecide = false, routine = false): ApprovalView => ({
   id: a.id,
   runId: a.runId,
   missionId: a.missionId ?? null,
@@ -431,6 +502,7 @@ export const approvalView = (a: Approval, canDecide = false): ApprovalView => ({
         requesterDecides: a.approvers.requesterDecides,
       }
     : null,
+  routine,
 });
 
 /** What "Aprovar sempre" would keep for an approval: the kind the gateway offered on it (`rememberKinds`). */
@@ -641,6 +713,7 @@ export async function repointApprovals(
       ),
     )
     .returning();
+  const told = new Set<string>();
   for (const row of rows) {
     if (row.status !== "pending") continue;
     let current = row;
@@ -653,7 +726,9 @@ export async function repointApprovals(
     await resolveApprovalNotifications(deps, current).catch(() => {});
     // The new owner is told; with none left, the admins.
     await notifyNewcomers(deps, current).catch(() => {});
+    for (const id of await notifiedIds(deps.db, current).catch(() => [])) told.add(id);
   }
+  await queueApprovalsDigest(deps.db, orgId, [...told]).catch(() => {});
 }
 
 /**
@@ -758,6 +833,7 @@ export async function supersedeApprovals(tx: Executor, newer: Approval): Promise
     await enqueueResume(tx, row);
     await auditDecision(tx, row, null);
   }
+  await wakeLine(tx, rows);
   return rows;
 }
 
@@ -792,7 +868,10 @@ export async function publishApproval(
   }
   // The inbox: waiting for whoever is told (`notifiedIds`); out of it once decided or expired.
   if (type === "approval.created" && approval.status === "pending") {
-    await notifyApproval(deps, approval, await notifiedIds(deps.db, approval)).catch(() => {});
+    const told = await notifiedIds(deps.db, approval);
+    await notifyApproval(deps, approval, told).catch(() => {});
+    // Several waiting on one of them: the right hand sums them up on one card, a little later.
+    await queueApprovalsDigest(deps.db, approval.orgId, told).catch(() => {});
   } else if (type === "approval.decided") {
     await resolveApprovalNotifications(deps, approval).catch(() => {});
   }
@@ -913,6 +992,9 @@ export async function decideApproval(
     }
     if (updated?.status === "refused") await settleAheadRoutine(tx, updated);
     if (updated) await auditDecision(tx, updated, expired ? null : actorId, always, via);
+    // Not approved: what the agent asked after it on its card no longer waits for it. An approved one wakes them once
+    // its run has done it (`approval-order.ts`).
+    if (updated && updated.status !== "approved") await wakeLine(tx, [updated]);
     return expired ? { error: "This request has expired" as const, row: updated } : { row: updated };
   });
   if (outcome.row) await publishApproval(deps, outcome.row, "approval.decided");
@@ -928,13 +1010,14 @@ export async function decideApproval(
  * "Aprovar tudo" / "Agora não para todos" on a card: decides exactly these approvals (the items the card listed
  * when the person clicked, never one that joined since), each its own row, decision and audit. Only the items
  * this person may decide are decided (`decides`, per item); the rest come back in `skipped`. Each run that
- * asked resumes once, after all of its items here are decided in the same transaction.
+ * asked resumes once, after all of its items here are decided in the same transaction. `only: "routine"` (the right
+ * hand's digest) decides the plain ones among them (`routineIds`) and leaves every other waiting, in `skipped` too.
  */
 export async function decideApprovals(
   deps: { db: Database; pubsub: PubSub; now?: () => Date; memory?: MemoryJudging },
   actorId: string,
   orgId: string,
-  input: { ids: string[]; decision: "approve" | "refuse"; reason?: string; via?: string },
+  input: { ids: string[]; decision: "approve" | "refuse"; reason?: string; via?: string; only?: "routine" },
 ): Promise<{ approvals: ApprovalView[]; skipped: string[] }> {
   const { db } = deps;
   const at = deps.now?.() ?? new Date();
@@ -945,6 +1028,8 @@ export async function decideApprovals(
   const covers = await activeCoversTo(db, orgId, actorId, at);
   const forUserOf = (r: Approval) => (decides(r, actorId, membership) ? null : coveredFor(r, actorId, covers));
   const allowed = (r: Approval) => decides(r, actorId, membership) || forUserOf(r) !== null;
+  /** Some still wait and none is this person's to decide. */
+  let theirs = false;
   const decided = await db.transaction(async (tx) => {
     const rows = ids.length
       ? await tx
@@ -956,7 +1041,10 @@ export async function decideApprovals(
       : [];
     const out: Approval[] = [];
     const resumed = new Set<string>();
-    for (const row of rows.filter(allowed)) {
+    const mine = rows.filter(allowed);
+    theirs = rows.length > 0 && mine.length === 0;
+    const routine = input.only ? await routineIds(tx, mine) : null;
+    for (const row of routine ? mine.filter((r) => routine.has(r.id)) : mine) {
       const expired = row.expiresAt <= at;
       const [updated] = await tx
         .update(approvals)
@@ -980,16 +1068,13 @@ export async function decideApprovals(
       if (row.runId) resumed.add(row.runId);
       out.push(updated);
     }
+    await wakeLine(
+      tx,
+      out.filter((r) => r.status !== "approved"),
+    );
     return out;
   });
-  if (decided.length === 0 && ids.length > 0) {
-    const [any] = await db
-      .select({ id: approvals.id })
-      .from(approvals)
-      .where(and(eq(approvals.orgId, orgId), inArray(approvals.id, ids), eq(approvals.status, "pending")))
-      .limit(1);
-    if (any) throw new ForbiddenError("Only the agent's owner or an admin can decide this");
-  }
+  if (theirs) throw new ForbiddenError("Only the agent's owner or an admin can decide this");
   for (const row of decided) await publishApproval(deps, row, "approval.decided");
   for (const row of decided) {
     if (row.status === "refused") await learnFromRefusal(deps, row).catch(() => null);
@@ -1047,6 +1132,7 @@ export async function expireApprovals(deps: { db: Database; pubsub: PubSub }, no
       await enqueueResume(tx, row);
       await auditDecision(tx, row, null);
     }
+    await wakeLine(tx, rows);
     const lapsed = await tx
       .update(approvals)
       .set({ status: "expired" })
@@ -1062,7 +1148,38 @@ export async function expireApprovals(deps: { db: Database; pubsub: PubSub }, no
     return [...rows, ...lapsed];
   });
   for (const row of expired) await publishApproval(deps, row, "approval.decided");
+  await resolveStaleApprovalNotifications(deps).catch(() => {});
+  // The same minute's safety net for runs waiting their turn behind a request whose run ended (`approval-order.ts`).
+  await resumeHeldRuns(deps.db, now).catch(() => 0);
   return expired.length;
+}
+
+/**
+ * An approval's notification left waiting after the request closed (a row canceled in place before each close told
+ * the inbox, a crash between the close and the inbox): out of the inbox, or on to the card's next request still
+ * waiting, so no conversation says a request waits when Approvals has none.
+ */
+export async function resolveStaleApprovalNotifications(deps: { db: Database; pubsub?: PubSub }) {
+  const stale = await deps.db
+    .selectDistinct({ id: approvals.id, orgId: approvals.orgId, messageId: approvals.messageId })
+    .from(notifications)
+    .innerJoin(
+      approvals,
+      and(
+        eq(approvals.orgId, notifications.orgId),
+        sql`${notifications.source}->>'approvalId' = ${approvals.id}::text`,
+      ),
+    )
+    .where(
+      and(
+        eq(notifications.kind, "approval"),
+        eq(notifications.waiting, true),
+        isNull(notifications.doneAt),
+        ne(approvals.status, "pending"),
+      ),
+    );
+  for (const row of stale) await resolveApprovalNotifications(deps, row);
+  return stale.length;
 }
 
 /**

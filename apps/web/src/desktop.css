@@ -53,6 +53,10 @@ html[data-desktop="linux"] {
   bottom: -1px;
   width: 272px;
 }
+/* Agora at the bar's end, a bare icon as the nav's. */
+.titlebar__agora.ac-btn {
+  flex: none;
+}
 /* Over the icon rail (68px, its hairline left free). */
 .workspace-sky--bar.workspace-sky--rail {
   width: 67px;
@@ -64,11 +68,13 @@ html[data-desktop="linux"] {
 /*
  * The sidebar's ⌘K field (.sidebar__jump): a small field of the ruler (32, r10), centred in the bar. Centred on the
  * window, not on what's left after the buttons: it moves back by half the room the window's buttons and the nav take
- * (`--titlebar-nav`: three 32px buttons and their two 8px gaps, two where a tablet has no sidebar button), but never
- * past the free room on its left, so in a narrow window it stops beside the nav instead of sliding over it.
+ * (`--titlebar-nav`: three 32px buttons and their two 8px gaps, two where a tablet has no sidebar button) less what
+ * Agora takes at the bar's end (`--titlebar-end`: its 32 and the gap before it), but never past the free room on its
+ * left, so in a narrow window it stops beside the nav instead of sliding over it.
  */
 .titlebar__search {
   --titlebar-nav: calc(2 * var(--control-h-sm) + var(--space-2));
+  --titlebar-end: calc(var(--control-h-sm) + 12px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -76,8 +82,8 @@ html[data-desktop="linux"] {
   min-width: 0;
   height: var(--control-h-sm);
   margin: 0 auto;
-  --titlebar-half: calc((var(--titlebar-lights) + var(--titlebar-nav)) / 2);
-  --titlebar-room: max(0px, (100cqw - var(--titlebar-nav) - 12px - 460px) / 2);
+  --titlebar-half: calc((var(--titlebar-lights) + var(--titlebar-nav) - var(--titlebar-end)) / 2);
+  --titlebar-room: max(0px, (100cqw - var(--titlebar-nav) - 12px - var(--titlebar-end) - 460px) / 2);
   transform: translateX(calc(-1 * min(var(--titlebar-half), var(--titlebar-room))));
   padding: 0 8px 0 10px;
   border: 0;
@@ -132,14 +138,14 @@ html:is([data-fullscreen], [data-desktop="windows"], [data-desktop="linux"]) .ti
   display: none;
 }
 
-/* The workspace sits under the bar; ⌘K and the sidebar toggle live in the bar, so the sidebar's row goes, and in a
-   personal workspace (ADR 0159) its Go to… row and the collapse beside the person. */
+/* The workspace sits under the bar; ⌘K, Agora and the sidebar toggle live in the bar, so the sidebar's row goes, and
+   in a personal workspace (ADR 0159) its Go to… row, Agora and the collapse beside the person. */
 html[data-desktop] .shell {
   height: calc(100vh - var(--titlebar-h));
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
   height: calc(100dvh - var(--titlebar-h));
 }
-html[data-desktop] :is(.sidebar__jump-row, .sidebar__head-collapse) {
+html[data-desktop] :is(.sidebar__jump-row, .sidebar__head-collapse, .sidebar__org--person .sidebar__agora) {
   display: none;
 }
 /* Sign-in: the logo clears the window's buttons. */

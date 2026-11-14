@@ -118,7 +118,8 @@ export type GifConversation = { channelId: string; threadId: string | null };
 /**
  * The GIF of a message the agent posts with a tool other than `send_gif`, handed to those tools by whoever builds
  * them, so `chat-tools.ts` and `hand-off.ts` never import this file (its imports would close a cycle through
- * `context.ts`): `post_message`'s (ADR 0091 addendum 2026-11-05) and a routine's `hand_off`'s (addendum 2026-11-09).
+ * `context.ts`): `post_message`'s (ADR 0091 addendum 2026-11-05), `send_dm`'s (addendum 2026-11-13) and a routine's `hand_off`'s
+ * (addendum 2026-11-09).
  */
 export interface AgentGifPoster {
   /** Whether the calling agent may send a GIF now (`agentGifSearch`). */
@@ -255,7 +256,7 @@ function gifTool(deps: MediaToolDeps, gifs: GifProvider, options: { sticker: boo
   const instead = options.sticker ? " Send your sticker with `send_sticker` instead, or just reply." : " Just reply.";
   return {
     name: SEND_GIF_TOOL,
-    description: `Send a GIF in this conversation ${WHEN} \`search\` says what the GIF shows, as a short search in English (1 to 6 words, e.g. "good morning coffee cat") whatever language the conversation is in: GIF search matches English best. ${AFTER} To post a GIF in another channel, use post_message with \`gif\`.`,
+    description: `Send a GIF in this conversation ${WHEN} \`search\` says what the GIF shows, as a short search in English (1 to 6 words, e.g. "good morning coffee cat") whatever language the conversation is in: GIF search matches English best. ${AFTER} To send a GIF somewhere else, use post_message (another channel) or send_dm (a person's DM) with \`gif\`.`,
     scope: "",
     inputSchema: {
       type: "object",

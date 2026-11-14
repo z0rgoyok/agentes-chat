@@ -126,6 +126,11 @@ html:not([data-pointer]) .nt-item:focus-visible {
 .rq__end > .nt-tail.ac-acts {
   display: flex;
 }
+/* Its first plate reaches into the footer's gap (a ghost in `.ac-acts`): that room is given back here, so the plate
+   stands 8 from a button that grows up to it (a phone's Abrir). */
+.rq__end:has(> .nt-tail) {
+  padding-inline-start: var(--ghost-plate);
+}
 
 /* ── What only points somewhere: a card of the requests' shape, opened by a click on it ── */
 .nt-wr__main {

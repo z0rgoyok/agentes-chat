@@ -1,6 +1,7 @@
 import {
   type AgentGroup,
   useAgentGroups,
+  useAgentStatuses,
   useAiStatus,
   useApprovals,
   useDms,
@@ -8,6 +9,7 @@ import {
   useUnarchiveAgent,
   useWorkingRuns,
 } from "@agenteschat/client";
+import { workLineText } from "@agenteschat/client/lib/agent-work";
 import { listsAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -38,6 +40,7 @@ import {
   type HeaderAction,
   LargeTitleScreen,
   LIST_PREVIEW,
+  LineIcon,
   ListRow,
   PixelOrbit,
   SectionHeader,
@@ -62,7 +65,7 @@ import { successHaptic, Tile } from "../shared/parts";
 import { useWaitingApprovals, useWorkingNow } from "../shared/queries";
 import { SheetHostProvider } from "../shared/SheetHost";
 import { useTabHeader } from "../shared/tabHeader";
-import { usePresenceOf } from "../status/hooks";
+import { useAgentWorkLine, usePresenceOf } from "../status/hooks";
 import { useTasksToday } from "../task-manager/hooks";
 import { useSectorMenu } from "../team/SectorScreen";
 import { TeamEntry } from "../team/TeamEntry";
@@ -111,8 +114,19 @@ function Agents() {
   const outages = useMachineOutages();
   const groups = useAgentGroups(orgId);
   const offline = useMemo(() => waitingComputerByAgent(outages.outages), [outages.outages]);
+  // At work by its work for me, also where I don't read (the web's sidebar counts those too).
+  const statuses = useAgentStatuses(orgId).data;
+  const atWork = useMemo(
+    () =>
+      new Map(
+        (statuses ?? []).flatMap((s) =>
+          s.work?.state === "working" && !s.work.routine ? [[s.agentId, s.work.since] as const] : [],
+        ),
+      ),
+    [statuses],
+  );
   const agents = dir.agents.filter((a) => listsAgent(org, a));
-  const { waiting, working, free } = teamLines(agents, work, dms.data ?? [], asking, offline);
+  const { waiting, working, free } = teamLines(agents, work, dms.data ?? [], asking, offline, atWork);
   const busy = waiting.length + working.length;
   // A routine's run works in the background, in no conversation (never "Trabalhando"): the agent is out on it.
   const onRoutine = useMemo(() => {
@@ -388,13 +402,13 @@ function FreeSections({
 }
 
 /** What a row's second line says, so a change of state crosses over in place (the key) while the row stays. */
-type RowState = "asks" | "works" | "routine" | "away" | "noAi" | "out" | "free";
+type RowState = "asks" | "works" | "routine" | "away" | "noAi" | "out" | "waits" | "free";
 
 /**
  * One agent: its living body at 52 (running at work, asleep when it can't work), its name, the time at the right
  * (how long since it asked or started; when you last talked, free), then its state as text: what waits on you in
- * amber, what it is on with the orbit, its computer away or no AI in the quiet color, else its role in plain words.
- * Pinned ones come first, with no mark.
+ * amber, what it is on with the orbit, its computer away or no AI in the quiet color, what its work waits on (the
+ * clock, or amber for your answer) with how long, else its role in plain words. Pinned ones come first, with no mark.
  */
 function AgentRow({
   line: l,
@@ -427,16 +441,22 @@ function AgentRow({
   // On a billing hold an AI comes after the plan: no "Sem IA" on a team just made.
   const held = usePlanHold(orgId, org) !== null;
   const shown = usePresenceOf().agent(a.id);
-  const onRoutineNow = !approval && !w && routine !== undefined;
+  // Its work for me, workspace-wide (ADR 0084 addendum): whom it helps or where, in the web lists' words.
+  const work = useAgentWorkLine(a.id);
+  // At work also where I don't read: its face is at work, so is its row.
+  const works = Boolean(w) || (shown?.work?.state === "working" && !shown.work.routine);
+  const onRoutineNow = !approval && !works && routine !== undefined;
   const noAi =
-    !held && !approval && !w && !onRoutineNow && computer === undefined && aiStateOf(ai.data, a.id) === "no_ai";
+    !held && !approval && !works && !onRoutineNow && computer === undefined && aiStateOf(ai.data, a.id) === "no_ai";
   // Out of office (its plan or budget ran out, ADR 0084): the server's line says when it is back.
   const out =
-    !approval && !w && !onRoutineNow && computer === undefined && !noAi && isOutOfOffice(shown?.status?.status);
-  const busy = Boolean(approval || w);
+    !approval && !works && !onRoutineNow && computer === undefined && !noAi && isOutOfOffice(shown?.status?.status);
+  // Its work waits (on someone's approval or answer, its computer, in line) or asks me: said in its role's place.
+  const waits = work && work.tone !== "working" ? work : null;
+  const busy = Boolean(approval) || works;
   const state: RowState = approval
     ? "asks"
-    : w
+    : works
       ? "works"
       : onRoutineNow
         ? "routine"
@@ -446,7 +466,9 @@ function AgentRow({
             ? "noAi"
             : out
               ? "out"
-              : "free";
+              : waits
+                ? "waits"
+                : "free";
   // One meta per row: how long since it asked or started; a free agent's row needs none.
   const time = l.at && busy ? agoShort(t, agoOf(l.at, now)) : null;
   const entrance = useArrival(arriving, reduced);
@@ -478,11 +500,27 @@ function AgentRow({
           </Text>
           {` · ${asks}`}
         </Text>
-      ) : state === "works" && w ? (
+      ) : state === "works" ? (
         <>
           <PixelOrbit color={agentLook(a).color} size={16} />
           <Text variant="small" tone="ink2" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
-            {shown?.line?.text ?? workTitle(t, w)}
+            {work?.tone === "working" || !w ? work?.text : (shown?.line?.text ?? workTitle(t, w))}
+          </Text>
+        </>
+      ) : state === "waits" && waits ? (
+        <>
+          {waits.tone === "neutral" ? (
+            <LineIcon name="clock" size={15} color={c.faint} variant="small" text={LIST_PREVIEW} />
+          ) : null}
+          <Text variant="small" tone="muted" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
+            <Text
+              variant="small"
+              tone="muted"
+              style={[LIST_PREVIEW, styles.medium, waits.tone === "you" ? { color: c.amber } : null]}
+            >
+              {waits.text}
+            </Text>
+            {waits.time ? ` · ${waits.time}` : ""}
           </Text>
         </>
       ) : state === "routine" && routine ? (
@@ -523,7 +561,7 @@ function AgentRow({
           pinned ? t("sidebarPins.pinned") : null,
           a.role.trim() || null,
           time,
-          state === "away" ? null : role,
+          state === "waits" && waits ? workLineText(waits) : state === "away" ? null : role,
         ]
           .filter(Boolean)
           .join(", ")}

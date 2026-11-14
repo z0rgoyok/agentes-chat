@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createMemoryBlobStore, type SpeechEngine, SpeechError, type SpeechProviderId } from "@agenteschat/adapters";
+import {
+  channelTopic,
+  createMemoryBlobStore,
+  type RealtimeEvent,
+  type SpeechEngine,
+  SpeechError,
+  type SpeechProviderId,
+  typingTopic,
+} from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
 import {
   acceptVoiceClip,
@@ -8,6 +16,7 @@ import {
   envSpeechEngines,
   previewMediaKind,
   previewMeta,
+  publishTyping,
   readableBody,
   renderPush,
   replyExcerpt,
@@ -256,6 +265,70 @@ describe("sending", () => {
       // 3 s at $0.012 an hour, with no minimum.
       expect(await clipOf(clipId)).toMatchObject({ status: "sent", engine: "deepinfra", costNanoUsd: 10_000 });
     }
+  });
+});
+
+describe("“gravando áudio…” while the words are made out", () => {
+  /** A slow engine and what the conversation and the agents' quiet window hear meanwhile. */
+  const listening = async () => {
+    f = await setup();
+    let answer: (words: { text: string }) => void = () => {};
+    const slow: SpeechEngine = { ...engine(), file: () => new Promise((resolve) => (answer = resolve)) };
+    const deps = voiceDeps([slow], { beatMs: 20 });
+    const { clipId } = await accept(deps);
+    const heard: { topic: string; e: RealtimeEvent }[] = [];
+    for (const topic of [channelTopic(f.general.id), typingTopic])
+      f.pubsub.subscribe(topic, (e) => {
+        if (e.type === "user.typing" || e.type === "message.created") heard.push({ topic, e });
+      });
+    const done = transcribeVoiceClip(deps, clipId, { finalAttempt: false });
+    const beats = () => heard.filter((h) => h.e.type === "user.typing" && h.e.kind === "voice");
+    return { done, answer: (text: string) => answer({ text }), heard, beats };
+  };
+
+  test("the others keep seeing it from the upload to the message, which ends it: none comes after it", async () => {
+    const { done, answer, heard, beats } = await listening();
+    await Bun.sleep(70);
+    // At once, then every beat, to the conversation and to the agents' quiet window alike.
+    expect(beats().length).toBeGreaterThanOrEqual(6);
+    expect(beats()[0]?.e).toEqual({
+      type: "user.typing",
+      channelId: f.general.id,
+      threadId: null,
+      userId: f.owner.id,
+      ttlMs: 5000,
+      kind: "voice",
+    });
+    expect(new Set(beats().map((b) => b.topic))).toEqual(new Set([channelTopic(f.general.id), typingTopic]));
+    answer("subiu o deploy");
+    await done;
+    const message = heard.findIndex((h) => h.e.type === "message.created");
+    expect(message).toBeGreaterThan(heard.map((h) => h.e.type).lastIndexOf("user.typing"));
+    const count = heard.length;
+    await Bun.sleep(60);
+    expect(heard.length).toBe(count);
+  });
+
+  test("a long one, too big for its event, still names who sent it, so the line ends with it all the same", async () => {
+    const { done, answer, heard } = await listening();
+    await Bun.sleep(30);
+    // About five minutes of speech: more than the event carries.
+    answer("e depois a gente revisa o relatório de ontem ".repeat(160));
+    await done;
+    const created = heard.find((h) => h.e.type === "message.created")?.e;
+    expect(created).toMatchObject({ threadId: null, agentRunId: null, authorUserId: f.owner.id });
+    expect(created && "message" in created).toBe(false);
+  });
+
+  test("writing takes over: her typing in the channel ends it while the words are still on their way", async () => {
+    const { done, answer, beats } = await listening();
+    await Bun.sleep(30);
+    await publishTyping(f.pubsub, { channelId: f.general.id, threadId: null, userId: f.owner.id });
+    const count = beats().length;
+    await Bun.sleep(60);
+    expect(beats().length).toBe(count);
+    answer("e mais uma coisa");
+    await done;
   });
 });
 

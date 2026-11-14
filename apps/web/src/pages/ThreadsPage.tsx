@@ -434,7 +434,7 @@ function ThreadRow({
         status={missionSummaryStatusKey(thread.mission, thread.working)}
         agentId={thread.mission.agentId}
       />
-    ) : status !== "open" ? (
+    ) : status !== "open" || thread.wait ? (
       <ThreadStatusChip thread={thread} />
     ) : thread.suggestedResolved && thread.canManage ? (
       <button

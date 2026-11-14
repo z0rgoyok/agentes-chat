@@ -251,7 +251,9 @@ function Line({ n, className }: { n: AppNotification; className?: string }) {
   // A request's title in words, from the request itself (the notification keeps the tool's raw title), as the phone.
   const approvals = useApprovals(org.id);
   const request = n.kind === "approval" ? approvals.data?.find((a) => a.id === n.source.approvalId) : undefined;
-  const line = request ? approvalTitle(t, request) : noticeLine(n, (kind) => mediaWord(t, kind));
+  // What the right hand found is its headline: nothing under it says it again.
+  const line =
+    n.kind === "team_watch" ? "" : request ? approvalTitle(t, request) : noticeLine(n, (kind) => mediaWord(t, kind));
   return line ? <span className={className}>{line}</span> : null;
 }
 

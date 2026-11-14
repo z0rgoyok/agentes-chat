@@ -24,6 +24,7 @@ import {
   openDm,
   postPersonMessage,
   presentTools,
+  publishTyping,
   type ToolContext,
   toTurns,
 } from "../src";
@@ -546,7 +547,16 @@ test("B11: the quiet window ends early when the person isn't typing, and lasts w
   const viaApp = await sent("@dev oi");
   await waitForBurst(f.db, { ...viaApp, meta: { via: { kind: "app", name: "Claude" } } }, 2500, undefined, log);
   expect(Date.now() - viaApp.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
-}, 20_000);
+
+  // Recording a voice message after it ("gravando áudio…") holds the window as typing does.
+  const recording = await sent("@dev oi");
+  setTimeout(
+    () => void publishTyping(f.pubsub, { channelId: f.general.id, threadId: null, userId: f.owner.id, kind: "voice" }),
+    300,
+  );
+  await waitForBurst(f.db, recording, 2500, undefined, log);
+  expect(Date.now() - recording.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
+}, 25_000);
 
 /**
  * The agent on Claude Code on a paired computer, with a teammate and a second person: three turns, a DM from the

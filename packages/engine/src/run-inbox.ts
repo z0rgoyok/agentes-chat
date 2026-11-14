@@ -217,7 +217,7 @@ export async function heldHere(
   run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
 ): Promise<string | null> {
   const rows = await db
-    .select({ title: approvals.title, params: approvals.params })
+    .select({ title: approvals.title, params: approvals.params, status: approvals.status })
     .from(approvals)
     .innerJoin(agentRuns, eq(agentRuns.id, approvals.runId))
     .where(
@@ -225,9 +225,13 @@ export async function heldHere(
         eq(approvals.orgId, run.orgId),
         eq(approvals.agentId, run.agentId),
         eq(approvals.channelId, run.channelId),
-        eq(approvals.status, "pending"),
+        // Waiting for a person, or approved and waiting its turn behind a request asked before it (ADR 0182).
+        or(
+          eq(approvals.status, "pending"),
+          and(eq(approvals.status, "approved"), isNull(approvals.result), isNull(approvals.runAt)),
+        ),
         ne(agentRuns.id, run.id),
-        eq(agentRuns.status, "waiting_approval"),
+        inArray(agentRuns.status, ["waiting_approval", "waiting_input"]),
         or(
           eq(agentRuns.threadRootId, run.threadRootId),
           replyThreadOf(run) ? undefined : inChannelRun(sql`${agentRuns}`),
@@ -241,7 +245,8 @@ export async function heldHere(
     const params = Object.entries(scalarParams(r.params))
       .map(([k, v]) => `${k}=${v}`)
       .join(", ");
-    return `- ${r.title}${params ? ` (${params})` : ""}`;
+    const turn = r.status === "approved" ? " [approved, runs once what was asked before it is done]" : "";
+    return `- ${r.title}${params ? ` (${params})` : ""}${turn}`;
   });
   return [
     "# Already waiting for approval here",

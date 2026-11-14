@@ -43,11 +43,9 @@ import {
 const {
   agentConsultations,
   agentQuestions,
-  agents,
   approvals,
   auditLog,
   browserHandoffs,
-  channels,
   connectorConnections,
   connectorUsageDays,
   customTools,
@@ -365,7 +363,7 @@ export async function operatorAsks(db: Database, orgId: string, query: OperatorA
   const more = query.limit + 1;
   type Asked = { orgId: unknown; id: unknown; createdAt: unknown; status: unknown };
   /** Where a kind's rows are in the page asked for, and their time as it orders them. */
-  const asked = (kind: AskKind, t: Asked, agent: unknown, run: unknown, reachedBy?: SQL) => {
+  const asked = (kind: AskKind, t: Asked, agent: unknown, run: unknown) => {
     const at = ms(t.createdAt);
     const waiting = sql`${t.status}::text in (${sql.join(
       WAITING[kind].map((s) => sql`${s}`),
@@ -373,7 +371,6 @@ export async function operatorAsks(db: Database, orgId: string, query: OperatorA
     )})`;
     const where = and(
       sql`${t.orgId} = ${orgId}::uuid`,
-      reachedBy,
       query.agentId ? sql`${agent} = ${query.agentId}::uuid` : undefined,
       query.runId ? sql`${run} = ${query.runId}::uuid` : undefined,
       query.open === undefined ? undefined : query.open ? waiting : sql`not ${waiting}`,
@@ -384,22 +381,8 @@ export async function operatorAsks(db: Database, orgId: string, query: OperatorA
     return { at, where, wanted: !query.kind || query.kind === kind };
   };
   const approval = asked("approval", approvals, approvals.agentId, approvals.runId);
-  // No index of these two tables starts with the workspace. Its conversations lead to its questions and its agents
-  // to their requests for a secret, each by an index the table has; the workspace alone would read the table whole.
-  const question = asked(
-    "question",
-    agentQuestions,
-    agentQuestions.agentId,
-    agentQuestions.runId,
-    sql`${agentQuestions.channelId} in (select c.id from ${channels} c where c.org_id = ${orgId}::uuid)`,
-  );
-  const secret = asked(
-    "secret",
-    secretRequests,
-    secretRequests.agentId,
-    secretRequests.runId,
-    sql`${secretRequests.agentId} in (select a.id from ${agents} a where a.org_id = ${orgId}::uuid)`,
-  );
+  const question = asked("question", agentQuestions, agentQuestions.agentId, agentQuestions.runId);
+  const secret = asked("secret", secretRequests, secretRequests.agentId, secretRequests.runId);
   const handoff = asked("handoff", browserHandoffs, browserHandoffs.agentId, browserHandoffs.runId);
   const consultation = asked(
     "consultation",

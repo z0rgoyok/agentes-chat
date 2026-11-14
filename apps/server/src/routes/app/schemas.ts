@@ -22,6 +22,55 @@ export const AudienceChoice = z
   ])
   .openapi("AudienceChoice");
 
+/** How an agent's run stands for the reader (ADR 0084 addendum): an agent's line (`work`), a task manager's row. */
+export const WorkState = z.enum(["you", "working", "approval", "answer", "computer", "outage", "queued", "later"]);
+
+/** Where a return lands (a `follow_up` line's conversation). */
+const ReturnPlace = {
+  messageId: z.uuid().openapi({ description: "The return's line (`meta.notice.kind` `follow_up`)." }),
+  agentId: z.uuid(),
+  channelId: z.uuid(),
+  channelKind: z.enum(["channel", "dm", "task"]),
+  channelName: z.string().nullable().openapi({ description: "A channel's name; null for a DM or a task's." }),
+  threadId: z.uuid().nullable().openapi({ description: "Null: the conversation's main timeline." }),
+  at: z.string().openapi({ description: "When it comes (ISO)." }),
+  about: z.string().openapi({ description: "The agent's words for it, in the people's language: shown as written." }),
+};
+
+/** A return an agent set, still to come (ADR 0037, amended 2026-11-13): "Ada retorna às 00:32 · …". */
+export const PendingReturn = z
+  .object({
+    ...ReturnPlace,
+    runId: z.uuid().openapi({ description: "The run that set it." }),
+    replyMessageId: z
+      .uuid()
+      .nullable()
+      .openapi({ description: 'That run\'s reply, once posted: where "Ver a mensagem" lands.' }),
+    held: z.boolean().openapi({
+      description:
+        "Its wake found what the agent asked there unanswered, and it waits for the answer (work nobody asked for, ADR 0131 §1). A wake that is only late isn't held.",
+    }),
+    canCancel: z
+      .boolean()
+      .openapi({ description: "You may cancel it: the person it is for, the agent's owner or an admin." }),
+  })
+  .openapi("PendingReturn");
+
+/** A return canceled ("Terminadas hoje"). */
+export const CanceledReturn = z
+  .object({
+    ...ReturnPlace,
+    canceledAt: z.string(),
+    canceledBy: z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("person"), userId: z.string(), name: z.string() }),
+        z.object({ kind: z.literal("agent"), agentId: z.uuid() }),
+      ])
+      .nullable()
+      .openapi({ description: "Null: its time found it couldn't come (the agent or the person left)." }),
+  })
+  .openapi("CanceledReturn");
+
 /** A last message that was only a GIF or a sticker (ADR 0091): the apps say which, translated, in its preview. */
 export const MediaKind = z.enum(["gif", "sticker", "voice"]).nullable().openapi({
   description:

@@ -55,7 +55,10 @@ export function badgePaths(presence: BadgePresence, ring = true): { size: number
   return { size, paths };
 }
 
-/** The badge's color per presence, light and dark theme (the approved design's: green, red, amber, a faint gray). */
+/**
+ * The badge's color per presence, light and dark theme (the approved design's: green, red, amber, a faint gray). An
+ * agent at work wears the agents' blue (`palette.ts` `agent`), one waiting on you the amber of what waits on you.
+ */
 const TONES: Record<BadgePresence, readonly [light: string, dark: string]> = {
   online: ["#2f9e5b", "#46c47a"],
   busy: ["#d92d20", "#ff6961"],
@@ -63,6 +66,8 @@ const TONES: Record<BadgePresence, readonly [light: string, dark: string]> = {
   out: ["#0a6f9e", "#5cc4ea"],
   offline: ["#8a8a8f", "#77776f"],
   hidden: ["#8a8a8f", "#77776f"],
+  working: ["#0063d1", "#5aa8ff"],
+  waiting: ["#c98a00", "#f2b04a"],
 };
 
 /** Each tone's fill: the dither lighter at the top left and deeper at the bottom right, the white mark, the ring. */

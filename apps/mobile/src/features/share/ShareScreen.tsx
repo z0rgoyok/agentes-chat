@@ -161,7 +161,13 @@ export function ShareScreen() {
           <View style={styles.content}>
             {!shared ? (
               gaveUp ? (
-                <EmptyState size="inline" title={t("mobile.share.nothing")} subtitle={t("mobile.share.nothingHint")} />
+                // The sheet's whole content, not a line of a list: its mark over the words, with room around them.
+                <EmptyState
+                  size="panel"
+                  icon="share"
+                  title={t("mobile.share.nothing")}
+                  subtitle={t("mobile.share.nothingHint")}
+                />
               ) : (
                 <View style={styles.waiting}>
                   <PixelOrbit color="sky" size={16} />

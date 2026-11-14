@@ -162,10 +162,12 @@ html:not([data-pointer]) .thread-row__name:focus-visible {
   font-weight: 600;
   color: var(--ink2);
 }
+/* The tag column holds the longest state whole: what a thread's work waits on reaches 184px ("Esperando su
+   computadora"), and a state is a fact, never cut. */
 .thread-row__end {
   position: relative;
   display: grid;
-  grid-template-columns: 168px 76px 64px;
+  grid-template-columns: 192px 76px 64px;
   align-items: center;
   gap: 12px;
 }
@@ -279,7 +281,7 @@ html:not([data-pointer]) .thread-row__resolved:focus-visible {
     margin-top: calc(var(--cap-top) - 10px);
   }
   .thread-row__end {
-    grid-template-columns: 168px 64px;
+    grid-template-columns: 192px 64px;
     translate: 0 calc(var(--cap-top) - 50%);
   }
   .thread-row__who {
@@ -292,16 +294,21 @@ html:not([data-pointer]) .thread-row__resolved:focus-visible {
     align-items: start;
     padding: 10px 12px;
   }
-  /* Under the words now, on a line of its own. */
+  /* Under the words now, on a line of its own. A state too long to share it with the time stays whole: the time goes
+     under it, on the times' right edge. */
   .thread-row__end {
     grid-column: 2;
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 8px;
+    gap: 4px 8px;
     translate: none;
   }
   .thread-row__state {
     justify-content: flex-start;
+  }
+  .thread-row__ago {
+    margin-left: auto;
   }
   .thread-row__state:empty {
     display: none;

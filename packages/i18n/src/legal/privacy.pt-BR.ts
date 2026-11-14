@@ -3,7 +3,7 @@ import type { LegalDocument } from "./types";
 export const privacyPtBR: LegalDocument = {
   title: "Política de privacidade",
   summary: "O que coletamos, o que os agentes enviam e para onde, quem pode ver o seu workspace e os seus direitos.",
-  updated: "2026-11-12",
+  updated: "2026-11-13",
   sections: [
     {
       id: "overview",
@@ -25,7 +25,7 @@ export const privacyPtBR: LegalDocument = {
         {
           list: [
             "**Dados de conta:** nome, e-mail, hash da senha, foto de perfil, idioma e fuso horário. Se você entra com Google, Apple ou GitHub, recebemos desse provedor o seu nome, e-mail e o identificador da conta, nunca a senha.",
-            "**Dados do workspace:** nome do workspace, membros, papéis e convites.",
+            "**Dados do workspace:** nome do workspace, membros, cargos e convites.",
             "**Dados de cobrança:** num workspace com plano do agentes.chat, o nome, o e-mail, o endereço de cobrança e o número de identificação fiscal de quem paga, o plano e as faturas e os pagamentos dele. Os pagamentos são processados pelo Stripe, que cuida dos dados do cartão: eles nunca chegam até nós.",
             "**Dados de uso e registros:** endereços IP, navegador e aparelho, sessões de login, eventos de segurança, requisições à API e o registro de cada chamada de modelo (modelo, tokens e custo, com o workspace e o agente a que pertence), que guardamos para aplicar orçamentos e mostrar o uso. Quando algo quebra, registramos o erro, sem o conteúdo das mensagens, para corrigi-lo.",
             "**Aparelhos:** no app de celular, o token de notificações de cada aparelho em que você entra. Em computadores conectados e no app de Mac, o nome do computador, o sistema operacional e a versão do app.",
@@ -60,7 +60,7 @@ export const privacyPtBR: LegalDocument = {
           list: [
             "**Entre os aparelhos e os nossos servidores.** Tudo o que trafega entre os nossos servidores e os navegadores, apps e computadores que se conectam a eles, inclusive o Conteúdo do Workspace, passa pelo nosso provedor de rede, que protege o Serviço contra ataques. Para isso, o provedor de rede decifra esse tráfego no data center dele mais próximo de cada aparelho, e o trata em nosso nome.",
             "**Para responder.** Quando um agente trabalha, ele envia o contexto de que precisa (o contexto do workspace, as instruções do agente, a conversa, a memória relevante e os resultados das ferramentas) ao provedor de modelo escolhido para esse agente. Com uma chave de API que o workspace adicionou, a chamada é feita na conta do próprio workspace e sob o contrato dele com esse provedor. Com um plano de IA, como o do Claude ou o do ChatGPT, conectado a um agente, o agente trabalha na conta da pessoa que conectou o plano e sob os termos do provedor.",
-            "**Para decidir quem responde.** Um modelo de roteamento lê a mensagem nova, os nomes e papéis dos agentes do workspace e a conversa recente para decidir qual agente deve responder, se algum. Ele roda na TypeSafe ou, como alternativa, no provedor de modelo do workspace. O roteamento nunca dá permissão nenhuma a um agente.",
+            "**Para decidir quem responde.** Um modelo de roteamento lê a mensagem nova, os nomes e funções dos agentes do workspace e a conversa recente para decidir qual agente deve responder, se algum. Ele roda na TypeSafe ou, como alternativa, no provedor de modelo do workspace. O roteamento nunca dá permissão nenhuma a um agente.",
             "**Memória.** Os agentes guardam memória das conversas (resumos, fatos e lições) para melhorar com o tempo. Algumas avaliações sobre a memória (se algo vale ser guardado, ou se contradiz o que o agente já sabe) são feitas pela TypeSafe. A memória pode ser vista e apagada na página do agente, e é apagada junto com o workspace.",
             "**Busca.** Para encontrar mensagens e documentos relacionados, o texto pode ser transformado em vetores (embeddings) pela Voyage AI.",
             "**Conectores.** Quando o workspace conecta um serviço (como GitHub, Google, Linear, Sentry, uma caixa de e-mail ou qualquer servidor MCP), guardamos os tokens de acesso cifrados e lemos ou escrevemos nesse serviço só dentro dos escopos que o workspace deu a cada agente. O serviço conectado trata esses dados sob os próprios termos. Conexões com caixas do Gmail e do Outlook, e com Google Drive, Google Agenda, Google Planilhas, Google Docs, Slack, Microsoft Teams, OneDrive, HubSpot, Salesforce, Zendesk, Asana, Figma, Intercom, Dropbox, Square, Instagram, Facebook, LinkedIn, YouTube, Pinterest, Reddit e WhatsApp, passam pela Composio, que trata o que os agentes leem e escrevem nesses serviços.",

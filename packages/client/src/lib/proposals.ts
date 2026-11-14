@@ -180,7 +180,7 @@ export const appLabel = (t: TFunction, line: ProposalAccessLine) =>
     ? line.label
     : scopeText(t, { id: line.id, label: line.label, description: "", sensitive: false }).label;
 
-/** What one proposal changes, after "propõe ·": "instruções da Ada", "papel do Theo", "contexto da Acme". */
+/** What one proposal changes, after "propõe ·": "instruções da Ada", "função do Theo", "contexto da Acme". */
 export function proposalTarget(
   t: TFunction,
   p: Proposal,
@@ -232,7 +232,8 @@ export function cardHead(
 
 /** Why it is proposed, in the person's language: the server's own reasons are codes, an agent's are its words. */
 export function proposalWhy(t: TFunction, p: Pick<Proposal, "why" | "whyCode">): string {
-  switch (p.whyCode) {
+  // As text: a server newer than this build may send a code its type does not list yet.
+  switch (p.whyCode as string | null | undefined) {
     case "refused":
       return t("proposals.whyCode.refused", { text: p.why });
     case "corrected":
@@ -247,6 +248,10 @@ export function proposalWhy(t: TFunction, p: Pick<Proposal, "why" | "whyCode">):
       return t("proposals.whyCode.budget");
     case "no_channel":
       return t("proposals.whyCode.noChannel");
+    case "idle":
+      return t("teamWeek.why.idle");
+    case "light_work":
+      return t("teamWeek.why.lightWork");
     default:
       return p.why;
   }

@@ -21,10 +21,21 @@ import { clockAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { computerKind, isPaused } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { type Seat, screenId } from "@agenteschat/client/lib/seat";
+import { SeatContext, useSeat } from "@agenteschat/client/lib/seat-context";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { Button, ComputerPortrait, cx, Dialog, gradientOf, Icon, SkyStrip } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { type EntrySignal, QueueButton, useAgentMachineId } from "@/components/ComputerQueue";
@@ -44,7 +55,7 @@ import { CantShowCover, ScreenNotice, Stage } from "./covers";
 import { type AgentComputerView, useAgentComputer } from "./facts";
 import { DialogHead, DialogHeadContext, type DialogHeadSlots, type KeptPicture } from "./head";
 import { KeptRunningButton } from "./KeptRunning";
-import { OpenComputerContext, OpenedComputerContext, useOpenComputer } from "./open";
+import { type OpenComputer, OpenComputerContext, OpenedComputerContext, useOpenComputer } from "./open";
 import "./computer.css";
 
 /**
@@ -193,8 +204,10 @@ export function ComputerDialog({ agent, open, onClose }: { agent: Agent; open: b
   const setAsk = useCallback((dismiss: (() => void) | null) => setDismissAsk(() => dismiss), []);
   const picture = useRef<KeptPicture | null>(null);
   useFullScreen(full, setFull);
-  const g = agentGrammar(agent.name);
-  const who = { name: agent.name, appearance: lookOf(agent) };
+  // Its shared place says so wherever the dialog names whose computer it is.
+  const name = useSeat(agent.id) ? t("rightHand.sharedName", { name: agent.name }) : agent.name;
+  const g = agentGrammar(agent.name, name);
+  const who = { name, appearance: lookOf(agent) };
   const handoff = view.facts?.handoff ?? null;
   const mine = controlledBy(handoff, me.user.id);
   const screenOnly = full && surface === "screen";
@@ -717,13 +730,24 @@ function WatchButton({ agent, signal }: { agent: Agent; signal: EntrySignal }) {
 export function ComputerDialogProvider({ children }: { children: ReactNode }) {
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const agent = agentId ? dir.agentById.get(agentId) : undefined;
-  const close = useCallback(() => setAgentId(null), []);
+  const [opened, setOpened] = useState<{ agentId: string; seat?: Seat } | null>(null);
+  const agent = opened ? dir.agentById.get(opened.agentId) : undefined;
+  const open = useCallback<OpenComputer>((agentId, seat) => setOpened({ agentId, ...(seat ? { seat } : {}) }), []);
+  const close = useCallback(() => setOpened(null), []);
+  const seatOf = useMemo(
+    () => (opened?.seat ? { agentId: opened.agentId, seat: opened.seat } : undefined),
+    [opened?.agentId, opened?.seat],
+  );
   return (
-    <OpenComputerContext.Provider value={setAgentId}>
+    <OpenComputerContext.Provider value={open}>
       <OpenedComputerContext.Provider value={agent ? agent.id : null}>{children}</OpenedComputerContext.Provider>
-      {agent && <ComputerDialog key={agent.id} agent={agent} open onClose={close} />}
+      {agent && (
+        // The right hand's shared place is another screen than the viewer's own: everything the dialog reads and does
+        // goes to the one it was opened for.
+        <SeatContext.Provider value={seatOf}>
+          <ComputerDialog key={screenId(agent.id, opened?.seat)} agent={agent} open onClose={close} />
+        </SeatContext.Provider>
+      )}
     </OpenComputerContext.Provider>
   );
 }

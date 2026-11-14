@@ -7,7 +7,7 @@ import { Sheet } from "@/ui";
  * list row, a header button): `open(content)` / `close()`. Keeps sheets out
  * of list cells, where they would be clipped or recycled.
  */
-interface SheetHost {
+export interface SheetHost {
   /** `onClose`: called once when this sheet closes (by itself, the scrim, the grabber or `close`). */
   open: (content: ReactNode, options?: { solid?: boolean; onClose?: () => void }) => void;
   /**

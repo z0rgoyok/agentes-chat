@@ -103,7 +103,7 @@ describe("Dashboards: in the sidebar's More, and the list (ADR 0135 §14)", () =
     const workspace = section("Do workspace");
     expect(workspace.textContent).toContain("todo mundo vê");
     expect(within(workspace).getByRole("link", { name: "Acme hoje" }).textContent).toContain("Criado por você");
-    const roles = section("Dos seus papéis");
+    const roles = section("Dos seus cargos");
     const comercial = within(roles).getByRole("link", { name: "Comercial" });
     expect(comercial.textContent).toContain("Criado por Ada");
     expect(comercial.getAttribute("href")).toMatch(new RegExp(`^/org/${ORG_ID}/dashboards/`));

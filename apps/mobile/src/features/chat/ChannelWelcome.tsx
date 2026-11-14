@@ -1,7 +1,7 @@
 import { type Message, useMe, useOverview } from "@agenteschat/client";
 import { joinNames, whenAt } from "@agenteschat/client/lib/format";
-import { agentActivitySince, dayPart, isNewDay } from "@agenteschat/client/lib/welcome";
-import { useEffect, useState } from "react";
+import { agentActivitySince, dayPart, isNewDay, welcomeClock } from "@agenteschat/client/lib/welcome";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
@@ -69,7 +69,8 @@ const firstNameOf = (name: string) => name.trim().split(/\s+/)[0] || name;
  * The top of a channel when it greets you, as the web's (ADR 0090): a newcomer's first #general welcomes them to the
  * workspace; otherwise, on the first channel of a new day, "Boa tarde, Ana." with what its agents left since your last
  * visit and the requests waiting for you. A card on the workspace's sky under the bar, with who did it; it drops in
- * once, and a swipe up or × puts it away (where it came from).
+ * once, and a swipe up or × puts it away (where it came from). The day's greeting also goes by itself a while after
+ * the person's first touch elsewhere, never under their finger.
  */
 export function ChannelWelcome({
   channelId,
@@ -77,6 +78,7 @@ export function ChannelWelcome({
   messages,
   agentIds,
   top,
+  touched,
 }: {
   channelId: string;
   channelName: string;
@@ -85,6 +87,8 @@ export function ChannelWelcome({
   agentIds: string[];
   /** Where it sits: under the floating bar. */
   top: number;
+  /** The person touched the conversation, the box or the bar since it opened. */
+  touched: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const orgId = useOrgId();
@@ -126,12 +130,38 @@ export function ChannelWelcome({
       setClosed(true);
     }
   };
-  // Leaves upward, the way it came; gone from the tree once it's out.
-  const putAway = () => {
-    haptics.light();
+  // The day's greeting goes by itself on the clock the web's shares (`welcomeClock`), from the person's first touch
+  // elsewhere (a newcomer's welcome stays): a finger on it holds it, and it goes 2 s after the finger lifts.
+  const held = useRef(false);
+  const clock = useRef<ReturnType<typeof welcomeClock> | null>(null);
+  // Leaves upward, the way it came; gone from the tree once it's out. A tap or a swipe is felt; going by itself isn't.
+  const putAway = (felt = true) => {
+    if (felt) haptics.light();
     shown.set(withTiming(0, { duration: 180, easing: EASE_OUT }));
     if (!reduced) y.set(withTiming(-24, { duration: 180, easing: EASE_OUT }));
     setTimeout(close, 190);
+  };
+  const away = useRef(putAway);
+  away.current = putAway;
+  const autoCloses = Boolean(me) && greets && messages !== undefined && touched;
+  useEffect(() => {
+    if (!autoCloses) return;
+    const run = welcomeClock(
+      () => away.current(false),
+      () => held.current,
+    );
+    clock.current = run;
+    run.used();
+    return () => {
+      run.stop();
+      clock.current = null;
+      // Leaving the channel once its clock runs counts as closed.
+      if (run.running()) greeting.closed = true;
+    };
+  }, [autoCloses, greeting]);
+  const lift = () => {
+    held.current = false;
+    clock.current?.left();
   };
   const pan = usePanGesture({
     // Up only: [start, end] offsets, activating 8 above; a move down or sideways first is not this.
@@ -145,7 +175,7 @@ export function ChannelWelcome({
     },
     onDeactivate: (e) => {
       "worklet";
-      if (e.translationY < DISMISS_Y || e.velocityY < -FLICK) scheduleOnRN(putAway);
+      if (e.translationY < DISMISS_Y || e.velocityY < -FLICK) scheduleOnRN(putAway, true);
       else y.set(withSpring(0, { duration: 300, dampingRatio: 0.8, velocity: e.velocityY }));
     },
   });
@@ -191,6 +221,13 @@ export function ChannelWelcome({
         style={[styles.at, { top }, style]}
         accessibilityRole="summary"
         accessibilityLabel={[when, title, lead].filter(Boolean).join(". ")}
+        // Its own touches are reading it, not using the conversation under it.
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          held.current = true;
+        }}
+        onTouchEnd={lift}
+        onTouchCancel={lift}
       >
         <View style={[styles.card, surface]}>
           <WorkspaceSky style={StyleSheet.absoluteFill} />
@@ -205,7 +242,7 @@ export function ChannelWelcome({
                 {title}
               </Text>
             </View>
-            <IconButton icon="x" label={t("sky.welcome.dismiss")} onPress={putAway} />
+            <IconButton icon="x" label={t("sky.welcome.dismiss")} onPress={() => putAway()} />
           </View>
           <Text variant="subhead" tone="ink2" numberOfLines={3} style={styles.lead}>
             {lead}

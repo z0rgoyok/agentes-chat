@@ -46,6 +46,16 @@ describe("Auditoria in words (web and phone)", () => {
     expect(auditQueryOf("people", "ag")).toEqual({ actorType: "person", kind: "change" });
   });
 
+  test("who may do one thing, changed for everyone and the roles at once, says which thing", () => {
+    const person = { type: "person" as const, id: "u1", name: "Bia" };
+    const set = (details: Record<string, unknown>) =>
+      auditSentence(t, row({ actor: person, action: "role.permission_set", details }), "pt-BR").text;
+    expect(set({ row: "create_channels" })).toBe("audit.change.role.permission_set(permissions.create_channels.short)");
+    expect(set({ row: "computers" })).toBe("audit.change.role.permission_set_computers");
+    // An older row without one reads as any change.
+    expect(set({})).toBe("audit.change.pattern(audit.change.verb.other,audit.change.area.other)");
+  });
+
   test("a billing hold's reason is said in words, never as its code; any other reason as written", () => {
     expect(auditReason(t, standing({ from: "active", to: "hold", reason: "unpaid" }))).toBe(
       "standing.notification.billing.unpaid",

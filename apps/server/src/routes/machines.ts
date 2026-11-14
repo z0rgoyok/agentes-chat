@@ -167,6 +167,10 @@ export const Machine = z
     }),
     pairedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
     agents: z.array(z.object({ id: z.uuid(), name: z.string(), handle: z.string() })),
+    sharedSeatOf: z.uuid().nullable().optional().openapi({
+      description:
+        "The built-in agent's id where this computer holds its shared place (the one it uses in channels, widgets and routines that report outside a person's own conversation) and this person may open it, as they may any agent's computer here. Opened with `seat=shared` on that agent's desktop routes.",
+    }),
     workspace: z
       .string()
       .nullable()

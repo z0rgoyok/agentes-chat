@@ -832,7 +832,14 @@ export async function markNeedsReconnect(db: Database, accountId: string, reason
   await db
     .update(mailAccounts)
     .set({ status: "needs_reconnect", lastError: reason.slice(0, 300), updatedAt: now })
-    .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.revokedAt), ne(mailAccounts.status, "pending")));
+    // A mark repeated on a mailbox that already waits moves nothing: its row's last change is when it broke.
+    .where(
+      and(
+        eq(mailAccounts.id, accountId),
+        isNull(mailAccounts.revokedAt),
+        notInArray(mailAccounts.status, ["pending", "needs_reconnect"]),
+      ),
+    );
   await db
     .update(mailWatches)
     .set({ status: "needs_reconnect", lastError: reason.slice(0, 300), updatedAt: now })

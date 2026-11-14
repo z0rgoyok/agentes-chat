@@ -5,6 +5,7 @@ setupDom();
 
 import type { Message, RunConsultation } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { askOf, type PendingAsk } from "@/components/RequestCard";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, LODI_ID, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
@@ -199,13 +200,18 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     expect(r.querySelector(".consult-pair__who + .consult-pair__sep")).not.toBeNull();
   });
 
-  test("waiting on a person, for its computer, on what it handed on: a short word in the same slot", async () => {
+  test("waiting on a person, for its computer, on what it handed on: a short word in the same slot, quiet", async () => {
     await open(withAsk([consultation({ waiting: "approval" })]));
     expect(row()?.querySelector(".consult-pair__word")?.textContent).toBe("esperando aprovação");
     cleanup();
     await open(withAsk([consultation({ waiting: "computer" })]));
     expect(row()?.querySelector(".consult-pair__word")?.textContent).toBe("esperando o computador");
-    expect(row()?.querySelector(".consult-pair__row--live")).not.toBeNull();
+    // It waits on no one here: the words quiet, the arrows still, no halo (ADR 0095 addendum).
+    expect(row()?.querySelector(".consult-pair__row--wait")).not.toBeNull();
+    expect(row()?.querySelector(".consult-pair__row--live")).toBeNull();
+    cleanup();
+    await open(withAsk([consultation({ waiting: "queued" })]));
+    expect(row()?.querySelector(".consult-pair__word")?.textContent).toBe("na fila");
   });
 
   test("work handed off, its part done: 'esperando outros agentes', and the dialog opens it as a request", async () => {
@@ -506,5 +512,62 @@ describe("the working line while the row shows the questions", () => {
     await settle(2);
     expect(bar()).toBe("Ada está perguntando para Atlas…");
     expect(typingBar().querySelector(".ac-typing__clock")).not.toBeNull();
+  });
+});
+
+describe("the bar above the composer speaks for a hand-off (ADR 0095 addendum)", () => {
+  test("work handed off from here: the other agent at work with the hand-off's time, Ver opens their talk", async () => {
+    const c = consultation({ kind: "note" });
+    const { socket } = await open(withTalk(withAsk([c]), c));
+    await push(socket, { ...asking, kind: "note" });
+    await settle(2);
+    expect(bar()).toBe("Atlas está trabalhando…");
+    expect(typingBar().getAttribute("data-consult")).toBe("work");
+    // Its time is the lists' clock, never a question's "0:41".
+    expect(typingBar().querySelector(".ac-typing__clock")).toBeNull();
+    expect(typingBar().querySelector(".ac-typing__elapsed")?.textContent).toMatch(/ s$/);
+    // No stop: stopping another agent's work is in their talk, Agora and the task manager.
+    expect(typingBar().querySelector("[aria-label^='Parar']")).toBeNull();
+    await act(async () => fireEvent.click(within(typingBar()).getByRole("button", { name: "Ver" })));
+    await settle(3);
+    expect(panel()).not.toBeNull();
+  });
+
+  test("waiting on someone else's approval: quiet, with the wait's own clock", async () => {
+    const c = consultation({ kind: "note", waiting: "approval", waitingSince: ago(180) });
+    const { socket } = await open(withAsk([c]));
+    await push(socket, { ...asking, kind: "note" });
+    await settle(2);
+    expect(bar()).toBe("O Atlas espera uma aprovação…");
+    expect(typingBar().getAttribute("data-consult")).toBe("wait");
+    expect(typingBar().querySelector(".ac-typing__elapsed")?.textContent).toBe("3 min");
+  });
+
+  test("done: the other agent finished and the one who handed it writes", async () => {
+    const c = consultation({ kind: "note" });
+    const { socket } = await open(withAsk([c]));
+    await push(socket, { ...asking, kind: "note" });
+    await push(socket, {
+      type: "agent.consulted",
+      runId: RUN,
+      agentId: ADA_ID,
+      consultedAgentId: ATLAS_ID,
+      status: "answered",
+      kind: "note",
+    });
+    await settle(2);
+    expect(bar()).toBe("Atlas terminou. Ada está escrevendo…");
+  });
+});
+
+describe("whose card waits on you (ADR 0095 addendum)", () => {
+  test("a hand-off's own run's card, never another run's of the same agent", () => {
+    const other: PendingAsk = { id: "a-other", kind: "approval", agentId: ATLAS_ID, runId: "atlas-2", what: "Deploy" };
+    const mine: PendingAsk = { id: "a-mine", kind: "question", agentId: ATLAS_ID, runId: "atlas-run", what: "Qual?" };
+    expect(askOf([other, mine], ATLAS_ID, "atlas-run")).toMatchObject({ ask: { id: "a-mine" }, on: "answer" });
+    // Atlas asks you from another run while the hand-off works: the hand-off is at work, never amber.
+    expect(askOf([other], ATLAS_ID, "atlas-run")).toBeNull();
+    // Before the list names the hand-off's run, the agent's card stands for it.
+    expect(askOf([other], ATLAS_ID)?.ask.id).toBe("a-other");
   });
 });

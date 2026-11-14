@@ -46,7 +46,6 @@ const NOTICE_ICON: Record<string, IconName> = {
   consult_reply: "agent",
   agent_note: "message",
   wait_result: "check",
-  follow_up: "clock",
   wake_skipped: "alert",
 };
 
@@ -68,7 +67,7 @@ function EventLine({
   /** What "Ver" opens (`noticeView`): never the words written for the agent. */
   detail: NoticeView["detail"];
   labels: { show: string; hide: string };
-  /** What a person can still do about it ("Cancelar" on a follow-up): an `EventPillAction`. */
+  /** What a person can still do about it ("Pedir resposta" on GitHub): an `EventPillAction`. */
   action?: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
@@ -130,7 +129,7 @@ export function UnshownLine({ part = false }: { part?: boolean }) {
  * The agent's own reply (if it has something to say) follows as a normal message.
  */
 export function NoticeLine({ message }: { message: Message }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const notice = noticeOf(message.meta);
@@ -148,14 +147,10 @@ export function NoticeLine({ message }: { message: Message }) {
         <ConsultPairRow askerId={consulted.askerId} items={[pairItemOf(consulted.consultation)]} />
       </div>
     );
-  const view = noticeView(
-    message,
-    {
-      author: dir.authorName(message.author),
-      agentByHandle: (handle) => dir.agentByHandle.get(handle.toLowerCase())?.name ?? null,
-    },
-    { time: (iso) => formatTime(i18n.language, iso), locale: i18n.language },
-  );
+  const view = noticeView(message, {
+    author: dir.authorName(message.author),
+    agentByHandle: (handle) => dir.agentByHandle.get(handle.toLowerCase())?.name ?? null,
+  });
   if (!view) return null;
   return (
     <EventLine
@@ -170,13 +165,7 @@ export function NoticeLine({ message }: { message: Message }) {
       label={t(view.key as "chat.notice.other", view.values as { name: string })}
       detail={view.detail}
       labels={{ show: t("chat.notice.show"), hide: t("chat.notice.hide") }}
-      action={
-        view.pending ? (
-          <CancelFollowUp messageId={message.id} />
-        ) : view.answer ? (
-          <AnswerGitHub messageId={message.id} />
-        ) : undefined
-      }
+      action={view.answer ? <AnswerGitHub messageId={message.id} /> : undefined}
     />
   );
 }
@@ -356,28 +345,6 @@ function StoppedLine({ message, notice }: { message: Message; notice: StoppedNot
         className="cn-stopped"
       />
     </div>
-  );
-}
-
-/** "Cancelar" on a follow-up still to come: the line changes in place once the server has it. */
-function CancelFollowUp({ messageId }: { messageId: string }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const { org } = useOrg();
-  const [busy, setBusy] = useState(false);
-  return (
-    <EventPillAction
-      disabled={busy}
-      onClick={() => {
-        setBusy(true);
-        void api.chat
-          .cancelFollowUp(org.id, messageId)
-          .catch(() => {})
-          .finally(() => setBusy(false));
-      }}
-    >
-      {t("chat.notice.followUpCancel")}
-    </EventPillAction>
   );
 }
 

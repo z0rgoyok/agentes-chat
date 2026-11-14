@@ -319,7 +319,7 @@ describe("Rotinas: each routine's state, with its one-tap fix", () => {
     expect(card("Avaliações").textContent).not.toContain("Every");
   });
 
-  test("a run's record reads as Markdown, folded when long, with the rest a click away", async () => {
+  test("a run's record reads as Markdown, folded when long, and Ver mais opens it in place for good", async () => {
     const record = `Contou o que achou\n\n- **Verificado:** PRs abertos em \`agentes.chat\`\n- ${"Nada novo. ".repeat(40)}`;
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, value: 400 });
     await open([routine({ id: "rt-md", name: "Revisar PRs" })], {
@@ -332,9 +332,11 @@ describe("Rotinas: each routine's state, with its one-tap fix", () => {
     expect(words.querySelector("code")?.textContent).toBe("agentes.chat");
     expect(words.textContent).not.toContain("**");
     expect(words.querySelector("[data-folded]")).toBeTruthy();
-    await click(within(words).getByRole("button", { name: "Mostrar mais" }));
+    await click(within(words).getByRole("button", { name: "Ver mais" }));
     expect(words.querySelector("[data-folded]")).toBeNull();
-    expect(within(words).getByRole("button", { name: "Mostrar menos" })).toBeTruthy();
+    // No "Ver menos": the button goes, and the focus moves to the words it opened.
+    expect(within(words).queryByRole("button")).toBeNull();
+    expect(document.activeElement === words.querySelector(".folded-body__text")).toBe(true);
     Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
   });
 

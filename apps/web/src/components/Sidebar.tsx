@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentGroup,
   AgentSort,
+  ApiClient,
   Availability,
   Channel,
   ChannelCategory,
@@ -38,14 +39,21 @@ import {
   useUnreadThreads,
 } from "@agenteschat/client";
 import { agentSections, groupOf } from "@agenteschat/client/lib/agent-groups";
+import { WORK_TICK_MS, workLine } from "@agenteschat/client/lib/agent-work";
 import { audienceChip, audienceNames, audienceNotice, canTalk, hiddenAgentIds } from "@agenteschat/client/lib/audience";
 import { workspaceNotes } from "@agenteschat/client/lib/deletion";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { formatTime } from "@agenteschat/client/lib/format";
+import { formatTime, upperFirst } from "@agenteschat/client/lib/format";
 import { waitingAgents } from "@agenteschat/client/lib/outages";
 import { can, makesAgents, managesChannel } from "@agenteschat/client/lib/permissions";
-import { AVAILABILITIES, isOutOfOffice, presenceOfAvailability, statusEndNote } from "@agenteschat/client/lib/presence";
+import {
+  AVAILABILITIES,
+  agentFaceWord,
+  isOutOfOffice,
+  presenceOfAvailability,
+  statusEndNote,
+} from "@agenteschat/client/lib/presence";
 import { recentDms } from "@agenteschat/client/lib/recent";
 import { isRightHand, rightHandSeenKey } from "@agenteschat/client/lib/right-hand";
 import { SERVER_PLACE_ICON } from "@agenteschat/client/lib/server";
@@ -88,6 +96,7 @@ import {
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import {
   type CSSProperties,
   type DragEvent,
@@ -110,6 +119,7 @@ import { useServerPlace } from "@/hooks/useServerPlace";
 import { useSidebarPins } from "@/hooks/useSidebarPins";
 import { useUnreadTitle } from "@/hooks/useUnreadTitle";
 import { useWorkspaceGroups } from "@/hooks/useWorkspaceGroups";
+import { switchAccount } from "@/lib/accounts";
 import { requestAgentPanel } from "@/lib/agent-panel-ask";
 import { requestChannelDetails } from "@/lib/channel-details";
 import type { MenuEntry } from "@/lib/context-menu";
@@ -121,10 +131,10 @@ import { ownPlanLines, planNearLimit, planWord } from "@/lib/plan-usage";
 import { useScrollEdges } from "@/lib/scroll-edges";
 import { rightHandSeen, STORAGE_KEYS, sessionStore, storage, storedStrings } from "@/lib/storage";
 import { useToast } from "@/lib/toast";
-import { offersNewWorkspace } from "@/lib/workspaces";
+import { offersNewWorkspace, type WorkspaceGroup } from "@/lib/workspaces";
 import type { SettingsSection } from "@/pages/settings-sections";
 import { useStreams } from "@/realtime/context";
-import { ProfileDialog } from "./AccountSettings";
+import { EmailDialog, ProfileDialog } from "./AccountSettings";
 import { AddPasswordDialog } from "./AddPassword";
 import { AgentAvatar } from "./AgentAvatar";
 import {
@@ -136,6 +146,8 @@ import {
   useGroupEntries,
   useMoveAgent,
 } from "./AgentGroups";
+import { AgentWorkLine } from "./AgentWorkLine";
+import { AgoraButton } from "./Agora";
 import { ArchivedChannelsDialog } from "./ArchivedChannelsDialog";
 import { ChangeAvatarDialog } from "./AvatarBuilder";
 import { FeedbackMark } from "./arrival/FeedbackDialog";
@@ -338,8 +350,13 @@ export function Sidebar() {
   // Agents waiting for an offline computer: "esperando" instead of anything "working".
   const outages = useMachineOutages(orgId);
   const waitingFor = useMemo(() => waitingAgents(outages.data), [outages.data]);
-  // The agents' presence and lines (ADR 0084): the one place that polls them; every face reads the same list.
-  useAgentStatuses(orgId);
+  // The agents' presence and lines (ADR 0084): the one place that polls them; every face reads the same list. Their
+  // work for me, workspace-wide (the addendum of 2026-11-13): who works and who waits, wherever it runs.
+  const agentStatuses = useAgentStatuses(orgId).data;
+  const workKey = (agentStatuses ?? [])
+    .flatMap((s) => (s.work ? [`${s.agentId}:${s.work.state}`] : []))
+    .sort()
+    .join();
   // The tab's title: "(3) agentes.chat", what the sidebar's numbers add up to (agents it doesn't list left out).
   const hiddenAgents = useMemo(() => hiddenAgentIds(org, dir.agents), [org, dir.agents]);
   useUnreadTitle(orgId, hiddenAgents);
@@ -374,12 +391,21 @@ export function Sidebar() {
     0,
   );
 
+  // Who works now: a run this tab hears, or the agents' list (work handed off in two agents' DM too). Who waits on
+  // someone or is in line: a closed group still shows them.
+  const busyKey = useStreams((st) => [...runningAgents(st)].sort().join());
+  const { busy, waits } = useMemo(() => {
+    const work = workKey ? workKey.split(",").map((w) => w.split(":") as [string, string]) : [];
+    return {
+      busy: new Set([
+        ...(busyKey ? busyKey.split(",") : []),
+        ...work.flatMap(([id, s]) => (s === "working" ? [id] : [])),
+      ]),
+      waits: new Set(work.flatMap(([id, s]) => (s === "working" ? [] : [id]))),
+    };
+  }, [busyKey, workKey]);
   // How many of the workspace's agents are working now: the sky at the bottom rises with it.
-  const agentIds = dir.agents.map((a) => a.id).join();
-  const working = useStreams((st) => {
-    const busy = runningAgents(st);
-    return agentIds ? agentIds.split(",").filter((id) => busy.has(id)).length : 0;
-  });
+  const working = dir.agents.filter((a) => busy.has(a.id)).length;
   // Narrow screens: the sidebar is a drawer (id, open state, close on link / swipe).
   const drawer = useNavDrawer();
   // Desktop: the person can shrink the sidebar to an icon rail (remembered). Tablets always get the rail.
@@ -393,8 +419,6 @@ export function Sidebar() {
   const manages = can(org, "manage_agents");
   const team = dir.agents.filter((a) => !isRightHand(a));
   const shownAgents = team.filter((a) => (manages && view.showAllAgents) || canTalk(a));
-  const busyKey = useStreams((st) => [...runningAgents(st)].sort().join());
-  const busy = useMemo(() => new Set(busyKey ? busyKey.split(",") : []), [busyKey]);
   const groups = useAgentGroups(orgId).data ?? [];
   const byGroup = agentSections(shownAgents, groups, (a) => a.id);
   const ordered = (items: Agent[]) => {
@@ -421,6 +445,7 @@ export function Sidebar() {
     onDelete: () => setDeletingGroup(group),
   });
   const agentsUnread = shownAgents.reduce((n, a) => n + (dmOf.get(a.id)?.unread ?? 0), 0);
+  const workingAgents = shownAgents.filter((a) => busy.has(a.id)).length;
   // "Mudar de grupo" in an agent's right click: the keyboard's way to what dragging does.
   const groupEntries = (a: Agent): MenuEntry[] => {
     const current = groupOf(groups, a.id)?.id ?? null;
@@ -466,7 +491,7 @@ export function Sidebar() {
           agent={a}
           unread={unread}
           waitingFor={waitingFor.get(a.id)}
-          live={busy.has(a.id) || waitingFor.has(a.id) || unread > 0}
+          live={busy.has(a.id) || waits.has(a.id) || waitingFor.has(a.id) || unread > 0}
           pinned={pins.agents.includes(a.id)}
           onPrefetch={() => dm && prefetch(dm.channelId)}
           onOpen={() => markOpen(dm?.channelId ?? a.id)}
@@ -614,7 +639,13 @@ export function Sidebar() {
             sections={sections}
             className="sidebar__section--part"
             headProps={sectionMenu("agents")}
-            // Closed, the part hides its groups too: their unread count with its own.
+            // Who works, workspace-wide, at a glance (ADR 0084 addendum); closed, the part hides its groups too: their
+            // unread count with its own.
+            status={
+              workingAgents > 0 && (
+                <span className="sidebar__section-working">{t("sidebarAgents.working", { count: workingAgents })}</span>
+              )
+            }
             summary={agentsUnread > 0 && <UnreadCount count={agentsUnread} />}
             action={
               <>
@@ -850,9 +881,11 @@ export function Sidebar() {
         <WorkspaceSky part="side" rail={rail} />
         {personal ? (
           // A personal workspace (ADR 0159): the person on top (their account, settings and workspaces in one menu),
-          // the bell and the collapse beside them. The desktop app's title bar has its own collapse (desktop.css).
+          // Agora, the bell and the collapse beside them. The desktop app's title bar has its own Agora and collapse
+          // (desktop.css).
           <div className="sidebar__org sidebar__org--person">
             <AccountMenu personal />
+            <AgoraButton below={compact} className="sidebar__agora" />
             {bell}
             {!compact && !tablet && (
               <Button
@@ -881,6 +914,7 @@ export function Sidebar() {
                 <Kbd>{modKey()}</Kbd>
                 <Kbd>K</Kbd>
               </button>
+              <AgoraButton below={compact} className="sidebar__agora" />
               {!compact && !tablet && (
                 <Button
                   variant="ghost"
@@ -1032,6 +1066,7 @@ function SidebarSection({
   sections,
   defaultOpen = true,
   summary,
+  status,
   action,
   drop,
   className,
@@ -1047,6 +1082,8 @@ function SidebarSection({
   /** Open until the person closes it (a long team's groups start closed). */
   defaultOpen?: boolean;
   summary?: ReactNode;
+  /** Open or closed, at the head's end: how many of its agents work ("1 trabalhando"). */
+  status?: ReactNode;
   action?: ReactNode;
   /** It takes a drop: dragged agents (`useAgentDrag`), or channels taken out of their category. */
   drop?: HTMLAttributes<HTMLDivElement> & { "data-drop"?: string | boolean };
@@ -1071,6 +1108,7 @@ function SidebarSection({
           {mark}
           <span className="sidebar__label">{label}</span>
         </button>
+        {status}
         {!open && summary}
         {action}
       </div>
@@ -1717,8 +1755,9 @@ function PinnedMark() {
 
 /**
  * An agent in AGENTES (its row is its DM); while it works, a light sweep in its color runs behind the row (a pulse in
- * the rail) and the line under its name says where. For who manages agents it drags to another group (`drag`) and its
- * right click has Mudar de grupo (`menuExtra`). `live`: it works, waits or wrote to me, so a closed group still shows it.
+ * the rail) and the line under its name says for whom or where and how long, workspace-wide (its work for me, ADR 0084
+ * addendum of 2026-11-13). For who manages agents it drags to another group (`drag`) and its right click has Mudar de
+ * grupo (`menuExtra`). `live`: it works, waits or wrote to me, so a closed group still shows it.
  */
 function AgentRow({
   agent: a,
@@ -1746,19 +1785,29 @@ function AgentRow({
   const { org, me } = useOrg();
   const state = useStreams((st) => agentStateIn(st, a.id));
   const workingIn = useStreams((st) => agentWorkingIn(st, a.id));
-  const busy = state !== "idle" && !waitingFor;
-  const color = colorOf(a);
-  const chip = audienceChip(t, a);
   // Its presence from its work and its line (ADR 0084): the badge on its face, both in the row's title (no emoji in
   // the list: the line shows where the agent is opened).
   const shown = useAgentPresence(a.id);
-  // Background work's minutes move with the anchor's line, every half minute.
-  useNow(shown?.line?.kind === "work", 30_000);
-  const word = shown ? t(`presence.${shown.presence}`) : null;
+  const work = shown?.work ?? null;
+  // At work: a run this tab hears, or its work for me anywhere (work handed off in two agents' DM too).
+  const busy = (state !== "idle" && !waitingFor) || work?.state === "working";
+  const color = colorOf(a);
+  const chip = audienceChip(t, a);
+  // Background work's minutes move with the anchor's line, every half minute; its work's every minute.
+  const clock = useNow(shown?.line?.kind === "work" || work !== null, work ? WORK_TICK_MS : 30_000);
+  const word = shown ? agentFaceWord(t, shown.presence) : null;
   const line = agentLine(t, shown?.line ?? null, i18n.language);
   const dir = useDirectory(org.id);
   const channelList = useChannels(org.id).data;
   const here = workingIn ? channelList?.find((c) => c.id === workingIn)?.name : undefined;
+  const channelName = (id: string) => channelList?.find((c) => c.id === id)?.name;
+  const out = shown?.presence === "out" && line ? line.text : null;
+  // Under its name: for whom or where it works, what it waits on, and for how long; a return it set comes after why it
+  // is out.
+  const doing =
+    work?.state === "later" && out
+      ? null
+      : workLine(t, i18n.language, work, { agentName: (id) => dir.agentById.get(id)?.name, channelName }, clock);
   const navigate = useNavigate();
   const agentEntries = useAgentMenu();
   const rowMenu = entityMenu(() => agentEntries(a, menuExtra));
@@ -1773,20 +1822,35 @@ function AgentRow({
   const now = busy
     ? here
       ? t("sidebarAgents.workingIn", { channel: here })
-      : t(`sky.busy.${state}`)
+      : state !== "idle"
+        ? t(`sky.busy.${state}`)
+        : agentFaceWord(t, "working")
     : working
       ? line?.text
       : undefined;
-  // Under the name, one line of one height: who it talks to when that is limited, why it is out, else its role (the
-  // agent's fixed label) as a tag.
-  const out = shown?.presence === "out" && line ? line.text : null;
-  const under = locked
-    ? names.length > 1
-      ? t("sidebarAgents.talksOnlyMore", { name: names[0], count: names.length - 1 })
-      : names[0]
-        ? t("sidebarAgents.talksOnly", { name: names[0] })
-        : chip
-    : (out ?? a.role);
+  // Under the name, one line of one height: its work (waiting on me, working, a wait, in line), why it is out, a return
+  // it set, who it talks to when that is limited, else its role (the agent's fixed label) as a tag.
+  const under =
+    out ??
+    (locked
+      ? names.length > 1
+        ? t("sidebarAgents.talksOnlyMore", { name: names[0], count: names.length - 1 })
+        : names[0]
+          ? t("sidebarAgents.talksOnly", { name: names[0] })
+          : chip
+      : a.role);
+  // Its title: who it is over what it does, whole ("Ajudando a Ada · #vendas · 22 min", "Retorno às 00:32 · #vendas").
+  const place =
+    (work?.forAgentId || work?.state === "later") && work.channelId
+      ? (work.channelName ?? channelName(work.channelId))
+      : undefined;
+  const doingTitle = doing
+    ? [upperFirst(doing.text, i18n.language), place && `#${place}`, doing.time].filter(Boolean).join(" · ")
+    : null;
+  const title = doingTitle
+    ? `${[a.name, a.role].filter(Boolean).join(" · ")}\n${doingTitle}`
+    : [a.name, a.role, now ?? word, line?.text].filter(Boolean).join(" · ");
+  const roleTag = !locked && !out;
   return (
     <div className="sidebar__row" data-agent-row={a.id} data-live={live || undefined} data-acts={edits ? 1 : undefined}>
       <Link
@@ -1794,7 +1858,7 @@ function AgentRow({
         to="/org/$orgId/dm/agent/$agentId"
         params={{ orgId: org.id, agentId: a.id }}
         className="sidebar__item"
-        title={[a.name, a.role, now ?? word, line?.text].filter(Boolean).join(" · ")}
+        title={title}
         onMouseEnter={onPrefetch}
         onFocus={onPrefetch}
         onClick={onOpen}
@@ -1816,15 +1880,26 @@ function AgentRow({
           {...(waitingFor ? { state: "idle" as const, expression: "closed" as const } : {})}
         />
         <span className="sidebar__item-text">
-          <span className={under ? "sidebar__item-label ac-captop" : "sidebar__item-label"}>
+          <span className={doing || under ? "sidebar__item-label ac-captop" : "sidebar__item-label"}>
             {a.name}
-            {working && <PixelSpinner size={14} color={color} label={now} className="sidebar__item-spin" />}
+            {working && (
+              <PixelSpinner
+                size={14}
+                color={color}
+                label={state === "idle" && doingTitle ? doingTitle : now}
+                className="sidebar__item-spin"
+              />
+            )}
           </span>
-          {under && <span className={cx("sidebar__item-role", !locked && !out && "ac-tag")}>{under}</span>}
+          {doing ? (
+            <AgentWorkLine line={doing} className="sidebar__item-role" />
+          ) : (
+            under && <span className={cx("sidebar__item-role", roleTag && "ac-tag")}>{under}</span>
+          )}
         </span>
         {unread > 0 ? (
           <UnreadCount count={unread} />
-        ) : waitingFor ? (
+        ) : waitingFor && !doing ? (
           <span className="sidebar__item-meta sidebar__waiting" title={t("outage.sidebar.tip", { name: waitingFor })}>
             <Icon name="waiting" size={14} />
             {t("outage.sidebar.waiting")}
@@ -2188,6 +2263,7 @@ function AccountMenu({ personal = false }: { personal?: boolean }) {
       <ChangeAvatarDialog open={photo} onClose={() => setPhoto(false)} />
       <SetStatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
       <OpenOnPhoneDialog open={phone} onClose={() => setPhone(false)} />
+      <EmailDialog open={account === "email"} onClose={() => setAccount(null)} />
       <AddPasswordDialog open={account === "password"} onClose={() => setAccount(null)} />
       <DeleteAccountDialog open={account === "delete"} onClose={() => setAccount(null)} />
     </>
@@ -2231,6 +2307,7 @@ function MenuWorkspaces() {
   const look = useWorkspaceLook();
   const notes = workspaceNotes(t, i18n.language, me.organizations);
   const groups = useWorkspaceGroups({ orgs: me.organizations, currentOrgId: org.id });
+  const api = useApi();
   const navigate = useNavigate();
   const go = (orgId: string) => void navigate({ to: "/org/$orgId", params: { orgId } });
   const newWorkspace = offersNewWorkspace(me.user.canCreateWorkspace, groups) && (
@@ -2238,14 +2315,29 @@ function MenuWorkspaces() {
       {t("shell.newWorkspace")}
     </MenuItem>
   );
+  const addAccount = (
+    <MenuItem
+      icon="plus"
+      description={t("shell.addAccountHint")}
+      onSelect={() => void navigate({ to: "/login", search: { add: true } })}
+    >
+      {t("shell.addAccount")}
+    </MenuItem>
+  );
   if (groups)
     return (
       <>
         <MenuHeading>{t("shell.yourWorkspaces")}</MenuHeading>
         {groups.map((g) => (
-          <Fragment key={g.server}>
-            {groups.length > 1 && (
-              <MenuHeading>{g.cloud ? g.name : `${g.name} · ${t("shell.yourServer")}`}</MenuHeading>
+          <Fragment key={groupKey(g)}>
+            {groups.length > 1 && <MenuHeading>{groupTitle(t, g)}</MenuHeading>}
+            {accountAlone(g) && (
+              <MenuItem
+                leading={<Avatar kind="person" name={g.account.name} size="sm" />}
+                onSelect={() => void switchAccount(api, g.account.userId).catch(() => {})}
+              >
+                {g.account.name}
+              </MenuItem>
             )}
             {g.rows.map((o) => {
               const shown = g.here ? look(o, "sm", 20) : look({ ...o, id: "" }, "sm", 20);
@@ -2258,8 +2350,9 @@ function MenuWorkspaces() {
                     o.current ? t("shell.youAreHere") : o.unread > 0 ? <CountChip>{o.unread}</CountChip> : undefined
                   }
                   onSelect={() => {
-                    if (!g.here) void thisMac.openWorkspace(g.server, o.id).catch(() => {});
-                    else if (!o.current) go(o.id);
+                    if (g.here) {
+                      if (!o.current) go(o.id);
+                    } else openElsewhere(api, g, o.id);
                   }}
                 >
                   {shown.name}
@@ -2269,13 +2362,16 @@ function MenuWorkspaces() {
             {g.here && newWorkspace}
           </Fragment>
         ))}
-        <MenuItem
-          icon="plus"
-          description={t("shell.addWorkspaceHint")}
-          onSelect={() => void thisMac.addWorkspace().catch(() => {})}
-        >
-          {t("shell.addWorkspace")}
-        </MenuItem>
+        {groups.some((g) => g.desktop) && (
+          <MenuItem
+            icon="plus"
+            description={t("shell.addWorkspaceHint")}
+            onSelect={() => void thisMac.addWorkspace().catch(() => {})}
+          >
+            {t("shell.addWorkspace")}
+          </MenuItem>
+        )}
+        {addAccount}
       </>
     );
   return (
@@ -2296,8 +2392,35 @@ function MenuWorkspaces() {
         );
       })}
       {newWorkspace}
+      {addAccount}
     </>
   );
+}
+
+/** A group's key in "Your workspaces": a server has one group per account (ADR 0183). */
+const groupKey = (g: WorkspaceGroup) => `${g.server} ${g.account?.userId ?? ""}`;
+
+/**
+ * A group's line in "Your workspaces" as words: its server in the desktop app (ADR 0154), and whose account it is
+ * where a server has several (ADR 0183); outside the app there is one server, so the account alone.
+ */
+function groupTitle(t: TFunction, g: WorkspaceGroup): string {
+  if (!g.desktop) return g.account?.email ?? g.name;
+  const server = g.cloud ? g.name : `${g.name} · ${t("shell.yourServer")}`;
+  return g.several && g.account ? `${server} · ${g.account.email}` : server;
+}
+
+/** Another account of this browser with no workspace yet: its own row is the way to it. */
+const accountAlone = (g: WorkspaceGroup): g is WorkspaceGroup & { account: NonNullable<WorkspaceGroup["account"]> } =>
+  g.sameServer && !g.here && g.account !== null && g.rows.length === 0;
+
+/**
+ * Opens a workspace that isn't the open account's: another account of this browser on this server (the browser moves
+ * to it, ADR 0183), or another server of the desktop app (the window goes there, as the account it belongs to).
+ */
+function openElsewhere(api: ApiClient, g: WorkspaceGroup, orgId: string) {
+  if (g.sameServer && g.account) void switchAccount(api, g.account.userId, `/org/${orgId}`).catch(() => {});
+  else void thisMac.openWorkspace(g.server, orgId, g.account?.userId).catch(() => {});
 }
 
 /**
@@ -2408,6 +2531,7 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
   const look = useWorkspaceLook();
   const notes = workspaceNotes(t, i18n.language, me.organizations);
   const groups = useWorkspaceGroups({ orgs: me.organizations, currentOrgId: org.id });
+  const api = useApi();
   const navigate = useNavigate();
   const overview = useOverview(org.id);
   const managesAgents = can(org, "manage_agents");
@@ -2436,6 +2560,18 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
       }}
     >
       {t("shell.newWorkspace")}
+    </MenuOverlayItem>
+  );
+  const addAccount = (
+    <MenuOverlayItem
+      icon="plus"
+      description={t("shell.addAccountHint")}
+      onSelect={() => {
+        onDone();
+        void navigate({ to: "/login", search: { add: true } });
+      }}
+    >
+      {t("shell.addAccount")}
     </MenuOverlayItem>
   );
   let key = 0;
@@ -2483,11 +2619,16 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
           <>
             {/* The desktop app (ADR 0154): every server's workspaces, by server, each with its unread count. */}
             {groups.map((g) => (
-              <Fragment key={g.server}>
-                {groups.length > 1 && (
+              <Fragment key={groupKey(g)}>
+                {groups.length > 1 && !g.desktop && (
+                  // Outside the app there is one server: each group is one of the browser's accounts (ADR 0183).
+                  <span className="sidebar__menu-server">{g.account?.email ?? g.name}</span>
+                )}
+                {groups.length > 1 && g.desktop && (
                   <span className="sidebar__menu-server" data-state={g.state}>
                     <Icon name={g.cloud ? "cloud" : g.thisComputer ? "computer" : "globe"} size={14} />
                     {g.thisComputer ? t("shell.serverHere") : g.name}
+                    {g.several && g.account && <em>· {g.account.email}</em>}
                     {/* Its state as words in the line, never a pill (ADR 0158): stopped, offline since, signed out. */}
                     {g.state === "offline" ? (
                       <em className="sidebar__menu-server-state">
@@ -2517,6 +2658,17 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
                     )}
                   </span>
                 )}
+                {accountAlone(g) && (
+                  <MenuOverlayItem
+                    leading={<Avatar kind="person" name={g.account.name} size="md" />}
+                    onSelect={() => {
+                      onDone();
+                      void switchAccount(api, g.account.userId).catch(() => {});
+                    }}
+                  >
+                    {g.account.name}
+                  </MenuOverlayItem>
+                )}
                 {g.rows.map((o) => {
                   const here = g.here ? me.organizations.find((m) => m.id === o.id) : undefined;
                   const shown = look(here ? o : { ...o, id: "" }, "md", 32);
@@ -2540,7 +2692,7 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
                       }
                       onSelect={() => {
                         onDone();
-                        if (!g.here) void thisMac.openWorkspace(g.server, o.id).catch(() => {});
+                        if (!g.here) openElsewhere(api, g, o.id);
                         else if (!o.current) void navigate({ to: "/org/$orgId", params: { orgId: o.id } });
                       }}
                     >
@@ -2552,16 +2704,19 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
               </Fragment>
             ))}
             <MenuOverlaySeparator />
-            <MenuOverlayItem
-              icon="plus"
-              description={t("shell.addWorkspaceHint")}
-              onSelect={() => {
-                onDone();
-                void thisMac.addWorkspace().catch(() => {});
-              }}
-            >
-              {t("shell.addWorkspace")}
-            </MenuOverlayItem>
+            {groups.some((g) => g.desktop) && (
+              <MenuOverlayItem
+                icon="plus"
+                description={t("shell.addWorkspaceHint")}
+                onSelect={() => {
+                  onDone();
+                  void thisMac.addWorkspace().catch(() => {});
+                }}
+              >
+                {t("shell.addWorkspace")}
+              </MenuOverlayItem>
+            )}
+            {addAccount}
           </>
         ) : (
           <>
@@ -2586,12 +2741,9 @@ function WorkspaceMenuOptions({ onDone }: { onDone: () => void }) {
                 </MenuOverlayItem>
               );
             })}
-            {newWorkspace && (
-              <>
-                <MenuOverlaySeparator />
-                {newWorkspace}
-              </>
-            )}
+            <MenuOverlaySeparator />
+            {newWorkspace}
+            {addAccount}
           </>
         )}
       </MenuOverlayGroup>

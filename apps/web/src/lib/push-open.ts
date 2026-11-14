@@ -23,6 +23,8 @@ export interface PushOpenData {
   /** A board's notice (ADR 0135), when the push names its board and widget. */
   dashboardId?: string;
   widgetId?: string;
+  /** Whose notification it is: a browser signed in with several accounts opens it as theirs (ADR 0183). */
+  user?: string;
 }
 
 /** The ids a push carries besides its notification's, as the server names them. */
@@ -52,6 +54,7 @@ export function pushOpenDataOf(raw: unknown): PushOpenData | null {
     kind: typeof data.kind === "string" && /^[a-z_]{1,40}$/.test(data.kind) ? data.kind : null,
   };
   for (const key of PLACE_KEYS) if (isId(data[key])) out[key] = data[key];
+  if (isId(data.user)) out.user = data.user;
   return out;
 }
 

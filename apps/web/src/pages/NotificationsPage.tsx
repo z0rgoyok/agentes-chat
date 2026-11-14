@@ -40,6 +40,7 @@ import {
   snoozeTimes,
   sortWaiting,
   stepCells,
+  teamWatchOf,
   WIDGET_NOTICES,
   widgetNoticeOf,
   workspaceHeadline,
@@ -192,7 +193,14 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
     (n.kind === "browser_handoff" && s.screen === "desktop")
   )
     [icon, label] = ["computer", t("notifications.source.machine")];
-  else if (n.kind === "plan_lent" || n.kind === "plan_serves") [icon, label] = ["bulb", t("settings.section.usage")];
+  else if (n.kind === "team_watch") {
+    // Where it is fixed: the plans, the agent's budget, the computers, the connections.
+    const cause = teamWatchOf(n)?.cause;
+    if (cause === "sign_in" || cause === "budget_out" || cause === "budget_low")
+      [icon, label] = ["bulb", t("settings.section.usage")];
+    else if (cause === "computer") [icon, label] = ["computer", t("notifications.source.machine")];
+    else if (cause) [icon, label] = ["plug", t("settings.section.connectors")];
+  } else if (n.kind === "plan_lent" || n.kind === "plan_serves") [icon, label] = ["bulb", t("settings.section.usage")];
   else if (n.kind === "plan_model_dropped") [icon, label] = ["bulb", t("brain.title")];
   else if (n.kind === "browser_handoff") [icon, label] = ["globe", t("notifications.source.browser")];
   else if (s.issueNumber != null)
@@ -748,11 +756,14 @@ function Row({
       ? usageLimitLine(t, n)
       : widgetLine
         ? widgetLine
-        : why
-          ? sayWords(t, why, l.text ?? "")
-          : media === "voice"
-            ? mediaWord(t, media)
-            : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
+        : // What the right hand found is the headline itself: nothing under it says it again.
+          n.kind === "team_watch"
+          ? null
+          : why
+            ? sayWords(t, why, l.text ?? "")
+            : media === "voice"
+              ? mediaWord(t, media)
+              : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
   const stopStep = steps ? (steps.failedAt ?? steps.done + 1) : 0;
   const stepWords = steps
     ? failed
@@ -1242,10 +1253,11 @@ function WaitRow({
 }) {
   const { t, i18n } = useTranslation();
   const unread = n.readAt === null;
-  // A request to join says it all in its headline; an agent's hand and an approval add what they are about, a
-  // secret its name and what it is for.
+  // A request to join and what the right hand found say it all in their headline; an agent's hand and an approval
+  // add what they are about, a secret its name and what it is for.
+  const found = teamWatchOf(n);
   const sub =
-    n.kind === "join_request"
+    n.kind === "join_request" || found
       ? null
       : n.kind === "secret_request"
         ? secretNoticeLine(n)
@@ -1305,8 +1317,9 @@ function WaitRow({
           <WidgetNoticeActions n={n} onOpen={() => h.onOpen(n)} open={false} />
           <DeviceNoticeActions n={n} inline />
           <AdminAskActions n={n} inline />
+          {/* What the right hand found names its way out on the button; anything else only opens. */}
           <Button size="sm" className="nt-wr__open" title={t("notifications.openTip")} onClick={() => h.onOpen(n)}>
-            {t("notifications.open")}
+            {found?.act ? (t as unknown as (key: string) => string)(found.act) : t("notifications.open")}
           </Button>
           <span className="rq__end">{tail}</span>
         </div>
@@ -1716,8 +1729,10 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
     <div className="page page--list nt">
       <PageHeader
         title={title}
-        // On the title's row: the counts the sidebar already has show at once, the list's own replace them.
-        count={(list.isSuccess || badge.isSuccess) && summary}
+        // The counts the sidebar already has show at once, the list's own replace them: on the title's row in
+        // Notifications; on "Esperando você" the line under the title, as the Approvals page says what waits.
+        count={waitingOnly ? undefined : (list.isSuccess || badge.isSuccess) && summary}
+        meta={waitingOnly ? ((list.isSuccess || badge.isSuccess) && summary) || undefined : undefined}
         actions={
           <>
             <Menu

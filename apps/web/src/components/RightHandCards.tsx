@@ -12,8 +12,6 @@ import {
   useActionCard,
   useAgentActions,
   useAgentProposal,
-  useApproval,
-  useApprovals,
   useAskProposal,
   useAuthConfig,
   useCardProposals,
@@ -29,14 +27,20 @@ import {
   useSetMemberRoles,
 } from "@agenteschat/client";
 import {
-  type ApprovalsCard,
+  actionCardApplyKey,
+  actionCardDestroys,
   actionCardDetail,
   actionCardKey,
+  actionCardMark,
+  actionCardSaysDone,
   actionCardWords,
   type MemberChangeRow,
   type MemberChangesCard,
   mayApplyCard,
   memberRowDone,
+  memberRowNeeds,
+  memberRowsBlocked,
+  memberRowText,
   type OpenPageCard,
   rolesAfter,
   type SettingsProposalCard,
@@ -67,7 +71,6 @@ import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { AgentProposalCardView } from "@/components/ActionCard";
 import { AgentAvatar, PersonAvatar } from "@/components/AgentAvatar";
-import { ApprovalAsk } from "@/components/ApprovalAsk";
 import { DeleteAgentsDialog } from "@/components/DeleteAgentDialog";
 import { useOrg } from "@/components/org-context";
 import { RemoveMemberDialog } from "@/components/RemoveMember";
@@ -526,39 +529,6 @@ function ChangeRequestProposal({ n }: { n: AppNotification }) {
 }
 
 /**
- * The right hand's approvals card (`offer_approvals`, ADR 0137 §4): each approval as the conversation shows it, with its
- * own buttons, holds and confirmations, decided as whoever clicks (audited via the right hand); decided, its one line.
- */
-export function ApprovalsCardView({ message, card }: { message: Message; card: ApprovalsCard }) {
-  const { t } = useTranslation();
-  return (
-    <CardVia messageId={message.id}>
-      {/* biome-ignore lint/a11y/useSemanticElements: a labelled group inside a message, not a fieldset */}
-      <div className="rh-cards" role="group" aria-label={t("rightHand.approvals.title")}>
-        {card.why && <p>{inlineWords(card.why)}</p>}
-        {card.approvalIds.map((id) => (
-          <CardApproval key={id} id={id} />
-        ))}
-      </div>
-    </CardVia>
-  );
-}
-
-export function CardApproval({ id }: { id: string }) {
-  const { org } = useOrg();
-  const dir = useDirectory(org.id);
-  const list = useApprovals(org.id);
-  const listed = list.data?.find((a) => a.id === id);
-  const one = useApproval(org.id, id, !listed && list.isSuccess);
-  const people = useMembers(org.id).data;
-  const members = new Map((people ?? []).map((m) => [m.userId, m]));
-  const approval = listed ?? one.data;
-  if (!approval) return null;
-  const agent = dir.anyAgent(approval.agentId);
-  return <ApprovalAsk approval={approval} agent={agent} members={members} />;
-}
-
-/**
  * The right hand's people card (`propose_member_changes`): a row per person and change ("Ganha Dono", "Perde Vendas",
  * "Remover do workspace"), each applied with the members screen's own call as whoever clicks, removal through its
  * confirmation. Who can't reads who may. Done from the members list.
@@ -576,34 +546,16 @@ function MemberChanges({ message, card }: { message: Message; card: MemberChange
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const members = useMembers(org.id);
-  const roles = useRoles(org.id).data?.roles ?? [];
+  const known = useRoles(org.id);
+  const roles = known.data?.roles ?? [];
   const change = useChangeRole(org.id);
   const setRoles = useSetMemberRoles(org.id);
   const toast = useToast();
   const [removing, setRemoving] = useState<{ userId: string; name: string } | null>(null);
   const people = members.data ?? [];
   const title = t("rightHand.people.title");
-  const roleNames = (ids: string[]) =>
-    ids
-      .map((id) => roles.find((r) => r.id === id)?.name ?? "")
-      .filter(Boolean)
-      .join(", ");
-  const owner = t("roles.owner");
-  const what = (r: MemberChangeRow) =>
-    "remove" in r
-      ? t("members.remove.item")
-      : "role" in r
-        ? t(r.role === "owner" ? "rightHand.people.gets" : "rightHand.people.loses", { roles: owner })
-        : [
-            r.addRoleIds.length ? t("rightHand.people.gets", { roles: roleNames(r.addRoleIds) }) : "",
-            r.removeRoleIds.length ? t("rightHand.people.loses", { roles: roleNames(r.removeRoleIds) }) : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-  const may = (r: MemberChangeRow) =>
-    "role" in r || ("remove" in r && people.find((p) => p.userId === r.userId)?.role === "owner")
-      ? can(org, "manage_owners")
-      : can(org, "manage_members");
+  const what = (r: MemberChangeRow) => memberRowText(t, r, (id) => roles.find((x) => x.id === id)?.name);
+  const may = (r: MemberChangeRow) => can(org, memberRowNeeds(r, people));
   const done = (r: MemberChangeRow) => members.isSuccess && memberRowDone(r, people);
   const failed = (e: unknown) => toast.show(errorText(t, e), "error");
   const apply = (r: MemberChangeRow) => {
@@ -617,9 +569,7 @@ function MemberChanges({ message, card }: { message: Message; card: MemberChange
   const over = members.isSuccess && card.rows.every(done);
   const open = card.rows.filter((r) => !done(r));
   const mine = open.some(may);
-  const blocked = open.some((r) => "role" in r && !may(r))
-    ? "rightHand.people.onlyOwners"
-    : "rightHand.people.onlyAdmins";
+  const blocked = memberRowsBlocked(open, may);
   return (
     <>
       <RemoveMemberDialog person={removing} onClose={() => setRemoving(null)} />
@@ -650,6 +600,8 @@ function MemberChanges({ message, card }: { message: Message; card: MemberChange
                     <span className="proposal-row__status">{t("rightHand.people.done")}</span>
                   ) : (
                     members.isSuccess &&
+                    // A row offers its button only once it can name the roles it gives or takes.
+                    known.isSuccess &&
                     may(r) && (
                       <Button
                         size="sm"
@@ -756,7 +708,7 @@ export function WorkspaceActionCardView({
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
-  const decide = useDecideActionCard(org.id, where);
+  const decide = useDecideActionCard(org.id, { ...where, action: card.params.action });
   const undo = useAgentActions(org.id, where.channelId).undo;
   const toast = useToast();
   const failed = (e: unknown) => toast.show(errorText(t, e), "error");
@@ -768,9 +720,13 @@ export function WorkspaceActionCardView({
       components={{ b: <b /> }}
     />
   );
-  const detail = actionCardDetail(card, t, i18n.language);
+  // The answer to their own tap says more than the card everyone reads (an address that already held an invitation).
+  const own = decide.data?.card;
+  const detail = actionCardDetail(own?.state === "applied" ? own : card, t, i18n.language);
   const may = mayApplyCard(card, { userId: me.user.id, may: (key) => can(org, key) });
   const mine = card.forUserId === me.user.id;
+  // Whoever applies it for someone else reads who asked, in the conversation and in their inbox.
+  const asker = mine ? undefined : dir.memberById.get(card.forUserId)?.name;
   // Decided: the same card, and who did it, when and Desfazer where the buttons were.
   let answer: RequestAnswer | undefined;
   if (card.state !== "pending") {
@@ -806,12 +762,12 @@ export function WorkspaceActionCardView({
     <>
       <Button
         size="sm"
-        variant={card.params.action.startsWith("delete_") ? "danger" : "primary"}
+        variant={actionCardDestroys(card) ? "danger" : "primary"}
         disabled={decide.isPending}
         loading={decide.isPending && decide.variables === "apply"}
         onClick={() => decide.mutate("apply", { onError: failed })}
       >
-        {t("rightHand.card.apply")}
+        {t(actionCardApplyKey(card))}
       </Button>
       <Button
         size="sm"
@@ -848,11 +804,13 @@ export function WorkspaceActionCardView({
       agent={dir.anyAgent(agentId ?? "")}
       label={label}
       mine={may}
+      headless={actionCardSaysDone(card)}
       waitingFor={may ? undefined : t("rightHand.action.only")}
+      source={asker ? t("audit.behind.person", { name: asker }) : undefined}
       answer={answer}
       lead={card.params.why || sentence}
       object={{
-        logo: <Icon name={card.params.action.includes("channel") ? "channel" : "shield"} size={20} />,
+        logo: <Icon name={actionCardMark(card)} size={20} />,
         title: sentence,
         ...(detail ? { detail } : {}),
       }}

@@ -6,7 +6,7 @@ export const legalKo: Partial<Record<LegalKind, LegalDocument>> = {
     title: "이용약관",
     summary: "agentes.chat 이용에 관한 계약: 귀하의 워크스페이스, 귀하의 에이전트, 그리고 각 당사자가 책임지는 사항.",
     courtesy: "본 문서는 편의를 위한 번역본이며, 영어 원문과 내용이 다를 경우 영어 원문이 우선합니다.",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -172,7 +172,7 @@ export const legalKo: Partial<Record<LegalKind, LegalDocument>> = {
     summary:
       "당사가 수집하는 정보, 에이전트가 무엇을 어디로 보내는지, 누가 귀하의 워크스페이스를 볼 수 있는지, 그리고 귀하가 가진 권리.",
     courtesy: "본 문서는 편의를 위한 번역본이며, 영어 원문과 내용이 다를 경우 영어 원문이 우선합니다.",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

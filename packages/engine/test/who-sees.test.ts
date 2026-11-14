@@ -546,6 +546,17 @@ describe("a task's audience", () => {
         .update(schema.issues)
         .set({ status: "done", assigneeType: "agent", assigneeId: f.agent.id })
         .where(eq(schema.issues.id, t.id));
+      // The card counts a task an agent closed, by the task's own history.
+      await f.db.insert(schema.issueActivity).values({
+        orgId: f.org.id,
+        issueId: t.id,
+        kind: "event",
+        authorType: "agent",
+        authorId: f.agent.id,
+        text: "changed the status to Done",
+        event: "status_changed",
+        data: { from: "todo", to: "done" },
+      });
     };
     await closed("Um");
     await closed("Dois");

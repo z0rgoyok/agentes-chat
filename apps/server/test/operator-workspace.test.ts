@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { rowsOf, schema, sql, tracingLogger } from "@agenteschat/db";
+import { schema, sql } from "@agenteschat/db";
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
-import { createTestServer, type TestServer } from "./harness";
+import { createTestServer, planOfLast, type TestServer } from "./harness";
 
 /**
  * ADR 0056, what a workspace connected, recorded, asked and scheduled: its connections, its audit log without the
@@ -753,32 +753,17 @@ test("a page of the audit log continues from the stored time itself, in an order
     (${close[0]}, ${ADA}, 'system', 'test.close', 'test', '2026-01-20T00:00:00.000100Z'),
     (${close[1]}, ${ADA}, 'system', 'test.close', 'test', '2026-01-20T00:00:00.000200Z'),
     (${close[2]}, ${ADA}, 'system', 'test.close', 'test', '2026-01-20T00:00:00.000300Z')`);
-  const seen: [string, unknown[]][] = [];
-  const counts = tracingLogger.logQuery;
-  tracingLogger.logQuery = (query = "", params: unknown[] = []) => {
-    seen.push([query, params]);
-    counts();
-  };
-  let read: string[];
-  try {
-    read = ids(await paged(`/orgs/${ADA}/audit?action=test.close&from=2026-01-01T00:00:00Z`, "events", 1));
-  } finally {
-    tracingLogger.logQuery = counts;
-  }
-  expect(read).toEqual([...close].reverse());
-
+  let read: string[] = [];
   // The plan, not a time: the page after a cursor walks the log's index by time and sorts no more than one instant.
-  const [statement = "", params = []] = seen.filter(([query]) => query.includes('from "audit_log"')).at(-1) ?? [];
-  const page = statement.replace(/\$(\d+)/g, (_, n) => `'${params[Number(n) - 1]}'`);
-  const plan = await t.db.transaction(async (tx) => {
-    // Nothing here is big enough for the planner to prefer an index on its own.
-    await tx.execute(sql`set local enable_seqscan = off`);
-    await tx.execute(sql`set local enable_sort = off`);
-    await tx.execute(sql`set local enable_bitmapscan = off`);
-    return rowsOf<{ "QUERY PLAN": string }>(await tx.execute(sql.raw(`explain (costs off) ${page}`)))
-      .map((row) => row["QUERY PLAN"])
-      .join("\n");
-  });
+  const plan = await planOfLast(
+    t,
+    "audit_log",
+    async () => {
+      read = ids(await paged(`/orgs/${ADA}/audit?action=test.close&from=2026-01-01T00:00:00Z`, "events", 1));
+    },
+    ["enable_sort", "enable_bitmapscan"],
+  );
+  expect(read).toEqual([...close].reverse());
   expect(plan).toMatch(
     /^Limit\s+->\s+Incremental Sort\s+Sort Key: created_at DESC, id DESC\s+Presorted Key: created_at\s+->\s+Index Scan Backward using audit_log_org_id_created_at_index on audit_log/,
   );
@@ -927,6 +912,19 @@ test("asks: approvals, questions, secrets, screens and consultations in one list
   expect(await refusal(await get(`/orgs/${ADA}/asks?kind=wish`))).toEqual([400, "invalid_request"]);
   expect(await refusal(await get(`/orgs/${ADA}/asks?open=maybe`))).toEqual([400, "invalid_request"]);
   expect(await refusal(await get(`/orgs/${ADA}/asks?cursor=nope`))).toEqual([400, "invalid_cursor"]);
+});
+
+test("questions and requests for a secret are found by their workspace and their dates, through an index of each", async () => {
+  for (const table of ["agent_questions", "secret_requests"]) {
+    const plan = await planOfLast(t, table, () => get(`/orgs/${ADA}/asks?from=2026-01-01T00:00:00Z`), [
+      "enable_bitmapscan",
+    ]);
+    expect(plan).toMatch(
+      new RegExp(
+        `Index Scan using ${table}_org_id_created_at_index on ${table}\\s+Index Cond: \\(\\(org_id = .+ AND \\(created_at >= `,
+      ),
+    );
+  }
 });
 
 test("routines: when each runs, where it delivers and how its latest firings ended, never its name or instructions", async () => {

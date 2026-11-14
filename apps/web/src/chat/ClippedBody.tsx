@@ -1,68 +1,56 @@
 import { LONG_MESSAGE } from "@agenteschat/client/lib/message-length";
-import { Button, Dialog, DialogBody } from "@agenteschat/ui";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useChannelActions } from "@/components/channel-actions";
 import { useOverflows } from "@/hooks/useOverflows";
-import { copyText } from "@/lib/context-menu";
-import { useToast } from "@/lib/toast";
+import { useReveal } from "@/hooks/useReveal";
 
 /**
  * A message's words in a conversation: one taller than `LONG_MESSAGE.over` (the `.msg-clip` rules) shows its start,
- * faded, with "Ver mais", which opens it whole in a dialog (`text` for its copy button). `children` draws the words
- * with the class it is given on their own root (in the conversation) or with none (in the dialog): no box goes around
- * them, since the bubble's rules read the words as the direct child of the message's text.
+ * faded, with "Ver mais", and so does a long message from one agent to another, folded to its `lead` (ADR 0034).
+ * "Ver mais" opens the words in place, for good (no "Ver menos"): they grow down from the fold and the list stops
+ * following its end, so the reader stays on them. `children` draws the words (`lead` while folded to it) with the class
+ * it is given on their own root: no box goes around them, since the bubble's rules read the words as the direct child
+ * of the message's text.
  */
 export function ClippedBody({
-  name,
-  text,
+  lead,
   children,
 }: {
-  name: string;
-  text: string;
-  children: (className?: string) => ReactNode;
+  lead?: string | undefined;
+  children: (className: string, lead?: string) => ReactNode;
 }) {
   const { t } = useTranslation();
-  const toast = useToast();
+  const actions = useChannelActions();
   const foot = useRef<HTMLDivElement>(null);
   const words = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = foot.current?.previousElementSibling;
     words.current = el instanceof HTMLElement ? el : null;
   }, []);
-  const cut = useOverflows(words, true, LONG_MESSAGE.over);
   const [open, setOpen] = useState(false);
+  const cut = useOverflows(words, !open, LONG_MESSAGE.over);
+  const reveal = useReveal(words, open);
+  const folded = !open && (cut || lead !== undefined);
   return (
     <>
-      {children(cut ? "msg-clip msg-clip--cut" : "msg-clip")}
+      {children(cut && !open ? "msg-clip msg-clip--cut" : "msg-clip", open ? undefined : lead)}
       {/* Always there, to find the words by; empty under a message that shows whole, so its text reads as its words alone. */}
-      <div ref={foot} className="msg-clip__foot" hidden={!cut}>
-        {cut && (
-          <button type="button" className="ac-link msg-clip__more" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+      <div ref={foot} className="msg-clip__foot" hidden={!folded}>
+        {folded && (
+          <button
+            type="button"
+            className="ac-link msg-clip__more"
+            onClick={() => {
+              reveal();
+              actions?.letGo?.();
+              setOpen(true);
+            }}
+          >
             {t("channel.long.more")}
           </button>
         )}
       </div>
-      {open && (
-        <Dialog
-          open
-          onOpenChange={setOpen}
-          title={t("channel.long.title", { name })}
-          closeLabel={t("common.close")}
-          width={620}
-          actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="copy"
-              onClick={() => void copyText(text, () => toast.show(t("contextMenu.textCopied")))}
-            >
-              {t("common.copy")}
-            </Button>
-          }
-        >
-          <DialogBody className="msg-clip__whole">{children()}</DialogBody>
-        </Dialog>
-      )}
     </>
   );
 }

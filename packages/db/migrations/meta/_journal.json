@@ -1828,6 +1828,41 @@
       "when": 1794745400000,
       "tag": "0262_agent_co_author",
       "breakpoints": true
+    },
+    {
+      "idx": 263,
+      "version": "7",
+      "when": 1794745500000,
+      "tag": "0263_right_hand_seats",
+      "breakpoints": true
+    },
+    {
+      "idx": 264,
+      "version": "7",
+      "when": 1794745600000,
+      "tag": "0264_partner_waitlist",
+      "breakpoints": true
+    },
+    {
+      "idx": 265,
+      "version": "7",
+      "when": 1794755500000,
+      "tag": "0265_right_hand_proactive",
+      "breakpoints": true
+    },
+    {
+      "idx": 266,
+      "version": "7",
+      "when": 1794755600000,
+      "tag": "0266_operator_read_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1794755700000,
+      "tag": "0268_invite_choices",
+      "breakpoints": true
     }
   ]
 }

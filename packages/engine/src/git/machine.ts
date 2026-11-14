@@ -18,6 +18,7 @@ import { activeConnections } from "../connectors/connections";
 import type { MachineCaller, MachineCallOptions, MachineStatus } from "../machine-hub";
 import { MachineOfflineError, MachinePausedError, REMOVED_COMPUTER_MESSAGE } from "../machines";
 import { missionOfRun } from "../mission-context";
+import { toolMachineId } from "../right-hand-seats";
 import { runnerUpdateWay } from "../runner-update";
 import { standingRefusal } from "../standing";
 import { grantedScopeKeys } from "../tools/scopes";
@@ -86,13 +87,16 @@ export async function machineGitSetup(
   orgId: string,
   agentId: string,
   machineId: string,
+  /** A tool's call: who the computer takes the agent for (`machineScope`), the right hand's seat included. */
+  scope?: AgentScope,
 ): Promise<(Pick<GitSyncRequest, "proxy" | "author"> & { agent: AgentScope }) | null> {
   const connection = (await activeConnections(deps.db, orgId)).find((c) => c.connector === "github");
   if (!connection) return null;
   const keys = await grantedScopeKeys(deps.db, orgId, agentId);
   if (!gitAccess(keys, connection.id).read) return null;
   const agent = await getAgentCached(deps.db, orgId, agentId);
-  if (!agent || agent.machineId !== machineId) return null;
+  // Without a scope (a brain's turn) the right hand has no checkout: its locked turn prepares none (ADR 0137 §4).
+  if (!agent || (scope ? await toolMachineId(deps.db, agent) : agent.machineId) !== machineId) return null;
   const [machine] = await deps.db
     .select({ tokenHash: schema.machines.tokenHash })
     .from(schema.machines)
@@ -115,7 +119,7 @@ export async function machineGitSetup(
     author: bot
       ? { name: `${agent.name} (agentes.chat)`, email: bot.email }
       : { name: `${agent.name} (agentes)`, email: agentCommitEmail(deps.git.publicUrl, agent.handle) },
-    agent: { id: agent.id, handle: agent.handle, name: agent.name },
+    agent: scope ?? { id: agent.id, handle: agent.handle, name: agent.name },
   };
 }
 
@@ -195,13 +199,13 @@ async function checkoutsOnMachine(
 /** `git_clone` on a connected machine: clones (or, when it is there, updates) one repository in the agent's folder. */
 export async function cloneOnMachine(
   deps: MachineGitDeps,
-  target: { orgId: string; agentId: string; machineId: string },
+  target: { orgId: string; agentId: string; machineId: string; scope: AgentScope },
   input: { repo: string; dir?: string; signal?: AbortSignal; onOutput?: MachineCallOptions["onOutput"] },
 ): Promise<GitSyncRepo> {
   const status = await deps.hub.status(target.machineId);
   const unavailable = machineGitUnavailable(status, target.orgId);
   if (unavailable || !status) throw unavailable;
-  const setup = await machineGitSetup(deps, target.orgId, target.agentId, target.machineId);
+  const setup = await machineGitSetup(deps, target.orgId, target.agentId, target.machineId, target.scope);
   if (!setup)
     throw new Error("You have no git access to GitHub here (scope github:git.read), or GitHub isn't connected.");
   const { agent, ...rest } = setup;

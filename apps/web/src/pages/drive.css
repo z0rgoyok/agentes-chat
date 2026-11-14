@@ -88,7 +88,6 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
   transform: translateY(-2px);
   box-shadow: var(--e2), var(--top);
 }
-.drive-card--open,
 .drive-card--selected {
   background: var(--chosen-bg);
   box-shadow: var(--chosen-shadow);
@@ -214,11 +213,9 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
 .drive-row:hover {
   background: color-mix(in srgb, var(--sunken) 55%, transparent);
 }
-.drive-row--open,
 .drive-row--selected {
   background: color-mix(in srgb, var(--sunken) 85%, transparent);
 }
-.drive-row--open::before,
 .drive-row--selected::before {
   content: "";
   position: absolute;
@@ -294,170 +291,10 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
   z-index: var(--z-lifted);
 }
 
-/* Details (in the shared details dialog). A video plays in the preview's place: as wide as the dialog, 16:9 (other
-   shapes letterboxed), never taller than most of the window. */
-.drive-details__video.ac-video--viewer {
-  flex: none;
-  height: auto;
-  min-height: 0;
-  aspect-ratio: 16 / 9;
-  max-height: 62vh;
-  border-radius: var(--radius-lg);
-}
-.drive-details__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.drive-details__actions > .ac-btn--primary {
-  flex: 1 1 auto;
-}
-.drive-audience {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-}
+/* The Private group's note beside its title. */
 .drive-group__hint {
   font-size: 12px;
   color: var(--muted);
-}
-.drive-author > span {
-  min-width: 0;
-}
-.drive-author b,
-.drive-author small {
-  display: block;
-}
-.drive-author b {
-  font-weight: 650;
-}
-.drive-author small {
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.drive-versions {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-}
-.drive-versions li {
-  position: relative;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  padding: 6px 6px 10px 2px;
-  border-radius: 12px;
-}
-.drive-versions li::before {
-  content: "";
-  position: absolute;
-  left: 10px;
-  top: 24px;
-  bottom: -6px;
-  width: 1.5px;
-  background: var(--line2);
-}
-.drive-versions li:last-child::before {
-  display: none;
-}
-.drive-versions__node {
-  position: relative;
-  z-index: var(--z-raised);
-  width: 12px;
-  height: 12px;
-  margin: 5px 0 0 3px;
-  border-radius: 50%;
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1.5px var(--faint);
-}
-.drive-versions__current .drive-versions__node {
-  background: var(--ink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 14%, transparent);
-}
-/* A version's note is what someone wrote: a word longer than the column breaks instead of running under "Ver". */
-.drive-versions__text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-wrap: break-word;
-}
-.drive-versions__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 13.5px;
-}
-/* "View" on the first line: a box the line's height, the 32px button centred in it. */
-.drive-versions__tail {
-  display: flex;
-  align-items: center;
-  height: 22px;
-}
-.drive-versions__note {
-  margin-top: 1px;
-  font-size: 13px;
-  color: var(--ink2);
-}
-.drive-versions__who {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--faint);
-}
-.drive-where {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--sunken);
-  font: inherit;
-  font-size: 13.5px;
-  color: inherit;
-  text-align: left;
-}
-button.drive-where {
-  cursor: pointer;
-}
-button.drive-where:hover {
-  background: color-mix(in srgb, var(--sunken) 70%, var(--plate));
-}
-html:not([data-pointer]) button.drive-where:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-.drive-where__icon {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  background: var(--raised);
-  box-shadow: var(--e1);
-  color: var(--muted);
-}
-.drive-where__text {
-  min-width: 0;
-  flex: 1;
-}
-.drive-where__text b {
-  display: block;
-  font-weight: 600;
-}
-.drive-where__text small {
-  display: block;
-  font-size: 12px;
-  color: var(--faint);
 }
 
 /* Drop anywhere on the page. */

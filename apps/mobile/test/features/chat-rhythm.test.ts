@@ -37,7 +37,7 @@ describe("one rhythm, the web's numbers (chat-rhythm-css.test.ts holds them to t
     expect(row).toContain("[styles.body, { gap: rhythm.part }]");
     expect(row).toContain("[styles.meParts, { gap: rhythm.part }]");
     const parts: [string, string[]][] = [
-      ["chat/MessageRow.tsx", ["msg", "me", "status", "stopped", "talkMore", "reacts"]],
+      ["chat/MessageRow.tsx", ["msg", "me", "status", "stopped", "reacts"]],
       ["chat/look.ts", ["bubblesRow", "compactRow"]],
       ["chat/ToolCalls.tsx", ["block", "steps"]],
       ["chat/Receipts.tsx", ["one", "group"]],

@@ -5,7 +5,8 @@ import { activeConnections, type ConnectorDeps } from "../connectors/connections
 import { publishChannelEvent } from "../events";
 import { computerPreparing } from "../machine-provisioning";
 import { missionOfRun } from "../mission-context";
-import { isRightHandId, RIGHT_HAND_NO_COMPUTER } from "../right-hand";
+import { isRightHand } from "../right-hand";
+import { machineScope, NO_HOME_MESSAGE, toolMachineId } from "../right-hand-seats";
 import { replyThreadOf } from "../runs";
 import { NO_COMPUTER_MESSAGE, PREPARING_COMPUTER_MESSAGE, type SandboxDeps } from "../sandbox";
 import { APPROVAL_DETAIL_CHARS } from "../tools/gateway";
@@ -180,8 +181,6 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
         }
         return { ok: true };
       };
-      // Cloning takes a computer, which the right hand never has (ADR 0137): it isn't offered what can't run.
-      const rightHand = await isRightHandId(ctx.db, ctx.orgId, ctx.agentId);
       const all: ToolDefinition[] = [
         {
           name: "git_clone",
@@ -214,10 +213,13 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                 return { content: "dir must stay in the workspace", isError: true };
               const [agent, mission] = await Promise.all([getAgentCached(c.db, c.orgId, c.agentId), missionOfRun(c)]);
               // A connected machine (not in a mission's own folder): through the proxy with our credential.
-              if (agent?.machineId && !mission) {
+              const machineId = await toolMachineId(c.db, agent);
+              if (agent && machineId && !mission) {
                 const machines = deps.sandbox.machines;
                 const git = deps.sandbox.git;
                 if (!machines || !git) return { content: "Connected computers are not available here.", isError: true };
+                // The right hand clones into the seat its run works in, a person's own or the shared one (ADR 0175).
+                const scope = await machineScope(machines.hub, c, machineId);
                 const r = await cloneOnMachine(
                   {
                     db: c.db,
@@ -226,7 +228,7 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                     github: deps.app ? { app: deps.app, http: github } : null,
                     ...(deps.sandbox.now ? { now: deps.sandbox.now } : {}),
                   },
-                  { orgId: c.orgId, agentId: c.agentId, machineId: agent.machineId },
+                  { orgId: c.orgId, agentId: c.agentId, machineId, scope },
                   {
                     repo: `${repo.owner}/${repo.repo}`,
                     ...(given ? { dir: given } : {}),
@@ -238,7 +240,7 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                 if (r.status === "cloning") {
                   return {
                     content: `${r.repo} is still downloading into ${where} on your computer (${r.message ?? "in progress"}). It goes on by itself; call git_clone again for it when you need the code, to wait for it.`,
-                    data: { repo: r.repo, dir: r.dir, machineId: agent.machineId, status: r.status },
+                    data: { repo: r.repo, dir: r.dir, machineId, status: r.status },
                   };
                 }
                 if (r.status === "failed" && !r.head) {
@@ -252,7 +254,7 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                       : `${r.repo} was already at ${where}; updated it`;
                 return {
                   content: `${what} (branch ${r.branch ?? "?"}${r.head ? ` at ${r.head}` : ""}${r.message && r.status !== "failed" ? `; ${r.message}` : ""}).\nWork there (cd ${where}); create a branch agentes/${agent.handle}/<topic> to push, then open_pull_request.`,
-                  data: { repo: r.repo, dir: r.dir, machineId: agent.machineId, status: r.status },
+                  data: { repo: r.repo, dir: r.dir, machineId, status: r.status },
                 };
               }
               if (mission) {
@@ -263,8 +265,7 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                   isError: true,
                 };
               }
-              if (await isRightHandId(c.db, c.orgId, c.agentId))
-                return { content: `Not cloned: ${RIGHT_HAND_NO_COMPUTER}.`, isError: true };
+              if (isRightHand(agent)) return { content: NO_HOME_MESSAGE, isError: true };
               const preparing = await computerPreparing({ ...deps.sandbox, db: c.db }, c.orgId);
               return { content: preparing ? PREPARING_COMPUTER_MESSAGE : NO_COMPUTER_MESSAGE, isError: true };
             } catch (error) {
@@ -433,7 +434,7 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
           }),
         },
       ];
-      return rightHand ? all.filter((t) => t.name !== "git_clone") : all;
+      return all;
     },
   };
 }

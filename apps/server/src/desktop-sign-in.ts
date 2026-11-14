@@ -106,12 +106,6 @@ export function desktopSignIn() {
           if (Date.now() - new Date(session.createdAt).getTime() > FRESH_SIGN_IN_MS) {
             throw new APIError("FORBIDDEN", { message: "Sign in again to continue in the app" });
           }
-          // sessionMiddleware may use the signed five-minute cookie cache. A session
-          // revoked in the database must not mint a new device session through it.
-          const source = await ctx.context.internalAdapter.findSession(session.token);
-          if (!source || source.session.userId !== session.userId || source.session.expiresAt <= new Date()) {
-            throw new APIError("UNAUTHORIZED", { message: "Sign in again to continue in the app" });
-          }
           const found = await ctx.context.internalAdapter.consumeVerificationValue(REQUEST_PREFIX + ctx.body.requestId);
           const request = found && found.expiresAt >= new Date() ? parseRequest(found.value) : null;
           if (!request) return ctx.json({ ok: false });

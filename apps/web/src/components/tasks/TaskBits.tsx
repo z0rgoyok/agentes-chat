@@ -18,10 +18,10 @@ import {
   waitsOnPerson,
 } from "@agenteschat/client/lib/task-manager";
 import { callLogo } from "@agenteschat/client/lib/work";
-import { Button, Chip, cx, Icon, Input, Locked, PixelStop, Popover, ProviderLogo, Spinner } from "@agenteschat/ui";
+import { Button, Chip, cx, Icon, Input, Locked, PixelStop, Popover, ProviderLogo, Spinner, Tip } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar, AgentSpinner } from "@/components/AgentAvatar";
 import { useOrg } from "@/components/org-context";
@@ -427,15 +427,35 @@ export function StopTaskButton({
 export function useOpenTask() {
   const { org } = useOrg();
   const navigate = useNavigate();
-  return (task: Pick<ManagedTask, "agentId" | "channelId" | "channelKind" | "threadId" | "background" | "routine">) => {
+  return (
+    task: Pick<ManagedTask, "agentId" | "channelId" | "threadId"> & {
+      channelKind: ManagedTask["channelKind"] | "task";
+      background?: boolean;
+      routine?: ManagedTask["routine"];
+      delegation?: ManagedTask["delegation"];
+      /** The message to open at (a return's reply, the card a task waits on). */
+      messageId?: string | null;
+    },
+  ) => {
     const orgId = org.id;
-    if (task.background && task.routine)
+    // Work another agent handed it: where that was, at the reply that handed it (ADR 0084 addendum), or at its card,
+    // which it posted where the person is.
+    const from = task.delegation?.from;
+    const own = task.messageId ? { m: task.messageId } : {};
+    const at = task.messageId ? own : from?.messageId ? { m: from.messageId } : {};
+    if (from?.threadId)
+      void navigate({ to: "/org/$orgId/threads/$threadId", params: { orgId, threadId: from.threadId }, search: at });
+    else if (from && from.channelKind === "dm" && task.delegation)
+      void navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { orgId, agentId: task.delegation.agentId } });
+    else if (from)
+      void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: from.channelId }, search: at });
+    else if (task.background && task.routine)
       void navigate({ to: "/org/$orgId/routines", params: { orgId }, search: { open: task.routine.id } });
     else if (task.threadId)
-      void navigate({ to: "/org/$orgId/threads/$threadId", params: { orgId, threadId: task.threadId } });
+      void navigate({ to: "/org/$orgId/threads/$threadId", params: { orgId, threadId: task.threadId }, search: own });
     else if (task.channelKind === "dm")
-      void navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { orgId, agentId: task.agentId } });
-    else void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: task.channelId } });
+      void navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { orgId, agentId: task.agentId }, search: own });
+    else void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: task.channelId }, search: own });
   };
 }
 
@@ -560,18 +580,23 @@ export function StopAllConfirm({
 
 /**
  * The same confirmation in one line, in place of an agent's panel's foot: "Parar as 3 tarefas de Dev? Dev fica
- * sabendo que você parou." [Por quê?] Cancelar · Parar 3.
+ * sabendo que você parou." [Por quê?] Cancelar · Parar 3. `note`: what else a stop does, under it (work another agent
+ * handed it: that agent is told too).
  */
 export function StopAllInline({
   agentId,
   runIds,
   helpers = 0,
+  note,
+  className,
   onCancel,
   onStop,
 }: {
   agentId: string;
   runIds: string[];
   helpers?: number;
+  note?: string | null;
+  className?: string;
   onCancel: () => void;
   onStop: (runIds: string[], reason: string) => void;
 }) {
@@ -586,13 +611,14 @@ export function StopAllInline({
     : t("taskManager.confirm.title", { count, name });
   const confirm = () => onStop(runIds, reason);
   return (
-    <div className="tm-cfm" role="alertdialog" aria-label={title}>
+    <div className={cx("tm-cfm", className)} role="alertdialog" aria-label={title}>
       <span className="tm-cfm__text ac-iconline">
         <AgentSpinner agentId={agentId} size={14} />
         <span>
           <b>{title}</b> {helpers ? t("taskManager.confirm.chainBody") : t("taskManager.confirm.short", { name })}
         </span>
       </span>
+      {note && <small className="tm-cfm__note">{note}</small>}
       <span className="tm-cfm__acts">
         <ReasonInput
           value={reason}
@@ -618,4 +644,37 @@ export function StopAllInline({
 export function taskSub(t: TFunction, task: Pick<ManagedTask, "plan">, where: string) {
   const plan = task.plan ? t("taskManager.plan", { done: task.plan.done, total: task.plan.total }) : null;
   return [where, plan].filter(Boolean).join(" · ");
+}
+
+/** A row's tip: its words whole, the title first, one fact a line. */
+export const rowTip = (title: string, lines: string[]) => (
+  <>
+    <b>{title}</b>
+    {lines.map((line) => (
+      <span key={line}>{line}</span>
+    ))}
+  </>
+);
+
+/**
+ * A row's words and its press (the task manager's rows, Agora's): the title, then what it is about in quiet type, on
+ * one line that ends in "…" when it doesn't fit. Whole in its tip (a resting pointer, the keys' focus, a long press)
+ * and, for screen readers, in the button's description: `tip` is what the row leaves out or cuts. `children` draws the
+ * title (a name in bold, a face), `title` says it.
+ */
+export function RowName({
+  title,
+  sub,
+  tip,
+  children,
+  ...button
+}: { title: string; sub?: string | null; tip: string[] } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <Tip button look="ac-msg__tip tm-tip" tip={rowTip(title, tip)}>
+      <button type="button" className="tm-hit" aria-label={title} aria-description={tip.join(". ")} {...button}>
+        {children ?? title}
+        {sub && <small>{sub}</small>}
+      </button>
+    </Tip>
+  );
 }

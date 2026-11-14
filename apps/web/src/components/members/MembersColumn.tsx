@@ -1,22 +1,33 @@
 import type { Agent, Channel, Member } from "@agenteschat/client";
-import { agentStateIn, useRoles } from "@agenteschat/client";
+import { agentStateIn, useChannels, useRoles } from "@agenteschat/client";
+import { WORK_TICK_MS, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { memberGroups } from "@agenteschat/client/lib/member-groups";
-import { agentStatusShort, isOutOfOffice } from "@agenteschat/client/lib/presence";
+import { agentFaceWord, agentStatusShort, isOutOfOffice } from "@agenteschat/client/lib/presence";
 import { Avatar, Button, Icon, matchesWords, PixelSpinner, RoleMark, SearchField } from "@agenteschat/ui";
 import { type KeyboardEvent, type TouchEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentWorkLine } from "@/components/AgentWorkLine";
 import { ChannelPinsButton } from "@/components/ChannelPins";
+import { useNow } from "@/components/missions/MissionBits";
 import { useOrg } from "@/components/org-context";
 import { StatusLine } from "@/components/Presence";
 import { ProfileTrigger } from "@/components/ProfileCard";
 import { unshownRow } from "@/components/Sidebar";
 import { AgentTrail, colorOf } from "@/components/Sky";
 import { ChannelThreadsButton } from "@/components/threads/ThreadLines";
+import { useDirectory } from "@/hooks/useDirectory";
 import { useModalSheet } from "@/hooks/useModalSheet";
-import { agentLine, personLine, useAgentPresence, usePersonPresence, usePresences } from "@/hooks/usePresence";
+import {
+  agentLine,
+  personLine,
+  useAgentPresence,
+  useAgentsWorking,
+  usePersonPresence,
+  usePresences,
+} from "@/hooks/usePresence";
 import { useStreams } from "@/realtime/context";
 import "./members.css";
 
@@ -157,7 +168,9 @@ function MembersList({ channelId, people, agents, onAdd }: Lists) {
       .join(" "),
   );
   const [allOffline, setAllOffline] = useState(false);
-  const busy = new Set(busyKey.split(" "));
+  // At work: a run this tab hears here, or its work anywhere (work handed off in two agents' DM too).
+  const atWork = useAgentsWorking();
+  const busy = new Set([...busyKey.split(" "), ...atWork]);
   const groups = memberGroups({
     people,
     agents,
@@ -277,16 +290,41 @@ function PersonRow({ member: m, you }: { member: Member; you: boolean }) {
   );
 }
 
-/** An agent: its face, what it is doing (its line, its state here, else its role), the trail while it works. */
+/**
+ * An agent: its face, what it is doing (its work first: for whom or where, "aqui" for this conversation, what it waits
+ * on, how long; then its line, its role, its presence), the orbit and the trail while it works, anywhere.
+ */
 function AgentRow({ agent, channelId, busy }: { agent: Agent; channelId: string; busy: boolean }) {
   const { t, i18n } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const channels = useChannels(org.id).data;
   const state = useStreams((s) => agentStateIn(s, agent.id, channelId));
   const shown = useAgentPresence(agent.id);
-  const word = shown ? t(`presence.${shown.presence}`) : null;
+  const work = shown?.work ?? null;
+  const clock = useNow(work !== null, WORK_TICK_MS);
+  const now = workLine(
+    t,
+    i18n.language,
+    work,
+    {
+      agentName: (id) => dir.agentById.get(id)?.name,
+      channelName: (id) => channels?.find((c) => c.id === id)?.name,
+      here: channelId,
+    },
+    clock,
+  );
+  const word = shown ? agentFaceWord(t, shown.presence) : null;
   // One short line here; the whole one in the row's title and on its profile card.
   const line = shown?.line ? agentStatusShort(t, shown.line, i18n.language) : null;
   const full = agentLine(t, shown?.line ?? null, i18n.language)?.text;
-  const doing = state !== "idle" ? t(`channel.agentState.${state}`) : null;
+  // What it does here now (a run this tab hears), else its work's words: the orbit's label and the row's title.
+  const doing =
+    state !== "idle"
+      ? t(`channel.agentState.${state}`)
+      : work?.state === "working"
+        ? (now && workLineText(now)) || agentFaceWord(t, "working")
+        : null;
   // Under the name, one line of one height: its line (why it is out, what it is on), else its role (the agent's fixed
   // label) as a tag, else its presence. Working here is the pixel orbit beside its name, so the row never jumps.
   const shows = useId();
@@ -303,7 +341,9 @@ function AgentRow({ agent, channelId, busy }: { agent: Agent; channelId: string;
         className="members-side__inner"
         data-presence={shown?.presence}
         data-busy={busy || undefined}
-        title={[full ?? doing ?? word, agent.role].filter(Boolean).join(" · ") || undefined}
+        title={
+          [doing ?? (now && workLineText(now)) ?? full ?? word, agent.role].filter(Boolean).join(" · ") || undefined
+        }
       >
         {busy && <AgentTrail color={colorOf(agent)} />}
         <AgentAvatar
@@ -320,7 +360,9 @@ function AgentRow({ agent, channelId, busy }: { agent: Agent; channelId: string;
             <span className="members-side__label">{agent.name}</span>
             {doing && <PixelSpinner size={14} color={colorOf(agent)} label={doing} className="members-side__spin" />}
           </span>
-          {line ? (
+          {now ? (
+            <AgentWorkLine line={now} className="members-side__line" />
+          ) : line ? (
             <StatusLine {...line} className="members-side__line" />
           ) : agent.role ? (
             <span className="members-side__line ac-tag">{agent.role}</span>

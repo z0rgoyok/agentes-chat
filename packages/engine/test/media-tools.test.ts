@@ -22,7 +22,7 @@ import {
 } from "../src";
 import { AGENT_MEDIA_JOB, maybeSendAgentMedia, replySkip } from "../src/agent-media";
 import { REFUSALS, toolKind, toolPolicy } from "../src/tools/run-policy";
-import { type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, setup } from "./fixtures";
 
 // The agent's own GIF and sticker tools (ADR 0091, addendum 2026-10-31): listed only where they can send, posted
 // as part of the answer, refused to a routine, three per run, and the step after a reply stays out of their run.
@@ -565,9 +565,80 @@ describe("a GIF in another channel (post_message's gif)", () => {
       type: "result",
       output: {
         isError: true,
-        content: "GIF search isn't answering right now: try again, or post without `gif`.",
+        content: "GIF search isn't answering right now: try again, or send it without `gif`.",
       },
     });
     expect(await inGeneral()).toEqual([]);
+  });
+});
+
+describe("a GIF in someone's DM (send_dm's gif)", () => {
+  /** `send_dm` as the run lists it. */
+  const sendDmOf = async (ctx: ToolContext) => (await tools().list(ctx)).find((t) => t.name === "send_dm");
+  const hasGif = async (ctx: ToolContext) => "gif" in (((await sendDmOf(ctx))?.inputSchema.properties ?? {}) as object);
+  /** ana asks Dev in their DM. */
+  const dmRun = async () => personRun((await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id);
+  /** What Dev sent outside the conversation it works in. */
+  const sentElsewhere = async (ctx: ToolContext) =>
+    (await agentMessages()).filter((m) => m.channelId !== ctx.channelId).map((m) => ({ body: m.body, meta: m.meta }));
+
+  test("asked in a DM: the text and the GIF go to the other person's DM as one message, kept without a URL", async () => {
+    const gifs = createFakeGifs();
+    f = await setup({ mediaTools: true, chatTools: true, gifs });
+    await addMember(f.db, f.org.id, "member", "Caio Lima");
+    const { ctx } = await dmRun();
+    expect(await hasGif(ctx)).toBe(true);
+    expect((await sendDmOf(ctx))?.description).toContain("add one with `gif`");
+    const sent = await call(ctx, "send_dm", { person: "caio", text: "Bom dia, Caio!", gif: "  good   morning " });
+    const output = (sent as { output: { content: string; isError?: boolean } }).output;
+    expect(output.isError).toBeFalsy();
+    expect(output.content).toStartWith("Sent to Caio Lima in your DM with them with a GIF:");
+    expect(output.content).not.toContain("Good morning sunshine");
+    expect(gifs.calls.search.map((s) => s.query)).toEqual(["good morning"]);
+    const [dm, ...more] = await sentElsewhere(ctx);
+    expect(more).toEqual([]);
+    expect(dm?.body).toBe("Bom dia, Caio!");
+    expect(dm?.meta.media).toMatchObject({ kind: "gif", provider: "giphy", id: "fakeMorning1" });
+    expect(dm?.meta.agentDm).toBeDefined();
+    expect(JSON.stringify(dm?.meta)).not.toContain("http");
+  });
+
+  test("a GIF alone goes too; GIFs off: not offered, and a call sends nothing; a search that fails sends nothing", async () => {
+    f = await setup({ mediaTools: true, chatTools: true, gifs: createFakeGifs() });
+    await addMember(f.db, f.org.id, "member", "Caio Lima");
+    const { ctx } = await dmRun();
+    expect(await call(ctx, "send_dm", { person: "caio", gif: "celebration" })).toMatchObject({
+      type: "result",
+      output: { content: expect.stringContaining("in your DM with them with a GIF:") },
+    });
+    expect((await sentElsewhere(ctx)).map((m) => m.body)).toEqual([""]);
+
+    await settings({ gifs: false });
+    expect(await hasGif(ctx)).toBe(false);
+    // Called anyway (a listing from before the switch): the schema has no `gif`, so nothing goes.
+    expect(await call(ctx, "send_dm", { person: "caio", text: "Oi", gif: "hello" })).toMatchObject({
+      type: "result",
+      output: { isError: true },
+    });
+    expect(await sentElsewhere(ctx)).toHaveLength(1);
+    await f.close();
+
+    const down: GifProvider = {
+      ...createFakeGifs(),
+      search: async () => {
+        throw new GifProviderError("GIPHY answered 503", 503);
+      },
+    };
+    f = await setup({ mediaTools: true, chatTools: true, gifs: down });
+    await addMember(f.db, f.org.id, "member", "Caio Lima");
+    const again = (await dmRun()).ctx;
+    expect(await call(again, "send_dm", { person: "caio", text: "Bom dia!", gif: "sun" })).toMatchObject({
+      type: "result",
+      output: {
+        isError: true,
+        content: "GIF search isn't answering right now: try again, or send it without `gif`.",
+      },
+    });
+    expect(await sentElsewhere(again)).toEqual([]);
   });
 });

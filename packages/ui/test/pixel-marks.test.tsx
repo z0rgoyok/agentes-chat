@@ -5,7 +5,7 @@ setupDom();
 
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
-import { Composer, type ComposerWorking, PixelDone, PixelStop, pixelCell, sendChoice } from "../src";
+import { Composer, type ComposerWorking, PixelDone, PixelStop, pixelCell } from "../src";
 
 afterEach(() => cleanup());
 
@@ -47,25 +47,16 @@ describe("pixel marks", () => {
 });
 
 describe("Composer while an agent works", () => {
-  test("sendChoice: Enter keeps the choice, ⌘/Ctrl+Enter takes the other", () => {
-    expect(sendChoice("join", false)).toBe("join");
-    expect(sendChoice("join", true)).toBe("interrupt");
-    expect(sendChoice("interrupt", false)).toBe("interrupt");
-    expect(sendChoice("interrupt", true)).toBe("join");
-  });
-
-  const CHOICE = { joinLabel: "Juntar ao que ele faz", interruptLabel: "Parar e mandar", label: "Ao mandar" };
-
   function Box({
     initial = "",
     working,
-    choice = working ? CHOICE : null,
+    agentBusy = Boolean(working),
     sent,
   }: {
     initial?: string;
     working: ComposerWorking | null;
     /** The app gives it while an agent works (default: with `working`). */
-    choice?: typeof CHOICE | null;
+    agentBusy?: boolean;
     sent: Array<[string, { interrupt?: boolean } | undefined]>;
   }) {
     const [value, setValue] = useState(initial);
@@ -80,7 +71,7 @@ describe("Composer while an agent works", () => {
         label="Mensagem"
         sendLabel="Enviar"
         working={working}
-        {...(choice ? { choice } : {})}
+        agentBusy={agentBusy}
       />
     );
   }
@@ -97,19 +88,14 @@ describe("Composer while an agent works", () => {
     await act(async () => fireEvent.keyDown(body().getByRole("textbox", { name: "Mensagem" }), { key: "Escape" }));
     expect(stops).toBe(2);
     expect(sent).toHaveLength(0);
-    // No choice row without text.
-    expect(body().queryByRole("radiogroup", { name: "Ao mandar" })).toBeNull();
   });
 
-  test("with text: the choice row; Enter joins, Ctrl+Enter stops and sends; the choice resets after", async () => {
+  test("with text: no row of options above the box; Enter joins, Ctrl+Enter stops and sends", async () => {
     const sent: Array<[string, { interrupt?: boolean } | undefined]> = [];
     const working = { stopLabel: "Parar o Theo", onStop: () => {} };
     render(<Box initial="separa por aparelho" working={working} sent={sent} />);
     const box = body().getByRole("textbox", { name: "Mensagem" });
-    const group = body().getByRole("radiogroup", { name: "Ao mandar" });
-    expect(within(group).getByRole("radio", { name: "Juntar ao que ele faz" }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(body().queryByRole("radiogroup")).toBeNull();
     expect(body().getByRole("button", { name: "Enviar" }).getAttribute("data-mode")).toBe("send");
     await act(async () => fireEvent.keyDown(box, { key: "Enter" }));
     expect(sent.at(-1)).toEqual(["separa por aparelho", { interrupt: false }]);
@@ -117,14 +103,6 @@ describe("Composer while an agent works", () => {
     await act(async () => fireEvent.change(box, { target: { value: "para tudo" } }));
     await act(async () => fireEvent.keyDown(box, { key: "Enter", ctrlKey: true }));
     expect(sent.at(-1)).toEqual(["para tudo", { interrupt: true }]);
-
-    // Picking "Parar e mandar" makes Enter interrupt; after the send it is back to join.
-    await act(async () => fireEvent.change(box, { target: { value: "agora" } }));
-    await act(async () => fireEvent.click(body().getByRole("radio", { name: "Parar e mandar" })));
-    await act(async () => fireEvent.keyDown(box, { key: "Enter" }));
-    expect(sent.at(-1)).toEqual(["agora", { interrupt: true }]);
-    await act(async () => fireEvent.change(box, { target: { value: "de novo" } }));
-    expect(body().getByRole("radio", { name: "Juntar ao que ele faz" }).getAttribute("aria-checked")).toBe("true");
   });
 
   test("without an agent at work: sends as before, no second argument", async () => {
@@ -134,14 +112,13 @@ describe("Composer while an agent works", () => {
     expect(sent).toEqual([["oi", undefined]]);
   });
 
-  test("someone who may not stop the agent still chooses; there is just no stop button", async () => {
+  test("someone who may not stop the agent still sends either way; there is just no stop button", async () => {
     const sent: Array<[string, { interrupt?: boolean } | undefined]> = [];
-    render(<Box working={null} choice={CHOICE} sent={sent} />);
+    render(<Box working={null} agentBusy sent={sent} />);
     const box = body().getByRole("textbox", { name: "Mensagem" });
     // Empty box: the button sends (dim), it never turns into stop.
     expect(body().getByRole("button", { name: "Enviar" }).getAttribute("data-mode")).toBe("send");
     await act(async () => fireEvent.change(box, { target: { value: "para e olha isso" } }));
-    expect(body().getByRole("radiogroup", { name: "Ao mandar" })).toBeTruthy();
     await act(async () => fireEvent.keyDown(box, { key: "Enter", ctrlKey: true }));
     expect(sent.at(-1)).toEqual(["para e olha isso", { interrupt: true }]);
     await act(async () => fireEvent.change(box, { target: { value: "junta" } }));

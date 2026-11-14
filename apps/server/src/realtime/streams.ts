@@ -1,7 +1,14 @@
 import { isTerminalSize, STREAM_CLOSE, type StreamRequest } from "@agenteschat/adapters";
 import type { Config } from "@agenteschat/config";
 import type { Database } from "@agenteschat/db";
-import type { RunnerLink, Stream, StreamBroker, StreamInput, StreamSocket } from "@agenteschat/engine";
+import {
+  type RunnerLink,
+  SHARED_SEAT,
+  type Stream,
+  type StreamBroker,
+  type StreamInput,
+  type StreamSocket,
+} from "@agenteschat/engine";
 import type { Auth } from "../auth";
 import { allowedOrigins } from "../routes/app/context";
 import { personUpgrade, UUID } from "./ws";
@@ -18,7 +25,8 @@ import { personUpgrade, UUID } from "./ws";
  *   frames: `resize` out, `exit` in) and
  *   `GET /api/phone-screen?orgId&phoneId&mode=watch|control` (a phone's screen: its pictures, binary or with
  *   `text=1` base64 text for the phone app; text frames: `ack`, and in control `tap`, `swipe`, `text`, `key`)
- *   are a person's sockets, refused before
+ *   are a person's sockets (`seat=shared` on the first two: the right hand's shared place instead of the person's
+ *   own, ADR 0175), refused before
  *   the upgrade like `/api/ws` (401 without a session, 403 for a foreign
  *   Origin or a non-member, 400 for bad parameters). After it, a refusal is a
  *   close code the panel turns into a state (`STREAM_CLOSE`).
@@ -165,6 +173,7 @@ export function createStreamSockets(deps: { db: Database; auth: Auth; config: Co
           ...(switches ? { switches } : {}),
           ...(preview ? { preview } : {}),
           ...(request.kind === "phone" && q.get("text") === "1" ? { text: true } : {}),
+          ...(request.kind !== "phone" && q.get("seat") === SHARED_SEAT ? { shared: true } : {}),
         },
         stream: null,
         sessionValidatedAt: 0,

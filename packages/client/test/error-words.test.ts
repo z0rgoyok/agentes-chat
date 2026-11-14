@@ -389,6 +389,9 @@ const PLAIN_LINE = new Set([
   "feedback.file_too_large",
   "feedback.file_type",
   "feedback.files_many",
+  // Only the landing page's partner form meets these, and it words them itself.
+  "invalid_name",
+  "invalid_whatsapp",
   // A phone that follows its computer's rule shows the computer's, with no control of its own; only the installer
   // meets a bad connect code.
   "device.follows_host",
@@ -448,7 +451,11 @@ const PLAIN_LINE = new Set([
   "import.too_many_items",
   "invalid_cursor",
   "invalid_request",
+  // The invite dialog offers only what may go, and words a chip refused in a race by its params (`why`).
+  "invitation.agent",
   "invitation.channel",
+  // The link's choices offer only these lists' values.
+  "invite_link.choice",
   "machine.access_nothing",
   "machine.device_not_found",
   "machine.host_none",
@@ -483,6 +490,9 @@ const PLAIN_LINE = new Set([
   "request_used",
   "right_hand.missing",
   "right_hand_approvals.budget",
+  // "Quem pode" sends only the rows and steps the cargo page draws (`areaRows`, `rowMax`): another is a client fault.
+  "role.level_invalid",
+  "role.row_unknown",
   "routine.action_always_asks",
   "routine.action_invalid",
   "routine.connector_hook",
@@ -508,6 +518,7 @@ const PLAIN_LINE = new Set([
   "storage.daily_full",
   "storage.full",
   "storage.invalid_bucket",
+  "team_week.no_skip",
   "team_week.own_path",
   "timeout",
   "tls",

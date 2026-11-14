@@ -88,7 +88,7 @@ describe("a personal workspace's settings list", () => {
     expect(all.filter((name) => name === "Conectores e MCPs")).toHaveLength(1);
     expect(all.indexOf("Conectores e MCPs")).toBeLessThan(all.indexOf("Avançado"));
     // Notifications are a tab of Your account, Skills of Connectors, Roles of People: not listed again.
-    for (const name of ["Notificações", "Skills", "Papéis e permissões"]) expect(all).not.toContain(name);
+    for (const name of ["Notificações", "Skills", "Cargos"]) expect(all).not.toContain(name);
     cleanup();
     await go(alone(), "settings/skills");
     expect(marked()).toBe("Conectores e MCPs");

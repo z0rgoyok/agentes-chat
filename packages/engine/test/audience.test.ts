@@ -33,10 +33,10 @@ import {
   routeMessage,
   setAgentAudience,
   setAgentBrain,
-  setInvitationRoles,
   setMemberRoles,
   speakerFor,
   updateAgent,
+  updateInvitation,
   updateOrgSettings,
   ValidationError,
 } from "../src";
@@ -224,7 +224,7 @@ describe("who can talk to the agent", () => {
     const support = await createRole(f.db, f.owner.id, f.org.id, { name: "Suporte" });
     const [sent] = await inviteMany(f.db, f.owner.id, f.org.id, { emails: ["teo@example.com"], secret: SECRET });
     if (sent?.status !== "invited") throw new Error("expected an invitation");
-    await setInvitationRoles(f.db, f.owner.id, f.org.id, sent.invitationId, [support.id]);
+    await updateInvitation(f.db, f.owner.id, f.org.id, sent.invitationId, { roleIds: [support.id] });
     await f.db.insert(schema.users).values({ id: "u_teo", name: "Teo", email: "teo@example.com" });
     await acceptInvitation(f.db, { id: "u_teo", email: "teo@example.com" }, sent.token);
     await setAgentAudience(f.db, f.owner.id, f.org.id, f.agent.id, { mode: "people", userIds: [bia.id] });

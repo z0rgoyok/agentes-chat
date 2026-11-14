@@ -15,6 +15,7 @@ import { Route as BaixarRouteImport } from './routes/baixar'
 import { Route as ConectandoRouteImport } from './routes/conectando'
 import { Route as ConectarRouteImport } from './routes/conectar'
 import { Route as DownloadRouteImport } from './routes/download'
+import { Route as EmailUndoRouteImport } from './routes/email-undo'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OwnerRouteImport } from './routes/owner'
@@ -95,6 +96,11 @@ const ConectarRoute = ConectarRouteImport.update({
 const DownloadRoute = DownloadRouteImport.update({
   id: '/download',
   path: '/download',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmailUndoRoute = EmailUndoRouteImport.update({
+  id: '/email-undo',
+  path: '/email-undo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -368,6 +374,7 @@ export interface FileRoutesByFullPath {
   '/conectando': typeof ConectandoRoute
   '/conectar': typeof ConectarRoute
   '/download': typeof DownloadRoute
+  '/email-undo': typeof EmailUndoRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/owner': typeof OwnerRoute
@@ -427,6 +434,7 @@ export interface FileRoutesByTo {
   '/conectando': typeof ConectandoRoute
   '/conectar': typeof ConectarRoute
   '/download': typeof DownloadRoute
+  '/email-undo': typeof EmailUndoRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/owner': typeof OwnerRoute
@@ -486,6 +494,7 @@ export interface FileRoutesById {
   '/conectando': typeof ConectandoRoute
   '/conectar': typeof ConectarRoute
   '/download': typeof DownloadRoute
+  '/email-undo': typeof EmailUndoRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/owner': typeof OwnerRoute
@@ -547,6 +556,7 @@ export interface FileRouteTypes {
     | '/conectando'
     | '/conectar'
     | '/download'
+    | '/email-undo'
     | '/login'
     | '/onboarding'
     | '/owner'
@@ -606,6 +616,7 @@ export interface FileRouteTypes {
     | '/conectando'
     | '/conectar'
     | '/download'
+    | '/email-undo'
     | '/login'
     | '/onboarding'
     | '/owner'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/conectando'
     | '/conectar'
     | '/download'
+    | '/email-undo'
     | '/login'
     | '/onboarding'
     | '/owner'
@@ -724,6 +736,7 @@ export interface RootRouteChildren {
   ConectandoRoute: typeof ConectandoRoute
   ConectarRoute: typeof ConectarRoute
   DownloadRoute: typeof DownloadRoute
+  EmailUndoRoute: typeof EmailUndoRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   OwnerRoute: typeof OwnerRoute
@@ -784,6 +797,13 @@ declare module '@tanstack/react-router' {
       path: '/download'
       fullPath: '/download'
       preLoaderRoute: typeof DownloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/email-undo': {
+      id: '/email-undo'
+      path: '/email-undo'
+      fullPath: '/email-undo'
+      preLoaderRoute: typeof EmailUndoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -1237,6 +1257,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConectandoRoute: ConectandoRoute,
   ConectarRoute: ConectarRoute,
   DownloadRoute: DownloadRoute,
+  EmailUndoRoute: EmailUndoRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   OwnerRoute: OwnerRoute,

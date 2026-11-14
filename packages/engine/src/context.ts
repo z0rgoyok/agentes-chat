@@ -58,7 +58,8 @@ import {
 import { linePrompt } from "./reporting";
 import { wikiPersonOf } from "./requester";
 import { isRightHand } from "./right-hand";
-import { RIGHT_HAND_TOOLS, rightHandPrompt } from "./right-hand-prompt";
+import { rightHandPrompt, rightHandTools } from "./right-hand-prompt";
+import { seatState } from "./right-hand-seats";
 import { isRoutineRoomKey, type RoutineBrief, routineAccessOf, routineBriefOf, routineReportOf } from "./routine-brief";
 import { WEBHOOK_EVENT, webhookEventText } from "./routine-hooks";
 import { heldHere } from "./run-inbox";
@@ -1011,7 +1012,13 @@ export async function buildRunContext(
     isRightHand(agent) && requester
       ? await rightHandPrompt(
           { db, ai: options.ai, workspaceComputer: options.workspaceComputer },
-          { orgId: run.orgId, agent, personId: requester, inDm: channel.kind === "dm" },
+          {
+            orgId: run.orgId,
+            agent,
+            personId: requester,
+            inDm: channel.kind === "dm",
+            computer: await seatState(db, run),
+          },
         )
       : null;
   // Most stable first, so prompt-cache prefixes are shared: the rules are the same for every agent with the same
@@ -1092,7 +1099,7 @@ export async function buildRunContext(
           `You are ${agent.name} (@${agent.handle})${agent.role ? `, ${agent.role}` : ""}, ${personal ? "one of this person's AI agents" : "an AI agent of this organization"}.`,
           agent.instructions.trim() ? `# Your instructions\n${agent.instructions.trim()}` : "",
           // The right hand with nobody behind the run (another agent's message) still keeps to its tools.
-          isRightHand(agent) ? RIGHT_HAND_TOOLS : "",
+          isRightHand(agent) ? rightHandTools(await seatState(db, run)) : "",
         ]
           .filter(Boolean)
           .join("\n\n"),

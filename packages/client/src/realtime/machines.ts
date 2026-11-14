@@ -494,8 +494,11 @@ export function applyWorkspaceEvent(qc: QueryClient, orgId: string, event: { typ
     void qc.invalidateQueries({ queryKey: keys.people(orgId) });
     return true;
   }
+  // An agent's run started, parked, came back or ended: its face and line follow, and so does "Trabalhando agora"
+  // (work handed off in two agents' DM reaches no conversation's events).
   if (event.type === "agent.status") {
     void qc.invalidateQueries({ queryKey: keys.agentStatus(orgId) });
+    void qc.invalidateQueries({ queryKey: keys.working(orgId) });
     return true;
   }
   // A routine's run was queued, started or ended, or a routine was made, changed or deleted: Rotinas follows.

@@ -8,6 +8,8 @@ export type PushData = Partial<Record<(typeof FIELDS)[number], string>>;
 const FIELDS = [
   // The server it came from (ADR 0154): a phone signed in to several opens it there.
   "server",
+  // Whose it is (ADR 0183): a phone signed in to that server with several accounts opens it as theirs.
+  "user",
   "orgId",
   "kind",
   "notificationId",
@@ -67,9 +69,17 @@ export function createHolder<T extends object>() {
   };
 }
 
-/** The body of `POST /api/app/push/devices`. */
-export function deviceBody(token: string, platform: string, locale: string) {
-  return { token, platform: platform === "ios" ? "ios" : "android", locale };
+/**
+ * The body of `POST /api/app/push/devices`. `sharedWith`: the other accounts this phone is signed in to on that
+ * server, by id (ADR 0183): they keep hearing pushes on this token too.
+ */
+export function deviceBody(token: string, platform: string, locale: string, sharedWith: readonly string[] = []) {
+  return {
+    token,
+    platform: platform === "ios" ? "ios" : "android",
+    locale,
+    ...(sharedWith.length > 0 ? { sharedWith: sharedWith.slice(0, 8) } : {}),
+  };
 }
 
 /** `DELETE /api/app/push/devices/:token` path (the token has brackets: encode it). */

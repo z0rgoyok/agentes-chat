@@ -2,6 +2,7 @@ import {
   ApiError,
   instanceQuery,
   invitationQuery,
+  meQuery,
   type SignInOptions,
   type SignInProvider,
   useApi,
@@ -37,6 +38,7 @@ import { AuthShell } from "@/components/AuthLayout";
 import { HostingSheet } from "@/components/HostingChoice";
 import { prepareBurst } from "@/components/Sky";
 import { LastUsed, lastSignIn, rememberSignIn, SocialButtons, useSocialProviders } from "@/components/SocialButtons";
+import { announceAccountChange } from "@/lib/accounts";
 import {
   browserSignInUrl,
   challengeOf,
@@ -131,6 +133,7 @@ export function AuthPage({
   email: initialEmail,
   access,
   refused,
+  adding = false,
 }: {
   start: "in" | "up";
   redirect?: string;
@@ -142,6 +145,8 @@ export function AuthPage({
    * words. An unconfirmed password account's comes with its address in `email`, to make a new password from here.
    */
   refused?: string;
+  /** Opened by "Add account" (ADR 0183): someone is signed in and stays so; the page offers the way back to them. */
+  adding?: boolean;
 }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -227,7 +232,7 @@ export function AuthPage({
   // The owner's session ended (it expired, or this window never had one) on the server the app runs here: the app
   // signs them in again at once, as Continue on this Mac does. Not after Sign out by hand, nor when the page came for
   // something else (an invitation, a provider's refusal, an address to sign in with): the screen waits then.
-  const ownerAgain = local && start === "in" && !refused && !goal && !initialEmail;
+  const ownerAgain = local && start === "in" && !refused && !goal && !initialEmail && !adding;
   const ownerTried = useRef(false);
   useEffect(() => {
     if (!ownerAgain || ownerTried.current || storage.get(STORAGE_KEYS.signedOut) === "1") return;
@@ -236,6 +241,9 @@ export function AuthPage({
     // Refused (too soon after another, the server not up yet): the screen stays, its button one click away.
     void thisMac.signIn().catch(() => setOwnerPending(false));
   }, [ownerAgain]);
+
+  // "Add account": whoever is signed in stays so, one click back.
+  const stays = useQuery({ ...meQuery(api), enabled: adding }).data ?? null;
 
   const go = (next: Step) => {
     setError(null);
@@ -283,6 +291,8 @@ export function AuthPage({
   // OAuth callback that waited for this sign-in) is the server's: a full load.
   const enter = async (to: string) => {
     prepareBurst(header.current ?? document.body)();
+    // An account added beside another (ADR 0183): the browser's other tabs were the other one's.
+    if (adding) announceAccountChange();
     qc.clear();
     if (to.startsWith("/api/")) return window.location.assign(to);
     await navigate({ href: to });
@@ -291,7 +301,12 @@ export function AuthPage({
   const signIn = async () => {
     setPending(true);
     setError(null);
-    const result = await withHumanCheck(human.check, (token) => auth.signIn({ email: email.trim(), password }, token));
+    // The e-mail's lookup passed the bot check: its pass stands for this step's (ADR 0075), so nobody is asked twice.
+    const result = await withHumanCheck(
+      human.check,
+      (token) => auth.signIn({ email: email.trim(), password }, token),
+      options?.pass,
+    );
     setPending(false);
     if (!result.ok) {
       setWrong(result.status === 401);
@@ -306,8 +321,11 @@ export function AuthPage({
   const signUp = async () => {
     setPending(true);
     setError(null);
-    const result = await withHumanCheck(human.check, (token) =>
-      auth.signUp({ name: name.trim(), email: email.trim(), password, ...(access ? { access } : {}) }, token),
+    const result = await withHumanCheck(
+      human.check,
+      (token) =>
+        auth.signUp({ name: name.trim(), email: email.trim(), password, ...(access ? { access } : {}) }, token),
+      options?.pass,
     );
     setPending(false);
     if (!result.ok) {
@@ -327,8 +345,14 @@ export function AuthPage({
   const sendReset = async () => {
     setPending(true);
     setError(null);
-    const result = await withHumanCheck(human.check, (token) =>
-      auth.requestPasswordReset({ email: email.trim(), redirectTo: `${window.location.origin}/reset-password` }, token),
+    const result = await withHumanCheck(
+      human.check,
+      (token) =>
+        auth.requestPasswordReset(
+          { email: email.trim(), redirectTo: `${window.location.origin}/reset-password` },
+          token,
+        ),
+      options?.pass,
     );
     setPending(false);
     if (!result.ok) {
@@ -793,6 +817,11 @@ export function AuthPage({
           </div>
         )}
         {serverLine}
+        {stays && (
+          <button type="button" className="auth__quiet" onClick={() => void navigate({ to: "/" })}>
+            {t("auth.flow.backToAccount", { name: stays.user.name })}
+          </button>
+        )}
       </form>
       {!desktop && cloudHere !== undefined && (
         <HostingSheet open={hosting} onOpenChange={setHosting} here={here} cloud={cloudHere} />

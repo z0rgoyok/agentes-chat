@@ -9,8 +9,14 @@ const last = (sheet: string, selector: string, property: string) =>
     .at(-1)?.[1];
 
 test("the activity bar's room opens and closes in a glide (by its cap, from 0), still with reduced motion", () => {
-  const idle = '.channel__composer > .ac-typing:not([data-active="true"])';
+  // Room while someone works here or comes back here (a return, `data-rest`), else none.
+  const idle = '.channel__composer > .ac-typing:not([data-active="true"]):not([data-rest="true"])';
   expect(last(topLevel(css), idle, "max-height")).toBe("0");
+  // At rest: the live pill's box, one line, bare.
+  expect(last(topLevel(css), '.ac-typing[data-rest="true"]', "min-height")).toBe("28px");
+  expect(last(topLevel(css), '.ac-typing[data-rest="true"]', "max-height")).toBe("28px");
+  expect(last(topLevel(css), '.ac-typing[data-rest="true"]', "background")).toBeUndefined();
+  expect(last(topLevel(css), '.ac-typing[data-rest="true"]', "box-shadow")).toBeUndefined();
   // Open, at least its one low line and room for a name on a second (`max-height`, what the glide runs to).
   expect(last(topLevel(css), '.ac-typing[data-active="true"]', "min-height")).toBe("28px");
   expect(last(topLevel(css), '.ac-typing[data-active="true"]', "max-height")).toBe("64px");

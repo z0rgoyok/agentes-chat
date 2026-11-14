@@ -11,7 +11,7 @@ import {
 import { cx } from "../cx";
 import { Icon } from "../icons/Icon";
 import { claimPlayback, releasePlayback, stopPlayback } from "./media-playback";
-import { drawVoiceWave, useWaveRepaint } from "./voice-wave";
+import { drawVoiceWave, useWaveRepaint, waveAt } from "./voice-wave";
 
 export interface VoicePlayerLabels {
   play: string;
@@ -23,6 +23,9 @@ export interface VoicePlayerLabels {
   expired: string;
   showText: string;
   hideText: string;
+  /** Under it when it couldn't play ("Não deu para tocar o áudio."), before `retry`. */
+  cantPlay: string;
+  retry: string;
 }
 
 export interface VoicePlayerProps {
@@ -73,6 +76,7 @@ export function VoicePlayer({
   const pos = useRef(0);
   const [on, setOn] = useState(false);
   const [gone, setGone] = useState(false);
+  const [broken, setBroken] = useState(false);
   const [time, setTime] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [open, setOpen] = useState(false);
@@ -107,12 +111,18 @@ export function VoicePlayer({
     },
     [durationMs, paint],
   );
-  const failed = useCallback(() => {
-    halt();
-    void isGone?.().then((yes) => {
-      if (yes) setGone(true);
-    });
-  }, [halt, isGone]);
+  const failed = useCallback(
+    (a: HTMLAudioElement) => {
+      // Once per element (its error and its play() both report it), and never for one a later press replaced.
+      if (audio.current !== a) return;
+      halt();
+      // A media element that failed stays failed: the next press makes a new one, which asks the server again (and,
+      // from a bucket, gets a new signed link).
+      audio.current = null;
+      void (isGone?.() ?? Promise.resolve(false)).then((yes) => (yes ? setGone(true) : setBroken(true)));
+    },
+    [halt, isGone],
+  );
 
   const play = () => {
     if (dead) return;
@@ -120,9 +130,10 @@ export function VoicePlayer({
       halt();
       return;
     }
+    setBroken(false);
     if (!audio.current) {
       const a = new Audio(src);
-      a.onerror = failed;
+      a.onerror = () => failed(a);
       a.onended = () => {
         halt();
         to(0);
@@ -133,7 +144,10 @@ export function VoicePlayer({
     claimPlayback(halt);
     a.playbackRate = speed;
     if (pos.current > 0) a.currentTime = (pos.current * durationMs) / 1000;
-    a.play().catch(failed);
+    // A pause before it started rejects with AbortError: not a failure.
+    a.play().catch((error: unknown) => {
+      if ((error as { name?: string } | null)?.name !== "AbortError") failed(a);
+    });
     setOn(true);
     const tick = () => {
       if (!audio.current) return;
@@ -152,12 +166,8 @@ export function VoicePlayer({
     if (dead) return;
     e.preventDefault();
     const el = e.currentTarget;
-    const at = (x: number) => {
-      const r = el.getBoundingClientRect();
-      seek((x - r.left) / r.width);
-    };
-    at(e.clientX);
-    const move = (ev: globalThis.PointerEvent) => at(ev.clientX);
+    seek(waveAt(el, e.clientX));
+    const move = (ev: globalThis.PointerEvent) => seek(waveAt(el, ev.clientX));
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -251,6 +261,17 @@ export function VoicePlayer({
             </button>
           ))}
       </div>
+      {broken && (
+        <div className="ac-msg__unsent" role="alert">
+          <p className="ac-msg__error ac-iconline">
+            <Icon name="alert" size={16} />
+            <span>{labels.cantPlay}</span>
+          </p>
+          <button type="button" className="ac-link" onClick={play}>
+            {labels.retry}
+          </button>
+        </div>
+      )}
       {note && <span className="ac-voice__note">{note}</span>}
     </div>
   );

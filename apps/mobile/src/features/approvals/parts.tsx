@@ -24,10 +24,12 @@ import type { TFunction } from "i18next";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
-import { Button, Chip, Fuse, haptics, Text, useToast } from "@/ui";
+import { Button, Chip, Fuse, haptics, Text, useReducedMotion, useToast } from "@/ui";
 import { useInfoHint } from "@/ui/InfoHint";
 import { router } from "@/ui/navigation";
+import { REVEAL } from "../chat/ClippedMessage";
 import { parseInline } from "../chat/logic";
 import { Spans } from "../chat/MessageSpans";
 import { ConnectorIcon, IconTile } from "../connectors/ConnectorIcon";
@@ -320,8 +322,9 @@ export function ApprovalLetter({ letter }: { letter: NonNullable<ReturnType<type
 
 /**
  * The email an approval writes, as it will be: its subject in bold, then De (the mailbox and its provider), Para,
- * Cc, Cco, each label above its value (never beside it), the text folded to four lines ("Ler tudo") unless `full`,
- * and the message it answers. `flat`: drawn on a request card, no frame of its own (never a box in a card).
+ * Cc, Cco, each label above its value (never beside it), the text folded to four lines until "Ver mais" opens it in
+ * place (unless `full`), and the message it answers. `flat`: drawn on a request card, no frame of its own (never a
+ * box in a card).
  */
 export function ApprovalEmailLetter({
   email,
@@ -334,6 +337,7 @@ export function ApprovalEmailLetter({
 }) {
   const { t } = useTranslation();
   const c = useColors();
+  const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const long = email.body.length > 180 || email.body.split("\n").length > 4;
   const rows: { label: string; value: string; note?: string }[] = [
@@ -378,19 +382,21 @@ export function ApprovalEmailLetter({
       </View>
       {email.body ? (
         <View style={flat ? styles.letterBodyFlat : styles.letterBody}>
-          <Text variant="small" tone="ink2" style={styles.said} numberOfLines={full || open ? undefined : 4}>
-            {email.body}
-          </Text>
-          {!full && long ? (
+          <Animated.View layout={open && !reduced ? REVEAL : undefined} style={styles.clip}>
+            <Text variant="small" tone="ink2" style={styles.said} numberOfLines={full || open ? undefined : 4}>
+              {email.body}
+            </Text>
+          </Animated.View>
+          {!full && long && !open ? (
             // An 18-point line: 13 of slop around it gives the 44-point target.
             <Pressable
               accessibilityRole="button"
               hitSlop={13}
-              onPress={() => setOpen((o) => !o)}
+              onPress={() => setOpen(true)}
               style={({ pressed }) => (pressed ? styles.pressed : null)}
             >
               <Text variant="footnote" tone="ink2" style={[styles.medium, styles.underline]}>
-                {open ? t("approval.email.less") : t("approval.email.more")}
+                {t("channel.long.more")}
               </Text>
             </Pressable>
           ) : null}
@@ -651,6 +657,7 @@ const styles = StyleSheet.create({
   factKey: { width: 92 },
   grow: { flex: 1, minWidth: 0 },
   said: { lineHeight: 20 },
+  clip: { overflow: "hidden" },
   why: { gap: 4 },
   fuse: { flexDirection: "row", alignItems: "center", gap: 10 },
   letter: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, borderBottomLeftRadius: 6, overflow: "hidden" },

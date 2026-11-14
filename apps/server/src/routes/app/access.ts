@@ -3,7 +3,9 @@ import {
   getAgentAccess,
   getAgentMergeRepositories,
   getAgentRepositories,
+  isRightHandId,
   MAX_AGENT_REPOSITORIES,
+  publishMachineAgentsChanged,
   setAgentAccess,
   setAgentMergeRepositories,
   setAgentRepositories,
@@ -93,7 +95,10 @@ export function accessRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      return c.json(await setAgentAccess(db, c.get("user").id, orgId, agentId, c.req.valid("json")), 200);
+      const tree = await setAgentAccess(db, c.get("user").id, orgId, agentId, c.req.valid("json"));
+      // The right hand's shared seat goes with its last computer grant: the workspace's computer hears it now.
+      if (await isRightHandId(db, orgId, agentId)) await publishMachineAgentsChanged(deps.adapters.pubsub, orgId);
+      return c.json(tree, 200);
     },
   );
 

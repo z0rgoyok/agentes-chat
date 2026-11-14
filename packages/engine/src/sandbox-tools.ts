@@ -77,6 +77,7 @@ import {
   TaskSignInError,
   taskRequester,
   taskResumesByItself,
+  taskScope,
   taskSeconds,
 } from "./machine-tasks";
 import {
@@ -88,6 +89,8 @@ import {
 } from "./machines";
 import { missionOfRun, type RunMission, runActsForMission } from "./mission-context";
 import { recordTaskFinished } from "./operator-events";
+import { isRightHandId } from "./right-hand";
+import { machineScope, runSeatId, seatIdOf } from "./right-hand-seats";
 import { routineKeysAllowed } from "./routine-keys";
 import { runnerUpdateWay } from "./runner-update";
 import { replyThreadOf } from "./runs";
@@ -715,21 +718,16 @@ export function createSandboxToolSource(
     }
     const run = { orgId: ctx.orgId, agentId: ctx.agentId, runId: ctx.runId };
     const released = await releaseVaultKeys(vault, run, names);
-    const agent = await getAgentCached(ctx.db, ctx.orgId, ctx.agentId);
-    const key = await requestVaultKey(
-      hub,
-      computer.machineId,
-      { id: ctx.agentId, handle: agent?.handle ?? "agent", ...(agent?.name ? { name: agent.name } : {}) },
-      "use Vault keys",
-      ctx.signal,
-    );
+    // The computer opens a value as who it takes the agent for: the right hand's seat there (ADR 0175).
+    const scope = await machineScope(hub, ctx, computer.machineId);
+    const key = await requestVaultKey(hub, computer.machineId, scope, "use Vault keys", ctx.signal);
     const keys = await Promise.all(
       released.map(async (k) => ({
         name: k.name,
         box: await sealSecret(
           key.publicKey,
           k.value,
-          vaultAad({ keyId: key.keyId, agentId: ctx.agentId, use: { kind: "env", name: k.name } }),
+          vaultAad({ keyId: key.keyId, agentId: scope.id, use: { kind: "env", name: k.name } }),
         ).catch(() => {
           // Never the sealing's own words: they could name the value's size.
           throw new Error(`${k.name} couldn't be prepared for your computer.`);
@@ -787,14 +785,15 @@ export function createSandboxToolSource(
           const { item, kept } = await restoreMadePassword(vault, runIds, undo);
           return { content: undoneText(vaultItemName(item), kept) };
         }
-        const agent = await getAgentCached(ctx.db, ctx.orgId, ctx.agentId);
-        const scope = {
-          id: ctx.agentId,
-          handle: agent?.handle ?? "agent",
-          ...(agent?.name ? { name: agent.name } : {}),
-        };
-        const value = await run(ctx, (computer) =>
-          requestMadePassword(hub, computer.machineId, scope, input, ctx.signal),
+        // Made where the agent's work is: for the right hand, the seat its run works in (ADR 0175).
+        const value = await run(ctx, async (computer) =>
+          requestMadePassword(
+            hub,
+            computer.machineId,
+            await machineScope(hub, ctx, computer.machineId),
+            input,
+            ctx.signal,
+          ),
         );
         const saved = await saveMadePassword(
           vault,
@@ -1345,6 +1344,16 @@ export function createSandboxToolSource(
   const taskLine = (row: MachineTaskRow) =>
     `- ${row.id} "${row.title}" (${row.executor}): ${row.status}, ${formatDuration(taskSeconds(row))}${row.exitCode !== null ? `, exit code ${row.exitCode}` : ""}${row.lastLine ? ` — ${row.lastLine}` : ""}`;
   const taskIdProp = { type: "string", minLength: 36, maxLength: 36, description: "The task id start_task returned" };
+  /**
+   * The tasks a run may read and stop. One kept for a seat of the right hand (ADR 0175) is only the runs' that work
+   * in that seat: its lines come from that seat, and its stop goes to the computer under it.
+   */
+  const inRunSeat = async (ctx: ToolContext, rows: (MachineTaskRow | null)[]) => {
+    const found = rows.filter((row): row is MachineTaskRow => row !== null);
+    if (!found.some((row) => row.scopeId)) return found;
+    const seat = await runSeatId(ctx);
+    return found.filter((row) => !row.scopeId || row.scopeId === seat);
+  };
 
   /** Background tasks on a connected computer (ADR 0029): start, list, look at, cancel. */
   const taskTools = (
@@ -1396,6 +1405,13 @@ export function createSandboxToolSource(
           if (executor === "shell" && !command) return { content: "A shell task needs `command`.", isError: true };
           if (executor !== "shell" && !prompt)
             return { content: `A ${executor} task needs \`prompt\`.`, isError: true };
+          // A CLI job thinks with a sign-in, and a person's seat of the right hand holds none (ADR 0175 §7).
+          if (executor !== "shell" && (await isRightHandId(ctx.db, ctx.orgId, ctx.agentId))) {
+            return {
+              content: `Not started: a ${executor} job needs a sign-in your place on this computer doesn't have. Run it as a command (executor "shell"), or hand it to an agent that has a computer (ask_agent, tell_agent, or create_issue assigned to it).`,
+              isError: true,
+            };
+          }
           const hub = hubOf();
           // On another device (`computer`), a full one keeps the task in its line instead of refusing it.
           const elsewhere = str(input.computer).trim() !== "";
@@ -1426,6 +1442,7 @@ export function createSandboxToolSource(
                 {
                   orgId: ctx.orgId,
                   agent: { id: ctx.agentId, handle: agent?.handle ?? "agent" },
+                  scopeId: seatIdOf(ctx, await machineScope(hub, ctx, computer.machineId)),
                   machineId: computer.machineId,
                   protocol: status?.protocol ?? 0,
                   machineName: status?.name ?? info.name,
@@ -1510,7 +1527,7 @@ export function createSandboxToolSource(
       scope: SANDBOX_SCOPE,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       async execute(_input, ctx) {
-        const rows = await listConversationTasks(ctx.db, ctx);
+        const rows = await inRunSeat(ctx, await listConversationTasks(ctx.db, ctx));
         if (rows.length === 0) return { content: "You have no background tasks in this conversation." };
         return { content: rows.map(taskLine).join("\n"), data: { tasks: rows.map(machineTaskView) } };
       },
@@ -1528,7 +1545,7 @@ export function createSandboxToolSource(
         additionalProperties: false,
       },
       async execute(input, ctx) {
-        const row = await getConversationTask(ctx.db, ctx, str(input.task_id));
+        const [row] = await inRunSeat(ctx, [await getConversationTask(ctx.db, ctx, str(input.task_id))]);
         if (!row) return { content: "No such task of yours in this conversation.", isError: true };
         const files = Array.isArray(row.files) ? row.files : [];
         const lines = [
@@ -1570,7 +1587,7 @@ export function createSandboxToolSource(
       },
       async execute(input, ctx) {
         try {
-          const row = await getConversationTask(ctx.db, ctx, str(input.task_id));
+          const [row] = await inRunSeat(ctx, [await getConversationTask(ctx.db, ctx, str(input.task_id))]);
           if (!row) return { content: "No such task of yours in this conversation.", isError: true };
           if (row.endedAt || !["queued", "running", "interrupted"].includes(row.status)) {
             return { content: `Task ${row.id} already ended (${row.status}).` };
@@ -1603,7 +1620,7 @@ export function createSandboxToolSource(
           let reply: { canceled: boolean } | null = null;
           try {
             reply = await hubOf().call<"task.cancel">(row.machineId, {
-              agent: { id: ctx.agentId, handle: agent?.handle ?? "agent" },
+              agent: taskScope(row, agent?.handle ?? "agent"),
               op: "task.cancel",
               taskId: row.id,
             });

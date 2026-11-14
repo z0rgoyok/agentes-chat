@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { View } from "react-native";
 import { GroupedHeader, type IconName, Text } from "@/ui";
 import { ActionList } from "./parts";
@@ -5,6 +6,8 @@ import { ActionList } from "./parts";
 export interface AccessListRow<L extends string = string> {
   key: string;
   icon: IconName;
+  /** Drawn in the icon's place: a cargo's mark. */
+  leading?: ReactNode;
   label: string;
   hint?: string;
   level: L;
@@ -37,6 +40,7 @@ export function AccessList<L extends string>({
         items={rows.map((r) => ({
           key: r.key,
           icon: r.icon,
+          ...(r.leading ? { leading: r.leading } : {}),
           label: r.label,
           ...(r.hint ? { hint: r.hint } : {}),
           trailing: (

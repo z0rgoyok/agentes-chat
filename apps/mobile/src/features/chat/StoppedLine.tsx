@@ -13,9 +13,7 @@ import { useOrg } from "@/providers/org";
 import { Button, EventPill, EventPillAction, PixelStop, useToast } from "@/ui";
 import { openAgentAi } from "../ai/AgentAiScreen";
 import { openKeyForAll } from "../ai/KeyForAllScreen";
-import { ModelPickerSheet } from "../ai/ModelPickerSheet";
 import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
-import { useSheetIfAny } from "../shared/SheetHost";
 import { ReasonField } from "../task-manager/parts";
 import { useQuietInset } from "./look";
 import { useStoppedRun } from "./stopped-runs";
@@ -162,14 +160,13 @@ export function SpeedFallbackLine({ message }: { message: Message }) {
 /**
  * Under a reply "Automático" gave with another model because the plan refused the one it maps to
  * (`meta.modelStandIn`). Whoever may change the agent gets "Usar o <modelo> em todos" (the key's screen, on that
- * model) when the key is theirs to share, and "Escolher modelo" (the picker's sheet).
+ * model) when the key is theirs to share, and "Escolher modelo" (the agent's AI page).
  */
 export function ModelStandInLine({ message, text }: { message: Message; text: string }) {
   const { t } = useTranslation();
   const { org, orgId } = useOrg();
   const dir = useDirectory();
   const meId = useMeId();
-  const sheet = useSheetIfAny();
   const agent = dir.agentById.get(message.author.id ?? "");
   const may = mayPickModel(agent, meId, can(org, "manage_agents"));
   const key = may ? modelStandInKey(message.meta) : null;
@@ -189,10 +186,7 @@ export function ModelStandInLine({ message, text }: { message: Message; text: st
                 onPress={() => openKeyForAll(key.machineId, key.account, key.model)}
               />
             ) : null}
-            <EventPillAction
-              label={t("chat.modelStandIn.pick")}
-              onPress={() => (sheet ? sheet.open(<ModelPickerSheet agent={agent} />) : openAgentAi(agent.id))}
-            />
+            <EventPillAction label={t("chat.modelStandIn.pick")} onPress={() => openAgentAi(agent.id)} />
           </>
         ) : null
       }

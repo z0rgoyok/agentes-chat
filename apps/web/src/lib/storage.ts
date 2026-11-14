@@ -56,6 +56,11 @@ export const STORAGE_KEYS = {
    * "Create a new password" (ADR 0158).
    */
   newPasswordAsk: "agentes.newPasswordAsk",
+  /**
+   * sessionStorage: the new address typed in Sua conta › E-mail before signing in again instead of typing the code,
+   * filled in again when the dialog comes back.
+   */
+  emailChangeAsk: "agentes.emailChangeAsk",
   /** "0" when the person switched off the picture viewer's hover lens (on by default). */
   imageLens: "agentes.image.lens",
   /** The Drive's view: "grid" (default) or "list". */
@@ -97,6 +102,12 @@ export const STORAGE_KEYS = {
   flowReturn: "agentes.flow.return",
   /** In `sessionStore`: my messages waiting for the connection (the shared `outbox`), kept through a reload. */
   outbox: "agentes.outbox",
+  /** In `sessionStore`: this tab is loading again as another of the browser's accounts (lib/accounts.ts, ADR 0183). */
+  accountMoved: "agentes.accountMoved",
+  /** When this browser's session last became another account's: the other tabs follow (lib/accounts.ts). */
+  accountChanged: "agentes.accountChanged",
+  /** The app icon this browser's tabs show (lib/app-icon.ts, ADR 0179); the desktop app keeps its own. */
+  appIcon: "agentes.appIcon",
   /** The app's sounds on this device: "tactile" (default), "sky", "pixel" or "off" (lib/sounds.ts). */
   sounds: "agentes.sounds",
   /** In `sessionStore`, this tab's id; in `storage`, the tab the person used last (it plays sounds while hidden). */

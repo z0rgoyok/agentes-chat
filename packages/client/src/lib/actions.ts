@@ -187,6 +187,8 @@ export const workspaceActionContext = (action: string, words: Record<string, str
  * notification) said here, so "Mudei seu status: ausente" never reads "away".
  */
 export function workspaceActionWords(action: string, words: Record<string, string>, t: TFunction) {
+  if (action === "set_permission_holders" && words.permission)
+    return { ...words, short: t(`permissions.${words.permission}.short` as never, { defaultValue: words.permission }) };
   if (action === "set_my_status" && !words.what && words.availability) {
     const key = words.availability === "auto" ? "online" : words.availability;
     return { ...words, what: t(`presence.lower.${key}` as never, { defaultValue: words.availability }) as string };

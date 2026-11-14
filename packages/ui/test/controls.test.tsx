@@ -331,9 +331,9 @@ describe("Tabs", () => {
 
 describe("PickerHeading", () => {
   test("a section's label over its description, with a real gap between them", async () => {
-    render(<PickerHeading label="Papéis" description="Quem tem o papel pode falar." />);
+    render(<PickerHeading label="Cargos" description="Quem tem o cargo pode falar." />);
     const head = document.querySelector(".ac-picker-head");
-    expect([...(head?.children ?? [])].map((c) => c.textContent)).toEqual(["Papéis", "Quem tem o papel pode falar."]);
+    expect([...(head?.children ?? [])].map((c) => c.textContent)).toEqual(["Cargos", "Quem tem o cargo pode falar."]);
     const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
     const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
     expect(rule(".ac-picker-head")).toContain("flex-direction: column;");

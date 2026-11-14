@@ -22,14 +22,14 @@ export interface LineFact {
 /**
  * One quiet line of facts under a title (a task card's number, label, date, criteria, pull request, messages): each an
  * icon and its words, no plates. The line wraps between facts, never inside one; only a label alone wider than the
- * line wraps its own words.
+ * line wraps its own words. Each fact says which it is (`data-fact`, its key), for a list that stands them in columns.
  */
 export function FactLine({ facts, className, ...rest }: { facts: LineFact[] } & HTMLAttributes<HTMLSpanElement>) {
   if (facts.length === 0) return null;
   return (
     <span className={cx("ac-factline", className)} {...rest}>
       {facts.map((f) => (
-        <span key={f.key} className="ac-factline__fact" data-tone={f.tone} title={f.title}>
+        <span key={f.key} className="ac-factline__fact" data-fact={f.key} data-tone={f.tone} title={f.title}>
           {typeof f.icon === "string" ? <Icon name={f.icon as IconName} size={14} /> : f.icon}
           {f.text}
         </span>

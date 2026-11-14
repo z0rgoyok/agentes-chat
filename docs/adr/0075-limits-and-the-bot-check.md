@@ -2,7 +2,7 @@
 
 - Status: Accepted (built: server, web, the shared client and the phone app)
 - Date: 2026-10-27
-- Code: `apps/server/src/http/client-ip.ts` (`TRUSTED_PROXIES`), `packages/adapters/src/rate-limiter.ts` (`limitIp`), `packages/adapters/src/human-check.ts` (Turnstile), `apps/server/src/http/human-check.ts`, `apps/server/src/auth.ts` (the hook, the email caps), `apps/server/src/start.ts` (the boot probe), `apps/server/src/operator/orgs.ts` (`/health`), `packages/client/src/lib/human-check.ts`, `apps/web/src/lib/human-check.tsx`, `apps/web/public/human-check.html`, `apps/mobile/src/features/auth/HumanCheck.tsx`, `apps/mobile/src/features/auth/human-check.ts`
+- Code: `apps/server/src/http/client-ip.ts` (`TRUSTED_PROXIES`), `packages/adapters/src/rate-limiter.ts` (`limitIp`), `packages/adapters/src/human-check.ts` (Turnstile), `apps/server/src/http/human-check.ts`, `apps/server/src/http/human-pass.ts`, `apps/server/src/auth.ts` (the hook, the email caps), `apps/server/src/start.ts` (the boot probe), `apps/server/src/operator/orgs.ts` (`/health`), `packages/client/src/lib/human-check.ts`, `apps/web/src/lib/human-check.tsx`, `apps/web/public/human-check.html`, `apps/mobile/src/features/auth/HumanCheck.tsx`, `apps/mobile/src/features/auth/human-check.ts`
 
 ## Context
 
@@ -33,3 +33,33 @@ Every route a signed-out person reaches has a limit per IP, but the key was the 
 - Turnstile's invisible mode: a person Cloudflare doubts would have no way through.
 - Exempting the phone app: every bot would claim to be it.
 - Siteverify in a private Cloud service: it hides about 50 lines and adds a hop that can fail, and the widget's code stays public anyway, in the web and phone apps.
+
+## Addendum (2026-11-13): tokens made on the landing page
+
+The landing page is a site of its own (`LANDING_URL`). Its forms, the waiting list and the partner program's (`/api/partners/waitlist`), both check the action `waitlist`. Point 6 counted a token only when Cloudflare saw it on `PUBLIC_URL`'s host, so every token the landing page made was refused, and with the check on nobody could join from there.
+
+A token made on `LANDING_URL`'s host now counts too, for `waitlist` only. One made there for email lookup, sign-in, sign-up, password reset or the code to ask to join is refused: the landing page is other code on another site, and its tokens never stand for the app's forms. Without `LANDING_URL`, only `PUBLIC_URL`'s host counts, as before, and there is no waiting list. The widget in Cloudflare's dashboard lists both hosts. A host it doesn't list fails on the page with 110200, logged as point 7 says.
+
+The landing page runs the widget as point 9 says for the web: `api.js?render=explicit` once, on a field's first focus, Managed with `appearance: interaction-only`, the token in `x-captcha-response` (its CORS allows that header), a reset after every call, one more try on `human_check` and never on `human_check_blocked`, and `unavailable`, with Turnstile's error code, when no token comes within 30 s.
+
+Not chosen: one list of hosts for every action. A token made on the landing page would then count for a sign-in too.
+
+## Addendum (2026-11-13): one check for one sign-in
+
+Signing in with a password is two guarded calls, the e-mail's lookup and the password, each with a token made for its own action (point 5). On the phone, where the widget runs in a WebView and Cloudflare asks for a click far more often than in a browser, the person met the checkbox twice in a row: once after their e-mail, once after their password.
+
+The lookup that passes the check now answers with a **pass** (`pass` in its answer). The step that follows it for the same address, sign-in, sign-up or password reset, sends the pass in `x-captcha-response` where the token goes, and the server takes it in the check's place. The apps send it first and ask the widget only when the server refuses it (`withHumanCheck`'s `pass`), so a pass that ran out costs one more request and nothing else.
+
+A pass is `pass.<expiry>.<signature>`, an HMAC under a key of its own derived from `AGENTES_SECRET` (`human-pass`), over the expiry, the address in lower case and the network (an IPv4 address or an IPv6 /64, as point 1 counts). It counts:
+
+- for that address only, from that network only, for ten minutes;
+- for five calls, counted in memory like the counts of point 3 (a restart gives a pass its calls back, never more time);
+- never for the lookup itself, the code to ask to join or the waiting lists. Every sign-in starts with a real check, and one check opens one address.
+
+A pass that doesn't count is a 403 `human_check`, like a refused token. Without the keys there is no check and no pass. Every limit per IP and Better Auth's own counts hold as before.
+
+What it gives up: a token per password try. Someone who solves one check may now try five passwords on that one address before the next check, within Better Auth's limit per IP. Guessing across addresses still costs a check per address, since each needs its own lookup.
+
+Whether the checkbox shows at all is Cloudflare's call (Managed, `interaction-only`), not this server's. A widget that never shows one is a choice in Cloudflare's dashboard (its non-interactive mode), with point 5's caveat: whoever Cloudflare doubts then has no way through.
+
+Not chosen: a pass kept on the device for weeks (one solved check would open sign-ins from anywhere for as long), and one token for both actions (Cloudflare spends a token on its first siteverify).

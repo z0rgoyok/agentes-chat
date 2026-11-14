@@ -1,5 +1,5 @@
 import { plural } from "@agenteschat/i18n/format";
-import { atHost } from "./en";
+import { atHost, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -45,6 +45,9 @@ export const words: EmailWords = {
             ` als ${role}.`,
           ]
         : ["Je bent uitgenodigd om lid te worden van ", { b: org }, ` als ${role}.`],
+    starts: (channels, agents) =>
+      sentences(channels && ["Je zit meteen in ", ...channels, "."], agents && ["Je werkt samen met ", ...agents, "."]),
+    more: (n) => `nog ${n}`,
     what: "Op agentes.chat werken mensen en AI-agents samen.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "Hun bericht: " }, `‘${note}’`],
     button: "Uitnodiging accepteren",
@@ -332,6 +335,48 @@ export const words: EmailWords = {
         { b: org },
         " te verwijderen. Hij wordt meteen alleen-lezen en 7 dagen later definitief verwijderd.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `${code} is je code om je e-mailadres te wijzigen`,
+      preheader: "Typ hem in agentes.chat om te bevestigen. Hij werkt 10 minuten.",
+      headline: "Je code",
+      body: (email, newEmail) => [
+        "Typ deze code om het e-mailadres van het account ",
+        { b: email },
+        " te wijzigen in ",
+        { b: newEmail },
+        ".",
+      ],
+      support: (address) => [
+        "Hij werkt 10 minuten, en zonder deze code blijft je e-mailadres hetzelfde. Was jij het niet? Deel hem dan niet en schrijf naar ",
+        { mail: address },
+        ".",
+      ],
+      noSupport:
+        "Hij werkt 10 minuten, en zonder deze code blijft je e-mailadres hetzelfde. Was jij het niet? Deel hem dan niet en laat het weten aan de mensen die deze server beheren.",
+      why: "Je krijgt deze e-mail omdat vanuit je account is gevraagd om het e-mailadres op agentes.chat te wijzigen.",
+    },
+    link: {
+      subject: "Bevestig je nieuwe e-mailadres voor agentes.chat",
+      preheader: "Eén klik en je logt voortaan in met dit adres. De link werkt een uur.",
+      headline: "Bevestig je nieuwe e-mailadres",
+      body: "Nog één stap: bevestig dat dit adres van jou is. Daarna logt je account ermee in.",
+      button: "Nieuw e-mailadres bevestigen",
+      small: "De link werkt een uur. Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren.",
+      why: "Je krijgt deze e-mail omdat iemand dit adres wil gebruiken voor een agentes.chat-account.",
+    },
+    changed: {
+      subject: "Het e-mailadres van je agentes.chat-account is gewijzigd",
+      preheader: "Was jij het niet? Dan kun je dit adres 7 dagen lang terugzetten.",
+      headline: "Je e-mailadres is gewijzigd",
+      body: (email, newEmail) => ["Het account ", { b: email }, " logt nu in met ", { b: newEmail }, "."],
+      notYou:
+        "Was jij het niet? Druk binnen 7 dagen op de knop. Dit adres komt terug, alle sessies worden uitgelogd, de AI-apps worden ontkoppeld en inlogmethoden die sindsdien zijn toegevoegd, werken niet meer. Ook het wachtwoord wordt gewist, en met “Wachtwoord vergeten” stel je het volgende in.",
+      button: "Dit was ik niet",
+      small: "Was jij het wel? Dan hoef je niets te doen.",
+      why: "Je krijgt deze e-mail omdat dit adres het e-mailadres van een agentes.chat-account was.",
     },
   },
   deleting: {

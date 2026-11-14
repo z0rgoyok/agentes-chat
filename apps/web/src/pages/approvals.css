@@ -826,22 +826,13 @@ html:not([data-pointer]) .ap-li:focus-visible {
   line-height: 1.6;
   color: var(--ink);
 }
-.ap-review__text {
-  position: relative;
-  overflow: hidden;
-}
+/* A long text to publish, folded until "Ver mais": a mask, not a plate, so the fade ends on whatever is behind it in
+   either theme. */
 .ap-review__text.is-folded {
   max-height: 120px;
-}
-.ap-review__text.is-folded::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 48px;
-  background: linear-gradient(to bottom, transparent, var(--surface-raised));
-  pointer-events: none;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 60%, transparent);
 }
 .ap-review__track {
   margin-top: 4px;

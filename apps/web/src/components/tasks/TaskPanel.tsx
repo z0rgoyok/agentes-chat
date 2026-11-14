@@ -200,7 +200,7 @@ export function TaskPanel({
             {t("taskManager.delegated.stopNote", { name: nameOf(task.delegation.agentId) ?? "" })}
           </p>
         )}
-        {!source.background && !source.betweenAgents && (
+        {!source.background && (!source.betweenAgents || last?.delegation?.from) && (
           <Button size="sm" variant="ghost" icon="message" onClick={() => openTask(source)}>
             {t("taskManager.actions.open")}
           </Button>

@@ -12,7 +12,7 @@ import { PickerHost } from "@/features/shared/PickerSheet";
 import { createApi } from "@/lib/api";
 import { authClient } from "@/lib/auth";
 import { outboxStoreFor } from "@/lib/outbox";
-import { useServer } from "@/lib/server";
+import { usePlace } from "@/lib/server";
 import { snapshotStoreFor } from "@/lib/snapshot";
 import { hintTouches } from "@/ui/hints";
 import { ToastHost } from "@/ui/Toast";
@@ -34,8 +34,9 @@ const i18n = setupI18n();
  * toasts (`useToast`). Living agents pause while the app is in the background.
  */
 export function AppProviders({ children }: { children: ReactNode }) {
-  const server = useServer();
-  // Each server gets its own cache, API client and auth client, so no data or session crosses servers.
+  // The place: a server, or one of its accounts (ADR 0183).
+  const server = usePlace();
+  // Each place gets its own cache, API client and auth client, so no data or session crosses servers or accounts.
   const scope = useMemo(
     () => ({ server, queryClient: createQueryClient(), api: createApi(server), auth: authClient(server) }),
     [server],

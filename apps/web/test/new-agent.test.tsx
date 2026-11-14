@@ -85,7 +85,7 @@ describe("Criar agente: steps", () => {
         .getAllByRole("button")
         .map((b) => b.textContent),
     ).toEqual([
-      "1Papel",
+      "1Função",
       "2Identidade",
       "3Instruções",
       "4Ferramentas e acesso",
@@ -93,7 +93,7 @@ describe("Criar agente: steps", () => {
       "6Modelo e orçamento",
       "7Revisar e criar",
     ]);
-    expect(railStep("Papel").getAttribute("aria-current")).toBe("step");
+    expect(railStep("Função").getAttribute("aria-current")).toBe("step");
     expect(railStep("Identidade").disabled).toBe(true);
     expect(screen().getByRole("link", { name: "Sair sem criar" }).getAttribute("href")).toBe(`/org/${ORG_ID}`);
     expect(screen().getByRole("link", { name: "Cancelar" }).getAttribute("href")).toBe(`/org/${ORG_ID}`);
@@ -130,9 +130,9 @@ describe("Criar agente: steps", () => {
     expect(preview()).toBeNull();
     // Do zero alone has nothing to show yet: no preview.
     await click(screen().getByRole("button", { name: /^Do zero/ }));
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
     expect(preview()).toBeNull();
-    await typeIn(screen().getByLabelText("Cargo"), "Pesquisa de preços");
+    await typeIn(screen().getByRole("textbox", { name: "Função" }), "Pesquisa de preços");
     expect(preview()?.textContent).toContain("Pesquisa de preços");
     // A template shows it on the role step itself: QA starts as Iris.
     await click(screen().getByRole("button", { name: /^QA/ }));
@@ -201,10 +201,10 @@ describe("Criar agente: steps", () => {
 
   test("a role is required; picking one fills the rest (name, @, look, instructions, levels, channels, model)", async () => {
     const state = await open();
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
     await click(continueButton());
-    expect(title()).toBe("Qual vai ser o papel?");
-    expect(screen().getAllByText("Escolha um papel ou comece do zero.").length).toBeGreaterThan(0);
+    expect(title()).toBe("Qual vai ser a função?");
+    expect(screen().getAllByText("Escolha uma função ou comece do zero.").length).toBeGreaterThan(0);
     expect(continueButton().getAttribute("aria-disabled")).toBe("true");
 
     await startAs("QA");
@@ -282,7 +282,7 @@ describe("Criar agente: steps", () => {
 
   test("roles for any team, in groups (tech, customers, operations); Do zero first", async () => {
     await open();
-    const step = screen().getByRole("group", { name: "Papel" });
+    const step = screen().getByRole("group", { name: "Função" });
     expect(
       within(step)
         .getAllByRole("heading", { level: 2 })
@@ -309,7 +309,7 @@ describe("Criar agente: steps", () => {
     expect(css).toMatch(/\n\.newag__role-head > \.ac-avatar \{\s*width: 44px;\s*height: 44px;/);
     expect(css).toMatch(/\n\.newag__blank-icon \{[^}]*width: 44px;\s*height: 44px;/);
 
-    // Do zero's Cargo comes right under its card, in the same column with the cards' gap, before the templates; the
+    // Do zero's Função comes right under its card, in the same column with the cards' gap, before the templates; the
     // field has the focus, and its hint doesn't ask for one short word.
     await click(within(step).getByRole("button", { name: /^Do zero/ }));
     const scratch = step.querySelector(".newag__scratch");
@@ -319,7 +319,7 @@ describe("Criar agente: steps", () => {
     ]);
     expect(scratch?.nextElementSibling?.tagName).toBe("SECTION");
     expect(css).toMatch(/\n\.newag__scratch \{[^}]*gap: var\(--space-3\);/);
-    expect(document.activeElement === screen().getByLabelText("Cargo")).toBe(true);
+    expect(document.activeElement === screen().getByRole("textbox", { name: "Função" })).toBe(true);
     expect(screen().getByText("O que ele faz pelo time, ex.: Assistente de e-mails e agenda.")).toBeTruthy();
 
     // A role outside engineering fills the rest the same way.
@@ -339,10 +339,10 @@ describe("Criar agente: steps", () => {
     await click(screen().getByRole("button", { name: "Trazer agentes de outro app" }));
     // Still here (the rail on its first step): the import's sources in the cards' place, no preview, no Continuar.
     expect(title()).toBe("Trazer agentes de outro app");
-    expect(railStep("Papel").getAttribute("aria-current")).toBe("step");
+    expect(railStep("Função").getAttribute("aria-current")).toBe("step");
     expect(document.activeElement === screen().getByRole("heading", { level: 1 })).toBe(true);
     expect(screen().getByRole("group", { name: "De onde vêm os agentes" })).toBeTruthy();
-    expect(screen().queryByRole("group", { name: "Papel" })).toBeNull();
+    expect(screen().queryByRole("group", { name: "Função" })).toBeNull();
     expect(screen().queryByRole("complementary", { name: "Prévia do agente" })).toBeNull();
     expect(screen().queryByRole("button", { name: /^Continuar/ })).toBeNull();
     // Enter in its field reads what's there, never moves the steps on.
@@ -388,11 +388,11 @@ describe("Criar agente: steps", () => {
 
     // Voltar goes back to the cards; so does Esc outside a field.
     await click(screen().getByRole("button", { name: "Voltar" }));
-    expect(title()).toBe("Qual vai ser o papel?");
-    expect(screen().getByRole("group", { name: "Papel" })).toBeTruthy();
+    expect(title()).toBe("Qual vai ser a função?");
+    expect(screen().getByRole("group", { name: "Função" })).toBeTruthy();
     await click(screen().getByRole("button", { name: "Trazer agentes de outro app" }));
     await press(document.body, "Escape");
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
   });
 
   test("the rail during an import leaves it: the step it goes to is whole (Continuar, Enter)", async () => {
@@ -465,15 +465,15 @@ describe("Criar agente: steps", () => {
     // Steps already reached are on the rail; later ones aren't yet.
     expect(railStep("Ferramentas e acesso").disabled).toBe(false);
     expect(railStep("Onde e quem").disabled).toBe(true);
-    await click(railStep("Papel"));
-    expect(title()).toBe("Qual vai ser o papel?");
-    expect(railStep("Papel").getAttribute("aria-current")).toBe("step");
+    await click(railStep("Função"));
+    expect(title()).toBe("Qual vai ser a função?");
+    expect(railStep("Função").getAttribute("aria-current")).toBe("step");
     await click(railStep("Ferramentas e acesso"));
     expect(title()).toBe("Ferramentas e acesso");
     // Esc on the first step stays.
-    await click(railStep("Papel"));
+    await click(railStep("Função"));
     await press(document.body, "Escape");
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
   });
 
   test("on a touch screen or at phone width, the instructions' ⌘↵ hint goes with its keys", async () => {
@@ -1521,9 +1521,9 @@ describe("Criar agente: what gets created", () => {
     // Title, lead and the buttons: no cards after them.
     expect(document.querySelector(".newag__born")?.nextElementSibling).toBeNull();
     // Every step is done; none can be reopened.
-    expect(railStep("Papel").disabled).toBe(true);
+    expect(railStep("Função").disabled).toBe(true);
     await click(screen().getByRole("button", { name: "Criar outro agente" }));
-    expect(title()).toBe("Qual vai ser o papel?");
+    expect(title()).toBe("Qual vai ser a função?");
     // The draft starts over, so the preview waits for a role again.
     expect(screen().queryByRole("complementary", { name: "Prévia do agente" })).toBeNull();
     await startAs("Do zero");
@@ -1808,7 +1808,7 @@ describe("Criar agente in a personal workspace (ADR 0159)", () => {
     await click(within(audience).getByRole("radio", { name: /^Só algumas pessoas/ }));
     const results = screen().getByRole("region", { name: "Buscar pessoas" });
     // Admin is the only role besides Todos, and whoever holds it sees everything already: people, not roles.
-    expect(within(results).queryByText("Papéis")).toBeNull();
+    expect(within(results).queryByText("Cargos")).toBeNull();
     await click(within(results).getByLabelText(/João/));
     await proceed(1);
     await click(screen().getByRole("button", { name: "Criar Clara" }));

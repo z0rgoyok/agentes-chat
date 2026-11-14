@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createApi } from "@/lib/api";
 import { type authClient, readCookie } from "@/lib/auth";
-import { markSignedIn } from "@/lib/server";
+import { accountTwin, forgetAccount, markSignedIn, markSignedOut, rememberAccount, setServer } from "@/lib/server";
 
 export interface SessionState {
   /** Signed in (a session from the server or SecureStore's cache). */
@@ -24,7 +25,10 @@ export function SessionProvider({
   children,
 }: {
   auth: ReturnType<typeof authClient>;
-  /** The server `auth` signs in to: on the list of servers signed in to once a session is there (ADR 0154). */
+  /**
+   * The place `auth` signs in to (a server, or one of its accounts): on the list of those signed in to once a session
+   * is there (ADR 0154, ADR 0183).
+   */
   server: string;
   children: ReactNode;
 }) {
@@ -42,9 +46,46 @@ export function SessionProvider({
   if (answeredBy !== auth && !session.isPending) setAnsweredBy(() => auth);
   const answered = answeredBy === auth;
 
+  const userId = user?.id ?? null;
+  const userName = user?.name ?? "";
+  const userEmail = user?.email ?? "";
+  useEffect(() => {
+    if (!userId) return;
+    // An account added on a server where this phone already has that person (ADR 0183): no second copy. This one's
+    // session ends and the app goes to the place they were already in.
+    const settle = () => {
+      rememberAccount(server, { id: userId, name: userName, email: userEmail });
+      markSignedIn(server);
+    };
+    const twin = accountTwin(server, userId);
+    if (!twin) return settle();
+    let gone = false;
+    // Only while their sign-in there still answers; one that ended gives its place up to this one.
+    void createApi(twin)
+      .account.me()
+      .then(
+        (me) => me?.user.id === userId,
+        () => true,
+      )
+      .then((alive) => {
+        if (gone) return;
+        if (!alive) {
+          markSignedOut(twin);
+          forgetAccount(twin);
+          return settle();
+        }
+        return auth
+          .signOut()
+          .catch(() => {})
+          .then(() => setServer(twin));
+      });
+    return () => {
+      gone = true;
+    };
+  }, [auth, server, userId, userName, userEmail]);
+
   useEffect(() => {
     if (signedIn) {
-      markSignedIn(server);
       // Whatever was cached while signed out (e.g. `me` = null) is stale now.
       void readCookie(server).then(() => queryClient.invalidateQueries());
     } else queryClient.clear();

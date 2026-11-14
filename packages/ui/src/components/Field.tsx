@@ -201,7 +201,7 @@ function fitText(el: HTMLTextAreaElement) {
 }
 
 /**
- * A section's heading inside a picker's list ("Papéis"), with the line under it that says what picking one means: a
+ * A section's heading inside a picker's list ("Cargos"), with the line under it that says what picking one means: a
  * real gap between the two, as a field's label and its help have.
  */
 export function PickerHeading({ label, description }: { label: ReactNode; description?: ReactNode }) {

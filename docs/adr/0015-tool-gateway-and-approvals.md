@@ -30,6 +30,8 @@
 
 ## Addendum (2026-10-30): "Aprovar sempre"
 
+Amended by ADR 0182 (2026-11-13): runs sharing an approval card run their approved actions in the order the agent asked; a run whose decisions are all in may first wait for another run's request asked before its own, and an action approved before an earlier request was refused or expired doesn't run.
+
 Amended by ADR 0173 (2026-11-12, item 11): "Aprovar sempre" is offered on every approval card of an agent that asks only for what is risky, merge, deploy and tools that run anything included, and a kept rule holds on every kind of run. What this addendum and the two below say is never offered or never covered no longer holds, except for "Sempre nesta rotina" and approving ahead.
 
 A person who decides an agent's approvals may approve a kind of call for good, so the agent stops asking for it. The kind is the agent, the connection, the server's own tool name and each action that tool runs (Composio's executor, ADR 0016); never the params. Only a tool that names what each call does can be remembered: any other tool approved for good would run with any params (a raw request, a GraphQL mutation, code), so a custom server's other tools keep asking, and an admin who wants one to stop sets it to Escrever. Rules live in `approval_rules (org_id, agent_id, connection_id, tool, action)`, `action = ''` for the tool itself when a source remembers one that runs nothing else, unique per kind.

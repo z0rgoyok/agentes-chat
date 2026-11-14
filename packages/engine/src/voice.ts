@@ -1,9 +1,9 @@
 import type { BlobStoreResolver, PubSub, SpeechEngine } from "@agenteschat/adapters";
-import { firstWords } from "@agenteschat/adapters";
+import { firstWords, typingTopic } from "@agenteschat/adapters";
 import { and, asc, count, type Database, desc, eq, gt, gte, isNull, lt, ne, schema, sql } from "@agenteschat/db";
 import { requireChannelAccess } from "./channels";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
-import { publishUserEvent } from "./events";
+import { publishTyping, publishUserEvent } from "./events";
 import type { Judge } from "./judge";
 import type { MessageVoice } from "./message-preview";
 import { postPersonMessage } from "./messages";
@@ -63,6 +63,8 @@ export interface VoiceDeps {
   judge?: Judge | null;
   /** Tests: how long an engine works alone (`hedgeAfterMs`). */
   hedgeAfterMs?: (durationMs: number) => number;
+  /** Tests: how often "gravando áudio…" goes out again while the words are made out (`VOICE_BEAT_MS`). */
+  beatMs?: number;
 }
 
 /** How long an engine has a recording to itself before the next one starts beside it: 19 s for 88 s of audio. */
@@ -262,6 +264,34 @@ async function wordsOf(
   return firstWords(deps.engines(), input, (deps.hedgeAfterMs ?? hedgeAfterMs)(clip.durationMs));
 }
 
+/** The apps' pace for "gravando áudio…", within its 5 s (`TYPING_TTL_MS`). */
+const VOICE_BEAT_MS = 3000;
+
+/**
+ * "Marina está gravando áudio…" for the others while her recording's words are made out, until the stop this returns:
+ * the apps keep it while recording and uploading, and the message clears it as it comes. Writing takes over, as in the
+ * apps: her typing frame in that channel ends it.
+ */
+function keepRecording(
+  deps: Pick<VoiceDeps, "pubsub" | "beatMs">,
+  where: { channelId: string; threadId: string | null; userId: string },
+) {
+  let beat = publishTyping(deps.pubsub, { ...where, kind: "voice" });
+  const timer = setInterval(() => {
+    beat = publishTyping(deps.pubsub, { ...where, kind: "voice" });
+  }, deps.beatMs ?? VOICE_BEAT_MS);
+  const off = deps.pubsub.subscribe(typingTopic, (e) => {
+    if (e.type === "user.typing" && !e.kind && e.userId === where.userId && e.channelId === where.channelId)
+      clearInterval(timer);
+  });
+  return async () => {
+    clearInterval(timer);
+    off();
+    // Out before the message, never after it: a late one would bring the line back over her message.
+    await beat;
+  };
+}
+
 const costOf = (engine: SpeechEngine, durationMs: number) =>
   Math.round((Math.max(durationMs / 1000, engine.minBilledSeconds) / 3600) * engine.nanoUsdPerHour);
 
@@ -278,11 +308,14 @@ export async function transcribeVoiceClip(deps: VoiceDeps, clipId: string, optio
   const stored = await place.get(clip.blobKey);
   if (!stored) return dropClip(deps, clip, "refused");
   let words: Awaited<ReturnType<typeof wordsOf>>;
+  const recorded = keepRecording(deps, { channelId: clip.channelId, threadId: clip.threadId, userId: clip.userId });
   try {
     words = await wordsOf(deps, clip, stored.body);
   } catch (error) {
     if (!options.finalAttempt) throw error;
     words = null;
+  } finally {
+    await recorded();
   }
   if (words && !words.text) return dropClip(deps, clip, "silent");
   const expiresAt = expiryOf(clip.createdAt, deps.retentionDays);

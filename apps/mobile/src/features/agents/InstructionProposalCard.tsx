@@ -256,7 +256,7 @@ function ProseDiff({ lines }: { lines: ChangedLine[] }) {
 
 const isTextRow = (p: Proposal) => p.target.type === "agent_instructions" || p.target.type === "org_context";
 
-/** What a role or access row changes: "Papel: Dev → Revisora", or a chip per app turned on or off. */
+/** What a role or access row changes: "Função: Dev → Revisora", or a chip per app turned on or off. */
 function SettingChange({ p }: { p: Proposal }) {
   const { t } = useTranslation();
   if (p.target.type === "agent_role")

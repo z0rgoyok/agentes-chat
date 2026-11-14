@@ -1,16 +1,20 @@
 import {
-  type AgentPresence,
   type AgentStatus,
+  type AgentWork,
   type MemberPresence,
   type MemberStatus,
   type Person,
   useAgentStatuses,
   useAiStatus,
+  useChannels,
   usePeople,
 } from "@agenteschat/client";
+import { WORK_TICK_MS, type WorkLine, workDetail, workLine } from "@agenteschat/client/lib/agent-work";
 import { lowerFirst } from "@agenteschat/client/lib/format";
 import { aiStateOf } from "@agenteschat/client/lib/no-ai";
 import {
+  type AgentFace,
+  agentFaceWord,
   agentPresenceShown,
   agentStatusText,
   clearsText,
@@ -19,7 +23,7 @@ import {
 } from "@agenteschat/client/lib/presence";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useMeId, useOrgId, useWhen } from "../shared/hooks";
+import { useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { agentWhyKey, lineText, personLine } from "./logic";
 
 /**
@@ -35,7 +39,10 @@ export interface PresenceOf {
 }
 
 export interface AgentShown {
-  presence: AgentPresence;
+  /** Its face (ADR 0084 addendum): free, at work, waiting on you, out of office or offline. */
+  presence: AgentFace;
+  /** Its most important work for this person, with where it shows when they read it. */
+  work: AgentWork | null;
   /** What it says it does, worded ("🛠️ Deploy da v2"); null: no line. */
   line: { emoji: string | null; icon?: typeof LIMIT_ICON; text: string } | null;
   status: AgentStatus | undefined;
@@ -64,10 +71,36 @@ export function usePresenceOf(): PresenceOf {
         const presence = agentPresenceShown(status, !noAi);
         // Without an AI it does nothing: no line either.
         const line = !noAi && status?.status ? agentStatusText(t, status.status, i18n.language) : null;
-        return { presence, line, status, noAi };
+        return { presence, work: status?.work ?? null, line, status, noAi };
       },
     };
   }, [people.data, agents.data, ai.data, t, i18n.language]);
+}
+
+/**
+ * An agent's work for this person in a list's words (ADR 0084 addendum of 2026-11-13): "ajudando a Ada · 22 min",
+ * "#vendas", "aqui" (in `here`), "esperando você", ticking once a minute; null with none. The web's lists say the same.
+ */
+export function useAgentWorkLine(agentId: string | null | undefined, here?: string | null): WorkLine | null {
+  const { t, i18n } = useTranslation();
+  const orgId = useOrgId();
+  const dir = useDirectory();
+  const channels = useChannels(orgId).data;
+  const work = usePresenceOf().agent(agentId ?? "")?.work ?? null;
+  const now = useNow(WORK_TICK_MS);
+  return agentId
+    ? workLine(
+        t,
+        i18n.language,
+        work,
+        {
+          agentName: (id) => dir.agentById.get(id)?.name,
+          channelName: (id) => channels?.find((c) => c.id === id)?.name,
+          here: here ?? null,
+        },
+        now,
+      )
+    : null;
 }
 
 /** Your own row in the people: your presence as you see it (hidden stays hidden) and your line. */
@@ -96,7 +129,7 @@ export function useDmStatusLine(
     if (!a) return doing ?? rest;
     // Its run here is at work before the list's next read says so.
     const presence = doing ? agentPresenceShown(a.status, true, true) : a.presence;
-    return [t(`presence.${presence}`), a.line ? lineText(a.line) : (doing ?? rest)].filter(Boolean).join(" · ");
+    return [agentFaceWord(t, presence), a.line ? lineText(a.line) : (doing ?? rest)].filter(Boolean).join(" · ");
   }
   const p = of.person(who.id);
   if (!p) return undefined;
@@ -104,8 +137,8 @@ export function useDmStatusLine(
 }
 
 export interface AgentProfileStatus {
-  presence: AgentPresence;
-  /** "Ocupado · Num trabalho pesado". */
+  presence: AgentFace;
+  /** "Trabalhando · ajudando a Ada", "Esperando você · sua aprovação", "Disponível". */
   line: string;
   /** Its line in full, with who wrote it; null: none. */
   card: { emoji: string | null; icon?: typeof LIMIT_ICON; text: string; note: string } | null;
@@ -114,19 +147,30 @@ export interface AgentProfileStatus {
 }
 
 /**
- * An agent's presence on its profile (ADR 0084): the badge's presence, a line with why ("Ocupado · Num trabalho
- * pesado", "Ausente · Parado desde 09:21") and its status for the card: the line, and who wrote it (its own, with
- * when it clears) or that it is what it does now. Null while the statuses load.
+ * An agent's presence on its profile (ADR 0084 and its addendum): the badge's face, a line with why ("Trabalhando ·
+ * ajudando a Ada", "Esperando você · sua aprovação", "Disponível", "Offline · Sem IA conectada") and its status for the
+ * card: the line, and who wrote it (its own, with when it clears) or that it is what it does now. Null while the
+ * statuses load.
  */
 export function useAgentProfileStatus(agentId: string, name: string): AgentProfileStatus | null {
   const { t, i18n } = useTranslation();
-  const when = useWhen();
+  const orgId = useOrgId();
+  const dir = useDirectory();
+  const channels = useChannels(orgId).data;
   const shown = usePresenceOf().agent(agentId);
   if (!shown) return null;
-  const activeAt = shown.status?.activeAt ?? null;
-  const why = t(`presence.agentWhy.${agentWhyKey(shown.presence, activeAt, shown.noAi)}`, {
-    when: activeAt ? when.short(activeAt).toLocaleLowerCase(when.locale) : "",
-  });
+  const key = agentWhyKey(shown.presence, shown.noAi);
+  const why = key
+    ? t(`presence.agentWhy.${key}`)
+    : workDetail(
+        t,
+        shown.work,
+        {
+          agentName: (id) => dir.agentById.get(id)?.name,
+          channelName: (id) => channels?.find((c) => c.id === id)?.name,
+        },
+        i18n.language,
+      );
   const own = shown.status?.status;
   const until = own?.until ?? null;
   const note = !own
@@ -141,7 +185,7 @@ export function useAgentProfileStatus(agentId: string, name: string): AgentProfi
         : t("presence.bySelf", { name });
   return {
     presence: shown.presence,
-    line: `${t(`presence.${shown.presence}`)} · ${why}`,
+    line: [agentFaceWord(t, shown.presence), why].filter(Boolean).join(" · "),
     card: shown.line ? { ...shown.line, note } : null,
     waiting: own && isOutOfOffice(own) ? (own.count ?? 0) : 0,
   };
@@ -152,6 +196,10 @@ export function usePresenceWord(who: { type: string; id: string } | null): strin
   const { t } = useTranslation();
   const of = usePresenceOf();
   if (!who) return undefined;
-  const presence = who.type === "agent" ? of.agent(who.id)?.presence : of.person(who.id)?.presence;
+  if (who.type === "agent") {
+    const face = of.agent(who.id)?.presence;
+    return face ? agentFaceWord(t, face) : undefined;
+  }
+  const presence = of.person(who.id)?.presence;
   return presence ? t(`presence.${presence}`) : undefined;
 }

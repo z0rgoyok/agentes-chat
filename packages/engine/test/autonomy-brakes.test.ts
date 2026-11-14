@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { PERMISSION_TOOL } from "@agenteschat/adapters";
+import { channelTopic, orgTopic, PERMISSION_TOOL } from "@agenteschat/adapters";
 import { eq, schema, sql } from "@agenteschat/db";
 import {
   askStillOpen,
@@ -21,6 +21,7 @@ import {
   LATER_MAX_LOOKS,
   LOOP_MAX,
   type OutboxJob,
+  pendingReturns,
   postAutonomyDigests,
   postPersonMessage,
   type RunAuthority,
@@ -175,7 +176,7 @@ describe("asking means waiting (§1)", () => {
   });
 });
 
-test("§1: a follow-up of work nobody asked for, whose question is open, waits and looks again; it isn't canceled", async () => {
+test("§1: a follow-up of work nobody asked for, whose question is open, waits and looks again; it isn't canceled, and says it's held once", async () => {
   f = await setup();
   const trigger = await alert(f.agent.id, "Benchmark noturno ficou 30% mais lento");
   const run = await working(f.agent.id, trigger.id, "done");
@@ -198,11 +199,26 @@ test("§1: a follow-up of work nobody asked for, whose question is open, waits a
       },
     },
   });
+  const heard: string[] = [];
+  f.pubsub.subscribe(channelTopic(f.general.id), (e) => {
+    if (e.type === "message.created" && e.messageId === line.id) heard.push("line");
+  });
+  f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+    const ev = (e as { event?: { type: string; agentId?: string } }).event;
+    if (ev?.type === "agent.status" && ev.agentId === f.agent.id) heard.push("status");
+  });
   expect(await wakeFollowUp(f, f.org.id, line.id)).toBeNull();
   const kept = await getMessage(f.db, f.org.id, line.id);
   expect((kept?.meta.notice as { refs?: { state?: string } } | undefined)?.refs?.state).toBe("pending");
   expect((await jobsOf(FOLLOW_UP_JOB)).map((j) => j.payload)).toEqual([{ messageId: line.id }]);
   expect((await f.db.select().from(agentRuns)).length).toBe(1);
+  // Held at once: an open bar, the thread's chip and the lists hear it (the line, the agent's status), and say it waits
+  // on an answer.
+  expect(heard).toEqual(["line", "status"]);
+  expect(await pendingReturns(f.db, f.owner.id, f.org.id)).toMatchObject([{ messageId: line.id, held: true }]);
+  // Its next look, still unanswered: nothing new to hear.
+  await wakeFollowUp(f, f.org.id, line.id);
+  expect(heard).toEqual(["line", "status"]);
 });
 
 describe("costly work an agent starts on its own, set to ask first, needs a go (§3)", () => {

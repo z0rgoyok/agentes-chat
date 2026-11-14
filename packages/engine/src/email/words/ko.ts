@@ -1,4 +1,4 @@
-import type { Step } from "./en";
+import { type Step, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -43,6 +43,12 @@ export const words: EmailWords = {
       inviter
         ? [{ b: inviter }, `${email ? ` (${email})` : ""} 님이 `, { b: org }, `에 ${role}로 초대했어요.`]
         : [{ b: org }, `에 ${role}로 초대받았어요.`],
+    starts: (channels, agents) =>
+      sentences(
+        channels && [...channels, " 채널에 바로 참여해요."],
+        agents && ["함께 일할 에이전트: ", ...agents, "."],
+      ),
+    more: (n) => `${n}개 더`,
     what: "agentes.chat은 사람과 AI 에이전트가 함께 일하는 곳이에요.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "보낸 메시지: " }, `“${note}”`],
     button: "초대 수락",
@@ -305,6 +311,48 @@ export const words: EmailWords = {
         { b: org },
         "이(가) 삭제돼요. 즉시 읽기 전용이 되고, 7일 후에 완전히 삭제돼요.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `이메일 변경 코드: ${code}`,
+      preheader: "agentes.chat에 입력해서 확인하세요. 10분 동안 유효해요.",
+      headline: "인증 코드",
+      body: (email, newEmail) => [
+        "이 코드를 입력하면 계정 ",
+        { b: email },
+        "의 이메일이 ",
+        { b: newEmail },
+        "(으)로 바뀌어요.",
+      ],
+      support: (address) => [
+        "10분 동안 유효하고, 이 코드 없이는 이메일이 바뀌지 않아요. 본인이 아니라면 공유하지 말고 ",
+        { mail: address },
+        "(으)로 연락해 주세요.",
+      ],
+      noSupport:
+        "10분 동안 유효하고, 이 코드 없이는 이메일이 바뀌지 않아요. 본인이 아니라면 공유하지 말고 이 서버 운영자에게 알려 주세요.",
+      why: "내 계정에서 agentes.chat 이메일 변경을 요청해서 이 메일을 보내 드렸어요.",
+    },
+    link: {
+      subject: "agentes.chat 새 이메일을 인증해 주세요",
+      preheader: "한 번만 누르면 앞으로 이 주소로 로그인해요. 링크는 1시간 동안 유효해요.",
+      headline: "새 이메일을 인증해 주세요",
+      body: "한 단계만 남았어요. 이 주소가 내 것인지 확인해 주세요. 그다음부터 계정은 이 주소로 로그인해요.",
+      button: "새 이메일 인증",
+      small: "링크는 1시간 동안 유효해요. 요청한 적이 없다면 이 메일은 무시해도 돼요.",
+      why: "누군가 agentes.chat 계정에 이 주소를 쓰겠다고 요청해서 이 메일을 보내 드렸어요.",
+    },
+    changed: {
+      subject: "agentes.chat 계정의 이메일이 바뀌었어요",
+      preheader: "본인이 아니라면 7일 안에 이 주소를 되돌릴 수 있어요.",
+      headline: "이메일이 바뀌었어요",
+      body: (email, newEmail) => ["계정 ", { b: email }, "은(는) 이제 ", { b: newEmail }, "(으)로 로그인해요."],
+      notYou:
+        "본인이 아닌가요? 7일 안에 버튼을 누르세요. 이 주소로 되돌리고, 모든 세션에서 로그아웃하고, AI 앱 연결을 끊고, 그 후에 추가된 로그인 방법을 쓸 수 없게 해요. 비밀번호도 지워지고, 다음 비밀번호는 “비밀번호를 잊었어요”에서 정해요.",
+      button: "제가 아니에요",
+      small: "본인이 바꿨다면 아무것도 하지 않아도 돼요.",
+      why: "이 주소가 agentes.chat 계정의 이메일이었기 때문에 이 메일을 보내 드렸어요.",
     },
   },
   deleting: {

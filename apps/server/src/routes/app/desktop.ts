@@ -1,6 +1,13 @@
-import { agentHoldsFor, desktopPicture, desktopStatus, stopAgentHold, TooManyError } from "@agenteschat/engine";
+import {
+  agentHoldsFor,
+  desktopPicture,
+  desktopStatus,
+  SHARED_SEAT,
+  stopAgentHold,
+  TooManyError,
+} from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
-import { BrowserHandoff } from "./browser";
+import { BrowserHandoff, SEAT_NOTE, SeatQuery } from "./browser";
 import { type AppDeps, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
 
 const tags = ["Agent desktop"];
@@ -99,12 +106,14 @@ export function desktopRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "An agent's desktop: whether it can be shown and runs, who is in control, what this person may do",
-      request: { params: AgentParams },
+      description: SEAT_NOTE,
+      request: { params: AgentParams, query: SeatQuery },
       responses: { 200: json(DesktopStatus), ...errors },
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      return c.json(await desktopStatus(desktopDeps(), c.get("user").id, orgId, agentId), 200);
+      const shared = c.req.valid("query").seat === SHARED_SEAT;
+      return c.json(await desktopStatus(desktopDeps(), c.get("user").id, orgId, agentId, shared), 200);
     },
   );
 
@@ -115,7 +124,8 @@ export function desktopRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "A recent picture of an agent's screen, for whoever may watch it; never starts a stopped one",
-      request: { params: AgentParams },
+      description: SEAT_NOTE,
+      request: { params: AgentParams, query: SeatQuery },
       responses: { 200: json(DesktopPicture), ...errors },
     }),
     async (c) => {
@@ -123,7 +133,8 @@ export function desktopRoutes(deps: AppDeps) {
       const userId = c.get("user").id;
       const limit = await deps.adapters.rateLimiter.consume(`desktop-picture:${userId}`, PICTURES_PER_MINUTE);
       if (!limit.allowed) throw new TooManyError("Slow down");
-      return c.json(await desktopPicture(desktopDeps(), userId, orgId, agentId), 200);
+      const shared = c.req.valid("query").seat === SHARED_SEAT;
+      return c.json(await desktopPicture(desktopDeps(), userId, orgId, agentId, shared), 200);
     },
   );
 

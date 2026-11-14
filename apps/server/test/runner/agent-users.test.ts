@@ -30,7 +30,8 @@ import {
   systemLauncher,
   trustedNetworkLauncher,
 } from "../../runner/agent-users";
-import { agentCategorySlice, agentSlice, type RunCommand } from "../../runner/service";
+import { writeConfig } from "../../runner/config";
+import { AGENT_DISK_TMP_ROOT, agentCategorySlice, agentSlice, type RunCommand } from "../../runner/service";
 import { errorCode, removeDirs, tempDir } from "./helpers";
 
 /** A root-owned executable that is no link: `/usr/bin/true` is one where coreutils is a multicall binary (Ubuntu 26.04). */
@@ -311,7 +312,7 @@ test("the launcher: the agent's slice, its own temporary folders, its user, abso
     // A finished build's Gradle and Kotlin daemons give the memory back after 5 idle minutes, not 3 hours.
     GRADLE_OPTS: "-Dorg.gradle.daemon.idletimeout=300000",
   };
-  const launcher = systemLauncher(user, true, false, false);
+  const launcher = systemLauncher(user, true, false, false, false);
   const p = launcher.prefix;
   for (const systemd of [true, false])
     expect((systemLauncher(user, systemd, false).env.PATH ?? "").split(":")).not.toContain(env.AGENTES_SHARED_BIN);
@@ -351,6 +352,34 @@ test("the launcher: the agent's slice, its own temporary folders, its user, abso
     `flock "$r/.lock" sh -c 'mountpoint -q "$1" || mount -t tmpfs -o mode=0700,size=50%,nr_inodes=1m agentes-runner-tmp "$1"' sh "$d"`,
     'exec "$@"',
   ]);
+  // Its /tmp on disk (`agentTmpOnDisk`), at its first launch after a boot, under the same lock: the agents' own
+  // filesystem, made anew if this boot has none yet (half of what the disk has free, under a root-only folder), its
+  // folder there bound into its tmpfs. A later launch finds the tmpfs and changes nothing, so the agent keeps that /tmp
+  // until the next boot. Nothing else of the launch changes.
+  const onDisk = systemLauncher(user, true, false, false, true).prefix;
+  const diskStep = [
+    'mountpoint -q "$1" && exit',
+    'mkdir -p "$2/fs"',
+    'chmod 0700 "$2"',
+    'mountpoint -q "$2/fs" || { rm -f "$2/image"; truncate -s $(($(findmnt -bno AVAIL -T "$2") / 2)) "$2/image"; /usr/sbin/mkfs.ext4 -q -F -m 0 -i 4096 -O ^has_journal "$2/image"; mount -o loop,discard,nosuid,nodev "$2/image" "$2/fs"; }',
+    'mkdir -p "$2/fs/$3"',
+    'mount -t tmpfs -o mode=0700,size=50%,nr_inodes=1m agentes-runner-tmp "$1"',
+    'mkdir "$1/tmp"',
+    'mount --bind "$2/fs/$3" "$1/tmp"',
+  ].join("; ");
+  expect((onDisk[8] ?? "").split("\n")).toEqual([
+    "set -e",
+    "r=/run/agentes-runner-tmp",
+    'mkdir -p "$r"',
+    'chmod 0700 "$r"',
+    'd="$r/$1"',
+    'u="$1"',
+    "shift",
+    'mkdir -p "$d"',
+    `flock "$r/.lock" sh -ec '${diskStep}' sh "$d" /var/cache/agentes-runner-tmp "$u"`,
+    'exec "$@"',
+  ]);
+  expect(onDisk.filter((_, i) => i !== 8)).toEqual(p.filter((_, i) => i !== 8));
   // Root, in the agent's own mount namespace, before it becomes the agent: its folders under root-only ones, bound
   // over the shared ones (/tmp, /dev/shm and /run/lock from its tmpfs, /var/tmp from the disk); in its own /tmp only
   // mkdir, never a chmod an agent's link could aim.
@@ -376,7 +405,7 @@ test("the launcher: the agent's slice, its own temporary folders, its user, abso
     'exec "$@"',
   ]);
   // systemd 253 and later: a process the kernel stops for memory takes only itself, not the rest of the scope.
-  const keeps = systemLauncher(user, true, true, false).prefix;
+  const keeps = systemLauncher(user, true, true, false, false).prefix;
   expect(keeps.slice(3, 6)).toEqual(["--collect", "--property=OOMPolicy=continue", "--slice=agents-21003.slice"]);
   expect(keeps.slice(6)).toEqual(p.slice(5));
   // No systemd as PID 1 (a container): runuser alone.
@@ -385,6 +414,32 @@ test("the launcher: the agent's slice, its own temporary folders, its user, abso
     env,
     home: "/home/ag-a1b2c3d4",
   });
+});
+
+test("where an agent's /tmp goes is the runner's config: in memory unless `agentTmpOnDisk`, for every launch and its containers service", () => {
+  const home = tempDir("tmp-switch-");
+  dirs.push(home);
+  const user = { id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 };
+  const step = () => systemLauncher(user, true, false, false).prefix[8] ?? "";
+  const service = () => containersCommand(user, true).join("\n");
+  const before = process.env.AGENTES_RUNNER_HOME;
+  process.env.AGENTES_RUNNER_HOME = home;
+  try {
+    // Without the switch, the step as before: an upgrade moves no agent's /tmp and restarts no containers service.
+    expect(step()).toBe(systemLauncher(user, true, false, false, false).prefix[8] ?? "");
+    expect(step()).not.toContain(AGENT_DISK_TMP_ROOT);
+    expect(service()).toContain(step());
+    writeConfig({ mode: "system", agentTmpOnDisk: true }, home);
+    expect(step()).toBe(systemLauncher(user, true, false, false, true).prefix[8] ?? "");
+    expect(step()).toContain(AGENT_DISK_TMP_ROOT);
+    expect(service()).toContain(step());
+    // A config it can't read keeps /tmp in memory, never a launch that fails.
+    writeFileSync(path.join(home, "config.json"), "{");
+    expect(step()).not.toContain(AGENT_DISK_TMP_ROOT);
+  } finally {
+    if (before === undefined) delete process.env.AGENTES_RUNNER_HOME;
+    else process.env.AGENTES_RUNNER_HOME = before;
+  }
 });
 
 test("an agent's user can't schedule cron or at jobs, which would run outside its launcher", () => {
@@ -1113,8 +1168,8 @@ test("the runner's start ends what its sign-ins' users left running; scopes stop
   expect(calls).toEqual(["systemctl stop --no-block agentes-account-21001-*.scope"]);
 });
 
-test("an agent that left: its rooms and transcripts go from every sign-in, a shared path's stay", () => {
-  const { root, accounts } = accountSetup();
+test("an agent that left: its own processes are killed, its rooms and transcripts go from every sign-in, a shared path's stay", () => {
+  const { root, os, accounts } = accountSetup();
   const stores = [ADA_LOGIN, LIA_LOGIN].map((id) => {
     accounts.ensure(id);
     return path.join(root, id);
@@ -1132,7 +1187,10 @@ test("an agent that left: its rooms and transcripts go from every sign-in, a sha
       mkdirSync(path.join(store, dir), { recursive: true });
     }
   }
+  os.calls.length = 0;
   accounts.sweepAgent(AGENT);
+  // Whatever still ran as its user (a shell a person left, a tunnel) dies with it, before anything else.
+  expect(os.calls[0]).toBe(`pkill -KILL -U ${AGENT.uid}`);
   for (const store of stores) {
     expect(existsSync(path.join(store, "cwd/21000"))).toBe(false);
     expect(existsSync(path.join(store, "run/21000"))).toBe(false);

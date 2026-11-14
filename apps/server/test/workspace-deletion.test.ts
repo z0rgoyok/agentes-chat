@@ -426,28 +426,26 @@ describe("deleting an account", () => {
     expect(await t.db.select().from(schema.users).where(eq(schema.users.id, biaId))).toEqual([]);
   });
 
-  test("its other sessions: GET /me answers 401 and expires the cookies, and no workspace is made with them", async () => {
+  test("its other sessions: GET /me answers 401, and no workspace is made with them", async () => {
     const owner = browser(t);
     await signUp(owner, "owner@example.com");
     const other = browser(t);
     const signIn = { email: "owner@example.com", password: "correct horse battery" };
     expect((await other("/api/auth/sign-in/email", { json: signIn })).status).toBe(200);
-    expect((await other("/api/app/me")).status).toBe(200);
-    const cached = other.cookie();
+    const id = (await meOf(other)).user.id;
+    const before = other.cookie();
 
     expect((await deleteAccount(owner, { code: await deletionCode(t, owner, null) })).status).toBe(204);
-    await pastDue((await meOf(other)).user.id);
+    await pastDue(id);
     await t.db
       .update(schema.outbox)
       .set({ nextAttemptAt: new Date(0) })
       .where(eq(schema.outbox.kind, "account.delete"));
     await t.drain();
-    const me = await other("/api/app/me");
-    expect(me.status).toBe(401);
-    expect(me.headers.getSetCookie().some((c) => c.startsWith("better-auth.session_data=;"))).toBe(true);
+    expect((await other("/api/app/me")).status).toBe(401);
     const made = await t.app.request("/api/app/organizations", {
       method: "POST",
-      headers: { cookie: cached, origin: ORIGIN, "content-type": "application/json" },
+      headers: { cookie: before, origin: ORIGIN, "content-type": "application/json" },
       body: JSON.stringify({ name: "Late" }),
     });
     expect(await answer(made)).toEqual([401, "unauthorized"]);
@@ -469,8 +467,8 @@ describe("deleting an account", () => {
     expect(told?.to).toEqual(["owner@example.com"]);
     expect(told?.subject).toContain("vai ser apagada");
 
-    // A cached cookie still reads as a session for minutes: no workspace answers it.
-    expect((await phone(`/api/app/organizations/${orgId}/channels`)).status).toBe(403);
+    // Every session ended: the phone is signed out.
+    expect((await phone(`/api/app/organizations/${orgId}/channels`)).status).toBe(401);
 
     // The same address can't start over meanwhile: it is this account's until the date.
     const newcomer = browser(t);

@@ -28,6 +28,7 @@ import {
   STATUSES,
 } from "@agenteschat/client/lib/issues";
 import { aiStateOf } from "@agenteschat/client/lib/no-ai";
+import { shownSteps } from "@agenteschat/client/lib/work";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -473,8 +474,10 @@ function WorkCard({ issue: i }: { issue: Issue }) {
         : mins < 1
           ? t("mobile.issues.justStarted")
           : t("mobile.issues.workingFor", { count: mins });
-  const last = w.steps.length - 1;
-  const lines = workLines(t, w.steps, state === "running");
+  // What a person reads: never an engine-only step (the silent `pass`).
+  const steps = shownSteps(w.steps);
+  const last = steps.at(-1);
+  const lines = workLines(t, steps, state === "running");
   return (
     <View style={[styles.work, surface]}>
       <View style={styles.workHead}>
@@ -488,9 +491,9 @@ function WorkCard({ issue: i }: { issue: Issue }) {
       </View>
       {state === "stalled" ? (
         <>
-          {w.steps[last] ? (
+          {last ? (
             <Text variant="small" tone="muted">
-              {t("issues.work.lastStep", { step: stepText(w.steps[last]) })}
+              {t("issues.work.lastStep", { step: stepText(last) })}
             </Text>
           ) : null}
           {noAi ? (

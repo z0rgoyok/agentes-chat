@@ -709,55 +709,23 @@ describe("Drive", () => {
     expect(document.querySelector(".drive-group__head .ac-grouphead__title")?.textContent).toMatch(/^#/);
   });
 
-  test("a click shows the details: preview, Abrir, Baixar, Copiar link, versions, where", async () => {
+  test("a click opens the file in the viewer at once, with no details dialog before it", async () => {
     await goDrive();
     // The card says it opens a dialog (checked before: the open modal hides the page behind it).
     expect(card("Organograma do time").getAttribute("aria-haspopup")).toBe("dialog");
     await click(card("Organograma do time"));
-    await settle(4);
-    const panel = screen().getByRole("dialog", { name: "Organograma do time" });
-    expect(within(panel).getByRole("heading", { level: 2, name: "Organograma do time" })).toBeTruthy();
-    expect(panel.querySelector(".drive-pv--lg")).not.toBeNull();
-    expect(panel.textContent).toContain("Feito por");
-    expect(panel.textContent).toContain("Onde aparece");
-
-    // Baixar: diagrams have one format (the original).
-    await click(within(panel).getByRole("button", { name: "Baixar" }));
-    await settle(2);
-    expect(saved[0]?.name).toBe("organograma-do-time.mmd");
-    await click(within(panel).getByRole("button", { name: "Copiar link" }));
-    await settle(2);
-    expect(copied[0]).toContain("/drive?artifact=");
-    expect(within(panel).getByRole("button", { name: "Mais ações: Organograma do time" })).toBeTruthy();
+    await settle(6);
+    const viewer = screen().getByRole("dialog", { name: "Organograma do time" });
+    expect(viewer.querySelector(".artifact-sheet__title")?.textContent).toBe("Organograma do time");
+    // The file itself, with its actions: no step with "Abrir" in between.
+    expect(document.querySelector(".drive-details")).toBeNull();
+    expect(within(viewer).queryByRole("button", { name: "Abrir" })).toBeNull();
+    expect(within(viewer).getByRole("button", { name: "Mais ações: Organograma do time" })).toBeTruthy();
 
     // Esc closes it.
     await keyDown("Escape");
     await settle(2);
     expect(screen().queryByRole("dialog", { name: "Organograma do time" })).toBeNull();
-
-    // Abrir: the same viewer as everywhere.
-    await click(card("Organograma do time"));
-    await settle(4);
-    const details = screen().getByRole("dialog", { name: "Organograma do time" });
-    // Two "Abrir": the dialog header's icon (open in its own page) and the file action with a text label.
-    const openAction = within(details)
-      .getAllByRole("button", { name: "Abrir" })
-      .find((b) => b.textContent?.trim() === "Abrir");
-    await click(openAction as HTMLElement);
-    await settle(4);
-    expect(screen().getByRole("dialog", { name: "Organograma do time" })).toBeTruthy();
-  });
-
-  test("the details' … matches Copiar link; who can see it, in plain words", async () => {
-    await goDrive();
-    await click(card("Organograma do time"));
-    await settle(4);
-    const panel = screen().getByRole("dialog", { name: "Organograma do time" });
-    const more = within(panel).getByRole("button", { name: "Mais ações: Organograma do time" });
-    expect(more.className).toBe(within(panel).getByRole("button", { name: "Copiar link" }).className);
-    expect(panel.querySelector(".drive-audience")?.textContent).toBe(
-      "Todo o workspace pode ver: está no canal público #eng",
-    );
   });
 
   /** A file Atlas left in its DM with me, and one in the Drive only. */
@@ -792,37 +760,11 @@ describe("Drive", () => {
     expect(within(privateSection).queryByRole("button", { name: "Manual do time" })).toBeNull();
 
     await click(card("Rascunho da proposta"));
-    await settle(4);
+    await settle(6);
     const panel = screen().getByRole("dialog", { name: "Rascunho da proposta" });
-    expect(panel.querySelector(".drive-audience")?.textContent).toBe(
-      "Só você e Atlas podem ver: veio de uma mensagem direta",
-    );
-    expect(panel.textContent).toContain("Mensagem direta com Atlas");
     await pick(panel, /^Mais ações: /, "Abrir a conversa");
     await settle(4);
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/agent/${ATLAS_ID}`);
-  });
-
-  test("a Drive-only file is seen by the whole workspace and has no conversation to open", async () => {
-    await withDmFile();
-    await click(card("Manual do time"));
-    await settle(4);
-    const panel = screen().getByRole("dialog", { name: "Manual do time" });
-    expect(panel.querySelector(".drive-audience")?.textContent).toBe("Todo o workspace pode ver");
-    expect(panel.textContent).toContain("Só no Drive");
-    expect(panel.querySelector("button.drive-where")).toBeNull();
-  });
-
-  test("details list the versions; Ver opens an older one", async () => {
-    await goDrive();
-    await click(card("Relatório de incidente: checkout"));
-    await settle(6);
-    const panel = screen().getByRole("dialog", { name: "Relatório de incidente: checkout" });
-    expect(panel.querySelectorAll(".drive-versions li")).toHaveLength(2);
-    expect(panel.textContent).toContain("Acrescentei quem foi afetado.");
-    await click(within(panel).getByRole("button", { name: "Ver a v1" }));
-    await settle(6);
-    expect(screen().getByRole("dialog").textContent).toContain("Vendo a v1");
   });
 
   test("a shared link opens the viewer directly", async () => {
@@ -839,10 +781,10 @@ describe("Drive", () => {
     await click(screen().getByRole("checkbox", { name: "Selecionar Organograma do time" }));
     const bar = () => screen().getByRole("toolbar", { name: "Seleção" });
     expect(bar().textContent).toContain("1 selecionado");
-    // While selecting, a click selects (no details).
+    // While selecting, a click selects (the file doesn't open).
     await act(async () => fireEvent.click(card("Pedidos mais comuns nos reviews"), { metaKey: true }));
     expect(bar().textContent).toContain("2 selecionados");
-    expect(document.querySelector(".drive-details")).toBeNull();
+    expect(screen().queryByRole("dialog")).toBeNull();
 
     await click(within(bar()).getByRole("button", { name: "Copiar links" }));
     await settle(2);
@@ -1036,9 +978,9 @@ describe("deleting a file", () => {
 
   test("Mover para a lixeira asks, naming the file; then 'Movido para a lixeira · Desfazer' restores it", async () => {
     const { state } = await goDrive();
-    // From the details panel's "…".
+    // From the open file's "…".
     await click(screen().getByRole("button", { name: "Organograma do time" }));
-    await settle(4);
+    await settle(6);
     const panel = screen().getByRole("dialog", { name: "Organograma do time" });
     await pick(panel, /^Mais ações: /, "Mover para a lixeira");
     const confirm = screen().getByRole("dialog", { name: "Mover “Organograma do time” para a lixeira?" });
@@ -1047,7 +989,7 @@ describe("deleting a file", () => {
     await settle(5);
     expect(state.calls.some((c) => c.method === "artifacts.remove")).toBe(true);
     expect(screen().queryByRole("button", { name: "Organograma do time" })).toBeNull();
-    expect(document.querySelector(".drive-details")).toBeNull();
+    expect(screen().queryByRole("dialog", { name: "Organograma do time" })).toBeNull();
     expect(screen().getByText("Movido para a lixeira")).toBeTruthy();
     await click(screen().getByRole("button", { name: "Desfazer" }));
     await settle(5);

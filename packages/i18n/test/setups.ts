@@ -99,7 +99,7 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     "noAi.kept.plan",
   ],
   selfhost: [
-    // A server that sends no e-mail can't confirm a new address: only there (`emailChangeErrorText`).
+    // A server that sends no e-mail can't confirm a new address: only there (`email.no_mail`).
     "shell.email.noMail",
     "auth.owner.",
     "auth.flow.ownerWaits",
@@ -200,6 +200,8 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     "proof.willSend",
     "proof.sent",
     "errors.reauth.code",
+    // An address held for an account that just left it (`changeAccountEmail`): only a server that sends e-mail holds it.
+    "auth.flow.emailHeld",
   ],
   apiKey: ["agentPage.work.brain.fallbackTitle"],
   // A message nobody mentions still gets an agent: routing.mine (the chip and its help line), routing.by (Settings),
@@ -215,6 +217,8 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     "help.selfhost.run-on-your-computer.sections.11.blocks.1.code",
     "desktop.prefs.general.dockDesc",
     "desktop.prefs.general.menuBarTitle",
+    // The app icon's hint shows only in the Mac's desktop app (AppIconPicker.tsx): its Dock and Finder.
+    "appIcon.hintMac",
     "desktop.prefs.updates.",
     "desktop.server.reveal",
     "desktop.cover.tailnetUp",

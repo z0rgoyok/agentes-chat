@@ -293,7 +293,7 @@
   },
   "along": {
     "agent": "에이전트",
-    "waits": "{{name}}이(가) 승인을 기다려요",
+    "waits": "{{name}} · 내 확인 대기",
     "on": "{{name}} · {{what}}",
     "working": "{{name}}이(가) 작업 중이에요",
     "more": "+{{count}}"
@@ -769,7 +769,7 @@
     "teamSectionPersonal": "내 에이전트",
     "managerQuiet": "진행 중인 작업이 없어요",
     "state": {
-      "waitsYou": "승인을 기다려요",
+      "waitsYou": "내 확인 대기",
       "noAi": "연결된 AI 없음",
       "connect": "연결",
       "archived": "보관됨",
@@ -1061,6 +1061,9 @@
     "addWorkspaceTeamShort": "팀 서버에 들어가기",
     "addWorkspaceTeamSubShort": "주소 또는 컴퓨터의 QR 코드",
     "addWorkspaceFoot": "어떤 워크스페이스에서도 나가지 않아요.",
+    "addAccount": "다른 계정으로 로그인",
+    "addAccountSub": "{{host}}에서, 이 계정을 유지한 채",
+    "accountNoWorkspace": "아직 워크스페이스가 없습니다",
     "teamServerLeadShort": "팀이 브라우저에서 여는 주소예요.",
     "teamServerQuestion": "팀 주소가 어떻게 되세요?",
     "account": {
@@ -1078,6 +1081,8 @@
       "name": "이름",
       "namePlaceholder": "내 이름",
       "email": "이메일",
+      "emailWebLead": "웹사이트에서 다시 로그인하고, 코드 없이 거기서 바꾸세요.",
+      "emailWeb": "웹사이트에서 다시 로그인",
       "inWorkspace": "이 워크스페이스에서 · {{org}}",
       "handle": "내 @",
       "timezone": "시간대",
@@ -1353,7 +1358,7 @@
       "plain": "작업을 마쳤어요"
     },
     "rowWait": {
-      "approval": "승인을 기다려요",
+      "approval": "내 확인 대기",
       "question": "답변을 기다려요",
       "mission": "검토를 기다려요"
     },
@@ -1391,12 +1396,12 @@
   },
   "intentAgents": {
     "waitingSection": "내 확인 대기",
-    "waitingLine": "{{title}} · 승인 필요",
+    "waitingLine": "{{title}} · 내 확인 대기",
     "waitingMore_other": "{{title}} · 외 {{count}}건이 나를 기다려요",
-    "waitingLabel": "{{name}}, 승인 필요",
+    "waitingLabel": "{{name}}, 내 확인 대기",
     "owner": "소유자: {{name}}",
     "ownerYou": "소유자: 나",
-    "nowWaiting": "승인 필요: {{title}}",
+    "nowWaiting": "내 확인 대기: {{title}}",
     "did": {
       "title": "나를 위해 한 일",
       "title_female": "나를 위해 한 일",
@@ -1414,7 +1419,7 @@
         "image": "이미지",
         "file": "파일"
       },
-      "waitingOnYou": "승인 필요",
+      "waitingOnYou": "내 확인 대기",
       "youApproved": "내가 승인함",
       "youRefused": "내가 거절함",
       "action": {
@@ -2152,14 +2157,158 @@
       "toolsHow": "켜져 있는 도구를 탭하면 꺼집니다. 다시 켜려면 그 컴퓨터에서, 또는 연결한 사람이 여기서 켜세요.",
       "toolsHowOwner": "도구를 탭해서 켜거나 끄세요."
     },
-    "roles": {
-      "onComputer": "역할 순서와 각 역할의 아이콘은 컴퓨터에서 바꿔요.",
-      "items": "항목별",
-      "create": "만들기"
-    },
     "import": {
       "preparing": "파일을 준비하는 중…",
       "failed": "파일을 다운로드하지 못했어요. 다시 시도해 주세요."
+    }
+  },
+  "roles": {
+    "create": "만들기",
+    "search": "역할 검색",
+    "baseHint": "워크스페이스의 모든 사람에게 적용돼요. 역할은 여기에 더해져요.",
+    "orderHint": "위에 있는 사람이 아래의 역할과 사람을 관리해요. 각 사람의 이름 색은 그 사람의 가장 높은 역할에서 와요.",
+    "order": "순서 바꾸기",
+    "orderDone": "완료",
+    "up": "{{name}} 위로 이동",
+    "down": "{{name}} 아래로 이동",
+    "orderChanged": "옮기는 동안 역할 목록이 바뀌었어요. 새로고침하고 다시 시도하세요.",
+    "none": "아직 역할이 없어요. 일부 사람에게 더 주려면 역할을 만드세요.",
+    "noMatch": "“{{q}}”에 맞는 역할이 없어요.",
+    "tooMany": "이 워크스페이스에는 이미 역할이 100개 있어요. 새로 만들려면 하나를 삭제하세요.",
+    "loadFailed": "역할을 불러오지 못했어요. {{cause}}",
+    "backToList": "역할로 돌아가기",
+    "nobody": "없음",
+    "reach": {
+      "permissions_other": "권한 {{count}}개",
+      "channels_other": "채널 {{count}}개",
+      "agents_other": "에이전트 {{count}}개",
+      "more": "+{{what}}",
+      "all": "모든 것을 할 수 있음",
+      "owner": "항상 모든 것을 할 수 있음",
+      "none": "모든 사람이 할 수 있는 것만",
+      "baseNone": "읽기만"
+    },
+    "tabs": {
+      "permissions": "권한",
+      "channels": "채널",
+      "agents": "에이전트"
+    },
+    "addOwners": "소유자 추가",
+    "icons": {
+      "shield": "방패",
+      "code": "코드",
+      "wallet": "지갑",
+      "mail": "이메일",
+      "bolt": "번개",
+      "flag": "깃발",
+      "book": "책",
+      "chart": "차트",
+      "bulb": "전구",
+      "globe": "지구본",
+      "pullRequest": "풀 리퀘스트",
+      "calendar": "캘린더",
+      "message": "메시지",
+      "eye": "눈",
+      "plug": "플러그",
+      "person": "사람"
+    },
+    "inviteWith": "이 역할로 초대",
+    "searchPermission": "권한 검색",
+    "everyoneCan": "모든 사람이 할 수 있음",
+    "only": "{{names}}만",
+    "notHeld": "이 권한이 없어요.",
+    "noPermissionMatch": "“{{q}}”에 맞는 권한이 없어요.",
+    "advanced": "고급",
+    "peopleOnly": "역할은 사람에게 적용돼요. 각 에이전트의 권한은 그 에이전트의 페이지에 있어요.",
+    "nowAbove": "이 역할이 이제 내 역할보다 위에 있어요. 더 높은 사람만 변경할 수 있어요.",
+    "admin": {
+      "title": "{{name}}에 관리자를 켤까요?",
+      "text": "{{name}} 역할을 가진 사람은 소유자만 할 수 있는 것을 빼고 모든 것을 할 수 있게 돼요.",
+      "count_other": "{{count}}명이에요.",
+      "on": "관리자 켜기",
+      "note": "관리자가 켜져 있으면 {{name}}은(는) 소유자만 할 수 있는 것을 빼고 모든 것을 할 수 있어요."
+    },
+    "computers": {
+      "title": "에이전트의 컴퓨터",
+      "hint": "브라우저: 브라우저와 로그인 요청. 컴퓨터: 전체 화면과 터미널까지. 자기 에이전트: 그 사람이 담당하는 에이전트와 그 사람이 연결한 컴퓨터.",
+      "steps": {
+        "0": "사용 안 함",
+        "1": "자기 에이전트의 브라우저",
+        "2": "자기 에이전트의 컴퓨터",
+        "3": "모든 에이전트의 브라우저",
+        "4": "모든 에이전트의 컴퓨터"
+      },
+      "stepsIn": {
+        "1": "자기 에이전트의 브라우저",
+        "2": "자기 에이전트의 컴퓨터",
+        "3": "모든 에이전트의 브라우저",
+        "4": "모든 에이전트의 컴퓨터"
+      },
+      "everyoneTo": "모든 사람이 {{step}}을(를) 갖게 돼요.",
+      "everyoneNone": "모든 사람이 에이전트의 컴퓨터를 더 이상 쓰지 않게 돼요."
+    },
+    "whoCan": "할 수 있는 사람",
+    "everyoneSub": "워크스페이스의 모든 사람",
+    "someRoles": "일부 역할만",
+    "losing": "더 이상 할 수 없는 사람: {{names}}.",
+    "nobodyLoses": "잃는 사람이 없어요.",
+    "everyoneGets": "모든 사람이 할 수 있게 돼요.",
+    "ownersAlways": "소유자는 항상 할 수 있어요.",
+    "noOtherRoles": "아직 다른 역할이 없어요.",
+    "channels": {
+      "header": "{{name}} 역할을 가진 사람이 보는 채널",
+      "headerBase": "모든 사람이 보는 채널",
+      "hint": "사람에 관한 설정이에요. 에이전트는 누군가 추가하면 채널에 들어가요.",
+      "search": "채널 검색",
+      "everyone": "모든 사람이 봐요",
+      "private": "비공개",
+      "general": "모든 사람이 #general에 있어요.",
+      "locked": "#{{channel}}을(를) 만든 사람이나 채널을 정리하는 사람만 볼 수 있는 사람을 바꿀 수 있어요.",
+      "leaveTitle": "{{name}}에서 #{{channel}}을(를) 뺄까요?",
+      "leave_other": "{{names}}이(가) 채널에서 나가요.",
+      "leaveAction": "빼기",
+      "openTitle": "#{{channel}}을(를) {{name}}에 열까요?",
+      "openText": "{{name}} 역할을 가진 사람은 채널과 모든 기록을 보고 참여할 수 있어요.",
+      "openAction": "열기",
+      "openAllTitle": "#{{channel}}을(를) 모든 사람에게 열까요?",
+      "openAllText": "모든 기록이 워크스페이스에 공개돼요.",
+      "admin": "관리자가 켜져 있으면 {{name}} 역할을 가진 사람은 모든 채널을 봐요.",
+      "onlyGeneral": "지금은 #general만 있어요.",
+      "noMatch": "“{{q}}”에 맞는 채널이 없어요.",
+      "ungrouped": "채널",
+      "whoSees": "볼 수 있는 사람",
+      "allSub": "워크스페이스의 누구나 보고 참여할 수 있어요.",
+      "invited": "추가된 사람만",
+      "invitedSub": "새로운 사람은 볼 수 없어요. 지금 있는 사람은 그대로예요.",
+      "unsee": "지금 있는 사람은 그대로예요. 더 이상 볼 수 없는 사람: {{names}}."
+    },
+    "agents": {
+      "header": "{{name}} 역할을 가진 사람이 대화하는 에이전트",
+      "headerBase": "모든 사람이 대화하는 에이전트",
+      "hint": "사람에 관한 설정이에요. 각 에이전트가 하는 일은 그 에이전트의 페이지에 있어요.",
+      "everyone": "모든 사람이 대화해요",
+      "gate": "{{name}} 역할만 가진 사람은 에이전트와 대화하지 않아요.",
+      "gateOn": "에이전트와 대화 켜기",
+      "locked": "{{name}} 담당자인 {{owner}} 님이나 모든 에이전트를 편집하는 사람만 바꿀 수 있어요.",
+      "locked_female": "{{name}} 담당자인 {{owner}} 님이나 모든 에이전트를 편집하는 사람만 바꿀 수 있어요.",
+      "lockedNoOwner": "모든 에이전트를 편집하는 사람만 바꿀 수 있어요.",
+      "none": "아직 에이전트가 없어요.",
+      "some": "일부 역할과 사람만",
+      "addPerson": "사람 추가",
+      "losing": "{{agent}}와(과) 더 이상 대화할 수 없는 사람: {{names}}."
+    },
+    "people": {
+      "removed": "{{person}} 님은 이제 {{name}} 역할이 없어요",
+      "selfTitle": "{{name}}에서 나를 뺄까요?",
+      "selfText": "{{name}}만 주는 것을 잃어요. 나보다 위에 있는 사람만 되돌려 줄 수 있어요."
+    },
+    "mail": {
+      "title_other": "에이전트가 메일함 {{count}}개를 잃어요",
+      "loses": "{{agent}}이(가) {{owner}} 님의 메일함 {{address}}을(를) 잃어요.",
+      "losesAddress": "{{agent}}이(가) 메일함 {{address}}을(를) 잃어요.",
+      "only": "메일함을 준 사람만 다시 줄 수 있어요.",
+      "addAnyway": "그래도 추가",
+      "giveAnyway": "그래도 주기"
     }
   },
   "vault": {

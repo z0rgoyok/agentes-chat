@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { and, eq, schema } from "@agenteschat/db";
+import { orgTopic } from "@agenteschat/adapters";
+import { and, eq, schema, sql } from "@agenteschat/db";
 import { type ModelRequest, systemText, textOf } from "@agenteschat/providers";
 import type { FakeReply } from "@agenteschat/providers/testing";
 import {
+  agentStatuses,
   askAgentToImplement,
   CANCEL_FOLLOW_UP_TOOL,
+  canceledReturns,
   cancelFollowUp,
   createAgent,
   createAgentRuns,
@@ -15,13 +18,17 @@ import {
   insertMessage,
   invokeToolForRun,
   joinChannel,
+  listThreads,
   openAgentDm,
+  openPersonAgentDm,
+  pendingReturns,
   postPersonMessage,
   removeChannelMember,
   runAuthority,
   STRETCH,
   STRETCH_JOB,
   STRETCH_REFUSAL,
+  taskManager,
   toolPolicy,
   wakeFollowUp,
 } from "../src";
@@ -398,6 +405,7 @@ test("canceled by the agent or by a person, a follow-up wakes nobody; a second c
         state: "canceled",
         personId: f.owner.id,
         canceledBy: `agent:${f.agent.id}`,
+        canceledAt: expect.any(String),
       },
       {
         runId: run.id,
@@ -406,6 +414,7 @@ test("canceled by the agent or by a person, a follow-up wakes nobody; a second c
         state: "canceled",
         personId: f.owner.id,
         canceledBy: f.owner.id,
+        canceledAt: expect.any(String),
       },
     ]),
   );
@@ -736,5 +745,143 @@ describe("between agents (ADR 0095)", () => {
       answer:
         "Passei a fila ao Ops; te digo quando ele terminar.\n\n[@ops, to whom @infra handed part of it]: Fila limpa.",
     });
+  });
+});
+
+describe("returns, as the apps list them (ADR 0037, amended 2026-11-13)", () => {
+  /** Bia asks @dev in #general and its run ends: the run whose follow-ups are hers. */
+  const biaAsks = async (fx: Fixture, body = "@dev me avisa do build", threadId?: string) => {
+    const bia = await addMember(fx.db, fx.org.id, "member", "bia");
+    await joinChannel(fx.db, bia.id, fx.org.id, fx.general.id);
+    await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, bia.id, fx.org.id, fx.general.id, {
+      body,
+      ...(threadId ? { threadId } : {}),
+    });
+    await drainOutbox(fx.db, fx.handlers);
+    const [run] = await fx.db.select().from(schema.agentRuns).orderBy(schema.agentRuns.createdAt);
+    if (!run) throw new Error("no run");
+    return { bia, run };
+  };
+
+  test("who may cancel: the person it is for, the agent's owner and admins; anyone else who reads it is refused", async () => {
+    f = await setup({ followUps: true });
+    const { bia, run } = await biaAsks(f);
+    const caio = await addMember(f.db, f.org.id, "member", "caio");
+    await joinChannel(f.db, caio.id, f.org.id, f.general.id);
+    const first = await setFollowUp(f, run.id, 10);
+    const second = await setFollowUp(f, run.id, 20);
+    const deps = { db: f.db, pubsub: f.pubsub };
+
+    await expect(cancelFollowUp(deps, caio.id, f.org.id, first)).rejects.toMatchObject({ code: "follow_up.not_yours" });
+    expect(await lineState(f, first)).toBe("pending");
+    // The lists say the same, per person: Caio sees them without the control.
+    const mine = async (userId: string, managesAgents = false) =>
+      (await pendingReturns(f.db, userId, f.org.id, { managesAgents })).map((r) => [r.messageId, r.canCancel]);
+    expect(await mine(caio.id)).toEqual([
+      [first, false],
+      [second, false],
+    ]);
+    expect(await mine(bia.id)).toEqual([
+      [first, true],
+      [second, true],
+    ]);
+    expect(await mine(f.owner.id, true)).toEqual([
+      [first, true],
+      [second, true],
+    ]);
+    // The agent's owner.
+    await f.db.update(schema.agents).set({ ownerUserId: caio.id }).where(eq(schema.agents.id, f.agent.id));
+    expect(await mine(caio.id)).toEqual([
+      [first, true],
+      [second, true],
+    ]);
+    await cancelFollowUp(deps, caio.id, f.org.id, first);
+    await cancelFollowUp(deps, bia.id, f.org.id, second);
+    expect(await pendingReturns(f.db, bia.id, f.org.id)).toEqual([]);
+    // "Terminadas hoje": canceled, when and by whom.
+    const ended = await canceledReturns(f.db, bia.id, f.org.id, new Date(Date.now() - 3600_000));
+    expect(ended.map((r) => [r.messageId, r.canceledBy])).toEqual([
+      [second, { kind: "person", userId: bia.id, name: "bia" }],
+      [first, { kind: "person", userId: caio.id, name: "caio" }],
+    ]);
+    expect(ended.every((r) => r.canceledAt && r.about === "ver o deploy")).toBe(true);
+  });
+
+  test("a return is listed where it lands, to who reads that conversation; a wake only late isn't held", async () => {
+    f = await setup({ followUps: true });
+    const { bia, run } = await biaAsks(f);
+    const line = await setFollowUp(f, run.id, 30);
+    const [r] = await pendingReturns(f.db, bia.id, f.org.id);
+    expect(r).toMatchObject({
+      messageId: line,
+      agentId: f.agent.id,
+      channelId: f.general.id,
+      channelKind: "channel",
+      channelName: "general",
+      threadId: null,
+      about: "ver o deploy",
+      runId: run.id,
+      replyMessageId: run.replyMessageId,
+      held: false,
+    });
+    expect(Date.parse(r?.at ?? "") - Date.now()).toBeGreaterThan(29 * 60_000);
+    expect((await pendingReturns(f.db, bia.id, f.org.id, { channelId: f.general.id })).length).toBe(1);
+    // The owner's own DM with the agent: nobody else reads it, so nobody else lists what lands there.
+    const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, f.agent.id);
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, dm.id, { body: "me avisa depois" });
+    await drainOutbox(f.db, f.handlers);
+    const dmRun = (await f.db.select().from(schema.agentRuns)).find((x) => x.channelId === dm.id);
+    if (!dmRun) throw new Error("no DM run");
+    const inDm = await setFollowUp(f, dmRun.id, 40);
+    expect((await pendingReturns(f.db, f.owner.id, f.org.id)).map((x) => x.messageId)).toEqual([line, inDm]);
+    expect((await pendingReturns(f.db, bia.id, f.org.id)).map((x) => x.messageId)).toEqual([line]);
+    // Due 2 min ago, its wake only late (a queue backlog, a retry): it still comes, and waits on nobody's answer.
+    const past = new Date(Date.now() - 2 * 60_000).toISOString();
+    await f.db.execute(
+      sql`update ${schema.messages} set meta = jsonb_set(meta, '{notice,refs,at}', to_jsonb(${past}::text)) where id = ${line}::uuid`,
+    );
+    expect((await pendingReturns(f.db, bia.id, f.org.id))[0]).toMatchObject({ messageId: line, held: false });
+  });
+
+  test("the agent's line says 'later' with its time where you read, the thread's chip its time, the task manager its row", async () => {
+    f = await setup({ followUps: true });
+    const root = await ask(f, "Build de produção");
+    const { bia, run } = await biaAsks(f, "@dev acompanha o build", root.id);
+    const line = await setFollowUp(f, run.id, 30);
+    const [r] = await pendingReturns(f.db, bia.id, f.org.id);
+
+    const work = (await agentStatuses(f.db, bia.id, f.org.id)).find((x) => x.agentId === f.agent.id)?.work;
+    expect(work).toMatchObject({ state: "later", at: r?.at, channelId: f.general.id, threadId: root.id, count: 0 });
+    const { threads } = await listThreads(f.db, bia.id, { orgId: f.org.id, channelId: f.general.id });
+    expect(threads.find((x) => x.id === root.id)?.laterAt).toBe(r?.at ?? "missing");
+    const view = await taskManager(f.db, bia.id, f.org.id);
+    expect(view.followUps.map((x) => [x.messageId, x.canCancel])).toEqual([[line, true]]);
+
+    // Someone who can't read #general hears nothing of it.
+    const outsider = await addMember(f.db, f.org.id, "member", "zeca");
+    await f.db
+      .delete(schema.channelMembers)
+      .where(and(eq(schema.channelMembers.channelId, f.general.id), eq(schema.channelMembers.userId, outsider.id)));
+    const theirs = (await agentStatuses(f.db, outsider.id, f.org.id)).find((x) => x.agentId === f.agent.id);
+    expect(theirs?.work ?? null).toBeNull();
+    expect((await taskManager(f.db, outsider.id, f.org.id)).followUps).toEqual([]);
+  });
+
+  test("set, canceled and come: the agent's status moves (agent.status), so the lists read again", async () => {
+    f = await setup({ followUps: true });
+    const { bia, run } = await biaAsks(f);
+    const heard: string[] = [];
+    f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+      const ev = (e as { event?: { type: string; agentId?: string } }).event;
+      if (ev?.type === "agent.status" && ev.agentId === f.agent.id) heard.push("agent.status");
+    });
+    const first = await setFollowUp(f, run.id, 10);
+    expect(heard.length).toBe(1);
+    await cancelFollowUp({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, first);
+    expect(heard.length).toBe(2);
+    const second = await setFollowUp(f, run.id, 20);
+    expect(heard.length).toBe(3);
+    await wakeFollowUp({ db: f.db, pubsub: f.pubsub }, f.org.id, second);
+    expect(heard.length).toBeGreaterThanOrEqual(4);
   });
 });

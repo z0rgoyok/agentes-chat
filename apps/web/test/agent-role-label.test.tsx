@@ -16,7 +16,7 @@ test("Criar agente › Do zero: a 40-character role types whole, with no count b
   await renderApp(`/org/${ORG_ID}/agents/new`, { api: createFakeApi(seedState()) });
   await settle(8);
   await click(screen().getByRole("button", { name: /^Do zero/ }));
-  const role = screen().getByLabelText("Cargo") as HTMLInputElement;
+  const role = screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement;
   expect(role.maxLength).toBe(200);
   await typeIn(role, LONG_ROLE);
   expect(role.value).toBe(LONG_ROLE);
@@ -32,12 +32,12 @@ test("Editar: a 40-character role saves whole", async () => {
   await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}?tab=settings&sec=identity`, { api });
   await settle(10);
   // The role is a tag: a click turns it into its field.
-  await click(screen().getByRole("button", { name: /^Editar cargo/ }));
-  const role = screen().getByRole("combobox", { name: "Cargo" }) as HTMLInputElement;
+  await click(screen().getByRole("button", { name: /^Editar função/ }));
+  const role = screen().getByRole("combobox", { name: "Função" }) as HTMLInputElement;
   expect(role.maxLength).toBe(200);
   await typeIn(role, LONG_ROLE);
   await press(role, "Enter");
-  expect(screen().getByRole("button", { name: /^Editar cargo/ }).textContent).toBe(LONG_ROLE);
+  expect(screen().getByRole("button", { name: /^Editar função/ }).textContent).toBe(LONG_ROLE);
   await act(async () => fireEvent.click(screen().getByRole("button", { name: /^Salvar/ })));
   await settle(6);
   const saved = state.calls.find((c) => c.method === "agents.update")?.args[2] as Record<string, unknown> | undefined;

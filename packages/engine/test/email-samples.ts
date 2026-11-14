@@ -38,6 +38,23 @@ export const EMAIL_SAMPLES: Record<string, EmailTemplate> = {
     url: `${APP}/invite/T7xQ2mVb9KpL`,
     role: "owner",
   },
+  /** One that gives a cargo, channels and agents (ADR 0184): their names, and its agents first in the picture. */
+  "invitation-starts.en": {
+    kind: "invitation",
+    locale: "en",
+    orgName: "Acme Logística",
+    inviterName: "Carla Dias",
+    inviterEmail: "carla@example.com",
+    crew: [
+      { color: "amber", eyes: "round", accessory: "none" },
+      { color: "sky", eyes: "round", accessory: "none" },
+    ],
+    url: `${APP}/invite/T7xQ2mVb9KpL`,
+    role: "member",
+    roles: ["Suporte"],
+    channels: ["suporte", "chamados-urgentes"],
+    agents: ["Max"],
+  },
   "invite_request.en": {
     kind: "invite_request",
     locale: "en",
@@ -270,6 +287,44 @@ export const EMAIL_SAMPLES: Record<string, EmailTemplate> = {
     email: "ana@padariasouza.com.br",
     support: null,
     url: APP,
+  },
+  /** Before the account's address changes, to its current one: the code, and the new address it is for. */
+  "email_change_code.en": {
+    kind: "email_change_code",
+    locale: "en",
+    code: "482913",
+    email: "ana@souzabakery.com",
+    newEmail: "ana.souza@example.com",
+    support: "help@agentes.chat",
+    url: APP,
+  },
+  /** The same, on a server with no support address. */
+  "email_change_code.pt-BR": {
+    kind: "email_change_code",
+    locale: "pt-BR",
+    code: "482913",
+    email: "ana@padariasouza.com.br",
+    newEmail: "ana.souza@example.com",
+    support: null,
+    url: APP,
+  },
+  /** To the new address: its link makes it the account's. */
+  "email_change_link.en": { kind: "email_change_link", locale: "en", url: VERIFY },
+  "email_change_link.pt-BR": { kind: "email_change_link", locale: "pt-BR", url: VERIFY },
+  /** To the address the account left: "This wasn't me". */
+  "email_changed.en": {
+    kind: "email_changed",
+    locale: "en",
+    email: "ana@souzabakery.com",
+    newEmail: "ana.souza@example.com",
+    url: `${APP}/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue`,
+  },
+  "email_changed.pt-BR": {
+    kind: "email_changed",
+    locale: "pt-BR",
+    email: "ana@padariasouza.com.br",
+    newEmail: "ana.souza@example.com",
+    url: `${APP}/email-undo?token=Hk2dQ9xWm4Lp7Rt1Vb8Nc3Zs6Yf0Ja5Ue`,
   },
   /** To an owner: a button to restore it. */
   "workspace_deleting-owner.en": {

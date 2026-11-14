@@ -1,5 +1,5 @@
 import { plural } from "@agenteschat/i18n/format";
-import { atHost } from "./en";
+import { atHost, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -39,6 +39,12 @@ export const words: EmailWords = {
       inviter
         ? [{ b: inviter }, `${email ? ` (${email})` : ""} lädt dich ein, `, { b: org }, ` als ${role} beizutreten.`]
         : ["Du bist eingeladen, ", { b: org }, ` als ${role} beizutreten.`],
+    starts: (channels, agents) =>
+      sentences(
+        channels && ["Du bist direkt in ", ...channels, " dabei."],
+        agents && ["Du arbeitest mit ", ...agents, " zusammen."],
+      ),
+    more: (n) => `${n} weiteren`,
     what: "Auf agentes.chat arbeiten Menschen und KI-Agenten zusammen.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "Nachricht: " }, `„${note}“`],
     button: "Einladung annehmen",
@@ -331,6 +337,48 @@ export const words: EmailWords = {
         { b: org },
         " zu löschen. Er ist sofort schreibgeschützt und wird 7 Tage später endgültig gelöscht.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `${code} ist dein Code zum Ändern deiner E-Mail-Adresse`,
+      preheader: "Gib ihn in agentes.chat ein, um zu bestätigen. Er gilt 10 Minuten lang.",
+      headline: "Dein Code",
+      body: (email, newEmail) => [
+        "Gib diesen Code ein, um die E-Mail-Adresse des Kontos ",
+        { b: email },
+        " in ",
+        { b: newEmail },
+        " zu ändern.",
+      ],
+      support: (address) => [
+        "Er gilt 10 Minuten lang, und ohne ihn bleibt deine E-Mail-Adresse, wie sie ist. Wenn du das nicht warst, gib ihn nicht weiter und schreib an ",
+        { mail: address },
+        ".",
+      ],
+      noSupport:
+        "Er gilt 10 Minuten lang, und ohne ihn bleibt deine E-Mail-Adresse, wie sie ist. Wenn du das nicht warst, gib ihn nicht weiter und sag den Leuten Bescheid, die diesen Server betreiben.",
+      why: "Du erhältst diese E-Mail, weil über dein Konto eine neue E-Mail-Adresse auf agentes.chat angefragt wurde.",
+    },
+    link: {
+      subject: "Bestätige deine neue E-Mail-Adresse für agentes.chat",
+      preheader: "Ein Klick, und du meldest dich ab jetzt mit dieser Adresse an. Der Link gilt eine Stunde lang.",
+      headline: "Bestätige deine neue E-Mail-Adresse",
+      body: "Nur noch ein Schritt: Bestätige, dass diese Adresse dir gehört. Danach meldet sich dein Konto mit ihr an.",
+      button: "Neue E-Mail-Adresse bestätigen",
+      small: "Der Link gilt eine Stunde lang. Wenn du das nicht angefragt hast, kannst du diese E-Mail ignorieren.",
+      why: "Du erhältst diese E-Mail, weil jemand diese Adresse für ein agentes.chat-Konto verwenden möchte.",
+    },
+    changed: {
+      subject: "Die E-Mail-Adresse deines agentes.chat-Kontos wurde geändert",
+      preheader: "Wenn du das nicht warst, kannst du diese Adresse 7 Tage lang zurückholen.",
+      headline: "Deine E-Mail-Adresse wurde geändert",
+      body: (email, newEmail) => ["Das Konto ", { b: email }, " meldet sich jetzt mit ", { b: newEmail }, " an."],
+      notYou:
+        "Das warst nicht du? Drück innerhalb von 7 Tagen auf den Button. Diese Adresse kommt zurück, alle Sitzungen werden abgemeldet, die KI-Apps getrennt, und Anmeldewege, die seitdem hinzugekommen sind, funktionieren nicht mehr. Auch das Passwort wird gelöscht: Mit „Passwort vergessen“ legst du das nächste fest.",
+      button: "Das war ich nicht",
+      small: "Wenn du das warst, musst du nichts tun.",
+      why: "Du erhältst diese E-Mail, weil diese Adresse die E-Mail-Adresse eines agentes.chat-Kontos war.",
     },
   },
   deleting: {

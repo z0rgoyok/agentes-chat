@@ -10,7 +10,13 @@ import {
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { aiStateOf, noAiCardOf } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
-import { introCards, introLeadKey, isRightHand, offersTeamSetup } from "@agenteschat/client/lib/right-hand";
+import {
+  introCards,
+  introLeadKey,
+  isRightHand,
+  offersTeamSetup,
+  welcomeOpen,
+} from "@agenteschat/client/lib/right-hand";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { WAVE_SECONDS } from "@agenteschat/ui/agent/stickers";
 import { type ReactNode, useState } from "react";
@@ -39,9 +45,10 @@ import { useSendAnswer } from "./TeamCard";
  * 0155 §6). Anyone else gets one card at a time (`introCards`): a waiting pill with "Connect" (tinted) while there is
  * no AI, then how agents talk to them (ADR 0147); the owner gets that question once the checklist is complete and the
  * team answered them once, so it never stands beside the first task. With no card left, a line to build the team with
- * it, at any time; a personal workspace's words speak of one person's agents (ADR 0159). On the person's first visit
- * (`waveFrom`, when its wave started), its waving sticker under the greeting, drawn as a sticker message is and
- * decorative.
+ * it, at any time; a personal workspace's words speak of one person's agents (ADR 0159). Someone it greeted when
+ * they joined gets Connect alone until they answer (`welcomeOpen`): its stored greeting right below asks the one
+ * question. On the person's first visit (`waveFrom`, when its wave started), its waving sticker under the greeting,
+ * drawn as a sticker message is and decorative.
  */
 export function RightHandIntro({ agent, channelId, waveFrom }: { agent: Agent; channelId: string; waveFrom?: number }) {
   const { t } = useTranslation();
@@ -59,14 +66,18 @@ export function RightHandIntro({ agent, channelId, waveFrom }: { agent: Agent; c
   const createsAgents = can(org, "create_agents");
   // Picked here: its card stays where it was, answered, instead of leaving the moment the workspace has a style.
   const [styled, setStyled] = useState<AgentStyle | null>(null);
+  const messages = useMessages(orgId, channelId).data;
+  // Its stored greeting of someone who joined asks what they look after: until they answer, nothing else here asks.
+  const welcomed = welcomeOpen(messages, org?.role === "owner");
   const cards = introCards({
     noAi: noAi && aiKnown,
     aiKnown,
     askStyle: org?.agentStyle === null,
     held,
-    noAiCard: useMessages(orgId, channelId).data?.some((m) => noAiCardOf(m.meta)),
+    noAiCard: messages?.some((m) => noAiCardOf(m.meta)),
     checklist,
     answered: useTeamAnswered(orgId, team),
+    welcomed,
   });
   const send = useSendAnswer(channelId);
   return (
@@ -147,7 +158,16 @@ export function RightHandIntro({ agent, channelId, waveFrom }: { agent: Agent; c
         )}
         <FirstRunCard agent={agent} channelId={channelId} />
         {(cards.includes("style") || styled) && <StyleCard picked={styled} onPicked={setStyled} />}
-        {offersTeamSetup({ noAi, aiKnown, createsAgents, hasTeam: team.length > 0, cards, held, checklist }) ? (
+        {offersTeamSetup({
+          noAi,
+          aiKnown,
+          createsAgents,
+          hasTeam: team.length > 0,
+          cards,
+          held,
+          checklist,
+          welcomed,
+        }) ? (
           <View>
             <Text variant="small" tone="muted">
               {t(modeKey(org, "rightHand.intro.again.question"))}

@@ -237,6 +237,8 @@ describe("push devices", () => {
     const { orgId, channelId } = await seedOrg(owner);
     // Invited people join #general.
     const bia = await addPerson(owner, orgId, "bia@example.com");
+    // The right hand greets who joins: that push is not this one, so it goes out before their device is known.
+    await t.drain();
     const registered = await fromApp(bia, "/api/app/push/devices", {
       json: { token: FCM_TOKEN, platform: "android", locale: "pt-BR" },
     });

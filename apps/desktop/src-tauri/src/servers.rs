@@ -95,15 +95,19 @@ pub fn is_loopback(origin: &str) -> bool {
 
 /// What may follow a chosen server's origin: its sign-in or sign-up page, a new workspace (`/onboarding`, the
 /// welcome window's "Add a workspace", ADR 0154), or a link's one-time sign-in (`/desktop/handover#token=`) or owner
-/// claim (`/owner#claim=`), whose secrets the page takes out at once.
+/// claim (`/owner#claim=`), whose secrets the page takes out at once. And the server's accounts (ADR 0183): its
+/// sign-in for one more beside those signed in (`/login?add=1`), or its first page as one of them (`/?as=<id>`).
 pub fn page_path(page: &str) -> bool {
     let secret = |s: &str| (20..=200).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     match page {
-        "/login" | "/signup" | "/onboarding" => true,
-        _ => page
-            .strip_prefix("/desktop/handover#token=")
-            .or_else(|| page.strip_prefix("/owner#claim="))
-            .is_some_and(secret),
+        "/login" | "/signup" | "/onboarding" | "/login?add=1" => true,
+        _ => {
+            page.strip_prefix("/?as=").is_some_and(crate::workspaces::good_id)
+                || page
+                    .strip_prefix("/desktop/handover#token=")
+                    .or_else(|| page.strip_prefix("/owner#claim="))
+                    .is_some_and(secret)
+        }
     }
 }
 
@@ -347,6 +351,10 @@ mod tests {
         assert!(page_path("/login"));
         assert!(page_path("/signup"));
         assert!(page_path("/onboarding"));
+        assert!(page_path("/login?add=1"));
+        assert!(page_path("/?as=u_1-a"));
+        assert!(!page_path("/?as="));
+        assert!(!page_path("/?as=u1&next=//evil.example"));
         assert!(page_path(&format!("/desktop/handover#token={token}")));
         assert!(page_path(&format!("/owner#claim={token}")));
         assert!(!page_path("/desktop/handover#token=short"));

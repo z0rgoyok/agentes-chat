@@ -64,10 +64,12 @@ describe("live consultations", () => {
     expect(consultsIn(applyConsultEvent(back, delta, at), "c1", at)).toHaveLength(1);
   });
 
-  test("work handed off never takes the line: the reply that handed it shows where it is", () => {
+  test("work handed off takes the line too, for as long as it is out (ADR 0095 addendum)", () => {
     const note = (e: Ev) => ({ ...e, kind: "note" }) as Ev;
-    expect(apply([note(asked("r1"))])).toEqual({});
-    expect(apply([asked("r1"), note(answered("r1"))])).toEqual(apply([asked("r1")]));
+    expect(apply([note(asked("r1"))]).r1).toMatchObject({ kind: "note", status: "asking" });
+    expect(apply([note(asked("r1")), note(answered("r1"))]).r1).toMatchObject({ kind: "note", status: "answered" });
+    // A question stays a question.
+    expect(apply([asked("r1")]).r1?.kind).toBe("question");
   });
 
   test("a question whose colleague is still at it stays past the usual window: each word of it renews the line", () => {

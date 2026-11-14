@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { ConfigError, envVars, loadConfig, redactConfig, testConfig } from "./index";
+import { ConfigError, envVars, loadConfig, mcpCallerIdentity, redactConfig, testConfig } from "./index";
 import { parseFirebaseServiceAccount, parsePemKey } from "./pem";
 
 const valid = {
@@ -151,6 +151,44 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...valid, OPERATOR_API_TOKEN: full, OPERATOR_API_READ_TOKEN: "short" })).toThrow(
       /OPERATOR_API_READ_TOKEN: must be at least 32 characters/,
     );
+  });
+
+  test("MCP_CALLER_IDENTITY: host=secret pairs, a bare lower-case host and a long secret, each host once, never shown", () => {
+    const secret = "s".repeat(32);
+    const padded = `${"p".repeat(30)}==`;
+    expect(loadConfig(valid).MCP_CALLER_IDENTITY).toBeUndefined();
+    expect(mcpCallerIdentity(loadConfig({ ...valid, MCP_CALLER_IDENTITY: "" })).size).toBe(0);
+    const two = loadConfig({ ...valid, MCP_CALLER_IDENTITY: `tools.example.com=${secret},mcp.example.org=${padded}` });
+    expect([...mcpCallerIdentity(two)]).toEqual([
+      ["tools.example.com", secret],
+      ["mcp.example.org", padded],
+    ]);
+    expect(redactConfig(two).MCP_CALLER_IDENTITY).toBe("********");
+    for (const malformed of [
+      `tools.example.com=${"s".repeat(31)}`,
+      `Tools.example.com=${secret}`,
+      `https://tools.example.com=${secret}`,
+      `tools.example.com:8443=${secret}`,
+      `tools.example.com/mcp=${secret}`,
+      `tools.example.com.=${secret}`,
+      `tools.example.com=${secret}, mcp.example.org=${secret}`,
+      `tools.example.com=${secret},`,
+      "tools.example.com",
+      secret,
+    ]) {
+      expect(() => loadConfig({ ...valid, MCP_CALLER_IDENTITY: malformed })).toThrow(
+        /MCP_CALLER_IDENTITY: must be host=secret pairs/,
+      );
+    }
+    const twice = () =>
+      loadConfig({ ...valid, MCP_CALLER_IDENTITY: `tools.example.com=${secret},tools.example.com=${padded}` });
+    expect(twice).toThrow(/MCP_CALLER_IDENTITY: names a host more than once/);
+    // A refusal names the setting, never what it holds.
+    try {
+      twice();
+    } catch (error) {
+      expect(String(error)).not.toContain(secret);
+    }
   });
 
   test("billing: the address and the link's secret together, the hold on new workspaces only with them and the operator API", () => {

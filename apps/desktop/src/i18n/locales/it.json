@@ -311,6 +311,7 @@
     "offline": "Offline dalle {{time}}",
     "signIn": "Accedi",
     "signOut": "Esci da questo server",
+    "addAccount": "Aggiungi account",
     "signedOutDone": "Sei uscito da {{host}}",
     "removeFromApp": "Rimuovi da questa app",
     "newsOne": "1 nuova notifica",

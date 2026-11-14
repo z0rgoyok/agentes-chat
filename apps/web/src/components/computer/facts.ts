@@ -16,6 +16,7 @@ import {
 import { type AgentComputerFacts, entryState } from "@agenteschat/client/lib/agent-computer";
 import { computerEdition, setupView } from "@agenteschat/client/lib/computer";
 import { can } from "@agenteschat/client/lib/permissions";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "@/components/org-context";
 import { useStreams } from "@/realtime/context";
@@ -63,6 +64,8 @@ export function useAgentComputer(
     enabled: watches,
     retry: false,
   });
+  // The browser's own handoff. The right hand's browser has none (its window is on its place's desktop), so this
+  // stays the agent's whichever of its places the view shows.
   const handoffQ = useQuery({
     queryKey: keys.agentBrowserHandoff(org.id, agent.id),
     queryFn: () => api.browser.agentHandoff(org.id, agent.id),
@@ -78,7 +81,11 @@ export function useAgentComputer(
     retry: false,
     refetchInterval: RUNNING_POLL_MS,
   });
-  const run = useScreenRun(agent.id);
+  // In a view of the right hand's shared place, the runs this person sees going on may be in their own: none is
+  // shown as this screen's work.
+  const shared = useSeat(agent.id) !== undefined;
+  const ownRun = useScreenRun(agent.id);
+  const run = shared ? undefined : ownRun;
   const desktop = desktopQ.data ?? null;
   const browserOpen = handoffQ.data && isOpenHandoff(handoffQ.data) ? handoffQ.data : null;
   // The screen's own request or take over, or the browser's when its window is on the screen.
@@ -95,7 +102,7 @@ export function useAgentComputer(
         browserGranted: (scopesQ.data ?? []).some((s) => s.connectionId === null && s.scope === BROWSER_TOOL_SCOPE),
         handoff: browserOpen ?? screenOpen,
         userId: me.user.id,
-        working: Boolean(run) || (runningQ.data?.length ?? 0) > 0,
+        working: Boolean(run) || (!shared && (runningQ.data?.length ?? 0) > 0),
       }
     : null;
   return {

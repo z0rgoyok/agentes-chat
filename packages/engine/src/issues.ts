@@ -37,6 +37,7 @@ import { enqueueRunJob } from "./mission-runs";
 import { notifyIssueChanged } from "./notification-producers";
 import { can, getMembership, requireActiveMembership } from "./organizations";
 import { membersWhoMaySql } from "./permissions";
+import { queueTaskCheck, queueTaskEnd, tellTaskEnd } from "./right-hand-follow";
 import { fireRoutineEvent } from "./routines";
 import { agentSearchChannels, enqueueIndex, registerDocumentBuilder } from "./search";
 import { AUDIENCE_MAX, type Audience, admitTaskAgents, taskSeenSql } from "./task-access";
@@ -1234,7 +1235,7 @@ export async function updateIssue(
         data: { artifactIds: removed, files },
       });
   }
-  const row = await db.transaction(async (tx) => {
+  const { row, ended } = await db.transaction(async (tx) => {
     const [updated] = await tx.update(issues).set(set).where(eq(issues.id, current.id)).returning();
     if (!updated) throw new NotFoundError("Issue not found");
     for (const e of events) await addActivity(tx, updated, { kind: "event", author, ...e });
@@ -1242,7 +1243,12 @@ export async function updateIssue(
     if (set.description !== undefined && (set.description.includes("[[") || current.description.includes("[["))) {
       await syncWikiLinks(tx, orgId, { type: "issue", id: updated.id, channelId: updated.channelId }, set.description);
     }
-    return updated;
+    // A task the right hand handed over that ends here: it tells the person it was for (`right-hand-follow.ts`).
+    const ended =
+      updated.status !== current.status
+        ? await queueTaskEnd(tx, updated, { ...author, ...(actor.type === "agent" ? { runId: actor.runId } : {}) })
+        : null;
+    return { row: updated, ended };
   });
   await linkRun(deps, actor, row);
   // A new agent assignee joins the task's conversation (ADR 0145): a mention there reaches it.
@@ -1255,6 +1261,8 @@ export async function updateIssue(
   if (patch.assignee !== undefined || row.status !== current.status) {
     await notifyIssueChanged(deps, author, current, row).catch(() => {});
   }
+  // After the inbox, so the row of this change is there to be done for them. Its job tells it if this fails.
+  if (ended) await tellTaskEnd(deps, orgId, ended).catch(() => {});
   return view;
 }
 
@@ -1647,7 +1655,7 @@ export async function askAgentToImplement(
     });
     const { run, steered } = await enqueueRunJob(tx, start, agentId);
     const targetRunId = run?.id ?? steered;
-    if (by)
+    if (by) {
       await tx.insert(agentConsultations).values({
         id: consultationId,
         orgId,
@@ -1663,6 +1671,9 @@ export async function askAgentToImplement(
         chain: [by.agentId],
         expiresAt: new Date(Date.now() + TASK_HAND_OFF_TTL_MS),
       });
+      // The right hand looks at it again a day later, for the person it handed it over for.
+      await queueTaskCheck(tx, orgId, consultationId);
+    }
     return { start, runId: run?.id ?? null };
   });
   await publishMessageCreated(pubsub, messageView(start));
@@ -1958,6 +1969,7 @@ export async function setWorkIssueState(
         event: "status_changed",
         data: { from: current.status, to: status, auto: true },
       });
+      await queueTaskEnd(tx, updated, author);
     }
     if (input.update) {
       await addActivity(tx, updated, {

@@ -515,7 +515,7 @@ test("a run's call on a computer just gone waits for its runner to say hello aga
     },
   };
   const target = { machineId: paired.machineId, handle: "dev" };
-  const run = { orgId: f.org.id, agentId: f.agent.id, signal: new AbortController().signal };
+  const run = { db: f.db, orgId: f.org.id, agentId: f.agent.id, signal: new AbortController().signal };
   const reached = withConnectedMachine(watched, run, target, async (computer) => computer.machineId);
   await foundOffline;
   const fresh = browserRunner(hub);
@@ -524,7 +524,7 @@ test("a run's call on a computer just gone waits for its runner to say hello aga
 
   await hub.close(fresh.conn);
   const started = Date.now();
-  const person = { orgId: f.org.id, agentId: f.agent.id };
+  const person = { db: f.db, orgId: f.org.id, agentId: f.agent.id };
   const refused = await withConnectedMachine(hub, person, target, async () => "reached").catch((e: unknown) => e);
   expect(Date.now() - started).toBeLessThan(1000);
   expect(refused).toBeInstanceOf(MachineOfflineError);

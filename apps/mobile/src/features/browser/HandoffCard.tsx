@@ -15,8 +15,8 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import { Button, LineIcon, Text, useToast } from "@/ui";
-import { router } from "@/ui/navigation";
 import { AskButtons, AskCard, AskFoot, ExpiryLine, useAskStore } from "../chat/asks";
+import { openComputer } from "../computer/AgentComputerRow";
 import { IconTile } from "../connectors/ConnectorIcon";
 import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
 import { genderOf } from "../shared/logic";
@@ -101,7 +101,7 @@ export function HandoffCard({ handoff: fromMessage }: { handoff: BrowserHandoff 
     const helper = h.controllerUserId ? dir.memberById.get(h.controllerUserId)?.name : undefined;
     return (
       <Pressable
-        onPress={() => router.push(`/computer/${h.agentId}`)}
+        onPress={() => openComputer(h.agentId, h.seat)}
         accessibilityRole="button"
         style={({ pressed }) => [styles.done, surface, pressed && styles.pressed]}
       >
@@ -161,7 +161,7 @@ function HandoffAsk({
     try {
       await actions.takeControl(h.id);
       asks?.settle(h.id);
-      if (opensScreen) router.push(`/computer/${h.agentId}`);
+      if (opensScreen) openComputer(h.agentId, h.seat);
     } catch (err) {
       failed(err);
     }
@@ -175,7 +175,7 @@ function HandoffAsk({
     onOpened(true);
     actions.takeControl(h.id).then(
       () => {
-        if (opensScreen) router.push(`/computer/${h.agentId}`);
+        if (opensScreen) openComputer(h.agentId, h.seat);
       },
       () => {},
     );

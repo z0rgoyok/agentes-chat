@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, rowsOf, schema, sql, tracingLogger } from "@agenteschat/db";
+import { eq, schema, sql } from "@agenteschat/db";
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
-import { createTestServer, type TestServer } from "./harness";
+import { createTestServer, planOfLast, type TestServer } from "./harness";
 
 /** ADR 0056, jobs, usage and computers: the queue without its payloads, what model calls spent, what is on a computer. */
 
@@ -506,43 +506,37 @@ test("a page of jobs continues from the stored time itself, in an order an index
     (${close[0]}, 'test.close', '{}', '2026-01-20T00:00:00.000100Z'),
     (${close[1]}, 'test.close', '{}', '2026-01-20T00:00:00.000200Z'),
     (${close[2]}, 'test.close', '{}', '2026-01-20T00:00:00.000300Z')`);
-  const seen: [string, unknown[]][] = [];
-  const counts = tracingLogger.logQuery;
-  tracingLogger.logQuery = (query = "", params: unknown[] = []) => {
-    seen.push([query, params]);
-    counts();
-  };
   const paged: string[] = [];
-  try {
-    let cursor: string | null = null;
-    do {
-      const path = `/jobs?kind=test.close&limit=1${cursor ? `&cursor=${cursor}` : ""}`;
-      const part: JobPage = await ok<JobPage>(await get(path));
-      paged.push(...part.jobs.map((j) => j.id));
-      cursor = part.next;
-    } while (cursor);
-  } finally {
-    tracingLogger.logQuery = counts;
-  }
-
-  // The plan, not a time: given an index on `(created_at, id)`, the page after a cursor walks it and sorts nothing.
-  const [statement = "", params = []] = seen.filter(([query]) => query.includes("outbox")).at(-1) ?? [];
-  const page = statement.replace(/\$(\d+)/g, (_, n) => `'${params[Number(n) - 1]}'`);
-  await t.db.execute(sql`create index outbox_queued_test_idx on outbox (created_at, id)`);
-  const plan = await t.db.transaction(async (tx) => {
-    // Nothing here is big enough for the planner to prefer an index on its own.
-    await tx.execute(sql`set local enable_seqscan = off`);
-    await tx.execute(sql`set local enable_sort = off`);
-    return rowsOf<{ "QUERY PLAN": string }>(await tx.execute(sql.raw(`explain (costs off) ${page}`)))
-      .map((row) => row["QUERY PLAN"])
-      .join("\n");
-  });
-  await t.db.execute(sql`drop index outbox_queued_test_idx`);
+  // The plan, not a time: the page after a cursor walks the index on `(created_at, id)` and sorts nothing.
+  const plan = await planOfLast(
+    t,
+    "outbox",
+    async () => {
+      let cursor: string | null = null;
+      do {
+        const path = `/jobs?kind=test.close&limit=1${cursor ? `&cursor=${cursor}` : ""}`;
+        const part: JobPage = await ok<JobPage>(await get(path));
+        paged.push(...part.jobs.map((j) => j.id));
+        cursor = part.next;
+      } while (cursor);
+    },
+    ["enable_sort"],
+  );
   await t.db.delete(schema.outbox).where(eq(schema.outbox.kind, "test.close"));
 
   expect(paged).toEqual([...close].reverse());
-  expect(plan).toMatch(/Index Scan Backward using outbox_queued_test_idx on outbox/);
+  expect(plan).toMatch(
+    /Index Scan Backward using outbox_created_idx on outbox\s+Index Cond: \(ROW\(created_at, id\) < /,
+  );
   expect(plan).not.toContain("Sort");
+});
+
+test("a run's jobs are found by how their name starts, through the index of run jobs alone", async () => {
+  const plan = await planOfLast(t, "outbox", () => get(`/jobs?runId=${RUN}`));
+  // `~>=~` and `~<~` compare bytes: the range holds in a database of any collation.
+  expect(plan).toMatch(
+    /Index Scan using outbox_run_jobs_idx on outbox\s+Index Cond: \(\(dedupe_key ~>=~ .+ AND \(dedupe_key ~<~ /,
+  );
 });
 
 test("jobs in counts: by kind and status, with since when the oldest one due has waited", async () => {

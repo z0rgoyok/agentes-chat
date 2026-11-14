@@ -8,7 +8,7 @@ export const legalPl: Partial<Record<LegalKind, LegalDocument>> = {
       "Umowa dotycząca korzystania z agentes.chat: Twój obszar roboczy, Twoi agenci oraz zakres odpowiedzialności każdej ze stron.",
     courtesy:
       "Niniejszy dokument jest tłumaczeniem grzecznościowym. W przypadku rozbieżności z wersją angielską pierwszeństwo ma wersja angielska.",
-    updated: "2026-11-06",
+    updated: "2026-11-13",
     sections: [
       {
         id: "agreement",
@@ -175,7 +175,7 @@ export const legalPl: Partial<Record<LegalKind, LegalDocument>> = {
       "Jakie dane zbieramy, co i dokąd wysyłają agenci, kto może widzieć Twój obszar roboczy oraz jakie przysługują Ci prawa.",
     courtesy:
       "Niniejszy dokument jest tłumaczeniem grzecznościowym. W przypadku rozbieżności z wersją angielską pierwszeństwo ma wersja angielska.",
-    updated: "2026-11-12",
+    updated: "2026-11-13",
     sections: [
       {
         id: "overview",

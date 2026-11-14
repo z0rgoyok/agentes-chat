@@ -6,7 +6,7 @@ import {
   type SpeechFetch,
   STREAM_CLOSE,
 } from "@agenteschat/adapters";
-import { type Config, connectorOAuthApps, githubAppConfig } from "@agenteschat/config";
+import { type Config, connectorOAuthApps, githubAppConfig, mcpCallerIdentity } from "@agenteschat/config";
 import type { Database } from "@agenteschat/db";
 import {
   AntigravityBrain,
@@ -115,6 +115,7 @@ import {
   reauthorizeStream,
   recheckStream,
   releaseRunPhones,
+  reportLodiLaneErrors,
   resolveSummaryModel,
   type SandboxDeps,
   type ScheduleReader,
@@ -484,6 +485,7 @@ export function buildEngine(o: EngineOptions) {
         log: o.log,
         judge: context.judge,
         githubApp: githubAppAccess,
+        callerIdentity: mcpCallerIdentity(config),
       }),
       // People's mailboxes (ADR 0038): only when the server has a mail path (Composio, IMAP).
       createMailToolSource({
@@ -829,6 +831,11 @@ export function buildEngine(o: EngineOptions) {
     },
   };
   const handlers = createJobHandlers(jobDeps);
+  // A failing block of one of the right hand's lanes is left out of its prompt: it shows here.
+  reportLodiLaneErrors((lane, error) => {
+    o.log?.warn("right hand lane failed", { lane, error: String(error) });
+    o.errors?.capture(error, { lane });
+  });
   // Mail accounts, inbound mail and polling (routes and workers).
   const mail: MailDeps = {
     db,

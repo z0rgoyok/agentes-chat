@@ -1,14 +1,14 @@
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { NativeTabs } from "expo-router/native-tabs";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
-import { useWaitingItems } from "@/features/chats/useWaitingItems";
-import { useNow } from "@/features/shared/hooks";
-import { useActiveWork, useUnreadConversations, useUnreadThreads, useWaitingCount } from "@/features/shared/queries";
-import { alongWork, WorkAlongLine, workAlong } from "@/features/work-along/WorkAlong";
+import { useUnreadConversations, useUnreadThreads, useWaitingCount } from "@/features/shared/queries";
+import { ALONG_STRIP, alongInAccessory } from "@/features/work-along/logic";
+import { AccessoryLine, AlongStrip, useWorkAlong } from "@/features/work-along/WorkAlong";
 import { TAB_BADGE, tabBadge } from "@/lib/nav";
 import { useOrg } from "@/providers/org";
-import { haptics, useTheme } from "@/ui";
+import { haptics, TabFoot, useTheme } from "@/ui";
 import { type TabGlyph, tabGlyphKey } from "@/ui/tabGlyphs";
 import { tabGlyphFamily } from "@/ui/tabIcons";
 
@@ -38,59 +38,74 @@ export default function TabsLayout() {
   const unreadThreads = useUnreadThreads();
   const waiting = useWaitingCount();
   const counts: Record<string, number> = { "(chats)": unread, threads: unreadThreads, activity: waiting };
-  // Long work and what waits on you go with you across the tabs (iOS 26: the bar's accessory, the system's glass).
-  // "Espera seu ok" only where something really waits on me (the home's strip and Atividade read the same list): a
-  // run held for someone else's approval, or one still marked waiting after the request was decided, said it anyway.
-  const mine = useWaitingItems().items;
-  const work = useActiveWork();
-  const along = workAlong(alongWork(work, mine), useNow(15_000));
+  // Long work and what waits on you go with you across the tabs, the phone's Agora (iOS 26: the bar's accessory, the
+  // system's glass; Android and older iOS: a strip over the bar, on the tab roots). "Esperando você" only where
+  // something really waits on me (the home's strip and Atividade read the same list).
+  const along = useWorkAlong();
+  const accessory = alongInAccessory(Platform.OS, Platform.Version);
+  // The strip is redrawn only when what it says changes: the tab roots read it.
+  const shown = along ? `${along.lead.key}:${along.lead.waiting}:${along.lead.what}:${along.others}` : "";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `shown` is what the strip says of `along`
+  const foot = useMemo(
+    () =>
+      along && !accessory
+        ? { node: <AlongStrip lead={along.lead} others={along.others} />, height: ALONG_STRIP }
+        : null,
+    [shown, accessory],
+  );
   return (
-    <NativeTabs
-      tintColor={colors.ink}
-      iconColor={{ default: colors.faint, selected: colors.ink }}
-      labelStyle={{ default: { color: colors.faint }, selected: { color: colors.ink } }}
-      backgroundColor={colors.bg}
-      // iOS draws badge text in white whatever we ask: a red dark enough for it, in both themes.
-      badgeBackgroundColor={TAB_BADGE.background}
-      badgeTextColor={TAB_BADGE.text}
-      indicatorColor={colors.sunken}
-      rippleColor={colors.plate}
-      labelVisibilityMode="labeled"
-      // iOS 26: reading down a list, the bar folds to the current tab and comes back on the way up (the system's own).
-      minimizeBehavior="onScrollDown"
-      // The system tab bars give no haptic on a tab change; ours did.
-      screenListeners={{ tabPress: () => haptics.selection() }}
-    >
-      {along && Platform.OS === "ios" ? (
-        <NativeTabs.BottomAccessory>
-          <WorkAlongLine lead={along.lead} others={along.others} />
-        </NativeTabs.BottomAccessory>
-      ) : null}
-      {TABS.map((tab) => {
-        const label = t(tab.label);
-        const count = counts[tab.name] ?? 0;
-        const badge = tabBadge(count);
-        return (
-          <NativeTabs.Trigger
-            key={tab.name}
-            name={tab.name}
-            hidden={personal && tab.teamOnly === true}
-            {...(tab.role ? { role: tab.role } : {})}
-            accessibilityLabel={badge ? t("mobile.tabs.withCount", { label, count }) : label}
-            contentStyle={{ backgroundColor: colors.bg }}
-          >
-            <NativeTabs.Trigger.Icon
-              renderingMode="template"
-              src={{
-                default: <NativeTabs.Trigger.VectorIcon family={tabGlyphFamily} name={tabGlyphKey(tab.glyph, false)} />,
-                selected: <NativeTabs.Trigger.VectorIcon family={tabGlyphFamily} name={tabGlyphKey(tab.glyph, true)} />,
-              }}
-            />
-            <NativeTabs.Trigger.Label>{label}</NativeTabs.Trigger.Label>
-            {badge ? <NativeTabs.Trigger.Badge>{badge}</NativeTabs.Trigger.Badge> : null}
-          </NativeTabs.Trigger>
-        );
-      })}
-    </NativeTabs>
+    <TabFoot.Provider value={foot}>
+      <NativeTabs
+        tintColor={colors.ink}
+        iconColor={{ default: colors.faint, selected: colors.ink }}
+        labelStyle={{ default: { color: colors.faint }, selected: { color: colors.ink } }}
+        backgroundColor={colors.bg}
+        // iOS draws badge text in white whatever we ask: a red dark enough for it, in both themes.
+        badgeBackgroundColor={TAB_BADGE.background}
+        badgeTextColor={TAB_BADGE.text}
+        indicatorColor={colors.sunken}
+        rippleColor={colors.plate}
+        labelVisibilityMode="labeled"
+        // iOS 26: reading down a list, the bar folds to the current tab and comes back on the way up (the system's own).
+        minimizeBehavior="onScrollDown"
+        // The system tab bars give no haptic on a tab change; ours did.
+        screenListeners={{ tabPress: () => haptics.selection() }}
+      >
+        {along && accessory ? (
+          <NativeTabs.BottomAccessory>
+            <AccessoryLine lead={along.lead} others={along.others} />
+          </NativeTabs.BottomAccessory>
+        ) : null}
+        {TABS.map((tab) => {
+          const label = t(tab.label);
+          const count = counts[tab.name] ?? 0;
+          const badge = tabBadge(count);
+          return (
+            <NativeTabs.Trigger
+              key={tab.name}
+              name={tab.name}
+              hidden={personal && tab.teamOnly === true}
+              {...(tab.role ? { role: tab.role } : {})}
+              accessibilityLabel={badge ? t("mobile.tabs.withCount", { label, count }) : label}
+              contentStyle={{ backgroundColor: colors.bg }}
+            >
+              <NativeTabs.Trigger.Icon
+                renderingMode="template"
+                src={{
+                  default: (
+                    <NativeTabs.Trigger.VectorIcon family={tabGlyphFamily} name={tabGlyphKey(tab.glyph, false)} />
+                  ),
+                  selected: (
+                    <NativeTabs.Trigger.VectorIcon family={tabGlyphFamily} name={tabGlyphKey(tab.glyph, true)} />
+                  ),
+                }}
+              />
+              <NativeTabs.Trigger.Label>{label}</NativeTabs.Trigger.Label>
+              {badge ? <NativeTabs.Trigger.Badge>{badge}</NativeTabs.Trigger.Badge> : null}
+            </NativeTabs.Trigger>
+          );
+        })}
+      </NativeTabs>
+    </TabFoot.Provider>
   );
 }

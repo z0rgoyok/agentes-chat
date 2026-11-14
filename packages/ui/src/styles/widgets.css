@@ -385,6 +385,12 @@ html:not([data-pointer]) .wg__resolve:focus-visible {
 .wk-num__pct {
   margin-left: 2px;
 }
+/* A unit that is a mark ("★"): drawn around its own middle, so on the baseline it hangs under the digits' middle.
+   Raised to it (measured: the mark's middle sits 0.32em of its size under the digits'), taking no height of the line. */
+.wk-num__mark {
+  vertical-align: 0.32em;
+  line-height: 0;
+}
 .wk-sub {
   margin-top: 4px;
   font-size: 13px;

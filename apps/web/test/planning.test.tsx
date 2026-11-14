@@ -61,17 +61,15 @@ describe("Issues (board and list)", () => {
     expect(column("Feito").textContent).toContain("2");
     // The route title link goes to the detail.
     expect(wa.getAttribute("href")).toBe(`/org/${ORG_ID}/issues/131`);
-    // An agent with a live run: "working now" with its step; on the card, its one state and the criteria done.
-    const now = screen().getByRole("region", { name: "Agentes trabalhando agora" });
-    expect(now.textContent).toContain("Timeout no agendamento em horários de pico");
-    expect(now.textContent).toContain("Atualizou uma tarefa · #129");
+    // An agent with a live run shows only on its card (its one state and the criteria done), never above the board.
+    expect(screen().queryByRole("region", { name: "Agentes trabalhando agora" })).toBeNull();
     const timeout = screen().getByRole("link", {
       name: "#129 Timeout no agendamento em horários de pico, Trabalhando",
     });
     expect(timeout.querySelector('[title="1 de 2 critérios de aceite"]')?.textContent).toBe("1/2");
   });
 
-  test("ten agents at work over the board: every card shows, and the board still ends its page for the page to scroll down to", async () => {
+  test("ten agents on tasks: the ones at work stay on the board, the stalled one is the line above it, and the board still ends its page", async () => {
     const state = seedState();
     const [ada] = state.agents;
     if (!ada) throw new Error("no agent");
@@ -106,9 +104,13 @@ describe("Issues (board and list)", () => {
       return [...all, ...extra];
     };
     await go("issues", api);
-    const now = screen().getByRole("region", { name: "Agentes trabalhando agora" });
-    expect(now.querySelectorAll(".issues-now__card")).toHaveLength(10);
-    // Nothing comes after the board's split, up to the work area: when the cards above squeeze it, it keeps a window's
+    // Nobody at work gets a card above the board: their own cards on it already say so.
+    expect(screen().queryByRole("region", { name: "Agentes trabalhando agora" })).toBeNull();
+    const line = screen().getByRole("region", { name: "Tarefas paradas" });
+    expect(line.querySelector(".issues-stalled")).toBeTruthy();
+    expect(line.textContent).toContain("Juno");
+    expect(line.textContent).not.toContain("Bento");
+    // Nothing comes after the board's split, up to the work area: when what is above squeezes it, it keeps a window's
     // height and the page scrolls down to it (over-pages.css), with nothing for its columns to run over.
     let el: Element | null = document.querySelector(".issues-boardframe.page-split");
     expect(el).toBeTruthy();
@@ -219,6 +221,15 @@ describe("Issues (board and list)", () => {
     expect(rows).toHaveLength(7);
     expect(rows[0]?.textContent).toContain("#132");
     expect(rows.find((r) => r.textContent?.includes("#126"))?.textContent).toContain("Feito");
+    // The list gives every row the same columns of facts, one for each fact some task has: labels stand under labels
+    // and priorities under priorities, whatever each row has. How much room they take says when they stand (CSS).
+    const list = rows[0]?.closest(".ac-groups") as HTMLElement;
+    const columns = list.style.getPropertyValue("--issue-facts");
+    expect(Number(list.getAttribute("data-fact-columns")) % 80).toBe(0);
+    const kinds = [...list.querySelectorAll(".issue-card__facts > .ac-factline__fact")].map((f) =>
+      f.getAttribute("data-fact"),
+    );
+    for (const kind of new Set(kinds)) if (kind !== "number") expect(columns).toContain(`[${kind}] `);
     expect(state.issuesView?.layout).toBe("list");
   });
 

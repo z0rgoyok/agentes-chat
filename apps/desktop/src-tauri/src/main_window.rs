@@ -231,10 +231,10 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         // browser, the device's name in its words), that `this_mac` takes `servers` and `files` (older apps
         // refuse them, so the sign-in's other server and Storage's "Show the folder" show only where this says
         // so), that a connector's sign-in and the window's own browser sign-in come back here (`deep_link.rs`,
-        // older apps don't take them), and that it lists the other servers' workspaces (`workspaces`,
-        // ADR 0154); nothing else.
+        // older apps don't take them), that it lists the other servers' workspaces (`workspaces`,
+        // ADR 0154) and that it takes the person's app icon (`appIcon`, ADR 0179); nothing else.
         .initialization_script(format!(
-            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, workspaces: true }});"
+            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, workspaces: true, appIcon: true }});"
         ))
         .on_navigation(move |url| match route_now(&on_nav, url) {
             Route::Stay => true,
@@ -302,6 +302,8 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         // The buttons are placed by `place_lights` (on every fit), not with `traffic_light_position`.
         .hidden_title(true);
     let built = builder.build().map_err(|e| e.to_string())?;
+    // A new window starts with the bundle's icon on Windows and Linux: the person's pick (ADR 0179).
+    crate::app_icon::show(app);
     let window = built.as_ref().window();
     if saved.maximized {
         let _ = window.maximize();
@@ -766,10 +768,37 @@ fn checked(request: &Value) -> Result<Value, String> {
             if servers::origin_of(server).as_deref() != Some(server) {
                 return Err("bad server".into());
             }
-            Ok(json!({ "kind": "openWorkspace", "server": server, "orgId": org()? }))
+            let mut out = json!({ "kind": "openWorkspace", "server": server, "orgId": org()? });
+            // Which of that server's accounts it belongs to (ADR 0183): an id, like the workspace's.
+            if let Some(account) = text("account") {
+                if !crate::workspaces::good_id(account) {
+                    return Err("bad account id".into());
+                }
+                out["account"] = json!(account);
+            }
+            Ok(out)
         }
         // The folder is the app's to know: the page names none.
         Some("files") => Ok(json!({ "kind": "files" })),
+        // The app icon (ADR 0179): one of the app's own ids, an agent the site drew (who it is and its two PNGs), or
+        // none to read the one kept.
+        Some("appIcon") => {
+            if let Some(agent) = request.get("agent") {
+                let about = crate::app_icon::about(agent).ok_or("bad agent")?;
+                let picture = |key: &str| {
+                    agent.get(key).and_then(Value::as_str).filter(|b| crate::app_icon::picture(b).is_some())
+                };
+                let (Some(dock), Some(window)) = (picture("dock"), picture("window")) else {
+                    return Err("bad picture".into());
+                };
+                return Ok(json!({ "kind": "appIcon", "agent": about, "dock": dock, "window": window }));
+            }
+            match text("icon") {
+                None => Ok(json!({ "kind": "appIcon" })),
+                Some(id) if crate::app_icon::find(id).is_some() => Ok(json!({ "kind": "appIcon", "icon": id })),
+                Some(_) => Err("unknown icon".into()),
+            }
+        }
         Some("connect") => {
             let mut out = json!({ "kind": "connect", "orgId": org()? });
             if let Some(name) = display_name(request.get("orgName")) {
@@ -1044,6 +1073,16 @@ pub async fn this_mac(app: AppHandle, webview: tauri::Webview, request: Value) -
             crate::dock::set_badge(&app, count("waiting"), count("unread"));
             return Ok(json!({}));
         }
+        // The app icon picked on this computer (ADR 0179): kept by the app, for every server's pages.
+        Some("appIcon") => {
+            if request.get("agent").is_some() {
+                let picture = |key: &str| request[key].as_str().and_then(crate::app_icon::picture).ok_or("bad picture");
+                crate::app_icon::set_agent(&app, request["agent"].clone(), &picture("dock")?, &picture("window")?)?;
+            } else if let Some(id) = request["icon"].as_str() {
+                crate::app_icon::set(&app, id)?;
+            }
+            return Ok(crate::app_icon::kept(&app));
+        }
         Some("orgs") => {
             // A new organization on the server here: this computer works for it within seconds. Signed in or a new
             // workspace anywhere: the workspaces are read again, so the app offers this computer to it at once.
@@ -1109,7 +1148,9 @@ pub async fn this_mac(app: AppHandle, webview: tauri::Webview, request: Value) -
             if !servers::get(&app).servers.iter().any(|s| s == server) {
                 return Err("not a server of this app".into());
             }
-            let url: Url = format!("{server}/org/{}", request["orgId"].as_str().unwrap_or_default())
+            // The page there moves the window to that account before it opens (`?as=`, ADR 0183).
+            let account = request["account"].as_str().map(|id| format!("?as={id}")).unwrap_or_default();
+            let url: Url = format!("{server}/org/{}{account}", request["orgId"].as_str().unwrap_or_default())
                 .parse()
                 .map_err(|_| "not a URL")?;
             show_url(&app, url)?;
@@ -1319,6 +1360,22 @@ mod tests {
     #[test]
     fn bridge_requests() {
         assert_eq!(checked(&json!({ "kind": "status", "extra": 1 })), Ok(json!({ "kind": "status" })));
+        // The app icon: an id of the app's, or an agent with its two PNGs (ADR 0179).
+        assert_eq!(checked(&json!({ "kind": "appIcon", "icon": "moon" })), Ok(json!({ "kind": "appIcon", "icon": "moon" })));
+        assert!(checked(&json!({ "kind": "appIcon", "icon": "../x" })).is_err());
+        let png = "iVBORw0KGgoAAAAA";
+        let agent = json!({ "orgId": "o", "id": "a", "name": "Dev", "look": { "color": "violet" }, "dock": png, "window": png });
+        assert_eq!(
+            checked(&json!({ "kind": "appIcon", "agent": agent })),
+            Ok(json!({
+                "kind": "appIcon",
+                "agent": { "orgId": "o", "id": "a", "name": "Dev", "look": { "color": "violet" } },
+                "dock": png,
+                "window": png,
+            }))
+        );
+        let gif = json!({ "orgId": "o", "id": "a", "name": "Dev", "look": {}, "dock": "R0lGODlh", "window": png });
+        assert!(checked(&json!({ "kind": "appIcon", "agent": gif })).is_err());
         assert_eq!(
             checked(&json!({ "kind": "connect", "orgId": "org_1-a", "origin": "https://evil.example" })),
             Ok(json!({ "kind": "connect", "orgId": "org_1-a" }))
@@ -1370,6 +1427,7 @@ mod tests {
             json!({ "kind": "openWorkspace", "server": "http://evil.example", "orgId": "o-1" }),
             json!({ "kind": "openWorkspace", "server": "https://agentes.exemplo.com.br", "orgId": "../x" }),
             json!({ "kind": "openWorkspace", "orgId": "o-1" }),
+            json!({ "kind": "openWorkspace", "server": "https://agentes.exemplo.com.br", "orgId": "o-1", "account": "../x" }),
         ] {
             assert!(checked(&bad).is_err(), "{bad}");
         }

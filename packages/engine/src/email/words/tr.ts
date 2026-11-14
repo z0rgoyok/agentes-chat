@@ -1,5 +1,5 @@
 import { plural } from "@agenteschat/i18n/format";
-import { atHost } from "./en";
+import { atHost, sentences } from "./en";
 import type { EmailWords } from "./index";
 
 /**
@@ -47,6 +47,12 @@ export const words: EmailWords = {
             ` çalışma alanına ${role} olarak davet etti.`,
           ]
         : [{ b: org }, ` çalışma alanına ${role} olarak davet edildiniz.`],
+    starts: (channels, agents, count) =>
+      sentences(
+        channels && ["Doğrudan ", ...channels, ` ${count.channels === 1 ? "kanalına" : "kanallarına"} katılacaksınız.`],
+        agents && [...agents, " ile birlikte çalışacaksınız."],
+      ),
+    more: (n) => `${n} tane daha`,
     what: "agentes.chat, kişilerin ve yapay zeka ajanlarının birlikte çalıştığı yer.",
     noteFrom: (inviter, note) => [{ b: inviter ? `${inviter}: ` : "Davet notu: " }, `“${note}”`],
     button: "Daveti kabul et",
@@ -328,6 +334,47 @@ export const words: EmailWords = {
         { b: org },
         " çalışma alanınızı silmek için bu kodu yazın. Hemen salt okunur olur ve 7 gün sonra kalıcı olarak silinir.",
       ],
+    },
+  },
+  emailChange: {
+    code: {
+      subject: (code) => `E-posta adresinizi değiştirme kodunuz: ${code}`,
+      preheader: "Onaylamak için agentes.chat'e yazın. 10 dakika geçerli.",
+      headline: "Kodunuz",
+      body: (email, newEmail) => [
+        { b: email },
+        " hesabının e-posta adresini ",
+        { b: newEmail },
+        " olarak değiştirmek için bu kodu yazın.",
+      ],
+      support: (address) => [
+        "10 dakika geçerli ve bu kod olmadan e-posta adresiniz değişmez. Bu siz değilseniz kodu kimseyle paylaşmayın ve ",
+        { mail: address },
+        " adresine yazın.",
+      ],
+      noSupport:
+        "10 dakika geçerli ve bu kod olmadan e-posta adresiniz değişmez. Bu siz değilseniz kodu kimseyle paylaşmayın ve bu sunucuyu yönetenlere haber verin.",
+      why: "Bu e-postayı, hesabınızdan agentes.chat'te e-posta adresinin değiştirilmesi istendiği için aldınız.",
+    },
+    link: {
+      subject: "agentes.chat için yeni e-postanızı onaylayın",
+      preheader: "Tek tıkla bundan sonra bu adresle giriş yaparsınız. Bağlantı bir saat geçerli.",
+      headline: "Yeni e-postanızı onaylayın",
+      body: "Bir adım kaldı: bu adresin size ait olduğunu onaylayın. Bundan sonra hesabınız bu adresle giriş yapar.",
+      button: "Yeni e-postayı onayla",
+      small: "Bağlantı bir saat geçerli. Bunu siz istemediyseniz bu e-postayı yok sayabilirsiniz.",
+      why: "Bu e-postayı, biri bu adresi bir agentes.chat hesabında kullanmak istediği için aldınız.",
+    },
+    changed: {
+      subject: "agentes.chat hesabınızın e-posta adresi değişti",
+      preheader: "Bu siz değilseniz bu adresi 7 gün içinde geri alabilirsiniz.",
+      headline: "E-posta adresiniz değişti",
+      body: (email, newEmail) => [{ b: email }, " hesabı artık ", { b: newEmail }, " ile giriş yapıyor."],
+      notYou:
+        "Siz değil miydiniz? 7 gün içinde düğmeye basın. Bu adres geri gelir, tüm oturumlar kapatılır, yapay zekâ uygulamalarının bağlantısı kesilir ve o zamandan beri eklenen giriş yolları artık çalışmaz. Şifre de silinir, sonrakini “Şifremi unuttum” ile belirlersiniz.",
+      button: "Bu ben değildim",
+      small: "Bunu siz yaptıysanız bir şey yapmanıza gerek yok.",
+      why: "Bu e-postayı, bu adres bir agentes.chat hesabının e-posta adresi olduğu için aldınız.",
     },
   },
   deleting: {

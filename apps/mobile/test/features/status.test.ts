@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentPresence } from "@agenteschat/client";
+import type { AgentPresence, AgentStatus } from "@agenteschat/client";
 import { agentPresenceShown, STATUS_SUGGESTIONS, statusEndNote } from "@agenteschat/client/lib/presence";
 import {
   agentWhyKey,
@@ -13,6 +13,18 @@ import {
   untilOf,
 } from "../../src/features/status/logic";
 import { translator } from "./fixtures";
+
+/** A work with nowhere to show (the bare state). */
+const NO_PLACE = {
+  channelId: null,
+  channelKind: null,
+  channelName: null,
+  threadId: null,
+  messageId: null,
+  forAgentId: null,
+  routine: false,
+  count: 1,
+} as const;
 
 const NOW = new Date(2026, 9, 30, 10, 0);
 
@@ -88,32 +100,41 @@ describe("how a status reads in a row, a pill and a profile", () => {
   });
 
   test("why an agent appears as it does", () => {
-    expect(agentWhyKey("busy", "2026-10-30T10:00:00Z", false)).toBe("busy");
-    expect(agentWhyKey("online", null, false)).toBe("online");
-    expect(agentWhyKey("away", "2026-10-30T09:00:00Z", false)).toBe("away");
-    expect(agentWhyKey("away", null, false)).toBe("awayNever");
-    expect(agentWhyKey("offline", null, false)).toBe("offline");
-    expect(agentWhyKey("away", null, true)).toBe("noAi");
+    // At work, waiting on you or free: its work says why, not a presence word (ADR 0084 addendum).
+    expect(agentWhyKey("working", false)).toBeNull();
+    expect(agentWhyKey("waiting", false)).toBeNull();
+    expect(agentWhyKey("online", false)).toBeNull();
+    expect(agentWhyKey("out", false)).toBe("out");
+    expect(agentWhyKey("offline", false)).toBe("offline");
+    expect(agentWhyKey("online", true)).toBe("noAi");
   });
 
-  test("an agent at work is online (busy on heavy work), whatever its AI reads for this person; held, it's offline", () => {
-    const row = (presence: AgentPresence, working?: boolean) => ({
+  test("an agent's face: at work whatever its AI reads for this person, waiting on you, free; never busy or away", () => {
+    const row = (presence: AgentPresence, working?: boolean, work?: AgentStatus["work"]) => ({
       agentId: "lodi",
       presence,
       status: null,
       activeAt: null,
       ...(working === undefined ? {} : { working }),
+      ...(work === undefined ? {} : { work }),
     });
-    // Idle with no AI here (the right hand's is each person's own): offline, and away when it has one.
+    // Idle with no AI here (the right hand's is each person's own): offline; with one, free (never amber "Ausente").
     expect(agentPresenceShown(row("away"), false)).toBe("offline");
-    expect(agentPresenceShown(row("away"), true)).toBe("away");
-    // The list says it works.
-    expect(agentPresenceShown(row("online", true), false)).toBe("online");
-    expect(agentPresenceShown(row("busy", true), false)).toBe("busy");
+    expect(agentPresenceShown(row("away"), true)).toBe("online");
+    // The list says it works: blue, never red "Ocupado".
+    expect(agentPresenceShown(row("online", true), false)).toBe("working");
+    expect(agentPresenceShown(row("busy", true), false)).toBe("working");
+    // Busy with nothing at work (long work waiting on someone's approval): free, as its line says.
+    const waits = { state: "approval", ask: null, since: "2026-11-13T00:00:00Z", runId: "r2" } as const;
+    expect(agentPresenceShown(row("busy", false, { ...waits, ...NO_PLACE }), true)).toBe("online");
     // Its run heard here before the list's next read says so.
-    expect(agentPresenceShown(row("away", false), false, true)).toBe("online");
-    expect(agentPresenceShown(undefined, false, true)).toBe("online");
-    // Held by the server's operators, nothing of it runs.
+    expect(agentPresenceShown(row("away", false), false, true)).toBe("working");
+    expect(agentPresenceShown(undefined, false, true)).toBe("working");
+    // It waits on this person's decision or answer: amber.
+    const you = { state: "you", ask: "approval", since: "2026-11-13T00:00:00Z", runId: "r1" } as const;
+    expect(agentPresenceShown(row("online", false, { ...you, ...NO_PLACE }), true)).toBe("waiting");
+    // Out of office and held keep their faces.
+    expect(agentPresenceShown(row("out"), true)).toBe("out");
     expect(agentPresenceShown(row("offline", true), true, true)).toBe("offline");
   });
 });

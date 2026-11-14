@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
-import { grantScopes, openPersonAgentDm, RIGHT_HAND, type ToolSource } from "@agenteschat/engine";
+import {
+  grantScopes,
+  makeDefaultCredential,
+  openPersonAgentDm,
+  RIGHT_HAND,
+  type ToolSource,
+} from "@agenteschat/engine";
 import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 /** The right hand's approvals and people cards (ADR 0137 §4): applied through the usual routes, audited via it. */
@@ -158,4 +164,121 @@ test("a card of a workspace change: read, refused, sent to whoever may, applied 
   const [receipt] = await t.db.select().from(schema.agentActions).where(eq(schema.agentActions.messageId, messageId));
   expect((await owner(`/api/app/organizations/${orgId}/actions/${receipt?.id}/undo`, { json: {} })).status).toBe(200);
   expect(await roles()).not.toContain("Marketing");
+});
+
+test("an invite card through the routes: refused from an app that doesn't word it, then sent as whoever applies it", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const ownerId = ((await (await owner("/api/app/me")).json()) as { user: { id: string } }).user.id;
+  const { orgId } = await seedOrg(owner);
+  const nina = await joinByInvitation(t, owner, orgId, "nina@example.com");
+  const ninaId = ((await (await nina("/api/app/me")).json()) as { user: { id: string } }).user.id;
+  const card = (forUserId: string, ...emails: string[]) => ({
+    kind: "workspace_action",
+    forUserId,
+    params: {
+      action: "invite_people",
+      input: { emails, roleIds: [], roleNames: [] },
+      words: { emails: emails.join(", "), roles: "" },
+      needs: "invite_people",
+      why: "Quem cuida das vendas",
+    },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  });
+  const sent = async () =>
+    (await t.db.select().from(schema.organizationInvitations).where(eq(schema.organizationInvitations.orgId, orgId)))
+      .filter((i) => !i.acceptedAt)
+      .map((i) => ({ email: i.email, by: i.invitedByUserId }));
+  const emails = async () =>
+    (await t.db.select().from(schema.outbox).where(eq(schema.outbox.orgId, orgId))).filter(
+      (j) => j.kind === "email.send" && JSON.stringify(j.payload).includes("ana@example.com"),
+    ).length;
+
+  const mine = await lodiCard(orgId, ownerId, card(ownerId, "ana@example.com"));
+  const url = `/api/app/organizations/${orgId}/action-cards/${mine.messageId}`;
+  // An installed app sends no `knows`: it showed "a change in the workspace", so nothing is applied.
+  for (const json of [{}, { knows: "create_role" }]) {
+    const refused = await owner(`${url}/apply`, { json });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("action_card.update_app");
+  }
+  expect(await sent()).toEqual([]);
+  expect(await emails()).toBe(0);
+  const applied = await owner(`${url}/apply`, { json: { knows: "invite_people" } });
+  expect(applied.status).toBe(200);
+  expect(
+    ((await applied.json()) as { card: { state: string; params: { words: Record<string, string> } } }).card,
+  ).toMatchObject({
+    state: "applied",
+    params: { words: { invited: "ana@example.com" } },
+  });
+  expect(await sent()).toEqual([{ email: "ana@example.com", by: ownerId }]);
+  expect(await emails()).toBe(1);
+  // Applied once: a second tap changes nothing.
+  expect((await owner(`${url}/apply`, { json: { knows: "invite_people" } })).status).toBe(409);
+  expect(await emails()).toBe(1);
+
+  // A member's own tap runs with the member's permissions: refused, and nobody is invited.
+  const hers = await lodiCard(orgId, ninaId, card(ninaId, "bia@example.com"));
+  const herUrl = `/api/app/organizations/${orgId}/action-cards/${hers.messageId}`;
+  expect((await nina(`${herUrl}/apply`, { json: { knows: "invite_people" } })).status).toBe(403);
+  expect((await sent()).map((i) => i.email)).toEqual(["ana@example.com"]);
+  // Dismissing needs no `knows`.
+  expect((await nina(`${herUrl}/dismiss`, { json: {} })).status).toBe(200);
+
+  // An address that already holds an invitation is said in the answer to whoever applied the card, who may invite.
+  // Nina, who may not, reads who was invited and no more.
+  const both = await lodiCard(orgId, ninaId, card(ninaId, "ana@example.com", "caio@example.com"));
+  const bothUrl = `/api/app/organizations/${orgId}/action-cards/${both.messageId}`;
+  expect((await nina(`${bothUrl}/apply`, { json: { knows: "invite_people" } })).status).toBe(403);
+  expect((await nina(`${bothUrl}/ask`, { json: {} })).status).toBe(200);
+  const wordsOf = async (res: Response) =>
+    ((await res.json()) as { card: { params: { words: Record<string, string> } } }).card.params.words;
+  expect(await wordsOf(await owner(`${bothUrl}/apply`, { json: { knows: "invite_people" } }))).toMatchObject({
+    invited: "caio@example.com",
+    already_invited: "ana@example.com",
+  });
+  const read = await wordsOf(await nina(bothUrl));
+  expect(read).toMatchObject({ invited: "caio@example.com" });
+  expect(read).not.toHaveProperty("already_invited");
+});
+
+test("an API key's removal through the routes: only from an app that names the key, then gone", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const ownerId = ((await (await owner("/api/app/me")).json()) as { user: { id: string } }).user.id;
+  const { orgId, credentialId } = await seedOrg(owner);
+  // Agents on Automatic think with the workspace's default key: the first one stays it.
+  await makeDefaultCredential(t.db, ownerId, orgId, credentialId);
+  const keysUrl = `/api/app/organizations/${orgId}/credentials`;
+  const spare = (await (
+    await owner(keysUrl, { json: { provider: "deepseek", label: "Chave antiga", apiKey: "sk-test-key-not-real-0003" } })
+  ).json()) as { id: string };
+  const has = async () =>
+    (await t.db.select().from(schema.providerCredentials).where(eq(schema.providerCredentials.orgId, orgId))).some(
+      (k) => k.id === spare.id,
+    );
+  const { messageId } = await lodiCard(orgId, ownerId, {
+    kind: "workspace_action",
+    forUserId: ownerId,
+    params: {
+      action: "remove_ai_key",
+      input: { credentialId: spare.id, name: "Chave antiga" },
+      words: { name: "Chave antiga", provider: "DeepSeek" },
+      needs: "manage_credentials",
+      why: "",
+    },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  });
+  const url = `/api/app/organizations/${orgId}/action-cards/${messageId}`;
+  const refused = await owner(`${url}/apply`, { json: {} });
+  expect(refused.status).toBe(409);
+  expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("action_card.update_app");
+  expect(await has()).toBe(true);
+  expect((await owner(`${url}/apply`, { json: { knows: "remove_ai_key" } })).status).toBe(200);
+  expect(await has()).toBe(false);
 });

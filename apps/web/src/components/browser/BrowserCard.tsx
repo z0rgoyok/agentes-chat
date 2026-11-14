@@ -48,6 +48,7 @@ import { formatTime, lowerFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { browserOffMessage, profileRefusalLine } from "@agenteschat/client/lib/machines";
 import { can as canDo } from "@agenteschat/client/lib/permissions";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { isBlankPage } from "@agenteschat/client/lib/sites";
 import {
   agentGradient,
@@ -346,6 +347,8 @@ export function BrowserCard({
   const head = useDialogHead();
   const sayFailed = useSayFailed();
   const openComputer = useOpenComputer();
+  // The right hand's place this card shows (the shared one in a channel): the whole screen opens that same place.
+  const seat = useSeat(agentId);
   // The dialog over this card shows the same screen ("Ver a tela inteira"), and a hidden tab shows nothing: the card's
   // own view of it closes (one stream per person, none for nobody).
   const dialogOpen = useOpenedComputer() === agentId;
@@ -1104,7 +1107,7 @@ export function BrowserCard({
       iconOnly={framed}
       aria-label={framed ? t("desktop.seeWhole") : undefined}
       title={framed ? t("desktop.seeWhole") : undefined}
-      onClick={() => openComputer(agentId)}
+      onClick={() => openComputer(agentId, seat)}
     >
       {t("desktop.seeWhole")}
     </Button>

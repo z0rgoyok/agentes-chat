@@ -258,7 +258,8 @@ describe("where a status shows", () => {
     const ada = within(nav()).getByRole("link", { name: /^Ada/ });
     expect(ada.getAttribute("title")).toContain("Respondendo no #eng");
     expect(ada.textContent).not.toContain("💬");
-    expect(badgeOf(ada)).toBe("busy");
+    // At work: the blue face, never red "Ocupado" (ADR 0084 addendum).
+    expect(badgeOf(ada)).toBe("working");
     const atlas = within(nav()).getByRole("link", { name: /^Atlas/ });
     expect(atlas.getAttribute("title")).toContain("Deploy da v2 em staging");
     expect(badgeOf(atlas)).toBe("online");
@@ -269,8 +270,9 @@ describe("where a status shows", () => {
     expect(card.querySelector(".profile-card__status")?.textContent).toBe(
       "💬Respondendo no #engO que está fazendo agora",
     );
-    expect(card.textContent).toContain("Ocupado · Num trabalho pesado");
-    expect(badgeOf(card)).toBe("busy");
+    expect(card.textContent).toContain("Trabalhando");
+    expect(card.textContent).not.toContain("Ocupado");
+    expect(badgeOf(card)).toBe("working");
     cleanup();
 
     // In the members column: its own words, as written.
@@ -299,7 +301,7 @@ describe("where a status shows", () => {
     expect(screen().getByRole("dialog", { name: "Perfil" }).textContent).toContain("Offline · Sem IA conectada");
   });
 
-  test("an agent at work reads online, whatever its AI reads for this person: the list says so, or its run first", async () => {
+  test("an agent at work reads working, whatever its AI reads for this person: the list says so, or its run first", async () => {
     // No AI here (the right hand thinks with each person's own), yet it answers someone.
     const aiStatus = {
       any: true,
@@ -315,8 +317,8 @@ describe("where a status shows", () => {
     seedDm(working, { type: "agent", id: ADA_ID });
     await go(`c/${ENG_ID}`, working);
     const ada = () => within(nav()).getByRole("link", { name: /^Ada/ });
-    expect(ada().getAttribute("data-presence")).toBe("online");
-    expect(badgeOf(ada())).toBe("online");
+    expect(ada().getAttribute("data-presence")).toBe("working");
+    expect(badgeOf(ada())).toBe("working");
     cleanup();
 
     // The list still reads it idle: its run, as this tab hears it, is enough.
@@ -334,7 +336,7 @@ describe("where a status shows", () => {
       }),
     );
     await settle();
-    expect(ada().getAttribute("data-presence")).toBe("online");
-    expect(badgeOf(ada())).toBe("online");
+    expect(ada().getAttribute("data-presence")).toBe("working");
+    expect(badgeOf(ada())).toBe("working");
   });
 });

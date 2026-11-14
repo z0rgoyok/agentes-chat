@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EndedTask, ManagedTask } from "@agenteschat/client";
-import { taskTitle, taskWaitGroups, taskWaitGroupText } from "@agenteschat/client/lib/task-manager";
+import {
+  returnCanceledText,
+  returnPlace,
+  taskTitle,
+  taskWaitGroups,
+  taskWaitGroupText,
+} from "@agenteschat/client/lib/task-manager";
 import {
   agentTasksHref,
   agentTasksOf,
@@ -13,6 +19,7 @@ import {
   groupLine,
   isHere,
   rowState,
+  taskHref,
   taskStateWords,
   taskSubline,
   tasksBadge,
@@ -69,7 +76,7 @@ describe("a task's row (ADR 0128)", () => {
       taskStateWords(t, "pt-BR", task({ runId: "r1", ...over }), rowState(task({ runId: "r1", ...over }), stopping), 0)
         .state;
     expect(said({ status: "running" })).toBe("Trabalhando");
-    expect(said({ status: "waiting_approval" })).toBe("Espera seu ok");
+    expect(said({ status: "waiting_approval" })).toBe("Esperando você");
     expect(said({ status: "waiting_input" })).toBe("Espera resposta");
     expect(said({ status: "queued" })).toBe("Na fila");
     expect(said({ status: "waiting_approval" }, new Set(["r1"]))).toBe("Parando…");
@@ -276,6 +283,31 @@ describe("an agent's tasks, from its DM's header", () => {
     expect(doneTodayOf(list, "dev")).toBe(1);
   });
 
+  test("its request opens where it was asked; work another agent handed it, where that was handed off", () => {
+    expect(taskHref(task({ runId: "r1", channelId: "c1", threadId: "t1" }))).toBe("/chat/c1?thread=t1");
+    // Its own conversation is two agents' DM, which nobody opens; a routine's room neither.
+    expect(taskHref(task({ runId: "r2", channelId: "dm-ag", betweenAgents: true }))).toBeNull();
+    expect(taskHref(task({ runId: "r3", background: true }))).toBeNull();
+    const from = {
+      channelId: "c-vendas",
+      channelKind: "channel" as const,
+      channelName: "vendas",
+      threadId: "t9",
+      messageId: "m9",
+      label: null,
+    };
+    expect(
+      taskHref(
+        task({
+          runId: "r4",
+          channelId: "dm-ag",
+          betweenAgents: true,
+          delegation: { agentId: "ada", origin: { kind: "agent" }, from },
+        }),
+      ),
+    ).toBe("/chat/c-vendas?thread=t9&m=m9");
+  });
+
   test("its screen knows the conversation it came from", () => {
     expect(agentTasksHref("dev", { channelId: "dm1", threadId: null })).toBe("/agent-tasks/dev?channel=dm1");
     expect(agentTasksHref("dev", { channelId: "dm1", threadId: "t1" })).toBe("/agent-tasks/dev?channel=dm1&thread=t1");
@@ -367,5 +399,52 @@ describe("navigation", () => {
     expect(layout).toContain(`name="task-manager/index" options={{ ...pushed, ...scrollUnder }}`);
     expect(layout).toContain(`name="task-manager/[runId]" options={{ ...pushed, ...scrollUnder }}`);
     expect(layout).toContain(`name="agent-tasks/[agentId]" options={{ ...pushed, ...scrollUnder }}`);
+  });
+});
+
+describe("returns agents set (Retornos, ADR 0037 addendum)", () => {
+  test("where one lands, and how a canceled one ended: by its time, by you, by someone, by the agent", async () => {
+    const t = await translator("pt-BR");
+    expect(returnPlace(t, { channelKind: "channel", channelName: "vendas" })).toBe("#vendas");
+    expect(returnPlace(t, { channelKind: "dm", channelName: null })).toBe("Conversa direta");
+    expect(returnPlace(t, { channelKind: "task", channelName: null })).toBeNull();
+    expect(returnCanceledText(t, { canceledBy: null }, "u1", "Ada")).toBe("Retorno cancelado");
+    expect(returnCanceledText(t, { canceledBy: { kind: "person", userId: "u1", name: "Ana" } }, "u1", "Ada")).toBe(
+      "Você cancelou o retorno",
+    );
+    expect(returnCanceledText(t, { canceledBy: { kind: "person", userId: "u2", name: "Ana" } }, "u1", "Ada")).toBe(
+      "Retorno cancelado por Ana",
+    );
+    expect(returnCanceledText(t, { canceledBy: { kind: "agent", agentId: "a1" } }, "u1", "Ada")).toBe(
+      "Retorno cancelado por Ada",
+    );
+  });
+
+  test("the screen lists them after the routines, one line each; a tap or a long press opens their whole words", () => {
+    const src = readFileSync(join(import.meta.dir, "../../src/features/task-manager/TaskManagerScreen.tsx"), "utf8");
+    const at = (s: string) => src.indexOf(s);
+    const fn = (name: string) => src.slice(at(`function ${name}(`), src.indexOf("\n}\n", at(`function ${name}(`)));
+    expect(at('t("taskManager.sections.returns")')).toBeGreaterThan(at('t("taskManager.sections.background")'));
+    // Note A on the phone: one line, cut at the end; a tap shows it whole where a return has no screen of its own (a
+    // canceled one shows nowhere else: the conversation has no line for it).
+    for (const row of ["ReturnRow", "CanceledReturnRow"]) {
+      const code = fn(row);
+      expect(code).toMatch(/<OneLine title=\{item\.about\}/);
+      expect(code).toContain("onPress={open}");
+      expect(code).toContain("onLongPress={open}");
+      expect(code).toContain("<ReturnSheet");
+      expect(code).not.toContain("router.push(chatHref(item.channelId, item.threadId)}");
+    }
+    // The same sheet on iOS and Android: her words whole, whose and where, when or how it ended, then its actions.
+    expect(src).not.toContain("ActionSheetIOS");
+    const sheet = fn("ReturnSheet");
+    expect(sheet).toContain("title={item.about}");
+    expect(sheet).toMatch(/subtitle=\{`\$\{line\}\\n\$\{when\}`\}/);
+    expect(sheet).toContain('label: t("taskManager.actions.open")');
+    expect(sheet).toMatch(/"canCancel" in item && item\.canCancel[\s\S]*label: t\("followUps\.cancel"\)/);
+    // While it cancels: its spinner, and nothing else to press; done, the sheet closes.
+    expect(sheet).toContain("trailing: <ActivityIndicator");
+    expect(sheet).toContain("disabled: going");
+    expect(sheet).toContain("onSuccess: () => sheet.close()");
   });
 });

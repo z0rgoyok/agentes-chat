@@ -1,3 +1,4 @@
+import { DEFAULT_APP_ICON } from "@agenteschat/client/lib/app-icons";
 import { exampleSenders } from "@agenteschat/client/lib/push-offer";
 import { Image } from "expo-image";
 import { useState } from "react";
@@ -6,10 +7,9 @@ import { StyleSheet, View } from "react-native";
 import { pushPermission } from "@/lib/push";
 import { usePush } from "@/providers/push";
 import { Button, SheetScreen, Text, useToast } from "@/ui";
+import { APP_ICON_PICTURES, useAppIcon } from "../me/app-icon";
 import { useDirectory } from "../shared/hooks";
 import { useSurface } from "../shared/parts";
-
-const APP_ICON = require("../../../assets/images/icon-small.png");
 
 /** The examples, top to bottom: what someone gets most, fading a little as they stack. */
 const EXAMPLES = [
@@ -78,12 +78,13 @@ export function PushAskSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** One notification as the phone shows it: the app's icon, who and what, when. */
+/** One notification as the phone shows it: the app's icon (the one picked, ADR 0179), who and what, when. */
 function Example({ title, body, time, opacity }: { title: string; body: string; time: string; opacity: number }) {
   const surface = useSurface();
+  const icon = useAppIcon().icon ?? DEFAULT_APP_ICON;
   return (
     <View style={[styles.example, surface, { opacity }]}>
-      <Image source={APP_ICON} style={styles.icon} />
+      <Image source={APP_ICON_PICTURES[icon].light} style={styles.icon} />
       <View style={styles.exampleText}>
         <View style={styles.exampleTop}>
           <Text variant="label" tone="ink" numberOfLines={1} style={styles.grow}>

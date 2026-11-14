@@ -20,11 +20,24 @@ export interface ServerWorkspace {
   pair?: boolean;
 }
 
+/** One of a server's accounts signed in on the app's window, with its workspaces (ADR 0183). */
+export interface ServerAccount {
+  userId: string;
+  name: string;
+  email: string;
+  /** The account the window is on at that server. */
+  current: boolean;
+  orgs: ServerWorkspace[];
+}
+
 /** A server's workspaces; `signedIn` false lists none (signed out there). */
 export interface ServerWorkspaces {
   server: string;
   signedIn: boolean;
+  /** The workspaces of the account the window is on there. */
   orgs: ServerWorkspace[];
+  /** Every account signed in there, the window's own first. Absent from a server that names none, and in older apps. */
+  accounts?: ServerAccount[];
   /** It didn't answer since this time (milliseconds since 1970): its last answer, kept. Absent: it answered. */
   offlineSince?: number;
   /** The server the app runs on this computer (also at its Tailscale address). Absent in older apps. */

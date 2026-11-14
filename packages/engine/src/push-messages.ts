@@ -49,6 +49,8 @@ export interface PushTextInput {
   screen?: string | null;
   /** `browser_handoff` still unanswered an hour later: the title says the agent still needs them. */
   reminder?: boolean;
+  /** One reminder for all the person left unread: how many things still wait, this one included (`latest.still`). */
+  still?: number | null;
   /** `usage_limit`: what happened (`latest.statusTo`) and the share of the limit used. */
   status?: string | null;
   percent?: number | null;
@@ -63,8 +65,17 @@ const clip = (s: string, max: number) => {
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 };
 
-/** Title and body of one push, in the device's language. */
+/**
+ * Title and body of one push, in the device's language. A reminder of everything left unread says how many things
+ * wait, over the line of the one it opens.
+ */
 export function renderPush(locale: PushLocale, input: PushTextInput): { title: string; body: string } {
+  const one = renderOne(locale, input);
+  if (!input.still || input.still < 1) return one;
+  return { title: clip(pushStrings(locale).teamWatchStill(input.still), PUSH_TITLE_MAX), body: one.title };
+}
+
+function renderOne(locale: PushLocale, input: PushTextInput): { title: string; body: string } {
   const s = pushStrings(locale);
   const actor = input.actorName?.trim() || (input.actorType === "agent" ? s.anAgent : s.someone);
   // A GIF or a sticker alone (ADR 0091) says what it was where its words would go.
@@ -216,6 +227,9 @@ export function renderPush(locale: PushLocale, input: PushTextInput): { title: s
         default:
           return out(s.usageRefusedTitle(actor), s.openBody);
       }
+    case "team_watch":
+      // The right hand's name, then its whole sentence: what is wrong and the one way out, in the person's language.
+      return out(actor, text || s.openBody);
     default:
       return out(input.waiting ? s.waitingTitle : actor, text || what || s.openBody);
   }

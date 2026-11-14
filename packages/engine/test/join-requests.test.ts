@@ -5,12 +5,18 @@ import {
   acceptInvitation,
   approveJoinRequest,
   askToJoin,
+  createAgent,
   createInvitation,
+  createInviteLink,
+  createRole,
+  deleteRole,
   denyJoinRequest,
   type EmailTemplate,
+  editInviteLink,
   FILE_JOIN_REQUEST_JOB,
   fileJoinRequest,
   findInviteLink,
+  INVITE_LINK_NEVER,
   inviteLink,
   isSignupAllowed,
   JOIN_REQUEST_TTL_DAYS,
@@ -19,6 +25,7 @@ import {
   listWaitingJoinRequests,
   MAX_PENDING_JOIN_REQUESTS,
   memberRoleIds,
+  previewInvitation,
   pruneJoinRequests,
   randomToken,
   removeMember,
@@ -659,6 +666,274 @@ describe("links", () => {
       .where(eq(schema.organizationJoinRequests.email, "waiting@example.com"));
     expect(await pruneJoinRequests(deps(), NOW)).toBe(0);
     expect((await notices()).every((n) => n.doneAt !== null)).toBe(true);
+  });
+});
+
+describe("links with choices (ADR 0184)", () => {
+  const MODEL = { model: "claude-sonnet-5-5" };
+  /** A cargo with `permissions` beyond Todos'; made earlier, it ranks above the ones made after it. */
+  const cargo = (name: string, permissions: string[] = []) =>
+    createRole(f.db, f.owner.id, f.org.id, { name, permissions });
+  const linkRow = async (id: string) =>
+    (await f.db.select().from(schema.organizationInviteLinks).where(eq(schema.organizationInviteLinks.id, id)))[0];
+  const channelsOf = async (userId: string) =>
+    (
+      await f.db
+        .select({ id: schema.channelMembers.channelId })
+        .from(schema.channelMembers)
+        .where(eq(schema.channelMembers.userId, userId))
+    ).map((r) => r.id);
+  const refusal = (p: Promise<unknown>) =>
+    p.then(
+      () => null,
+      (e: { code: string; params?: unknown }) => ({ code: e.code, ...(e.params ? { params: e.params } : {}) }),
+    );
+
+  test("its choices are checked for whoever makes it; at the defaults it is the workspace's link, renewed", async () => {
+    const { token, link } = await start();
+    const make = (choices: Parameters<typeof createInviteLink>[4], actorId = f.owner.id, now = NOW) =>
+      createInviteLink(f.db, SECRET, actorId, f.org.id, choices, now);
+    // The defaults: the workspace's own link, which then works 30 days from now.
+    const plain = await make({ expiresIn: "30d" }, f.owner.id, later(10));
+    expect(plain).toMatchObject({ token, made: false, link: { id: link.id, expiresAt: later(40) } });
+    // Any choice makes a link of its own, which the defaults never pick up.
+    const week = await make({ expiresIn: "7d" });
+    expect(week).toMatchObject({ made: true, link: { plain: false, expiresAt: later(7) } });
+    expect((await inviteLink(f.db, SECRET, f.owner.id, f.org.id, NOW)).link.id).toBe(link.id);
+    const forever = await make({ expiresIn: "never", maxUses: 10 });
+    expect(forever.link).toMatchObject({ expiresAt: INVITE_LINK_NEVER, maxUses: 10 });
+    const listed = await listInviteLinks(f.db, SECRET, f.owner.id, f.org.id, NOW);
+    expect(listed.find((l) => l.id === forever.link.id)).toMatchObject({ neverExpires: true, maxUses: 10, uses: 0 });
+    expect(listed.find((l) => l.id === link.id)).toMatchObject({ plain: true, neverExpires: false });
+    // Only the lists' values.
+    expect(await refusal(make({ maxUses: 3 }))).toEqual({ code: "invite_link.choice" });
+    expect(await refusal(make({ expiresIn: "2d" }))).toEqual({ code: "invite_link.choice" });
+    // A member who may invite: no cargo above their own, no channel they couldn't give, no agent they can't open.
+    const recrutamento = await cargo("Recrutamento", ["invite_people"]);
+    const lia = await addMember(f.db, f.org.id, "member", "lia");
+    await f.db
+      .insert(schema.organizationMemberRoles)
+      .values({ orgId: f.org.id, userId: lia.id, roleId: recrutamento.id });
+    const admin = await adminRoleId(f.db, f.org.id);
+    expect(await refusal(make({ roleIds: [admin] }, lia.id))).toEqual({ code: "role.above_you" });
+    const [diretoria] = await f.db
+      .insert(schema.channels)
+      .values({ orgId: f.org.id, name: "diretoria", visibility: "private", createdByUserId: f.owner.id })
+      .returning();
+    expect(await refusal(make({ channelIds: [diretoria?.id ?? ""] }, lia.id))).toEqual({
+      code: "invitation.channel",
+      params: { channelId: diretoria?.id, name: "diretoria", why: "left" },
+    });
+    const [audit] = await f.db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, "invite_link.created"), eq(schema.auditLog.targetId, week.link.id)));
+    expect(audit?.details).toMatchObject({ roleIds: [], maxUses: null, expiresAt: later(7).toISOString() });
+  });
+
+  test("a link takes at most its people: once full, asking is refused and its page says so", async () => {
+    await start();
+    const { token, link } = await createInviteLink(f.db, SECRET, f.owner.id, f.org.id, { maxUses: 1 }, NOW);
+    const erin = await person("erin@example.com", { verified: true });
+    await signedIn(token, erin);
+    const [erinRow] = await rows();
+    expect(await previewInvitation(f.db, token, NOW)).not.toHaveProperty("full");
+    await approveJoinRequest(deps(), PUBLIC, f.owner.id, f.org.id, erinRow?.id ?? "", [], NOW);
+    expect((await linkRow(link.id))?.uses).toBe(1);
+    expect(await previewInvitation(f.db, token, NOW)).toMatchObject({ kind: "link", full: true, invitedBy: "ana" });
+    const fay = await person("fay@example.com", { verified: true });
+    await expect(ask({ user: fay }, token)).rejects.toMatchObject({ code: "join.link_full" });
+    await expect(ask({ user: null, name: "Gus", email: "gus@example.com" }, token)).rejects.toMatchObject({
+      code: "join.link_full",
+    });
+    // A bigger maximum opens it again, at the same address.
+    await editInviteLink(f.db, f.owner.id, f.org.id, link.id, { maxUses: 5 }, NOW);
+    expect((await ask({ user: fay }, token)).created).toBe(true);
+  });
+
+  test("a full link takes no more approvals: a request filed before it filled waits for a bigger maximum", async () => {
+    await start();
+    const { token, link } = await createInviteLink(f.db, SECRET, f.owner.id, f.org.id, { maxUses: 1 }, NOW);
+    const erin = await person("erin@example.com", { verified: true });
+    const fay = await person("fay@example.com", { verified: true });
+    await ask({ user: erin }, token);
+    await ask({ user: fay }, token);
+    // Typed while the link had room: the job files it only after it filled.
+    await ask({ user: null, name: "Gus", email: "gus@example.com" }, token);
+    const requestOf = async (email: string) => (await rows()).find((r) => r.email === email);
+    const approve = async (email: string) =>
+      approveJoinRequest(deps(), PUBLIC, f.owner.id, f.org.id, (await requestOf(email))?.id ?? "", [], NOW);
+    expect(await approve(erin.email)).toEqual({ outcome: "joined" });
+    expect(await refusal(approve(fay.email))).toEqual({ code: "join.link_full_approval" });
+    expect((await linkRow(link.id))?.uses).toBe(1);
+    expect(await memberOf(fay.id)).toBeUndefined();
+    expect((await requestOf(fay.email))?.status).toBe("pending");
+    expect((await listWaitingJoinRequests(f.db, f.owner.id, f.org.id, NOW)).map((r) => r.link?.full)).toEqual([true]);
+    await fileQueued();
+    expect(await requestOf("gus@example.com")).toBeUndefined();
+    // A bigger maximum lets the waiting request in.
+    await editInviteLink(f.db, f.owner.id, f.org.id, link.id, { maxUses: 5 }, NOW);
+    expect(await approve(fay.email)).toEqual({ outcome: "joined" });
+    expect((await linkRow(link.id))?.uses).toBe(2);
+  });
+
+  test("an expired full link's maximum can still grow, so its waiting requests can be approved", async () => {
+    await start();
+    const { token, link } = await createInviteLink(
+      f.db,
+      SECRET,
+      f.owner.id,
+      f.org.id,
+      { maxUses: 1, expiresIn: "1h" },
+      NOW,
+    );
+    const erin = await person("erin@example.com", { verified: true });
+    const fay = await person("fay@example.com", { verified: true });
+    await ask({ user: erin }, token);
+    await ask({ user: fay }, token);
+    const twoHours = new Date(NOW.getTime() + 2 * 3_600_000);
+    const requestOf = async (email: string) => (await rows()).find((r) => r.email === email);
+    const approve = async (email: string) =>
+      approveJoinRequest(deps(), PUBLIC, f.owner.id, f.org.id, (await requestOf(email))?.id ?? "", [], twoHours);
+    expect(await approve(erin.email)).toEqual({ outcome: "joined" });
+    expect(await refusal(approve(fay.email))).toEqual({ code: "join.link_full_approval" });
+    // The refusal's way out works after the link expired, and the link stays expired.
+    await editInviteLink(f.db, f.owner.id, f.org.id, link.id, { maxUses: 5 }, twoHours);
+    expect(await approve(fay.email)).toEqual({ outcome: "joined" });
+    const gus = await person("gus@example.com", { verified: true });
+    await expect(ask({ user: gus }, token, twoHours)).rejects.toMatchObject({ code: "join.link_closed" });
+  });
+
+  test("a deleted cargo leaves the links and invitations that gave it", async () => {
+    await start();
+    const suporte = await cargo("Suporte");
+    const { link } = await createInviteLink(f.db, SECRET, f.owner.id, f.org.id, { roleIds: [suporte.id] }, NOW);
+    await createInvitation(f.db, f.owner.id, f.org.id, { email: "rita@example.com", roleIds: [suporte.id] }, NOW);
+    await deleteRole(f.db, f.owner.id, f.org.id, suporte.id);
+    expect((await linkRow(link.id))?.roleIds).toEqual([]);
+    const [rita] = await f.db
+      .select({ roleIds: schema.organizationInvitations.roleIds })
+      .from(schema.organizationInvitations)
+      .where(eq(schema.organizationInvitations.email, "rita@example.com"));
+    expect(rita?.roleIds).toEqual([]);
+  });
+
+  test("a link's expiry: thirty minutes, then it no longer works", async () => {
+    await start();
+    const { token } = await createInviteLink(f.db, SECRET, f.owner.id, f.org.id, { expiresIn: "30m" }, NOW);
+    const erin = await person("erin@example.com", { verified: true });
+    const soon = new Date(NOW.getTime() + 29 * 60_000);
+    const late = new Date(NOW.getTime() + 31 * 60_000);
+    expect((await ask({ user: erin }, token, soon)).created).toBe(true);
+    const fay = await person("fay@example.com", { verified: true });
+    await expect(ask({ user: fay }, token, late)).rejects.toMatchObject({ code: "join.link_closed" });
+  });
+
+  test("an approval starts the person on the link's choices, as far as the approver may give them then", async () => {
+    await start();
+    const recrutamento = await cargo("Recrutamento", ["invite_people"]);
+    const suporte = await cargo("Suporte");
+    const lia = await addMember(f.db, f.org.id, "member", "lia");
+    await f.db
+      .insert(schema.organizationMemberRoles)
+      .values({ orgId: f.org.id, userId: lia.id, roleId: recrutamento.id });
+    const channel = async (name: string, values: Partial<typeof schema.channels.$inferInsert>) => {
+      const [row] = await f.db
+        .insert(schema.channels)
+        .values({ orgId: f.org.id, name, createdByUserId: lia.id, ...values })
+        .returning();
+      if (!row) throw new Error("no channel");
+      return row;
+    };
+    // #chamados is limited to Suporte; #lia is hers alone.
+    const chamados = await channel("chamados", { visibility: "private", audienceRoleIds: [suporte.id] });
+    const sala = await channel("sala-da-lia", { visibility: "private" });
+    await f.db.insert(schema.channelMembers).values({ orgId: f.org.id, channelId: sala.id, userId: lia.id });
+    const fin = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Fin", handle: "fin", ownerUserId: lia.id },
+      MODEL,
+    );
+    await f.db.update(schema.agents).set({ audienceMode: "owner" }).where(eq(schema.agents.id, fin.id));
+    const { token, link } = await createInviteLink(
+      f.db,
+      SECRET,
+      lia.id,
+      f.org.id,
+      { roleIds: [suporte.id], channelIds: [chamados.id, sala.id], agentIds: [fin.id] },
+      NOW,
+    );
+    const erin = await person("erin@example.com", { verified: true });
+    await signedIn(token, erin);
+    const [erinRow] = await rows();
+    // The request says where it came from and what an approval starts on.
+    expect(await listWaitingJoinRequests(f.db, f.owner.id, f.org.id, NOW)).toEqual([
+      expect.objectContaining({
+        link: {
+          id: link.id,
+          createdBy: "lia",
+          roleIds: [suporte.id],
+          channelIds: [chamados.id, sala.id],
+          agentIds: [fin.id],
+          full: false,
+        },
+      }),
+    ]);
+    // Ana approves: Suporte opens #chamados; #sala-da-lia isn't hers to give; Fin opens to Erin (Ana manages agents).
+    await approveJoinRequest(deps(), PUBLIC, f.owner.id, f.org.id, erinRow?.id ?? "", [suporte.id], NOW);
+    expect(await memberRoleIds(f.db, f.org.id, erin.id)).toEqual([suporte.id]);
+    const erinIn = await channelsOf(erin.id);
+    expect(erinIn).toContain(chamados.id);
+    expect(erinIn).not.toContain(sala.id);
+    const [opened] = await f.db.select().from(schema.agents).where(eq(schema.agents.id, fin.id));
+    expect(opened).toMatchObject({ audienceMode: "people", audienceUserIds: [erin.id] });
+    const [joined] = await f.db
+      .select({ items: schema.organizationMembers.sidebarItems })
+      .from(schema.organizationMembers)
+      .where(eq(schema.organizationMembers.userId, erin.id));
+    expect(joined?.items).toMatchObject({ view: { pins: { agents: [fin.id] } } });
+
+    // Lia approves a typed request: an invitation, carrying what she may give (her room, not the cargo she dropped).
+    await typed(token, "Gus", "gus@example.com");
+    const [gusRow] = (await rows()).filter((r) => r.email === "gus@example.com");
+    await approveJoinRequest(deps(), PUBLIC, lia.id, f.org.id, gusRow?.id ?? "", [], NOW);
+    const [gusInvitation] = await f.db
+      .select()
+      .from(schema.organizationInvitations)
+      .where(eq(schema.organizationInvitations.email, "gus@example.com"));
+    expect(gusInvitation).toMatchObject({ roleIds: [], channelIds: [sala.id], agentIds: [fin.id] });
+
+    // Chosen on the approval itself, they are checked as an invitation's.
+    await typed(token, "Hal", "hal@example.com");
+    const [halRow] = (await rows()).filter((r) => r.email === "hal@example.com");
+    expect(
+      await refusal(
+        approveJoinRequest(deps(), PUBLIC, lia.id, f.org.id, halRow?.id ?? "", [], NOW, { channelIds: [chamados.id] }),
+      ),
+    ).toEqual({ code: "invitation.channel", params: { channelId: chamados.id, name: "chamados", why: "left" } });
+  });
+
+  test("editing a link keeps its address, checks what changes, and makes it a link of its own", async () => {
+    const { token, link } = await start();
+    const suporte = await cargo("Suporte");
+    const edited = await editInviteLink(f.db, f.owner.id, f.org.id, link.id, { roleIds: [suporte.id] }, NOW);
+    expect(edited).toMatchObject({ id: link.id, plain: false, roleIds: [suporte.id], tokenHash: sha256(token) });
+    // The defaults make the workspace a new plain link: the edited one now gives Suporte.
+    const next = await inviteLink(f.db, SECRET, f.owner.id, f.org.id, NOW);
+    expect(next).toMatchObject({ made: true });
+    expect(next.link.id).not.toBe(link.id);
+    const [audit] = await f.db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, "invite_link.changed"), eq(schema.auditLog.targetId, link.id)));
+    expect(audit?.details).toMatchObject({ roleIds: [suporte.id] });
+    // A link turned off is gone, for editing too.
+    await turnOffInviteLink(deps(), f.owner.id, f.org.id, link.id, NOW);
+    await expect(editInviteLink(f.db, f.owner.id, f.org.id, link.id, { maxUses: 5 }, NOW)).rejects.toMatchObject({
+      code: "not_found",
+    });
   });
 });
 

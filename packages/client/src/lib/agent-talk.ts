@@ -3,8 +3,8 @@ import { parseMarkdown, plainLines } from "./markdown";
 
 /**
  * A long message from one agent to another in a conversation (ADR 0034): the apps show its first paragraph and
- * "Ler tudo · mais N linhas", which opens the whole message in its thread (the panel beside the chat on the web,
- * the thread's screen on the phone). Messages to people stay whole, and so does everything inside a thread view.
+ * "Ver mais", which opens the whole message in place. Messages to people stay whole, and so does everything inside a
+ * thread view.
  */
 
 /** About how many characters fit on one line of a message: the web's column and the phone's. */

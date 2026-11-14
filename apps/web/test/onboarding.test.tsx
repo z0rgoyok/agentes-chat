@@ -1014,7 +1014,7 @@ describe("inviting people, a team's last step (ADR 0162, amended 2026-11-11)", (
     await act(async () => fireEvent.change(field, { target: { value: "bia@example.com, caio@example.com" } }));
     await act(async () => fireEvent.keyDown(field, { key: "Enter" }));
     await settle(4);
-    await pick(screen().getByRole("combobox", { name: "Papel de caio@example.com" }), "Admin");
+    await pick(screen().getByRole("combobox", { name: "Cargo de caio@example.com" }), "Admin");
     await click(button("Convidar 2 pessoas"), 20);
     expect(calls(state, "orgs.inviteMany").map((c) => c.args[1])).toEqual([
       {

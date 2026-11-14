@@ -4,15 +4,17 @@ import { Icon, type IconName, iconNames } from "../icons/Icon";
 import { ditherUrl } from "../sky/dither";
 import type { AgentColor } from "./AgentLook";
 
-/** Dither cells and icon size for a mark `size` px wide. */
+/** Dither cells and icon size for a mark `size` px wide: the icon at most about 70% of it, never crammed. */
 const fit = (size: number) =>
-  size <= 20
-    ? { cells: 8, icon: 12 }
-    : size <= 28
-      ? { cells: 10, icon: 16 }
-      : size <= 40
-        ? { cells: 14, icon: 20 }
-        : { cells: 18, icon: Math.round(size * 0.47) };
+  size <= 16
+    ? { cells: 8, icon: 10 }
+    : size <= 20
+      ? { cells: 8, icon: 12 }
+      : size <= 28
+        ? { cells: 10, icon: 16 }
+        : size <= 40
+          ? { cells: 14, icon: 20 }
+          : { cells: 18, icon: Math.round(size * 0.47) };
 
 /**
  * A workspace role's mark (ADR 0085): the role's color in the agents' dither in a full circle (never a people tile

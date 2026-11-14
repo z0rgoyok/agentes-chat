@@ -33,8 +33,42 @@ describe("channel permissions (ADR 0134)", () => {
         .getAllByRole("button")
         .map((b) => b.textContent),
     ).toEqual(["Visão geral", "Permissões", "Membros", "Sair do canal", "Arquivar canal", "Apagar canal"]);
+    // Leave, archive and delete are rows of the nav like its sections: as wide as it, their hover plate across it.
+    for (const name of ["Sair do canal", "Arquivar canal", "Apagar canal"])
+      expect(within(nav).getByRole("button", { name }).className).toBe("settings__link channel-settings__act");
     expect(within(nav).getByRole("button", { name: "Visão geral" }).getAttribute("aria-current")).toBe("page");
     expect(within(dialog).getByLabelText("Nome")).toBeTruthy();
+  });
+
+  test("while archiving runs, none of leave, archive and delete can be pressed", async () => {
+    const api = createFakeApi(seedState());
+    let done = () => {};
+    api.chat.archive = () => new Promise<void>((resolve) => (done = resolve));
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(8);
+    const dialog = await openSettings();
+    const nav = within(dialog).getByRole("navigation", { name: "Configurações do canal" });
+    const rows = () =>
+      ["Sair do canal", "Arquivar canal", "Apagar canal"].map((name) => [
+        name,
+        (within(nav).getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ]);
+    expect(rows()).toEqual([
+      ["Sair do canal", false],
+      ["Arquivar canal", false],
+      ["Apagar canal", false],
+    ]);
+    await click(within(nav).getByRole("button", { name: "Arquivar canal" }));
+    await settle(2);
+    expect(rows()).toEqual([
+      ["Sair do canal", true],
+      ["Arquivar canal", true],
+      ["Apagar canal", true],
+    ]);
+    // The pressed one says it is working; the others are only held.
+    expect(within(nav).getByRole("button", { name: "Arquivar canal" }).getAttribute("aria-busy")).toBe("true");
+    expect(within(nav).getByRole("button", { name: "Sair do canal" }).getAttribute("aria-busy")).toBeNull();
+    await act(async () => done());
   });
 
   test("Permissões: Todos first; Negar on Enviar mensagens saves an exception, Padrão takes it back", async () => {
@@ -42,14 +76,14 @@ describe("channel permissions (ADR 0134)", () => {
     const dialog = await openSettings();
     await click(within(dialog).getByRole("button", { name: "Permissões" }));
     await settle(3);
-    expect(dialog.textContent).toContain("Exceções valem só neste canal. Padrão segue os papéis do workspace.");
-    const targets = within(dialog).getByRole("list", { name: "Papéis e pessoas com exceção" });
+    expect(dialog.textContent).toContain("Exceções valem só neste canal. Padrão segue os cargos do workspace.");
+    const targets = within(dialog).getByRole("list", { name: "Cargos e pessoas com exceção" });
     expect(
       within(targets)
         .getAllByRole("button")
         .map((b) => b.textContent),
     ).toEqual(["Todos"]);
-    expect(dialog.textContent).toContain("Padrão: permitido pelo papel Todos");
+    expect(dialog.textContent).toContain("Padrão: permitido pelo cargo Todos");
     const post = within(dialog).getByRole("radiogroup", { name: "Enviar mensagens para Todos" });
     await click(within(post).getByRole("radio", { name: "Negar" }));
     await settle(4);

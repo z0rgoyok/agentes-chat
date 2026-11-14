@@ -28,8 +28,9 @@
 Agents join your channels and DMs with a role, an owner and a budget, work where everyone can see,
 and ask before anything sensitive. They think with Claude, ChatGPT and Codex, Gemini, Grok or any
 OpenRouter model, use MCP tools, and get a computer and a browser of their own. Self-hosting is
-free and always will be (AGPL-3.0, no license key, no paid tier), or use agentes.chat Cloud, the
-paid, hosted option: both run this same codebase.
+free and always will be (AGPL-3.0, no license key), or use agentes.chat Cloud, the paid, hosted
+option: both run this same codebase. Changing it without publishing your changes, or reselling it
+under your own brand? There is a [commercial license](COMMERCIAL.md).
 
 ## Why agentes.chat
 
@@ -102,7 +103,12 @@ agentes.chat is licensed under the [GNU AGPL-3.0-only](LICENSE). [NOTICE](NOTICE
 to distribute the phone and desktop apps through app stores, and an attribution term (section 7(b)):
 copies and modified versions keep "Based on agentes.chat by Codari Global, LLC" in their About
 screen. The setup CLI in `packages/setup` (`@agenteschat/setup`) is MIT. Contributions come in under
-the same terms, with nothing to sign. Third-party notices are in [NOTICE](NOTICE) too.
+the same terms and require our [Contributor License Agreement](CLA.md), which the CLA bot asks you
+to accept on your first pull request. Third-party notices are in [NOTICE](NOTICE) too.
+
+Codari Global, LLC also licenses agentes.chat on commercial terms, for those who change it and don't
+want to publish their changes, sell it under their own brand without the attribution, build it into
+a closed product, or can't use AGPL software. See [COMMERCIAL.md](COMMERCIAL.md).
 
 The agentes.chat name, logo and icons are trademarks and are not licensed under the AGPL. See
 [TRADEMARKS.md](TRADEMARKS.md).

@@ -1,5 +1,4 @@
 import type { ConsultationStatus, MessageConsultation } from "../api/types";
-import { daysBetween, formatShortDate } from "./format";
 import { reachOf } from "./reach";
 import { routineReplyOf } from "./routines";
 
@@ -101,41 +100,11 @@ export const skippedHandles = (notice: MessageNotice) => (notice.refs.agentHandl
 export const isEventLine = (meta: Meta) => noticeOf(meta) !== null;
 
 /**
- * An agent's follow-up (`follow_up`), as its line reads: the one it set ("Ari volta às 18:30 para «ver o CI»",
- * `pending` while it can still be canceled), the same once it came ("Ari voltou às 18:30…") or once canceled,
- * with its day when that isn't today ("…em 31 out às 09:00…"), and at its time the one that woke it ("Ari voltou
- * para «ver o CI»"). `about` is the agent's words, quoted in the app's sentence. `key`/`values` are the shared
- * i18n; `when.time` formats a time for the reader, in `when.locale`.
+ * A return's line (`follow_up`, ADR 0037): the agent coming back to a conversation, set (`pending`, then `done` or
+ * `canceled`) or the notice that woke it (`wake`). Never drawn in the conversation (the agent's reply says it, its run's
+ * steps keep "Agendou a volta à conversa"): the bar above the composer holds the returns still to come.
  */
-export function followUpLine(
-  notice: MessageNotice,
-  name: string,
-  when: { time: (iso: string) => string; locale: string },
-  now = new Date(),
-) {
-  if (notice.kind !== "follow_up") return null;
-  const { at = "", about = "", state, wake } = notice.refs;
-  const otherDay = Boolean(at) && daysBetween(at, now) !== 0;
-  const values = { name, about, time: at ? when.time(at) : "", day: otherDay ? formatShortDate(when.locale, at) : "" };
-  if (wake) return { key: "chat.notice.followUpWake" as const, values, pending: false };
-  if (state === "canceled")
-    return {
-      key: otherDay ? ("chat.notice.followUpCanceledOn" as const) : ("chat.notice.followUpCanceled" as const),
-      values,
-      pending: false,
-    };
-  if (state === "done")
-    return {
-      key: otherDay ? ("chat.notice.followUpDoneOn" as const) : ("chat.notice.followUpDone" as const),
-      values,
-      pending: false,
-    };
-  return {
-    key: otherDay ? ("chat.notice.followUpOn" as const) : ("chat.notice.followUp" as const),
-    values,
-    pending: state === "pending",
-  };
-}
+export const isReturnLine = (meta: Meta) => (meta?.notice as { kind?: unknown } | undefined)?.kind === "follow_up";
 
 /**
  * What a person reads of a notice, on the web and the phone alike: its line (`key`/`values`) and what "Ver" opens
@@ -148,8 +117,6 @@ export interface NoticeView {
   key: string;
   values: Record<string, string>;
   detail: { words: { key: string; values: Record<string, string> } } | { content: string } | null;
-  /** A follow-up still to come: it can be canceled. */
-  pending: boolean;
   /** Someone the agent doesn't answer wrote it on GitHub: a person here may ask the agent to answer ("Pedir resposta"). */
   answer: boolean;
 }
@@ -187,8 +154,6 @@ export function githubLineKey(r: Record<string, string>) {
 export function noticeView(
   m: { body: string; meta?: Meta | null },
   names: { author: string; agentByHandle: (handle: string) => string | null },
-  when: { time: (iso: string) => string; locale: string },
-  now = new Date(),
 ): NoticeView | null {
   const notice = noticeOf(m.meta ?? undefined);
   if (!notice) return null;
@@ -196,7 +161,6 @@ export function noticeView(
     key,
     values,
     detail,
-    pending: false,
     answer: false,
   });
   const kind = notice.kind as NoticeKind;
@@ -219,10 +183,6 @@ export function noticeView(
       return from
         ? line("chat.notice.consultReply", { from }, detail)
         : line("chat.notice.consultReplyAnon", {}, detail);
-    }
-    case "follow_up": {
-      const followUp = followUpLine(notice, names.author, when, now);
-      return followUp ? { ...line(followUp.key, followUp.values), pending: followUp.pending } : null;
     }
     case "wake_skipped": {
       const agents = skippedHandles(notice)
@@ -261,6 +221,8 @@ export function noticeView(
       if (r.answerFor) return line("chat.notice.github.asked", values, detail);
       return { ...line(githubLineKey(r), values, detail), answer: r.outside === "1" && !r.answeredBy };
     }
+    // A return's line is the bar's (`isReturnLine`), never one of the conversation's.
+    case "follow_up":
     case "proposal_result":
     case "poll_result":
     case "work_check_in":
@@ -275,44 +237,18 @@ export function noticeView(
 }
 
 /**
- * Notices that only matter while they happen, left out of the conversation once over (the agent's message says the
- * rest): a follow-up that came (its line now past, and the notice that woke the agent once its turn is over: the
- * agent said something after it there, or something else came after it while the agent isn't at work, `working`
- * holding the agents at work here), and an @mention that couldn't wake an agent when the message that named it is
- * here with its own line about it (`meta.reach`). A follow-up still to come or canceled stays.
+ * Notices left out of the conversation: a return's line in every state (`isReturnLine`: the bar holds the returns
+ * still to come, the agent's reply says the rest), and an @mention that couldn't wake an agent when the message that
+ * named it is here with its own line about it (`meta.reach`).
  */
-export function settledNotices(
-  messages: readonly {
-    id: string;
-    threadId: string | null;
-    author: { type: string; id: string | null };
-    createdAt: string;
-    meta?: Meta | null;
-  }[],
-  working: ReadonlySet<string> = new Set(),
-): Set<string> {
+export function settledNotices(messages: readonly { id: string; meta?: Meta | null }[]): Set<string> {
   const out = new Set<string>();
   const byId = new Map(messages.map((m) => [m.id, m]));
-  // The latest message that isn't a notice, by place, and by place and agent.
-  const latest = new Map<string, string>();
-  for (const m of messages) {
-    if (noticeOf(m.meta ?? undefined)) continue;
-    const place = m.threadId ?? "";
-    for (const key of [place, `${place}|${m.author.type === "agent" ? m.author.id : ""}`])
-      if ((latest.get(key) ?? "") < m.createdAt) latest.set(key, m.createdAt);
-  }
   for (const m of messages) {
     const notice = noticeOf(m.meta ?? undefined);
     if (!notice) continue;
-    if (notice.kind === "follow_up") {
-      if (notice.refs.state === "done") out.add(m.id);
-      else if (notice.refs.wake && m.author.id) {
-        const place = m.threadId ?? "";
-        const said = (latest.get(`${place}|${m.author.id}`) ?? "") > m.createdAt;
-        const after = (latest.get(place) ?? "") > m.createdAt;
-        if (said || (after && !working.has(m.author.id))) out.add(m.id);
-      }
-    } else if (notice.kind === "wake_skipped") {
+    if (notice.kind === "follow_up") out.add(m.id);
+    else if (notice.kind === "wake_skipped") {
       const named = byId.get(notice.refs.messageId ?? "");
       const told = new Set(reachOf(named?.meta).map((e) => e.handle.toLowerCase()));
       const handles = skippedHandles(notice);

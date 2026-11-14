@@ -2,9 +2,14 @@ import { expect, test } from "bun:test";
 import type { TFunction } from "i18next";
 import type { AgentProposalCard, CalendarProposal, WorkspaceActionCard } from "../src/api/types";
 import {
+  actionCardApplyKey,
+  actionCardDestroys,
   actionCardDetail,
   actionCardKey,
+  actionCardMark,
   actionCardOf,
+  actionCardSaysDone,
+  actionCardWords,
   agentProposalEnd,
   agentProposalOf,
   cardInstallAgent,
@@ -17,6 +22,9 @@ import {
   mayApplyCard,
   mayContinueStretch,
   memberRowDone,
+  memberRowNeeds,
+  memberRowsBlocked,
+  memberRowText,
   proposalLines,
   proposalStatus,
   rolesAfter,
@@ -25,7 +33,9 @@ import {
   stretchCardText,
   suggestedAiText,
 } from "../src/lib/action-cards";
+import { actionTextValues } from "../src/lib/actions";
 import { appPagePath } from "../src/lib/app-pages";
+import { hasWordsFor } from "../src/lib/errors";
 
 const HOUR = 3_600_000;
 const NOW = Date.parse("2026-10-30T12:00:00Z");
@@ -390,6 +400,46 @@ test("a card of a workspace change: read from the message, its sentence, what a 
   expect(mayApplyCard(refused, holds)).toBe(true);
 });
 
+test("a Quem pode card says who has it once applied, and its sentence names the permission", () => {
+  const holders = (row: string, everyone: number, roles: { name: string; level: number }[]): WorkspaceActionCard => ({
+    kind: "workspace_action",
+    forUserId: "u1",
+    params: {
+      action: "set_permission_holders",
+      input: { row, everyone, roles },
+      words: { permission: row, ...(row === "computers" ? { variant: "computers" } : {}) },
+      needs: "manage_roles",
+      why: "",
+    },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  });
+  const t = ((key: string, o?: Record<string, unknown>) =>
+    key === "format.list"
+      ? ((o?.names ?? []) as string[]).join(" e ")
+      : key.startsWith("permissions.")
+        ? key.split(".")[1]
+        : key) as unknown as TFunction;
+  const detail = (...a: Parameters<typeof holders>) => actionCardDetail(holders(...a), t);
+  expect(
+    detail("create_channels", 0, [
+      { name: "Financeiro", level: 1 },
+      { name: "Suporte", level: 1 },
+    ]),
+  ).toBe("Financeiro e Suporte");
+  expect(detail("create_channels", 1, [])).toBe("rolesPage.everyoneName");
+  // Nobody but the owners: said, never an empty line.
+  expect(detail("create_channels", 0, [{ name: "Suporte", level: 0 }])).toBe("rightHand.action.holdersOwnersOnly");
+  // The computers: a line each, with its step in the permission's own words.
+  expect(detail("computers", 1, [{ name: "Ops", level: 4 }])).toBe(
+    "rolesPage.everyoneName: own_browsers\nOps: control_computers",
+  );
+  expect(actionCardKey(holders("create_channels", 0, []))).toBe("rightHand.action.set_permission_holders");
+  expect(actionCardWords(holders("create_channels", 0, []), t)).toMatchObject({ short: "create_channels" });
+  expect(actionCardKey(holders("computers", 0, []))).toBe("rightHand.action.set_permission_holders_computers");
+});
+
 test("a card of a workspace change shows all it changes, and a card of their own status is only theirs to apply", () => {
   const card = (
     action: string,
@@ -440,4 +490,142 @@ test("an install turns its skill on only for the agent whose card opened it, fro
   expect(cardInstallAgent(from, "https://github.com/evil/skills", "a-dev")).toBeUndefined();
   expect(cardInstallAgent(from, link, undefined)).toBeUndefined();
   for (const raw of [null, "", "{", "[]", JSON.stringify({ url: link })]) expect(cardInstallOf(raw)).toBeNull();
+});
+
+test("an invite card says every address in its sentence, its roles under it and, once sent, who was left out and why", () => {
+  const card = (
+    words: Record<string, string> = {},
+    roleNames: string[] = ["Vendas", "Admin"],
+  ): WorkspaceActionCard => ({
+    kind: "workspace_action",
+    forUserId: "u1",
+    params: {
+      action: "invite_people",
+      input: { emails: ["ana@example.com", "bia@example.com", "caio@example.com"], roleIds: ["r1", "r2"], roleNames },
+      words: { emails: "ana@example.com, bia@example.com, caio@example.com", roles: roleNames.join(", "), ...words },
+      needs: "invite_people",
+      why: "",
+    },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  });
+  const t = ((key: string, o?: Record<string, unknown>) =>
+    o?.email
+      ? `${key}(${o.email})`
+      : o?.names
+        ? (o.names as string[]).join(" e ")
+        : o?.roles
+          ? `${key}(${o.roles}, ${o.count})`
+          : key) as unknown as TFunction;
+  // This app words it, so its click may say it knows the action.
+  expect(actionCardKey(card())).toBe("rightHand.action.invite_people");
+  // Its roles are a sentence, never a list of marks.
+  expect(actionCardDetail(card(), t)).toBe("rightHand.action.invite_roles(Vendas e Admin, 2)");
+  // Plain members: the sentence says it all.
+  expect(actionCardDetail(card({}, []), t)).toBe("");
+  const sent = card({
+    invited: "ana@example.com",
+    already_invited: "bia@example.com",
+    already_member: "caio@example.com",
+    invalid_email: "",
+  });
+  // Each address left out is a line of its own. Nothing on the card resends, so the open invitation is only said.
+  expect(actionCardDetail(sent, t)).toBe(
+    "rightHand.action.invite_roles(Vendas e Admin, 2)\nmembers.batch.had_invite(bia@example.com)\nmembers.batch.already_member(caio@example.com)",
+  );
+  // Still to apply, the sentence says what it would do. Applied, what happened: who got an invitation.
+  expect(actionCardKey(sent)).toBe("rightHand.action.invite_people");
+  expect(actionCardSaysDone(sent)).toBe(false);
+  const applied: WorkspaceActionCard = {
+    ...card({ invited: "ana@example.com, caio@example.com" }),
+    state: "applied",
+  };
+  expect(actionCardKey(applied)).toBe("rightHand.action.invite_people_sent");
+  // Its sentence then says what happened: nothing over it says it proposes a change.
+  expect(actionCardSaysDone(applied)).toBe(true);
+  expect(actionCardWords(applied, ((key: string) => key) as unknown as TFunction)).toEqual({
+    emails: "format.list",
+    count: 2,
+  });
+  // Applied by a server that names nobody invited: the card's own sentence stands.
+  expect(actionCardKey({ ...card(), state: "applied" })).toBe("rightHand.action.invite_people");
+  expect(actionCardMark(card())).toBe("members");
+  expect(actionCardDestroys(card())).toBe(false);
+  expect(actionCardApplyKey(card())).toBe("rightHand.card.apply");
+  // Its receipt names who got an invitation.
+  const receipt = {
+    kind: "workspace.changed",
+    target: { type: "person", id: "i1" },
+    params: { action: "invite_people", ...sent.params.words },
+  };
+  expect(actionTextValues(receipt as never, t)).toMatchObject({ context: "invite_people", invited: "ana@example.com" });
+});
+
+test("removing an API key: the key in its sentence, its provider under it, a change nothing brings back", () => {
+  const card: WorkspaceActionCard = {
+    kind: "workspace_action",
+    forUserId: "u1",
+    params: {
+      action: "remove_ai_key",
+      input: { credentialId: "k1" },
+      words: { name: "Chave antiga", provider: "DeepSeek" },
+      needs: "manage_credentials",
+      why: "",
+    },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  };
+  const t = ((key: string) => key) as unknown as TFunction;
+  expect(actionCardKey(card)).toBe("rightHand.action.remove_ai_key");
+  expect(actionCardDetail(card, t)).toBe("DeepSeek");
+  expect(actionCardMark(card)).toBe("key");
+  expect(actionCardDestroys(card)).toBe(true);
+  // Its button says what it does.
+  expect(actionCardApplyKey(card)).toBe("rightHand.card.delete");
+  // Only who manages keys gets it.
+  expect(mayApplyCard(card, { userId: "u1", may: (k) => k === "manage_credentials" })).toBe(true);
+  expect(mayApplyCard(card, { userId: "u1", may: (k) => k === "invite_people" })).toBe(false);
+  const other = (action: string) => ({ ...card, params: { ...card.params, action } });
+  expect(actionCardMark(other("delete_channel"))).toBe("channel");
+  expect(actionCardDestroys(other("delete_channel"))).toBe(true);
+  expect(actionCardMark(other("update_workspace"))).toBe("shield");
+  expect(actionCardDestroys(other("update_workspace"))).toBe(false);
+  // Both refusals of these cards have words of their own.
+  expect(hasWordsFor("action_card.update_app")).toBe(true);
+  expect(hasWordsFor("action_card.nobody_new")).toBe(true);
+});
+
+test("a people card's rows, as the web and the phone both say and gate them", () => {
+  const t = ((key: string, o?: Record<string, unknown>) =>
+    o?.roles ? `${key}(${o.roles})` : key) as unknown as TFunction;
+  const roleName = (id: string) => ({ r1: "Vendas", r2: "Suporte" })[id];
+  const who = { userId: "u2", name: "Bia" };
+  expect(memberRowText(t, { ...who, role: "owner" }, roleName)).toBe("rightHand.people.gets(roles.owner)");
+  expect(memberRowText(t, { ...who, role: "member" }, roleName)).toBe("rightHand.people.loses(roles.owner)");
+  expect(memberRowText(t, { ...who, remove: true }, roleName)).toBe("members.remove.item");
+  // A role that is gone is left out of the names.
+  expect(memberRowText(t, { ...who, addRoleIds: ["r1", "gone"], removeRoleIds: ["r2"] }, roleName)).toBe(
+    "rightHand.people.gets(Vendas) · rightHand.people.loses(Suporte)",
+  );
+  const members = [
+    { userId: "u2", role: "member" as const, roleIds: ["r2"] },
+    { userId: "u3", role: "owner" as const, roleIds: [] },
+  ];
+  expect(memberRowNeeds({ ...who, role: "owner" }, members)).toBe("manage_owners");
+  expect(memberRowNeeds({ ...who, remove: true }, members)).toBe("manage_members");
+  // Removing an owner is an owner's to do.
+  expect(memberRowNeeds({ userId: "u3", name: "Caio", remove: true }, members)).toBe("manage_owners");
+  expect(memberRowNeeds({ ...who, addRoleIds: ["r1"], removeRoleIds: [] }, members)).toBe("manage_members");
+  const rows = [
+    { ...who, role: "owner" as const },
+    { ...who, addRoleIds: ["r1"], removeRoleIds: ["r2"] },
+  ];
+  expect(memberRowsBlocked(rows, () => false)).toBe("rightHand.people.onlyOwners");
+  expect(memberRowsBlocked(rows.slice(1), () => false)).toBe("rightHand.people.onlyAdmins");
+  // Done from the members list, row by row: the phone's card and the web's end on the same facts.
+  expect(rows.map((r) => memberRowDone(r, members))).toEqual([false, false]);
+  const after = [{ userId: "u2", role: "owner" as const, roleIds: rolesAfter(rows[1] as never, ["r2"]) }];
+  expect(rows.map((r) => memberRowDone(r, after))).toEqual([true, true]);
 });

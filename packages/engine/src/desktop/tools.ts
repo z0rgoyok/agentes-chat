@@ -6,7 +6,6 @@ import {
   type DesktopLookReply,
   type PubSub,
 } from "@agenteschat/adapters";
-import { getAgentCached } from "../agents";
 import { recordAudit } from "../audit";
 import { handedBackSince, markPageRead, requirePageRead, waitIfPersonInControl } from "../browser/handoff";
 import { agentFolderPath, MAX_PAGE_TEXT, MAX_PLAN_STEPS } from "../browser/tools";
@@ -15,7 +14,8 @@ import { ToolOffError } from "../errors";
 import type { Judge } from "../judge";
 import { callWhenBack, type MachineCaller, MachineRequestError } from "../machine-hub";
 import { MachineOfflineError, MachinePausedError } from "../machines";
-import { getSandboxSettings, SANDBOX_SCOPE } from "../sandbox";
+import { machineScope, screenKey } from "../right-hand-seats";
+import { getSandboxSettings, SANDBOX_SCOPE, SandboxUnavailableError } from "../sandbox";
 import {
   actsBeforeOpening,
   createLookMemory,
@@ -261,7 +261,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
   const now = deps.now ?? Date.now;
   /** The screen each agent last saw: what changes are counted from, and the first target found on. */
   const seen = createLookMemory(now);
-  const seenKey = (ctx: ToolContext) => `${ctx.orgId}:${ctx.agentId}`;
+  const seenKey = screenKey;
 
   /** Whether this agent may drive its desktop now, and whether driving it asks a person first, as code does. */
   async function gateOf(
@@ -298,13 +298,15 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
     if (!status.available) return { ok: false, text: desktopUseUnavailableText(status) };
     if (!hub) return { ok: false, text: "Connected computers are not available on this server." };
     const caller = hub;
-    const row = await getAgentCached(ctx.db, ctx.orgId, ctx.agentId);
-    const agent: AgentScope = {
-      id: ctx.agentId,
-      handle: row?.handle ?? "agent",
-      ...(row?.name ? { name: row.name } : {}),
-    };
     const { machineId, machineName } = status;
+    // The right hand's desktop is the seat's its run works in, a person's own or the shared one (ADR 0175).
+    let agent: AgentScope;
+    try {
+      agent = await machineScope(caller, ctx, machineId);
+    } catch (error) {
+      if (error instanceof SandboxUnavailableError) return { ok: false, text: error.message };
+      throw error;
+    }
     const options = { signal: ctx.signal };
     // A computer just gone or asleep in standby is waited for, as the browser's and the sandbox's calls do (ADR 0161).
     const told = async <T>(call: () => Promise<T>) => {
@@ -349,7 +351,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
   async function plan(ctx: ToolContext, steps: ScreenStep[]): Promise<ToolOutput> {
     const linked = await linkFor(ctx);
     if (!linked.ok) return { content: linked.text, isError: true };
-    const key = seenKey(ctx);
+    const key = await seenKey(ctx);
     let paused: ToolOutput | null = null;
     // A take over that begins and ends within one step leaves no open handoff to see: it is checked too.
     const started = new Date();
@@ -485,7 +487,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
           return refusedOutput(error);
         }
         const screen = observationOf(look);
-        seen.remember(seenKey(ctx), screen);
+        seen.remember(await seenKey(ctx), screen);
         await markPageRead(ctx.db, ctx, "desktop");
         const question = typeof input.find === "string" ? input.find.trim() : "";
         if (question && deps.judge) {
