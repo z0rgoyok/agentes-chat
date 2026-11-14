@@ -223,7 +223,7 @@ const UPDATE_IDLE_MS = 10 * 60_000;
 const KEPT_UPDATE_WAIT_MS = 24 * 3600_000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const QUICK_TIMEOUT_MS = 15_000;
-/** One input command on the relay: a click or a key answers in milliseconds. */
+/** One fallback input command on the relay: keys and text answer in milliseconds. Pointer input goes to CDP directly. */
 const INPUT_TIMEOUT_MS = 5_000;
 /** After a failed download or install, wait this long before trying again. */
 const RETRY_FAILURE_MS = 10 * 60_000;
@@ -1241,14 +1241,11 @@ export function dragDelay(
 }
 
 /**
- * One person's input event as commands for `agent-browser`'s relay
- * (`POST /api/command` on the stream port). The daemon runs each on the
- * active tab and answers once Chrome has it, unlike the stream socket, whose
- * input goes to the tab it attached to and is never confirmed. Keys go
- * through `press` (it fills in codes and text); a modifier held on its own is
- * a raw key-down/up pair; a tap from the phone is a left click. Every mouse
- * command says which buttons are down (`buttons`, which the daemon passes to
- * Chrome as given), so a move after a press reaches the page as a drag.
+ * One person's input event as commands for the fallback `agent-browser` relay
+ * (`POST /api/command` on the stream port). Pointer commands normally go to the active tab's DevTools session
+ * directly and without waiting; this shape also carries keys and text. Keys go through `press` (it fills in codes
+ * and text); a modifier held on its own is a raw key-down/up pair; a tap from the phone is a left click. Every mouse
+ * command says which buttons are down (`buttons`), so a move after a press reaches the page as a drag.
  */
 export function relayCommands(e: BrowserInputEvent, state: InputState): Record<string, unknown>[] {
   switch (e.kind) {
@@ -1417,7 +1414,7 @@ export interface BrowserManagerOptions {
 
 interface Stream {
   socket: StreamSocket;
-  /** The daemon's stream port: frames on its socket, a person's input on its command relay. */
+  /** The daemon's stream port: frames on its socket, fallback input on its command relay. */
   port: number;
   mode: BrowserStreamMode;
   input: InputState;
@@ -1426,6 +1423,8 @@ interface Stream {
   url?: string;
   /** The active tab's title, from the stream's tab list (cleared when the URL moves on). */
   title?: string;
+  /** The active tab's Chrome target, from the stream's tab list: pointer input goes to it directly. */
+  targetId?: string;
   /** The page's size in CSS pixels, from the stream's status. */
   viewport?: { width: number; height: number };
   /** A frame went out on this stream. */
@@ -3726,7 +3725,7 @@ export class BrowserManager {
     while (session.streamOpening) await session.streamOpening.catch(() => undefined);
     if (session.stream) {
       if (session.stream.mode !== mode) {
-        if (mode === "watch") this.letGo(session.stream);
+        if (mode === "watch") this.letGo(session, session.stream);
         session.stream.mode = mode;
         // Pacing again too: a config that leaves it out may put the stream back on its default.
         session.stream.socket.send(JSON.stringify({ type: "config", pacing: "ack", maxFps: STREAM_FPS[mode] }));
@@ -3891,8 +3890,11 @@ export class BrowserManager {
     // Sent on connect and after every command: the active tab's address and title.
     if (msg.type === "tabs" && Array.isArray(msg.tabs)) {
       const active = msg.tabs.find((t) => isRecord(t) && t.active === true);
-      if (isRecord(active) && typeof active.url === "string") {
-        setUrl(active.url);
+      if (isRecord(active)) {
+        if (typeof active.url === "string") setUrl(active.url);
+        if (typeof active.targetId === "string" && active.targetId.length <= 200) {
+          stream.targetId = active.targetId;
+        }
         if (typeof active.title === "string" && active.title) {
           stream.title = active.title.slice(0, BROWSER_LIMITS.title);
         }
@@ -4036,7 +4038,7 @@ export class BrowserManager {
     const session = this.sessions.get(String(agent.id ?? ""));
     while (session?.streamOpening) await session.streamOpening.catch(() => undefined);
     if (!session?.stream) return { stopped: false };
-    this.letGo(session.stream);
+    this.letGo(session, session.stream);
     this.endStream(session, "stopped");
     return { stopped: true };
   }
@@ -4069,11 +4071,11 @@ export class BrowserManager {
   }
 
   /**
-   * `browser.input`: a person's input during a take over, in order, through
-   * the daemon's command relay (the active tab, each one confirmed before the
-   * next), a drag with the gaps the person made (`dragDelay`), never more
-   * than `DRAG_LAG_MAX_MS` behind. The stream socket only carries frames. Text with nothing on the page to take it
-   * is said (`nowhere`), and the picture taken again: an idle page may be showing what was there before.
+   * `browser.input`: a person's input during a take over, in order. Pointer events go to the active tab over the
+   * runner's own non-blocking DevTools connection, so a busy page can't hold a click behind a CDP reply; keys and
+   * text use the daemon's command relay. Drags keep the gaps the person made (`dragDelay`), never more than
+   * `DRAG_LAG_MAX_MS` behind. Text with nothing on the page to take it is said (`nowhere`), and the picture taken
+   * again: an idle page may be showing what was there before.
    */
   async input(agent: AgentScope, events: unknown[]): Promise<MachineReplies["browser.input"]> {
     const session = this.sessions.get(String(agent.id ?? ""));
@@ -4100,10 +4102,7 @@ export class BrowserManager {
           failed += 1;
           continue;
         }
-        let ok = true;
-        for (const command of relayCommands(e, stream.input)) {
-          if (!(await this.relay(stream.port, command))) ok = false;
-        }
+        const ok = await this.relayInput(session, stream, relayCommands(e, stream.input));
         if (e.kind === "text" && !asked) {
           asked = true;
           const seen = await this.relayAnswer(stream.port, { action: "evaluate", script: TAKES_TEXT });
@@ -4127,10 +4126,37 @@ export class BrowserManager {
    * The person's control ended (back to watching, or nobody watches): a button they still hold lets go where their
    * pointer was, after the input queued before, so the agent doesn't go on with it held.
    */
-  private letGo(stream: Stream) {
+  private letGo(session: Session, stream: Stream) {
     stream.inputQueue = stream.inputQueue.then(async () => {
-      for (const command of releaseHeld(stream.input)) await this.relay(stream.port, command);
+      await this.relayInput(session, stream, releaseHeld(stream.input));
     });
+  }
+
+  /**
+   * Pointer commands go straight to the tab's DevTools session, in order and without waiting for Chrome. Without a
+   * target (an older stream, or one still opening) they, and all key and text commands, use the daemon's relay.
+   */
+  private async relayInput(session: Session, stream: Stream, commands: Record<string, unknown>[]): Promise<boolean> {
+    let ok = true;
+    for (const command of commands) {
+      const direct = this.pointer(stream, session, command);
+      if (direct !== null) {
+        if (!direct) ok = false;
+        continue;
+      }
+      if (!(await this.relay(stream.port, command))) ok = false;
+    }
+    return ok;
+  }
+
+  /** A pointer command sent direct, or null when this stream has no target or DevTools counter to carry it. */
+  private pointer(stream: Stream, session: Session, command: Record<string, unknown>): boolean | null {
+    if (command.action !== "input_mouse" || !stream.targetId) return null;
+    const counter = session.chrome ? this.counters.get(session.chrome) : undefined;
+    if (!counter) return null;
+    const params = { ...command };
+    delete params.action;
+    return counter.inputMouse(stream.targetId, params);
   }
 
   /** One command on the daemon's relay; true when it ran. */

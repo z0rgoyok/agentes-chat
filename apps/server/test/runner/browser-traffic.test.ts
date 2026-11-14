@@ -94,6 +94,37 @@ test("one socket to the browser endpoint: auto-attach without pausing, then netw
   expect(cdp.sent.every((m) => m.method !== "Network.enable" || m.sessionId)).toBe(true);
 });
 
+test("pointer input goes straight to the tab's own DevTools session, without waiting for an answer", () => {
+  const { c, cdp } = counter();
+  cdp.onopen?.();
+  cdp.attach("page-1");
+  const before = cdp.sent.length;
+  const press = {
+    type: "mousePressed",
+    x: 12,
+    y: 34,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+    deltaX: 0,
+    deltaY: 0,
+    modifiers: 0,
+  };
+  expect(c.inputMouse("t-page-1", press)).toBe(true);
+  expect(cdp.sent.slice(before)).toHaveLength(1);
+  expect(cdp.sent.at(-1)).toMatchObject({
+    method: "Input.dispatchMouseEvent",
+    params: press,
+    sessionId: "page-1",
+  });
+  // A target this socket doesn't carry gets nothing, and a closed socket carries nothing either.
+  expect(c.inputMouse("another-tab", press)).toBe(false);
+  cdp.event("Target.detachedFromTarget", { sessionId: "page-1", targetId: "t-page-1" });
+  expect(c.inputMouse("t-page-1", press)).toBe(false);
+  c.close();
+  expect(c.inputMouse("t-page-1", press)).toBe(false);
+});
+
 test("received: each finished response's encoded size; a failed one, what had arrived; never below zero", () => {
   const { c, cdp } = counter();
   cdp.onopen?.();
