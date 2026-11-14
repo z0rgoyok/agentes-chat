@@ -220,8 +220,6 @@ services:
       - "443:443/udp"
     volumes:
       - caddy-data:/data
-      # Per-user HTTP Basic Auth. The file holds only usernames and password hashes.
-      - ./basic-auth.users:/etc/caddy/basic-auth.users:ro
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -253,10 +251,7 @@ configs:
   caddyfile:
     content: |
       ${DOMAIN:-localhost} {
-        basic_auth {
-          import /etc/caddy/basic-auth.users
-        }
-        request_body /mcp* {
+      	request_body /mcp* {
       		max_size 128KiB
       	}
       	reverse_proxy agentes:3000
