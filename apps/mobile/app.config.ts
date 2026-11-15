@@ -11,6 +11,8 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
  * - `ANDROID_VERSION_CODE`: the build's version code, set by the Android workflow (EAS numbers its own builds).
  * - `APPLE_TEAM_ID`: the Apple team that signs the iOS app and its share extension (a build setting, never in the
  *   repo).
+ * - `IOS_BUNDLE_ID`: the iOS application identifier for a store build. The managed fork uses its own identifier
+ *   instead of the upstream one; variants keep their existing identifiers when this is unset.
  * - `IOS_BUILD_NUMBER`: the build's number on iOS, set by the iOS workflow.
  *
  * The New Architecture is the only one since SDK 55, so there is no `newArchEnabled` flag any more
@@ -18,6 +20,7 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
  */
 const variant = process.env.APP_VARIANT ?? "production";
 const suffix = variant === "production" ? "" : `.${variant}`;
+const iosBundleIdentifier = process.env.IOS_BUNDLE_ID ?? `chat.agentes.app${suffix}`;
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "https://app.agentes.chat";
 // Links to this host open the app (universal links / App Links); the server publishes the matching /.well-known
 // files (apps/server/src/app-links.ts).
@@ -110,7 +113,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   icon: `${ICONS}/night/ios.png`,
   userInterfaceStyle: "automatic",
   ios: {
-    bundleIdentifier: `chat.agentes.app${suffix}`,
+    bundleIdentifier: iosBundleIdentifier,
     ...(process.env.APPLE_TEAM_ID ? { appleTeamId: process.env.APPLE_TEAM_ID } : {}),
     ...(process.env.IOS_BUILD_NUMBER ? { buildNumber: process.env.IOS_BUILD_NUMBER } : {}),
     // Light, dark and tinted (iOS 18).

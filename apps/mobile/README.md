@@ -43,14 +43,15 @@ Run **iOS build** (Actions → Run workflow): production only, sent to TestFligh
 an `.ipa` kept as the run's artifact). It runs `expo prebuild --platform ios --clean`, `pod install`, then
 `xcodebuild archive` and `-exportArchive` on a macOS runner. Signing is automatic: with the App Store Connect API
 key, Xcode asks Apple for the certificate and the profiles of the app and its share extension
-(`chat.agentes.app.share-extension`, app group `group.chat.agentes.app`), so no certificate or profile is stored
+(`${IOS_BUNDLE_ID}.share-extension`, with the matching app group), so no certificate or profile is stored
 anywhere. Nothing goes through EAS.
 
 One time:
-1. In App Store Connect: the app exists for `chat.agentes.app` (an upload is refused before that), and an API key
+1. In App Store Connect: the app exists for the managed bundle id (an upload is refused before that), and an API key
    with the **Admin** role (Users and Access → Integrations → App Store Connect API); automatic signing takes no
    lesser role.
-2. In GitHub → Settings → Secrets and variables → Actions: `APPLE_TEAM_ID` (the team's id), `ASC_API_KEY_ID` (the
+2. In GitHub → Settings → Secrets and variables → Actions: variable `IOS_BUNDLE_ID` (for rooms, `app.tich.rooms`),
+   then secrets `APPLE_TEAM_ID` (the team's id), `ASC_API_KEY_ID` (the
    key's id), `ASC_API_ISSUER_ID` (the issuer id) and `ASC_API_KEY_P8` (the text of the `.p8` file). Without them
    the workflow stops at its first step.
 3. Optional: the variable `IOS_BUILD_NUMBER_BASE` (added to the run number) above the last build number in App
@@ -84,6 +85,7 @@ on expo.dev (EAS environment variables) for EAS:
 | `GOOGLE_SERVICES_JSON` | Path to Firebase's `google-services.json` (the Android workflow writes it from a secret): push on Android (FCM). | none |
 | `ANDROID_VERSION_CODE` | The build's version code (the Android workflow's run). | from the config |
 | `APPLE_TEAM_ID` | The Apple team that signs the iOS app and its share extension (the iOS workflow's secret). | none |
+| `IOS_BUNDLE_ID` | The registered iOS bundle id used by the store build. | `app.tich.rooms` in the managed workflow |
 | `IOS_BUILD_NUMBER` | The build's number on iOS (the iOS workflow's run). | from the config |
 | `APP_VARIANT` | `development` / `preview` / `production`: name and bundle id suffix, so all three install side by side. | `production` |
 

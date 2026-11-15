@@ -8,9 +8,10 @@ name: iOS build
 # Runs only by hand (Actions → Run workflow). See apps/mobile/README.md, "iOS on GitHub Actions".
 #
 # Secrets (repository settings, never in the repo):
-#   APPLE_TEAM_ID: the Apple Developer team that owns chat.agentes.app
+#   APPLE_TEAM_ID: the Apple Developer team that owns the managed app's bundle id
 #   ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8: an App Store Connect API key (its id, the issuer id and the
 #     .p8 file's text) with the Admin role, which automatic signing needs
+# Variable: IOS_BUNDLE_ID, the managed app's registered iOS bundle id (for example app.tich.rooms).
 # Variable (optional): IOS_BUILD_NUMBER_BASE, added to the run number (above the last build in App Store Connect).
 # A secret still set to PLACEHOLDER (made so the names exist) counts as not set.
 on:
@@ -39,6 +40,7 @@ jobs:
     timeout-minutes: 90
     env:
       APP_VARIANT: production
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'app.tich.rooms' }}
     steps:
       # Fails in seconds, before anything is installed, when the key isn't there.
       - name: Apple secrets are set
@@ -73,7 +75,7 @@ jobs:
         env:
           BASE: ${{ vars.IOS_BUILD_NUMBER_BASE }}
         run: echo "IOS_BUILD_NUMBER=$(( ${BASE:-0} + GITHUB_RUN_NUMBER ))" >> "$GITHUB_ENV"
-      # app.config.ts reads the team and the build number; the share extension takes both from the app.
+      # app.config.ts reads the team, bundle id and build number; the share extension takes the identifier from the app.
       - name: Native project
         working-directory: apps/mobile
         env:
