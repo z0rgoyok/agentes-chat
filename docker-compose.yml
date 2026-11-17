@@ -255,7 +255,27 @@ configs:
       	request_body /mcp* {
       		max_size 128KiB
       	}
-      	reverse_proxy agentes:3000
+      	handle /.well-known/apple-app-site-association {
+      		header Content-Type application/json
+      		respond 200 <<JSON
+      		{
+      		  "applinks": {
+      		    "details": [
+      		      {
+      		        "appIDs": ["N6M79K762Y.app.tich.rooms"],
+      		        "components": [
+      		          {"/": "/invite/*"},
+      		          {"/": "/reset-password*"}
+      		        ]
+      		      }
+      		    ]
+      		  }
+      		}
+      		JSON
+      	}
+      	handle {
+      		reverse_proxy agentes:3000
+      	}
       	handle_errors 502 503 504 {
       		root * /etc/caddy/errors
       		rewrite * /unavailable.html
