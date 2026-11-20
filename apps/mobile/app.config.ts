@@ -262,7 +262,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // extension takes the app's name and shares its URL scheme; it reaches phones only with a new native build.
       "expo-share-intent",
       {
-        iosShareExtensionName: variant === "production" ? "Tich Rooms" : `Tich Rooms ${variant}`,
+        iosShareExtensionName: variant === "production" ? "Tich Rooms Share" : `Tich Rooms Share ${variant}`,
         iosActivationRules: {
           NSExtensionActivationSupportsText: true,
           NSExtensionActivationSupportsWebURLWithMaxCount: 1,
