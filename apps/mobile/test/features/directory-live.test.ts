@@ -34,17 +34,16 @@ test("adding to a channel: the ones being added keep their rows, and nobody read
   );
 });
 
-test("the channel's members: agents out of office, paused or with no AI and people not here sit under Offline, faded", () => {
+test("the channel's members: agents out of office, paused or with no AI and people not here sit under Offline, in faint", () => {
   const sheet = src("features/chat/ChannelMembers.tsx");
   // The shared rules: who is off (`isAgentOff`, `isConnected`), the groups and their counts (`sheetGroups`).
   expect(sheet).toContain("isAgentOff(a.presence)");
   expect(sheet).toContain("!isConnected(p.presence)");
   expect(sheet).toContain("sheetGroups(all, shown, off)");
   expect(sheet).toContain('t("presence.offline")');
-  expect(sheet).toContain("faded={off(w)}");
+  expect(sheet).toContain("faint={off(w)}");
   // An off agent's line by the web column's rule (its work, its own line while it lasts, why it is off), in place of how
   // it answers here.
   expect(sheet).toContain("agentMemberLine(workText(w.id), own && agentStatusShort(");
   expect(sheet).toContain("liveLine(a.noAi ? null : a.status?.status, now)");
-  expect(src("ui/Row.tsx")).toContain("opacity: faded ? FADED : 1");
 });

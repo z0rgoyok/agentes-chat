@@ -4,7 +4,9 @@ import {
   type AgentBrainInput,
   keys,
   useAgentBrain,
+  useAiAccounts,
   useApi,
+  useAuthConfig,
   useModelLabel,
   usePlatformKey,
   useRoles,
@@ -15,46 +17,50 @@ import {
   useUpdateSettings,
   useWorkspaceUsesApi,
 } from "@agenteschat/client";
-import { agentsReach, audienceOf, audiencePatch } from "@agenteschat/client/lib/audience";
+import { selfHosted } from "@agenteschat/client/lib/about";
+import { accountChoices, accountTitle, ownSignInTitle } from "@agenteschat/client/lib/ai-accounts";
+import { agentsReach, audienceOf, audiencePatch, managesAgent } from "@agenteschat/client/lib/audience";
 import { modelRows } from "@agenteschat/client/lib/brain-picker";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { readBudget } from "@agenteschat/client/lib/new-agent";
+import { rightHandUnusable } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { brainPlan } from "@agenteschat/client/lib/plans";
 import { AUTO } from "@agenteschat/client/lib/providers";
 import { mineStatus, RIGHT_HAND_POWERS, rightHandNoComputer, rightHandOf } from "@agenteschat/client/lib/right-hand";
 import { type LodiPrefsPatch, type LodiSwitch, teamWeekOn } from "@agenteschat/client/lib/right-hand-prefs";
+import { helpUrl } from "@agenteschat/client/lib/server";
 import { dayText, hourText } from "@agenteschat/client/lib/team-week";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { StyleSheet, TextInput, View } from "react-native";
+import { Trans, useTranslation } from "react-i18next";
+import { StyleSheet } from "react-native";
 import { useOrg } from "@/providers/org";
 import {
   EmptyState,
-  fieldText,
-  GROUPED_ROW,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
-  PressScale,
   ProviderLogo,
+  SectionHeader,
   Text,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openAgentEdit } from "../agents/AgentEditScreen";
+import { BudgetField } from "../agents/BudgetSection";
 import { openAgentAi, openAgentModel } from "../ai/AgentAiScreen";
 import { openConnectAi } from "../ai/NoAiCard";
-import { PlanHoldNote, usePlanHold } from "../ai/parts";
+import { openPage, PlanHoldNote, usePlanHold } from "../ai/parts";
 import { openComputer } from "../computer/AgentComputerRow";
 import { useAgentComputer } from "../computer/useAgentComputer";
 import { useFailed } from "../routines/hooks";
 import { usePersonalView } from "../settings/hooks";
 import { Gap, SettingsPage } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { type Directory, useColors, useDirectory, useMeId } from "../shared/hooks";
+import { type Directory, useDirectory, useEdition, useMeId } from "../shared/hooks";
 import { type PickLeading, pickOne } from "../shared/PickerSheet";
 import { RightHandApprovalsGroup } from "./Approvals";
 
@@ -70,7 +76,6 @@ export const openRightHandSettings = () => router.push("/settings/right-hand" as
  */
 export function RightHandSettingsScreen() {
   const { t } = useTranslation();
-  const { org } = useOrg();
   const agent = rightHandOf(useDirectory().agents);
   if (!agent)
     return (
@@ -79,16 +84,18 @@ export function RightHandSettingsScreen() {
       </SettingsPage>
     );
   return (
-    <SettingsPage title={agent.name} subtitle={t("rightHand.label")}>
+    // The budget's number pad and the guidance have no key that closes them: the system's bar over the keyboard does.
+    <SettingsPage title={agent.name} subtitle={t("rightHand.label")} toolbar>
       <Computer agentId={agent.id} />
-      <GroupTitle>{t("rightHand.settings.groupMine")}</GroupTitle>
+      <SectionHeader title={t("rightHand.settings.groupMine")} />
       <GroupedHeader>{t("rightHand.settings.mine")}</GroupedHeader>
       <RightHandMine agent={agent} />
       <RightHandApprovalsGroup />
       <OwnRows name={agent.name} />
-      {can(org, "manage_agents") ? (
+      {managesAgent(agent) ? (
         <>
-          <GroupTitle note={t("rightHand.settings.groupAdmins")}>{t("rightHand.settings.groupWorkspace")}</GroupTitle>
+          {/* Who sees the group, after its name: only who manages it (the server's `canManage`). */}
+          <SectionHeader title={`${t("rightHand.settings.groupWorkspace")} · ${t("rightHand.settings.groupAdmins")}`} />
           <Form agent={agent} />
         </>
       ) : null}
@@ -106,31 +113,18 @@ export function RightHandSettingsScreen() {
   );
 }
 
-/** A group of the screen by its name, over its lists' own headers; `note`: quiet words after it (who sees it). */
-function GroupTitle({ children, note }: { children: string; note?: string }) {
-  return (
-    <Text variant="title" accessibilityRole="header" style={styles.groupTitle}>
-      {children}
-      {note ? (
-        <Text variant="subhead" tone="muted">
-          {` · ${note}`}
-        </Text>
-      ) : null}
-    </Text>
-  );
-}
-
 /**
  * "Computador": the row opens the computer every agent's profile opens, which for the right hand is the viewer's own
  * seat on the workspace's computer and nobody else's. Where it has none for anyone (the workspace has no computer of
  * its own, or one that can't keep people apart) the row stays and says why, with nothing to open.
  */
 function Computer({ agentId }: { agentId: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
+  const auth = useAuthConfig();
   const view = useAgentComputer(agentId);
   if (view.forbidden || !view.ready || !view.facts) return null;
-  const none = rightHandNoComputer(view.desktopQ.data?.reason);
+  const none = rightHandNoComputer(view.desktopQ.data?.reason, selfHosted(auth.data));
   // No computer of the workspace's own yet: whoever may add one gets there from the row.
   const add = none === "rightHand.computerNoHome" && can(org, "pair_computers");
   return (
@@ -156,7 +150,25 @@ function Computer({ agentId }: { agentId: string }) {
           />
         )}
       </GroupedList>
-      <GroupedFooter>{t(none ?? "rightHand.computerYours")}</GroupedFooter>
+      <GroupedFooter>
+        {none === "rightHand.computerNoHomeServer" ? (
+          <Trans
+            i18nKey={none}
+            components={{
+              guide: (
+                <Text
+                  variant="footnote"
+                  accessibilityRole="link"
+                  style={styles.link}
+                  onPress={() => openPage(helpUrl("install-on-a-server", i18n.language, "computers"))}
+                />
+              ),
+            }}
+          />
+        ) : (
+          t(none ?? "rightHand.computerYours")
+        )}
+      </GroupedFooter>
     </>
   );
 }
@@ -273,7 +285,8 @@ export function RightHandMine({ agent }: { agent: Agent }) {
         label={label}
         sub={model ? `${sub} · ${model}` : sub}
         hint={hint}
-        chevron
+        // The choice opens over the screen, in place: the row's up-down mark, never a chevron (that pushes a screen).
+        menu
         onPress={() => void choose()}
       />
     </GroupedList>
@@ -298,6 +311,8 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
   const failed = useFailed();
   const meId = useMeId();
   const modelLabel = useModelLabel();
+  const aiAccounts = useAiAccounts(orgId).data;
+  const edition = useEdition();
   const view = useAgentBrain(orgId, agent.id, true, false, "workspace").data;
   const kind = agent.brain && agent.brain.kind !== "model" ? agent.brain.kind : null;
   const signIn = view?.accounts.find((a) => a.id === view.account);
@@ -320,8 +335,15 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
   const theirs = (id: string | null | undefined) =>
     id && id !== meId ? dir.memberById.get(id)?.name.split(" ")[0] : undefined;
   const plans = (view?.accounts ?? []).filter((a) => a.status === "active");
-  // A plan in use that is no longer active stays listed, so the choice never opens with nothing checked.
-  const listed = signIn && !plans.some((p) => p.id === signIn.id) ? [signIn, ...plans] : plans;
+  // Plans it can't think with now, under the choice with why, as on the web: it stands in on what can meanwhile.
+  const cant = rightHandUnusable(aiAccounts, view?.account);
+  const away = new Set(cant.flatMap((u) => u.ids));
+  // A plan in use that is no longer active stays listed, so the choice never opens with nothing checked. Each plan
+  // once, its logins grouped, as on the web.
+  const listed = accountChoices(
+    (signIn && !plans.some((p) => p.id === signIn.id) ? [signIn, ...plans] : plans).filter((p) => !away.has(p.id)),
+    [view?.account],
+  ).map((c) => c.login);
   const choose = async () => {
     const picked = await pickOne({
       title: t("rightHand.settings.workspace"),
@@ -378,8 +400,8 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
             : key
               ? { sub: key.label }
               : {})}
-          // On a billing hold nothing changes before the plan (ADR 0162).
-          chevron={!hold}
+          // On a billing hold nothing changes before the plan (ADR 0162). The choice opens in place: the up-down mark.
+          menu={!hold}
           disabled={busy || hold}
           onPress={() => void choose()}
         />
@@ -406,6 +428,48 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
       ) : plans.length === 0 ? (
         <GroupedFooter>{t("rightHand.settings.noPlans", g)}</GroupedFooter>
       ) : null}
+      {!hold && cant.length > 0 ? (
+        <>
+          <GroupedHeader>{t("rightHand.unusable.title", g)}</GroupedHeader>
+          <GroupedList>
+            {cant.map((u) => {
+              if (u.why === "computerOnly")
+                return (
+                  <GroupedRow
+                    key={u.id}
+                    leading={<ProviderLogo id={u.own.kind} size="sm" />}
+                    label={ownSignInTitle(t, u.own)}
+                    sub={t("rightHand.unusable.computerOnly", { ...g, computer: u.own.computer })}
+                    subLines={0}
+                  />
+                );
+              const owner = theirs(u.account.ownerId);
+              return (
+                <GroupedRow
+                  key={u.id}
+                  leading={<ProviderLogo id={u.account.provider ?? u.account.kind} size="sm" />}
+                  label={accountTitle(t, u.account)}
+                  sub={
+                    owner
+                      ? t("rightHand.unusable.away", { owner, computer: u.account.computer })
+                      : t("rightHand.unusable.awayYours", { computer: u.account.computer })
+                  }
+                  subLines={0}
+                />
+              );
+            })}
+            {/* Connecting one is self-host's way out: Cloud's own computer is always on. */}
+            {can(org, "pair_computers") && edition !== "cloud" && cant.some((u) => u.why === "away") ? (
+              <GroupedRow
+                icon="plus"
+                label={t("rightHand.unusable.connect")}
+                chevron
+                onPress={() => router.push("/settings/devices")}
+              />
+            ) : null}
+          </GroupedList>
+        </>
+      ) : null}
     </>
   );
 }
@@ -413,7 +477,6 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
 function Form({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
   const { orgId } = useOrg();
-  const c = useColors();
   const toast = useToast();
   const failed = useFailed();
   const usesApi = useWorkspaceUsesApi(orgId);
@@ -426,15 +489,20 @@ function Form({ agent }: { agent: Agent }) {
   const g = agentGrammar(agent.name);
   const audience = audienceOf(agent);
   const picked = audience.mode === "people" ? audience.roleIds : [];
-  const save = (patch: Parameters<typeof update.mutate>[0]) => update.mutate(patch, { onError: failed });
+  const save = (patch: Parameters<typeof update.mutate>[0], saved?: string) =>
+    update.mutate(patch, {
+      onError: failed,
+      ...(saved ? { onSuccess: () => toast({ title: saved, icon: "check" }) } : {}),
+    });
   const saveBudget = () => {
-    const typed = budget.trim().replace(",", ".");
-    const amount = typed === "" ? null : Number(typed);
-    if (amount !== null && (!Number.isFinite(amount) || amount <= 0)) {
+    // Read as every agent's budget field reads it (Edit agent's): empty for none, a comma or a point for cents.
+    const { amount, invalid } = readBudget(budget);
+    if (invalid) {
       toast({ title: t("agent.budgetInvalid"), icon: "x" });
       return;
     }
-    if (amount !== (agent.monthlyBudgetUsd ?? null)) save({ monthlyBudgetUsd: amount });
+    // A field saved as it is left: the toast says it took.
+    if (amount !== (agent.monthlyBudgetUsd ?? null)) save({ monthlyBudgetUsd: amount }, t("common.saved"));
   };
   // The people picked on the web stay; nobody and no role left picked: everyone again.
   const toggleRole = (id: string) => {
@@ -487,26 +555,14 @@ function Form({ agent }: { agent: Agent }) {
           >
             {t("rightHand.settings.budget")}
           </GroupedHeader>
-          <GroupedList>
-            <View style={styles.budget}>
-              <Text variant="body" tone="muted">
-                US$
-              </Text>
-              <TextInput
-                value={budget}
-                onChangeText={setBudget}
-                onEndEditing={saveBudget}
-                keyboardType="decimal-pad"
-                placeholder={t("rightHand.value.budgetDefault")}
-                placeholderTextColor={c.faint}
-                accessibilityLabel={t("rightHand.settings.budget")}
-                style={[styles.amount, fieldText("body"), { color: c.ink }]}
-              />
-              <Text variant="body" tone="muted">
-                {t("rightHand.settings.perMonth")}
-              </Text>
-            </View>
-          </GroupedList>
+          {/* The same field as every agent's monthly budget, saved as it is left. */}
+          <BudgetField
+            value={budget}
+            onChangeText={setBudget}
+            onEndEditing={saveBudget}
+            label={t("rightHand.settings.budget")}
+            placeholder={t("rightHand.value.budgetDefault")}
+          />
         </>
       ) : null}
 
@@ -560,12 +616,49 @@ function OwnRows({ name }: { name: string }) {
   const set = useSetTeamWeekPrefs(orgId);
   const settings = useSettings(orgId).data;
   const setSettings = useUpdateSettings(orgId);
+  // The workspace's switches flipped on the tap, by name, while their save is on its way.
+  const [flips, setFlips] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   if (!prefs) return null;
   const g = agentGrammar(name);
-  const save = (patch: LodiPrefsPatch) => set.mutate(patch, { onError: failed });
+  // The prefs' save shows a change at once and puts it back if the server refuses it: a row whose own save is on its
+  // way waits for it, every other row stays live.
+  const savingPrefs = set.isPending ? set.variables : undefined;
+  const save = (patch: LodiPrefsPatch) => {
+    if (savingPrefs && Object.keys(patch).some((k) => k in savingPrefs)) return;
+    void set.mutateAsync(patch).catch(failed);
+  };
+  const flipSetting = (id: "teamWatch" | "welcomePeople", next: boolean) => {
+    if (flips.has(id)) return;
+    setFlips((now) => new Map(now).set(id, next));
+    void setSettings
+      .mutateAsync({ [id]: next })
+      .catch(failed)
+      .finally(() =>
+        setFlips((now) => {
+          const left = new Map(now);
+          left.delete(id);
+          return left;
+        }),
+      );
+  };
   const locale = i18n.language;
   const about = (label: string, text: string) => ({ name: t("common.about", { label }), text });
-  const hours = Array.from({ length: 24 }, (_, h) => ({ value: h, label: hourText(locale, h) }));
+  // A day or an hour in the app's picker, as the "Your AI" row picks: the one in use checked, a search over the hours.
+  const pick = (
+    title: string,
+    value: number,
+    options: { value: number; label: string }[],
+    onPick: (v: number) => void,
+  ) =>
+    void pickOne({
+      title,
+      value: String(value),
+      options: options.map((o) => ({ key: String(o.value), label: o.label })),
+    }).then((key) => {
+      if (key !== null && Number(key) !== value) onPick(Number(key));
+    });
+  const hours = () => Array.from({ length: 24 }, (_, h) => ({ value: h, label: hourText(locale, h) }));
+  const days = () => [1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: d, label: dayText(locale, d) }));
   const dayOn = teamWeekOn(prefs, "day", admin);
   const weekOn = teamWeekOn(prefs, "week", admin);
   const dayLabel = t("teamWeek.settings.dayLabel");
@@ -588,23 +681,21 @@ function OwnRows({ name }: { name: string }) {
       : [];
   return (
     <>
-      <GroupTitle>{t("rightHand.settings.own.title", g)}</GroupTitle>
-      <Gap />
+      <SectionHeader title={t("rightHand.settings.own.title", g)} />
       <GroupedList>
         <GroupedRow
           icon="clock"
           label={dayLabel}
           hint={about(dayLabel, t("teamWeek.settings.dayHelp", g))}
           toggle={dayOn}
-          disabled={set.isPending}
           onPress={() => save({ dayOff: dayOn })}
         />
         {dayOn ? (
-          <Pills
+          <GroupedRow
             label={t("teamWeek.schedule.hour")}
-            value={prefs.dayHour}
-            options={hours}
-            onPick={(dayHour) => save({ dayHour })}
+            value={hourText(locale, prefs.dayHour)}
+            menu
+            onPress={() => pick(t("teamWeek.schedule.hour"), prefs.dayHour, hours(), (dayHour) => save({ dayHour }))}
           />
         ) : null}
         {admin ? (
@@ -613,24 +704,23 @@ function OwnRows({ name }: { name: string }) {
             label={weekLabel}
             hint={about(weekLabel, t("teamWeek.settings.help", g))}
             toggle={weekOn}
-            disabled={set.isPending}
             onPress={() => save({ weekOff: weekOn })}
           />
         ) : null}
         {admin && weekOn ? (
-          <Pills
+          <GroupedRow
             label={t("teamWeek.schedule.day")}
-            value={prefs.day}
-            options={[1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: d, label: dayText(locale, d) }))}
-            onPick={(day) => save({ day })}
+            value={dayText(locale, prefs.day)}
+            menu
+            onPress={() => pick(t("teamWeek.schedule.day"), prefs.day, days(), (day) => save({ day }))}
           />
         ) : null}
         {admin && weekOn ? (
-          <Pills
+          <GroupedRow
             label={t("teamWeek.schedule.hour")}
-            value={prefs.weekHour}
-            options={hours}
-            onPick={(weekHour) => save({ weekHour })}
+            value={hourText(locale, prefs.weekHour)}
+            menu
+            onPress={() => pick(t("teamWeek.schedule.hour"), prefs.weekHour, hours(), (weekHour) => save({ weekHour }))}
           />
         ) : null}
         {mine.map((r) => {
@@ -642,14 +732,13 @@ function OwnRows({ name }: { name: string }) {
               label={label}
               hint={about(label, t(`rightHand.settings.own.${r.id}Help`, g))}
               toggle={!prefs[r.off]}
-              disabled={set.isPending}
               onPress={() => save({ [r.off]: !prefs[r.off] })}
             />
           );
         })}
         {everyones.map((r) => {
           const label = t(`rightHand.settings.own.${r.words}`);
-          const on = settings?.[r.id] !== false;
+          const on = flips.get(r.id) ?? settings?.[r.id] !== false;
           return (
             <GroupedRow
               key={r.id}
@@ -658,8 +747,7 @@ function OwnRows({ name }: { name: string }) {
               sub={t("rightHand.settings.groupWorkspace")}
               hint={about(label, t(`rightHand.settings.own.${r.words}Help`, g))}
               toggle={on}
-              disabled={setSettings.isPending}
-              onPress={() => setSettings.mutate({ [r.id]: !on }, { onError: failed })}
+              onPress={() => flipSetting(r.id, !on)}
             />
           );
         })}
@@ -668,65 +756,6 @@ function OwnRows({ name }: { name: string }) {
   );
 }
 
-/** A choice of a few short values as pills that wrap (the days, the hours), the picked one filled. */
-function Pills({
-  label,
-  value,
-  options,
-  onPick,
-}: {
-  label: string;
-  value: number;
-  options: { value: number; label: string }[];
-  onPick: (value: number) => void;
-}) {
-  const c = useColors();
-  return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={styles.pills}>
-      <Text variant="footnote" tone="muted" style={styles.pillsLabel}>
-        {label}
-      </Text>
-      <View style={styles.pillRow}>
-        {options.map((o) => {
-          const on = o.value === value;
-          return (
-            <PressScale
-              key={o.value}
-              to={0.95}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: on }}
-              onPress={() => !on && onPick(o.value)}
-              style={[styles.pill, { backgroundColor: on ? c.ink : c.sunken }]}
-              contentStyle={styles.pillIn}
-            >
-              <Text variant="footnote" style={{ color: on ? c.bg : c.ink }}>
-                {o.label}
-              </Text>
-            </PressScale>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  // Over a list's own header: the lists' 16 sides, a section's room above.
-  groupTitle: { paddingTop: 24, paddingHorizontal: 16 },
-  // Inside a group: its rows' 14 sides.
-  pills: { paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
-  pillsLabel: { fontWeight: "600" },
-  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  pill: { minHeight: 32, borderRadius: 10, borderBottomLeftRadius: 3 },
-  // The whole pill presses: its padding is the press area's.
-  pillIn: { paddingHorizontal: 12, justifyContent: "center" },
-  // One row of a group, as GroupedRow's.
-  budget: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: GROUPED_ROW.padX,
-    minHeight: GROUPED_ROW.minHeight,
-  },
-  amount: { flex: 1, paddingVertical: GROUPED_ROW.tallPadY },
+  link: { textDecorationLine: "underline" },
 });

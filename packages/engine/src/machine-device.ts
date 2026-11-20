@@ -19,6 +19,7 @@ import {
 import { notifyMachineConnected } from "./notification-producers";
 import { can, getMembership, requireActiveMembership } from "./organizations";
 import { closedRefusal } from "./standing";
+import { withoutTrailingSlashes } from "./url-text";
 
 const { agents, machineDeviceCodes, machines, organizations, users } = schema;
 
@@ -168,7 +169,7 @@ export async function startDeviceCode(
         expiresAt,
         createdAt: now,
       });
-      const base = deps.publicUrl.replace(/\/+$/, "");
+      const base = withoutTrailingSlashes(deps.publicUrl);
       return {
         deviceCode,
         userCode,

@@ -8,9 +8,9 @@ import {
   widgetWaiting,
   widgetWaitText,
 } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { maySetAgentAi, noAiLockedLine, planKeyIntent } from "@agenteschat/client/lib/no-ai";
-import { can } from "@agenteschat/client/lib/permissions";
 import { type AgentColor, Icon, PixelSpinner } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
@@ -230,8 +230,9 @@ function WaitFix({ agentId, wait }: { agentId: string; wait: WidgetWait }) {
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const openComputer = useOpenComputer();
-  const owner = dir.anyAgent(agentId)?.ownerUserId === me.user.id;
-  const fix = widgetWaitFix(wait, { admin: can(org, "manage_agents"), owner });
+  const agent = dir.anyAgent(agentId);
+  const owner = agent?.ownerUserId === me.user.id;
+  const fix = widgetWaitFix(wait, { admin: managesAgent(agent), owner });
   const watches = useDesktopStatus(org.id, agentId, { enabled: fix === "openComputer" }).isSuccess;
   const stop = (e: MouseEvent) => e.stopPropagation();
   if (fix === "openComputer")

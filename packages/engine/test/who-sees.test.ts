@@ -103,7 +103,7 @@ describe("what changing who sees a task reaches", () => {
     const kept = await createIssue(deps(), person(ana.id), f.org.id, {
       title: "Dele",
       parentIssueId: parent.id,
-      assignee: { type: "person", id: bia.id },
+      assignees: [{ type: "person", id: bia.id }],
     });
     const gone = await createIssue(deps(), person(caio.id), f.org.id, { title: "Do Caio", parentIssueId: parent.id });
     await updateIssue(deps(), person(ana.id), f.org.id, gone.id, { status: "in_progress" });
@@ -430,7 +430,7 @@ describe("a task's audience", () => {
     const { ana, bia, adm } = await team();
     const task = await createIssue(deps(), person(ana.id), f.org.id, {
       title: "Plano",
-      assignee: { type: "person", id: bia.id },
+      assignees: [{ type: "person", id: bia.id }],
     });
     const limited = await setIssueAudience(deps(), person(ana.id), f.org.id, task.id, only());
     expect(limited.audience.userIds.sort()).toEqual([ana.id, bia.id].sort());
@@ -456,10 +456,10 @@ describe("a task's audience", () => {
     const { ana, bia } = await team();
     const task = await createIssue(deps(), person(ana.id), f.org.id, { title: "Só minha", audience: only(ana.id) });
     await expect(
-      updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignee: { type: "person", id: bia.id } }),
+      updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignees: [{ type: "person", id: bia.id }] }),
     ).rejects.toMatchObject({ code: "issue.assignee_outside" });
     await setIssueAudience(deps(), person(ana.id), f.org.id, task.id, only(ana.id, bia.id));
-    await updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignee: { type: "person", id: bia.id } });
+    await updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignees: [{ type: "person", id: bia.id }] });
   });
 
   test("a step follows its task when it's limited; to everyone, a step kept back stays back", async () => {
@@ -518,11 +518,11 @@ describe("a task's audience", () => {
     const task = await createIssue(deps(), person(ana.id), f.org.id, {
       title: "Plano",
       audience: only(ana.id, bia.id),
-      assignee: { type: "person", id: bia.id },
+      assignees: [{ type: "person", id: bia.id }],
     });
     await drainOutbox(f.db, f.handlers);
     expect((await listNotifications({ db: f.db }, bia.id, f.org.id)).items).toHaveLength(1);
-    await updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignee: null });
+    await updateIssue(deps(), person(ana.id), f.org.id, task.id, { assignees: [] });
     await setIssueAudience(deps(), person(ana.id), f.org.id, task.id, only(ana.id));
     expect((await listNotifications({ db: f.db }, bia.id, f.org.id)).items).toEqual([]);
   });
@@ -542,10 +542,10 @@ describe("a task's audience", () => {
 
     const closed = async (title: string) => {
       const t = await createIssue(deps(), person(ana.id), f.org.id, { title, audience: only(ana.id) });
+      await f.db.update(schema.issues).set({ status: "done" }).where(eq(schema.issues.id, t.id));
       await f.db
-        .update(schema.issues)
-        .set({ status: "done", assigneeType: "agent", assigneeId: f.agent.id })
-        .where(eq(schema.issues.id, t.id));
+        .insert(schema.issueAssignees)
+        .values({ orgId: f.org.id, issueId: t.id, assigneeType: "agent", assigneeId: f.agent.id });
       // The card counts a task an agent closed, by the task's own history.
       await f.db.insert(schema.issueActivity).values({
         orgId: f.org.id,

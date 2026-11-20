@@ -7,6 +7,9 @@ import type {
   GitHubAppSettings,
   GitProxyDeps,
   JevKey,
+  LiveDeps,
+  LiveDocs,
+  LiveImages,
   McpConnect,
   ModelGateway,
   ResolveHost,
@@ -69,4 +72,10 @@ export interface AppExtras {
   /** Speech engines and what voice messages need (ADR 0100); absent: no voice messages. */
   speech?: SpeechSettings;
   voice?: VoiceDeps;
+  /** Live files (ADR 0196): the documents this process hosts; absent: their routes answer 500. */
+  live?: LiveDocs;
+  /** What the live files' engine functions take (creating one, its pictures, office files, ADR 0198). */
+  liveDeps?: LiveDeps;
+  /** Pictures on canvases (ADR 0197); absent: made from `artifacts`, `live` and the context's gateway. */
+  images?: LiveImages;
 }

@@ -1,5 +1,6 @@
 import type { ErrorReporter, PubSub, SearchIndexResolver } from "@agenteschat/adapters";
-import { and, type Database, desc, eq, gte, inArray, isNull, lt, schema } from "@agenteschat/db";
+import { and, type Database, desc, eq, gte, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
+import { isConfidential } from "../confidential";
 import { cutText, cutTextEnd } from "../format";
 import type { ModelGateway } from "../gateway";
 import { createLlmJudge, type Judge } from "../judge";
@@ -106,7 +107,8 @@ export async function loadThread(
     .select()
     .from(messages)
     .where(and(eq(messages.orgId, orgId), eq(messages.id, threadRootId), isNull(messages.deletedAt)));
-  if (!root) return null;
+  // A confidential thread (ADR 0190) is nothing to summarize, reflect on or learn from: no other model reads it.
+  if (!root || isConfidential(root.meta)) return null;
   const replies = await db
     .select()
     .from(messages)
@@ -267,6 +269,8 @@ export async function ensurePeriodSummary(
         isNull(messages.deletedAt),
         gte(messages.createdAt, period.from),
         lt(messages.createdAt, period.to),
+        // A confidential thread's messages (ADR 0190) are in no period's summary.
+        sql`coalesce(${messages.meta}->>'confidential', '') <> 'true'`,
       ),
     )
     // The newest 500 of the period, oldest first (a busy week keeps its latest days).

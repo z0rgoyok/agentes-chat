@@ -22,6 +22,7 @@ import {
   deleteIssue,
   deliverSecret,
   drainOutbox,
+  endWork,
   enqueue,
   expireConsultations,
   grantScopes,
@@ -38,7 +39,6 @@ import {
   recoverStaleRuns,
   releaseInbox,
   reportHandOffs,
-  runAuthority,
   STRETCH,
   sendNote,
   setAgentComputerTarget,
@@ -365,8 +365,12 @@ describe("ask_agent", () => {
       status: "answered",
       answer: "Watching the staging metrics.",
     });
+    // Infra's report reaches the person where they asked, as Infra's own message: Dev isn't woken to relay it.
     const timeline = await listMessages(f.db, f.owner.id, f.org.id, f.general.id);
-    expect(timeline.at(-1)?.body).toBe("Infra is watching the metrics.");
+    expect(timeline.find((m) => m.author.id === infra.id && m.meta.handedReport)?.body).toBe(
+      "Watching the staging metrics.",
+    );
+    expect(timeline.some((m) => m.body === "Infra is watching the metrics.")).toBe(false);
   });
 
   test("a consulted agent's secret request goes to the person behind it, where they asked", async () => {
@@ -1548,7 +1552,7 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     ]);
   });
 
-  test("what came of it wakes the sender once, as the person's work, which may hand work on again", async () => {
+  test("what came of it reaches the person as the colleague's own report; the sender only notes it, waking nobody", async () => {
     f = await setup({
       askAgent: true,
       judge: notesMatter,
@@ -1566,24 +1570,25 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     const [back, ...more] = await notesBack();
     expect(more).toEqual([]);
     expect(back).toMatchObject({ channelId: f.general.id, authorAgentId: f.agent.id });
+    // On the record for the sender's next turn, waking nobody: the person already read it from Infra.
     expect(back?.meta.notice).toMatchObject({
       kind: "consult_reply",
       from: "@infra",
-      refs: { kind: "note", wake: "1", status: "answered", consultationId: row?.id, runId: row?.askerRunId },
+      refs: { kind: "note", status: "answered", consultationId: row?.id, runId: row?.askerRunId },
     });
-    const woken = (await runsOf(f.agent.id)).find((r) => r.triggerMessageId === back?.id);
-    if (!woken) throw new Error("the sender wasn't woken");
-    expect(woken.status).toBe("done");
-    expect(await runsOf(f.agent.id)).toHaveLength(2);
-    expect(await runAuthority(f.db, woken)).toEqual({ kind: "person", personId: f.owner.id });
-    const read = f.provider.calls
-      .map((c) => c.request)
-      .find((r) => lastText(r).includes("[What @infra did with the work you handed it]: Taxa de erro em 0,1%"));
-    if (!read) throw new Error("the result wasn't read");
-    expect(read.tools?.map((t) => t.name)).toContain("tell_agent");
-    expect(lastText(read)).toContain("Everything you handed off in that turn is back");
+    expect(refsOf(back as { meta: Record<string, unknown> }).wake).toBeUndefined();
+    expect(await runsOf(f.agent.id)).toHaveLength(1);
+    const report = (await f.db.select().from(schema.messages)).find(
+      (m) => m.channelId === f.general.id && m.authorAgentId === infra.id,
+    );
+    expect(report?.body).toBe("Taxa de erro em 0,1%, normal.");
+    expect(report?.meta.handedReport).toBeDefined();
     // Nothing woke Infra again to read anything.
     expect(await runsOf(infra.id)).toHaveLength(1);
+    // The model calls: Dev's turn (the hand-off, then its line) and Infra's answer. No relay turn reads the result.
+    const asked = f.provider.calls.map((c) => JSON.stringify(c.request.messages));
+    expect(asked.filter((m) => m.includes("did with the work you handed it"))).toEqual([]);
+    expect(asked).toHaveLength(3);
   });
 
   test("a bare acknowledgement closes as told: no notice and no run", async () => {
@@ -1602,7 +1607,7 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(await runsOf(f.agent.id)).toHaveLength(1);
   });
 
-  test("two notes of one turn come back together: the first close writes nothing, the second wakes once with both", async () => {
+  test("two notes of one turn come back together: the first close writes nothing, the second notes both, waking nobody", async () => {
     f = await setup({
       askAgent: true,
       judge: notesMatter,
@@ -1629,17 +1634,45 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
 
     await release(ops.id);
     const back = await notesBack();
+    // Each reported to the person itself (its handed work): the sender is not woken to relay them.
     expect(back.map((m) => [refsOf(m).agentId, refsOf(m).wake ?? null])).toEqual([
       [infra.id, null],
-      [ops.id, "1"],
+      [ops.id, null],
     ]);
-    const devRuns = await runsOf(f.agent.id);
-    expect(devRuns).toHaveLength(2);
-    expect(devRuns.some((r) => r.triggerMessageId === back[1]?.id)).toBe(true);
-    const read = f.provider.calls.map((c) => JSON.stringify(c.request.messages)).find((m) => m.includes("[What @ops"));
-    expect(read).toContain("[What @infra did with the work you handed it]: Taxa de erro normal.");
-    expect(read).toContain("[What @ops did with the work you handed it]: Fila vazia.");
-    expect(read?.match(/Everything you handed off in that turn is back/g)).toHaveLength(1);
+    expect(await runsOf(f.agent.id)).toHaveLength(1);
+  });
+
+  test("a hand-off that ended with nothing posted home wakes the sender once; one that reported home only adds to it", async () => {
+    f = await setup({ askAgent: true, judge: notesMatter });
+    await addInfra();
+    await addAgent("Ops");
+    const dev = await devRun("@dev confere com o infra e o ops");
+    await ended(dev.id);
+    await tell(dev, "@infra", "Confere a taxa de erro.");
+    await tell(dev, "@ops", "Confere a fila.");
+    const [toInfra, toOps] = await consultations();
+    // Ops's work never reached the person (as when it waited for room): its failure is Dev's to tell.
+    await f.db.delete(schema.agentWorks).where(eq(schema.agentWorks.consultationId, toOps?.id ?? ""));
+    const infraRun = await runFor(toInfra);
+    const said = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: infraRun.channelId,
+      author: { type: "agent", agentId: infraRun.agentId, runId: infraRun.id, hop: infraRun.hop },
+      body: "Taxa normal.",
+      meta: { workEnd: { id: infraRun.workId, status: "done" } },
+    });
+    await f.db
+      .update(schema.agentRuns)
+      .set({ status: "done", replyMessageId: said.id })
+      .where(eq(schema.agentRuns.id, infraRun.id));
+    await endWork({ db: f.db, pubsub: f.pubsub }, await runFor(toInfra), "done");
+    await endHook(infraRun);
+    const opsRun = await runFor(toOps);
+    await f.db.update(schema.agentRuns).set({ status: "failed" }).where(eq(schema.agentRuns.id, opsRun.id));
+    await endHook(opsRun, "failed", "boom");
+    const back = await notesBack();
+    expect(back.map((m) => refsOf(m).wake ?? null)).toEqual([null, "1"]);
+    expect(await runsOf(f.agent.id)).toHaveLength(2);
   });
 
   test("closes and claims interleaved: both closes commit before either claim, and the sender still wakes once", async () => {
@@ -1711,11 +1744,9 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     const back = await notesBack();
     expect(back.map((m) => refsOf(m).agentId)).toEqual([ops.id]);
     expect((await consultations()).find((c) => c.targetAgentId === infra.id)?.status).toBe("open");
-    // The wake says who is still out, so the agent doesn't tell the people everything is back.
-    expect(back[0]?.meta.notice).toMatchObject({ refs: { wake: "1", pending: "@infra" } });
-    const read = f.provider.calls.map((c) => lastText(c.request)).find((t) => t.includes("[What @ops did"));
-    expect(read).toContain("Still out, waiting on a person or a computer: @infra.");
-    expect(read).not.toContain("Everything you handed off in that turn is back");
+    // Ops reported to the person itself: written for Dev's record, waking nobody.
+    expect(refsOf(back[0] as { meta: Record<string, unknown> }).wake).toBeUndefined();
+    expect(await runsOf(f.agent.id)).toHaveLength(1);
     // Its approval card is where the person asked.
     const [approval] = await f.db.select().from(schema.approvals);
     expect(approval).toMatchObject({ agentId: infra.id, channelId: f.general.id, status: "pending" });
@@ -1761,7 +1792,8 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(back.map((m) => [m.channelId, refsOf(m).agentId])).toEqual([[f.general.id, infra.id]]);
     expect(await runsOf(infra.id)).toHaveLength(1);
     expect(await runsOf(ops.id)).toHaveLength(1);
-    expect(await runsOf(f.agent.id)).toHaveLength(2);
+    // Infra and Ops each reported to the person themselves: Dev is not woken to relay it.
+    expect(await runsOf(f.agent.id)).toHaveLength(1);
   });
 
   test("what comes back while the agent that handed it on still works is read at its next step, and joins its answer even if it ends first", async () => {
@@ -2261,7 +2293,7 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(await legacy()).toHaveLength(1);
   });
 
-  test("stopping or deleting the agent at work closes what it owed as failed, and the sender hears it once", async () => {
+  test("stopping or deleting the agent at work closes what it owed as failed; the person reads the ends, the sender notes them", async () => {
     f = await setup({
       askAgent: true,
       judge: notesMatter,
@@ -2291,6 +2323,7 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(await expireConsultations({ db: f.db }, new Date(Date.now() + CONSULTATION_TTL_MS + 1000))).toBe(0);
     await drainOutbox(f.db, handlers);
     expect((await notesBack()).map((m) => refsOf(m).status)).toEqual(["failed", "failed"]);
-    expect(await runsOf(f.agent.id)).toHaveLength(2);
+    // Each work posted its end where the person asked: nothing for Dev to relay.
+    expect(await runsOf(f.agent.id)).toHaveLength(1);
   });
 });

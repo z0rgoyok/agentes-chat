@@ -101,12 +101,12 @@ Architecture decisions are in [docs/adr](docs/adr).
 
 agentes.chat is licensed under the [GNU AGPL-3.0-only](LICENSE). [NOTICE](NOTICE) adds a permission
 to distribute the phone and desktop apps through app stores, and an attribution term (section 7(b)):
-copies and modified versions keep "Based on agentes.chat by Codari Global, LLC" in their About
+copies and modified versions keep "Based on agentes.chat by AGENTESCHAT, LLC" in their About
 screen. The setup CLI in `packages/setup` (`@agenteschat/setup`) is MIT. Contributions come in under
 the same terms and require our [Contributor License Agreement](CLA.md), which the CLA bot asks you
 to accept on your first pull request. Third-party notices are in [NOTICE](NOTICE) too.
 
-Codari Global, LLC also licenses agentes.chat on commercial terms, for those who change it and don't
+AGENTESCHAT, LLC also licenses agentes.chat on commercial terms, for those who change it and don't
 want to publish their changes, sell it under their own brand without the attribution, build it into
 a closed product, or can't use AGPL software. See [COMMERCIAL.md](COMMERCIAL.md).
 

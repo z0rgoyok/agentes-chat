@@ -19,6 +19,7 @@ import {
   claudeUsage,
   codexUsage,
   fetchPlanKeyUsage,
+  oldestRead,
   probeClaudeUsage,
   probeCodexUsage,
   usageCrossed,
@@ -79,10 +80,10 @@ test("a turn's rate_limit_event: its window replaced (a fraction ×100), the lim
     source: "turn",
     at,
   });
-  // Another window joins; a percentage stays one; the limit hit.
+  // Another window joins, full (a fraction of 1); the limit hit.
   const week = withRateLimit(
     first ?? undefined,
-    { status: "rejected", rateLimitType: "seven_day", utilization: 100 },
+    { status: "rejected", rateLimitType: "seven_day", utilization: 1 },
     NOW,
   );
   expect(week?.windows.map((w) => [w.kind, w.usedPercent])).toEqual([
@@ -104,6 +105,11 @@ test("a turn's rate_limit_event: its window replaced (a fraction ×100), the lim
   expect(
     withRateLimit(undefined, { status: "allowed", rateLimitType: "overage", utilization: 0.3 }, NOW)?.windows,
   ).toEqual([{ kind: "other", label: "Extra usage", usedPercent: 30 }]);
+  // Every utilization is a fraction: 1% is 0.01, and past the limit (1.2) is full, never 1%.
+  const used = (utilization: number) =>
+    withRateLimit(undefined, { status: "allowed", rateLimitType: "five_hour", utilization }, NOW)?.windows[0]
+      ?.usedPercent;
+  expect([used(0.01), used(1), used(1.2), used(0)]).toEqual([1, 100, 100, 0]);
   expect(
     withRateLimit(undefined, { status: "allowed", rateLimitType: "seven_day_overage_included", utilization: 0.5 }, NOW)
       ?.windows[0]?.kind,
@@ -146,6 +152,53 @@ test("a turn's rate_limit_event below every warning: each window's reading (unif
   expect(withRateLimit(undefined, { status: "allowed", unifiedWindows: { five_hour: { resetsAt: RESET } } }, NOW)).toBe(
     null,
   );
+});
+
+test("a window a turn's event didn't name keeps the time it was read: a fresh 5 hours never makes an old week fresh", () => {
+  const H = 3600_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const five = (u: number) => ({ five_hour: { utilization: u, resetsAt: RESET } });
+  const first = withRateLimit(
+    undefined,
+    {
+      status: "allowed",
+      unifiedWindows: { ...five(0.1), seven_day: { utilization: 0.73, resetsAt: RESET + 500_000 } },
+    },
+    NOW,
+  );
+  const later = withRateLimit(first ?? undefined, { status: "allowed", unifiedWindows: five(0.2) }, NOW + 7 * H);
+  expect(later?.at).toBe(iso(NOW + 7 * H));
+  expect(later?.windows.find((w) => w.kind === "five_hour")?.at).toBeUndefined();
+  expect(later?.windows.find((w) => w.kind === "seven_day")).toMatchObject({ usedPercent: 73, at: iso(NOW) });
+  // Carried again: still its own first time, not the last event's.
+  const again = withRateLimit(later ?? undefined, { status: "rejected", rateLimitType: "five_hour" }, NOW + 8 * H);
+  expect(again?.windows.find((w) => w.kind === "seven_day")?.at).toBe(iso(NOW));
+  // Read again: fresh, no time of its own.
+  const read = withRateLimit(
+    again ?? undefined,
+    { status: "allowed", unifiedWindows: { seven_day: { utilization: 0.03, resetsAt: RESET + 900_000 } } },
+    NOW + 9 * H,
+  );
+  expect(read?.windows.find((w) => w.kind === "seven_day")).toEqual({
+    kind: "seven_day",
+    usedPercent: 3,
+    resetsAt: new Date((RESET + 900_000) * 1000).toISOString(),
+  });
+  // Known as of its oldest window (how often the runner may read it again).
+  expect(oldestRead(later ?? undefined)).toBe(NOW);
+  expect(oldestRead(read ?? undefined)).toBe(NOW + 8 * H);
+  expect(oldestRead(undefined)).toBe(0);
+  // On the wire a window's own time is kept only when it is older than its reading.
+  const wire = parsePlanUsage({
+    windows: [
+      { kind: "seven_day", usedPercent: 73, at: iso(NOW) },
+      { kind: "five_hour", usedPercent: 5, at: iso(NOW + 9 * H) },
+      { kind: "seven_day_opus", usedPercent: 5, at: "garbage" },
+    ],
+    source: "turn",
+    at: iso(NOW + H),
+  });
+  expect(wire?.windows.map((w) => w.at)).toEqual([iso(NOW), undefined, undefined]);
 });
 
 test("get_usage: each window 0–100 with its reset, per-model and extra usage as named windows; no plan limits → null", () => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SCENE_FACES, SCENE_LINES } from "@agenteschat/client/lib/purpose-scene";
+import { pushedByDefault } from "../main-stack";
 
 // A personal workspace's onboarding drawings and agent screens on the phone (ADR 0159 §2, §3): the web's, the same data.
 const ROOT = join(import.meta.dir, "..", "..");
@@ -25,7 +26,7 @@ describe("the first question's drawings", () => {
 
 describe("a personal workspace's agent", () => {
   test("Advanced is a screen of its own, with the brakes, who it reports to, its rules, repositories and deleting it", () => {
-    expect(read("app/(app)/_layout.tsx")).toContain('<Stack.Screen name="agent-more/[id]"');
+    expect(pushedByDefault("agent-more/[id]")).toBe(true);
     const more = read("src/features/agents/AgentMoreScreen.tsx");
     for (const piece of [
       "<BrakesSection",

@@ -1,3 +1,5 @@
+import type { ImageCallOptions, ImageRequest, ImageResult } from "./images";
+
 /**
  * Provider-neutral model interface. Only the Model Gateway
  * (`@agenteschat/engine`, `createModelGateway`) calls it: no other code talks
@@ -225,6 +227,11 @@ export interface ModelProvider {
     request: ModelRequest,
     options: { apiKey: string; workspaceId?: string; organization?: string; project?: string },
   ): Promise<number>;
+  /**
+   * Pictures from a prompt (ADR 0197), where the provider has an image API: the request's `model` is the provider's
+   * own id. Optional: a provider without one makes none.
+   */
+  generateImage?(request: ImageRequest, options: ImageCallOptions): Promise<ImageResult>;
 }
 
 /** What the provider had already reported or sent when a stream failed. */

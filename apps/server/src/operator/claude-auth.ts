@@ -30,14 +30,20 @@ const PolicyInput = z
       description:
         "What NEW Claude sign-ins for all agents use on computers where each agent is its own OS user, in the workspaces `rollout` covers (`setup_token` in the others). Elsewhere they always use Claude's own login.",
     }),
-    rollout: z
-      .enum(CLAUDE_AUTH_ROLLOUTS)
-      .openapi({ description: "`selected`: only the workspaces in `orgIds`. `all`: every workspace." }),
+    rollout: z.enum(CLAUDE_AUTH_ROLLOUTS).openapi({
+      description:
+        "`selected`: only the workspaces in `orgIds`. `percent`: those plus `percent` of all workspaces, picked by a stable hash of the workspace's id (raising it only adds workspaces). `all`: every workspace.",
+    }),
     orgIds: z.array(z.uuid()).max(CLAUDE_AUTH_ORGS_MAX).openapi({ description: "Deduplicated; each must exist." }),
+    percent: z.number().int().min(0).max(100).optional().openapi({
+      description:
+        "With `percent`: the share of workspaces, 0–100 (0 when left out). Kept as 0 with any other rollout.",
+    }),
   })
   .openapi("OperatorClaudeAuthInput");
 
 const Policy = PolicyInput.extend({
+  percent: z.number().int().min(0).max(100),
   changedAt: z.string().nullable().openapi({ description: "When it last changed; null: never." }),
 }).openapi("OperatorClaudeAuthPolicy");
 
@@ -81,6 +87,7 @@ const policyJson = (p: ClaudeAuthPolicy) => ({
   method: p.method,
   rollout: p.rollout,
   orgIds: p.orgIds,
+  percent: p.percent,
   changedAt: iso(p.changedAt),
 });
 

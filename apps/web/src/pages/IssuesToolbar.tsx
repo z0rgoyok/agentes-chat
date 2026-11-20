@@ -7,6 +7,7 @@ import {
   ISSUES_SORTS,
   type IssuesViewChange,
   isDefaultIssuesView,
+  issueAssigneeKeys,
   PRIORITY_ORDER,
 } from "@agenteschat/client/lib/issues-view";
 import {
@@ -53,7 +54,7 @@ export function IssueFilters({
   const actors = useActors();
   const copy = useFilterCopy();
   const mine: Actor = { type: "person", id: me.user.id };
-  const keys = new Set([...issues.map((i) => actorKey(i.assignee)), ...view.assignees]);
+  const keys = new Set([...issues.flatMap(issueAssigneeKeys), ...view.assignees]);
   keys.delete(actorKey(mine));
   keys.delete(NO_ACTOR);
   // Agents first, then people, each by name.

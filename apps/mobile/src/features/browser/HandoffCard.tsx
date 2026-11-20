@@ -12,14 +12,15 @@ import {
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, LineIcon, Text, useToast } from "@/ui";
+import { Button, LineIcon, PressScale, Text, useToast } from "@/ui";
 import { AskButtons, AskCard, AskFoot, ExpiryLine, useAskStore } from "../chat/asks";
+import { useMessageCardCorners } from "../chat/look";
 import { openComputer } from "../computer/AgentComputerRow";
 import { IconTile } from "../connectors/ConnectorIcon";
 import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
-import { genderOf } from "../shared/logic";
+import { agentLook, genderOf } from "../shared/logic";
 import { PromptForm } from "../shared/PromptForm";
 import { useSurface } from "../shared/parts";
 import { useSheet } from "../shared/SheetHost";
@@ -29,16 +30,17 @@ import { useOpenHandoffId } from "./open";
 import { FrameView, useLiveConnection } from "./parts";
 
 /**
- * An agent's request for help in its browser, in the conversation. While nobody has opened it, it is the
- * request card: what the agent needs, "Ver a tela" showing its page as it is now, Abrir (takes the control
- * right here: the card becomes the agent's browser card) and "Agora não" (tells the agent, with an optional
- * reason). A request on the agent's desktop is the same card, Abrir taking it into the computer's full view (the
- * screen needs its room, ADR 0098), and one line that opens that view once someone helps there. Once someone is
- * in control of the browser it is the agent's browser card; once
- * it ends, the request card again, saying how it ended where its buttons were. The state comes from the message (`meta.browserHandoff`) and is refreshed
- * from the server. A push or the inbox opens this card.
+ * An agent's request for help in its browser, in the conversation, as on the web (`BrowserHandoffCard`). While nobody
+ * has opened it, it is the request card: what the agent needs, "See the screen" showing its page as it is now, Open
+ * (takes the control right here) and "Not now" (tells the agent, with an optional reason). Once someone is in control
+ * the same card says who is helping, and the agent's browser in its frame stands under it: in the person's control
+ * when it is theirs, behind Watch when it is someone else's. A request on the agent's desktop is the same card, Open
+ * taking it into the computer's full view (the screen needs its room, ADR 0098), and one line that opens that view
+ * once someone helps there. Once it ends, the request card says how it ended where its buttons were. The state comes
+ * from the message (`meta.browserHandoff`) and is refreshed from the server. A push or the inbox opens this card.
  */
 export function HandoffCard({ handoff: fromMessage }: { handoff: BrowserHandoff }) {
+  const cardCorners = useMessageCardCorners();
   const { t } = useTranslation();
   const orgId = useOrgId();
   const meId = useMeId();
@@ -56,8 +58,8 @@ export function HandoffCard({ handoff: fromMessage }: { handoff: BrowserHandoff 
     enabled: !desktop && (state === "waiting" || state === "mine"),
   });
   const opensScreen = drivesOnDesktop(h, screenQ.data);
-  // Opened from here (Abrir, a push): the browser card that takes the request's place starts open.
-  const [open, setOpen] = useState(false);
+  // Someone else helps: their page shows here only once this person asks to watch (Watch), as on the web.
+  const [watching, setWatching] = useState(false);
 
   // Over: the same request card, what was asked still its words, and how it ended and who did it where its buttons were.
   if (state === "done" || state === "failed" || state === "expired" || state === "cancelled" || state === "withdrawn") {
@@ -99,11 +101,15 @@ export function HandoffCard({ handoff: fromMessage }: { handoff: BrowserHandoff 
   }
   if (opensScreen && (state === "mine" || state === "helping")) {
     const helper = h.controllerUserId ? dir.memberById.get(h.controllerUserId)?.name : undefined;
+    // It opens the computer's screen: the press shows, with no haptic (plain navigation), and the chevron says where.
     return (
-      <Pressable
+      <PressScale
+        haptic={false}
+        fill={false}
         onPress={() => openComputer(h.agentId, h.seat)}
         accessibilityRole="button"
-        style={({ pressed }) => [styles.done, surface, pressed && styles.pressed]}
+        style={[styles.card, surface, cardCorners]}
+        contentStyle={styles.done}
       >
         <LineIcon name="laptop" variant="small" size={15} color={c.muted} />
         <Text variant="small" tone="muted" style={styles.grow}>
@@ -111,15 +117,50 @@ export function HandoffCard({ handoff: fromMessage }: { handoff: BrowserHandoff 
             ? t("mobile.browser.live.inControl")
             : t("mobile.browser.live.helping", { name: helper ?? t("channel.unknownPerson") })}
         </Text>
-      </Pressable>
+        <LineIcon name="right" variant="small" size={15} color={c.faint} />
+      </PressScale>
     );
   }
   if (state === "waiting") {
-    return (
-      <HandoffAsk handoff={h} desktop={desktop} opensScreen={opensScreen} claim={openId === h.id} onOpened={setOpen} />
-    );
+    return <HandoffAsk handoff={h} desktop={desktop} opensScreen={opensScreen} claim={openId === h.id} />;
   }
-  return <BrowserCard agentId={h.agentId} handoff={h} claim={openId === h.id} open={open} onToggle={setOpen} />;
+  const name = dir.agentById.get(h.agentId)?.name ?? t("channel.unknownAgent");
+  const helper = h.controllerUserId ? dir.memberById.get(h.controllerUserId)?.name : undefined;
+  const mine = state === "mine";
+  return (
+    <>
+      <AskCard
+        id={h.id}
+        kind={desktop ? "desktop" : "browser"}
+        agentId={h.agentId}
+        waitsFor={
+          mine
+            ? t("browser.card.helpingYou")
+            : t("browser.card.helping", { name: helper ?? t("channel.unknownPerson") })
+        }
+        lead={h.instructions}
+        well={{ tile: <IconTile name={desktop ? "laptop" : "globe"} size={20} bare />, title: name, detail: null }}
+        foot={
+          mine || watching ? null : (
+            <AskFoot>
+              <AskButtons
+                primary={
+                  <Button
+                    variant="secondary"
+                    size="card"
+                    wide
+                    label={t("browser.card.watch")}
+                    onPress={() => setWatching(true)}
+                  />
+                }
+              />
+            </AskFoot>
+          )
+        }
+      />
+      {mine || watching ? <BrowserCard agentId={h.agentId} handoff={h} claim={openId === h.id} /> : null}
+    </>
+  );
 }
 
 /** The request while it waits: the request card. */
@@ -128,14 +169,12 @@ function HandoffAsk({
   desktop,
   opensScreen,
   claim,
-  onOpened,
 }: {
   handoff: BrowserHandoff;
   desktop: boolean;
-  /** Helped on the agent's whole screen (`drivesOnDesktop`): Abrir goes to the computer's full view. */
+  /** Helped on the agent's whole screen (`drivesOnDesktop`): Open goes to the computer's full view. */
   opensScreen: boolean;
   claim: boolean;
-  onOpened: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
   const { orgId, org } = useOrg();
@@ -156,14 +195,19 @@ function HandoffAsk({
   };
 
   // `Button` gives the press's haptic: none more here, or a press taps twice.
+  // One at a time: a second tap while it takes the control would push the screen twice.
+  const taking = useRef(false);
   const take = async () => {
-    onOpened(true);
+    if (taking.current) return;
+    taking.current = true;
     try {
       await actions.takeControl(h.id);
       asks?.settle(h.id);
       if (opensScreen) openComputer(h.agentId, h.seat);
     } catch (err) {
       failed(err);
+    } finally {
+      taking.current = false;
     }
   };
   // A push or the inbox opened this request: it takes the control once (first one wins), when it is the person's.
@@ -172,7 +216,6 @@ function HandoffAsk({
   useEffect(() => {
     if (!claim || !mine || claimed.current || h.status !== "pending") return;
     claimed.current = true;
-    onOpened(true);
     actions.takeControl(h.id).then(
       () => {
         if (opensScreen) openComputer(h.agentId, h.seat);
@@ -194,7 +237,12 @@ function HandoffAsk({
         tile: <IconTile name={desktop ? "laptop" : "globe"} size={20} bare />,
         title: name,
         detail: null,
-        more: desktop ? null : { label: t("ask.seeScreen"), content: <ScreenPeek agentId={h.agentId} /> },
+        more: desktop
+          ? null
+          : {
+              label: t("ask.seeScreen"),
+              content: <ScreenPeek agentId={h.agentId} name={name} color={agentLook(agent).color} />,
+            },
       }}
       expiry={h.expiresAt ? <ExpiryLine createdAt={h.createdAt} expiresAt={h.expiresAt} /> : null}
       foot={
@@ -213,15 +261,26 @@ function HandoffAsk({
   );
 }
 
-/** The agent's page as it is now, to look at before taking it (watching only: taps do nothing). */
-function ScreenPeek({ agentId }: { agentId: string }) {
+/** The agent's page as it is now, with its pointer, to look at before taking it (watching only: taps do nothing). */
+function ScreenPeek({ agentId, name, color }: { agentId: string; name: string; color: string | undefined }) {
   const c = useColors();
   // A small look before taking it: a frame a second is enough (ADR 0040 §7.1).
   const live = useLiveConnection(agentId, true, BROWSER_FPS.preview);
   return (
     <View style={[styles.peek, { backgroundColor: c.sunken }]}>
       {live.frame ? (
-        <FrameView frame={live.frame} enabled={false} onInput={live.sendInput} />
+        <FrameView
+          frame={live.frame}
+          enabled={false}
+          onInput={live.sendInput}
+          edge={styles.peek.borderRadius}
+          cursor={{
+            agentId,
+            name,
+            color,
+            pointer: (live.handoff?.controllerUserId ?? live.controllerUserId) ? null : live.pointer,
+          }}
+        />
       ) : (
         <View style={styles.center}>
           <ActivityIndicator color={c.muted} />
@@ -233,18 +292,11 @@ function ScreenPeek({ agentId }: { agentId: string }) {
 
 const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
+  card: { borderRadius: 20 },
   // A line that wraps keeps its icon on the first.
-  done: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 20,
-  },
+  done: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   peek: { aspectRatio: 16 / 10, borderRadius: 12, overflow: "hidden" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  pressed: { opacity: 0.85 },
 });
 
 /**

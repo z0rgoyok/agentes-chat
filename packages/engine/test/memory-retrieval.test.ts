@@ -2,13 +2,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
 import {
   consolidateOrg,
+  createWikiPage,
+  drainOutbox,
   indexSource,
   insertContextItem,
   itemLabel,
   type NewContextItem,
+  postPersonMessage,
   recordContextUse,
   retrieveForRun,
+  retrieveWikiForRun,
   searchVisible,
+  sharedQueryEmbedding,
+  type WikiActor,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
 
@@ -36,6 +42,8 @@ async function add(values: Partial<NewContextItem> & Pick<NewContextItem, "conte
   await indexSource(f.context, { orgId: f.org.id, kind: "context_item", sourceId: item.id });
   return item;
 }
+
+const person = (): WikiActor => ({ type: "person", userId: f.owner.id });
 
 const said = (by: string) => ({
   createdByKind: "person" as const,
@@ -234,5 +242,62 @@ describe("dates on facts, and re-checks (ADR 0167)", () => {
       "active",
       "active",
     ]);
+  });
+});
+
+describe("one query embedding for a run's memory and wiki", () => {
+  test("both searches read the trigger's one embedding, and find what they found alone", async () => {
+    f = await setup({ embeddings: true, contextTools: true, wikiTools: true });
+    await add({ title: "Deploy da Northwind", content: "Deploy Northwind with scripts/blue.sh." });
+    const page = await createWikiPage({ db: f.db, pubsub: f.pubsub, search: f.context }, person(), f.org.id, {
+      title: "Deploy",
+      folder: "",
+      body: "Northwind deploys go through scripts/blue.sh after the checks pass.",
+    });
+    await drainOutbox(f.db, f.handlers);
+    const text = "Como faço o deploy da Northwind?";
+    const before = f.embeddings.calls.length;
+    const queryEmbedding = sharedQueryEmbedding(f.context, f.org.id, text, ["context_item", "wiki"]);
+    const [memory, wiki] = await Promise.all([
+      retrieveForRun(f.context, {
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        channelId: f.general.id,
+        text,
+        queryEmbedding,
+      }),
+      retrieveWikiForRun(
+        { db: f.db, search: f.context },
+        { orgId: f.org.id, text, queryEmbedding, reader: async () => person() },
+      ),
+    ]);
+    expect(f.embeddings.calls.slice(before)).toEqual([[text]]);
+    expect(memory.text).toContain("blue.sh");
+    expect(wiki.pageIds).toContain(page.id);
+  });
+
+  test("a run embeds its trigger once for both", async () => {
+    f = await setup({ embeddings: true, contextTools: true, wikiTools: true });
+    await add({ title: "Deploy da Northwind", content: "Deploy Northwind with scripts/blue.sh." });
+    await createWikiPage({ db: f.db, pubsub: f.pubsub, search: f.context }, person(), f.org.id, {
+      title: "Deploy",
+      folder: "",
+      body: "Northwind deploys go through scripts/blue.sh after the checks pass.",
+    });
+    await drainOutbox(f.db, f.handlers);
+    const queries: string[][] = [];
+    const embed = f.embeddings.embed.bind(f.embeddings);
+    f.embeddings.embed = (texts, options) => {
+      if (options.inputType === "query") queries.push(texts);
+      return embed(texts, options);
+    };
+    const body = "@dev como faço o deploy da Northwind?";
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body });
+    await drainOutbox(f.db, f.handlers);
+    expect(queries).toEqual([[body]]);
+    // Both found it: the memory item and the wiki page went into the run's prompt.
+    const sent = JSON.stringify(f.provider.calls);
+    expect(sent).toContain("Deploy Northwind with scripts/blue.sh.");
+    expect(sent).toContain("after the checks pass");
   });
 });

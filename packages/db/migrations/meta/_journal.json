@@ -1926,6 +1926,209 @@
       "when": 1794757200000,
       "tag": "0278_workspace_approvals_level",
       "breakpoints": true
+    },
+    {
+      "idx": 277,
+      "version": "7",
+      "when": 1794757300000,
+      "tag": "0279_voice_clip_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 278,
+      "version": "7",
+      "when": 1794780937391,
+      "tag": "0280_outbox_last_error_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 279,
+      "version": "7",
+      "when": 1794790937391,
+      "tag": "0281_issue_assignees",
+      "breakpoints": true
+    },
+    {
+      "idx": 280,
+      "version": "7",
+      "when": 1794832275026,
+      "tag": "0282_handed_works",
+      "breakpoints": true
+    },
+    {
+      "idx": 281,
+      "version": "7",
+      "when": 1794854801793,
+      "tag": "0283_run_id_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 282,
+      "version": "7",
+      "when": 1794859029901,
+      "tag": "0285_query_sweep",
+      "breakpoints": true
+    },
+    {
+      "idx": 283,
+      "version": "7",
+      "when": 1794867197842,
+      "tag": "0286_confidential_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 284,
+      "version": "7",
+      "when": 1794867198842,
+      "tag": "0287_confidential_thread_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1794867298842,
+      "tag": "0288_next_account_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1794917194719,
+      "tag": "0289_outside_collaborators",
+      "breakpoints": true
+    },
+    {
+      "idx": 287,
+      "version": "7",
+      "when": 1794917393261,
+      "tag": "0290_workspace_accent",
+      "breakpoints": true
+    },
+    {
+      "idx": 288,
+      "version": "7",
+      "when": 1794933529896,
+      "tag": "0291_support_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 289,
+      "version": "7",
+      "when": 1794942564490,
+      "tag": "0292_brand_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 290,
+      "version": "7",
+      "when": 1794947961099,
+      "tag": "0293_chat_surfaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 291,
+      "version": "7",
+      "when": 1794952526821,
+      "tag": "0294_machine_wake_wanted",
+      "breakpoints": true
+    },
+    {
+      "idx": 292,
+      "version": "7",
+      "when": 1794952626821,
+      "tag": "0295_handed_for_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 293,
+      "version": "7",
+      "when": 1794963495178,
+      "tag": "0296_run_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 294,
+      "version": "7",
+      "when": 1794964106130,
+      "tag": "0297_operator_events_covering",
+      "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "7",
+      "when": 1794984191596,
+      "tag": "0298_host_powered_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 296,
+      "version": "7",
+      "when": 1794984291596,
+      "tag": "0299_personal_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1794994291596,
+      "tag": "0300_live_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 298,
+      "version": "7",
+      "when": 1795004291596,
+      "tag": "0301_drive_files_shared",
+      "breakpoints": true
+    },
+    {
+      "idx": 299,
+      "version": "7",
+      "when": 1795014291596,
+      "tag": "0302_agent_editors",
+      "breakpoints": true
+    },
+    {
+      "idx": 300,
+      "version": "7",
+      "when": 1795025576604,
+      "tag": "0303_lodi_own_sign_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 301,
+      "version": "7",
+      "when": 1795028809526,
+      "tag": "0304_claude_auth_percent",
+      "breakpoints": true
+    },
+    {
+      "idx": 302,
+      "version": "7",
+      "when": 1795031928914,
+      "tag": "0305_drive_folders",
+      "breakpoints": true
+    },
+    {
+      "idx": 303,
+      "version": "7",
+      "when": 1795041928914,
+      "tag": "0306_after_message_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 304,
+      "version": "7",
+      "when": 1795051928914,
+      "tag": "0307_workspace_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 305,
+      "version": "7",
+      "when": 1795061928914,
+      "tag": "0308_machine_disconnects",
+      "breakpoints": true
     }
   ]
 }

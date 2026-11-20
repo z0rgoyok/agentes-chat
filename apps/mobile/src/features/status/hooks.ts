@@ -1,12 +1,18 @@
 import {
   type AgentStatus,
   type AgentWork,
+  type AiStatus,
+  agentStatusQuery,
+  aiStatusQuery,
+  type Channel,
+  channelsQuery,
   type MemberPresence,
   type MemberStatus,
   type Person,
+  peopleQuery,
   useAgentStatuses,
   useAiStatus,
-  useChannels,
+  useApi,
   usePeople,
 } from "@agenteschat/client";
 import { WORK_TICK_MS, type WorkLine, workDetail, workLine } from "@agenteschat/client/lib/agent-work";
@@ -23,7 +29,9 @@ import {
   isOutOfOffice,
   type LIMIT_ICON,
 } from "@agenteschat/client/lib/presence";
-import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { lineText, personLine } from "./logic";
@@ -51,31 +59,161 @@ export interface AgentShown {
   noAi: boolean;
 }
 
+type AiState = AiStatus["agents"][number]["state"];
+
+/** Stands for a list not loaded yet, as a cache key. */
+const UNREAD = {};
+
+/** People and agents' statuses by id, once per list (the query cache's arrays, new only when a list changes). */
+const peopleMaps = new WeakMap<Person[], ReadonlyMap<string, Person>>();
+const statusMaps = new WeakMap<AgentStatus[], ReadonlyMap<string, AgentStatus>>();
+
+function byUserOf(people: Person[]): ReadonlyMap<string, Person> {
+  let map = peopleMaps.get(people);
+  if (!map) {
+    map = new Map(people.map((p) => [p.userId, p]));
+    peopleMaps.set(people, map);
+  }
+  return map;
+}
+
+function byAgentOf(statuses: AgentStatus[]): ReadonlyMap<string, AgentStatus> {
+  let map = statusMaps.get(statuses);
+  if (!map) {
+    map = new Map(statuses.map((a) => [a.agentId, a]));
+    statusMaps.set(statuses, map);
+  }
+  return map;
+}
+
+function agentShown(
+  status: AgentStatus | undefined,
+  ai: AiState | undefined,
+  t: TFunction,
+  language: string,
+): AgentShown {
+  const { presence, noAi } = agentFaceOf(status, ai);
+  // Without an AI it does nothing: no line either.
+  const line = !noAi && status?.status ? agentStatusText(t, status.status, language) : null;
+  return { presence, work: status?.work ?? null, line, status, noAi };
+}
+
+/** One set of lists' `PresenceOf`, with the language it words the lines in. */
+interface KeptPresence {
+  t: TFunction;
+  language: string;
+  of: PresenceOf;
+}
+
+/**
+ * `PresenceOf` by the lists it reads (people, then statuses, then AIs): every face and row asking with the same lists
+ * gets the same object, its maps made once. A line is still worded on each call: an out of office one says when it
+ * is back relative to now.
+ */
+const presences = new WeakMap<object, WeakMap<object, WeakMap<object, KeptPresence>>>();
+
+function presenceOf(
+  people: Person[] | undefined,
+  statuses: AgentStatus[] | undefined,
+  ai: AiStatus | undefined,
+  t: TFunction,
+  language: string,
+): PresenceOf {
+  let byStatuses = presences.get(people ?? UNREAD);
+  if (!byStatuses) {
+    byStatuses = new WeakMap();
+    presences.set(people ?? UNREAD, byStatuses);
+  }
+  let byAi = byStatuses.get(statuses ?? UNREAD);
+  if (!byAi) {
+    byAi = new WeakMap();
+    byStatuses.set(statuses ?? UNREAD, byAi);
+  }
+  const kept = byAi.get(ai ?? UNREAD);
+  if (kept && kept.t === t && kept.language === language) return kept.of;
+  const byUser = people ? byUserOf(people) : undefined;
+  const byAgent = statuses ? byAgentOf(statuses) : undefined;
+  const of: PresenceOf = {
+    person: (userId) => {
+      const p = byUser?.get(userId);
+      return p ? { presence: p.presence, status: p.status } : null;
+    },
+    agent: (agentId) => (byAgent ? agentShown(byAgent.get(agentId), aiStateOf(ai, agentId), t, language) : null),
+  };
+  byAi.set(ai ?? UNREAD, { t, language, of });
+  return of;
+}
+
 export function usePresenceOf(): PresenceOf {
   const orgId = useOrgId();
   const { t, i18n } = useTranslation();
   const people = usePeople(orgId);
   const agents = useAgentStatuses(orgId);
   const ai = useAiStatus(orgId);
-  return useMemo(() => {
-    const byUser = new Map((people.data ?? []).map((p) => [p.userId, p]));
-    const byAgent = new Map((agents.data ?? []).map((a) => [a.agentId, a]));
-    return {
-      person: (userId) => {
-        const p = byUser.get(userId);
-        return p ? { presence: p.presence, status: p.status } : null;
-      },
-      agent: (agentId) => {
-        if (!agents.data) return null;
-        const status = byAgent.get(agentId);
-        const { presence, noAi } = agentFaceOf(status, aiStateOf(ai.data, agentId));
-        // Without an AI it does nothing: no line either.
-        const line = !noAi && status?.status ? agentStatusText(t, status.status, i18n.language) : null;
-        return { presence, work: status?.work ?? null, line, status, noAi };
-      },
-    };
-  }, [people.data, agents.data, ai.data, t, i18n.language]);
+  return presenceOf(people.data, agents.data, ai.data, t, i18n.language);
 }
+
+/** A person's presence and line (`PresenceOf.person`), drawn again only when theirs change; null while unknown. */
+export function usePersonPresence(
+  userId: string | null | undefined,
+): { presence: MemberPresence; status: MemberStatus | null } | null {
+  const api = useApi();
+  const orgId = useOrgId();
+  const pick = useCallback(
+    (people: Person[]) => {
+      const p = userId ? byUserOf(people).get(userId) : undefined;
+      return p ? { presence: p.presence, status: p.status } : null;
+    },
+    [userId],
+  );
+  return useQuery({ ...peopleQuery(api, orgId), select: pick }).data ?? null;
+}
+
+/** An agent's face, whether it has no AI, its status row and its work for this person (`PresenceOf.agent`'s). */
+export interface AgentPresence {
+  presence: AgentFace;
+  noAi: boolean;
+  status: AgentStatus | undefined;
+  work: AgentWork | null;
+}
+
+/**
+ * An agent's face and status (`PresenceOf.agent`, without the worded line), drawn again only when its own row in the
+ * statuses or its AI's state changes; null while the statuses load.
+ */
+export function useAgentPresence(agentId: string | null | undefined): AgentPresence | null {
+  const api = useApi();
+  const orgId = useOrgId();
+  // A holder, so a loaded list without the agent is told from one not loaded yet (no data at all).
+  const pickStatus = useCallback(
+    (statuses: AgentStatus[]) => ({ status: agentId ? byAgentOf(statuses).get(agentId) : undefined }),
+    [agentId],
+  );
+  const pickAi = useCallback((ai: AiStatus) => (agentId ? (aiStateOf(ai, agentId) ?? null) : null), [agentId]);
+  const row = useQuery({ ...agentStatusQuery(api, orgId), select: pickStatus }).data;
+  const ai = useQuery({ ...aiStatusQuery(api, orgId), select: pickAi }).data;
+  if (!row) return null;
+  const { presence, noAi } = agentFaceOf(row.status, ai);
+  return { presence, noAi, status: row.status, work: row.status?.work ?? null };
+}
+
+const NO_NAMES: Readonly<Record<string, string>> = {};
+const namesOf = (channels: Channel[]): Readonly<Record<string, string>> =>
+  Object.fromEntries(channels.map((c) => [c.id, c.name]));
+
+/**
+ * The channels' names by id, from the channels' list (`useChannels`' read): a plain object the query keeps while no
+ * name changes, so what reads it draws again for a renamed channel, not for each message in one.
+ */
+export function useChannelNames(): Readonly<Record<string, string>> {
+  const api = useApi();
+  const orgId = useOrgId();
+  return useQuery({ ...channelsQuery(api, orgId), select: namesOf }).data ?? NO_NAMES;
+}
+
+/** A channel's name in `useChannelNames`' object (undefined when unknown). */
+export const channelNameIn = (names: Readonly<Record<string, string>>, id: string) =>
+  Object.hasOwn(names, id) ? names[id] : undefined;
 
 /**
  * An agent's work for this person in a list's words (ADR 0084 addendum of 2026-11-13): "ajudando a Ada · 22 min",
@@ -83,10 +221,9 @@ export function usePresenceOf(): PresenceOf {
  */
 export function useAgentWorkLine(agentId: string | null | undefined, here?: string | null): WorkLine | null {
   const { t, i18n } = useTranslation();
-  const orgId = useOrgId();
   const dir = useDirectory();
-  const channels = useChannels(orgId).data;
-  const work = usePresenceOf().agent(agentId ?? "")?.work ?? null;
+  const channels = useChannelNames();
+  const work = useAgentPresence(agentId)?.work ?? null;
   const now = useNow(WORK_TICK_MS);
   return agentId
     ? workLine(
@@ -95,7 +232,7 @@ export function useAgentWorkLine(agentId: string | null | undefined, here?: stri
         work,
         {
           agentName: (id) => dir.agentById.get(id)?.name,
-          channelName: (id) => channels?.find((c) => c.id === id)?.name,
+          channelName: (id) => channelNameIn(channels, id),
           here: here ?? null,
         },
         now,
@@ -154,9 +291,8 @@ export interface AgentProfileStatus {
  */
 export function useAgentProfileStatus(agentId: string, name: string): AgentProfileStatus | null {
   const { t, i18n } = useTranslation();
-  const orgId = useOrgId();
   const dir = useDirectory();
-  const channels = useChannels(orgId).data;
+  const channels = useChannelNames();
   const shown = usePresenceOf().agent(agentId);
   if (!shown) return null;
   const key = agentWhyKey(shown.presence, shown.noAi);
@@ -167,7 +303,7 @@ export function useAgentProfileStatus(agentId: string, name: string): AgentProfi
         shown.work,
         {
           agentName: (id) => dir.agentById.get(id)?.name,
-          channelName: (id) => channels?.find((c) => c.id === id)?.name,
+          channelName: (id) => channelNameIn(channels, id),
         },
         i18n.language,
       );

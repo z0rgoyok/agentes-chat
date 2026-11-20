@@ -5,6 +5,7 @@
   },
   "common": {
     "close": "Cerrar",
+    "details": "Detalles",
     "joinSentences": "{{a}} {{b}}",
     "cantUndo": "No se puede deshacer.",
     "removeName": "Quitar a {{name}}",
@@ -325,8 +326,8 @@
       "noTalk": "Quien solo tiene {{name}} no habla con agentes.",
       "turnOnTalk": "Activar Hablar con agentes",
       "search": "Buscar agente",
-      "notYours": "Solo {{owner}}, responsable de {{name}}, o quien edita cualquier agente lo cambia.",
-      "notYoursNoOwner": "Solo quien edita cualquier agente lo cambia.",
+      "notYours": "Solo {{owner}}, responsable de {{name}}, o quien edita agentes lo cambia.",
+      "notYoursNoOwner": "Solo quien edita agentes lo cambia.",
       "none": "Todavía no hay agentes.",
       "noMatch": "Ningún agente con “{{q}}”."
     },
@@ -406,7 +407,7 @@
     },
     "view_all_agents": {
       "title": "Ver todos los agentes",
-      "desc": "En Equipo y en la barra lateral. Sin esto, solo los que le responden a la persona.",
+      "desc": "En Equipo y en la barra lateral, salvo los agentes personales de otros. Sin esto, solo los que le responden a la persona.",
       "short": "ver todos los agentes",
       "say": "ve todos los agentes"
     },
@@ -418,9 +419,9 @@
     },
     "manage_routines": {
       "title": "Crear rutinas",
-      "desc": "Trabajo que el agente hace solo, a horas fijas.",
+      "desc": "Trabajo que un agente hace solo a una hora fija, en los agentes con los que la persona habla.",
       "short": "crear rutinas",
-      "say": "crea rutinas"
+      "say": "crea rutinas en los agentes con los que habla"
     },
     "approve_actions": {
       "title": "Aprobar acciones de los agentes",
@@ -435,10 +436,10 @@
       "say": "crea agentes"
     },
     "manage_agents": {
-      "title": "Editar cualquier agente",
-      "desc": "Instrucciones, cerebro, presupuesto y lo que usa cada uno.",
+      "title": "Editar agentes",
+      "desc": "Instrucciones, cerebro, presupuesto y lo que usa cada uno, en los agentes con los que la persona habla. Los agentes privados de otras personas quedan fuera.",
       "short": "editar agentes",
-      "say": "edita cualquier agente"
+      "say": "edita los agentes con los que habla"
     },
     "pair_computers": {
       "title": "Conectar computadoras",
@@ -613,6 +614,9 @@
     "hidePassword": "Ocultar contraseña",
     "capsLock": "Bloq Mayús está activado",
     "tooManyTries": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+    "passwordTries_one": "Demasiados intentos de contraseña en esta cuenta. Inténtalo de nuevo en {{count}} minuto.",
+    "passwordTries_many": "Demasiados intentos de contraseña en esta cuenta. Inténtalo de nuevo en {{count}} minutos.",
+    "passwordTries_other": "Demasiados intentos de contraseña en esta cuenta. Inténtalo de nuevo en {{count}} minutos.",
     "accountBlocked": "Esta cuenta no puede iniciar sesión.",
     "passwordHelp": "Al menos 8 caracteres.",
     "passwordOk": "Contraseña válida.",
@@ -633,6 +637,7 @@
     "termsMiddle": " y la ",
     "privacy": "Política de privacidad",
     "termsAfter": ".",
+    "poweredBy": "Hecho con agentes.chat",
     "signOut": "Cerrar sesión",
     "earlyAccess": {
       "otherEmail": "Esta invitación es para otra dirección. Regístrate con la dirección a la que se envió.",
@@ -652,7 +657,7 @@
       "change": "Cambiar",
       "password": "Qué bueno verte de nuevo.",
       "passwordLead": "Ahora tu contraseña.",
-      "wrong": "Mmm, esa contraseña no coincide.",
+      "wrong": "Esa contraseña no coincide.",
       "social": "Inicias sesión con {{providers}}.",
       "socialLead": "Esta cuenta no tiene contraseña. Continúa aquí.",
       "createPassword": "Prefiero crear una contraseña",
@@ -771,7 +776,7 @@
     "expiredText": "Las invitaciones duran 7 días.",
     "askNew": "Pedir una nueva invitación",
     "askedNew": "Pedido enviado",
-    "askNewFailed": "No pudimos pedirla desde aquí: puede que una invitación más nueva haya reemplazado este enlace o que se haya cancelado. Busca el correo de invitación más reciente, o pregúntale a quien te invitó.",
+    "askNewFailed": "No pudimos pedirla desde aquí. Puede que alguien haya cancelado este enlace o enviado una invitación más nueva. Busca el correo de invitación más reciente, o pregúntale a quien te invitó.",
     "from": "Invitación de {{name}}",
     "crew_one": "{{names}} trabaja allí",
     "crew_many": "{{names}} trabajan allí",
@@ -1223,13 +1228,137 @@
         "held": "Conectar con MCP funciona cuando el plan del espacio de trabajo esté activo. Por ahora, trae los agentes por aquí.",
         "paused": "Conectar con MCP está desactivado mientras este espacio de trabajo esté en pausa. Por ahora, trae los agentes por aquí."
       },
+      "haveFileButton": "Tengo un archivo o enlace",
+      "sheet": {
+        "title": "Traer el equipo de {{app}}",
+        "otherTitle": "Traerlos de otra app",
+        "workspaceTitle": "Traerlos de otro espacio de trabajo",
+        "fileTitle": "Traerlos de un archivo o enlace",
+        "fileLead": "El archivo de cualquier app que conocemos. Se reconoce solo.",
+        "paths": {
+          "lead": "Elige cómo traerlos. Revisas todo antes de que se cree nada.",
+          "best": "el más completo",
+          "safe": "Las claves, contraseñas y sesiones de {{app}} nunca vienen, por ningún camino.",
+          "command": {
+            "title": "Con un comando",
+            "line": "Trae todo, incluso archivos y workflows. Con un asistente de código o la terminal"
+          },
+          "mcp": {
+            "title": "Conectando {{app}}",
+            "line": "Crea los agentes aquí por MCP. Sin archivos ni workflows"
+          },
+          "prompt": {
+            "title": "Pidiéndoselo a {{app}}",
+            "line": "Escribe lo que sabe y tú lo pegas aquí. Sin archivos ni workflows"
+          }
+        },
+        "useRequest": "Prefiero pegar el pedido y traer la respuesta",
+        "backToMcp": "Volver a MCP",
+        "waitingMore": "Esperando a los siguientes…",
+        "arrivedMore": "Puede que {{app}} todavía los esté creando. Los que lleguen después aparecerán aquí.",
+        "arrivedMoreAny": "Puede que tu app de IA todavía los esté creando. Los que lleguen después aparecerán aquí.",
+        "readHere": "Se lee en tu navegador. Nada cambia aquí hasta que confirmes.",
+        "request": {
+          "grok-bot": {
+            "lead": "El bot escribe todo lo que tiene en un JSON. Lo pegas aquí y lo revisas antes de que se cree nada.",
+            "copyStep": "Pégalo en el chat con tu bot",
+            "answerStep": "Pega aquí toda su respuesta",
+            "answerPlaceholder": "El JSON que respondió el bot"
+          },
+          "chatgpt-dots": {
+            "lead": "Tu dot escribe todo lo que tiene en un archivo. Lo sueltas aquí y lo revisas antes de que se cree nada.",
+            "copyStep": "Pégalo en un chat nuevo",
+            "answerStep": "Suelta aquí el archivo que genere"
+          },
+          "other": {
+            "copyStep": "Pégalo en una conversación nueva en la otra app",
+            "answerStep": "Suelta el archivo que te devuelva, o pega su respuesta",
+            "answerPlaceholder": "La respuesta, o un enlace de GitHub"
+          },
+          "computer": {
+            "lead": "Un agente de {{app}} escribe lo que sabe en un archivo, y tú lo revisas antes de que se cree nada.",
+            "copyStep": "En una conversación con un agente de {{app}}, pega este pedido",
+            "answerStep": "Suelta el archivo que cree, o pega su respuesta",
+            "answerPlaceholder": "La respuesta de {{app}}"
+          }
+        },
+        "workspace": {
+          "download": "Descarga el archivo del otro espacio de trabajo",
+          "where": "Allí, en Configuración › Importar y exportar › Descargar el archivo.",
+          "open": "Abrir {{org}} en una pestaña nueva",
+          "drop": "Suelta aquí el .json"
+        },
+        "lead": "Tu asistente lee {{app}} en esta computadora y guarda un archivo donde elijas. Revisas todo antes de que se cree nada.",
+        "leadCommand": "El comando lee {{app}} en esta computadora y guarda un archivo donde elijas. Revisas todo antes de que se cree nada.",
+        "pasteAssistant": "Pega esto en tu asistente de código",
+        "pasteTerminal": "Pega esto en una terminal",
+        "pastePowerShell": "Pega esto en PowerShell",
+        "promptLabel": "Pedido para el asistente de código",
+        "commandLabel": "Comando",
+        "copy": "Copiar el pedido",
+        "assistants": "Claude Code, Codex u otro que ejecute comandos en esta computadora.",
+        "commandHelp": "Pregunta dónde guardar y escribe un archivo. No se envía nada.",
+        "useCommand": "Prefiero ejecutar el comando por mi cuenta",
+        "usePrompt": "Volver al pedido para el asistente",
+        "os": {
+          "label": "Sistema de esta computadora",
+          "unix": "Mac o Linux",
+          "windows": "Windows"
+        },
+        "dropStep": "Suelta aquí el archivo que guarde",
+        "drop": "Suelta el archivo aquí",
+        "dropHelp": "{{file}}, en la carpeta que elegiste",
+        "safe": "Solo lectura. Las claves, contraseñas e inicios de sesión de {{app}} nunca se leen.",
+        "ready_one": "{{count}} agente listo para venir",
+        "ready_many": "{{count}} agentes listos para venir",
+        "ready_other": "{{count}} agentes listos para venir",
+        "readyOther": "Listo para venir",
+        "others_one": "Y {{count}} agente más",
+        "others_many": "Y {{count}} agentes más",
+        "others_other": "Y {{count}} agentes más",
+        "routines_one": "{{count}} rutina",
+        "routines_many": "{{count}} rutinas",
+        "routines_other": "{{count}} rutinas",
+        "notes_one": "{{count}} recuerdo",
+        "notes_many": "{{count}} recuerdos",
+        "notes_other": "{{count}} recuerdos",
+        "skills_one": "{{count}} habilidad",
+        "skills_many": "{{count}} habilidades",
+        "skills_other": "{{count}} habilidades",
+        "channels_one": "{{count}} canal",
+        "channels_many": "{{count}} canales",
+        "channels_other": "{{count}} canales",
+        "files_one": "{{count}} archivo de los agentes, copiado al Drive",
+        "files_many": "{{count}} archivos de los agentes, copiados al Drive",
+        "files_other": "{{count}} archivos de los agentes, copiados al Drive",
+        "filesSize": "{{size}}. Todo el espacio de trabajo ve las carpetas.",
+        "after": "Después, un clic cada uno",
+        "bring_one": "Traer el agente",
+        "bring_many": "Traer los {{count}} agentes",
+        "bring_other": "Traer los {{count}} agentes",
+        "choose": "Elegir qué se trae",
+        "arrivedTitle": "El equipo ya está aquí",
+        "arrived_one": "{{names}} ya está aquí.",
+        "arrived_many": "{{names}} ya están aquí.",
+        "arrived_other": "{{names}} ya están aquí.",
+        "arrivedOther_one": "{{count}} elemento ya está aquí.",
+        "arrivedOther_many": "{{count}} elementos ya están aquí.",
+        "arrivedOther_other": "{{count}} elementos ya están aquí.",
+        "copying": "Copiando los archivos al Drive",
+        "copyCount": "{{done}} de {{total}}",
+        "keepOpen": "Mantén esta pestaña abierta hasta que termine.",
+        "missed_one": "{{count}} elemento no vino. La lista dice por qué.",
+        "missed_many": "{{count}} elementos no vinieron. La lista dice por qué en cada uno.",
+        "missed_other": "{{count}} elementos no vinieron. La lista dice por qué en cada uno.",
+        "see": "Ver lo que llegó"
+      },
       "otherName": "Otra app",
       "agenteschatName": "agentes.chat",
       "where": {
         "openbotrun": "Suelta openbot-import.json (de Migrator by OpenBot) u openbot-transfer.json (de la transferencia de instancia), o el .zip en el que vino.",
         "openmausbot": "En OpenMausBot: clic derecho en el equipo → Share team… → Save file.",
-        "hermes": "En una terminal, ejecuta hermes profile export con el nombre del perfil y suelta aquí el .tar.gz. O arrastra la carpeta ~/.hermes para traer todos los perfiles.",
-        "openclaw": "Arrastra la carpeta ~/.openclaw completa (trae todos los agentes) o solo un espacio de trabajo. En una Mac, ⌘⇧. muestra las carpetas ocultas en el selector de archivos.",
+        "hermes": "En una terminal, ejecuta `hermes profile export` con el nombre del perfil y suelta aquí el .tar.gz. O arrastra la carpeta `~/.hermes` para traer todos los perfiles.",
+        "openclaw": "Arrastra la carpeta `~/.openclaw` completa (trae todos los agentes) o solo un espacio de trabajo. En una Mac, ⌘⇧. muestra las carpetas ocultas en el selector de archivos.",
         "paperclip": "Arrastra la carpeta del paquete (la que tiene COMPANY.md), suelta un .zip de ella o pega su enlace de GitHub.",
         "agenteschat": "En el otro espacio de trabajo: Configuración → Importar y exportar → Descargar el archivo. Luego suelta aquí el .json."
       },
@@ -1352,13 +1481,125 @@
         "model_other": "{{who}} usan {{label}}, que no está disponible aquí.",
         "file_one": "{{who}} usa {{label}}.",
         "file_many": "{{who}} usan {{label}}.",
-        "file_other": "{{who}} usan {{label}}."
+        "file_other": "{{who}} usan {{label}}.",
+        "webhook_one": "La rutina {{label}}, de {{who}}, recibe una dirección nueva aquí: cámbiala en el sitio o la app que llamaba a la anterior.",
+        "webhook_many": "La rutina {{label}}, de {{who}}, recibe una dirección nueva aquí: cámbiala en el sitio o la app que llamaba a la anterior.",
+        "webhook_other": "La rutina {{label}}, de {{who}}, recibe una dirección nueva aquí: cámbiala en el sitio o la app que llamaba a la anterior."
+      },
+      "say": {
+        "intro": "Este es el workflow “{{title}}”, traído de {{app}}.",
+        "skillAbout": "Ejecuta el workflow “{{title}}”, traído de {{app}}, cuando alguien lo pide.",
+        "asked": "En {{app}} empezaba solo. Aquí se ejecuta cuando alguien lo pide.",
+        "webhook": "Empieza cuando se llama a la dirección de esta rutina: lo que llega es tu entrada.",
+        "pr": "Empieza cuando se abre un pull request en GitHub: ese pull request es tu entrada.",
+        "prIn": "Empieza cuando se abre un pull request en GitHub en {{repos}}: ese pull request es tu entrada. Si es de otro repositorio, detente sin publicar nada.",
+        "text": "Empieza con este texto: “{{text}}”",
+        "keep": "(Ten en cuenta: {{text}})",
+        "ask": "Pídele a @{{handle}}: “{{task}}”, con lo que tienes hasta ahora, y usa la respuesta.",
+        "image": "Crea una imagen: {{prompt}}",
+        "video": "Crea un video: {{prompt}}",
+        "if": "Si la respuesta a “{{rule}}” es sí, sigue.",
+        "otherwise": "Si no:",
+        "stop": "Si no, detente aquí sin publicar nada.",
+        "approval": "Antes de seguir, pide aprobación a quien se encarga de ti, en el chat: “{{question}}”",
+        "approvalPlain": "Antes de seguir, pide aprobación a quien se encarga de ti, en el chat.",
+        "channel": "Publica el resultado en #{{channel}}.",
+        "notify": "Envía el resultado a quien se encarga de ti.",
+        "file": "Guarda el resultado como un archivo en el Drive.",
+        "githubComment": "Publica el resultado como comentario en GitHub.",
+        "githubDo": "En GitHub, haz esto con el resultado: {{action}}.",
+        "pass": "Cuando termines, pásale tu respuesta a @{{handle}}: {{instruction}}",
+        "passPlain": "Cuando termines, pásale tu respuesta a @{{handle}}."
+      },
+      "choose": {
+        "who": "Quién viene",
+        "with": "Qué viene con ellos",
+        "flows": "Los workflows",
+        "agentOnly": "Con sus instrucciones de allí",
+        "same": "Ya está aquí, igual",
+        "of": {
+          "routine_one": "{{picked}} de {{count}} rutina",
+          "routine_many": "{{picked}} de {{count}} rutinas",
+          "routine_other": "{{picked}} de {{count}} rutinas",
+          "skill_one": "{{picked}} de {{count}} habilidad",
+          "skill_many": "{{picked}} de {{count}} habilidades",
+          "skill_other": "{{picked}} de {{count}} habilidades",
+          "note_one": "{{picked}} de {{count}} recuerdo",
+          "note_many": "{{picked}} de {{count}} recuerdos",
+          "note_other": "{{picked}} de {{count}} recuerdos",
+          "channel_one": "{{picked}} de {{count}} canal",
+          "channel_many": "{{picked}} de {{count}} canales",
+          "channel_other": "{{picked}} de {{count}} canales"
+        },
+        "files_one": "{{count}} archivo para el Drive",
+        "files_many": "{{count}} archivos para el Drive",
+        "files_other": "{{count}} archivos para el Drive",
+        "paused_one": "{{count}} llega en pausa, como estaba allí",
+        "paused_many": "{{count}} llegan en pausa, como estaban allí",
+        "paused_other": "{{count}} llegan en pausa, como estaban allí",
+        "pausedOne": "llega en pausa",
+        "here_one": "{{count}} ya está aquí",
+        "here_many": "{{count}} ya están aquí",
+        "here_other": "{{count}} ya están aquí",
+        "library": "De la biblioteca, para quien la actives",
+        "passes": "le pasa su respuesta a {{names}}",
+        "webhook": "dirección nueva",
+        "pr": "cuando se abre un pull request",
+        "routine": "Rutina",
+        "skill": "Habilidad",
+        "asked": "se ejecuta cuando alguien lo pide",
+        "was": {
+          "schedule": "allí tenía un horario que no podemos leer, aquí, cuando alguien lo pide",
+          "webhook": "allí empezaba desde una dirección, aquí, cuando alguien lo pide",
+          "message": "allí empezaba con un mensaje, aquí, cuando alguien lo pide",
+          "github": "allí empezaba en GitHub, aquí, cuando alguien lo pide",
+          "discord": "allí empezaba en Discord, aquí, cuando alguien lo pide",
+          "telegram": "allí empezaba en Telegram, aquí, cuando alguien lo pide",
+          "slack": "allí empezaba en Slack, aquí, cuando alguien lo pide",
+          "other": "allí empezaba solo, aquí, cuando alguien lo pide"
+        },
+        "flowsLead": "Aquí un workflow se vuelve una rutina: su disparador define cuándo se ejecuta, y sus pasos van en el pedido.",
+        "becomesRoutine": "Se vuelve una rutina que {{agent}} ejecuta, con los pasos en su pedido.",
+        "becomesSkill": "Se vuelve una habilidad que {{agent}} usa cuando alguien lo pide, con los pasos dentro.",
+        "postsIn": "Publica en #{{channel}}.",
+        "step": {
+          "when": "cuándo se ejecuta la rutina",
+          "asked": "Cuando alguien lo pide",
+          "text": "Empieza con el texto",
+          "by": "a pedido de {{name}}",
+          "image": "Imagen",
+          "video": "Video",
+          "if": "Si",
+          "stop": "sigue, si no, se detiene",
+          "else": "sigue, si no:",
+          "approval": "Pide aprobación en el chat",
+          "channel": "Publica en #{{channel}}",
+          "notify": "Te envía el resultado",
+          "file": "Guarda en el Drive",
+          "github": "En GitHub",
+          "lost": {
+            "file": "Un archivo de allí",
+            "slack": "Publica en Slack",
+            "discord": "Publica en Discord",
+            "telegram": "Publica en Telegram",
+            "messaging": "Publica en un chat de mensajería"
+          },
+          "notHere": "no viene"
+        },
+        "bringWith_one": "Traer {{count}} agente y {{more}}",
+        "bringWith_many": "Traer {{count}} agentes y {{more}}",
+        "bringWith_other": "Traer {{count}} agentes y {{more}}",
+        "more_one": "{{count}} elemento más",
+        "more_many": "{{count}} elementos más",
+        "more_other": "{{count}} elementos más",
+        "notComing": "Las conexiones de mensajería no vienen ({{list}}): aquí no hay dónde conectarlas."
       },
       "needDo": {
         "connection": "Conectar",
         "app": "Conectar",
         "model": "Elegir un modelo",
-        "file": "Abrir el Drive"
+        "file": "Abrir el Drive",
+        "webhook": "Abrir las rutinas"
       },
       "linkSkipped_one": "{{count}} archivo más allá del límite del enlace",
       "linkSkipped_many": "{{count}} archivos más allá del límite del enlace",
@@ -1875,7 +2116,7 @@
     "riskyOn": "Esta persona también decide estas.",
     "lock": "Siempre tuyo: dinero, personas y roles, claves de IA, tu buzón y eliminar.",
     "coveringTitle": "Apruebas por",
-    "coveringSubtitle": "Lo que les piden a estas personas te llega también, y decides en su nombre. Nunca lo que pediste tú.",
+    "coveringSubtitle": "Las solicitudes a estas personas también te llegan, y decides en su nombre, salvo en las que hiciste tú.",
     "coveringWhileOut": "Cuando esté fuera",
     "coveringUntil": "hasta el {{date}}",
     "coveringNow": "Cubriendo ahora",
@@ -1921,6 +2162,7 @@
     "phone": "Teléfono",
     "phoneOn": "En la app del teléfono, incluso con el teléfono bloqueado",
     "phoneOff": "Actívalas en la app del teléfono",
+    "phoneOpen": "Abrir",
     "mac": "App de Mac",
     "macHelp": "Mientras la app está abierta, incluso en segundo plano",
     "on": "Activado",
@@ -2045,7 +2287,7 @@
       "help": "Sigues con la misma cuenta, en los mismos workspaces y con los mismos planes.",
       "change": "Cambiar correo",
       "sent": "Enviamos un enlace a {{email}}. Tu correo cambia cuando lo abras.",
-      "changed": "Listo: ahora entras con {{email}}.",
+      "changed": "Ahora entras con {{email}}.",
       "same": "Ese ya es tu correo.",
       "noMail": "Este servidor no envía correos, así que no se puede confirmar la nueva dirección. Pide a quien administra el servidor que configure el envío de correos.",
       "held": "Este correo acaba de salir de otra cuenta y queda reservado para ella 7 días. Usa otro.",
@@ -2256,6 +2498,56 @@
     "localOnly": "Este servidor solo se abre en la computadora donde se ejecuta, así que tu teléfono no llega a él.",
     "localOnlyHow": "En la app de agentes.chat de esa computadora, activa Accede desde tu teléfono y tu equipo en Preferencias › Servidores. Luego vuelve aquí.",
     "localOnlyHere": "Activa Accede desde tu teléfono y tu equipo. Luego vuelve aquí."
+  },
+  "surface": {
+    "link": {
+      "consent": "{{assistant}} de agentes.chat puede escribirte en {{surface}} sobre tus espacios de trabajo, y llamarte solo cuando algo sea urgente y lo permitas. Escribe stop para desactivarlo.",
+      "title": "Habla con {{assistant}} en {{surface}}",
+      "qr": "Código QR que abre {{surface}} con tu código ya escrito",
+      "making": "Creando tu código",
+      "code": "Tu código {{code}}",
+      "open": "Abrir {{surface}}",
+      "stepScan": "Escanea el código con tu celular, o abre la app",
+      "stepSend": "Envía el mensaje tal como está",
+      "stepSendText": "Esto avanza solo cuando llegue tu mensaje.",
+      "stepConfirm": "Revisa el remitente y confirma aquí",
+      "showCode": "Mostrar el código otra vez",
+      "confirmTitle": "¿Es este tu {{surface}}?",
+      "sentBy": "Este remitente envió tu código",
+      "onlyYou": "Vincúlalo solo si eres tú.",
+      "workspace": "Responde en {{workspace}}",
+      "confirm": "Sí, vincularlo",
+      "notMe": "No soy yo",
+      "doneTitle": "{{surface}} vinculado",
+      "doneText": "{{assistant}} te responde allí desde ahora.",
+      "newCode": "Crear un código nuevo",
+      "done": "Listo"
+    },
+    "row": {
+      "hint": "Habla con {{assistant}} y recibe sus respuestas en {{surface}}.",
+      "link": "Vincular",
+      "none": "{{assistant}} puede escribirte ahí",
+      "pending": "Un remitente espera que confirmes",
+      "unlink": "Desvincular",
+      "unlinkTitle": "¿Desvincular {{surface}}?",
+      "unlinkText": "{{assistant}} deja de responderte allí. Puedes vincularlo de nuevo cuando quieras.",
+      "unlinked": "{{surface}} desvinculado"
+    },
+    "undo": {
+      "title": "¿Desvincular la app de chat?",
+      "lead": "Tu cuenta se acaba de vincular a una app de chat. Si no fuiste tú, desvincúlala aquí.",
+      "button": "Desvincular",
+      "done": "{{surface}} desvinculado",
+      "doneLead": "{{display}} ya no puede llegar a tu cuenta.",
+      "ended": "Ya estaba desvinculado",
+      "endedLead": "{{display}} en {{surface}} ya estaba desvinculado. No hay nada más que hacer.",
+      "gone": "Este enlace para deshacer ya no funciona",
+      "sender": "Ese remitente"
+    },
+    "via": "via {{surface}}",
+    "viaTip": "Enviado por {{person}} en {{surface}}",
+    "forwarded": "reenviado vía {{surface}}",
+    "forwardedTip": "{{person}} reenvió esto desde {{surface}}. Las palabras son de otra persona."
   },
   "team": {
     "title": "Equipo",
@@ -2490,7 +2782,8 @@
     "header": {
       "pins": "Mensajes fijados",
       "showMembers": "Mostrar miembros",
-      "hideMembers": "Ocultar miembros"
+      "hideMembers": "Ocultar miembros",
+      "more": "Más opciones"
     },
     "membersButton_one": "Miembros del canal ({{count}})",
     "membersButton_many": "Miembros del canal ({{count}})",
@@ -2508,11 +2801,10 @@
     "reply": "Responder",
     "quoteOf": "Respuesta a {{name}}: {{excerpt}}. Ver el mensaje",
     "quoteGone": "Mensaje original eliminado",
-    "jumpTooFar": "Ese mensaje está demasiado atrás para abrirlo desde aquí.",
     "quoteNoWords": "Mensaje sin texto",
     "replyingTo": "Respondiendo a {{name}}",
     "cancelReply": "Cancelar respuesta",
-    "jumpMissing": "No se pudo llegar a ese mensaje aquí. Puede que se haya borrado o esté demasiado atrás.",
+    "jumpMissing": "Ese mensaje no está disponible. Puede que se haya borrado o que no puedas verlo.",
     "emoji": "Emoji",
     "uploading": "subiendo…",
     "uploadFailed": "no se subió",
@@ -2660,8 +2952,9 @@
     "outage_one": "{{names}}: el proveedor de IA no responde · reintenta solo",
     "outage_many": "{{names}}: el proveedor de IA no responde · reintentan solos",
     "outage_other": "{{names}}: el proveedor de IA no responde · reintentan solos",
-    "queued_one": "{{names}} está en la fila de la computadora",
-    "queued_other": "{{names}} están en la fila de la computadora",
+    "queued_one": "{{names}} está en la cola",
+    "queued_many": "{{names}} están en la cola",
+    "queued_other": "{{names}} están en la cola",
     "away_one": "{{names}} espera la computadora",
     "away_other": "{{names}} esperan la computadora",
     "plan_one": "{{names}} está esperando el plan",
@@ -2676,7 +2969,6 @@
     "canceled_one": "{{names}} no va a responder",
     "canceled_many": "{{names}} no van a responder",
     "canceled_other": "{{names}} no van a responder",
-    "queuedNext": "{{names}} está en la cola de la computadora · es el siguiente",
     "nobody": "Ningún agente va a responder",
     "status": {
       "seen": "Lo vio",
@@ -2685,7 +2977,7 @@
       "waiting": "Esperando aprobación",
       "asking": "Esperando una respuesta",
       "outage": "El proveedor de IA no responde · reintenta solo",
-      "queued": "En la fila de la computadora",
+      "queued": "En la cola",
       "away": "Esperando la computadora",
       "plan": "Esperando el plan",
       "budget": "Responde cuando el presupuesto se renueve",
@@ -2731,8 +3023,25 @@
     }
   },
   "rightHand": {
+    "brain": {
+      "unusable": {
+        "title": "Necesita un ordenador",
+        "computerOnly": "De {{owner}}, conectado solo en {{computer}}. Lodi piensa con un plan conectado como cuenta.",
+        "noComputer": "De {{owner}}. Necesita un ordenador y el espacio de trabajo no tiene ninguno conectado.",
+        "away": "De {{owner}}, en {{computer}}, que está ausente.",
+        "connect": "Conectar un ordenador",
+        "plans": "Ver planes"
+      }
+    },
     "label": "tu mano derecha",
     "labelCapitalized": "Tu mano derecha",
+    "unusable": {
+      "title": "No puede pensar por {{name}} ahora",
+      "computerOnly": "Conectado solo en {{computer}}. {{name}} piensa con un plan conectado como cuenta.",
+      "away": "De {{owner}}, en {{computer}}, que está ausente.",
+      "awayYours": "Tuyo, en {{computer}}, que está ausente.",
+      "connect": "Conectar un ordenador"
+    },
     "newDot": "Nuevo",
     "actsAsYou": "actúa con tus permisos",
     "composerHint": "nada cambia sin ti",
@@ -2838,6 +3147,7 @@
     "sharedName": "{{name}} (compartido)",
     "sharedPlace": "Se usa en canales y en trabajos que se ejecutan solos. Todo el workspace comparte este espacio. No guardes nada privado aquí.",
     "computerNoHome": "Aún sin computadora. Tendrá una cuando este workspace tenga una computadora propia.",
+    "computerNoHomeServer": "Todavía sin navegador. Configura <guide>este servidor como la computadora de los agentes</guide> para que tenga uno.",
     "addComputer": "Agregar una computadora",
     "computerOneUser": "Aquí no hay computadora. La computadora del workspace ejecuta todos los agentes como un solo usuario, así que no puede separar el espacio de cada persona. Un servidor Linux instalado con la opción --system del instalador sí puede.",
     "powers": {
@@ -2880,7 +3190,7 @@
         "delete": "Solo los admins eliminan un agente",
         "audience": "Solo los admins y su responsable cambian quién habla con él",
         "channels": "Solo los admins y su responsable cambian sus canales",
-        "skill": "Solo los admins cambian las habilidades de un agente",
+        "skill": "Solo quien puede editar un agente cambia sus habilidades",
         "ai_account": "Solo el dueño de la cuenta la asigna",
         "name": "Solo los admins cambian el nombre de un agente",
         "look": "Solo los admins y su responsable cambian su aspecto",
@@ -3043,17 +3353,18 @@
       "title_many": "{{count}} pedidos de {{name}} te esperan",
       "title_other": "{{count}} pedidos de {{name}} te esperan",
       "line": "Esperando desde {{since}}.",
-      "action": "Ver y aprobar",
-      "hide": "Cerrar"
+      "action": "Ver y aprobar"
     },
     "budget": {
       "title": "Presupuesto de {{name}}: {{from}} → {{to}}",
+      "item": "Presupuesto: {{from}} → {{to}}",
       "line_one": "Se detuvo {{count}} vez en el límite del mes.",
       "line_many": "Se detuvo {{count}} veces en el límite del mes.",
       "line_other": "Se detuvo {{count}} veces en el límite del mes."
     },
     "channel": {
       "title": "Poner a {{name}} en #{{channel}}",
+      "item": "Poner en #{{channel}}",
       "line": "{{name}} no está en ningún canal, así que nadie le habló en toda la semana."
     },
     "unanswered": {
@@ -3067,6 +3378,7 @@
     },
     "routine": {
       "title": "Rutina de {{name}} todos los días a las {{time}}",
+      "item": "Rutina todos los días a las {{time}}",
       "line_one": "Pediste esto {{count}} vez esta semana: “{{text}}”",
       "line_many": "Pediste esto {{count}} días esta semana: “{{text}}”",
       "line_other": "Pediste esto {{count}} días esta semana: “{{text}}”",
@@ -3077,6 +3389,13 @@
       "title": "{{name}} aprendió: {{what}}",
       "line": "Usado {{uses}}×. ¿Convertirlo en habilidad?",
       "action": "Convertir en habilidad",
+      "uses": "Usado {{uses}}×",
+      "group_one": "{{name}} aprendió una forma de trabajar",
+      "group_many": "{{name}} aprendió {{count}} formas de trabajar",
+      "group_other": "{{name}} aprendió {{count}} formas de trabajar",
+      "applyAll_one": "Convertir en habilidad",
+      "applyAll_many": "Convertir {{count}} en habilidades",
+      "applyAll_other": "Convertir {{count}} en habilidades",
       "done": "Confirmado"
     },
     "stalled": {
@@ -3116,11 +3435,13 @@
     },
     "retire": {
       "title": "Archivar a {{name}}",
+      "item": "Archivar",
       "line": "Sin trabajo desde hace 4 semanas, sin rutina y sin tarea abierta.",
       "action": "Archivar"
     },
     "model": {
       "title": "{{name}} puede usar {{to}}.",
+      "item": "Puede usar {{to}}",
       "line": "Hoy usa {{from}}."
     },
     "skip": "Descartar",
@@ -3136,7 +3457,7 @@
     "applyAll_many": "Aplicar las {{count}}",
     "applyAll_other": "Aplicar las {{count}}",
     "notNow": "Ahora no",
-    "dismissed": "Nada cambia por ahora. Pregunta lo que quieras sobre la semana aquí mismo.",
+    "dismissed": "Nada cambia por ahora. Pregunta lo que quieras sobre la semana aquí.",
     "change": "Cambiar",
     "every": {
       "sun": "Todos los domingos a las {{time}}",
@@ -3198,7 +3519,7 @@
       "opencode": "OpenCode no puede pensar en esta computadora. Conecta una clave de OpenCode en la página de {{name}}."
     },
     "card": {
-      "connected": "Listo: {{name}} ya tiene una IA.",
+      "connected": "{{name}} ya tiene una IA.",
       "answerNow": "Responder ahora",
       "answering": "{{name}} está respondiendo…",
       "stillMissing": "{{name}} todavía no tiene una IA conectada."
@@ -3233,7 +3554,7 @@
         "ended": "Responderé aquí cuando el workspace vuelva a suscribirse a agentes.chat."
       },
       "askAdmin": "Responderé aquí cuando un admin resuelva el plan de agentes.chat.",
-      "plan": "El plan trae el ordenador de los agentes, siempre encendido. La IA es la que ya pagas: Claude, ChatGPT y otras, o una clave de API.",
+      "plan": "El plan trae el ordenador de los agentes. La IA es la que ya pagas: Claude, ChatGPT y otras, o una clave de API.",
       "activeTitle": "Plan activo",
       "activeLine": "Conecta una IA y {{name}} responde aquí.",
       "receipt": "Guardado",
@@ -3275,10 +3596,16 @@
     "titleFor_female": "Conecta una IA para {{name}}",
     "have": {
       "title": "Ya conectadas",
-      "titleFor": "Ya conectadas, para {{name}}",
-      "titleFor_female": "Ya conectadas, para {{name}}",
       "other": "O conecta otra",
-      "manageKeys": "Gestionar o eliminar claves"
+      "manageKeys": "Gestionar o eliminar claves",
+      "pickLine": "Elige una cuenta ya conectada aquí. {{name}} piensa con ella.",
+      "onlyOwner_one": "{{count}} cuenta más que solo {{name}} puede dar.",
+      "onlyOwner_many": "{{count}} cuentas más que solo {{name}} puede dar.",
+      "onlyOwner_other": "{{count}} cuentas más que solo {{name}} puede dar.",
+      "moreAgents_one": "y {{count}} agente más",
+      "moreAgents_many": "y {{count}} agentes más",
+      "moreAgents_other": "y {{count}} agentes más",
+      "plenty": "Con margen"
     },
     "chat": {
       "mine": "Tuyas",
@@ -3376,7 +3703,7 @@
       "gemini": {
         "title": "Tu plan de Gemini",
         "tiers": "Google AI Pro, Google AI Ultra o Gemini Enterprise",
-        "warning": "Google dice que usar un plan personal de Gemini dentro de otras apps puede hacer que suspendan la cuenta."
+        "warning": "Google dice que usar un plan personal de Gemini dentro de otras apps puede hacer que suspendan la cuenta. Para evitar ese riesgo, usa una clave de API de Gemini o Gemini Enterprise."
       },
       "zen": {
         "title": "OpenCode",
@@ -3411,7 +3738,7 @@
       "useForAll": "Usar esta clave para todos",
       "untested": "Ningún modelo de {{name}} ha pasado una prueba todavía.",
       "testModels": "Probar modelos",
-      "savedUnchecked": "Guardada, pero {{provider}} no respondió y la clave no se pudo comprobar. Si falla, la conversación dice por qué.",
+      "savedUnchecked": "Guardada, pero {{provider}} no respondió y no pudimos comprobar la clave. Si falla, la conversación dice por qué.",
       "closed": "Las claves de API se abren con el plan de agentes.chat del workspace.",
       "notPlan": "La clave de un plan de programación va en su propia opción, arriba.",
       "billing": "Activa la facturación del proyecto de la clave. Sin facturación, Google puede usar lo que envían tus agentes.",
@@ -3465,6 +3792,13 @@
     "onceHint": "Todos comparten los límites de tu plan.",
     "use": "Usar {{label}}",
     "another": "Otra cuenta",
+    "which": {
+      "title": "¿Qué cuenta de {{brand}} usará {{name}}?",
+      "title_female": "¿Qué cuenta de {{brand}} usará {{name}}?",
+      "titleAll": "¿Qué cuenta de {{brand}} usarán?",
+      "mine": "Tus cuentas de {{brand}} en {{computer}}",
+      "other": "Entrar con otra cuenta de {{brand}}"
+    },
     "reuse": {
       "active": "Ya tienes {{label}} aquí. Vuelve a iniciar sesión en ella o usa otra cuenta.",
       "signedOut": "{{label}} cerró sesión aquí. Vuelve a iniciar sesión y sus agentes la siguen usando."
@@ -3494,11 +3828,13 @@
   },
   "keyGuard": {
     "title": "Esto parece una clave de API",
-    "text": "Todo lo que está en el chat lo ven personas y agentes. Mejor guárdala como clave del espacio de trabajo: se cifra y nadie la ve.",
-    "textMember": "Todo lo que está en el chat lo ven personas y agentes. Una clave es como una contraseña.",
-    "save": "Guardar como clave",
+    "titleSecret": "Esto parece una clave o contraseña",
+    "vaultText": "Todo lo que va al chat lo ven las personas y los agentes. Guárdala en el Vault: queda cifrada y los agentes que autorices la usan sin verla.",
+    "vault": "Guardar en el Vault",
+    "useAsAi": "Usar como clave de IA",
     "remove": "Quitar la clave",
-    "send": "Enviar de todos modos"
+    "send": "Enviar de todos modos",
+    "saved": "Los agentes con acceso la usan con el nombre {{name}}."
   },
   "costlyCard": {
     "go": "Adelante",
@@ -3544,7 +3880,7 @@
   },
   "brakes": {
     "title": "Trabajo que nadie pidió",
-    "subtitle": "Lo que empieza por su cuenta, a partir de una rutina, una alerta u otro agente. Lo que pide una persona nunca se detiene.",
+    "subtitle": "Lo que empieza por su cuenta, a partir de una rutina, una alerta u otro agente.",
     "costly": "Preguntar antes del trabajo costoso",
     "costlyHelp": "Antes de abrir un pull request, instalar paquetes o un trabajo largo, pregunta a la persona responsable.",
     "costlyAsk": "Preguntar antes",
@@ -3606,9 +3942,7 @@
     "dontRunForbidden": "Solo quien lo pidió, el responsable del agente o un admin pueden cancelarlo",
     "answerAnyway": "Responder de todos modos",
     "answerAnywayHint": "Responde ahora, leyendo todo lo que se escribió después",
-    "answerAnywayForbidden": "Solo quien lo pidió, el responsable del agente o un admin pueden pedirlo",
-    "extraTitle": "El trabajo largo puede usar uso extra pagado",
-    "extraHint": "Con el uso extra activado en el plan, el trabajo largo sigue después del 95%. Si está desactivado, se pausa en el 95% y retoma cuando el plan se renueva."
+    "answerAnywayForbidden": "Solo quien lo pidió, el responsable del agente o un admin pueden pedirlo"
   },
   "usageQueue": {
     "back": "{{agent}} vuelve {{when}}",
@@ -3619,6 +3953,7 @@
     "shared_many": "{{agents}} usan el mismo plan de {{plan}}. Las conversaciones de todos van a la misma fila.",
     "shared_other": "{{agents}} usan el mismo plan de {{plan}}. Las conversaciones de todos van a la misma fila.",
     "about": "Sobre la fila",
+    "chain": "Las {{accounts}} cuentas de {{plan}} llegaron a su límite.",
     "lists": "Conversaciones",
     "queuedTab": "En la fila",
     "skippedTab": "Omitidas",
@@ -3700,7 +4035,6 @@
       "aiAccount": "Piensa con {{account}}",
       "aiModel": "Piensa a través de la API",
       "aiNone": "Todavía sin IA. Conecta una después de crearlo",
-      "reviewTitle": "Revisar a {{name}}",
       "lines": "Lo que recibe {{name}}",
       "aChannel": "un canal",
       "anApp": "una app",
@@ -3751,10 +4085,10 @@
     "added": "{{name}} se unió al canal.",
     "allow": "Dejar que {{person}} hable con él",
     "allow_female": "Dejar que {{person}} hable con ella",
-    "allowed": "Listo: {{person}} ya puede hablar con {{name}}.",
+    "allowed": "{{person}} ya puede hablar con {{name}}.",
     "allowMe": "Quiero hablar con él",
     "allowMe_female": "Quiero hablar con ella",
-    "allowedMe": "Listo: ya puedes hablar con {{name}}.",
+    "allowedMe": "Ya puedes hablar con {{name}}.",
     "mailLossTitle": "¿Quitar el acceso al buzón?",
     "mailLoss": "{{name}} tiene acceso al buzón de {{owners}}. Si más personas hablan con él, podrían llegar a esos correos a través de él, así que se quita ese acceso. Quien conectó el buzón puede darlo de nuevo.",
     "mailLoss_female": "{{name}} tiene acceso al buzón de {{owners}}. Si más personas hablan con ella, podrían llegar a esos correos a través de ella, así que se quita ese acceso. Quien conectó el buzón puede darlo de nuevo.",
@@ -4107,7 +4441,8 @@
     "former": "Ya no está en este espacio de trabajo",
     "askAccess": "Pedir acceso",
     "detailsHiddenTitle": "Cómo trabaja",
-    "detailsHidden": "Las instrucciones, herramientas, memoria y uso de {{name}} solo los ven las personas a las que responde, su responsable y los admins."
+    "detailsHidden": "Las instrucciones, herramientas, memoria y uso de {{name}} solo los ven las personas a las que responde, quien puede editarlo, su responsable y los admins.",
+    "detailsHidden_female": "Las instrucciones, herramientas, memoria y uso de {{name}} solo los ven las personas a las que responde, quien puede editarla, su responsable y los admins."
   },
   "presence": {
     "online": "En línea",
@@ -4184,7 +4519,7 @@
       "waiting_approval": "Esperando aprobación",
       "waiting_answer": "Esperando una respuesta",
       "waiting_computer": "Esperando la computadora",
-      "queued_computer": "En la fila de la computadora",
+      "queued_computer": "En la cola",
       "waiting_plan": "Esperando el plan",
       "waiting_budget": "Esperando a que el presupuesto se renueve",
       "provider_down": "El proveedor de IA no responde · reintenta solo",
@@ -4336,6 +4671,7 @@
     "seeNewer": "Ver la solicitud más reciente",
     "computerAway": "La computadora de {{agent}} no responde ahora. Esta solicitud sigue abierta hasta las {{time}}. Inténtalo de nuevo en un momento.",
     "computerPaused": "Su dueño pausó la computadora de {{agent}}. Esta solicitud sigue abierta hasta las {{time}}.",
+    "insecureContext": "Esta página no está abierta por https, así que el navegador no cifra la clave. Ábrela en https:// (o localhost).",
     "failed": "No se pudo entregar. ¿La computadora del agente está encendida?",
     "changed": "Esta solicitud cambió mientras respondías. No se envió nada. Envíala de nuevo.",
     "empty": "Escribe el valor.",
@@ -4457,7 +4793,7 @@
     "error": {
       "title": "Ponle un nombre.",
       "website": "Usa una dirección https, como app.example.com.",
-      "keyName": "Usa mayúsculas, números y _, empezando con una letra, como ACME_API_KEY.",
+      "keyName": "Usa mayúsculas, números y _, empezando con una letra, como `ACME_API_KEY`.",
       "password": "Escribe la contraseña.",
       "value": "Escribe el valor.",
       "contact": "Completa al menos un campo."
@@ -4618,7 +4954,7 @@
       "show": "Mostrar el valor de {{name}}",
       "hide": "Ocultar el valor de {{name}}",
       "problem": {
-        "name": "El nombre debe ser como ACME_API_KEY",
+        "name": "El nombre debe ser como `ACME_API_KEY`",
         "reserved": "Nombre reservado",
         "empty": "Sin valor",
         "tooLarge": "Valor demasiado grande"
@@ -5154,6 +5490,7 @@
       "joinRequest_other": "{{name}} y otras personas piden unirse",
       "joinRequestNames": "{{names}} piden unirse",
       "joinSuggestion": "{{by}} sugirió a {{name}}",
+      "joinOutside": "{{name}} pide unirse como colaborador externo de {{outsideOf}}, sin ocupar plaza",
       "doing": {
         "merge": "hacer merge",
         "deploy": "hacer deploy",
@@ -5222,6 +5559,7 @@
       "joinRequest": "<b>{{name}}</b> pide unirse",
       "joinRequestMany": "<b>{{names}}</b> piden unirse",
       "joinSuggestion": "<b>{{by}}</b> sugirió a <b>{{name}}</b>",
+      "joinOutside": "<b>{{name}}</b> pide unirse como colaborador externo de <b>{{outsideOf}}</b>, sin ocupar plaza",
       "changeRequest": "<b>{{name}}</b> pide un cambio en <b>{{agent}}</b>",
       "proposalWaiting": "Propuestas de mejora de <b>{{names}}</b>",
       "changeRequestAgent": "<b>{{name}}</b> pide un agente nuevo: <b>{{agent}}</b>",
@@ -5656,11 +5994,12 @@
         "accountAlso": "También la usa {{agents}}",
         "accountOf": "De {{name}}",
         "accountOthers": "Los planes que atienden a todo el workspace muestran de quién son.",
+        "movesOn": "Sigue con la siguiente cuenta al llegar a un límite",
+        "pinned": "Solo esta cuenta",
+        "pinnedHint": "Al llegar a un límite, espera a que esta cuenta se renueve en vez de pasar a la siguiente.",
         "addAccount": "Agregar cuenta",
         "signInAgain": "Volver a iniciar sesión",
         "connectPlan": "Conectar otro plan",
-        "fallbackTitle": "Si {{computer}} deja de responder, responder a través de la API",
-        "fallbackHint": "Responde a través de la API y cuenta para el presupuesto de {{name}}. Si no, {{name}} le avisa a quien preguntó y espera a que la computadora vuelva.",
         "effort": "Esfuerzo",
         "efforts": {
           "auto": "Automático",
@@ -5693,7 +6032,8 @@
         },
         "speedText": "Responde más rápido en las conversaciones y consume el plan 2,5× más deprisa. Las rutinas y las tareas largas siguen en estándar.",
         "modelLine": {
-          "opus": "El más capaz. Consume el plan más rápido.",
+          "fable": "El más capaz. Consume el plan mucho más rápido.",
+          "opus": "Muy capaz. Consume el plan más rápido.",
           "sonnet": "Equilibrado. Bueno para casi todo.",
           "haiku": "Rápido y ligero. Para tareas simples."
         },
@@ -5721,8 +6061,7 @@
           "effort": "Esfuerzo: {{level}}",
           "speed": "Velocidad: rápida",
           "context": "Contexto: {{size}}",
-          "sharing": "Responde a otras personas",
-          "waits": "Espera a la computadora"
+          "sharing": "Responde a otras personas"
         },
         "copy": {
           "row": "Usar en otros agentes",
@@ -5872,7 +6211,6 @@
           "wait": "Esperar",
           "modelTitle": "Modelo de {{name}}",
           "moreTitle": "Más opciones de {{name}}",
-          "fallback": "Usar la clave de API si el plan se detiene",
           "computer": "Computadora",
           "doneTitle": "Todo listo",
           "doneSub": "Lo que estaba en curso sigue con la cuenta nueva.",
@@ -5973,6 +6311,7 @@
       "budget": "Presupuesto",
       "owner": "Responsable",
       "audience": "Quién puede hablar",
+      "editors": "Quién puede editar",
       "channels": "Canales",
       "machine": "Computadora",
       "brain": "Quién piensa",
@@ -6013,12 +6352,9 @@
       "memberPersonal": "Ves cómo trabaja {{name}}. Solo editan quienes administran este espacio.",
       "memberOwner": "Ves cómo trabaja {{name}}. Quién edita: los admins y {{owner}} (responsable).",
       "memberOwnerPersonal": "Ves cómo trabaja {{name}}. Quién edita: {{owner}} (responsable) y quienes administran este espacio.",
-      "owner": "{{name}} es tuyo: cambias la apariencia, quién puede hablar, los canales y la computadora. El resto, solo los admins.",
-      "ownerKeeper": "{{name}} es tuyo: cambias la apariencia, quién puede hablar, las conversaciones en grupo y la computadora. El resto, solo {{keeper}}.",
-      "ownerPersonal": "{{name}} es tuyo: cambias la apariencia, quién puede hablar, las conversaciones en grupo y la computadora. El resto, solo quienes administran este espacio.",
-      "ownerInstructions": "Solo los admins editan las instrucciones. Como responsable, apruebas los cambios propuestos.",
-      "ownerInstructionsKeeper": "Solo {{keeper}} edita las instrucciones. Como responsable, apruebas los cambios propuestos.",
-      "ownerInstructionsPersonal": "Solo quienes administran este espacio editan las instrucciones. Como responsable, apruebas los cambios propuestos.",
+      "owner": "Eres responsable de {{name}}: cambias las instrucciones, el rol, las habilidades, la apariencia, quién puede hablar o editar, los canales y la computadora. El resto, solo los admins.",
+      "ownerKeeper": "Eres responsable de {{name}}: cambias las instrucciones, el rol, las habilidades, la apariencia, quién puede hablar o editar, las conversaciones en grupo y la computadora. El resto, solo {{keeper}}.",
+      "ownerPersonal": "Eres responsable de {{name}}: cambias las instrucciones, el rol, las habilidades, la apariencia, quién puede hablar o editar, las conversaciones en grupo y la computadora. El resto, solo quienes administran este espacio.",
       "ownerAccess": "Solo los admins dan o quitan acceso y repositorios.",
       "ownerAccessKeeper": "Solo {{keeper}} da o quita acceso y repositorios.",
       "ownerAccessPersonal": "Solo quienes administran este espacio dan o quitan acceso y repositorios."
@@ -6161,13 +6497,13 @@
       "forgotten": "Olvidado. Está en Archivados si lo quieres recuperar.",
       "saved": "Guardado. Ahora cuenta como verificado.",
       "rules": "Reglas que dio la gente",
-      "rulesNote": "Valen en todo el trabajo para quien dio cada una, venga de donde venga el pedido. Las del responsable o de un admin valen para todos.",
+      "rulesNote": "Cada regla vale para quien la dio, venga de donde venga el pedido. Las del responsable o de un admin valen para todos.",
       "rulesNoteRightHand": "Las reglas que das en tu DM valen solo para ti. Solo tú las ves.",
       "ruleBy": "De {{name}} · {{date}}",
       "removeRule": "Quitar",
       "ruleRemoved": "Regla quitada. Está en Archivados si la quieres recuperar.",
       "playbook": "Cómo trabaja {{name}}",
-      "playbookNote": "Formas de trabajar que guarda para sí. No aparecen en el chat. Lo que tomó de fuera y no volvió a usar se va solo y queda en Archivado.",
+      "playbookNote": "Formas de trabajar que guarda para sí. No aparecen en el chat. Lo que tomó de fuera y no volvió a usar pasa solo a Archivado.",
       "details": "Detalles técnicos",
       "skills": "Habilidades que creó",
       "skillUses_one": "cargada una vez",
@@ -6259,12 +6595,13 @@
         "computer_busy": "La computadora siguió ocupada con otras tareas.",
         "computer_failed": "La computadora tuvo un problema y se detuvo.",
         "computer_timeout": "La computadora tardó demasiado en responder.",
+        "disk_full": "El disco de esta computadora está lleno. Borra en ella los archivos que ya no necesites (un agente puede hacerlo en cuanto haya un poco de espacio) o pide a un admin que libere espacio.",
         "cli_failed": "El programa {{brain}} se detuvo con un error: {{detail}}",
         "cli_stopped": "El programa {{brain}} se detuvo con un error.",
         "cli_closed": "El programa {{brain}} se cerró de repente.",
         "cli_sandbox": "El programa {{brain}} no puede iniciar su sandbox en esta computadora. Elige otra IA en la configuración del agente.",
         "account_missing": "La cuenta elegida para este agente ya no está en su computadora. Elige otra en la configuración del agente o agrégala de nuevo.",
-        "windows_sandbox": "Esta computadora con Windows no puede aislar los comandos de Codex: necesita Windows 11 24H2 o una versión más reciente.",
+        "windows_sandbox": "Esta computadora con Windows no puede aislar los comandos de Codex: necesita Windows 11 24H2 o una versión más reciente. Actualiza Windows, elige Claude o una clave de API para este agente, o muévelo a una computadora con Linux.",
         "our_error": "Algo salió mal de nuestro lado y la tarea se detuvo. Pide de nuevo en un rato.",
         "unknown": "Falló."
       }
@@ -6288,6 +6625,7 @@
       "budget": "Presupuesto",
       "owner": "Responsable",
       "audience": "Quién puede hablar",
+      "editors": "Quién puede editar",
       "channels": "Canales",
       "computer": "Computadora",
       "danger": "Archivar o eliminar",
@@ -6702,7 +7040,7 @@
         "done": "Leo {{apps}}",
         "doneNone": "Sin apps por ahora",
         "title": "Las apps del trabajo",
-        "desc": "Primero las que usaría el equipo que acabas de crear. Leer nunca cambia nada, y enviar, borrar y pagar piden tu aprobación.",
+        "desc": "Leer nunca cambia nada. Enviar, borrar y pagar piden tu aprobación.",
         "connect": "Conectar",
         "all": "Ver todas las apps",
         "todoPersonal": "Conecta tus apps.",
@@ -7017,6 +7355,7 @@
     "modelAndCost": "Modelo y costo",
     "model": "Modelo",
     "modelDesc": {
+      "fable": "El más capaz, para el trabajo más difícil",
       "sonnet": "Recomendado para la mayoría",
       "opus": "Tareas largas y difíciles",
       "haiku": "Rápido y económico",
@@ -7106,7 +7445,6 @@
     "adminsOnlyPersonal": "Pide a quien administra este espacio que te deje crear agentes.",
     "proposalClosed": "Esta propuesta ya se decidió o venció.",
     "proposalNoAccess": "Solo las personas de su conversación pueden ver esta propuesta.",
-    "backToChat": "Volver a la conversación",
     "and": " y",
     "routine": "Rutina",
     "routineKeep": "Crear la rutina {{name}}",
@@ -7283,6 +7621,53 @@
     "otherSkill": "Otra skill",
     "namesLead": "Qué tal",
     "namesRoll": "Otros nombres",
+    "proposal": {
+      "lead": "Ajusta lo que propuso {{name}}. Puedes cambiarlo todo después.",
+      "leadNarrow": "Propuesta de {{name}}: {{why}}",
+      "side": "La propuesta",
+      "from": "Propuesto por {{name}}",
+      "changed": "Lo que cambiaste",
+      "changedNone": "Nada todavía. Lo que cambies en la tarjeta aparece aquí, con Deshacer.",
+      "undo": "Deshacer",
+      "changes": {
+        "changed": "cambió",
+        "added": "entró",
+        "removed": "salió",
+        "how": "Cómo trabaja"
+      },
+      "firstTask": "Primera tarea",
+      "firstTaskPlaceholder": "Qué pedir primero (opcional)",
+      "firstTaskHint": "Queda lista en tu chat con {{name}}. Solo envíala.",
+      "firstTaskHintBlank": "Queda lista en tu chat con él. Solo envíala.",
+      "firstTaskNone": "Sin una tarea, el chat se abre vacío.",
+      "after": "Después de crearlo",
+      "afterAi": "Conectar una IA para que {{name}} piense",
+      "afterAiBlank": "Conectar una IA para que piense",
+      "afterApp": "Conectar {{app}}",
+      "afterNone": "Nada. {{name}} empieza a trabajar en cuanto se cree.",
+      "afterNoneBlank": "Nada. Empieza a trabajar en cuanto se cree.",
+      "discard": "Descartar propuesta",
+      "otherChannel": "Otro canal",
+      "chooseChannels": "Elegir canales",
+      "channelsNone": "Solo en su chat contigo.",
+      "channel": {
+        "lead": "Dónde va a trabajar {{name}}.",
+        "leadBlank": "Dónde va a trabajar.",
+        "does": "{{name}} responde cuando lo llaman en {{channel}} y lee lo que pasa allí.",
+        "does_female": "{{name}} responde cuando la llaman en {{channel}} y lee lo que pasa allí.",
+        "doesBlank": "Responde cuando lo llaman en {{channel}} y lee lo que pasa allí.",
+        "remove": "Quitar de {{channel}}"
+      },
+      "routine": {
+        "label": "Rutina",
+        "lead": "{{when}}, en {{channel}}.",
+        "leadDm": "{{when}}, en su chat contigo.",
+        "starts": "Empieza cuando {{name}} esté creado. La hora y el texto los cambias en Rutinas.",
+        "starts_female": "Empieza cuando {{name}} esté creada. La hora y el texto los cambias en Rutinas.",
+        "startsBlank": "Empieza cuando esté creado. La hora y el texto los cambias en Rutinas.",
+        "remove": "Quitar la rutina"
+      }
+    },
     "skill": {
       "opens": "{{name}} abre este manual cuando aparece el tema. Lo editas en Skills.",
       "opensBlank": "Abre este manual cuando aparece el tema. Lo editas en Skills.",
@@ -7321,6 +7706,10 @@
     "rolesAdd": "Añadir rol",
     "rolesChange": "Cambiar roles",
     "moreOf": "Más de {{name}}",
+    "outside": {
+      "chip": "Externo",
+      "title": "Colaborador externo"
+    },
     "passwordLink": {
       "item": "Generar enlace de contraseña nueva",
       "hint": "Para cuando olvidó la contraseña",
@@ -7496,8 +7885,8 @@
     "suggest": {
       "title": "¿Quieres traer a alguien a {{org}}?",
       "lead_one": "{{names}} invita a las personas aquí. Sugiere a alguien: la sugerencia le llega y la aprueba con un clic.",
-      "lead_many": "{{names}} invitan a las personas aquí. Sugiere a alguien: les llega y la aprueban con un clic.",
-      "lead_other": "{{names}} invitan a las personas aquí. Sugiere a alguien: les llega y la aprueban con un clic.",
+      "lead_many": "{{names}} invitan a las personas aquí. Sugiere a alguien: la sugerencia les llega y la aprueban con un clic.",
+      "lead_other": "{{names}} invitan a las personas aquí. Sugiere a alguien: la sugerencia les llega y la aprueban con un clic.",
       "leadNoNames": "Sugiere a alguien: quien invita aquí lo recibe y lo aprueba con un clic.",
       "button": "Sugerir a alguien",
       "dialogTitle": "Sugerir a alguien para {{org}}",
@@ -7526,7 +7915,7 @@
     },
     "arrival": {
       "title": "Te damos la bienvenida a {{org}}, {{name}}",
-      "lead": "Aquí el equipo y los agentes trabajan juntos: escribe en #{{channel}} o llama a un agente por su nombre.",
+      "lead": "Escribe en #{{channel}} o llama a un agente por su nombre.",
       "alsoIn": "También estás en {{channels}}.",
       "sayHi": "Saluda en #{{channel}}",
       "talkTo": "Hablar con {{name}}",
@@ -7550,6 +7939,8 @@
       "viaLink": "Lo pidió con el enlace {{when}}",
       "suggested": "Sugerido por {{name}} {{when}}",
       "suggestedLabel": "{{by}} sugirió a {{name}}",
+      "outside": "Pidió {{when}} unirse como colaborador externo de {{outsideOf}}",
+      "outsideSeat": "Los colaboradores externos no cuentan en las personas de tu plan, y puedes quitarlos cuando quieras.",
       "asked": "Lo pidió {{ago}}",
       "askedNow": "Lo pidió hace un momento",
       "askedOn": "Lo pidió el {{date}}",
@@ -7743,7 +8134,10 @@
     "unreachableTitle": "No se puede conectar con agentes.chat",
     "unreachableText": "Puede que se esté reiniciando. Esta página se abre sola en cuanto vuelva.",
     "offlineTitle": "No tienes conexión",
-    "offlineText": "Esta página se abre sola cuando vuelvas a tener conexión."
+    "offlineText": "Esta página se abre sola cuando vuelvas a tener conexión.",
+    "unknownHostTitle": "Esta dirección aún no está configurada",
+    "unknownHostText": "Si se acaba de conectar, vuelve a intentarlo en unos minutos.",
+    "unknownHostTab": "Dirección sin configurar · agentes.chat"
   },
   "scopes": {
     "context_read": {
@@ -7760,7 +8154,7 @@
     },
     "drive_write": {
       "label": "Escribir archivos",
-      "description": "Crear informes, tablas, organigramas y diffs en el Drive."
+      "description": "Crear informes, hojas de cálculo, presentaciones, pizarras y diffs en el Drive, y generar imágenes."
     },
     "issues_write": {
       "label": "Tareas",
@@ -7916,6 +8310,9 @@
     }
   },
   "issues": {
+    "handedBy": "entregada por <0/>{{name}}",
+    "fromDm": "de <0>tu DM con {{name}}</0>",
+    "fromDmText": "de tu DM con {{name}}",
     "delete": {
       "action": "Eliminar tarea",
       "title": "¿Eliminar la tarea #{{number}}?",
@@ -7933,7 +8330,8 @@
     "table": {
       "task": "Tarea",
       "github": "GitHub",
-      "sortBy": "Ordenar por {{column}}"
+      "sortBy": "Ordenar por {{column}}",
+      "resize": "Cambiar el ancho de la columna {{column}}"
     },
     "fold": {
       "open": "Abrir {{name}}",
@@ -8018,6 +8416,7 @@
       "canceled": "La #{{number}} volvió a su lugar.",
       "assigned": "La #{{number}} ahora está con {{name}}.",
       "unassigned": "La #{{number}} quedó sin responsable.",
+      "removed": "La #{{number}} ya no está con {{name}}.",
       "prioritized": "La #{{number}} ahora tiene prioridad {{priority}}."
     },
     "canceledColumn": "Canceladas",
@@ -8134,6 +8533,9 @@
       "runningTitle_female": "{{name}} está trabajando en ella",
       "waitingTitle": "{{name}} te está esperando",
       "waitingTitle_female": "{{name}} te está esperando",
+      "finishedTitle": "{{name}} la terminó",
+      "finishedMeta": "{{when}} · entregada por {{name}}",
+      "answer": "Responder",
       "stalledTitle": "{{name}} se detuvo {{when}}",
       "stalledTitle_female": "{{name}} se detuvo {{when}}",
       "stalledText": "La tarea sigue con {{name}}, pero no hay ninguna ejecución en curso.",
@@ -8179,6 +8581,10 @@
       "high": "alta"
     },
     "noAssignee": "Sin responsable",
+    "assignees": {
+      "people": "Personas y agentes",
+      "done": "Listo"
+    },
     "agentRole": "Agente · {{role}}",
     "pr": "PR #{{number}}",
     "open": "#{{number}} {{title}}",
@@ -8326,7 +8732,9 @@
       "status_changed": "cambió el estado a {{status}}",
       "priority_changed": "cambió la prioridad a {{priority}}",
       "assigned": "asignó la tarea",
-      "unassigned": "quitó al responsable",
+      "unassigned": "quitó a un responsable",
+      "assigned_named": "asignó la tarea a {{name}}",
+      "unassigned_named": "quitó a {{name}} de la tarea",
       "due_date_set": "puso la fecha límite el {{date}}",
       "due_date_removed": "quitó la fecha límite",
       "pr_linked": "vinculó el PR #{{number}}",
@@ -8974,6 +9382,7 @@
       "computer_busy": "La computadora siguió ocupada con otras tareas",
       "computer_failed": "La computadora tuvo un problema y se detuvo",
       "computer_timeout": "La computadora tardó demasiado en responder",
+      "disk_full": "El disco de la computadora estaba lleno",
       "cli_failed": "El programa de IA de la computadora se detuvo con un error",
       "account_missing": "La cuenta del agente ya no está en su computadora",
       "our_error": "Algo salió mal de nuestro lado"
@@ -8989,13 +9398,13 @@
       "dontRunName": "No ejecutar {{name}} cuando el límite se renueve",
       "canceledToast": "Cancelado. No se ejecutará cuando el límite se renueve.",
       "continuedToast": "La ejecución continúa.",
-      "forbidden": "Solo quien creó la rutina, el responsable del agente o un admin pueden continuarla ahora",
-      "extra_off": "La ventana de este plan se agotó y el trabajo largo de este agente no usa uso extra pagado. Actívalo en su configuración de IA para continuar ahora, o retoma después de la renovación",
+      "forbidden": "Solo quien creó la rutina, el responsable del agente, quien puede editar el agente o un admin pueden continuarla ahora",
+      "extra_off": "La ventana de este plan se agotó y el trabajo largo de este agente no usa el uso extra pagado del plan. Retoma después de la renovación",
       "extra_used_up": "La ventana de este plan se agotó y su uso extra pagado se agotó o no está disponible. Retoma después de la renovación"
     },
     "pausedRunningToast": "Rutina en pausa. La ejecución en curso también se detuvo.",
     "deleteBodyRunning": "Deja de ejecutarse y sale de la lista, y la ejecución en curso también se detiene. Las ejecuciones anteriores quedan en el historial.",
-    "detailsHidden": "Solo lo ven quien la creó, el responsable del agente, los admins y las personas de la conversación."
+    "detailsHidden": "Solo lo ven quien la creó, el responsable del agente, quien puede editar el agente, los admins y las personas de la conversación."
   },
   "missions": {
     "chip": "Misión · {{done}} de {{count}}",
@@ -9553,8 +9962,7 @@
       "approvals": "Por defecto, merge, deploy y rollback piden aprobación",
       "start": "Empezar misión",
       "created": "Misión creada: {{name}} está armando el plan.",
-      "who": "Quién programa",
-      "codexOld": "Codex en {{computer}} es demasiado antiguo para misiones: actualízalo ahí."
+      "who": "Quién programa"
     },
     "commandApproval": {
       "label": "Autonomía",
@@ -10536,8 +10944,8 @@
     "line": {
       "invalid": "TypeSafe no aceptó esta clave. Crea una nueva.",
       "no_credit": "Añade crédito en TypeSafe. Jev vuelve a funcionar solo.",
-      "env": "Definida en la configuración de este servidor (TYPESAFE_API_KEY).",
-      "envInvalid": "TypeSafe no aceptó esta clave. Cámbiala en la configuración de este servidor (TYPESAFE_API_KEY)."
+      "env": "Definida en la configuración de este servidor (`TYPESAFE_API_KEY`).",
+      "envInvalid": "TypeSafe no aceptó esta clave. Cámbiala en la configuración de este servidor (`TYPESAFE_API_KEY`)."
     },
     "checkAgain": "Volver a comprobar",
     "via": {
@@ -10563,7 +10971,7 @@
       "line": {
         "invalid": "OpenRouter no aceptó esta clave. Crea una nueva.",
         "no_credit": "Añade crédito en OpenRouter. Jev vuelve a funcionar solo.",
-        "envInvalid": "OpenRouter no aceptó esta clave. Cámbiala en la configuración de este servidor (TYPESAFE_API_KEY)."
+        "envInvalid": "OpenRouter no aceptó esta clave. Cámbiala en la configuración de este servidor (`TYPESAFE_API_KEY`)."
       }
     },
     "remove": {
@@ -10572,6 +10980,12 @@
     }
   },
   "aiAccounts": {
+    "unnamed": "Cuenta sin nombre",
+    "rename": {
+      "action": "Cambiar el nombre de {{label}}",
+      "label": "Nombre de la cuenta",
+      "placeholder": "Ej.: Trabajo, Personal"
+    },
     "share": {
       "switch": "Responde a otras personas",
       "switchAll": "Responder a otras personas",
@@ -10636,7 +11050,6 @@
       "needsCloud": {
         "online": "{{computer}} se está reiniciando o reconectando. Esto cambia solo cuando vuelva.",
         "installing": "{{program}} se está instalando en {{computer}}. Esto cambia solo cuando termine.",
-        "updating": "{{program}} se está actualizando en {{computer}}. Esto cambia solo cuando termine.",
         "runnerOld": "El programa de agentes.chat en {{computer}} está desactualizado y la actualización ya viene en camino. Esto cambia solo cuando termine.",
         "execOff": "{{computer}} todavía no puede ejecutar {{program}}. Ya estamos en eso, y esto cambia solo.",
         "toolOff": "{{program}} todavía no está habilitado en {{computer}}. Eso es cosa nuestra: inténtalo de nuevo más tarde.",
@@ -10680,10 +11093,10 @@
       "copiesRemoved_one": "{{count}} inicio de sesión sin uso quitado.",
       "copiesRemoved_many": "{{count}} inicios de sesión sin uso quitados.",
       "copiesRemoved_other": "{{count}} inicios de sesión sin uso quitados.",
-      "removeAllDone": "{{n}} inicios de sesión de Grok quitados.",
-      "removeAllText": "Dejan de pensar por sus agentes en {{computers}}. Los inicios de sesión de otras personas no se tocan.",
-      "removeAllTitle": "¿Quitar los {{n}} inicios de sesión de Grok?",
       "removeAllGrok": "Quitar todos los inicios de sesión de Grok",
+      "removeAllTitle": "¿Quitar los {{n}} inicios de sesión de Grok?",
+      "removeAllText": "Dejan de pensar por sus agentes en {{computers}}. Los inicios de sesión de otras personas no se tocan.",
+      "removeAllDone": "{{n}} inicios de sesión de Grok quitados.",
       "disconnect": "Desconectar",
       "renameTitle": "Cambiar el nombre de {{label}}",
       "nameLabel": "Nombre",
@@ -10790,7 +11203,7 @@
     "modeText": {
       "everyone": "Cualquiera del espacio de trabajo puede llamar a {{name}}.",
       "people": "Elige las personas y los roles que pueden hablar con {{name}}.",
-      "owner": "Solo {{owner}} habla con {{name}}.",
+      "owner": "Solo {{owner}} habla con {{name}}. En las listas, solo {{owner}}, los admins y quien puede editar ven a {{name}}.",
       "noOwner": "Define un responsable para usar esta opción.",
       "everyonePersonal": "Cualquiera de aquí puede llamar a {{name}}.",
       "peoplePersonal": "Elige las personas que pueden hablar con {{name}}."
@@ -10831,6 +11244,25 @@
       "only": "{{name}} solo responde a {{names}}.",
       "some": "{{name}} solo responde a algunas personas.",
       "nobody": "{{name}} no le responde a nadie ahora."
+    }
+  },
+  "editors": {
+    "section": "Quién puede editar",
+    "title": "Quién puede editar a {{name}}",
+    "mode": {
+      "owner": "Solo quien está a cargo de {{name}}",
+      "people": "También algunas personas o roles"
+    },
+    "modeText": {
+      "owner": "{{owner}} (responsable), los admins y quien edita agentes y habla con {{name}}.",
+      "noOwner": "Los admins y quien edita agentes y habla con {{name}}.",
+      "people": "Elige quién más puede cambiar cómo trabaja {{name}}."
+    },
+    "rolesHint": "Cualquiera con el rol puede editar, incluso quien lo reciba después.",
+    "note": "Editar es cambiar las instrucciones, el rol, las habilidades y las rutinas de {{name}}. Las apps, el presupuesto y el responsable siguen en manos de quien edita agentes.",
+    "summary": {
+      "owner": "Solo quien está a cargo de él",
+      "owner_female": "Solo quien está a cargo de ella"
     }
   },
   "composer": {
@@ -10894,7 +11326,7 @@
     "tooShort": "Muy corto. Di un poco más.",
     "silent": "No se escuchó nada. No se envió nada.",
     "notSent": "No se pudo enviar el audio.",
-    "limit": "Es mucho audio por hoy. Escribe aquí y vuelve a intentarlo mañana.",
+    "limit": "Se acabó el límite de audios de hoy. Escribe aquí o vuelve a intentarlo mañana.",
     "micBlocked": "El micrófono está bloqueado",
     "micBlockedHint": "Permite el micrófono en la configuración de tu dispositivo para grabar.",
     "openSettings": "Abrir configuración",
@@ -10909,6 +11341,9 @@
     "keys": "Enter envía · Esc borra",
     "keysHold": "Suelta para enviar · Esc borra",
     "keysPaused": "En pausa · Espacio escucha · Enter envía · Esc borra",
+    "askDiscard": "¿Borrar el audio? Tu texto se queda.",
+    "askDelete": "Borrar",
+    "askKeep": "Conservar",
     "pausePlay": "Pausar",
     "seek": "Posición del audio",
     "speedAt": "Velocidad {{speed}}×",
@@ -11295,6 +11730,17 @@
     "saved": "Logo actualizado.",
     "removed": "Logo quitado."
   },
+  "orgAccent": {
+    "label": "Color de acento",
+    "change": "Cambiar color",
+    "useDefault": "Usar el predeterminado",
+    "suggested": "Colores sugeridos",
+    "sampleMention": "@Agente",
+    "sampleLink": "Un enlace",
+    "save": "Guardar color",
+    "saved": "Color de acento actualizado.",
+    "reset": "De vuelta al color predeterminado."
+  },
   "look": {
     "previous": "Anterior",
     "next": "Siguiente",
@@ -11510,8 +11956,8 @@
     "audienceInFolder": "Dentro de {{folder}}, que es limitada: aquí solo puedes restringirlo más.",
     "audienceFollows": "De {{folder}}",
     "audienceUseFolder": "Definir para la carpeta {{folder}}",
-    "audienceFolderSaved": "Listo. Se actualizó el público de la carpeta.",
-    "audienceFolderOpened": "Listo. La carpeta ya no tiene límite.",
+    "audienceFolderSaved": "Acceso de la carpeta actualizado.",
+    "audienceFolderOpened": "La carpeta ya no tiene límite.",
     "audienceRootTitle": "Acceso a toda la wiki",
     "audienceRootText": "Vale para todas las páginas y carpetas de la wiki, y para las que lleguen después.",
     "audienceInRoot": "Toda la wiki está limitada: aquí solo puedes limitarla más.",
@@ -11552,8 +11998,9 @@
       "agentsTitle_one": "Agentes que leen {{count}} página",
       "agentsTitle_other": "Agentes que leen {{count}} páginas",
       "agentsText": "Quién ve cada página entre las personas sigue igual.",
-      "agentsSaved_one": "Listo. {{count}} página actualizada.",
-      "agentsSaved_other": "Listo. {{count}} páginas actualizadas."
+      "agentsSaved_one": "{{count}} página actualizada.",
+      "agentsSaved_many": "{{count}} páginas actualizadas.",
+      "agentsSaved_other": "{{count}} páginas actualizadas."
     },
     "trash": {
       "title": "Papelera",
@@ -11588,8 +12035,8 @@
     "audienceAgentDetail": "Agente",
     "audiencePeople": "Personas",
     "audienceNoMatch": "Nadie con ese nombre.",
-    "audienceSaved": "Listo. Se actualizó el acceso.",
-    "audienceOpened": "Listo. Todos pueden verla y editarla.",
+    "audienceSaved": "Acceso actualizado.",
+    "audienceOpened": "Todos pueden verla y editarla.",
     "noAccessTitle": "No tienes acceso a esta página",
     "noAccessText": "Es solo para algunas personas. Si la necesitas, pídesela a quien se encarga de la wiki.",
     "delete": "Mover a la papelera",
@@ -11896,12 +12343,6 @@
       "read": "{{name}} lo leyó",
       "resolved": "{{name}} cerró el pedido de ayuda"
     },
-    "well": {
-      "readYours": "Leyó tu nota",
-      "readOf": "Leyó la nota de {{name}}",
-      "nowYours": "Se detuvo para leer tu nota",
-      "nowOf": "Se detuvo para leer la nota de {{name}}"
-    },
     "strip": {
       "see": "Ver",
       "toStop": "para detener"
@@ -11995,11 +12436,6 @@
       "not_installed": "{{program}} no está instalado en {{computer}}.",
       "cant_start": "{{program}} está en {{computer}}, pero no abre.",
       "not_reported": "{{computer}} todavía está comprobando qué programas tiene. Esto cambia solo cuando termine.",
-      "outdated": "La versión de {{computer}} es antigua. Actualiza Codex para usarlo.",
-      "outdatedCodex": "Se encontró Codex CLI {{detected}} en {{computer}}. Actualízalo a la versión {{minimum}} o posterior.",
-      "codexUpdateGuide": "Cómo actualizar Codex CLI",
-      "codexRecheckHere": "Después de actualizar, pulsa Volver a comprobar en la fila de Codex en Preferencias › Herramientas.",
-      "codexRecheckThere": "Actualiza Codex CLI en {{computer}}. Si tiene la aplicación de escritorio, pulsa Volver a comprobar en la fila de Codex en Preferencias › Herramientas.",
       "system": "{{program}} todavía no funciona en el sistema de {{computer}}.",
       "no_computerCloud": "Listo en cuanto {{computer}} lo esté."
     },
@@ -12039,8 +12475,7 @@
       "cursor": "Cursor · {{model}}",
       "grok": "Grok Build · {{model}}",
       "antigravity": "Antigravity CLI · {{model}}",
-      "opencode": "OpenCode · {{model}}",
-      "noFallback": "{{brain}}, sin respaldo por API"
+      "opencode": "OpenCode · {{model}}"
     },
     "mission": {
       "modelLabel": "Modelo",
@@ -12066,26 +12501,16 @@
     "see": "Ver cola",
     "openComputer": "Abrir la computadora",
     "label": "Cola de {{name}}",
-    "full": "Llena",
-    "fullNext": "Llena · el siguiente empieza en unos {{n}} min",
     "free": "Nadie en la cola",
     "workingNow": "Trabajando ahora · {{n}}",
     "inLine": "En la cola · {{n}}",
     "allStarted": "todos empiezan en ~{{n}} min",
     "nothingWorking": "Nada en marcha ahora",
     "rule": "Un trabajo nuevo empieza cuando la computadora tiene memoria libre. Las personas van primero. Los agentes mencionados juntos empiezan de uno en uno.",
-    "cause_one": "Computadora llena: {{count}} trabajo usa su memoria ahora ({{fill}}).",
-    "cause_many": "Computadora llena: {{count}} trabajos usan su memoria ahora ({{fill}}).",
-    "cause_other": "Computadora llena: {{count}} trabajos usan su memoria ahora ({{fill}}).",
     "spill": {
-      "title": "Más computadoras, menos cola",
+      "title": "Tus computadoras",
       "text": "Cuando esta computadora esté llena, las respuestas para ti pueden empezar en una tuya. El trabajo largo y los archivos de los agentes se quedan aquí.",
       "plan": "tu plan {{plan}}"
-    },
-    "stopFill": {
-      "routine": "Detener la rutina",
-      "work": "Detener el trabajo largo",
-      "agent": "Detener a {{name}}"
     },
     "youFirst": "Tú vas primero",
     "startsIn": "empieza en ~{{n}} min",
@@ -12125,13 +12550,7 @@
       "agents": "una conversación entre agentes",
       "private": "una conversación privada"
     },
-    "live": {
-      "nextEta": "Esperando la computadora. Es el siguiente, en unos {{n}} min",
-      "next": "Esperando la computadora. Es el siguiente",
-      "waiting": "Esperando la computadora",
-      "behind": "En la cola, {{nth}}. Después de {{names}}",
-      "position": "En la cola, {{nth}}"
-    },
+    "waiting": "En la cola · empieza en breve",
     "nth": {
       "one": "{{n}}.º",
       "two": "{{n}}.º",
@@ -12303,7 +12722,10 @@
       "file": "Archivo",
       "block": "Bloque",
       "poll": "Encuesta",
-      "choices": "Opciones"
+      "choices": "Opciones",
+      "spreadsheet": "Hoja de cálculo",
+      "slides": "Presentación",
+      "canvas": "Pizarra"
     },
     "version": "v{{version}}",
     "createdBy": "{{kind}} · hecho por {{name}}",
@@ -12448,7 +12870,10 @@
       "file": "Archivos",
       "block": "Bloques",
       "poll": "Encuestas",
-      "choices": "Opciones"
+      "choices": "Opciones",
+      "spreadsheet": "Hojas de cálculo",
+      "slides": "Presentaciones",
+      "canvas": "Pizarras"
     },
     "view": "Vista",
     "viewGrid": "Cuadrícula",
@@ -12515,7 +12940,7 @@
       "dmBetween": "Solo {{names}} pueden verlo: vino de un mensaje directo"
     },
     "private": "Privado",
-    "privateHint": "Solo las personas de la conversación ven estos archivos. En un canal, también los administradores.",
+    "privateHint": "Solo las personas de la conversación, o quien creó el archivo, ven estos archivos. En un canal y en el Drive, también los administradores.",
     "downloadAs": "Descargar como",
     "uploading_one": "Subiendo {{count}} archivo",
     "uploading_many": "Subiendo {{count}} archivos",
@@ -12541,7 +12966,52 @@
     "goneIn_one": "se va en {{count}} día",
     "goneIn_many": "se va en {{count}} días",
     "goneIn_other": "se va en {{count}} días",
-    "fileBadge": "ARCH"
+    "fileBadge": "ARCH",
+    "folders": "Carpetas",
+    "folder": "Carpeta",
+    "newFolder": "Nueva carpeta",
+    "renameFolder": "Cambiar nombre de la carpeta",
+    "renameFile": "Cambiar nombre del archivo",
+    "rename": "Cambiar nombre",
+    "create": "Crear",
+    "openFolder": "Abrir",
+    "folderMore": "Más acciones de {{name}}",
+    "path": "Ruta de la carpeta",
+    "up": "Subir un nivel",
+    "folderEmptyTitle": "Esta carpeta está vacía",
+    "folderEmptyText": "Suelta archivos aquí o súbelos. Arrastrar un archivo a una carpeta lo mueve allí.",
+    "folderEmptyViewer": "Los archivos que se pongan en esta carpeta aparecen aquí.",
+    "move": "Mover",
+    "moveToMenu": "Mover a…",
+    "moveTitle_one": "Mover {{count}} elemento",
+    "moveTitle_many": "Mover {{count}} elementos",
+    "moveTitle_other": "Mover {{count}} elementos",
+    "moveTo": "Carpetas",
+    "moveSearch": "Buscar carpetas",
+    "moveEmpty": "Ninguna carpeta se llama “{{q}}”.",
+    "moveHere": "Está aquí",
+    "moveToName": "Mover a {{name}}",
+    "moved_one": "Movido a {{name}}.",
+    "moved_many": "{{count}} elementos movidos a {{name}}.",
+    "moved_other": "{{count}} elementos movidos a {{name}}.",
+    "deleteFolder": "Eliminar carpeta",
+    "deleteFolderTitle": "¿Eliminar “{{name}}”?",
+    "deleteFolderBody": "Las carpetas que tiene dentro también se eliminan. Los archivos que puedes eliminar van a la papelera por 30 días. Los archivos de otras personas suben a donde estaba esta carpeta.",
+    "folderDeletedEmpty": "Carpeta eliminada.",
+    "folderDeleted_one": "Carpeta eliminada. {{count}} archivo fue a la papelera.",
+    "folderDeleted_many": "Carpeta eliminada. {{count}} archivos fueron a la papelera.",
+    "folderDeleted_other": "Carpeta eliminada. {{count}} archivos fueron a la papelera.",
+    "folderDeletedKept_one": "Carpeta eliminada. {{count}} archivo que no puedes eliminar subió un nivel.",
+    "folderDeletedKept_many": "Carpeta eliminada. {{count}} archivos que no puedes eliminar subieron un nivel.",
+    "folderDeletedKept_other": "Carpeta eliminada. {{count}} archivos que no puedes eliminar subieron un nivel.",
+    "delete": "Eliminar",
+    "deleteItemsTitle_one": "¿Eliminar {{count}} elemento?",
+    "deleteItemsTitle_many": "¿Eliminar {{count}} elementos?",
+    "deleteItemsTitle_other": "¿Eliminar {{count}} elementos?",
+    "deleteItemsBody": "Las carpetas se eliminan con todo lo que contienen. Los archivos que puedes eliminar van a la papelera durante 30 días. Los de otras personas suben un nivel.",
+    "itemsDeleted_one": "{{count}} elemento eliminado.",
+    "itemsDeleted_many": "{{count}} elementos eliminados.",
+    "itemsDeleted_other": "{{count}} elementos eliminados."
   },
   "storage": {
     "title": "Almacenamiento",
@@ -12797,7 +13267,7 @@
         "invalid": "No válida"
       },
       "line": {
-        "env": "Definida en la configuración de este servidor (GITHUB_APP_ID).",
+        "env": "Definida en la configuración de este servidor (`GITHUB_APP_ID`).",
         "invalid": "Este servidor no puede abrir la app guardada. Quítala y créala de nuevo.",
         "events": "Para que los agentes escuchen lo que pasa en GitHub, marca estos eventos en la app: {{events}}."
       },
@@ -12889,6 +13359,37 @@
       "add": "Agregar MCP",
       "list": "Servidores MCP conectados",
       "none": "Aquí aparecen los servidores MCP que conectes por su dirección."
+    },
+    "personal": {
+      "note": "Solo tú abres estas conexiones. Tus agentes las usan solo cuando se lo pides.",
+      "noteOne": "Solo tú abres esta conexión. Tus agentes la usan solo cuando se lo pides.",
+      "emptyTitle": "Conecta tus propias cuentas",
+      "emptyText": "Solo tú abres tus conexiones, y tus agentes las usan solo cuando se lo pides. Los buzones siguen su propia regla.",
+      "noApps": "Los servicios que conectes solo para ti aparecen aquí.",
+      "mailTitle": "Tus buzones",
+      "mailNote": "Los agentes a los que diste permiso usan tus buzones como lo configuraste, también para quien habla directamente con ellos. Cuando otra persona pide algo que necesita aprobación, quien aprueba eres tú.",
+      "others": "Conexiones personales de otras personas",
+      "of": "Personal de {{name}}",
+      "seeAll": "Ver las {{count}}",
+      "forWhom": "Para quién",
+      "teamLocked": "Solo quien gestiona conectores añade los del equipo.",
+      "mailLocked": "Un buzón siempre es de quien lo conecta.",
+      "done": "Tus agentes lo usan solo cuando tú lo pides.",
+      "worksWhenAsked": "Solo funciona cuando tú lo pides.",
+      "remove": "Quitar",
+      "removeName": "Quitar {{name}}",
+      "removeTitle": "¿Quitar {{name}}?",
+      "takeOff": "Quitar de un agente",
+      "takeOffTitle": "Quitar {{name}} de un agente",
+      "takeOffName": "Quitar {{name}} de {{agent}}",
+      "takeOffOne": "Quitar",
+      "takenOff": "{{agent}} ya no usa {{name}}.",
+      "turnOff": "Desactivar",
+      "turnOffName": "Desactivar {{name}} para este agente",
+      "moveToTeam": "Pasar al equipo",
+      "moveTitle": "¿Pasar {{name}} al equipo?",
+      "moveText": "Todos en el workspace lo ven. Quien gestiona agentes elige qué agentes lo usan, y el dueño de un agente puede desactivarlo en el suyo. Un agente que usa todas las apps conectadas lo recibe al instante.",
+      "moved": "{{name}} ahora es del equipo."
     },
     "addTitle": "Agregar conector",
     "catalogText": "Conéctalo una vez para {{org}}. Luego elige qué puede usar cada agente.",
@@ -13354,9 +13855,9 @@
     "composio": {
       "via": "A través de Composio",
       "needsReconnect": "Hay que volver a conectarlo",
-      "off_one": "{{names}} y {{count}} servicio más se conectan a través de Composio. Para activarlos, quien administra este servidor configura COMPOSIO_API_KEY (consulta SELF_HOSTING.md).",
-      "off_many": "{{names}} y {{count}} servicios más se conectan a través de Composio. Para activarlos, quien administra este servidor configura COMPOSIO_API_KEY (consulta SELF_HOSTING.md).",
-      "off_other": "{{names}} y {{count}} servicios más se conectan a través de Composio. Para activarlos, quien administra este servidor configura COMPOSIO_API_KEY (consulta SELF_HOSTING.md).",
+      "off_one": "{{names}} y {{count}} servicio más se conectan a través de Composio. Para activarlos, quien administra este servidor configura `COMPOSIO_API_KEY` (consulta `SELF_HOSTING.md`).",
+      "off_many": "{{names}} y {{count}} servicios más se conectan a través de Composio. Para activarlos, quien administra este servidor configura `COMPOSIO_API_KEY` (consulta `SELF_HOSTING.md`).",
+      "off_other": "{{names}} y {{count}} servicios más se conectan a través de Composio. Para activarlos, quien administra este servidor configura `COMPOSIO_API_KEY` (consulta `SELF_HOSTING.md`).",
       "usage": "Composio: {{calls}} de {{limit}} llamadas en {{month}}",
       "usageNoLimit": "Composio: {{calls}} llamadas en {{month}}",
       "limitNotice": "Este espacio de trabajo usó sus llamadas de Composio del mes",
@@ -14206,6 +14707,16 @@
       "read_artifact": "Leer archivo en Drive",
       "list_artifacts": "Listar archivos de Drive",
       "share_artifact": "Compartir archivo",
+      "read_spreadsheet": "Leer hoja de cálculo",
+      "edit_spreadsheet": "Editar hoja de cálculo",
+      "create_presentation": "Crear presentación",
+      "read_presentation": "Leer presentación",
+      "edit_presentation": "Editar presentación",
+      "create_canvas": "Crear pizarra",
+      "read_canvas": "Leer pizarra",
+      "edit_canvas": "Editar pizarra",
+      "read_document": "Leer documento",
+      "edit_document": "Editar documento",
       "upload_file": "Subir archivo",
       "import_file": "Importar archivo",
       "export_file": "Exportar archivo",
@@ -14219,6 +14730,7 @@
       "commit_co_author": "Activar o desactivar la línea de los agentes en los commits",
       "web_search": "Buscar en la web",
       "web_fetch": "Leer página web",
+      "image_search": "Buscar imágenes",
       "create_routine": "Crear rutina",
       "update_routine": "Actualizar rutina",
       "delete_routine": "Borrar rutina",
@@ -14265,6 +14777,7 @@
       "vault_delete": "Borrar contraseña",
       "vault_make_password": "Generar contraseña",
       "get_my_usage": "Ver mi uso",
+      "ignore_usage_limit": "Ignorar el límite de uso",
       "send_feedback": "Enviar feedback",
       "offer_feedback": "Ofrecer reportar un problema"
     }
@@ -14531,7 +15044,7 @@
       },
       "railway": {
         "1": "En el servicio de Postgres, abre Data → Query y ejecuta el comando de abajo (cambia la contraseña).",
-        "2": "En Variables, copia DATABASE_PUBLIC_URL (DATABASE_URL es interna y no funciona desde aquí).",
+        "2": "En Variables, copia `DATABASE_PUBLIC_URL` (`DATABASE_URL` es interna y no funciona desde aquí).",
         "3": "Cambia el usuario y la contraseña por agentes_leitura y la contraseña que elegiste, y pégalo aquí."
       },
       "rds": {
@@ -14566,7 +15079,7 @@
     "error": {
       "auth": "El usuario o la contraseña no coinciden. Revísalos e intenta de nuevo.",
       "unreachable": "No pudimos llegar al servidor de la base de datos. Revisa la dirección y si acepta conexiones desde fuera.",
-      "blocked_host": "Este servidor no está permitido. Usa la dirección pública de la base de datos (las direcciones internas, como la DATABASE_URL de Railway, no funcionan desde aquí).",
+      "blocked_host": "Este servidor no está permitido. Usa la dirección pública de la base de datos (las direcciones internas, como la `DATABASE_URL` de Railway, no funcionan desde aquí).",
       "tls": "La base de datos no aceptó una conexión segura. Activa SSL en la base de datos, o elige Sin cifrado en Avanzado (solo bases de datos de prueba).",
       "unknown": "No se pudo conectar ahora. Intenta de nuevo en un momento.",
       "no_databases": "Este usuario no puede abrir ninguna base de este servidor. Revisa sus permisos o el comienzo del nombre."
@@ -15076,6 +15589,22 @@
     }
   },
   "errors": {
+    "surface": {
+      "off": "Se desactivó la vinculación de apps de chat. Recarga para ver tu configuración como está ahora.",
+      "notAllowed": "Vincular una app de chat todavía no está abierto para tu cuenta. Sigue usando la app aquí hasta que se abra.",
+      "noAssistant": "El asistente de este espacio de trabajo no está configurado para hablar contigo. Elige otro espacio de trabajo para vincular.",
+      "noWorkspace": "Ya no estás en este espacio de trabajo. Elige otro espacio de trabajo para vincular.",
+      "linkGone": "Este vínculo ya no está esperando: venció después de 10 minutos o se canceló. Crea un código nuevo para empezar de nuevo.",
+      "taken": "Ese remitente está vinculado a otra cuenta de agentes.chat. Desvincúlalo allí y luego envía un código nuevo.",
+      "undoGone": "Este enlace para deshacer ya se usó o venció. Desvincula desde tu configuración de notificaciones.",
+      "codeGone": "Este código es incorrecto, ya se usó o venció después de 10 minutos. Crea un código nuevo y envíalo otra vez."
+    },
+    "wallpaper": {
+      "notYours": "Esa foto no es tuya.",
+      "invalid": "Ese fondo no existe.",
+      "tooLarge": "La foto puede pesar hasta 2 MB.",
+      "type": "Usa una foto JPEG, PNG o WebP."
+    },
     "tooLarge": "Esto es más grande de lo que acepta el servidor.",
     "tooLargeMax": "Esto es más grande de lo que acepta el servidor: hasta {{max}} MB.",
     "passwordLink": {
@@ -15106,7 +15635,7 @@
       "accountInUse": "Esa cuenta ya piensa para otro agente.",
       "noAiYet": "Todavía no hay IA conectada.",
       "filePurged": "Este archivo se borró hace más de 30 días y no puede volver.",
-      "looksSecret": "Eso parece una contraseña o una clave, y todos aquí la verían.",
+      "looksSecret": "Eso parece una contraseña o una clave, y todos aquí la verían. Mejor pide al agente que te la pida en privado.",
       "blockSpec": "Este bloque tiene un error en sus partes o fórmulas, así que no se puede mostrar. Corrígelo e inténtalo de nuevo.",
       "takeControl": "Toma primero el control del perfil.",
       "profileBusy": "Otra persona está usando este perfil.",
@@ -15124,8 +15653,10 @@
       "createRefused": "No puedes crear un espacio de trabajo ahora.",
       "noAgentToRemind": "Ningún agente de esta conversación puede recordártelo.",
       "agentCantRead": "Deja primero que el agente lea esto, en sus accesos.",
+      "connectionNotYours": "Esta conexión es personal de otra persona. Solo una rutina suya puede esperar sus eventos.",
       "neverHappens": "Esta programación nunca ocurre.",
       "soleOwner": "Eres la única persona dueña de un espacio de trabajo con otros miembros. Haz dueña a otra persona, o borra el espacio de trabajo, antes.",
+      "soleOwnerOutside": "Eres la única persona dueña de un espacio de trabajo cuyas otras personas son colaboradores externos, que no pueden ser propietarios. Invita a un miembro y hazlo propietario, o borra el espacio de trabajo, antes.",
       "testFirst": "Prueba la conexión con estos datos antes de activarla.",
       "voiceLength": "La grabación es demasiado larga o demasiado corta.",
       "sendAgain": "El archivo no llegó completo. Envíalo de nuevo.",
@@ -15202,7 +15733,8 @@
       "aboveYou": "Solo alguien por encima de este rol puede cambiarlo.",
       "base": "Todo espacio de trabajo conserva el rol Todos.",
       "unknown": "Ese rol ya no existe.",
-      "orderIncomplete": "Los roles cambiaron mientras los movías. Recarga e inténtalo de nuevo."
+      "orderIncomplete": "Los roles cambiaron mientras los movías. Recarga e inténtalo de nuevo.",
+      "outsideOwner": "Un colaborador externo no puede ser propietario."
     },
     "teamProposal": {
       "undoExpired": "Ya pasó más de un día desde que se creó este equipo, así que no se puede deshacer aquí. Archiva los agentes en sus páginas."
@@ -15234,7 +15766,8 @@
       "denied": "Tu solicitud no fue aprobada. Pídele a alguien de ahí que te invite.",
       "answered": "Alguien ya respondió esta solicitud.",
       "expired": "Esta solicitud venció: nadie la respondió en 14 días.",
-      "codeNeeded": "Primero verifica tu correo."
+      "codeNeeded": "Primero verifica tu correo.",
+      "outsideClosed": "Esta cuenta fue bloqueada o se está eliminando, así que no puede entrar. La solicitud quedó cerrada."
     },
     "code": {
       "wrong": "Código incorrecto. Intenta de nuevo.",
@@ -15320,10 +15853,10 @@
       "takeOverNoAccess": "Únete a la conversación de la rutina antes de hacerte cargo de ella.",
       "agentNotInChannel": "Primero agrega el agente a la conversación.",
       "webhookPaused": "Activa la rutina para probarla.",
-      "continueExtraOff": "La ventana de este plan se agotó y el trabajo largo de este agente no usa uso extra pagado. Actívalo en su configuración de IA para continuar ahora, o seguirá después del reinicio.",
+      "continueExtraOff": "La ventana de este plan se agotó y el trabajo largo de este agente no usa el uso extra pagado del plan. Seguirá después del reinicio.",
       "continueExtraUsedUp": "La ventana de este plan se agotó y su uso extra pagado se agotó o no está disponible. Seguirá después del reinicio.",
       "actionsNeedApprover": "Solo el dueño del agente o quien aprueba sus acciones puede dejar que una rutina actúe por su cuenta.",
-      "editorOnly": "Solo quien creó la rutina, el dueño del agente o un admin puede cambiarla.",
+      "editorOnly": "Solo quien creó la rutina, el dueño del agente, quien puede editar el agente o un admin puede cambiarla.",
       "widgetFixed": "Esta rutina mantiene un widget actualizado. Cámbiala desde su widget."
     },
     "run": {
@@ -15352,6 +15885,32 @@
       "sharingTooMany": "Elige como máximo {{max}} personas y {{max}} roles.",
       "notInDrive": "Esto vive solo en su conversación, así que no se puede compartir."
     },
+    "drive": {
+      "folderIntoItself": "Una carpeta no puede ir dentro de sí misma ni de una carpeta que tiene dentro."
+    },
+    "live": {
+      "readOnly": "Este archivo ahora es de solo lectura, así que no se puede cambiar.",
+      "tooLarge": "Este archivo llegó a su límite de tamaño. Quita algo primero.",
+      "assetTooLarge": "La imagen pasa de {{max}} MB, el límite por imagen.",
+      "assetType": "En este archivo solo entran imágenes: PNG, JPEG, WebP o GIF.",
+      "liveOnly": "Este archivo se cambia justo donde está, así que no se puede reemplazar entero."
+    },
+    "office": {
+      "unreadable": "No se pudo abrir este archivo aquí. Puede estar dañado. Descárgalo para abrirlo en su propia app.",
+      "tooLarge": "Este archivo es demasiado grande para abrirlo aquí. Descárgalo para verlo en su propia app.",
+      "unsupported": "Los archivos como este solo se pueden descargar.",
+      "encrypted": "Este archivo está protegido con contraseña, así que solo lo abre su propia app.",
+      "tooLargeToEdit": "Este archivo es demasiado grande para editarlo aquí. Igual puedes verlo y descargarlo."
+    },
+    "images": {
+      "noModel": "Para crear imágenes, agrega una clave de OpenAI, Gemini u OpenRouter en la configuración del espacio de trabajo.",
+      "modelUnavailable": "Esta IA de imágenes ya no está disponible en el espacio de trabajo. Elige otra.",
+      "reference": "Elige hasta 4 imágenes de esta pizarra como punto de partida.",
+      "notCanvas": "Las imágenes solo se pueden crear en una pizarra.",
+      "rate": "Pediste muchas imágenes en la última hora. Vuelve a intentarlo en un rato.",
+      "personLimit": "Llegaste a tu límite de uso de IA de este mes.",
+      "provider": "La IA no pudo hacerlo ahora. Vuelve a intentarlo en un rato."
+    },
     "device": {
       "notLinkMaker": "Solo quien creó el enlace puede dejar entrar a esta computadora.",
       "widenForbidden": "Los admins solo pueden restringir quién usa el dispositivo propio de alguien.",
@@ -15373,6 +15932,7 @@
       "askSelf": "Es tu ordenador: actívalo con el botón.",
       "adminAskSelf": "Puedes hacerlo aquí tú mismo.",
       "accountMethodUnsupported": "Esta computadora todavía no puede conectar Claude de esta forma. Actualiza el programa de agentes.chat en ella o usa una clave de API.",
+      "brainUnavailable": "Esta IA todavía no está configurada en {{computer}}. Configúrala allí o elige otra.",
       "offline": "{{name}} está desconectada ahora. Intenta de nuevo cuando vuelva.",
       "paused": "{{name}} está en pausa: nada nuevo empieza en ella hasta que se reanude.",
       "timeout": "La computadora no respondió a tiempo. Intenta de nuevo."
@@ -15418,13 +15978,13 @@
     "agent": {
       "ownerOrAdmin": "Solo el dueño del agente o un admin puede hacer esto.",
       "detailsHidden": "Solo quien habla con {{agentName}} ve cómo funciona.",
-      "extraOwnerOnly": "Solo el dueño del agente activa o desactiva el uso extra pagado del plan.",
       "undoForbidden": "Solo la persona para quien trabajó el agente, su dueño o un admin puede deshacer esto.",
-      "undoSkillsAdmins": "Solo un admin puede deshacer o rehacer un cambio en las habilidades de un agente."
+      "undoSkillsAdmins": "Solo quien puede editar el agente puede deshacer o rehacer un cambio en sus habilidades."
     },
     "account": {
       "notRestorable": "Esta cuenta ya no se puede restaurar.",
-      "notOwner": "Solo quien conectó esta cuenta o plan puede hacer esto."
+      "notOwner": "Solo quien conectó esta cuenta o plan puede hacer esto.",
+      "orderForbidden": "Solo quien conectó esta cuenta o un admin puede cambiar su lugar en el orden."
     },
     "channel": {
       "membersForbidden": "Solo quien creó el canal o un admin puede agregar o quitar personas."
@@ -15440,7 +16000,7 @@
       "titleRequired": "Ponle un nombre.",
       "tooLong": "Es demasiado largo. El límite es {{max}}.",
       "notHttps": "Usa una dirección que empiece con https://",
-      "keyNameInvalid": "Usa mayúsculas, dígitos y _ en el nombre, como ACME_API_KEY.",
+      "keyNameInvalid": "Usa mayúsculas, dígitos y _ en el nombre, como `ACME_API_KEY`.",
       "keyNameReserved": "Este nombre está reservado. Elige otro.",
       "keyNameTaken": "Ya hay una clave guardada con este nombre aquí.",
       "contactEmpty": "Completa al menos un campo.",
@@ -15837,7 +16397,10 @@
       "since": "desde {{time}}",
       "until": "hasta {{time}}",
       "withHost": "con {{host}}",
-      "lastSeen": "visto por última vez {{time}}"
+      "lastSeen": "visto por última vez {{time}}",
+      "offlineUnresponsive": "dejó de responder a las {{time}}",
+      "offlineStopped": "el runner se detuvo a las {{time}}",
+      "offlineDropped": "la conexión se cayó a las {{time}}"
     },
     "line": {
       "ready": "Los agentes ya pueden usarlo.",
@@ -15846,7 +16409,10 @@
       "busy_other": "{{count}} de {{max}} tareas en curso",
       "offline": "Los agentes esperan a que vuelva.",
       "offlineSeen": "Visto por última vez {{time}}. Los agentes esperan a que vuelva.",
-      "offlineWithHost": "{{host}} está sin conexión. Los agentes esperan a que vuelva."
+      "offlineWithHost": "{{host}} está sin conexión. Los agentes esperan a que vuelva.",
+      "offlineUnresponsive": "Dejó de responder a las {{time}}, quizá sin red o sobrecargado. Ejecuta `{{command}}` en él.",
+      "offlineStopped": "El runner se detuvo a las {{time}}. Inícialo de nuevo o ejecuta `{{command}}` en él para ver por qué.",
+      "offlineDropped": "La conexión se cayó a las {{time}}. Se reconecta sola. Si no vuelve, ejecuta `{{command}}` en él."
     },
     "reason": {
       "locked": "El teléfono está bloqueado",
@@ -15856,6 +16422,7 @@
       "ui_automation_off": "La automatización de la IU está desactivada",
       "xcode_missing": "Xcode no está instalado en la Mac",
       "xcode_too_old": "Xcode es demasiado antiguo para esta versión de iOS",
+      "ios_behind_xcode": "El iOS de este iPhone es más antiguo que el de Xcode",
       "device_support": "La Mac está descargando las herramientas del iPhone",
       "helper_missing": "La app de pruebas aún no está configurada",
       "helper_expired": "Hay que renovar la app de pruebas",
@@ -15884,6 +16451,7 @@
       "ui_automation_off": "Activa la automatización de la IU",
       "xcode_missing": "Instala Xcode",
       "xcode_too_old": "Actualiza Xcode",
+      "ios_behind_xcode": "Actualiza el iPhone",
       "device_support": "Mantén la Mac encendida",
       "helper_missing": "Abre la app en la Mac",
       "helper_expired": "Abre la app en la Mac",
@@ -16205,9 +16773,15 @@
       "helperText": "La Mac la crea y la renueva cada 7 días. Basta con una Apple Account gratuita en Xcode.",
       "helperUntrustedText": "Toca el nombre del desarrollador y luego Confiar.",
       "teamLimitText": "Elimina del iPhone una app que creaste tú: una Apple Account gratuita permite 3.",
+      "iosBehind": "Este iPhone tiene iOS {{ios}} y Xcode en este Mac es para iOS {{sdk}}. Actualiza el iPhone: Ajustes › General › Actualización de software.",
       "xcodeOld": "{{name}} usa iOS {{version}} y Xcode en {{mac}} conoce como mucho iOS {{sdk}}. Instala Xcode {{major}} y luego ejecuta esto en Terminal.",
       "xcodeOldAny": "{{name}} usa iOS {{version}}, más nuevo de lo que conoce Xcode en {{mac}}. Instala Xcode {{major}} y luego ejecuta esto en Terminal.",
-      "uiRefusedText": "El iPhone rechazó los toques de la app de pruebas. Desbloquéalo y escribe su código si lo pide. Si vuelve a pasar, desactiva y activa Configuración › Desarrollador › Activar automatización de la IU.",
+      "uiRefusedText": "Los agentes ven la pantalla del iPhone, pero iOS rechaza sus toques.",
+      "uiTurnOn": "En el iPhone, activa las dos opciones:",
+      "uiPasscode": "Escribe su código cuando lo pida y mantenlo desbloqueado.",
+      "uiCheck": "Comprobar de nuevo",
+      "repair": "Reparar la app de pruebas",
+      "repairHint": "Úsalo cuando los toques sigan fallando con las dos opciones activadas. El Mac detiene la app de pruebas y la vuelve a crear con su Xcode, en unos minutos.",
       "tooOld": "{{name}} usa iOS {{version}}, y los agentes necesitan iOS 17 o posterior. Actualízalo si se puede, o conecta un iPhone más nuevo.",
       "tooOldVersion": "16 o anterior",
       "pluggedIn": "Ya está conectado",
@@ -16732,8 +17306,48 @@
     },
     "system": "Sistema",
     "removed": "Eliminado",
+    "operatorRead": {
+      "sentence": "{{who}} leyó {{what}}",
+      "who": {
+        "server": "Quien administra este servidor",
+        "cloud": "El soporte de agentes.chat"
+      },
+      "what": {
+        "message": "un mensaje",
+        "run_step": "un paso del trabajo de un agente",
+        "agent": "las instrucciones de un agente",
+        "routine": "una rutina",
+        "task": "una tarea en segundo plano",
+        "channel": "el nombre de un canal",
+        "connection": "los datos de una conexión",
+        "support_request": "una solicitud de soporte",
+        "direct": "algo en una conversación privada",
+        "other": "algo del espacio de trabajo"
+      },
+      "request": {
+        "plain": "a pedido de {{name}}",
+        "app": "a pedido de {{name}}, enviado desde la app",
+        "email": "a pedido de {{name}}, enviado por correo",
+        "operator": "a pedido de {{name}}, registrado por quien administra este servidor",
+        "support": "a pedido de {{name}}, registrado por soporte"
+      },
+      "fault": "para diagnosticar una ejecución que falló o se quedó detenida",
+      "ai": "con un asistente de IA"
+    },
+    "operatorReply": {
+      "sentence": "{{who}} respondió por correo",
+      "request": "solicitud de soporte de {{name}}"
+    },
+    "operatorReview": {
+      "sentence": "{{who}} revisó contenido por seguridad",
+      "items_one": "{{value}} elemento",
+      "items_many": "{{value}} elementos",
+      "items_other": "{{value}} elementos",
+      "period": "del {{from}} al {{to}}"
+    },
     "change": {
       "mergedWithoutAsking": "Hizo merge en {{repo}} sin preguntar",
+      "accentChanged": "Cambió el color de acento del espacio de trabajo",
       "pattern": "{{verb}} {{area}}",
       "approval": {
         "approved": "Aprobó una solicitud",
@@ -16745,6 +17359,11 @@
         "left": "Salió del espacio de trabajo",
         "role_changed": "Cambió el rol de un miembro",
         "password_link": "Generó un enlace de contraseña nueva para un miembro"
+      },
+      "outside": {
+        "approved": "Dejó entrar a un colaborador externo de {{outsideOf}}",
+        "removed": "Quitó a un colaborador externo de {{outsideOf}}",
+        "left": "Salió del espacio de trabajo, colaborador externo de {{outsideOf}}"
       },
       "role": {
         "permission_set": "Cambió quién puede {{short}}",
@@ -16933,7 +17552,7 @@
       "roles": "Cada rol suma permisos, canales y agentes.",
       "vault": "Contraseñas, claves y contactos de tus agentes. Nunca ven una contraseña.",
       "access": "Lo que puede usar cada agente: un nivel por conector.",
-      "connectors": "Servicios y servidores MCP conectados una sola vez para todo el espacio de trabajo.",
+      "connectors": "Servicios y servidores MCP, conectados para el equipo o solo para ti.",
       "skills": "Instrucciones en Markdown que los agentes abren cuando las necesitan.",
       "storage": "Dónde viven los archivos del espacio de trabajo.",
       "usage": "Las cuentas de IA del espacio de trabajo, y cuánto usa cada persona y cada agente.",
@@ -16952,11 +17571,11 @@
       "rolesPersonal": "Lo que cada persona de aquí puede hacer. Quien es propietario puede hacerlo todo."
     },
     "about": {
-      "basedOn": "Basado en <site>agentes.chat</site> de Codari Global, LLC",
+      "basedOn": "Basado en <site>agentes.chat</site> de AGENTESCHAT, LLC",
       "version": "Versión",
       "license": "Software libre bajo la <license>GNU Affero General Public License v3</license>, sin garantía.",
       "source": "Código fuente",
-      "copyright": "Copyright © 2026 Codari Global, LLC y colaboradores"
+      "copyright": "Copyright © 2026 AGENTESCHAT, LLC y colaboradores"
     },
     "title": "Configuración",
     "account": {
@@ -17008,6 +17627,51 @@
           "new3": "Faltan 2, llamo mañana.",
           "new4": "Informe actualizado en el Drive.",
           "newCount": "4 nuevos"
+        },
+        "wallpaper": {
+          "title": "Fondo",
+          "help": "Cambia solo para ti, en todos tus dispositivos",
+          "rowHelp": "Detrás de todas las conversaciones, solo para ti, salvo que una conversación tenga el suyo desde su menú.",
+          "rowSub": "Solo para ti, en todas las conversaciones",
+          "onlyHere": "Solo en {{name}}, solo para ti",
+          "none": "Sin fondo",
+          "sameAsOthers": "Igual que las demás conversaciones",
+          "sameShort": "Igual que las demás",
+          "sky": "Cielo",
+          "drawings": "Dibujos",
+          "color": "Color",
+          "photos": "Tus fotos",
+          "choosePhoto": "Elegir una foto",
+          "skyAutoHelp": "El primero cambia con la conversación: un cielo del color del agente en un mensaje directo y el del espacio de trabajo en los canales.",
+          "skyAutoHelpDms": "El primero es un cielo del color del agente.",
+          "skyAutoHelpChannels": "El primero es el cielo del espacio de trabajo.",
+          "neutral": {
+            "paper": "Papel",
+            "mist": "Niebla",
+            "sand": "Arena"
+          },
+          "name": {
+            "skyAuto": "Cielo de la conversación",
+            "skyAgent": "Cielo del agente",
+            "skyWorkspace": "Cielo del espacio de trabajo",
+            "sky": "Cielo · {{color}}",
+            "drawingsAuto": "Dibujos de la conversación",
+            "drawingsAgent": "Dibujos del agente",
+            "drawingsWorkspace": "Dibujos del espacio de trabajo",
+            "drawings": "Dibujos · {{color}}",
+            "crowd": "Agentes",
+            "color": "Color · {{color}}",
+            "photo": "Tu foto"
+          },
+          "choose": "Elegir…",
+          "menu": "Fondo de la conversación…",
+          "preview": "Vista previa",
+          "usePhoto": "Usar esta foto",
+          "dragHint": "Arrastra la foto para elegir la parte que se ve",
+          "dim": "Oscurecer en modo oscuro",
+          "sending": "Enviando la foto…",
+          "failed": "No se pudo guardar el fondo. Inténtalo de nuevo.",
+          "done": "Listo"
         }
       },
       "agentStyle": "Cómo te hablan los agentes",
@@ -17062,7 +17726,7 @@
       "envOffHere": "Desactivado en la app agentes.chat de esta computadora.",
       "see": "Ver lo que se envía",
       "dialogTitle": "Lo que se envía",
-      "dialogText": "Una vez al día. Este es el próximo informe, tal cual."
+      "dialogText": "Se envía una vez al día. Este es exactamente el próximo informe."
     },
     "tileState": {
       "members_one": "{{count}} miembro",
@@ -17152,7 +17816,8 @@
       "agent": "Agentes",
       "router": "Enrutador",
       "embedding": "Búsqueda",
-      "summary": "Resúmenes"
+      "summary": "Resúmenes",
+      "image": "Imágenes"
     },
     "usageCalls_one": "{{count}} llamada",
     "usageCalls_many": "{{count}} llamadas",
@@ -17203,8 +17868,8 @@
         },
         "line": {
           "invalid": "Este servidor no puede leer esta clave. Pégala de nuevo.",
-          "env": "Definida en la configuración de este servidor (GIPHY_API_KEY).",
-          "envInvalid": "Esta clave no se puede usar. Cámbiala en la configuración de este servidor (GIPHY_API_KEY)."
+          "env": "Definida en la configuración de este servidor (`GIPHY_API_KEY`).",
+          "envInvalid": "Esta clave no se puede usar. Cámbiala en la configuración de este servidor (`GIPHY_API_KEY`)."
         },
         "invalid": "GIPHY no aceptó esta clave. Cópiala de nuevo desde GIPHY Developers.",
         "remove": {
@@ -17404,9 +18069,29 @@
       "see": "Ver el uso"
     }
   },
+  "usage": {
+    "kinds": {
+      "label": "Por tipo",
+      "handoffs": "Traspasos entre agentes",
+      "people": "Conversaciones con personas",
+      "routines": "Rutinas"
+    },
+    "hint": {
+      "handoffs": "La mayor parte vino de traspasos entre agentes.",
+      "message": "Escribir a {{name}}"
+    }
+  },
   "usageViews": {
     "signedOut": "Sesión cerrada",
     "whose": "De {{name}}",
+    "order": {
+      "title": "{{plan}} · Orden de uso",
+      "hint": "Al llegar a un límite, los agentes siguen con la siguiente cuenta que tenga margen y vuelven a la primera cuando se renueva.",
+      "terms": "Usar varias cuentas de {{plan}} es una zona gris en los términos de {{plan}}.",
+      "termsLabel": "los términos de {{plan}}",
+      "termsHint": "Un plan es para una persona, así que revisa los términos de {{plan}} antes de que tus agentes dependan de varias.",
+      "move": "Mover {{name}}, número {{n}} en el orden"
+    },
     "serves": {
       "everyone": "Todos lo usan",
       "onlyYou": "Solo tú lo usas",
@@ -17477,7 +18162,7 @@
       "api": "API",
       "apiMain": "{{name}} piensa por la API",
       "apiMain_female": "{{name}} piensa por la API",
-      "apiFallback": "Fuera del plan: decisiones rápidas, y cuando el plan no pudo responder",
+      "apiFallback": "Fuera del plan: decisiones rápidas",
       "removed": "Cuenta quitada",
       "removedSub": "Ya no está en ninguna computadora",
       "old": "{{brand}}, de antes de las cuentas",
@@ -17515,6 +18200,21 @@
     "tomorrowAt": "mañana {{time}}"
   },
   "work": {
+    "handed": {
+      "lead": "Entregado a <0/>{{name}}",
+      "working": "trabajando en ello",
+      "done": "listo en {{duration}}",
+      "waitingYou": "esperando tu respuesta",
+      "waiting": "esperando una respuesta",
+      "waitingApprovalYou": "esperando tu aprobación",
+      "waitingApproval": "esperando aprobación",
+      "waitingComputer": "esperando el ordenador",
+      "paused": "en pausa en el límite del plan",
+      "queued": "en cola",
+      "failed": "no terminó",
+      "stopped": "detenido",
+      "step": "paso {{current}} de {{total}}"
+    },
     "duration": {
       "minutes_one": "{{count}} min",
       "minutes_many": "{{count}} min",
@@ -17557,7 +18257,7 @@
     "autoUpdateNow": "Ahora: {{now}}.",
     "statusReply": "Estoy en medio de una tarea ({{duration}}) y todavía no puedo responder. Tu mensaje está en cola y lo leo en el próximo paso.",
     "statusReplyTurn": "Estoy en medio de una tarea ({{duration}}) y todavía no puedo responder. Tu mensaje está en cola y lo leo cuando termine esta ronda de trabajo.",
-    "statusReplyQueued": "Esperando la computadora ({{duration}}). Leo tu mensaje cuando llegue mi turno.",
+    "statusReplyQueued": "En la cola ({{duration}}). Leo tu mensaje cuando llegue mi turno.",
     "statusReplyAway": "Esperando a que vuelva mi computadora. Leo tu mensaje en cuanto vuelva.",
     "statusReplyPlan": "Estoy esperando a que vuelva mi plan ({{when}}). Leo tu mensaje cuando vuelva.",
     "statusReplyPlanUnknown": "Estoy esperando a que vuelva mi plan. Leo tu mensaje en cuanto vuelva.",
@@ -17595,9 +18295,20 @@
     "working": "En segundo plano"
   },
   "chat": {
+    "request": {
+      "asksYou": "{{name}} te pregunta"
+    },
     "speedFallback": {
       "text": "ChatGPT rechazó la velocidad Rápida en esta cuenta o modelo, así que esta respuesta salió en estándar.",
       "action": "Abrir agente"
+    },
+    "standIn": {
+      "needsComputer": "Respondí con {{via}}: {{plan}} necesita un ordenador.",
+      "away": "Respondí con {{via}}: el ordenador de {{plan}} está ausente.",
+      "notShared": "Respondí con {{via}}: {{plan}} solo atiende a quien lo conectó.",
+      "limit": "Respondí con {{via}}: {{plan}} llegó a su límite.",
+      "cant": "Respondí con {{via}}: {{plan}} no puede pensar ahora.",
+      "change": "Cambiar"
     },
     "modelStandIn": {
       "text": "{{plan}} rechazó {{from}} con esta clave. Respondí con {{to}}, que funciona con ella.",
@@ -17763,6 +18474,11 @@
         "shell": "Ejecuta otros comandos dentro",
         "inline": "Ejecuta código escrito en línea",
         "global": "Instala para toda la computadora",
+        "privilege": "Pide más permisos",
+        "reverseShell": "Entrega la terminal de esta computadora a otra máquina",
+        "destroy": "Borraría la computadora o una carpeta personal entera",
+        "network": "Cambia el proxy y el firewall o los esquiva",
+        "otherUser": "Accede a archivos de otro usuario",
         "rules": "Fuera de lo que los agentes pueden hacer por su cuenta",
         "noAccess": "El agente no tiene acceso a esto",
         "policy": "No está permitido en este tipo de trabajo",
@@ -18091,13 +18807,18 @@
       "provider_wait_said": "{{provider}} respondió con un error ({{detail}}). Lo intentaré de nuevo y responderé en cuanto funcione.",
       "provider_wait_ours": "Algo de nuestro lado está bloqueando mi IA, no tu cuenta. Responderé en cuanto se resuelva.",
       "provider_back": "Mi IA ha vuelto.",
-      "brain_busy": "Mi computadora está ocupada con otras tareas ahora. Responderé en cuanto se libere.",
-      "brain_queued": "Sigo en la cola de la computadora. Respondo en cuanto tenga memoria libre.",
+      "confidential_removed": "Eliminado: el texto confidencial se guarda durante {{days}} días.",
+      "brain_queued": "Sigo en la cola. Respondo en cuanto llegue mi turno.",
       "brain_interrupted": "{{brain}} se detuvo antes de terminar. Ya hecho, no se repite: {{tools}}.",
       "plan_limit_cut": "Me detuve en el límite del plan {{plan}}. Retomaré donde lo dejé {{when}}, cuando se renueve.",
       "plan_limit_cut_unknown": "Me detuve en el límite del plan {{plan}}. Retomaré donde lo dejé en cuanto se renueve.",
       "plan_limit_wait": "El plan {{plan}} llegó a su límite. Responderé {{when}}, cuando se renueve. Si se libera antes en {{plan}}, lo noto y respondo enseguida.",
       "plan_limit_wait_unknown": "El plan {{plan}} llegó a su límite. Responderé en cuanto se renueve.",
+      "plan_account_moved": "La cuenta {{from}} llegó a su límite. Sigo con la cuenta {{to}}.",
+      "plan_account_moved_line": "La cuenta {{from}} está cerca de su límite. Sigo con la cuenta {{to}}.",
+      "plan_account_moved_extra": "La cuenta {{from}} pasaría al uso extra de pago. Sigo con la cuenta {{to}}.",
+      "plan_limit_all_wait": "Las {{accounts}} cuentas de {{plan}} llegaron a su límite. Responderé {{when}}, cuando se renueve la primera.",
+      "plan_limit_all_wait_unknown": "Las {{accounts}} cuentas de {{plan}} llegaron a su límite. Responderé en cuanto se renueve una.",
       "plan_model_limit_wait": "{{model}} llegó a su propio límite en {{plan}}. Los demás modelos del plan siguen funcionando: cambia el modelo de {{agent}} o espera a que se renueve {{when}}.",
       "plan_model_limit_wait_unknown": "{{model}} llegó a su propio límite en {{plan}}. Los demás modelos del plan siguen funcionando: cambia el modelo de {{agent}} o espera a que se renueve.",
       "plan_model_region_wait": "Este modelo ({{model}}) necesita la región Global activada en OpenCode (Settings › Privacy).",
@@ -18168,6 +18889,8 @@
       "file_saved": "Archivo guardado.",
       "issue_work_start": "Por favor, haz la tarea #{{number}}.",
       "issue_taken": "Tomé la tarea #{{number}}.",
+      "surfaceUnlinked": "{{surface}} se desvinculó porque su identidad cambió. Vincúlalo de nuevo en Configuración si fuiste tú.",
+      "surfaceVoiceDropped": "No pude entender esa nota de voz. ¿Puedes enviarla de nuevo o escribirlo?",
       "done": "Listo.",
       "stretch_paused_runs_one": "{{agents}} se detuvo para consultarte antes de seguir",
       "stretch_paused_runs_many": "{{agents}} se detuvieron para consultarte antes de seguir",
@@ -18261,6 +18984,54 @@
     "update_artifact": {
       "label": "Actualizar archivo",
       "description": "Guarda una nueva versión de un archivo."
+    },
+    "read_spreadsheet": {
+      "label": "Leer hoja de cálculo",
+      "description": "Lee las celdas y las fórmulas de una hoja de cálculo."
+    },
+    "read_presentation": {
+      "label": "Leer presentación",
+      "description": "Lee las diapositivas y las notas de una presentación."
+    },
+    "read_canvas": {
+      "label": "Leer pizarra",
+      "description": "Lee lo que hay en una pizarra: imágenes, notas y textos."
+    },
+    "create_spreadsheet": {
+      "label": "Crear hoja de cálculo",
+      "description": "Crea una hoja de cálculo con sus primeras filas."
+    },
+    "edit_spreadsheet": {
+      "label": "Editar hoja de cálculo",
+      "description": "Cambia celdas, fórmulas, formatos, filas y hojas mientras las personas miran."
+    },
+    "create_presentation": {
+      "label": "Crear presentación",
+      "description": "Crea una presentación con sus diapositivas."
+    },
+    "edit_presentation": {
+      "label": "Editar presentación",
+      "description": "Cambia diapositivas, sus textos, imágenes, gráficos y notas mientras las personas miran."
+    },
+    "create_canvas": {
+      "label": "Crear pizarra",
+      "description": "Crea una pizarra para imágenes, notas e ideas."
+    },
+    "edit_canvas": {
+      "label": "Editar pizarra",
+      "description": "Agrega y mueve notas, textos, imágenes y flechas."
+    },
+    "read_document": {
+      "label": "Leer documento",
+      "description": "Lee el texto de un documento, bloque por bloque."
+    },
+    "edit_document": {
+      "label": "Editar documento",
+      "description": "Escribe, reescribe y da formato al texto de un documento mientras las personas miran."
+    },
+    "generate_image": {
+      "label": "Crear imágenes",
+      "description": "Crea imágenes con la IA de imágenes del espacio de trabajo, en la conversación o en una pizarra. Se paga con el presupuesto del agente."
     },
     "list_issues": {
       "label": "Ver tareas",
@@ -18946,6 +19717,21 @@
     "writeAfter": ".",
     "ask": "¿Necesitas ayuda? Pregúntales a quienes administran este servidor."
   },
+  "resetOrg": {
+    "cardTitle": "Reiniciar o eliminar",
+    "row": {
+      "title": "Reiniciar espacio de trabajo",
+      "text": "Borra todo lo que se hizo en él y empieza de cero, con las mismas personas."
+    },
+    "goes": "Agentes, conversaciones, mensajes directos, archivos, tareas, rutinas y memoria",
+    "stays": "Personas, roles, invitaciones, cuentas de IA, computadoras y conectores",
+    "fresh": "Después se abre como un espacio de trabajo nuevo, con la configuración inicial",
+    "plan": "El plan sigue igual, sin cobros nuevos",
+    "now": "Ocurre al instante y no se puede deshacer.",
+    "title": "¿Reiniciar {{name}}?",
+    "submit": "Reiniciar espacio de trabajo",
+    "resetting": "Reiniciando {{name}}…"
+  },
   "deleteOrg": {
     "card": {
       "title": "Eliminar espacio de trabajo",
@@ -19017,8 +19803,7 @@
     "menu": "Eliminar cuenta",
     "card": {
       "text": "Elimina tu cuenta en 7 días, en todos los espacios de trabajo.",
-      "button": "Eliminar cuenta…",
-      "title": "Eliminar"
+      "button": "Eliminar cuenta…"
     },
     "title": "¿Eliminar toda tu cuenta?",
     "intro": "Esto elimina toda tu cuenta, no solo un espacio de trabajo.",
@@ -19047,6 +19832,7 @@
     "serverOwner": "Tú configuraste este servidor. Su configuración propia no tendrá dueño aquí, solo en su entorno.",
     "blockers": "Antes de poder eliminarla",
     "soleOwner": "Eres el único propietario de {{name}}. Haz propietario a otra persona o elimina {{name}}.",
+    "soleOwnerOutside": "Eres el único propietario de {{name}}, y las demás personas allí son colaboradores externos, que no pueden ser propietarios. Invita a un miembro y hazlo propietario, o elimina {{name}}.",
     "soleOwnerSettingUp": "Eres el único propietario de {{name}}. Termina de configurarlo para hacer propietario a otra persona, o elimina {{name}}.",
     "openPeople": "Abrir Personas",
     "finishSetup": "Terminar la configuración",
@@ -19068,6 +19854,10 @@
     "seatsPaid_other": "{{count}} lugares pagados",
     "noLimit": "Sin límite",
     "ownBucket": "En tu propio bucket, sin límite de nuestra parte"
+  },
+  "referrals": {
+    "open": "Recomienda y gana",
+    "failed": "No se pudo abrir ahora. Inténtalo de nuevo en un momento."
   },
   "limits": {
     "members": {
@@ -19540,8 +20330,6 @@
       "working": "Trabajando",
       "ok": "Esperándote",
       "answer": "Espera una respuesta",
-      "computerBusy": "Espera lugar en la computadora",
-      "inLine": "En la fila · {{position}}.º",
       "computerOffline": "Espera la computadora",
       "plan": "Espera el plan",
       "budget": "Espera el presupuesto",
@@ -19566,7 +20354,6 @@
       "computerWait": "Espera la computadora",
       "computerWaitNext": "Vuelve cuando esté lista",
       "computerOfflineNext": "Vuelve cuando se encienda",
-      "computerBusyNext": "Empieza cuando haya memoria libre",
       "okNext": "Sigue cuando alguien apruebe",
       "answerNext": "Sigue cuando alguien responda",
       "back": "Vuelve {{when}}",
@@ -19663,9 +20450,9 @@
     "failed": "No se pudo detener. Inténtalo de nuevo.",
     "queue": {
       "see": "Ver la fila",
-      "full_one": "Llena · {{count}} en la fila",
-      "full_many": "Llena · {{count}} en la fila",
-      "full_other": "Llena · {{count}} en la fila",
+      "inLine_one": "{{count}} en la cola",
+      "inLine_many": "{{count}} en la cola",
+      "inLine_other": "{{count}} en la cola",
       "room": "Tiene espacio",
       "computers": "Computadoras"
     },
@@ -20258,14 +21045,14 @@
       "failed": "El equipo no se creó. El motivo está en la tarjeta de la conversación.",
       "none": "Ninguna de estas",
       "noneSub": "Cuenta lo que haces y {{name}} lo arma",
-      "tailor": "Después, solo pídeme que lo ajuste a tu negocio.",
+      "tailor": "Después, pídeme que lo ajuste a tu negocio.",
       "titlePersonal": "Tus agentes",
       "leadPersonal": "Agentes listos para lo que necesitas. Después {{name}} los ajusta contigo.",
       "heldLeadPersonal": "Elige lo más cercano a lo que necesitas. Puedes cambiarlo todo después.",
       "createPersonal": "Crear mis agentes",
       "failedPersonal": "Tus agentes no se crearon. El motivo está en la tarjeta de la conversación.",
       "noneSubPersonal": "Cuenta lo que necesitas y {{name}} los arma",
-      "tailorPersonal": "Después, solo pídeme que los ajuste a tu rutina."
+      "tailorPersonal": "Después, pídeme que los ajuste a tu rutina."
     },
     "weekly": {
       "name": "La semana del equipo",
@@ -20331,11 +21118,18 @@
     "savedEveryonePersonal": "Ahora todos aquí ven el archivo.",
     "savedPeople": "Ahora las personas que elegiste ven el archivo.",
     "savedConversation": "Ahora solo la conversación ve el archivo.",
+    "onlyYou": "Solo tú",
+    "onlyMaker": "Solo {{name}}",
+    "onlyYouLink": "Solo tú puedes abrir este enlace.",
+    "onlyMakerLink": "Solo {{name}} puede abrir este enlace.",
+    "readOnlyDrive": "Solo quien creó el archivo y los administradores cambian quién lo ve.",
+    "savedOnlyYou": "Ahora solo tú ves el archivo.",
+    "savedOnlyMaker": "Ahora solo {{name}} ve el archivo.",
     "undo": "Deshacer",
     "fileRef": "Archivo {{title}}",
     "fileRefNone": "Archivo sin acceso",
     "also": "{{text}}. También compartido con {{who}}.",
-    "someOnlyHere": "Algunos de estos enlaces solo se abren para quien está en la conversación del archivo."
+    "someOnlyHere": "Algunos de estos enlaces solo se abren para quien ya ve el archivo."
   },
   "linkErrors": {
     "signIn": {
@@ -20685,6 +21479,1479 @@
       "always": "Enviar siempre",
       "alwaysOn": "De ahora en adelante, informes como este salen sin preguntar.",
       "askFirst": "Preguntar antes de enviar"
+    }
+  },
+  "problemReport": {
+    "button": "Enviar un informe",
+    "title": "Enviar un informe a agentes.chat",
+    "lead": "El equipo de agentes.chat recibe: versiones, qué ajustes están definidos (nunca sus valores), qué falló y las últimas líneas de los registros. Sin mensajes, páginas, nombres ni claves.",
+    "noteLabel": "¿Qué pasó? (opcional)",
+    "notePlaceholder": "Qué estabas haciendo cuando se detuvo",
+    "emailLabel": "Correo para la respuesta (opcional)",
+    "emailHelp": "Solo si quieres una respuesta.",
+    "showAll": "Ver todo lo que se envía",
+    "copy": "Copiar informe",
+    "copied": "Copiado",
+    "send": "Enviar",
+    "sending": "Enviando…",
+    "cancel": "Cancelar",
+    "loading": "Reuniendo los detalles…",
+    "sentTitle": "Informe {{id}} enviado",
+    "sentText": "Si nos escribes, menciona este código.",
+    "sentTextReply": "Te responderemos en {{email}}. Menciona este código si nos escribes.",
+    "copyCode": "Copiar código",
+    "done": "Listo",
+    "noLogComputer": "{{computer}} no respondió, así que su registro no se incluye.",
+    "oldRunner": "La app agentes.chat en {{computer}} es demasiado antigua para incluir su registro. Actualízala allí para incluirlo.",
+    "noServerLines": "Las líneas del registro del servidor solo se incluyen cuando quien es dueño de la instalación envía el informe.",
+    "off": "El envío está desactivado en este servidor (`PROBLEM_REPORT_URL=off`). Copia el informe para compartirlo.",
+    "errorRate": "Demasiados informes en poco tiempo. Inténtalo de nuevo en {{minutes}} min o copia el informe.",
+    "errorUnreachable": "agentes.chat no respondió. Inténtalo de nuevo o copia el informe.",
+    "errorRefused": "agentes.chat no aceptó este informe (puede ser de una versión anterior). Copia el informe.",
+    "errorPreview": "No se pudieron reunir los detalles: {{reason}}",
+    "emailInvalid": "Ese correo no parece correcto. Corrígelo o déjalo vacío.",
+    "settingsTitle": "¿Algo no funciona?",
+    "settingsText": "Envía los detalles técnicos al equipo de agentes.chat."
+  },
+  "live": {
+    "slides": {
+      "rail": {
+        "label": "Diapositivas",
+        "slide": "Diapositiva {{n}}",
+        "slideHidden": "Diapositiva {{n}}, oculta",
+        "more": "Más opciones de la diapositiva {{n}}",
+        "newAfter": "Nueva diapositiva",
+        "duplicate": "Duplicar",
+        "hide": "Ocultar al presentar",
+        "show": "Mostrar al presentar",
+        "presentFrom": "Presentar desde aquí",
+        "moveUp": "Subir",
+        "moveDown": "Bajar",
+        "delete": "Eliminar diapositiva",
+        "deleted": "Diapositiva eliminada"
+      },
+      "stage": {
+        "role": "diapositiva",
+        "label": "Diapositiva {{n}} de {{total}}",
+        "peers": "{{name}} +{{count}}"
+      },
+      "selection": {
+        "slide": "Diapositiva {{n}}"
+      },
+      "element": {
+        "text": "Texto",
+        "shapeText": "Texto de la forma"
+      },
+      "placeholder": {
+        "title": "Haz clic para agregar un título",
+        "text": "Haz clic para agregar texto"
+      },
+      "tools": {
+        "label": "Herramientas de la presentación",
+        "undo": "Deshacer",
+        "redo": "Rehacer",
+        "newSlide": "Nueva diapositiva",
+        "newSlideLayout": "Nueva diapositiva con diseño",
+        "layout": "Diseño",
+        "theme": "Tema",
+        "text": "Cuadro de texto",
+        "image": "Imagen",
+        "shape": "Forma",
+        "chart": "Gráfico",
+        "table": "Tabla",
+        "size": "Tamaño del texto",
+        "bold": "Negrita",
+        "italic": "Cursiva",
+        "underline": "Subrayado",
+        "strike": "Tachado",
+        "textColor": "Color del texto",
+        "alignLeft": "Alinear a la izquierda",
+        "alignCenter": "Centrar",
+        "alignRight": "Alinear a la derecha",
+        "bullets": "Lista con viñetas",
+        "numbers": "Lista numerada",
+        "indent": "Aumentar sangría",
+        "outdent": "Reducir sangría",
+        "link": "Enlace",
+        "fill": "Relleno",
+        "stroke": "Contorno",
+        "lineColor": "Color de la línea",
+        "arrowEnd": "Flecha al final",
+        "arrange": "Organizar",
+        "delete": "Eliminar"
+      },
+      "layout": {
+        "label": "Diseño de la diapositiva"
+      },
+      "layouts": {
+        "title": "Título",
+        "titleBody": "Título y texto",
+        "section": "Sección",
+        "twoColumns": "Dos columnas",
+        "imageLeft": "Imagen a la izquierda",
+        "imageRight": "Imagen a la derecha",
+        "bigNumber": "Número grande",
+        "quote": "Cita",
+        "titleOnly": "Solo el título",
+        "blank": "En blanco"
+      },
+      "theme": {
+        "label": "Tema"
+      },
+      "themes": {
+        "sky": "Cielo",
+        "night": "Noche",
+        "paper": "Papel",
+        "graphite": "Grafito",
+        "contrast": "Contraste",
+        "forest": "Bosque"
+      },
+      "shapes": {
+        "rect": "Rectángulo",
+        "ellipse": "Elipse",
+        "triangle": "Triángulo",
+        "diamond": "Rombo",
+        "arrow": "Flecha",
+        "line": "Línea"
+      },
+      "arrange": {
+        "front": "Traer al frente",
+        "forward": "Traer adelante",
+        "backward": "Enviar atrás",
+        "back": "Enviar al fondo"
+      },
+      "align": {
+        "left": "Alinear bordes izquierdos",
+        "center": "Centrar en horizontal",
+        "right": "Alinear bordes derechos",
+        "top": "Alinear arriba",
+        "middle": "Centrar en vertical",
+        "bottom": "Alinear abajo"
+      },
+      "colors": {
+        "label": "Colores",
+        "automatic": "Automático",
+        "noFill": "Sin relleno",
+        "noStroke": "Sin contorno",
+        "text": "Texto del tema",
+        "muted": "Texto suave del tema",
+        "accent": "Destacado del tema",
+        "accent2": "Segundo destacado del tema",
+        "red": "Rojo",
+        "orange": "Naranja",
+        "yellow": "Amarillo",
+        "green": "Verde",
+        "teal": "Verde azulado",
+        "blue": "Azul",
+        "purple": "Morado",
+        "pink": "Rosa",
+        "white": "Blanco",
+        "black": "Negro"
+      },
+      "link": {
+        "address": "Dirección del enlace",
+        "placeholder": "https://ejemplo.com",
+        "apply": "Aplicar",
+        "remove": "Quitar enlace",
+        "invalid": "Usa una dirección que empiece con https:// o un correo"
+      },
+      "image": {
+        "upload": "Subir desde la computadora",
+        "drive": "Desde el Drive",
+        "driveTitle": "Elegir una imagen del Drive",
+        "driveSearch": "Buscar imágenes",
+        "clearSearch": "Borrar búsqueda",
+        "driveEmpty": "Todavía no hay imágenes en el Drive",
+        "driveMore": "Mostrar más",
+        "empty": "Agregar una imagen",
+        "missing": "Imagen no encontrada",
+        "replace": "Reemplazar imagen",
+        "contain": "Mostrarla entera",
+        "cover": "Llenar el cuadro",
+        "onlyImages": "Solo se pueden poner imágenes PNG, JPEG, WebP y GIF en una diapositiva",
+        "tooBig": "Usa imágenes de hasta 25 MB",
+        "uploading_one": "Subiendo imagen…",
+        "uploading_many": "Subiendo {{count}} imágenes…",
+        "uploading_other": "Subiendo {{count}} imágenes…"
+      },
+      "chart": {
+        "newTitle": "Nuevo gráfico",
+        "editTitle": "Datos del gráfico",
+        "editData": "Editar datos",
+        "type": "Tipo de gráfico",
+        "types": {
+          "bar": "Barras",
+          "line": "Línea",
+          "pie": "Circular",
+          "number": "Número"
+        },
+        "title": "Título",
+        "unit": "Unidad",
+        "value": "Valor",
+        "delta": "Variación",
+        "label": "Etiqueta",
+        "labelN": "Etiqueta {{n}}",
+        "series": "Serie",
+        "seriesName": "Nombre de la serie {{n}}",
+        "item": "Elemento",
+        "cell": "{{label}}, {{series}}",
+        "removeSeries": "Quitar {{name}}",
+        "removeRow": "Quitar {{label}}",
+        "addRow": "Agregar fila",
+        "addSeries": "Agregar serie",
+        "notNumber": "Escribe un número",
+        "fix": "Llena cada valor con un número para ver el gráfico",
+        "insert": "Insertar gráfico",
+        "save": "Guardar"
+      },
+      "table": {
+        "size": "Tamaño de la tabla",
+        "dims": "{{rows}} × {{cols}}",
+        "edit": "Tabla",
+        "rowAbove": "Agregar una fila arriba",
+        "rowBelow": "Agregar una fila abajo",
+        "colLeft": "Agregar una columna a la izquierda",
+        "colRight": "Agregar una columna a la derecha",
+        "deleteRow": "Quitar la última fila",
+        "deleteCol": "Quitar la última columna",
+        "header": "Primera fila como encabezado",
+        "cell": "Fila {{row}}, columna {{col}}"
+      },
+      "notes": {
+        "title": "Notas del orador",
+        "short": "Notas",
+        "placeholder": "Haz clic para agregar notas a esta diapositiva"
+      },
+      "present": {
+        "label": "Presentación",
+        "controls": "Controles de la presentación",
+        "previous": "Diapositiva anterior",
+        "nextSlide": "Diapositiva siguiente",
+        "count": "{{n}} / {{total}}",
+        "exit": "Salir",
+        "elapsed": "Tiempo",
+        "next": "A continuación",
+        "lastSlide": "Esta es la última diapositiva",
+        "noNotes": "Esta diapositiva no tiene notas",
+        "following": "Siguiendo a {{name}}"
+      },
+      "presenting": {
+        "who": "{{name}} está presentando",
+        "follow": "Seguir"
+      },
+      "menu": {
+        "cut": "Cortar",
+        "copy": "Copiar",
+        "paste": "Pegar",
+        "duplicate": "Duplicar",
+        "editText": "Editar texto",
+        "editTable": "Editar celdas",
+        "selectAll": "Seleccionar todo",
+        "delete": "Eliminar"
+      },
+      "clipboard": {
+        "blocked": "Usa ⌘V o Ctrl+V para pegar aquí"
+      },
+      "empty": {
+        "title": "Todavía no hay diapositivas",
+        "body": "Agrega una diapositiva para empezar",
+        "add": "Agregar diapositiva"
+      },
+      "errors": {
+        "tooMany": "Una presentación tiene hasta 300 diapositivas, y una diapositiva hasta 200 elementos",
+        "tooLarge": "Ese texto es demasiado largo para un cuadro",
+        "notFound": "Alguien acaba de eliminar eso",
+        "invalid": "Ese cambio no cabía en la presentación"
+      },
+      "deck": {
+        "label_one": "Presentación con {{count}} diapositiva",
+        "label_many": "Presentación con {{count}} diapositivas",
+        "label_other": "Presentación con {{count}} diapositivas",
+        "number": "Diapositiva {{n}}",
+        "hiddenNumber": "Diapositiva {{n}} · oculta"
+      }
+    },
+    "doc": {
+      "body": "Texto del documento",
+      "title": "Título del documento",
+      "placeholder": "Empieza a escribir o pídeselo a un agente en la conversación",
+      "toolbar": "Herramientas del documento",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "style": {
+        "label": "Estilo del texto",
+        "text": "Texto",
+        "h1": "Título 1",
+        "h2": "Título 2",
+        "h3": "Título 3",
+        "quote": "Cita",
+        "code": "Código"
+      },
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "underline": "Subrayado",
+      "strike": "Tachado",
+      "bulletList": "Lista con viñetas",
+      "numberedList": "Lista numerada",
+      "quote": "Cita",
+      "codeBlock": "Bloque de código",
+      "link": {
+        "title": "Enlace",
+        "address": "Dirección del enlace",
+        "placeholder": "Pega o escribe una dirección",
+        "apply": "Aplicar",
+        "remove": "Quitar el enlace"
+      },
+      "image": {
+        "add": "Imagen",
+        "upload": "Desde tu computadora",
+        "drive": "Desde el Drive",
+        "menu": "Tamaño de la imagen",
+        "small": "Pequeña",
+        "medium": "Mediana",
+        "large": "Grande",
+        "full": "Ancho de la página",
+        "natural": "Tamaño original",
+        "remove": "Quitar imagen",
+        "uploading_one": "Enviando {{count}} imagen…",
+        "uploading_many": "Enviando {{count}} imágenes…",
+        "uploading_other": "Enviando {{count}} imágenes…",
+        "onlyImages": "En un documento solo entran imágenes PNG, JPEG, WebP o GIF.",
+        "tooBig": "Una imagen pasa de 25 MB y quedó fuera.",
+        "missing": "Imagen no disponible"
+      },
+      "table": {
+        "insert": "Tabla",
+        "menu": "Tabla",
+        "rowAbove": "Insertar fila arriba",
+        "rowBelow": "Insertar fila abajo",
+        "columnLeft": "Insertar columna a la izquierda",
+        "columnRight": "Insertar columna a la derecha",
+        "header": "Fila de encabezado",
+        "deleteRow": "Eliminar fila",
+        "deleteColumn": "Eliminar columna",
+        "deleteTable": "Eliminar tabla"
+      },
+      "selection": {
+        "text": "Texto seleccionado",
+        "image": "Imagen",
+        "table": "Tabla"
+      },
+      "keys": {
+        "title": "En el documento",
+        "text": "Texto normal",
+        "heading": "Título 1, 2 o 3",
+        "strike": "Tachado",
+        "code": "Código en el texto",
+        "bulletList": "Lista con viñetas",
+        "numberedList": "Lista numerada",
+        "link": "Enlace",
+        "lineBreak": "Salto de línea",
+        "nextCell": "Siguiente celda de una tabla"
+      }
+    },
+    "kinds": {
+      "spreadsheet": "Hoja de cálculo",
+      "slides": "Presentación",
+      "canvas": "Pizarra",
+      "document": "Documento",
+      "spreadsheetHint": "Números y fórmulas, en equipo",
+      "slidesHint": "Diapositivas para mostrar",
+      "canvasHint": "Imágenes, notas e ideas sueltas",
+      "documentHint": "Texto escrito en conjunto",
+      "untitled": {
+        "spreadsheet": "Hoja de cálculo sin título",
+        "slides": "Presentación sin título",
+        "canvas": "Pizarra sin título",
+        "document": "Documento sin título"
+      },
+      "new": "Nuevo",
+      "newMenu": "Crear un archivo",
+      "sheetCount_one": "{{count}} hoja",
+      "sheetCount_many": "{{count}} hojas",
+      "sheetCount_other": "{{count}} hojas",
+      "slideCount_one": "{{count}} diapositiva",
+      "slideCount_many": "{{count}} diapositivas",
+      "slideCount_other": "{{count}} diapositivas"
+    },
+    "shell": {
+      "crumbs": "Dónde está",
+      "title": "Nombre del archivo",
+      "rename": "Cambiar nombre",
+      "status": {
+        "saved": "Guardado",
+        "saving": "Guardando…",
+        "connecting": "Conectando…",
+        "offline": "Sin conexión. Tus cambios quedan guardados y se envían en cuanto vuelva.",
+        "readOnly": "Solo lectura",
+        "inTrash": "En la papelera. Restáuralo para cambiarlo.",
+        "closing": "El espacio de trabajo se está eliminando. Sus archivos solo se pueden leer."
+      },
+      "present": "Presentar",
+      "download": "Descargar",
+      "formats": {
+        "xlsx": "Excel (.xlsx)",
+        "csv": "CSV (.csv, primera hoja)",
+        "pptx": "PowerPoint (.pptx)",
+        "pdf": "PDF (.pdf)",
+        "json": "JSON (.json)",
+        "docx": "Word (.docx)",
+        "md": "Markdown (.md)"
+      },
+      "more": "Más",
+      "menu": {
+        "versions": "Versiones",
+        "saveVersion": "Guardar versión…",
+        "duplicate": "Duplicar",
+        "showInDrive": "Mostrar en el Drive",
+        "copyLink": "Copiar enlace",
+        "trash": "Mover a la papelera",
+        "shortcuts": "Atajos de teclado"
+      },
+      "meta": {
+        "madeFrom": "<0>{{name}}</0> lo creó desde la <1>{{place}}</1>",
+        "made": "<0>{{name}}</0> lo creó",
+        "imported": "<0>{{name}}</0> lo importó de <1>{{file}}</1>",
+        "inChannel": "conversación en #{{channel}}",
+        "with": "conversación con {{name}}",
+        "between": "conversación entre {{names}}",
+        "inConversation": "conversación",
+        "edited": "editado {{when}}"
+      },
+      "notHere": "Este tipo de archivo todavía no se abre aquí.",
+      "copyTitle": "{{title}} (copia)",
+      "duplicated": "Copia creada: {{title}}",
+      "open": "Abrir",
+      "notFound": {
+        "title": "Este archivo no existe o no se compartió contigo",
+        "back": "Volver al Drive"
+      },
+      "failed": {
+        "title": "No se pudo abrir este archivo",
+        "body": "Revisa tu conexión y vuelve a intentarlo.",
+        "retry": "Reintentar"
+      },
+      "loading": "Abriendo el archivo…",
+      "errors": {
+        "tooLarge": "Este archivo llegó a su límite de tamaño. Quita algo para seguir cambiándolo.",
+        "rate": "Demasiados cambios a la vez. Se envían en un momento.",
+        "readOnly": "Este archivo ahora es de solo lectura.",
+        "invalid": "No se pudo guardar un cambio. Recarga la página para ver el archivo como está."
+      },
+      "presence": {
+        "title": "Quién está aquí",
+        "label": "En este archivo: {{names}}",
+        "you": "Tú",
+        "agent": "(agente)",
+        "more": "+{{count}}",
+        "viewing": "viendo",
+        "editing": "editando",
+        "editingRange": "editando {{range}}",
+        "atRange": "en {{range}}",
+        "onSlide": "en la diapositiva {{n}}",
+        "editingSlide": "editando la diapositiva {{n}}",
+        "presenting": "presentando",
+        "follow": "Seguir",
+        "unfollow": "Dejar de seguir",
+        "following": "Siguiendo a {{name}}",
+        "stop": "Detener",
+        "left": "{{name}} salió del archivo.",
+        "inNow": "Aquí ahora: {{names}}"
+      },
+      "versions": {
+        "title": "Versiones",
+        "close": "Cerrar versiones",
+        "current": "Versión actual",
+        "byAgent": "{{name}} (agente)",
+        "number": "Versión {{version}}",
+        "viewing": "Versión del {{when}}",
+        "restore": "Restaurar esta versión",
+        "back": "Volver a la actual",
+        "save": "Guardar versión",
+        "saveTitle": "Guardar una versión",
+        "saveHint": "Una versión con nombre queda en el historial, fácil de encontrar y de recuperar.",
+        "name": "Nombre",
+        "namePlaceholder": "Antes de la revisión",
+        "saved": "Versión guardada.",
+        "nothingNew": "Nada cambió desde la última versión.",
+        "restored": "Se restauró la versión {{version}}.",
+        "empty": "Todavía no hay versiones.",
+        "failed": "No se pudieron cargar las versiones.",
+        "retry": "Reintentar",
+        "opening": "Abriendo esta versión…",
+        "openFailed": "No se pudo abrir esta versión."
+      },
+      "shortcuts": {
+        "title": "Atajos de teclado",
+        "general": "General",
+        "undo": "Deshacer",
+        "redo": "Rehacer",
+        "saveVersion": "Guardar una versión",
+        "show": "Mostrar los atajos",
+        "stopFollowing": "Dejar de seguir",
+        "spreadsheet": "En la hoja de cálculo",
+        "edit": "Editar la celda",
+        "confirm": "Confirmar y bajar",
+        "cancel": "Cancelar la edición",
+        "nextCell": "Siguiente celda",
+        "bold": "Negrita",
+        "italic": "Cursiva",
+        "fillDown": "Rellenar hacia abajo",
+        "clear": "Borrar las celdas",
+        "selectAll": "Seleccionar todo",
+        "slides": "En la presentación",
+        "duplicate": "Duplicar",
+        "remove": "Eliminar",
+        "nudge": "Mover un poco",
+        "presentNow": "Presentar",
+        "canvas": "En la pizarra",
+        "select": "Seleccionar",
+        "hand": "Desplazarse por la pizarra",
+        "note": "Nota",
+        "text": "Texto",
+        "zoom": "Acercar y alejar",
+        "fit": "Ver todo"
+      }
+    },
+    "conversation": {
+      "button": "Conversación",
+      "toggle_one": "Conversación, {{count}} mensaje",
+      "toggle_many": "Conversación, {{count}} mensajes",
+      "toggle_other": "Conversación, {{count}} mensajes",
+      "close": "Cerrar la conversación",
+      "resize": "Ancho de la conversación",
+      "resizeHint": "Arrastra para cambiar el ancho · doble clic para restablecerlo",
+      "title": {
+        "canvas": "Conversación de la pizarra",
+        "spreadsheet": "Conversación de la hoja de cálculo",
+        "slides": "Conversación de la presentación",
+        "document": "Conversación del documento",
+        "file": "Conversación del archivo"
+      },
+      "placeholder": {
+        "canvas": "Escribe sobre esta pizarra · usa @ para llamar a un agente",
+        "spreadsheet": "Escribe sobre esta hoja de cálculo · usa @ para llamar a un agente",
+        "slides": "Escribe sobre esta presentación · usa @ para llamar a un agente",
+        "document": "Escribe sobre este documento · usa @ para llamar a un agente",
+        "file": "Escribe sobre este archivo · usa @ para llamar a un agente"
+      },
+      "this": {
+        "canvas": "esta pizarra",
+        "spreadsheet": "esta hoja de cálculo",
+        "slides": "esta presentación",
+        "document": "este documento"
+      },
+      "origin": {
+        "from": "<0>{{name}}</0> creó {{what}} desde la <1>{{place}}</1>",
+        "made": "<0>{{name}}</0> creó {{what}}",
+        "imported": "Importado de <1>{{file}}</1> por {{name}}"
+      },
+      "about": {
+        "range": "Sobre {{range}} en {{sheet}}",
+        "slide": "Sobre la diapositiva {{n}}",
+        "canvas": "Sobre {{label}} en la pizarra",
+        "text": "Sobre el texto seleccionado",
+        "point": "Sobre un punto de la pizarra",
+        "other": "Sobre {{label}}"
+      },
+      "drop": "No enviar la selección",
+      "aboutLine": "Mostrar {{what}} ({{where}}) en el archivo",
+      "untitled": "Archivo sin título",
+      "ask": "Preguntar a {{name}}"
+    },
+    "office": {
+      "loading": "Abriendo el archivo…",
+      "failed": "Este archivo no se puede mostrar aquí. Descárgalo para abrirlo.",
+      "loadFailed": "No se pudo abrir la vista previa",
+      "retry": "Reintentar",
+      "kind": {
+        "excel": "Archivo de Excel",
+        "ods": "Archivo de hoja de cálculo",
+        "csv": "Archivo CSV",
+        "powerpoint": "Archivo de PowerPoint",
+        "word": "Archivo de Word",
+        "file": "Archivo"
+      },
+      "editAs": {
+        "workbook": "Editar como hoja de cálculo",
+        "deck": "Editar como presentación",
+        "document": "Editar como documento"
+      },
+      "editAsHint": "Crea una copia editable al lado. Este archivo queda como está.",
+      "made": "Copia editable creada: {{title}}",
+      "frame": "{{title}}, como página"
+    },
+    "activity": {
+      "working": "trabajando en el archivo",
+      "readingFile": "leyendo el archivo",
+      "readingCells": "leyendo {{range}}",
+      "writingCells": "escribiendo en {{range}}",
+      "formatting": "dando formato a {{range}}",
+      "sorting": "ordenando {{range}}",
+      "addingRows": "agregando filas",
+      "addingSheet": "agregando una hoja",
+      "creatingSpreadsheet": "armando la hoja de cálculo",
+      "addingSlides": "agregando diapositivas",
+      "editingSlide": "editando la diapositiva {{n}}",
+      "writingSlide": "escribiendo la diapositiva {{n}}",
+      "creatingPresentation": "armando la presentación",
+      "arrangingCanvas": "organizando la pizarra",
+      "addingNotes": "agregando notas",
+      "placingImages": "colocando imágenes",
+      "generatingImages": "creando imágenes",
+      "creatingCanvas": "armando la pizarra",
+      "writingDocument": "escribiendo en el documento"
+    },
+    "defaults": {
+      "sheetName": "Hoja {{n}}",
+      "restored": "Versión {{version}} restaurada",
+      "fromFile": "Creado a partir de {{name}}"
+    },
+    "canvas": {
+      "label": "Pizarra",
+      "roledescription": "pizarra",
+      "loading": "Abriendo la pizarra…",
+      "count": {
+        "image_one": "{{count}} imagen",
+        "image_many": "{{count}} imágenes",
+        "image_other": "{{count}} imágenes",
+        "note_one": "{{count}} nota",
+        "note_many": "{{count}} notas",
+        "note_other": "{{count}} notas",
+        "text_one": "{{count}} texto",
+        "text_many": "{{count}} textos",
+        "text_other": "{{count}} textos",
+        "frame_one": "{{count}} sección",
+        "frame_many": "{{count}} secciones",
+        "frame_other": "{{count}} secciones",
+        "shape_one": "{{count}} forma",
+        "shape_many": "{{count}} formas",
+        "shape_other": "{{count}} formas",
+        "arrow_one": "{{count}} flecha",
+        "arrow_many": "{{count}} flechas",
+        "arrow_other": "{{count}} flechas",
+        "draw_one": "{{count}} trazo",
+        "draw_many": "{{count}} trazos",
+        "draw_other": "{{count}} trazos",
+        "html_one": "{{count}} página",
+        "html_many": "{{count}} páginas",
+        "html_other": "{{count}} páginas",
+        "file_one": "{{count}} archivo",
+        "file_many": "{{count}} archivos",
+        "file_other": "{{count}} archivos",
+        "items_one": "{{count}} elemento",
+        "items_many": "{{count}} elementos",
+        "items_other": "{{count}} elementos"
+      },
+      "kinds": {
+        "image": "Imagen",
+        "frame": "Sección",
+        "html": "Página",
+        "note": "Nota",
+        "text": "Texto",
+        "arrow": "Flecha",
+        "line": "Línea",
+        "draw": "Trazo",
+        "file": "Archivo"
+      },
+      "tools": {
+        "label": "Herramientas",
+        "select": "Seleccionar",
+        "hand": "Mover la vista",
+        "note": "Nota",
+        "text": "Texto",
+        "shape": "Forma",
+        "arrow": "Flecha",
+        "frame": "Sección",
+        "image": "Subir una imagen",
+        "shapes": "Formas",
+        "pen": "Lápiz",
+        "comment": "Comentar",
+        "ask": "Preguntar al agente del archivo"
+      },
+      "zoom": {
+        "label": "Zoom de la pizarra",
+        "out": "Alejar",
+        "in": "Acercar",
+        "actual": "Ver al 100%",
+        "fit": "Ajustar",
+        "fitAll": "Ver todo",
+        "selection": "Ajustar a la selección",
+        "menu": "Zoom al {{percent}}"
+      },
+      "actions": {
+        "cut": "Cortar",
+        "copy": "Copiar",
+        "paste": "Pegar",
+        "duplicate": "Duplicar",
+        "delete": "Eliminar",
+        "lock": "Bloquear",
+        "unlock": "Desbloquear",
+        "editText": "Editar el texto",
+        "openFile": "Abrir el archivo",
+        "addNote": "Nueva nota",
+        "addText": "Nuevo texto",
+        "selectAll": "Seleccionar todo"
+      },
+      "arrange": {
+        "label": "Organizar",
+        "front": "Traer al frente",
+        "forward": "Traer adelante",
+        "backward": "Enviar atrás",
+        "back": "Enviar al fondo"
+      },
+      "bar": {
+        "title": "Opciones",
+        "color": "Color de la nota",
+        "fill": "Relleno",
+        "size": "Tamaño del texto",
+        "dashed": "Discontinua",
+        "label": "Texto de la flecha",
+        "rename": "Cambiar nombre",
+        "noFill": "Sin relleno",
+        "auto": "Automático",
+        "soft": "Tonos suaves",
+        "strong": "Tonos fuertes",
+        "stroke": "Borde",
+        "noStroke": "Sin borde",
+        "lineColor": "Color",
+        "strokeWidth": "Grosor",
+        "corners": "Esquinas",
+        "editText": "Texto",
+        "more": "Más"
+      },
+      "colors": {
+        "yellow": "Amarillo",
+        "pink": "Rosa",
+        "blue": "Azul",
+        "green": "Verde",
+        "purple": "Morado",
+        "gray": "Gris"
+      },
+      "shapeKinds": {
+        "rect": "Rectángulo",
+        "ellipse": "Elipse",
+        "diamond": "Rombo",
+        "triangle": "Triángulo",
+        "star": "Estrella",
+        "line": "Línea"
+      },
+      "sizes": {
+        "s": "Pequeño",
+        "m": "Mediano",
+        "l": "Grande",
+        "xl": "Muy grande",
+        "short": {
+          "s": "P",
+          "m": "M",
+          "l": "G",
+          "xl": "XG"
+        }
+      },
+      "background": {
+        "label": "Fondo",
+        "dots": "Puntos",
+        "grid": "Cuadrícula",
+        "plain": "Liso"
+      },
+      "empty": {
+        "title": "Pizarra en blanco",
+        "text": "Arrastra imágenes aquí, agrega notas o pídele imágenes a un agente en la conversación.",
+        "readOnly": "Todavía no hay nada en esta pizarra.",
+        "note": "Nueva nota",
+        "upload": "Subir una imagen"
+      },
+      "placeholders": {
+        "note": "Escribe algo",
+        "text": "Escribe aquí",
+        "label": "Agrega un texto"
+      },
+      "textBox": {
+        "note": "Texto de la nota",
+        "text": "Texto",
+        "label": "Texto de la forma"
+      },
+      "errors": {
+        "tooMany": "Esta pizarra ya tiene todo lo que puede contener.",
+        "tooLarge": "Esta pizarra es demasiado grande para recibir más cosas.",
+        "other": "Ese cambio no se aplicó. Vuelve a intentarlo.",
+        "onlyImages": "En una pizarra solo van imágenes (PNG, JPEG, WebP o GIF).",
+        "imageTooBig": "Las imágenes pueden tener hasta 25 MB.",
+        "someImagesLeft": "Algunas imágenes no se pudieron traer.",
+        "copyImage": "No se pudo copiar la imagen."
+      },
+      "newFrame": "Sección",
+      "renameFrame": "Nombre de la sección",
+      "arrowLabel": "Texto de la flecha",
+      "dropHere": "Suelta para agregar a la pizarra",
+      "uploading": "Subiendo la imagen…",
+      "imageCopied": "Imagen copiada",
+      "imageFailed": "La imagen no se cargó",
+      "imageFile": "imagen",
+      "fileMissing": "Este archivo ya no existe o no se compartió contigo",
+      "loadingFile": "Abriendo…",
+      "interact": "Interactuar",
+      "routes": {
+        "straight": "Recta",
+        "curve": "Curva",
+        "elbow": "Codo"
+      },
+      "heads": {
+        "label": "Puntas de flecha",
+        "end": "Al final",
+        "both": "En ambos extremos",
+        "start": "Al inicio",
+        "none": "Ninguna"
+      },
+      "pen": {
+        "label": "Lápiz",
+        "pen": "Lápiz",
+        "marker": "Resaltador",
+        "color": "Color",
+        "size": "Grosor",
+        "sizes": {
+          "s": "Fino",
+          "m": "Medio",
+          "l": "Grueso"
+        },
+        "short": {
+          "s": "F",
+          "m": "M",
+          "l": "G"
+        }
+      },
+      "inks": {
+        "red": "Rojo",
+        "ink": "Negro",
+        "blue": "Azul",
+        "green": "Verde",
+        "orange": "Naranja"
+      },
+      "image": {
+        "crop": "Recortar",
+        "replace": "Reemplazar imagen",
+        "details": "Detalles"
+      },
+      "ask": {
+        "variations": "haz variaciones de esta imagen"
+      },
+      "crop": {
+        "label": "Recortar la imagen",
+        "apply": "Aplicar",
+        "cancel": "Cancelar"
+      },
+      "layers": {
+        "title": "Capas",
+        "close": "Cerrar las capas",
+        "empty": "Todavía no hay nada en esta pizarra.",
+        "hide": "Ocultar {{name}}",
+        "show": "Mostrar {{name}}"
+      },
+      "comment": {
+        "label": "Comentario",
+        "pin": "Comentario {{n}} de {{name}}"
+      },
+      "inspector": {
+        "title": "Imagen",
+        "generated": "Imagen generada",
+        "close": "Cerrar",
+        "prompt": "Descripción",
+        "model": "Modelo",
+        "askedBy": "Pedida por",
+        "byAt": "{{name}} · {{when}}",
+        "references": "Creada a partir de",
+        "variations": "Variaciones",
+        "edit": "Editar con IA",
+        "download": "Descargar",
+        "copy": "Copiar imagen",
+        "open": "Abrir",
+        "size": "{{w}} × {{h}} píxeles",
+        "uploaded": "Subida a esta pizarra"
+      }
+    },
+    "images": {
+      "queued": "Esperando su turno…",
+      "making": "Creando la imagen…",
+      "askedBy": "Pedida por {{name}}",
+      "retry": "Reintentar",
+      "failed": {
+        "noKey": "No hay ninguna clave conectada para este modelo",
+        "budget": "Se acabó el presupuesto",
+        "limit": "Llegaste a tu límite de gastos",
+        "blocked": "El proveedor rechazó este pedido",
+        "provider": "El proveedor falló. Vuelve a intentarlo en un momento.",
+        "tooMany": "Esta pizarra ya no tiene espacio",
+        "other": "No se pudo crear la imagen"
+      }
+    },
+    "sheet": {
+      "errors": {
+        "null": "Estos rangos no se cruzan",
+        "div0": "División por cero",
+        "value": "Un valor del tipo equivocado, como texto donde va un número",
+        "ref": "Una referencia a celdas que ya no existen",
+        "name": "Una función o un nombre que esta hoja de cálculo no conoce",
+        "num": "Un número que no se puede calcular o es demasiado grande",
+        "na": "No se encontró ningún valor",
+        "calc": "Esta fórmula tarda demasiado en calcularse",
+        "spill": "El resultado no cabe aquí",
+        "circular": "Referencia circular"
+      },
+      "loading": "Abriendo la hoja de cálculo…",
+      "toolbar": "Herramientas de la hoja de cálculo",
+      "readOnly": "Solo lectura",
+      "empty": "Esta hoja de cálculo está vacía",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "numberFormat": "Formato de número",
+      "formats": {
+        "general": "Automático",
+        "number": "Número",
+        "integer": "Número entero",
+        "percent": "Porcentaje",
+        "percent2": "Porcentaje con decimales",
+        "currency": "Moneda",
+        "date": "Fecha",
+        "time": "Hora",
+        "datetime": "Fecha y hora",
+        "scientific": "Científico",
+        "text": "Texto sin formato",
+        "custom": "Personalizado"
+      },
+      "decimalsLess": "Menos decimales",
+      "decimalsMore": "Más decimales",
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "underline": "Subrayado",
+      "strike": "Tachado",
+      "textColor": "Color del texto",
+      "fillColor": "Color de relleno",
+      "automatic": "Automático",
+      "noFill": "Sin relleno",
+      "colors": {
+        "red": "Rojo",
+        "emerald": "Esmeralda",
+        "magenta": "Magenta",
+        "orange": "Naranja",
+        "cyan": "Cian",
+        "olive": "Oliva",
+        "plum": "Ciruela",
+        "lime": "Verde lima",
+        "slate": "Gris azulado",
+        "brown": "Marrón"
+      },
+      "alignLeft": "Alinear a la izquierda",
+      "alignCenter": "Centrar",
+      "alignRight": "Alinear a la derecha",
+      "wrap": "Ajustar texto",
+      "merge": "Combinar celdas",
+      "unmerge": "Separar celdas",
+      "borders": "Bordes",
+      "border": {
+        "all": "Todos los bordes",
+        "outer": "Bordes externos",
+        "inner": "Bordes internos",
+        "horizontal": "Bordes horizontales internos",
+        "vertical": "Bordes verticales internos",
+        "top": "Borde superior",
+        "bottom": "Borde inferior",
+        "left": "Borde izquierdo",
+        "right": "Borde derecho",
+        "none": "Sin bordes"
+      },
+      "freeze": "Inmovilizar",
+      "frozen": {
+        "none": "Nada inmovilizado",
+        "rows": "Filas",
+        "cols": "Columnas",
+        "row_one": "1 fila",
+        "row_many": "{{count}} filas",
+        "row_other": "{{count}} filas",
+        "col_one": "1 columna",
+        "col_many": "{{count}} columnas",
+        "col_other": "{{count}} columnas",
+        "upToRow": "Hasta la fila {{n}}",
+        "upToCol": "Hasta la columna {{name}}"
+      },
+      "sortAsc": "Ordenar de A a Z",
+      "sortDesc": "Ordenar de Z a A",
+      "functions": "Funciones",
+      "nameBox": "Celda o rango. Escribe uno para ir allí",
+      "fx": "Fórmula",
+      "formula": "Contenido de la celda",
+      "cellLabel": "Celda {{cell}}",
+      "cellWith": "Celda {{cell}}, {{value}}",
+      "suggestions": "Funciones",
+      "moreRows_one": "Agregar {{count}} fila",
+      "moreRows_many": "Agregar {{count}} filas",
+      "moreRows_other": "Agregar {{count}} filas",
+      "pasteKeys": "Para pegar aquí, usa {{keys}}",
+      "menu": {
+        "cut": "Cortar",
+        "copy": "Copiar",
+        "paste": "Pegar",
+        "pasteValues": "Pegar solo valores",
+        "insertRowsAbove_one": "Insertar fila arriba",
+        "insertRowsAbove_many": "Insertar {{count}} filas arriba",
+        "insertRowsAbove_other": "Insertar {{count}} filas arriba",
+        "insertRowsBelow_one": "Insertar fila abajo",
+        "insertRowsBelow_many": "Insertar {{count}} filas abajo",
+        "insertRowsBelow_other": "Insertar {{count}} filas abajo",
+        "insertColsLeft_one": "Insertar columna a la izquierda",
+        "insertColsLeft_many": "Insertar {{count}} columnas a la izquierda",
+        "insertColsLeft_other": "Insertar {{count}} columnas a la izquierda",
+        "insertColsRight_one": "Insertar columna a la derecha",
+        "insertColsRight_many": "Insertar {{count}} columnas a la derecha",
+        "insertColsRight_other": "Insertar {{count}} columnas a la derecha",
+        "deleteRows_one": "Eliminar fila",
+        "deleteRows_many": "Eliminar {{count}} filas",
+        "deleteRows_other": "Eliminar {{count}} filas",
+        "deleteCols_one": "Eliminar columna",
+        "deleteCols_many": "Eliminar {{count}} columnas",
+        "deleteCols_other": "Eliminar {{count}} columnas",
+        "clear": "Borrar",
+        "fitWidth": "Ajustar el ancho al contenido",
+        "fitHeight": "Ajustar el alto al contenido",
+        "ask": "Preguntar a un agente sobre la selección"
+      },
+      "status": {
+        "label": "Totales de la selección",
+        "sum": "Suma {{value}}",
+        "average": "Promedio {{value}}",
+        "count": "Recuento {{value}}"
+      },
+      "tabs": {
+        "label": "Hojas",
+        "add": "Nueva hoja",
+        "base": "Hoja",
+        "rename": "Cambiar nombre",
+        "renameLabel": "Nombre de la hoja",
+        "duplicate": "Duplicar",
+        "color": "Color",
+        "noColor": "Sin color",
+        "delete": "Eliminar",
+        "copyName": "{{name}} (copia)",
+        "deleteTitle": "¿Eliminar {{name}}?",
+        "deleteBody": "Todo lo que hay en esta hoja se va con ella. Las fórmulas de otras hojas que la usan muestran #REF!.",
+        "deleteConfirm": "Eliminar hoja"
+      },
+      "failed": {
+        "other": "No se pudo hacer ese cambio.",
+        "no_sheet": "Esta hoja ya no existe.",
+        "broken": "Esta hoja de cálculo tiene un problema y no aceptó el cambio.",
+        "limit": "La hoja de cálculo llegó a su límite de tamaño.",
+        "last_sheet": "Una hoja de cálculo necesita al menos una hoja.",
+        "last_row": "Una hoja necesita al menos una fila.",
+        "last_col": "Una hoja necesita al menos una columna.",
+        "sheet_name": "Ponle un nombre a la hoja.",
+        "sheet_name_taken": "Ya hay una hoja con ese nombre.",
+        "merged": "Eso no se puede hacer en una parte de celdas combinadas.",
+        "formula": "No se pudo leer esa fórmula.",
+        "text_too_long": "Ese texto es demasiado largo para una celda.",
+        "formula_too_long": "Esa fórmula es demasiado larga.",
+        "range": "Ese rango no sirve aquí.",
+        "value": "Ese valor no sirve aquí."
+      },
+      "problem": {
+        "empty": "Escribe algo después del =",
+        "unexpected": "Hay algo en esta fórmula que no se puede leer",
+        "unclosed_paren": "Falta cerrar un paréntesis",
+        "unclosed_string": "Faltan cerrar las comillas de un texto",
+        "unclosed_sheet": "Falta cerrar el apóstrofo del nombre de una hoja",
+        "missing_operand": "Falta un valor junto a un operador",
+        "bad_array": "Una lista entre llaves está mal escrita",
+        "bad_range": "Un rango está mal escrito",
+        "bad_sheet": "No hay ninguna hoja con ese nombre",
+        "args": "Una función recibió demasiados o muy pocos valores",
+        "too_long": "La fórmula es demasiado larga",
+        "too_deep": "La fórmula tiene demasiados paréntesis uno dentro de otro",
+        "too_far": "Una referencia pasa del tamaño máximo de una hoja"
+      },
+      "args": {
+        "a1": "a1",
+        "angle": "ángulo",
+        "area_num": "núm_área",
+        "array": "matriz",
+        "array1": "matriz1",
+        "array2": "matriz2",
+        "average_range": "rango_promedio",
+        "base": "base",
+        "basis": "base_cálculo",
+        "bottom": "inferior",
+        "by_col": "por_col",
+        "col_index_num": "indicador_columnas",
+        "cols": "cols",
+        "column_num": "núm_columna",
+        "columns": "columnas",
+        "cost": "costo",
+        "criteria": "criterio",
+        "criteria1": "criterio1",
+        "criteria2": "criterio2",
+        "criteria_range1": "rango_criterios1",
+        "criteria_range2": "rango_criterios2",
+        "date": "fecha",
+        "date_text": "texto_fecha",
+        "dates": "fechas",
+        "day": "día",
+        "days": "días",
+        "decimal_separator": "separador_decimal",
+        "decimals": "decimales",
+        "default_or_value2": "predeterminado_o_valor2",
+        "delimiter": "delimitador",
+        "denominator": "denominador",
+        "divisor": "divisor",
+        "effect_rate": "tasa_efectiva",
+        "end_date": "fecha_final",
+        "end_period": "período_final",
+        "error_val": "valor_error",
+        "exactly_once": "exactamente_una_vez",
+        "expression": "expresión",
+        "find_text": "texto_buscado",
+        "format_text": "formato_texto",
+        "function_num": "núm_función",
+        "fv": "vf",
+        "group_separator": "separador_grupo",
+        "guess": "estimación",
+        "height": "alto",
+        "holidays": "festivos",
+        "hour": "hora",
+        "if_empty": "si_vacío",
+        "if_not_found": "si_no_se_encuentra",
+        "ignore_empty": "ignorar_vacíos",
+        "include": "incluir",
+        "index_num": "núm_índice",
+        "instance_num": "núm_instancia",
+        "k": "k",
+        "known_xs": "conocido_x",
+        "known_ys": "conocido_y",
+        "life": "vida_útil",
+        "logical": "lógico",
+        "logical1": "lógico1",
+        "logical2": "lógico2",
+        "logical_test": "prueba_lógica",
+        "logical_test1": "prueba_lógica1",
+        "logical_test2": "prueba_lógica2",
+        "lookup_array": "matriz_buscada",
+        "lookup_value": "valor_buscado",
+        "lookup_vector": "vector_buscado",
+        "match_end": "coincidir_final",
+        "match_mode": "modo_coincidencia",
+        "match_type": "tipo_coincidencia",
+        "max_range": "rango_máximo",
+        "mean": "media",
+        "method": "método",
+        "min_range": "rango_mínimo",
+        "minute": "minuto",
+        "mode": "modo",
+        "month": "mes",
+        "months": "meses",
+        "multiple": "múltiplo",
+        "new_text": "texto_nuevo",
+        "no_commas": "sin_separador",
+        "nominal_rate": "tasa_nominal",
+        "nper": "núm_per",
+        "npery": "núm_por_año",
+        "num_chars": "núm_caracteres",
+        "num_digits": "núm_decimales",
+        "number": "número",
+        "number1": "número1",
+        "number2": "número2",
+        "number_chosen": "tamaño",
+        "number_times": "núm_de_veces",
+        "numerator": "numerador",
+        "old_text": "texto_original",
+        "order": "orden",
+        "per": "período",
+        "percent": "porcentaje",
+        "pmt": "pago",
+        "power": "potencia",
+        "pv": "va",
+        "quart": "cuartil",
+        "range": "rango",
+        "range_lookup": "ordenado",
+        "rate": "tasa",
+        "ref": "ref",
+        "ref1": "ref1",
+        "ref2": "ref2",
+        "ref_text": "ref_texto",
+        "reference": "referencia",
+        "result1": "resultado1",
+        "result2": "resultado2",
+        "result_vector": "vector_resultado",
+        "return_array": "matriz_devuelta",
+        "return_type": "tipo_devuelto",
+        "row_index_num": "indicador_filas",
+        "row_num": "núm_fila",
+        "rows": "filas",
+        "salvage": "valor_residual",
+        "search_mode": "modo_búsqueda",
+        "second": "segundo",
+        "serial_number": "núm_de_serie",
+        "significance": "cifra_significativa",
+        "sort_index": "índice_orden",
+        "sort_order": "criterio_orden",
+        "standard_dev": "desv_estándar",
+        "start": "inicio",
+        "start_date": "fecha_inicial",
+        "start_num": "núm_inicial",
+        "start_period": "período_inicial",
+        "step": "paso",
+        "sum_range": "rango_suma",
+        "table_array": "matriz_tabla",
+        "text": "texto",
+        "text1": "texto1",
+        "text2": "texto2",
+        "time_text": "texto_hora",
+        "top": "superior",
+        "type": "tipo",
+        "unit": "unidad",
+        "value": "valor",
+        "value1": "valor1",
+        "value2": "valor2",
+        "value_if_error": "valor_si_error",
+        "value_if_false": "valor_si_falso",
+        "value_if_na": "valor_si_nd",
+        "value_if_true": "valor_si_verdadero",
+        "value_if_true1": "valor_si_verdadero1",
+        "value_if_true2": "valor_si_verdadero2",
+        "values": "valores",
+        "weekend": "fin_de_semana",
+        "width": "ancho",
+        "within_text": "dentro_del_texto",
+        "x": "x",
+        "x_num": "núm_x",
+        "y_num": "núm_y",
+        "year": "año"
+      },
+      "fn": {
+        "ABS": "El número sin su signo",
+        "ACOS": "El arcocoseno de un número, en radianes",
+        "ACOSH": "El coseno hiperbólico inverso de un número",
+        "AND": "TRUE cuando todas las condiciones son verdaderas",
+        "ASIN": "El arcoseno de un número, en radianes",
+        "ASINH": "El seno hiperbólico inverso de un número",
+        "ATAN": "La arcotangente de un número, en radianes",
+        "ATAN2": "El ángulo de un punto a partir de su x y su y, en radianes",
+        "ATANH": "La tangente hiperbólica inversa de un número",
+        "AVEDEV": "La distancia promedio de los números a su media",
+        "AVERAGE": "El promedio de los números",
+        "AVERAGEA": "El promedio de los valores, contando el texto como 0",
+        "AVERAGEIF": "El promedio de las celdas que cumplen una condición",
+        "AVERAGEIFS": "El promedio de las celdas que cumplen todas las condiciones",
+        "CEILING": "Un número redondeado hacia arriba a un múltiplo",
+        "CEILING_MATH": "Un número redondeado hacia arriba a un múltiplo o a un entero",
+        "CEILING_PRECISE": "Un número redondeado hacia arriba a un múltiplo, sea cual sea su signo",
+        "CHAR": "El carácter de un código",
+        "CHOOSE": "Uno de los valores, según su posición",
+        "CLEAN": "El texto sin los caracteres que no se pueden imprimir",
+        "CODE": "El código del primer carácter de un texto",
+        "COLUMN": "El número de columna de una referencia",
+        "COLUMNS": "Cuántas columnas tiene un rango",
+        "COMBIN": "Cuántos grupos de un tamaño se pueden elegir entre varios elementos",
+        "CONCAT": "Textos unidos en uno solo",
+        "CONCATENATE": "Textos unidos en uno solo",
+        "CORREL": "Cuánto se mueven juntos dos conjuntos de números",
+        "COS": "El coseno de un ángulo en radianes",
+        "COSH": "El coseno hiperbólico de un número",
+        "COUNT": "Cuántas celdas tienen números",
+        "COUNTA": "Cuántas celdas no están vacías",
+        "COUNTBLANK": "Cuántas celdas están vacías",
+        "COUNTIF": "Cuántas celdas cumplen una condición",
+        "COUNTIFS": "Cuántas celdas cumplen todas las condiciones",
+        "COVARIANCE_P": "La covarianza de dos conjuntos de números, como población completa",
+        "COVARIANCE_S": "La covarianza de dos conjuntos de números, como muestra",
+        "CUMIPMT": "Los intereses pagados de un préstamo entre dos períodos",
+        "CUMPRINC": "El capital pagado de un préstamo entre dos períodos",
+        "DATE": "Una fecha a partir de su año, mes y día",
+        "DATEDIF": "El tiempo entre dos fechas en días, meses o años",
+        "DATEVALUE": "Una fecha escrita como texto, convertida en fecha",
+        "DAY": "El día del mes de una fecha",
+        "DAYS": "Cuántos días hay entre dos fechas",
+        "DAYS360": "Los días entre dos fechas en un año de 360 días",
+        "DEGREES": "Radianes convertidos en grados",
+        "DEVSQ": "La suma de los cuadrados de las distancias a la media",
+        "DOLLAR": "Un número como moneda, en texto",
+        "EDATE": "La fecha unos meses antes o después de una fecha",
+        "EFFECT": "La tasa de interés anual efectiva",
+        "EOMONTH": "El último día del mes, unos meses antes o después",
+        "ERROR_TYPE": "Un número para el tipo de error",
+        "EVEN": "Un número redondeado hacia arriba al siguiente entero par",
+        "EXACT": "TRUE cuando dos textos son exactamente iguales",
+        "EXP": "e elevado a una potencia",
+        "FACT": "El factorial de un número",
+        "FALSE": "El valor FALSE",
+        "FILTER": "Las filas de un rango que cumplen una condición",
+        "FIND": "Dónde empieza un texto dentro de otro, distinguiendo mayúsculas",
+        "FIXED": "Un número redondeado y escrito como texto",
+        "FLOOR": "Un número redondeado hacia abajo a un múltiplo",
+        "FLOOR_MATH": "Un número redondeado hacia abajo a un múltiplo o a un entero",
+        "FLOOR_PRECISE": "Un número redondeado hacia abajo a un múltiplo, sea cual sea su signo",
+        "FORECAST": "Un valor futuro en la recta que pasa por los valores conocidos",
+        "FORECAST_LINEAR": "Un valor futuro en la recta que pasa por los valores conocidos",
+        "FV": "Cuánto valdrá una inversión al final",
+        "GCD": "El máximo común divisor",
+        "GEOMEAN": "La media geométrica de los números",
+        "HARMEAN": "La media armónica de los números",
+        "HLOOKUP": "Busca un valor en la primera fila de una tabla y devuelve uno debajo de él",
+        "HOUR": "La hora de un horario, de 0 a 23",
+        "IF": "Un valor cuando una condición es verdadera, otro cuando no lo es",
+        "IFERROR": "Un valor, u otro cuando da error",
+        "IFNA": "Un valor, u otro cuando da #N/A",
+        "IFS": "El valor de la primera condición verdadera",
+        "INDEX": "El valor en una fila y columna de un rango",
+        "INDIRECT": "Las celdas a las que apunta una referencia escrita como texto",
+        "INT": "Un número redondeado hacia abajo a un entero",
+        "INTERCEPT": "Dónde la recta que pasa por los valores conocidos cruza el eje y",
+        "IPMT": "La parte de intereses de un pago de préstamo",
+        "IRR": "La tasa interna de retorno de flujos de caja",
+        "ISBLANK": "TRUE cuando la celda está vacía",
+        "ISERR": "TRUE cuando el valor es un error distinto de #N/A",
+        "ISERROR": "TRUE cuando el valor es cualquier error",
+        "ISEVEN": "TRUE cuando el número es par",
+        "ISFORMULA": "TRUE cuando la celda tiene una fórmula",
+        "ISLOGICAL": "TRUE cuando el valor es TRUE o FALSE",
+        "ISNA": "TRUE cuando el valor es #N/A",
+        "ISNONTEXT": "TRUE cuando el valor no es texto",
+        "ISNUMBER": "TRUE cuando el valor es un número",
+        "ISODD": "TRUE cuando el número es impar",
+        "ISOWEEKNUM": "El número de semana ISO de una fecha",
+        "ISREF": "TRUE cuando el valor es una referencia",
+        "ISTEXT": "TRUE cuando el valor es texto",
+        "LARGE": "El k-ésimo número más grande",
+        "LCM": "El mínimo común múltiplo",
+        "LEFT": "Los primeros caracteres de un texto",
+        "LEN": "Cuántos caracteres tiene un texto",
+        "LN": "El logaritmo natural de un número",
+        "LOG": "El logaritmo de un número en una base",
+        "LOG10": "El logaritmo en base 10 de un número",
+        "LOOKUP": "Busca un valor en una fila o columna y devuelve el correspondiente",
+        "LOWER": "El texto en minúsculas",
+        "MATCH": "La posición de un valor en un rango",
+        "MAX": "El número más grande",
+        "MAXA": "El valor más grande, contando el texto como 0",
+        "MAXIFS": "El número más grande entre las celdas que cumplen todas las condiciones",
+        "MEDIAN": "El número del medio",
+        "MID": "Caracteres del medio de un texto",
+        "MIN": "El número más pequeño",
+        "MINA": "El valor más pequeño, contando el texto como 0",
+        "MINIFS": "El número más pequeño entre las celdas que cumplen todas las condiciones",
+        "MINUTE": "El minuto de un horario, de 0 a 59",
+        "MOD": "El resto de una división",
+        "MODE": "El número que más se repite",
+        "MODE_SNGL": "El número que más se repite",
+        "MONTH": "El mes de una fecha, de 1 a 12",
+        "MROUND": "Un número redondeado al múltiplo más cercano",
+        "N": "Un valor como número",
+        "NA": "El error #N/A, para un valor que falta",
+        "NETWORKDAYS": "Cuántos días hábiles hay entre dos fechas",
+        "NETWORKDAYS_INTL": "Cuántos días hábiles hay entre dos fechas, con tu propio fin de semana",
+        "NOMINAL": "La tasa de interés anual nominal",
+        "NOT": "Lo contrario de una condición",
+        "NOW": "La fecha y la hora de ahora",
+        "NPER": "Cuántos pagos saldan un préstamo o alcanzan una meta",
+        "NPV": "El valor actual neto de flujos de caja",
+        "NUMBERVALUE": "Texto leído como número, con los separadores que indiques",
+        "ODD": "Un número redondeado hacia arriba al siguiente entero impar",
+        "OFFSET": "Un rango a algunas filas y columnas de una referencia",
+        "OR": "TRUE cuando alguna condición es verdadera",
+        "PEARSON": "La correlación de Pearson de dos conjuntos de números",
+        "PERCENTILE": "El valor por debajo del cual queda una parte de los números",
+        "PERCENTILE_EXC": "El percentil de los números, sin los extremos",
+        "PERCENTILE_INC": "El percentil de los números, con los extremos",
+        "PERCENTRANK": "Dónde queda un valor entre los números, como fracción",
+        "PERCENTRANK_INC": "Dónde queda un valor entre los números, como fracción",
+        "PI": "El número pi",
+        "PMT": "El pago de un préstamo por período",
+        "POWER": "Un número elevado a una potencia",
+        "PPMT": "La parte de capital de un pago de préstamo",
+        "PRODUCT": "Los números multiplicados entre sí",
+        "PROPER": "El texto con la primera letra de cada palabra en mayúscula",
+        "PV": "Cuánto vale hoy una serie de pagos futuros",
+        "QUARTILE": "Un cuartil de los números",
+        "QUARTILE_EXC": "Un cuartil de los números, sin los extremos",
+        "QUARTILE_INC": "Un cuartil de los números, con los extremos",
+        "QUOTIENT": "La parte entera de una división",
+        "RADIANS": "Grados convertidos en radianes",
+        "RAND": "Un número aleatorio entre 0 y 1",
+        "RANDBETWEEN": "Un número entero aleatorio entre dos números",
+        "RANK": "La posición de un número en una lista",
+        "RANK_AVG": "La posición de un número en una lista, con los empates en el promedio",
+        "RANK_EQ": "La posición de un número en una lista, con los empates en la más alta",
+        "RATE": "La tasa de interés por período de un préstamo o una inversión",
+        "REPLACE": "Un texto con una parte reemplazada según su posición",
+        "REPT": "Un texto repetido varias veces",
+        "RIGHT": "Los últimos caracteres de un texto",
+        "ROUND": "Un número redondeado a algunos dígitos",
+        "ROUNDDOWN": "Un número redondeado hacia el cero",
+        "ROUNDUP": "Un número redondeado alejándose del cero",
+        "ROW": "El número de fila de una referencia",
+        "ROWS": "Cuántas filas tiene un rango",
+        "RSQ": "El cuadrado de la correlación de Pearson",
+        "SEARCH": "Dónde empieza un texto dentro de otro, sin distinguir mayúsculas",
+        "SECOND": "El segundo de un horario, de 0 a 59",
+        "SEQUENCE": "Una lista de números en orden",
+        "SIGN": "1 para un número positivo, -1 para uno negativo, 0 para cero",
+        "SIN": "El seno de un ángulo en radianes",
+        "SINH": "El seno hiperbólico de un número",
+        "SLN": "La depreciación lineal de un bien por período",
+        "SLOPE": "La pendiente de la recta que pasa por los valores conocidos",
+        "SMALL": "El k-ésimo número más pequeño",
+        "SORT": "Un rango ordenado",
+        "SQRT": "La raíz cuadrada de un número",
+        "SQRTPI": "La raíz cuadrada de un número por pi",
+        "STANDARDIZE": "A cuántas desviaciones estándar está un valor de la media",
+        "STDEV": "La desviación estándar de una muestra",
+        "STDEV_P": "La desviación estándar de una población completa",
+        "STDEV_S": "La desviación estándar de una muestra",
+        "STDEVA": "La desviación estándar de una muestra, contando el texto como 0",
+        "STDEVP": "La desviación estándar de una población completa",
+        "SUBSTITUTE": "Un texto con algunas palabras cambiadas por otras",
+        "SUBTOTAL": "Una suma, promedio, recuento u otro total que omite otros subtotales",
+        "SUM": "Los números sumados",
+        "SUMIF": "La suma de las celdas que cumplen una condición",
+        "SUMIFS": "La suma de las celdas que cumplen todas las condiciones",
+        "SUMPRODUCT": "Rangos multiplicados elemento por elemento y luego sumados",
+        "SUMSQ": "La suma de los cuadrados de los números",
+        "SWITCH": "El resultado que corresponde a un valor, o uno predeterminado",
+        "T": "El valor si es texto, si no, un texto vacío",
+        "TAN": "La tangente de un ángulo en radianes",
+        "TANH": "La tangente hiperbólica de un número",
+        "TEXT": "Un valor escrito como texto en un formato de número",
+        "TEXTAFTER": "El texto después de un delimitador",
+        "TEXTBEFORE": "El texto antes de un delimitador",
+        "TEXTJOIN": "Textos unidos con un delimitador entre ellos",
+        "TIME": "Un horario a partir de su hora, minuto y segundo",
+        "TIMEVALUE": "Un horario escrito como texto, convertido en horario",
+        "TODAY": "La fecha de hoy",
+        "TRANSPOSE": "Un rango con sus filas y columnas intercambiadas",
+        "TRIM": "El texto sin espacios de más",
+        "TRIMMEAN": "El promedio sin los valores más altos y más bajos",
+        "TRUE": "El valor TRUE",
+        "TRUNC": "Un número sin sus decimales",
+        "TYPE": "Un número para el tipo de valor",
+        "UNICHAR": "El carácter Unicode de un número",
+        "UNICODE": "El número Unicode del primer carácter de un texto",
+        "UNIQUE": "Los valores de un rango sin repetidos",
+        "UPPER": "El texto en mayúsculas",
+        "VALUE": "Texto leído como número",
+        "VAR": "La varianza de una muestra",
+        "VAR_P": "La varianza de una población completa",
+        "VAR_S": "La varianza de una muestra",
+        "VARA": "La varianza de una muestra, contando el texto como 0",
+        "VARP": "La varianza de una población completa",
+        "VLOOKUP": "Busca un valor en la primera columna de una tabla y devuelve uno a su lado",
+        "WEEKDAY": "El día de la semana de una fecha",
+        "WEEKNUM": "La semana del año de una fecha",
+        "WORKDAY": "La fecha a unos días hábiles de distancia",
+        "WORKDAY_INTL": "La fecha a unos días hábiles de distancia, con tu propio fin de semana",
+        "XIRR": "La tasa interna de retorno de flujos de caja con fechas",
+        "XLOOKUP": "Busca un valor en un rango y devuelve el correspondiente de otro",
+        "XMATCH": "La posición de un valor en un rango, con más formas de coincidir",
+        "XNPV": "El valor actual neto de flujos de caja con fechas",
+        "XOR": "TRUE cuando un número impar de condiciones son verdaderas",
+        "YEAR": "El año de una fecha",
+        "YEARFRAC": "La fracción de año entre dos fechas"
+      }
     }
   }
 }

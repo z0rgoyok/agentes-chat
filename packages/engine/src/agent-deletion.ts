@@ -1,16 +1,16 @@
 import { and, eq, inArray, isNull, like, ne, or, schema, sql } from "@agenteschat/db";
-import { deletedHandle } from "./agents";
+import { deletedHandle, requireAgentManager } from "./agents";
 import { recordAudit } from "./audit";
 import { invalidateOrg } from "./cache";
 import { stopOrgWork } from "./cancel";
 import { NotFoundError } from "./errors";
 import { publishAgentsChanged, publishChannelsChanged, publishOrgEvent } from "./events";
+import { unassignGone } from "./issues";
 import { announceReleasedAccounts, releaseAgentLogin } from "./machine-accounts";
 import { publishMachineAgentsChanged } from "./machines";
 import { concludeMission, type MissionDeps, OPEN_MISSION_STATUSES } from "./missions";
 import { resolveNotifications } from "./notifications";
 import { recordOperatorEvent } from "./operator-events";
-import { requirePermission } from "./organizations";
 import { refuseRightHand } from "./right-hand";
 import { deleteAgentRoutines, type RoutineDeps } from "./routines";
 import { removeAgentSecrets } from "./secrets";
@@ -40,14 +40,23 @@ const {
 export type AgentDeletionDeps = MissionDeps & Pick<RoutineDeps, "pubsub" | "mail">;
 
 /**
- * Deletes an agent for good (ADR 0082): owners and admins, archived or not. It is archived first, so nothing new
- * starts while its missions close, its routines go and its work stops; then, in one transaction, what it had goes
- * and its row stays as a tombstone (name, role and look; its handle freed) for its messages, runs, usage and audit.
+ * Deletes an agent for good (ADR 0082): who manages it (`requireAgentManager`, ADR 0085 addendum of 2026-11-17),
+ * archived or not. It is archived first, so nothing new starts while its missions close, its routines go and its work
+ * stops; then, in one transaction, what it had goes and its row stays as a tombstone (name, role and look; its handle
+ * freed) for its messages, runs, usage and audit.
  */
 export async function deleteAgent(deps: AgentDeletionDeps, actorId: string, orgId: string, agentId: string) {
+  await requireAgentManager(deps.db, actorId, orgId, agentId);
+  await refuseRightHand(deps.db, orgId, agentId, "deleted");
+  await eraseAgent(deps, actorId, orgId, agentId);
+}
+
+/**
+ * `deleteAgent` without its checks, for a caller that made its own (a workspace's reset, which takes the right hand
+ * too: its tombstone stops being the right hand, so a new one can be made).
+ */
+export async function eraseAgent(deps: AgentDeletionDeps, actorId: string, orgId: string, agentId: string) {
   const { db } = deps;
-  await requirePermission(db, actorId, orgId, "manage_agents");
-  await refuseRightHand(db, orgId, agentId, "deleted");
   const [agent] = await db
     .update(agents)
     .set({ archivedAt: sql`coalesce(${agents.archivedAt}, now())` })
@@ -55,6 +64,8 @@ export async function deleteAgent(deps: AgentDeletionDeps, actorId: string, orgI
     .returning({ name: agents.name, handle: agents.handle });
   if (!agent) throw new NotFoundError("Agent not found");
   invalidateOrg(orgId);
+  // Archived here or before, it is on no task from now on (ADR 0188).
+  await unassignGone({ db, pubsub: deps.pubsub }, orgId, { type: "agent", id: agentId }).catch(() => null);
 
   const open = await db
     .select()
@@ -84,6 +95,7 @@ export async function deleteAgent(deps: AgentDeletionDeps, actorId: string, orgI
       .update(agents)
       .set({
         deletedAt: now,
+        builtin: null,
         handle: deletedHandle(agentId),
         previousHandles: [],
         instructions: "",
@@ -94,11 +106,12 @@ export async function deleteAgent(deps: AgentDeletionDeps, actorId: string, orgI
         audienceMode: "everyone",
         audienceUserIds: [],
         audienceRoleIds: [],
+        editorUserIds: [],
+        editorRoleIds: [],
         machineId: null,
         missionCommandApproval: null,
         brain: "model",
         brainModel: null,
-        brainFallback: true,
         brainAccountId: null,
         brainEffort: null,
         brainSpeed: "standard",
@@ -189,7 +202,7 @@ export async function deleteAgent(deps: AgentDeletionDeps, actorId: string, orgI
       ),
     );
   for (const { groupKey } of waiting) await resolveNotifications(deps, orgId, { groupKey });
-  await announceReleasedAccounts(deps.pubsub, released);
+  await announceReleasedAccounts(deps, released, { wakeWaits: false });
   for (const dm of dms) await publishOrgEvent(deps.pubsub, { type: "channel.archived", orgId, channelId: dm.id });
   await publishAgentsChanged(deps.pubsub, orgId);
   await publishChannelsChanged(deps.pubsub, orgId);

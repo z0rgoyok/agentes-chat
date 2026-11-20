@@ -103,10 +103,36 @@ describe("the work-along line, the phone's Agora (ADR 0128 addendum)", () => {
     const shell = readFileSync(join(import.meta.dir, "../../src/ui/LargeTitleScreen.tsx"), "utf8");
     expect(shell).toContain("bottom: safe.bottom + TAB_BAR + footRoom");
     expect(shell).toContain("paddingBottom: bottomInset + (IOS ? 0 : footRoom)");
-    const layout = readFileSync(join(import.meta.dir, "../../app/(app)/(tabs)/_layout.tsx"), "utf8");
+    // Under the system's large title the system keeps the list clear of the tab bar; the strip's room is ours.
+    expect(shell).toContain("contentContainerStyle={{ paddingBottom: bottomInset + (foot?.height ?? 0) }}");
+    const layout = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/(tabs)/_layout.tsx"), "utf8");
     expect(layout.replace(/\s+/g, " ")).toContain(
-      "along && !accessory ? { node: <AlongStrip lead={along.lead} others={along.others} />, height: ALONG_STRIP }",
+      "along && !ACCESSORY ? { node: <AlongStrip />, height: ALONG_STRIP } : null",
     );
-    expect(layout).toContain("{along && accessory ? (");
+    expect(layout).toContain("{along && ACCESSORY ? (");
+  });
+
+  test("the tab bar is drawn again only when a line comes or goes; the line reads its own words and clock", () => {
+    const layout = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/(tabs)/_layout.tsx"), "utf8");
+    const line = readFileSync(join(import.meta.dir, "../../src/features/work-along/WorkAlong.tsx"), "utf8");
+    // The layout knows only whether there is a line, from the line's own clock, so the line's ticks never reach it.
+    expect(layout).toContain("const along = useHasWorkAlong();");
+    expect(layout).not.toContain("useWorkAlong()");
+    expect(line).toContain(
+      "useSyncExternalStore(alongClock.subscribe, () => workAlong(pool, alongClock.now()) !== null)",
+    );
+    expect(line).not.toContain("useNow(");
+    // Its look is made once: the bar's colors per theme, each tab's glyphs once for all.
+    expect(layout).toContain("iconColor={look.iconColor}");
+    expect(layout).toContain("src={ICONS[tab.name]}");
+    // A tab change is the system's own: no haptic of ours, and no listener on every tab press.
+    expect(layout).not.toContain("haptics");
+    expect(layout).not.toContain("screenListeners");
+  });
+
+  test("its face and orbit move only while the screen it is on shows", () => {
+    const line = readFileSync(join(import.meta.dir, "../../src/features/work-along/WorkAlong.tsx"), "utf8");
+    expect(line).toContain("const focused = useIsFocused();");
+    expect(line).toContain("<LivePause paused={!focused}>");
   });
 });

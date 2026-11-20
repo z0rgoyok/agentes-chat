@@ -38,16 +38,16 @@ export interface Advanced {
   contextTokens: ContextLimit | null;
   /** "Atende outras pessoas" off. */
   onlyOwner: boolean;
-  fallback: boolean;
+  /** "Só esta conta" (ADR 0041 §6); absent where the agent's account never moves on. */
+  accountPinned?: boolean;
 }
 
-/** A new agent's: medium effort, its model's window, its owner only on a plan (ADR 0059 §5), the API when away. */
+/** A new agent's: medium effort, its model's window, its owner only on a plan (ADR 0059 §5). */
 export const ADVANCED_DEFAULTS: Advanced = {
   effort: "medium",
   speed: "standard",
   contextTokens: null,
   onlyOwner: true,
-  fallback: true,
 };
 
 /**
@@ -55,11 +55,15 @@ export const ADVANCED_DEFAULTS: Advanced = {
  * effort goes back to none, the provider's default.
  */
 export const advancedDefaults = (kind: BrainKind, now: Advanced): Advanced =>
-  kind === "model" ? { ...now, effort: null, contextTokens: null } : ADVANCED_DEFAULTS;
+  kind === "model"
+    ? { ...now, effort: null, contextTokens: null }
+    : now.accountPinned === undefined
+      ? ADVANCED_DEFAULTS
+      : { ...ADVANCED_DEFAULTS, accountPinned: false };
 export const isAdvancedDefault = (kind: BrainKind, now: Advanced) =>
   JSON.stringify(advancedDefaults(kind, now)) === JSON.stringify(now);
 
-type AdvancedOf = { kind: BrainKind; autoModel: boolean; apiKey: boolean; now: Advanced };
+type AdvancedOf = { kind: BrainKind; autoModel: boolean; now: Advanced };
 
 /** The row's line: what the dialog holds ("Esforço, janela de contexto e quem atende"), the effort only with a fixed model. */
 export function advancedContents(
@@ -74,7 +78,7 @@ export function advancedContents(
 
 /**
  * After a save: "Tudo no padrão", or only what differs ("Esforço alto · Contexto de 400K"). The effort counts only
- * with a fixed model (an automatic one picks it), and the fallback only where answering through the API is possible.
+ * with a fixed model (an automatic one picks it).
  */
 export function advancedSummary(t: TFunction, language: string, o: AdvancedOf): string {
   const parts = advancedParts(t, language, o);
@@ -94,13 +98,13 @@ export function advancedParts(t: TFunction, _language: string, o: AdvancedOf): s
     computer && now.speed === "fast" ? t("agentPage.work.brain.advanced.speed") : null,
     now.contextTokens ? t("agentPage.work.brain.advanced.context", { size: contextSize(now.contextTokens) }) : null,
     computer && !now.onlyOwner ? t("agentPage.work.brain.advanced.sharing") : null,
-    computer && o.apiKey && !now.fallback ? t("agentPage.work.brain.advanced.waits") : null,
+    computer && now.accountPinned ? t("agentPage.work.brain.pinned") : null,
   ].filter((p): p is string => p !== null);
 }
 
-/** Claude's own models (`--model opus|sonnet|haiku`) say what each is for under their names. */
-export const isClaudeAlias = (v: string): v is "opus" | "sonnet" | "haiku" =>
-  v === "opus" || v === "sonnet" || v === "haiku";
+/** Claude's own models (`--model fable|opus|sonnet|haiku`) say what each is for under their names. */
+export const isClaudeAlias = (v: string): v is "fable" | "opus" | "sonnet" | "haiku" =>
+  v === "fable" || v === "opus" || v === "sonnet" || v === "haiku";
 
 /** An effort as stored, as the apps show it: `xhigh` is high, none (or an automatic one) medium, the default. */
 export const effortLevel = (e: string | null | undefined): EffortLevel =>

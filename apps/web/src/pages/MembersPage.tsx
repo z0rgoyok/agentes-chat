@@ -220,8 +220,14 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                       <span>{m.email}</span>
                     </span>
                   </span>
-                  {!ownRoles && (m.role === "owner" || held.length > 0) && (
+                  {!ownRoles && (m.role === "owner" || held.length > 0 || m.outsideOf) && (
                     <span className="members-roles">
+                      {m.outsideOf && (
+                        <>
+                          <Chip icon="globe">{t("members.outside.chip")}</Chip>
+                          <span className="small muted members-roles__of">{m.outsideOf}</span>
+                        </>
+                      )}
                       {m.role === "owner" && (
                         <Chip icon="audienceOwner" title={t("roles.ownerTitle")}>
                           {t("roles.owner")}

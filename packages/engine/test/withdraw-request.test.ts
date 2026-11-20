@@ -311,6 +311,59 @@ describe("withdraw_request", () => {
     expect(lines.filter((m) => !m.meta.questionId && !m.meta.notice)).toEqual([]);
   });
 
+  test("withdrawn by its own newer run: woken with no call made, what it writes is never posted (the newer run answers)", async () => {
+    f = await setup({
+      askUser: true,
+      toolSources: [createWithdrawRequestToolSource()],
+      reply: (req) => {
+        // Woken, it writes anyway: a second answer to what the newer run already answers.
+        if (JSON.stringify(req.messages.at(-1)?.content).includes("You withdrew this question yourself"))
+          return { chunks: ["Ok, I withdrew the question about the environment."] };
+        return {
+          chunks: [],
+          toolUses: [
+            {
+              name: "ask_user",
+              input: {
+                why: "I need a person's answer before I go on: it decides the deploy.",
+                question: "Qual ambiente?",
+              },
+            },
+          ],
+        };
+      },
+    });
+    const ask = await post("@dev deploy it");
+    await drainOutbox(f.db, f.handlers);
+    const [q] = await f.db.select().from(schema.agentQuestions);
+    const [asking] = await f.db.select().from(schema.agentRuns);
+    expect(asking?.status).toBe("waiting_input");
+    const ctx: ToolContext = {
+      db: f.db,
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      runId: crypto.randomUUID(),
+      channelId: f.general.id,
+      threadRootId: ask.id,
+      triggerMessageId: ask.id,
+    };
+    const [tool] = await createWithdrawRequestToolSource().tools(ctx);
+    expect((await tool?.execute({ id: q?.id ?? "", reason: "they chose staging" }, ctx))?.content).toContain(
+      "Withdrawn",
+    );
+    const [marked] = await f.db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, asking?.id ?? ""));
+    // The calls it had made when taken over: its question.
+    expect((marked?.transcript as { takenOver?: number } | undefined)?.takenOver).toBe(1);
+    await drainOutbox(f.db, f.handlers);
+    expect((await f.db.select().from(schema.agentRuns))[0]?.status).toBe("done");
+    // Only its question card: the words it wrote after waking stay unposted.
+    const lines = await f.db.select().from(schema.messages).where(eq(schema.messages.authorAgentId, f.agent.id));
+    expect(lines.filter((m) => !m.meta.questionId && !m.meta.notice)).toEqual([]);
+  });
+
   test("another conversation's run neither reads nor withdraws the request; a routine's run isn't offered the tool", async () => {
     await start(true);
     const ask = await post("@dev sign in please");

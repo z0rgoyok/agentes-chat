@@ -55,7 +55,8 @@ function ConfirmDelete({ issue, onClose, onDeleted }: { issue: Issue; onClose: (
   const action = useIssueAction(org.id);
   // The board's row doesn't carry its steps: the task's own read does.
   const full = useIssue(org.id, issue.number).data ?? issue;
-  const working = issue.work && issue.work.state !== "stalled" && issue.assignee ? actors.name(issue.assignee) : null;
+  const working =
+    issue.work && issue.work.state !== "stalled" ? actors.name({ type: "agent", id: issue.work.agentId }) : null;
   return (
     <Dialog
       open

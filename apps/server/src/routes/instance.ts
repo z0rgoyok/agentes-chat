@@ -1,6 +1,8 @@
-import { countUsers, isAgentesCloud } from "@agenteschat/engine";
+import { countUsers, HOST_LOGO_PATH, hostLogoFile, hostLook, isAgentesCloud } from "@agenteschat/engine";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { authUiConfig, signupOpen } from "../auth";
+import { apiError } from "../http/errors";
+import { imageFile } from "../http/image-file";
 import type { AppDeps } from "./app/context";
 
 /**
@@ -53,6 +55,13 @@ export function registerInstance(api: OpenAPIHono, deps: AppDeps, version: strin
     c.res.headers.set("access-control-allow-origin", "*");
   });
 
+  // A registered host's logo (ADR 0194), for its pages before sign-in: the request's own host's, never another's.
+  api.get(HOST_LOGO_PATH.replace(/^\/api/, ""), async (c) => {
+    const file = await hostLogoFile({ db: deps.db, blobs: deps.adapters.platformBlobs }, c.req.header("host"));
+    if (!file) return apiError(c, 404, "not_found", "Not found");
+    return imageFile(file, { "cache-control": "public, max-age=300", "cross-origin-resource-policy": "same-origin" });
+  });
+
   api.openapi(route, async (c) => {
     const { config } = deps;
     const users = await countUsers(deps.db);
@@ -65,7 +74,10 @@ export function registerInstance(api: OpenAPIHono, deps: AppDeps, version: strin
         minApi: MIN_API,
         url: new URL(config.PUBLIC_URL).origin,
         sourceUrl: config.SOURCE_URL,
-        signIn: { email: true, ...authUiConfig(config).socialProviders },
+        signIn: {
+          email: true,
+          ...authUiConfig(config, Boolean(await hostLook(deps.db, c.req.header("host")))).socialProviders,
+        },
         signup: open ? ("open" as const) : ("invite" as const),
         ownerClaim: users === 0 && Boolean(config.OWNER_CLAIM_SHA256),
         cloud: isAgentesCloud(config.PUBLIC_URL),

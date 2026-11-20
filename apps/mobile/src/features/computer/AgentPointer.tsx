@@ -2,6 +2,7 @@ import {
   AGENT_ARROW,
   type CountedPointer,
   CURSOR_IDLE_MS,
+  CURSOR_REST_OPACITY,
   type CursorSpot,
   desktopPointerOf,
   glideMs,
@@ -10,12 +11,14 @@ import {
   nextPointer,
   pointerInView,
 } from "@agenteschat/client";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { gradientOf } from "@agenteschat/ui/agent/engine";
 import { memo, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   type SharedValue,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -24,6 +27,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { G, Rect } from "react-native-svg";
+import { scheduleOnRN } from "react-native-worklets";
 import { Text, useReducedMotion } from "@/ui";
 import { AgentFace } from "../shared/Face";
 import { useConnection } from "../shared/hooks";
@@ -44,20 +48,22 @@ const RING_MS = 500;
 const FADE_MS = 600;
 
 /**
- * Where the agent's pointer last went on its desktop (ADR 0062), while this view shows that screen (`enabled`): the
- * server sends it to whoever has the screen open. `n` counts its gestures.
+ * Where the agent's pointer last went on its desktop (ADR 0062): the server sends it to whoever has the screen open,
+ * and its last one as the screen's stream opens, before the picture shows, so this listens from the start. `n`
+ * counts its gestures.
  */
-function useDesktopPointer(agentId: string, enabled: boolean): CountedPointer | null {
+function useDesktopPointer(agentId: string): CountedPointer | null {
   const connection = useConnection();
+  const shared = useSeat(agentId) !== undefined;
   const [pointer, setPointer] = useState<CountedPointer | null>(null);
   useEffect(() => {
     setPointer(null);
-    if (!connection || !enabled) return;
+    if (!connection) return;
     return connection.onUserEvent((event) => {
-      const to = desktopPointerOf(event, agentId);
+      const to = desktopPointerOf(event, agentId, shared);
       if (to) setPointer((was) => nextPointer(was, to));
     });
-  }, [connection, agentId, enabled]);
+  }, [connection, agentId, shared]);
   return pointer;
 }
 
@@ -96,7 +102,8 @@ type PointerProps = {
 /**
  * The agent's cursor over the picture of its page or its desktop (ADR 0040 §7.2), as the web's `AgentCursor`: the
  * pixel arrow in the agent's deep color with its face and name, gliding on an arc to each point its computer says as
- * the gesture starts, a ring on a click (two on a double), only the face while it types, fading after a quiet while.
+ * the gesture starts, a ring on a click (two on a double), only the face while it types, dimmed where it rests after a
+ * quiet while.
  * `view` is how the box shows the picture (a desktop's camera, which a pinch or a pan moves, or a letterboxed page),
  * so the arrow follows the picture at its own fixed size. Null `pointer` draws nothing. Decoration: never touched,
  * skipped by screen readers, the steps under the picture already say what the agent does.
@@ -120,6 +127,24 @@ export const AgentPointer = memo(function AgentPointer({
   const ringB = useSharedValue(1);
   const placed = useRef(false);
   const [look, setLook] = useState({ quiet: false, flip: false, lift: false });
+  const latest = useRef(pointer);
+  latest.current = pointer;
+
+  // A view's last pointer comes with its first picture, before the box is laid out: the name's side and height are
+  // worked out again for each size the box takes, as a resting pointer stays until the next gesture.
+  const relook = () => {
+    const p = latest.current;
+    if (!p) return;
+    const { flip, lift } = pointerStep(p, view.value, Date.now());
+    setLook((l) => (l.flip === flip && l.lift === lift ? l : { ...l, flip, lift }));
+  };
+  useAnimatedReaction(
+    () => ({ w: view.value.boxWidth, h: view.value.boxHeight }),
+    (box, was) => {
+      if (was && box.w === was.w && box.h === was.h) return;
+      scheduleOnRN(relook);
+    },
+  );
 
   const share = useDerivedValue(() => glidePoint(from.value, to.value, t.value, ratio.value));
   const cursor = useAnimatedStyle(() => {
@@ -139,10 +164,19 @@ export const AgentPointer = memo(function AgentPointer({
       return;
     }
     const step = pointerStep(pointer, view.value, Date.now());
-    if (!step) return;
+    const shape = pointer.height / pointer.width;
+    if (step.rest) {
+      placed.current = true;
+      ratio.value = shape;
+      from.value = step.to;
+      to.value = step.to;
+      t.value = 1;
+      setLook({ quiet: step.quiet, flip: step.flip, lift: step.lift });
+      seen.value = CURSOR_REST_OPACITY;
+      return;
+    }
     const start = glideStart(placed.current ? glidePoint(from.value, to.value, t.value, ratio.value) : null, step.to);
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const shape = pointer.height / pointer.width;
     ratio.value = shape;
     setLook({ quiet: false, flip: step.flip, lift: step.lift });
     const fadeIn = placed.current && !reduced;
@@ -165,7 +199,7 @@ export const AgentPointer = memo(function AgentPointer({
       if (step.quiet) setLook((l) => ({ ...l, quiet: true }));
       timers.push(
         setTimeout(() => {
-          seen.value = reduced ? 0 : withTiming(0, { duration: FADE_MS });
+          seen.value = reduced ? CURSOR_REST_OPACITY : withTiming(CURSOR_REST_OPACITY, { duration: FADE_MS });
         }, CURSOR_IDLE_MS),
       );
     };
@@ -216,10 +250,13 @@ export const AgentPointer = memo(function AgentPointer({
   );
 });
 
-/** The agent's cursor over its desktop, listening for its gestures itself: each one re-renders only this. */
+/**
+ * The agent's cursor over its desktop, listening for its gestures itself: each one re-renders only this. Drawn while
+ * the view shows that screen live (`enabled`).
+ */
 export function DesktopAgentPointer({ enabled, ...props }: PointerProps & { enabled: boolean }) {
-  const pointer = useDesktopPointer(props.agentId, enabled);
-  return <AgentPointer {...props} pointer={pointer} />;
+  const pointer = useDesktopPointer(props.agentId);
+  return <AgentPointer {...props} pointer={enabled ? pointer : null} />;
 }
 
 /** The tag turned left past the box's right side, lifted over the arrow near its bottom (`pointerStep`). */

@@ -347,35 +347,52 @@ async function accountCounts(db: Database, r: Range, byOrg: boolean) {
 const WORK_EVENTS = ["run.finished", "task.finished"];
 
 /**
- * The product's numbers per UTC day from the operator's events feed (kept `OPERATOR_EVENTS_KEEP_DAYS`), and its
- * active workspaces.
+ * The product's numbers per UTC day from the operator's events feed, with the empty grouping set's row (day null)
+ * for the whole range: its active workspaces.
  */
-async function productDays(db: Database, r: Range) {
+export function productDaysQuery(db: Database, r: Range) {
   const e = operatorEvents;
-  const inRange = and(gte(e.createdAt, r.start), lt(e.createdAt, r.end));
-  const day = sql<string>`to_char(${e.createdAt} at time zone 'utc', 'YYYY-MM-DD')`;
-  const of = (type: string) => howMany(eq(e.type, type));
-  const active = howMany(inArray(e.type, WORK_EVENTS), e.orgId);
-  const [days, [all]] = await Promise.all([
-    db
-      .select({
-        day,
-        runs: of("run.finished"),
-        tasks: of("task.finished"),
-        activeWorkspaces: active,
-        newWorkspaces: of("organization.created"),
-        signUps: of("user.signed_up"),
-      })
-      .from(e)
-      .where(and(inRange, inArray(e.type, [...WORK_EVENTS, "organization.created", "user.signed_up"])))
-      .groupBy(day)
-      .orderBy(day),
-    db
-      .select({ n: active })
-      .from(e)
-      .where(and(inRange, inArray(e.type, WORK_EVENTS))),
-  ]);
-  return { days, activeWorkspaces: all?.n ?? 0, keptDays: OPERATOR_EVENTS_KEEP_DAYS };
+  // Rows per day, type and workspace first, so the distinct counts below sort a few thousand groups, not the
+  // range. The day must stay this exact expression: the statistics `operator_events_day_type_org` (migration 0297)
+  // give the planner its real group count, so it hashes these groups instead of sorting every row of the range.
+  const g = db
+    .select({
+      day: sql<string>`(${e.createdAt} at time zone 'utc')::date`.as("day"),
+      type: e.type,
+      orgId: e.orgId,
+      n: sql<number>`count(*)`.as("n"),
+    })
+    .from(e)
+    .where(
+      and(
+        gte(e.createdAt, r.start),
+        lt(e.createdAt, r.end),
+        inArray(e.type, [...WORK_EVENTS, "organization.created", "user.signed_up"]),
+      ),
+    )
+    .groupBy(sql`1`, e.type, e.orgId)
+    .as("g");
+  const of = (type: string) => sql<number>`coalesce(sum(${g.n}) filter (where ${g.type} = ${type}), 0)`.mapWith(Number);
+  return db
+    .select({
+      day: sql<string | null>`to_char(${g.day}, 'YYYY-MM-DD')`,
+      runs: of("run.finished"),
+      tasks: of("task.finished"),
+      activeWorkspaces: howMany(inArray(g.type, WORK_EVENTS), g.orgId),
+      newWorkspaces: of("organization.created"),
+      signUps: of("user.signed_up"),
+    })
+    .from(g)
+    .groupBy(sql`grouping sets ((${g.day}), ())`)
+    .orderBy(g.day);
+}
+
+/** The product's days (kept `OPERATOR_EVENTS_KEEP_DAYS`) and the range's active workspaces. */
+async function productDays(db: Database, r: Range) {
+  const rows = await productDaysQuery(db, r);
+  const days = rows.filter((d): d is typeof d & { day: string } => d.day !== null);
+  const all = rows.find((d) => d.day === null);
+  return { days, activeWorkspaces: all?.activeWorkspaces ?? 0, keptDays: OPERATOR_EVENTS_KEEP_DAYS };
 }
 
 /** Composio's month (UTC) so far: what was counted since the 1st, connected accounts made included. */

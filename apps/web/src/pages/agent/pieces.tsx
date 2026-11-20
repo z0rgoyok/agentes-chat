@@ -12,8 +12,9 @@ import type { Field } from "@/lib/agent-edit";
 import { useAgentEdit } from "./context";
 
 /**
- * Who edits here, for those who can't edit everything: members read; the
- * owner (responsável) changes the look, audience and computer.
+ * Who edits here, for those who can't edit everything: members read; who edits how it works (its "Quem pode editar",
+ * ADR 0085 addendum of 2026-11-17) changes its instructions, role and skills; the owner (responsável) those too, and
+ * the look, audience and computer. Giving it more (what it may use) stays admins'.
  * `field`: only when that part is read-only for the viewer.
  * A personal workspace names who runs it instead of "admins" (`keeperKey`, ADR 0159).
  */
@@ -24,17 +25,24 @@ export function ReadOnlyNote({ field }: { field?: Field }) {
   const { viewer, g, ownerFirst, can } = useAgentEdit();
   if (viewer === "admin") return null;
   if (field && can(field)) return null;
+  if (viewer === "editor") {
+    if (field !== "levels") return null;
+    return (
+      <p className="agp-readonly ac-iconline">
+        <Icon name="info" size={16} />
+        <span>{t(keeperKey(org, keeper, "agentPage.readOnly.ownerAccess"), { keeper })}</span>
+      </p>
+    );
+  }
   if (viewer === "owner") {
-    if (field && field !== "instructions" && field !== "levels") return null;
+    if (field && field !== "levels") return null;
     return (
       <p className="agp-readonly ac-iconline">
         <Icon name="person" size={16} />
         <span>
-          {field === "instructions"
-            ? t(keeperKey(org, keeper, "agentPage.readOnly.ownerInstructions"), { keeper })
-            : field === "levels"
-              ? t(keeperKey(org, keeper, "agentPage.readOnly.ownerAccess"), { keeper })
-              : t(keeperKey(org, keeper, "agentPage.readOnly.owner"), { ...g, keeper })}
+          {field === "levels"
+            ? t(keeperKey(org, keeper, "agentPage.readOnly.ownerAccess"), { keeper })
+            : t(keeperKey(org, keeper, "agentPage.readOnly.owner"), { ...g, keeper })}
         </span>
       </p>
     );

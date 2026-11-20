@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { scrubSignIns } from "../src/tool-detail";
+import { redactCredentials, scrubSignIns } from "../src/tool-detail";
 
 const NOTE = "[removed]";
 const fake = (prefix: string, n = 24) => `${prefix}${"x".repeat(n)}`;
@@ -57,4 +57,22 @@ test("scrubbed twice it reads the same, and a value that only starts like the no
     expect(out.text).not.toContain("abcdefgh12345678");
     expect(out.found).toBe(1);
   }
+});
+
+test("an option with a long name and an address with a long scheme are read in linear time", () => {
+  // One word of 200,000 characters, each `token` of it a place where the option's name could hold a secret's.
+  const option = `--${"token".repeat(40_000)}`;
+  // And one where each letter could start an address's scheme.
+  const scheme = "a.".repeat(100_000);
+  const started = performance.now();
+  expect(redactCredentials(option)).toBe(option);
+  expect(redactCredentials(`${option} fake-value`)).toBe(`${option} ***`);
+  expect(redactCredentials(`${option}s 4096`)).toBe(`${option}s 4096`);
+  expect(redactCredentials(scheme)).toBe(scheme);
+  expect(redactCredentials(`${scheme}b://ana:fake-value@db.example.com/x`)).toBe(`${scheme}b://***@db.example.com/x`);
+  // And a list of arguments where no option's value ends: each opens with a quote written as no other is.
+  let list = "";
+  for (let n = 1; list.length < 200_000; n++) list += `"--token",${"\\".repeat(n)}"x `;
+  expect(redactCredentials(list)).not.toBe(list);
+  expect(performance.now() - started).toBeLessThan(250);
 });

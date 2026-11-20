@@ -12,13 +12,13 @@ import {
   postPersonMessage,
   queueOnRun,
   releaseHeldInbox,
-  statusReply,
   stopChecksSettled,
   TALKER_MIN_GAP_MS,
   TALKER_QUIET_MS,
   type TalkerDeps,
   talkerPolicy,
 } from "../src";
+import { addRunStep } from "../src/runs";
 import { afterSteered } from "../src/steering";
 import { answerSteering, type Fixture, setup } from "./fixtures";
 import { pairMachine, RUNNER } from "./machine-fixtures";
@@ -249,13 +249,11 @@ describe("talker: fast replies while the task waits", () => {
     expect(await talkerMessages()).toHaveLength(0);
     await f.close();
 
-    // A question it lets pass still gets the server's status line (ADR 0131 §2).
+    // A question it lets pass gets nothing either: no line of the server's in the agent's voice (ADR 0131 addendum).
     const ping = await waitingOnQuestion(() => ({ chunks: ['{"action":"pass","text":""}'] }));
     await ping.write("??");
-    expect(ping.decisions).toEqual(["reply"]);
-    expect((await talkerMessages()).map((m) => (m.meta as Record<string, unknown>).bodyCode)).toEqual([
-      "talker_status",
-    ]);
+    expect(ping.decisions).toEqual(["pass"]);
+    expect(await talkerMessages()).toHaveLength(0);
     await f.close();
 
     const never = new Promise<void>(() => {});
@@ -265,99 +263,63 @@ describe("talker: fast replies while the task waits", () => {
     const started = Date.now();
     await late.write("já fez o deploy?");
     expect(Date.now() - started).toBeLessThan(2000);
-    // Too late is no answer: the server's own status line goes instead (ADR 0131 §2).
-    expect(late.decisions).toEqual(["reply"]);
-    expect((await talkerMessages()).map((m) => (m.meta as Record<string, unknown>).bodyCode)).toEqual([
-      "talker_status",
-    ]);
+    // Too late is no answer, and nothing goes out in its place.
+    expect(late.decisions).toEqual(["error"]);
+    expect(await talkerMessages()).toHaveLength(0);
   });
 
-  test("the cheap model can't answer (no key, an outage): the person still hears what the task does", async () => {
+  test("the cheap model can't answer (no key, an outage): nothing is said in the agent's place", async () => {
     const down = await waitingOnQuestion(() => {
       throw new Error("no API key");
     });
     await down.write("ta fazendo oq ai?");
-    expect(down.decisions).toEqual(["reply"]);
-    const [line] = await talkerMessages();
-    const meta = line?.meta as { bodyCode?: string; bodyParams?: Record<string, string>; talker?: unknown };
-    expect(meta.bodyCode).toBe("talker_status");
-    expect(Number(meta.bodyParams?.minutes)).toBeGreaterThanOrEqual(1);
-    expect(line?.body).toContain("in the middle of a task");
+    expect(down.decisions).toEqual(["error"]);
+    expect(await talkerMessages()).toHaveLength(0);
+    expect(
+      (await f.db.select().from(schema.messages)).filter((m) => (m.meta as Record<string, unknown>).bodyCode),
+    ).toEqual([]);
   });
 
-  test('an agent waiting for its computer says so: no "middle of a task", and the minutes are the wait\'s', async () => {
-    f = await setup();
-    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+  test("waiting for its computer or its plan, a model that can't answer posts nothing either: the receipt says it", async () => {
+    f = await setup({
+      reply: (req) => {
+        if (isTalkerCall(req)) throw new Error("no API key");
+        return { chunks: ["ok"] };
+      },
+    });
+    const trigger = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
       body: "@dev analisa os logs",
     });
     const [run] = await f.db.select().from(schema.agentRuns);
     if (!run) throw new Error("no run");
     const { machineId } = await pairMachine({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, RUNNER);
-    const park = (status: "waiting_input" | "running", wait: Record<string, unknown>, machine: string | null) =>
-      f.db
-        .update(schema.agentRuns)
-        .set({
-          status,
-          startedAt: new Date(Date.now() - 40 * 60_000),
-          waitingMachineId: machine,
-          transcript: { ...wait, roomWaitSince: Date.now() - 11 * 60_000 },
-        })
-        .where(eq(schema.agentRuns.id, run.id));
-    const line = { waitingForBrain: { kind: "claude_code", machineId, code: "busy", waitId: "w1" } };
-
-    await park("waiting_input", line, machineId);
-    const [waiting] = await f.db.select().from(schema.agentRuns);
-    const inLine = await statusReply(f.db, waiting as NonNullable<typeof waiting>, new Date());
-    expect(inLine.text).not.toContain("middle of a task");
-    expect(inLine.meta.bodyParams).toMatchObject({ minutes: "11", wait: "queued" });
-
-    // Asking again from the line, the row says `running` for a moment: the same wait.
-    await park("running", {}, machineId);
-    const [asking] = await f.db.select().from(schema.agentRuns);
-    expect((await statusReply(f.db, asking as NonNullable<typeof asking>, new Date())).meta.bodyParams).toMatchObject({
-      minutes: "11",
-      wait: "queued",
-    });
-
-    await park(
-      "waiting_input",
-      { waitingForBrain: { kind: "claude_code", machineId, code: "machine_offline" } },
-      machineId,
-    );
-    const [away] = await f.db.select().from(schema.agentRuns);
-    const gone = await statusReply(f.db, away as NonNullable<typeof away>, new Date());
-    expect(gone.text).not.toContain("middle of a task");
-    expect(gone.meta.bodyParams).toMatchObject({ wait: "away" });
-  });
-
-  test('an agent parked on its plan or budget says it waits for that and when it is back, never "middle of a task"', async () => {
-    f = await setup();
-    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
-      body: "@dev analisa os logs",
-    });
-    const [run] = await f.db.select().from(schema.agentRuns);
-    if (!run) throw new Error("no run");
-    const resetsAt = new Date(Date.now() + 19 * 3600_000).toISOString();
-    const park = async (waitingForBrain: Record<string, unknown>) => {
+    const waits = [
+      { waitingMachineId: machineId, waitingForBrain: { kind: "claude_code", machineId, code: "machine_offline" } },
+      { waitingMachineId: machineId, waitingForBrain: { kind: "claude_code", machineId, code: "busy", waitId: "w1" } },
+      { waitingMachineId: null, waitingForBrain: { kind: "claude_code", machineId: "", code: "plan_limit" } },
+    ];
+    const { talker, decisions } = talkerOn(trigger);
+    for (const wait of waits) {
       await f.db
         .update(schema.agentRuns)
         .set({
           status: "waiting_input",
-          startedAt: new Date(Date.now() - 19 * 3600_000),
-          transcript: { waitingForBrain, usageWait: { since: Date.now() - 19 * 3600_000, step: 0 } },
+          waitingMachineId: wait.waitingMachineId,
+          transcript: { waitingForBrain: wait.waitingForBrain },
         })
         .where(eq(schema.agentRuns.id, run.id));
-      const [row] = await f.db.select().from(schema.agentRuns);
-      return statusReply(f.db, row as NonNullable<typeof row>, new Date());
-    };
-    const plan = await park({ kind: "claude_code", machineId: "", code: "plan_limit", plan: "Claude", resetsAt });
-    expect(plan.text).not.toContain("middle of a task");
-    expect(plan.meta.bodyParams).toMatchObject({ wait: "plan", until: resetsAt, minutes: "0" });
-    const unknown = await park({ kind: "claude_code", machineId: "", code: "plan_limit", plan: "Claude" });
-    expect(unknown.meta.bodyParams).toEqual({ minutes: "0", steps: "0", wait: "plan" });
-    const budget = await park({ kind: "model", machineId: "", code: "budget", resetsAt });
-    expect(budget.meta.bodyParams).toMatchObject({ wait: "budget", until: resetsAt });
-    expect(budget.text).toContain("budget");
+      const [parked] = await f.db.select().from(schema.agentRuns);
+      const message = await insertMessage(f.db, {
+        orgId: f.org.id,
+        channelId: f.general.id,
+        threadId: trigger.id,
+        author: { type: "person", userId: f.owner.id },
+        body: "e aí?",
+      });
+      await talker.consider({ run: parked as NonNullable<typeof parked>, message, live: false, waited: null });
+    }
+    expect(decisions).toEqual(["error", "error", "error"]);
+    expect(await talkerMessages()).toHaveLength(0);
   });
 
   test("a model-brain run moving along reads the message itself: no model call", async () => {
@@ -367,13 +329,19 @@ describe("talker: fast replies while the task waits", () => {
     });
     // Working (not drained): it steps at its next model call.
     const [run] = await f.db.select().from(schema.agentRuns);
+    if (!run) throw new Error("no run");
     await f.db
       .update(schema.agentRuns)
       .set({ status: "running", startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, run?.id ?? ""));
-    if (run) answerSteering(f, run);
+      .where(eq(schema.agentRuns.id, run.id));
+    answerSteering(f, run);
     const { write, decisions } = talkerOn(trigger);
+    // Only talking so far (no tool called): it answers the person itself, so the talker isn't even asked.
     await write("olha só os de ontem");
+    expect(decisions).toEqual([]);
+    // At work (a tool called): considered, and it reads the message at its next step.
+    await addRunStep(f.db, run, "tool_call", { toolUseId: "c-1", name: "read_logs", input: {} });
+    await write("e os de anteontem");
     expect(decisions).toEqual(["reads_soon"]);
     expect(f.provider.calls).toHaveLength(0);
   });

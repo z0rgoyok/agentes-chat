@@ -826,7 +826,7 @@ test("a workspace's agents, and one agent: who thinks for it, its computer, its 
   expect(await ok(await get(`/agents/${DEV}`))).toEqual({
     ...summary,
     previousHandles: ["coder"],
-    fallback: true,
+    fallback: false,
     provider: "openai",
     credential: { id: CREDENTIAL, provider: "openai", revokedAt: null },
     account: {

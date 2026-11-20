@@ -31,6 +31,8 @@ export interface ButtonProps {
   loading?: boolean;
   /** What a screen reader hears after the label: the state the label is too short to say. */
   hint?: string;
+  /** The label wraps instead of being cut: it carries a name the server sets, of any length. */
+  wrap?: boolean;
 }
 
 /** In a card or a row: the web's small button, 32 tall, its target grown to 44 past it (`slopOf`). */
@@ -74,6 +76,7 @@ export function Button({
   disabled = false,
   loading = false,
   hint,
+  wrap = false,
 }: ButtonProps) {
   const theme = useTheme();
   const { colors, shadows } = theme;
@@ -124,9 +127,9 @@ export function Button({
         ) : null}
         {loading ? <ActivityIndicator size="small" color={textColor} /> : leading ? leading(textColor) : null}
         <RNText
-          numberOfLines={1}
+          numberOfLines={wrap ? 0 : 1}
           maxFontSizeMultiplier={CHROME_MAX_SCALE}
-          style={[systemText(s.text, weights.semibold), { color: textColor }]}
+          style={[systemText(s.text, weights.semibold), { color: textColor }, wrap ? styles.wrap : null]}
         >
           {label}
         </RNText>
@@ -147,4 +150,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   edge: { position: "absolute", left: 0, right: 0, height: 1 },
+  wrap: { flexShrink: 1, textAlign: "center", paddingVertical: 8 },
 });

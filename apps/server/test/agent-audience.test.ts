@@ -28,13 +28,17 @@ test("Criar agente restricted to nobody yet: only its creator, never the whole w
   expect(dropped.status).toBe(201);
   expect(((await dropped.json()) as Created).audience).toEqual(rex.audience);
 
-  // Its roles refused (not the workspace's): the agent exists, answering only its owner.
+  // Its roles refused (not the workspace's): no agent is made (ADR 0085 addendum of 2026-11-17), so its handle stays
+  // free for the next try.
   const refused = await owner(`${org}/agents`, {
     json: { name: "Max", handle: "max", audience: { mode: "people", userIds: [], roleIds: [crypto.randomUUID()] } },
   });
   expect(refused.status).toBe(400);
-  const { agents } = (await (await owner(`${org}/agents`)).json()) as {
-    agents: { handle: string; audienceMode: string }[];
-  };
-  expect(agents.find((a) => a.handle === "max")?.audienceMode).toBe("owner");
+  const { agents } = (await (await owner(`${org}/agents`)).json()) as { agents: { handle: string }[] };
+  expect(agents.map((a) => a.handle)).not.toContain("max");
+  const again = await owner(`${org}/agents`, {
+    json: { name: "Max", handle: "max", audience: { mode: "people", userIds: [] } },
+  });
+  expect(again.status).toBe(201);
+  expect(((await again.json()) as Created).audience).toEqual(rex.audience);
 });

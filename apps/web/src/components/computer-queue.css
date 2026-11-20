@@ -118,11 +118,13 @@ html:not([data-pointer]) .cq__open:focus-visible {
   align-items: flex-start;
   min-width: 0;
 }
+/* The time ends the name's line, or starts its own under it (`.ac-tailrow`), never floating at the end. */
 .cq__l1 {
+  --tail-gap: 6px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 6px;
+  gap: 0 var(--tail-gap);
   align-self: stretch;
   min-width: 0;
   font-size: 14px;
@@ -140,8 +142,6 @@ html:not([data-pointer]) .cq__open:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 .cq__time {
-  margin-left: auto;
-  padding-left: 8px;
   font-size: 12px;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
@@ -188,12 +188,6 @@ html:not([data-pointer]) .cq__open:focus-visible {
 :where(:not(.ac-msg__body)) > .cq-turn__say {
   margin: 0;
 }
-.cq-turn__cause {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--ink-muted);
-}
 .cq-turn__acts {
   display: flex;
   flex-wrap: wrap;
@@ -202,12 +196,6 @@ html:not([data-pointer]) .cq__open:focus-visible {
 }
 .cq-turn__acts:empty {
   display: none;
-}
-/* "Parar <agent>" carries a name of any length: it wraps instead of pushing past the row. */
-.cq-turn__stop {
-  min-width: 0;
-  white-space: normal;
-  text-align: start;
 }
 
 /* Under a message that called several agents. */

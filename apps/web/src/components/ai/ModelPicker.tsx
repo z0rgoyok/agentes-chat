@@ -9,6 +9,7 @@ import {
   usePlatformKey,
   useUpdateAgent,
 } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { type EffortLevel, effortLevelsOf, effortOf, effortTextOf } from "@agenteschat/client/lib/brain-advanced";
 import {
   mayPickModel,
@@ -68,12 +69,12 @@ export function ModelPickerButton({
   className?: string;
 }) {
   const { t } = useTranslation();
-  const { org, me } = useOrg();
+  const { me } = useOrg();
   const thinks = useAgentThinks(agent);
   if (!thinks?.text) return null;
   const mark = thinks.mark ? <ProviderLogo id={thinks.mark} size="xs" /> : <BrainIcon kind={thinks.kind} size={14} />;
   // The team's right hand thinks with each person's own AI ("Sua IA"), set where that is: never picked here.
-  if (!mayPickModel(agent, me.user.id, can(org, "manage_agents")))
+  if (!mayPickModel(agent, me.user.id, managesAgent(agent)))
     return (
       <span
         className={cx("mp-label", className)}
@@ -139,7 +140,7 @@ export function ModelStandInLine({
 }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
-  const may = mayPickModel(agent, me.user.id, can(org, "manage_agents"));
+  const may = mayPickModel(agent, me.user.id, managesAgent(agent));
   const key = may ? modelStandInKey(meta) : null;
   const ai = useAiAccounts(org.id, Boolean(key));
   const account = key

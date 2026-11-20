@@ -1,5 +1,5 @@
 import type { Actor } from "@agenteschat/client";
-import type { CalItem } from "@agenteschat/client/lib/calendar";
+import { type CalItem, itemOwners } from "@agenteschat/client/lib/calendar";
 import { Checkbox } from "@agenteschat/ui";
 import { useTranslation } from "react-i18next";
 import { ActorWho } from "@/components/AgentAvatar";
@@ -22,10 +22,12 @@ export function Owners({
   const { t } = useTranslation();
   const actors = useActors();
   const counts = new Map<string, { actor: Actor; count: number }>();
+  // A task due that several have counts for each of them.
   for (const it of items) {
-    if (!it.owner) continue;
-    const key = actorKey(it.owner);
-    counts.set(key, { actor: it.owner, count: (counts.get(key)?.count ?? 0) + 1 });
+    for (const owner of itemOwners(it)) {
+      const key = actorKey(owner);
+      counts.set(key, { actor: owner, count: (counts.get(key)?.count ?? 0) + 1 });
+    }
   }
   const rows = [...counts].sort(
     ([, a], [, b]) =>

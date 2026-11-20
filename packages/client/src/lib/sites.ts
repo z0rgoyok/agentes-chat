@@ -8,6 +8,9 @@ export function cleanSite(input: string): string {
   return (m?.[1] ?? s).replace(/:\d+$/, "");
 }
 
+/** The site as people say it: "www.loja.exemplo" → "loja.exemplo" (its letter is L, not W). */
+export const siteName = (host: string) => host.replace(/^(www|web|m)\./, "");
+
 /** A page with nothing on it yet (`about:blank`): the person in control gets the address bar at once. */
 export const isBlankPage = (url: string | null | undefined) =>
   Boolean(

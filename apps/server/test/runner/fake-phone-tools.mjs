@@ -7,7 +7,8 @@
 //   install: adb install's answer (installFail: its error, exit 1)   monkey, logcat, pidof: { app: pid }
 //   simctl, devicectl: the JSON each lists   launchFail: devicectl's error   simlog: `log show`'s text
 //   devicectlFail: `devicectl list devices` fails with it   sdk: the iPhone SDK's version   lockState: devicectl says the iPhone asks for its passcode
-//   wdaLocked: WDA says the lock screen shows   wdaRefuse: WDA's error for a tap
+//   wdaLocked: WDA says the lock screen shows   wdaRefuse: WDA's error for every call under a session
+//   wdaSay: printed by the helper when a call under a session comes, which then never answers (iOS refusing it)
 //   maestroExit, maestroOutput   javaMissing: maestro says JAVA_HOME isn't set
 //   videoFirst: maestro answers once a flow's recording (`*-flow.mp4`, not empty) sits beside its YAML, as on a phone
 //   where the recorder is up before the flow ends (on a loaded machine maestro's process could end before the
@@ -238,7 +239,8 @@ function fakeWda() {
         };
         if (req.url === "/status") send({ ready: true });
         else if (req.url === "/wda/locked") send(now.wdaLocked === true);
-        else if (now.wdaRefuse && req.url.endsWith("/wda/tap"))
+        else if (now.wdaSay && req.url.startsWith("/session/")) process.stdout.write(now.wdaSay);
+        else if (now.wdaRefuse && req.url.startsWith("/session/"))
           send({ error: "unknown error", message: now.wdaRefuse });
         else if (req.url === "/session") send({ sessionId: "s1" }, { sessionId: "s1" });
         else if (req.url === "/screenshot") send(png().toString("base64"));

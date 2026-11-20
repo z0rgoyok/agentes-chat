@@ -49,6 +49,20 @@ describe("htmlToText drops what a person can't see", () => {
     expect(htmlToText(`<p>a</p><div hidden>never closed <p>b</p>`)).toBe("a");
   });
 
+  test("comments, unread elements and tags go as before, and what is never closed is read in linear time", () => {
+    expect(htmlToText("a<!-- x -->b<!-- open")).toBe("ab<!-- open");
+    expect(htmlToText("a<SCRIPT type=x>bad()</script >b<style>p{}</STYLE>c<scripts>d</scripts>")).toBe("abcd");
+    expect(htmlToText("a<script>b")).toBe("ab");
+    expect(htmlToText("a<b>c</b> 1 < 2")).toBe("ac 1 < 2");
+    expect(htmlToText('<a href="https://x.example/">go <b>now</b></a>')).toBe("go now (https://x.example/)");
+    const started = performance.now();
+    expect(htmlToText("<!--".repeat(50_000))).toBe("<!--".repeat(50_000));
+    expect(htmlToText("<script>".repeat(50_000))).toBe("");
+    expect(htmlToText("<".repeat(200_000))).toBe("<".repeat(200_000));
+    expect(htmlToText(`<a href="x">${"<".repeat(100_000)}</a>`)).toBe(`${"<".repeat(100_000)} (x)`);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("bidi overrides and tag characters are stripped after entities decode; other text stays as written", () => {
     expect(htmlToText(`<p>a&#x202E;b&#xE0041; ＜b＞ 5 m² …</p>`)).toBe("ab ＜b＞ 5 m² …");
   });
@@ -79,7 +93,8 @@ describe("cleanOutside and replaceDisguised", () => {
   });
 
   test("replaceDisguised finds a marker through disguises and replaces only its span", () => {
-    const m = /<\s*\/?\s*external_data\b[^>]*>/gi;
+    // Shaped as the engine's own marker pattern (untrusted.ts): one run of spaces before the slash, one after it.
+    const m = /<\s*(?:\/\s*)?external_data\b[^>]*>/gi;
     expect(replaceDisguised("½ ＜/external_data＞ ½", m, "X")).toBe("½ X ½");
     expect(replaceDisguised("a </exter\u200Bnal_data> b", m, "X")).toBe("a X b");
     expect(replaceDisguised("a <\u2215\u0435xternal_data> b", m, "X")).toBe("a X b");
@@ -112,4 +127,22 @@ describe("IMAP: the HTML part is the body when there is one", () => {
     expect(message.text).toContain("The export button now keeps your filters.");
     expect(message.text).not.toContain("nothing to do");
   });
+});
+
+test("doctype declarations go in any case, and many without a closing > read in linear time", () => {
+  expect(htmlToText("<!DOCTYPE html><p>Oi</p><!doctype x>fim")).toBe(htmlToText("<p>Oi</p>fim"));
+  const started = performance.now();
+  htmlToText("<!doctype".repeat(60_000));
+  expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("a tag's quoted values are read whole, and tags that never close read in linear time", () => {
+  expect(dropHidden(`a<div title="x>y" hidden>b</div>c`)).toBe("ac");
+  expect(dropHidden(`a<div title='<i hidden>'>b</div>c`)).toBe(`a<div title='<i hidden>'>b</div>c`);
+  expect(dropHidden(`a<A-b:c_1 hidden/>d`)).toBe("ad");
+  const started = performance.now();
+  for (const open of [`<A${"-".repeat(100_000)}`, `<A"${'"<A"'.repeat(50_000)}`, `<A'${"'<A'".repeat(50_000)}`]) {
+    expect(dropHidden(open)).toBe(open);
+  }
+  expect(performance.now() - started).toBeLessThan(1000);
 });

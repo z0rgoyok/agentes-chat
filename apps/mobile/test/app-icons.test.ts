@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   APP_ICONS,
-  DEFAULT_APP_ICON,
   MADE_ICON_COLORS,
   MADE_ICON_FACES,
   MADE_ICON_LOOKS,
@@ -12,6 +11,7 @@ import {
   madeIconId,
   madeIconOf,
   madeIcons,
+  PHONE_APP_ICON,
 } from "@agenteschat/client/lib/app-icons";
 import { iconOfNativeName, nativeIconName, phoneIcons } from "../src/features/me/app-icon-names";
 
@@ -26,6 +26,7 @@ interface Manifest {
 // The config plugin is plain CommonJS (expo prebuild loads it); its pure parts are tested here.
 const plugin = require("../plugins/with-app-icons") as {
   ICONS: string[];
+  SHIPPED: string;
   MADE: { skies: string[]; colors: string[]; faces: string[]; looks: string[]; poses: string[] };
   MADE_IDS: string[];
   iosName: (id: string) => string;
@@ -62,13 +63,16 @@ const manifest = (): Manifest => ({
 describe("app icons on the phone (ADR 0179)", () => {
   test("the plugin, the app and the shared list name the same icons", () => {
     expect(plugin.ICONS).toEqual([...APP_ICONS]);
+    // The phone ships the agent leaning in (Espiando): the app's own icon, the others picked by name.
+    expect(plugin.SHIPPED).toBe(PHONE_APP_ICON);
+    expect(PHONE_APP_ICON).toBe("peekNight");
     for (const id of APP_ICONS) {
-      expect(nativeIconName(id, "ios")).toBe(id === DEFAULT_APP_ICON ? null : plugin.iosName(id));
+      expect(nativeIconName(id, "ios")).toBe(id === PHONE_APP_ICON ? null : plugin.iosName(id));
       expect(nativeIconName(id, "android")).toBe(plugin.androidAlias(id));
       expect(iconOfNativeName(nativeIconName(id, "ios"), "ios")).toBe(id);
       expect(iconOfNativeName(nativeIconName(id, "android"), "android")).toBe(id);
     }
-    expect(iconOfNativeName("AppIcon-gone", "ios")).toBe(DEFAULT_APP_ICON);
+    expect(iconOfNativeName("AppIcon-gone", "ios")).toBe(PHONE_APP_ICON);
     expect(plugin.androidRes("peekNight")).toBe("ic_launcher_peek_night");
   });
 
@@ -92,10 +96,11 @@ describe("app icons on the phone (ADR 0179)", () => {
     const ours = aliases.slice(1);
     // The ready ones, then every icon a person can make, as the app lists them for the module.
     expect(ours.map((a) => a.$?.["android:name"])).toEqual(phoneIcons().map((i) => `.${nativeIconName(i, "android")}`));
-    expect(ours.map((a) => a.$?.["android:enabled"])).toEqual(["true", ...ours.slice(1).map(() => "false")]);
+    // Only the shipped one (Espiando on the night sky, the fourth) is on, with the app's own icon.
+    expect(ours.map((a) => a.$?.["android:enabled"])).toEqual(ours.map((_, i) => (i === 3 ? "true" : "false")));
     expect(ours[5]?.$?.["android:icon"]).toBe("@mipmap/ic_launcher_made_night_sky_round");
-    expect(ours[0]?.$?.["android:icon"]).toBe("@mipmap/ic_launcher");
-    expect(ours[3]?.$?.["android:icon"]).toBe("@mipmap/ic_launcher_peek_night");
+    expect(ours[3]?.$?.["android:icon"]).toBe("@mipmap/ic_launcher");
+    expect(ours[0]?.$?.["android:icon"]).toBe("@mipmap/ic_launcher_night");
     for (const alias of ours) {
       expect(alias.$?.["android:targetActivity"]).toBe(".MainActivity");
       expect(alias["intent-filter"]).toEqual([
@@ -160,7 +165,7 @@ describe("app icons on the phone (ADR 0179)", () => {
         "android-monochrome.png",
         "preview.png",
         "preview-dark.png",
-        ...(id === DEFAULT_APP_ICON ? [] : ["android-legacy.png"]),
+        ...(id === PHONE_APP_ICON ? [] : ["android-legacy.png"]),
       ];
       for (const file of files) if (!existsSync(join(ASSETS, id, file))) missing.push(`${id}/${file}`);
     }

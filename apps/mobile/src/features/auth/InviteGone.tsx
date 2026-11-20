@@ -5,10 +5,9 @@ import { sendsEmail } from "@agenteschat/client/lib/join-requests";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { firstName } from "@/features/shared/logic";
 import { useOrgGate } from "@/providers/org";
-import { Button, PersonAvatar, Text, useTheme } from "@/ui";
+import { Button, PersonAvatar, Text } from "@/ui";
 import { AuthScaffold, CENTER } from "@/ui/auth/AuthScaffold";
 import { router } from "@/ui/navigation";
 import { ErrorLine, LeaveButton } from "./invite-parts";
@@ -24,13 +23,12 @@ export function InviteLoadFailed({ retry, retrying }: { retry: () => void; retry
   );
 }
 
+/**
+ * An invitation being read: the sign-in's own screen with its agent at work and the question's place pulsing (the
+ * scaffold's bars stand in for a title not known yet), never a bare spinner on a blank page.
+ */
 export function InviteLoading() {
-  const { colors: c } = useTheme();
-  return (
-    <View style={[styles.center, { backgroundColor: c.bg }]}>
-      <ActivityIndicator color={c.muted} />
-    </View>
-  );
+  return <AuthScaffold agentMode="run" stepKey="loading" />;
 }
 
 /**
@@ -138,7 +136,3 @@ export function InviteGone({ token }: { token: string }) {
     </AuthScaffold>
   );
 }
-
-const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-});

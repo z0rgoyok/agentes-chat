@@ -153,6 +153,29 @@ describe("scheduling", () => {
     expect((await accountDeletionPlan(f.db, co.id)).closes.map((o) => o.id)).toEqual([f.org.id]);
   });
 
+  test("the only owner of a workspace whose others are all outside collaborators is told to invite a member first", async () => {
+    f = await setup();
+    const out = await addMember(f.db, f.org.id, "member", "out");
+    await f.db
+      .update(schema.organizationMembers)
+      .set({ outsideOf: "Example Consulting" })
+      .where(eq(schema.organizationMembers.userId, out.id));
+    expect((await accountDeletionPlan(f.db, f.owner.id)).soleOwner).toEqual([
+      { id: f.org.id, name: f.org.name, onlyOutside: true },
+    ]);
+    await expect(scheduleAccountDeletion(deps(), f.owner.id)).rejects.toMatchObject({
+      code: "sole_owner",
+      params: { onlyOutside: true },
+      message: expect.stringContaining("Invite a member"),
+    });
+    // An ordinary member there can be made an owner: the usual way out.
+    await addMember(f.db, f.org.id, "member", "bia");
+    expect((await accountDeletionPlan(f.db, f.owner.id)).soleOwner).toEqual([
+      { id: f.org.id, name: f.org.name, onlyOutside: false },
+    ]);
+    await expect(scheduleAccountDeletion(deps(), f.owner.id)).rejects.toMatchObject({ params: { onlyOutside: false } });
+  });
+
   test("a workspace being deleted already keeps its own date, and is no longer the account's to bring back", async () => {
     const { bia, own } = await aMemberWithTheirOwn();
     const { dueAt: first } = await scheduleDeletion(deps(), bia.id, own.id, "owner");

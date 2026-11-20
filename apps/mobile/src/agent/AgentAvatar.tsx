@@ -2,12 +2,13 @@ import {
   bodyTones,
   drawAccessory,
   drawAgent,
+  drawnKey,
   drawSleep,
   type Expression,
   EYE_COLOR,
 } from "@agenteschat/ui/agent/engine";
 import { avatarSkyCell, avatarSkyCells, avatarSkyTones } from "@agenteschat/ui/sky/avatar";
-import { Canvas, createPicture, Picture } from "@shopify/react-native-skia";
+import { Canvas, createPicture, Picture, type SkPicture } from "@shopify/react-native-skia";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
@@ -65,22 +66,12 @@ export function agentFrame(
   frame?: { dark: boolean },
   expression?: Expression,
   dark = frame?.dark ?? false,
-  extra?: { gaze?: Gaze | undefined; bodyless?: boolean | undefined },
+  extra?: { gaze?: Gaze | undefined; bodyless?: boolean | undefined; sky?: boolean | undefined },
 ) {
   const accessory = agent.accessory && agent.accessory !== "none" ? agent.accessory : undefined;
   const box = frame ? framedLayout(size, Boolean(accessory)) : agentLayout(size, Boolean(accessory));
   const rec = new RecordingContext();
-  if (frame) {
-    // The tile's sky (`@agenteschat/ui/sky/avatar`): a Bayer dither from the top tone to the bottom one.
-    const [top, bottom] = avatarSkyTones(agent.color, frame.dark);
-    const n = avatarSkyCells(size * 2);
-    const cell = size / n;
-    for (let y = 0; y < n; y++)
-      for (let x = 0; x < n; x++) {
-        rec.fillStyle = avatarSkyCell(x, y, n) ? bottom : top;
-        rec.fillRect(x * cell, y * cell, cell, cell);
-      }
-  }
+  if (frame && extra?.sky !== false) drawSky(rec, agent.color, size, frame.dark);
   // Away on a routine: the frame keeps its sky and waits for it.
   if (frame && extra?.bodyless) return compile(rec.commands);
   const base = poseFor(mode, t, seed, reduced);
@@ -107,6 +98,39 @@ export function agentFrame(
   return compile(rec.commands);
 }
 
+/** The tile's sky (`@agenteschat/ui/sky/avatar`): a Bayer dither from the top tone to the bottom one. */
+function drawSky(rec: RecordingContext, color: AgentLookInput["color"], size: number, dark: boolean) {
+  const [top, bottom] = avatarSkyTones(color, dark);
+  const n = avatarSkyCells(size * 2);
+  const cell = size / n;
+  for (let y = 0; y < n; y++)
+    for (let x = 0; x < n; x++) {
+      rec.fillStyle = avatarSkyCell(x, y, n) ? bottom : top;
+      rec.fillRect(x * cell, y * cell, cell, cell);
+    }
+}
+
+/**
+ * Pictures kept across mounts, most recently used last: a face scrolled back into view, the same agent in many rows,
+ * a sky under every frame of a living face. Recording one costs hundreds of rects and a path parse each.
+ */
+const KEPT = 400;
+const skies = new Map<string, SkPicture>();
+const stills = new Map<string, SkPicture>();
+function kept(map: Map<string, SkPicture>, key: string, make: () => SkPicture): SkPicture {
+  const hit = map.get(key);
+  if (hit) {
+    map.delete(key);
+    map.set(key, hit);
+    return hit;
+  }
+  const made = make();
+  map.set(key, made);
+  const oldest = map.size > KEPT ? map.keys().next().value : undefined;
+  if (oldest !== undefined) map.delete(oldest);
+  return made;
+}
+
 function AgentAvatarView({
   agent,
   size,
@@ -127,21 +151,52 @@ function AgentAvatarView({
   const { color, eyes, accessory, id } = agent;
   const seed = useMemo(() => seedOf(id ?? `${color}:${eyes}:${accessory ?? ""}`), [id, color, eyes, accessory]);
   const t = useFrameTime(live && !reduced, STILL_T);
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const drawn = drawnKey(color);
+  // The sky never moves: drawn once per color, size and theme (`drawn`: what `color` draws as now), under every frame.
+  const sky = useMemo(() => {
+    if (!tile) return null;
+    return kept(skies, `${drawn}|${size}|${dark}`, () => {
+      const rec = new RecordingContext();
+      drawSky(rec, color, size, dark);
+      const ops = compile(rec.commands);
+      return createPicture((canvas) => replay(canvas, ops), { width: size, height: size });
+    });
+  }, [color, drawn, size, dark, tile]);
   const picture = useMemo(() => {
-    const frame = agentFrame(
-      { color, eyes, accessory },
+    const draw = () => {
+      const frame = agentFrame(
+        { color, eyes, accessory },
+        size,
+        mode,
+        t,
+        seed,
+        reduced,
+        tile ? { dark } : undefined,
+        expression,
+        dark,
+        { gaze, bodyless, sky: false },
+      );
+      return createPicture((canvas) => replay(canvas, frame), { width: size, height: size });
+    };
+    // A still face is the same picture wherever it shows: kept, never recorded again on the next mount.
+    if (t !== STILL_T) return draw();
+    const key = [
+      drawn,
+      eyes,
+      accessory ?? "",
       size,
       mode,
-      t,
       seed,
       reduced,
-      tile ? { dark } : undefined,
-      expression,
+      tile,
       dark,
-      { gaze, bodyless },
-    );
-    return createPicture((canvas) => replay(canvas, frame), { width: size, height: size });
-  }, [color, eyes, accessory, size, mode, t, seed, reduced, tile, dark, expression, gaze, bodyless]);
+      expression ?? "",
+      gaze ?? "",
+      bodyless,
+    ];
+    return kept(stills, key.join("|"), draw);
+  }, [color, drawn, eyes, accessory, size, mode, t, seed, reduced, tile, dark, expression, gaze, bodyless]);
   const label = name
     ? tr(mode === "run" ? "mobile.a11y.agentWorking" : "mobile.a11y.agent", { name })
     : tr("mobile.a11y.agentPlain");
@@ -161,6 +216,7 @@ function AgentAvatarView({
       ]}
     >
       <Canvas style={{ width: size, height: size }}>
+        {sky ? <Picture picture={sky} /> : null}
         <Picture picture={picture} />
       </Canvas>
     </View>

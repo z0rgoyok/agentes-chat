@@ -12,6 +12,7 @@ import {
   spritePose,
   spriteX,
   stripCells,
+  stripRunAt,
   stripWidth,
 } from "../../src/features/routines/run-pixels";
 
@@ -32,6 +33,17 @@ const SLOTS = 14;
 const W = stripWidth(SLOTS);
 
 describe("a routine's last runs as a pixel strip (the web's RunStrip as cells)", () => {
+  test("a tap picks the run under the finger, else the nearest drawn one; the newest slot is the run at work", () => {
+    // A slot is 8 points: 2 runs sit in the last two slots (12 and 13), oldest left.
+    expect(stripRunAt(13 * 8 + 3, 2, SLOTS, false)).toBe(0);
+    expect(stripRunAt(12 * 8 + 3, 2, SLOTS, false)).toBe(1);
+    expect(stripRunAt(0, 2, SLOTS, false)).toBe(1);
+    expect(stripRunAt(13 * 8 + 3, 2, SLOTS, true)).toBe(-1);
+    expect(stripRunAt(12 * 8 + 3, 2, SLOTS, true)).toBe(0);
+    expect(stripRunAt(40, 0, SLOTS, false)).toBeNull();
+    expect(stripRunAt(40, 30, SLOTS, false)).toBe(13 - 5);
+  });
+
   test("14 slots of 3 cells and a gap: 55 cells wide, 10 rows; no runs is a dotted line", () => {
     expect(W).toBe(55);
     const runs = stripCells([], "sky", tones, { slots: SLOTS });

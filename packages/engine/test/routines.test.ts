@@ -167,6 +167,41 @@ describe("routines", () => {
     expect(new Set(next.map((r) => r.at?.toISOString()))).toEqual(new Set(["2026-11-10T09:00:00.000Z"]));
   });
 
+  test.each([
+    ["hourly", "0 * * * *", 600],
+    ["every 30 minutes", "*/30 * * * *", 300],
+    ["every 15 minutes", "*/15 * * * *", 180],
+    ["every 2 hours", "0 */2 * * *", 600],
+    ["at a set hour", "0 9 * * *", 60],
+  ])("a routine %s (%s) fires up to %d s after its slot, its slot unchanged", async (_, cron, spread) => {
+    f = await setup();
+    const slot = new Date("2026-11-09T10:00:00.000Z");
+    await f.db.insert(schema.routines).values(
+      Array.from({ length: 40 }, (_, i) => ({
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        name: `Rotina ${i}`,
+        prompt: "Bom dia",
+        target: { type: "dm" },
+        triggerType: "schedule",
+        cron,
+        timezone: "UTC",
+        nextRunAt: slot,
+        createdByUserId: f.owner.id,
+      })),
+    );
+    const firedBy = async (s: number) => {
+      await fireDueRoutines(routineDeps(), new Date(slot.getTime() + s * 1000));
+      return (await f.db.select().from(schema.routineRuns)).length;
+    };
+    const inFirstMinute = await firedBy(59);
+    if (spread > 60) expect(inFirstMinute).toBeLessThan(40);
+    else expect(inFirstMinute).toBe(40);
+    expect(await firedBy(spread - 1)).toBe(40);
+    const runs = await f.db.select().from(schema.routineRuns);
+    expect(new Set(runs.map((r) => r.at.toISOString()))).toEqual(new Set([slot.toISOString()]));
+  });
+
   test("scheduled in the workspace time zone; fires once across two workers; runs in the background", async () => {
     f = await setup({
       reply: () => ({ chunks: ["Resumo: tudo certo."], usage: { inputTokens: 100, outputTokens: 20 } }),
@@ -575,6 +610,13 @@ describe("routines", () => {
       expect(isNoReply(t)).toBe(true);
     for (const t of ["", "Novidade: 3 avaliações.", "NO_REPLY\n\nNovidade: 3 avaliações.", "Sem NO_REPLY aqui"])
       expect(isNoReply(t)).toBe(false);
+    // A long run of marks is read once, at either end or inside the line.
+    const started = performance.now();
+    const marks = "*`".repeat(100_000);
+    expect(isNoReply(`${marks}NO_REPLY.${marks}`)).toBe(true);
+    expect(isNoReply(`${marks}x`)).toBe(false);
+    expect(isNoReply(`NO${marks}_REPLY`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   test("event routines run when the event happens, with the event as data kept in the run", async () => {

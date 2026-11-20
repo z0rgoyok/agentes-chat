@@ -5,12 +5,13 @@ setupDom();
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { codeAndBold } from "@agenteschat/ui";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { Glob } from "bun";
 import { MessageBody } from "@/chat/MessageBody";
 import { setMermaidRenderer } from "@/components/artifacts/Mermaid";
 import { createI18n } from "@/i18n";
-import { codeAndBold, inlineWords, Markdown, renderInline } from "@/lib/markdown";
+import { inlineWords, Markdown, renderInline } from "@/lib/markdown";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
@@ -99,6 +100,30 @@ describe("message Markdown", () => {
     expect(el.textContent).toContain("<script>alert(1)</script>");
     expect(el.textContent).toContain("[clique](javascript:alert(1))");
     expect(el.querySelector("strong")?.textContent).toBe("<iframe src=//evil.example>");
+  });
+
+  test("a confidential thread's message as the server stores it (`inertLinks`, ADR 0190) holds no link", () => {
+    const links = (text: string) => body(text).querySelectorAll("a").length;
+    // A fence in the middle of a line is no code block here, and the first two lone backticks pair: the link after
+    // them is live as typed.
+    const typed = [
+      "Summary ``` a ` b [open the report](https://example.com/?q=WORDS) ```",
+      "Summary ``` a ` b https://example.com/?q=WORDS ```",
+      "a ` b https://example.com/?q=WORDS",
+      "<https://example.com/?q=WORDS>",
+      "[the report][r]\n\n[r]: https://example.com/?q=WORDS",
+    ];
+    expect(typed.map(links)).toEqual([1, 1, 1, 1, 1]);
+    const stored = [
+      "Summary ``` a ` b [open the report] (example.com/?q=WORDS) ```",
+      "Summary ``` a ` b example.com/?q=WORDS ```",
+      "a ` b example.com/?q=WORDS",
+      "<example.com/?q=WORDS>",
+      "[the report][r]\n\n[r]: example.com/?q=WORDS",
+      "https:// example.com/?q=WORDS",
+      "[open] (mailto:ana@example.com?subject=WORDS)",
+    ];
+    expect(stored.map(links)).toEqual(stored.map(() => 0));
   });
 
   test("a table scrolls inside its box, which says which side has more columns (that side fades)", () => {

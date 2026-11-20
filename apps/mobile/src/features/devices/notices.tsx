@@ -10,6 +10,7 @@ import { useOrg } from "@/providers/org";
 import { Button, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AskButtons } from "../chat/asks";
+import { useRowDirectory } from "../chat/row-data";
 import { useColors, useDirectory, useOrgId, useWhen } from "../shared/hooks";
 import { Tile } from "../shared/parts";
 import { WaitingCard } from "../shared/WaitingCard";
@@ -20,7 +21,8 @@ import { ToolOneClickButton } from "./ToolOneClick";
 
 /** Whom the agent works for, by first name ("" when it's the viewer or nobody says). */
 export function useNoticePerson(n: Pick<AppNotification, "kind" | "source" | "latest">) {
-  const dir = useDirectory();
+  // The app's one directory (`WorkspaceRowData`): Atividade's rows and the island ask for it per notice.
+  const dir = useRowDirectory();
   const id = deviceNoticeOf(n)?.forUserId;
   return id ? firstName(dir.nameOf({ type: "person", id })) : "";
 }

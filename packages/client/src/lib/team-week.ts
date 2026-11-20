@@ -174,6 +174,40 @@ export const appliesInBulk = (row: TeamWeekRow) => !LEADS.includes(row.kind) && 
 export const skipsAlone = (row: TeamWeekRow) =>
   row.kind === "retire" || row.kind === "model" || row.kind === "unanswered";
 
+/**
+ * Rows that open where they are instead of applying (approvals to decide, what waits on the reader, an agent that
+ * stopped): a row with a chevron, never marked.
+ */
+export const opensPlace = (row: TeamWeekRow) => LEADS.includes(row.kind);
+
+/**
+ * Marked as the card shows: what its one button applies unless the reader unmarks it. Archiving an agent starts
+ * unmarked, as it never applied with the rest.
+ */
+export const markedAtFirst = appliesInBulk;
+
+/** Rows the card marks, about one agent (null: about none, a channel's questions or a task with no agent). */
+export interface TeamWeekGroup {
+  agentId: string | null;
+  rows: TeamWeekRow[];
+}
+
+/**
+ * The rows to mark, grouped under their agent's face in the order each agent first shows; a row about no agent is
+ * its own group.
+ */
+export function teamWeekGroups(rows: readonly TeamWeekRow[]): TeamWeekGroup[] {
+  const groups: TeamWeekGroup[] = [];
+  for (const row of rows) {
+    if (opensPlace(row)) continue;
+    const agentId = "agentId" in row ? row.agentId : null;
+    const same = agentId ? groups.find((g) => g.agentId === agentId) : undefined;
+    if (same) same.rows.push(row);
+    else groups.push({ agentId, rows: [row] });
+  }
+  return groups;
+}
+
 /** Where a row's button goes when it opens a screen in place of applying a fix. Null: it applies. */
 export type TeamWeekPlace =
   | { to: "waiting" }
@@ -311,6 +345,62 @@ export function teamWeekRowText(t: TFunction, locale: string, row: TeamWeekRow, 
       };
     }
   }
+}
+
+/**
+ * A group's line by its agent's face: what the agent learned when every row is a how-to, else its name. Null for a row
+ * about no agent, which shows its own title.
+ */
+export function teamWeekGroupTitle(t: TFunction, group: TeamWeekGroup, n: TeamWeekNames): string | null {
+  if (!group.agentId) return null;
+  const say = t as unknown as Say;
+  const name = n.agent(group.agentId);
+  return group.rows.every((r) => r.kind === "howto")
+    ? say("teamWeek.howto.group", { name, count: group.rows.length })
+    : name;
+}
+
+/** A row's words under its agent's face: its title without the agent's name, then its line. */
+export function teamWeekItemText(t: TFunction, locale: string, row: TeamWeekRow, n: TeamWeekNames) {
+  const say = t as unknown as Say;
+  switch (row.kind) {
+    case "howto":
+      return { title: row.title, line: say("teamWeek.howto.uses", { uses: row.uses }) };
+    case "budget":
+      return {
+        title: say("teamWeek.budget.item", { from: n.usd(row.from), to: n.usd(row.to) }),
+        line: say("teamWeek.budget.line", { count: row.stops }),
+      };
+    case "channel":
+      return {
+        title: say("teamWeek.channel.item", { channel: n.channel(row.channelId) }),
+        line: say("teamWeek.channel.line", agentGrammar(n.agent(row.agentId))),
+      };
+    case "routine":
+      return {
+        title: say("teamWeek.routine.item", { time: hourText(locale, row.hour) }),
+        line: say("teamWeek.routine.line", { count: row.count, text: row.text }),
+      };
+    case "retire":
+      return { title: say("teamWeek.retire.item"), line: say("teamWeek.retire.line") };
+    case "model":
+      return {
+        title: say("teamWeek.model.item", { to: keepWhole(n.model?.(row.to) ?? row.to) }),
+        line: say("teamWeek.model.line", { from: keepWhole(n.model?.(row.from) ?? row.from) }),
+      };
+    default: {
+      const text = teamWeekRowText(t, locale, row, n);
+      return { title: text.title, line: text.line };
+    }
+  }
+}
+
+/** The card's one button for the marked rows: what it does when they are all how-tos, else how many it applies. */
+export function teamWeekApplyLabel(t: TFunction, marked: readonly TeamWeekRow[]): string {
+  const say = t as unknown as Say;
+  return marked.length > 0 && marked.every((r) => r.kind === "howto")
+    ? say("teamWeek.howto.applyAll", { count: marked.length })
+    : say("teamWeek.applyAll", { count: marked.length });
 }
 
 /** What a row sends as the person (`unanswered`: to the right hand; `stalled`: in the task's conversation). */

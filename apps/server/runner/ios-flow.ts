@@ -399,6 +399,8 @@ export async function runIosFlow(text: string, screen: IosScreen, run: IosFlowRu
       await command(value);
       lines.push(`OK      ${label}`);
     } catch (err) {
+      // The phone refusing the helper's actions ends the flow whatever the step: no later step could act either.
+      if (err instanceof RunnerError && err.code === "phone_not_ready") throw err;
       const why = err instanceof Error ? err.message : String(err);
       if (truthy(opts.optional)) {
         lines.push(`SKIPPED ${label}: ${why} (optional)`);

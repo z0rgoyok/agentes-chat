@@ -1,16 +1,41 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
 import type { AgentDraft, AgentInput, AgentProposalCard, MailAccount, Message } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { aiSelect } from "./ai-picker";
-import { ATLAS_ID, createFakeApi, ENG_ID, fakeMailOf, meWithRole, NOW, ORG_ID, seedState } from "./fake-api";
-import { railStep, title, typeIn } from "./new-agent-flow";
+import {
+  ATLAS_ID,
+  createFakeApi,
+  ENG_ID,
+  fakeMailOf,
+  GENERAL_ID,
+  meWithRole,
+  NOW,
+  ORG_ID,
+  seedState,
+} from "./fake-api";
+import { typeIn } from "./new-agent-flow";
 import { renderApp, screen, settle } from "./render";
 
+/** A narrow screen (the new agent's two steps, NEW_AGENT_STEPS_QUERY): only that query matches. */
+let media: { mockRestore: () => void } | null = null;
+const narrowScreen = () => {
+  media = spyOn(window, "matchMedia").mockImplementation(
+    (q: string) =>
+      ({
+        matches: q === "(max-width: 959px)",
+        media: q,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList,
+  );
+};
+
 afterEach(() => {
+  media?.mockRestore();
+  media = null;
   cleanup();
   sessionStorage.clear();
 });
@@ -80,7 +105,7 @@ const asMember = (state: State) => {
 };
 
 describe("an agent's proposal of a new agent, in the chat", () => {
-  test("a request card: its reason, the draft in the well; Revisar opens Criar agente over the conversation, Recusar says no", async () => {
+  test("a request card: its reason, the draft in the well; Review opens the new agent's dialog over the conversation, Decline says no", async () => {
     const state = seedState();
     state.messages.push(proposal("p-1"));
     const { router } = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(state) });
@@ -104,13 +129,16 @@ describe("an agent's proposal of a new agent, in the chat", () => {
     const who = card.querySelector(".rq__wt");
     expect(who?.querySelector(":scope > b")?.textContent).toBe("Nina");
     expect(who?.querySelector(":scope > small")?.textContent).toBe("@nina · Designer · Pensa pela API");
-    // Revisar: the review in a dialog over the conversation, which stays as it was.
+    // Review: the new agent's dialog over the conversation, its card filled in, the proposal beside it.
     await click(within(card).getByRole("button", { name: "Revisar" }), 10);
-    const dialog = screen().getByRole("dialog", { name: "Revisar Nina" });
-    expect(within(dialog).getByRole("heading", { name: "Tudo certo com a Nina?" })).toBeTruthy();
+    const dialog = screen().getByRole("dialog", { name: "Novo agente" });
+    expect(within(dialog).getByRole("region", { name: "A proposta" }).textContent).toContain(
+      "Você pediu alguém para o design.",
+    );
+    expect((within(dialog).getByLabelText("Nome") as HTMLInputElement).value).toBe("Nina");
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
-    await click(within(dialog).getByRole("button", { name: "Sair sem criar" }));
-    expect(screen().queryByRole("dialog", { name: "Revisar Nina" })).toBeNull();
+    await click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(screen().queryByRole("dialog", { name: "Novo agente" })).toBeNull();
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
     await click(within(card).getByRole("button", { name: "Recusar" }));
     expect(state.calls.some((c) => c.method === "agents.denyProposal" && c.args[1] === "p-1")).toBe(true);
@@ -338,7 +366,7 @@ describe("one request, one card: what it gets, created in one click", () => {
     expect(screen().getByRole("dialog", { name: /Conectar uma IA/ })).toBeTruthy();
   });
 
-  test("Revisar, then Criar: the dialog closes on the conversation as it was, and the routine is made", async () => {
+  test("Review, then Create: the routine is made, my mailbox comes at its level, and its chat opens", async () => {
     const state = seedState();
     state.messages.push(withLines());
     const api = createFakeApi(state);
@@ -367,15 +395,12 @@ describe("one request, one card: what it gets, created in one click", () => {
     const [card] = cardOf("@nina");
     if (!card) throw new Error("no card");
     await click(within(card).getByRole("button", { name: "Revisar" }), 10);
-    const dialog = screen().getByRole("dialog", { name: "Revisar Nina" });
-    // The routine is on the review, to keep or not; my own mailbox comes at its level, João's is his to give.
-    const review = dialog.querySelector(".newag__review")?.textContent ?? "";
-    expect(review).toContain("E-mails do dia");
-    expect(review).toContain("walter@acme.com.br · só consulta");
-    expect(review).not.toContain("joao@acme.com.br");
-    expect(
-      within(dialog).getByRole("switch", { name: "Criar a rotina E-mails do dia" }).getAttribute("aria-checked"),
-    ).toBe("true");
+    const dialog = screen().getByRole("dialog", { name: "Novo agente" });
+    // The routine is on the card, to keep or take out; my own mailbox comes at its level, João's is his to give.
+    const body = dialog.querySelector(".nac__body")?.textContent ?? "";
+    expect(body).toContain("E-mails do dia");
+    expect(body).toContain("walter@acme.com.brLê");
+    expect(body).not.toContain("joao@acme.com.br");
     await click(within(dialog).getByRole("button", { name: "Criar Nina" }), 12);
     expect(state.calls.find((c) => c.method === "agents.create")?.args[1]).toMatchObject({ proposal: "p-1" });
     expect(state.calls.find((c) => c.method === "agents.proposalRoutine")?.args).toEqual([ORG_ID, "p-1"]);
@@ -383,131 +408,99 @@ describe("one request, one card: what it gets, created in one click", () => {
     expect(state.calls.filter((c) => c.method === "mail.setAgent").map((c) => c.args.slice(2, 4))).toEqual([
       ["mb-w", expect.objectContaining({ level: "read" })],
     ]);
-    expect(screen().queryByRole("dialog", { name: "Revisar Nina" })).toBeNull();
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
+    expect(screen().queryByRole("dialog", { name: "Novo agente" })).toBeNull();
+    expect(router.state.location.pathname).toMatch(new RegExp(`^/org/${ORG_ID}/dm/agent/`));
   });
 });
 
-describe("Revisar: Criar agente filled in with the draft", () => {
-  test("on its last step with the draft; creating sends the edits with the card, and no AI opens Connect for it", async () => {
-    // No key and no plan: nothing to think with yet, so it is created and connected after.
+describe("Review: the new agent's card filled in with the proposal", () => {
+  /** The proposal's card in #eng, its new agent's dialog open on it. */
+  const review = async (state: State, title = "Novo agente") => {
+    const rendered = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(state) });
+    await settle(6);
+    const [card] = cardOf("@nina");
+    if (!card) throw new Error("no card");
+    await click(within(card).getByRole("button", { name: "Revisar" }), 10);
+    return { ...rendered, dialog: screen().getByRole("dialog", { name: title }) };
+  };
+  const side = (dialog: HTMLElement) => within(dialog).getByRole("region", { name: "A proposta" });
+
+  test("what is changed shows beside the card with Undo; creating sends the card with the proposal", async () => {
+    // No key and no plan: nothing to think with yet, so its chat asks for an AI after.
     const state = seedState({ credentials: [], platformKey: false });
-    state.messages.push(proposal("p-1", {}, { ai: { kind: "none" } }));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    expect(title()).toBe("Tudo certo com a Nina?");
-    const review = document.querySelector(".newag__review")?.textContent ?? "";
-    for (const shown of ["Designer", "@nina", "Desenha as telas.", "eng", "Sem IA ainda"])
-      expect(review).toContain(shown);
-    // An edit on the way: the name.
-    await click(railStep("Identidade"));
-    await typeIn(screen().getByLabelText("Nome"), "Nina Simone");
+    state.messages.push(
+      proposal("p-1", {}, { ai: { kind: "none" }, hello: "Desenho as telas com você.", later: ["sentry"] }),
+    );
+    const { dialog, router } = await review(state);
+    expect(dialog.querySelector(".nac__handle")?.textContent).toBe("No chat: @nina · Designer");
+    expect((within(dialog).getByLabelText("O que faz") as HTMLTextAreaElement).value).toBe(
+      "Desenho as telas com você.",
+    );
+    expect(side(dialog).textContent).toContain("Nada ainda.");
+    // Left for after it is created: an AI, and the app it needs that isn't connected.
+    expect(side(dialog).textContent).toContain("Conectar uma IA para a Nina pensar");
+    expect(side(dialog).textContent).toContain("Conectar Sentry");
+    // A change, its line, and Undo.
+    await typeIn(within(dialog).getByLabelText("Nome"), "Nina Simone");
     await settle(2);
-    await click(railStep("Revisar e criar"));
-    await click(screen().getByRole("button", { name: "Criar Nina Simone" }), 10);
+    expect(side(dialog).textContent).toContain("Nome · Nina → Nina Simone");
+    await click(within(side(dialog)).getByRole("button", { name: "Desfazer" }));
+    expect((within(dialog).getByLabelText("Nome") as HTMLInputElement).value).toBe("Nina");
+    expect(side(dialog).textContent).toContain("Nada ainda.");
+    await typeIn(within(dialog).getByLabelText("Nome"), "Nina Simone");
+    await settle(2);
+    await click(within(dialog).getByRole("button", { name: "Criar Nina Simone" }), 12);
     const created = state.calls.find((c) => c.method === "agents.create")?.args[1] as AgentInput | undefined;
     expect(created).toMatchObject({
       name: "Nina Simone",
-      handle: "nina",
       role: "Designer",
       instructions: "Desenha as telas.",
       appearance: { color: "rose", eyes: "happy", accessory: "bow" },
       proposal: "p-1",
+      setup: { role: null, hello: "Desenho as telas com você.", apps: { sentry: "read" } },
     });
-    const connect = screen().getByRole("dialog", { name: /Conectar uma IA/ });
-    // Another one starts empty, without the proposal.
-    await click(within(connect).getByRole("button", { name: "Fechar" }));
-    await click(screen().getByRole("button", { name: "Criar outro agente" }), 8);
-    expect(title()).toBe("Qual vai ser a função?");
+    expect(router.state.location.pathname).toMatch(new RegExp(`^/org/${ORG_ID}/dm/agent/`));
   });
 
-  test("no AI, and a coding plan to connect picked: Connect opens once, on that plan", async () => {
-    const state = seedState({ credentials: [], platformKey: false });
-    state.messages.push(proposal("p-1", {}, { ai: { kind: "none" } }));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    await click(railStep("Modelo e orçamento"));
-    await click(screen().getByRole("combobox", { name: "Quem pensa" }));
-    await click(screen().getByRole("option", { name: /^Conectar OpenCode Go/ }));
-    await click(railStep("Revisar e criar"));
-    await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
-    const dialogs = screen().getAllByRole("dialog", { name: /Conectar uma IA/ });
-    expect(dialogs).toHaveLength(1);
-    expect(aiSelect(dialogs[0] as HTMLElement).textContent).toBe("OpenCode Go");
-  });
-
-  test("on an account of mine it suggests: created on that account, with no plan sign-in to open", async () => {
+  test("its name kept, it keeps the @ it proposed", async () => {
     const state = seedState();
-    state.messages.push(
-      proposal(
-        "p-1",
-        {},
-        { ai: { kind: "account", brain: "claude_code", machineId: "m-1", accountId: "a-1", label: "Claude Max" } },
-      ),
-    );
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
-    const agentId = state.agents.find((a) => a.handle === "nina")?.id;
-    expect(state.calls.find((c) => c.method === "agents.setBrain")?.args).toEqual([
-      ORG_ID,
-      agentId,
-      { brain: "claude_code", account: "a-1" },
-    ]);
-    // It thinks with that account, not the computer's own sign-in: nothing to connect.
-    expect(screen().queryByRole("dialog", { name: /^Conectar uma IA/ })).toBeNull();
+    state.messages.push(proposal("p-1", {}, { handle: "nina-design" }));
+    const { dialog } = await review(state);
+    expect(dialog.querySelector(".nac__handle")?.textContent).toBe("No chat: @nina-design · Designer");
+    await click(within(dialog).getByRole("button", { name: "Criar Nina" }), 12);
+    expect(state.calls.find((c) => c.method === "agents.create")?.args[1]).toMatchObject({ handle: "nina-design" });
   });
 
-  test("a proposal already decided: no flow, a way back to the conversation", async () => {
-    const state = seedState();
-    state.messages.push(proposal("p-1", { state: "denied" }));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    expect(screen().getByText("Esta proposta já foi decidida ou expirou.")).toBeTruthy();
-    expect(screen().getByRole("link", { name: "Voltar para a conversa" }).getAttribute("href")).toBe(
-      `/org/${ORG_ID}/c/${ENG_ID}`,
-    );
-  });
-
-  test("a proposal in a conversation I'm not in says so, not that it was decided", async () => {
+  test("its channels change on the card: one taken out, another added, and the agent joins those", async () => {
     const state = seedState();
     state.channels.push({
       id: DESIGN_ID,
       name: "design",
-      topic: "",
-      visibility: "public",
-      isMember: false,
-      createdAt: NOW.toISOString(),
-    });
-    state.messages.push({ ...proposal("p-1"), channelId: DESIGN_ID });
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    expect(screen().getByText("Só quem está na conversa vê esta proposta.")).toBeTruthy();
-    expect(screen().queryByText("Esta proposta já foi decidida ou expirou.")).toBeNull();
-  });
-
-  test("the channels it proposes, also public ones I'm not in when I arrange channels: shown, and the agent joins them", async () => {
-    const state = seedState();
-    state.channels.push({
-      id: DESIGN_ID,
-      name: "design",
-      topic: "",
+      topic: "Telas e protótipos",
       visibility: "public",
       isMember: false,
       createdAt: NOW.toISOString(),
     });
     state.messages.push(proposal("p-1", {}, { channelIds: [ENG_ID, DESIGN_ID] }));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    const review = document.querySelector(".newag__review")?.textContent ?? "";
-    expect(review).toContain("eng");
-    expect(review).toContain("design");
-    await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
+    const { dialog } = await review(state);
+    const chips = () => [...dialog.querySelectorAll(".nac__app")].map((c) => c.textContent);
+    expect(chips()).toEqual(expect.arrayContaining(["#eng", "#design"]));
+    // A public channel I'm not in, as I arrange channels: what it is about, and taking it out.
+    await click(within(dialog).getByRole("button", { name: "#design" }));
+    const channel = screen().getByRole("dialog", { name: "#design" });
+    expect(channel.textContent).toContain("Telas e protótipos");
+    await click(within(channel).getByRole("button", { name: "Tirar do #design" }));
+    expect(chips()).not.toContain("#design");
+    expect(side(dialog).textContent).toContain("#design · saiu");
+    await click(within(dialog).getByRole("button", { name: "Outro canal" }));
+    await click(within(dialog).getByRole("button", { name: "#general" }));
+    await click(within(dialog).getByRole("button", { name: "Criar Nina" }), 12);
     const joined = state.calls.find((c) => c.method === "agents.setChannels")?.args[2];
-    expect(joined).toEqual([{ channelId: ENG_ID }, { channelId: DESIGN_ID }]);
+    expect(joined).toHaveLength(2);
+    expect(joined).toEqual(expect.arrayContaining([{ channelId: GENERAL_ID }, { channelId: ENG_ID }]));
   });
 
-  test("with Create agents alone, a channel it proposes that I'm not in isn't offered: it joins the ones I'm in", async () => {
+  test("with Create agents alone, a channel it proposes that I'm not in isn't on the card, nor joined", async () => {
     const state = seedState();
     meWithRole(state, ["create_agents"]);
     state.channels.push({
@@ -519,53 +512,57 @@ describe("Revisar: Criar agente filled in with the draft", () => {
       createdAt: NOW.toISOString(),
     });
     state.messages.push(proposal("p-1", {}, { channelIds: [ENG_ID, DESIGN_ID] }));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    const chips = [...document.querySelectorAll(".newag__review .ac-chip")].map((c) => c.textContent);
-    expect(chips).toContain("eng");
-    expect(chips).not.toContain("design");
-    await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
+    const { dialog } = await review(state);
+    const chips = [...dialog.querySelectorAll(".nac__app")].map((c) => c.textContent);
+    expect(chips).toContain("#eng");
+    expect(chips).not.toContain("#design");
+    await click(within(dialog).getByRole("button", { name: "Criar Nina" }), 12);
     const joined = state.calls.find((c) => c.method === "agents.setChannels")?.args[2];
     expect(joined).toEqual([{ channelId: ENG_ID }]);
   });
 
-  test("changing the role keeps the rest of the draft; its words are a field of their own", async () => {
+  test("its first task waits in its chat's composer, and the button says it creates and tries", async () => {
     const state = seedState();
     state.messages.push(proposal("p-1"));
-    await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    await click(screen().getByRole("button", { name: "Editar Função" }));
-    const custom = screen().getByRole("button", { name: /^Do zero/ });
-    expect(custom.getAttribute("aria-pressed")).toBe("true");
-    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Designer");
-    // Again on the role it has: nothing changes.
-    await click(custom);
-    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Designer");
-    await typeIn(screen().getByRole("textbox", { name: "Função" }), "Design de produto");
-    // Another role and back: the name, the instructions and the words stay.
-    await click(screen().getByRole("button", { name: /^QA/ }));
-    await click(screen().getByRole("button", { name: /^Do zero/ }));
-    expect((screen().getByRole("textbox", { name: "Função" }) as HTMLInputElement).value).toBe("Design de produto");
-    await click(railStep("Revisar e criar"));
-    await click(screen().getByRole("button", { name: "Criar Nina" }), 10);
-    expect(state.calls.find((c) => c.method === "agents.create")?.args[1]).toMatchObject({
-      name: "Nina",
-      handle: "nina",
-      role: "Design de produto",
-      instructions: "Desenha as telas.",
-      appearance: { color: "rose", eyes: "happy", accessory: "bow" },
-      proposal: "p-1",
-    });
+    const { dialog } = await review(state);
+    await typeIn(within(dialog).getByLabelText("Primeira tarefa"), "Desenhe a tela de login");
+    await settle(2);
+    await click(within(dialog).getByRole("button", { name: "Criar e testar" }), 12);
+    await settle(6);
+    const box = screen().getByRole("combobox", { name: "Mensagem para Nina" }) as HTMLTextAreaElement;
+    expect(box.value).toBe("Desenhe a tela de login");
+    expect(state.calls.some((c) => c.method === "chat.post")).toBe(false);
   });
 
-  test("Recusar on the review says no and goes back to the conversation", async () => {
+  test("on a narrow screen, one column: the card, the proposal under it, Discard proposal beside Create", async () => {
+    narrowScreen();
     const state = seedState();
     state.messages.push(proposal("p-1"));
-    const { router } = await renderApp(`/org/${ORG_ID}/agents/new?proposal=p-1`, { api: createFakeApi(state) });
-    await settle(8);
-    await click(screen().getByRole("button", { name: "Recusar" }), 8);
+    // Its card's step from the start, titled with its name: no list to go back to.
+    const { dialog } = await review(state, "Nina");
+    expect(within(dialog).queryByRole("button", { name: "Voltar" })).toBeNull();
+    const card = dialog.querySelector(".nac__card") as HTMLElement;
+    expect(card.compareDocumentPosition(side(dialog)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Why it was proposed, once: on the line under the title.
+    expect(dialog.textContent?.split("Você pediu alguém para o design.")).toHaveLength(2);
+    expect(side(dialog).textContent).not.toContain("Proposto pelo");
+    await typeIn(within(dialog).getByLabelText("Primeira tarefa"), "Desenhe a tela de login");
+    await settle(2);
+    expect(within(dialog).getByRole("button", { name: "Criar e testar" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Cancelar" })).toBeNull();
+    await click(within(dialog).getByRole("button", { name: "Descartar proposta" }), 8);
     expect(state.calls.some((c) => c.method === "agents.denyProposal" && c.args[1] === "p-1")).toBe(true);
     expect(state.calls.some((c) => c.method === "agents.create")).toBe(false);
+  });
+
+  test("Discard proposal says no and closes the dialog, nothing created", async () => {
+    const state = seedState();
+    state.messages.push(proposal("p-1"));
+    const { dialog, router } = await review(state);
+    await click(within(dialog).getByRole("button", { name: "Descartar proposta" }), 8);
+    expect(state.calls.some((c) => c.method === "agents.denyProposal" && c.args[1] === "p-1")).toBe(true);
+    expect(state.calls.some((c) => c.method === "agents.create")).toBe(false);
+    expect(screen().queryByRole("dialog", { name: "Novo agente" })).toBeNull();
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
   });
 });

@@ -144,13 +144,15 @@ export function joinRequestLine(
   n: Pick<AppNotification, "count" | "latest">,
 ): { text: string; faces: string[] } {
   const asked = askersOf(n);
-  // A member's suggestion says who suggested it (ADR 0090).
+  // A suggestion says who suggested it (ADR 0090); an outside collaborator's request, who they work for (ADR 0191).
   const text =
     asked.total > 1
       ? t("notifications.wait.joinRequestNames", { names: namesText(t, asked.names, 2, asked.total) })
       : n.latest.suggestedBy
         ? t("notifications.wait.joinSuggestion", { by: n.latest.suggestedBy, name: asked.names[0] })
-        : t("notifications.wait.joinRequest", { count: 1, name: asked.names[0] });
+        : n.latest.outsideOf
+          ? t("notifications.wait.joinOutside", { name: asked.names[0], outsideOf: n.latest.outsideOf })
+          : t("notifications.wait.joinRequest", { count: 1, name: asked.names[0] });
   return { text, faces: asked.names.slice(0, 2) };
 }
 

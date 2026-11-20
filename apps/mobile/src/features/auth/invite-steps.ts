@@ -3,9 +3,11 @@ import type { HumanAction } from "@agenteschat/client/lib/human-check";
 import { isInviteToken } from "./links";
 
 /**
- * Asking through a link, signed out, where email goes out (ADR 0090 §1): three screens. The e-mail, the code from it
- * on its own, then everything about the person at once (name, password, an optional word for whoever approves) under
- * one button. Five screens, one field each, made a request to join feel like a form.
+ * Asking through a link, signed out, where email goes out (ADR 0090 §1): three screens, each pushed over the one
+ * before. The e-mail, the code from it on its own, then everything about the person at once (name, password, an
+ * optional word for whoever approves) under one button. Five screens, one field each, made a request to join feel like
+ * a form. Once proven, the person's screen takes the code's place: back from it is the e-mail, never a code already
+ * typed.
  */
 export type AskStep = "email" | "code" | "you";
 
@@ -14,21 +16,15 @@ export const ASK_STEPS: readonly AskStep[] = ["email", "code", "you"];
 /** "1 de 3". */
 export const askProgress = (step: AskStep) => ({ n: ASK_STEPS.indexOf(step) + 1, total: ASK_STEPS.length });
 
-/** Where Back goes from each step: past the code, which a proven address doesn't type again; null leaves the screen. */
-const ASK_BACK: Record<AskStep, AskStep | null> = {
-  email: null,
-  code: "email",
-  you: "email",
-};
-
-export const askBack = (step: AskStep) => ASK_BACK[step];
-
 /** Only the code's sending is a public form a bot could flood (ADR 0075); the ask itself carries the proven code. */
 export const askAction = (step: AskStep): HumanAction | null =>
   step === "email" || step === "code" ? "ask-code" : null;
 
-/** An email invitation, signed out: what its address is missing (ADR 0090 §6), and the reset's two screens. */
-export type EmailStep = "name" | "newPassword" | "password" | "social" | "forgot" | "sent";
+/**
+ * An email invitation, signed out: the first screen, by what its address is missing (ADR 0090 §6). A new address's
+ * password and the reset's link come on screens pushed over it.
+ */
+export type EmailStep = "name" | "password" | "social";
 
 type InvitedAccount = NonNullable<InvitationPreview["account"]>;
 
@@ -41,18 +37,12 @@ export function emailStart(account: InvitedAccount = NO_ACCOUNT): EmailStep {
   return account.password ? "password" : "social";
 }
 
-/** Where Back goes from each step, given the first one; null leaves the screen. */
-export function emailBack(step: EmailStep, start: EmailStep): EmailStep | null {
-  if (step === "newPassword") return "name";
-  return step === "forgot" || step === "sent" ? start : null;
-}
-
-/** What each step's bot check is for (ADR 0075). The name leads to the sign-up, so its token is ready by then. */
+/**
+ * What each first screen's bot check is for (ADR 0075): only the password's signs in from there. The new password's
+ * screen checks its sign-up, and the reset's its link, each on its own.
+ */
 export const EMAIL_ACTIONS: Partial<Record<EmailStep, HumanAction>> = {
-  name: "sign-up",
-  newPassword: "sign-up",
   password: "sign-in",
-  forgot: "password-reset",
 };
 
 /**

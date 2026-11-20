@@ -7,19 +7,24 @@ import {
   handleAt,
   hasWords,
   levelOf,
+  localVoiceMessage,
   nextSpeed,
   peaksOf,
   playedColumns,
   retryDelayMs,
   secondsLeft,
   slideIntent,
+  spokenWords,
+  takeBack,
   uploadVerdict,
+  voiceFields,
   WAVE_CELL,
   WAVE_HANDLE,
   WAVE_PITCH,
   waveAt,
 } from "../../src/features/voice/logic";
 import { joinM4a } from "../../src/features/voice/m4a";
+import { chatScreenSource } from "./chat-screen-source";
 
 const u32 = (...v: number[]) => {
   const out = new Uint8Array(v.length * 4);
@@ -103,7 +108,7 @@ describe("voice gestures and wave", () => {
   test("speed goes round", () => {
     expect([nextSpeed(1), nextSpeed(1.5), nextSpeed(2)]).toEqual([1.5, 2, 1]);
   });
-  test("a played wave's handle stands flush with its left end before the first column at 0:00, and flush with its right end after the last at the end, as WhatsApp's dot", () => {
+  test("a played wave's handle stands flush with its left end before the first column at 0:00, and flush with its right end after the last at the end", () => {
     // Every room the columns leave over (0 to 5), a width between whole points, and the phones' own.
     for (const width of [180, 181, 182, 183, 184, 185, 233.5, 300]) {
       const { count, start } = playedColumns(width);
@@ -148,6 +153,120 @@ describe("voice messages hold no text", () => {
     expect(hasWords({ body: "palavras", meta: { voice } })).toBe(true);
     expect(hasWords({ body: "(sem palavras)", meta: { voice: { ...voice, noWords: true } } })).toBe(false);
     expect(hasWords({ body: "", meta: { voice }, local: "pending" })).toBe(false);
+  });
+});
+
+describe("a voice note with typed text and files", () => {
+  const voice = { clipId: "c", durationMs: 1200, peaks: [] };
+  const typed = "Veja a captura, por favor.";
+  const sent = { body: `${typed}\n\nOlá Atlas, revise o painel.`, meta: { voice: { ...voice, text: typed } } };
+  const src = (path: string) => readFileSync(join(import.meta.dir, "../../src", path), "utf8");
+
+  test("the typed part is the row's text; the player opens only the words said", () => {
+    expect(hidesBody(sent as never)).toBe(false);
+    expect(spokenWords(sent)).toBe("Olá Atlas, revise o painel.");
+    expect(spokenWords({ body: typed, meta: sent.meta })).toBeNull();
+    expect(hasWords({ body: typed, meta: sent.meta })).toBe(false);
+    // From before typed text could go with a take: all of it is words.
+    expect(spokenWords({ body: "palavras", meta: { voice } })).toBe("palavras");
+  });
+
+  const item = {
+    clientId: "k1",
+    orgId: "o",
+    channelId: "ch",
+    threadId: null,
+    replyTo: null,
+    authorId: "u1",
+    file: "k1.m4a",
+    durationMs: 1200,
+    peaks: [0.5],
+    language: "pt",
+    createdAt: "2026-11-15T10:00:00.000Z",
+  };
+  const files = [
+    { id: "a1", version: 1, title: "captura.png" },
+    { id: "a2", version: 1, title: "relatorio.pdf" },
+  ];
+
+  test("the upload carries the text and the files' ids, and nothing new when there are none", () => {
+    const fields = Object.fromEntries(voiceFields({ ...item, text: typed, artifacts: files }));
+    expect(fields.text).toBe(typed);
+    expect(JSON.parse(fields.attachments ?? "")).toEqual(["a1", "a2"]);
+    const plain = Object.fromEntries(voiceFields({ ...item, text: "  " }));
+    expect(plain).toEqual({ durationMs: "1200", peaks: "[0.5]", clientId: "k1", language: "pt" });
+  });
+
+  test("a take the server refuses gives its typed text and files back to the composer it was sent from, and nowhere else", () => {
+    const here = { channelId: "ch", threadId: null };
+    expect(takeBack({ ...item, text: typed }, here)).toEqual({ text: typed, artifacts: [] });
+    expect(takeBack({ ...item, artifacts: files }, here)).toEqual({ text: "", artifacts: files });
+    expect(takeBack({ ...item, text: typed }, { channelId: "other", threadId: null })).toBeNull();
+    expect(takeBack({ ...item, text: typed }, { channelId: "ch", threadId: "t1" })).toBeNull();
+    expect(takeBack(item, here)).toBeNull();
+    const take = src("features/voice/useVoiceTake.ts");
+    expect(take).toMatch(
+      /const back = item \? takeBack\(item, targetRef\.current\) : null;\s*if \(back\) targetRef\.current\.takeBack\?\.\(back\);/,
+    );
+    expect(src("features/voice/outbox.ts")).toContain('onRefused(verdict === "limit" ? "limit" : "refused", item);');
+    const chat = chatScreenSource();
+    expect(chat).toContain("takeBack: voiceTakeBack,");
+    // The files come back from what was uploaded for the take, to wait above the field again.
+    expect(chat).toMatch(/sentWithVoice\.current\.set\(a\.id, file\)/);
+    expect(chat).toMatch(
+      /sentWithVoice\.current\.get\(a\.id\)[\s\S]{0,200}setPending\(\(now\) => \[\.\.\.files, \.\.\.now\]/,
+    );
+  });
+
+  test("the bubble until the server answers shows the typed text, the take and the files", () => {
+    const local = localVoiceMessage({ ...item, text: typed, artifacts: files });
+    expect(local.body).toBe(typed);
+    expect(local.meta?.voice).toMatchObject({ clipId: "local:k1", text: typed });
+    expect(local.meta?.artifacts).toEqual(files);
+    expect(hidesBody(local)).toBe(false);
+    expect(localVoiceMessage(item).body).toBe("");
+    expect(localVoiceMessage(item).meta?.artifacts).toBeUndefined();
+  });
+
+  test('the take is a row above the field, which stays usable with its "+", and the trash is in the row', () => {
+    const composer = src("ui/Composer.tsx");
+    expect(composer).not.toContain("styles.hidden");
+    expect(composer).not.toContain("voice.leading");
+    // The take's row comes before the row of the "+" and the field.
+    expect(composer.indexOf("{voice.bar}")).toBeLessThan(composer.indexOf("<View style={styles.row}>"));
+    // A take may start while files wait; with words typed the send button holds the slot.
+    expect(composer).toContain("const mic = voice && !typed ? voice.mic : null;");
+    // The field's send hands its words to the take; a take that didn't go gives them back.
+    expect(composer).toMatch(
+      /if \(take\) \{[\s\S]{0,200}take\(value\)\.then\(\(sent\) => \{[\s\S]{0,80}put\(joinDrafts\(value, textRef\.current\)\)/,
+    );
+    const bar = src("features/voice/useVoiceComposer.tsx");
+    expect(bar).toContain('const trash = control("trash", t("voice.delete"), () => void take.cancel(true));');
+    expect(bar).toContain("send: (locked || paused) && !folding ? take.send : null,");
+    // The swipe to cancel on the held mic is unchanged.
+    expect(bar).toContain('if (intent === "cancel") scheduleOnRN(take.cancel, true);');
+  });
+
+  test("sending uploads the waiting files first, and a failed upload keeps the take", () => {
+    const screen = chatScreenSource();
+    expect(screen).toMatch(/const withVoice = async \(typed: string\) => \{[\s\S]{0,600}uploadPending\(pending\)/);
+    expect(screen).toContain("prepare: prepareVoice,");
+    const take = src("features/voice/useVoiceTake.ts");
+    expect(take).toMatch(/if \(!extra\) \{\s*await held\(\);\s*return false;/);
+    expect(take).toContain("...(file === files[0] && extra.text ? { text: extra.text } : {}),");
+    expect(src("features/voice/outbox.ts")).toContain(
+      "for (const [name, value] of voiceFields(item)) form.append(name, value);",
+    );
+  });
+
+  test("the sent message: the typed words above the player, the words said alone in it; lists show the typed part", () => {
+    const row = src("features/chat/MessageRow.tsx");
+    expect(row).toContain("serverBody(t, listedText(m.body, meta), meta, i18n.language, names)");
+    expect(row).toMatch(/\{lead\}\s*\{body \? player : null\}/);
+    expect(src("features/voice/VoiceMessage.tsx")).toContain(
+      "const words = useMemo(() => spokenWords(message), [message]);",
+    );
+    expect(src("features/chat/sheets.tsx")).toContain("const text = previewOf(listedText(m.body, m.meta));");
   });
 });
 

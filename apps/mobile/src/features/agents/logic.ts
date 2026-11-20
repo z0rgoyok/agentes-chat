@@ -446,11 +446,15 @@ export interface UseLine {
   /** The app's connection, for its mark (`ConnectorIcon`); null for built-in areas. */
   connectionId: string | null;
   level: "read" | "write" | "some";
+  /** The viewer's own personal connection (the agent's tree holds no one else's): it works only when they ask. */
+  personal: boolean;
 }
 
+/** What the agent uses, the team's first and then the viewer's own personal connections (ADR 0099 addendum). */
 export function usesOf(access: AgentAccess | null | undefined): { lines: UseLine[]; asks: boolean } {
   if (!access) return { lines: [], asks: false };
   const lines: UseLine[] = [];
+  const personal = new Set(access.connectors.filter((c) => c.ownerUserId).map((c) => c.connectionId));
   let asks = false;
   for (const r of resourcesOf(access)) {
     const level = levelOf(r);
@@ -461,10 +465,18 @@ export function usesOf(access: AgentAccess | null | undefined): { lines: UseLine
       label: r.kind === "connector" || !r.area ? { text: r.label } : { area: r.area },
       connectionId: r.connectionId,
       level: level === "custom" ? "some" : level,
+      personal: r.connectionId !== null && personal.has(r.connectionId),
     });
   }
-  return { lines, asks };
+  return { lines: lines.sort((a, b) => Number(a.personal) - Number(b.personal)), asks };
 }
+
+/**
+ * Other people's personal connections this agent holds (the tree read with `others`): only who may take them off
+ * reads it, and each row offers only that.
+ */
+export const othersPersonalOf = (access: AgentAccess | null | undefined, me: string | null) =>
+  (access?.connectors ?? []).filter((c) => c.ownerUserId && c.ownerUserId !== me);
 
 /**
  * A profile's Modelo row as the web's fact sheet says it: the model it thinks with, and how after it on the value's

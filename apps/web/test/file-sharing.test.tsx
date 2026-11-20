@@ -38,7 +38,10 @@ const pick = async (scope: HTMLElement, trigger: string | RegExp, item: string) 
   await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: item }));
 };
 
-/** A report Atlas left in its DM with me, and a manual in the Drive, which the whole workspace sees. */
+/**
+ * A report Atlas left in its DM with me, a manual I made in the Drive itself (the whole workspace's until I choose,
+ * ADR 0157 amendment 2026-11-17), and minutes in #general, a public channel.
+ */
 async function drive() {
   const state = seedState();
   state.dms.push({ channelId: "dm-atlas", with: { type: "agent", id: ATLAS_ID, name: "Atlas", handle: "atlas" } });
@@ -46,15 +49,20 @@ async function drive() {
   const report = await api.artifacts.create(ORG_ID, {
     title: "Relatório de visitas",
     channelId: "dm-atlas",
-    content: { kind: "document", markdown: "# Visitas" },
+    content: { kind: "table", columns: ["Dia", "Visitas"], rows: [["Segunda", "3"]] },
   });
   const manual = await api.artifacts.create(ORG_ID, {
     title: "Manual do time",
-    content: { kind: "document", markdown: "# Manual" },
+    content: { kind: "table", columns: ["Passo", "Quem"], rows: [["Abrir o turno", "Walter"]] },
+  });
+  const minutes = await api.artifacts.create(ORG_ID, {
+    title: "Ata da reunião",
+    channelId: GENERAL_ID,
+    content: { kind: "table", columns: ["Tema", "Quem"], rows: [["Escala", "Walter"]] },
   });
   const r = await renderApp(`/org/${ORG_ID}/drive`, { api });
   await settle(8);
-  return { ...r, api, state, report, manual };
+  return { ...r, api, state, report, manual, minutes };
 }
 
 /** The Drive's details of a file, then its "…" › an item. */
@@ -146,13 +154,112 @@ describe("Compartilhar (ADR 0157)", () => {
     ).toEqual([report.id, { mode: "conversation", userIds: [], roleIds: [] }]);
   });
 
-  test("a file the whole workspace sees: nothing to widen, its link copies as is", async () => {
+  test("a public channel's file: the whole workspace sees it, nothing to widen", async () => {
     await drive();
-    await fromDetails("Manual do time", "Compartilhar");
-    const dialog = shareDialog("Manual do time");
+    await fromDetails("Ata da reunião", "Compartilhar");
+    const dialog = shareDialog("Ata da reunião");
     expect(dialog.textContent).toContain("Todos no workspace veem este arquivo.");
     expect(within(dialog).queryByRole("button", { name: "Só a conversa" })).toBeNull();
     expect(dialog.textContent).not.toContain("não vai abrir o link");
+  });
+
+  test("a file of the Drive itself: Só você, chosen people, or everyone (the default), changed by its maker", async () => {
+    const { state, manual } = await drive();
+    const saved = () => state.calls.filter((c) => c.method === "artifacts.setSharing").map((c) => c.args.slice(1));
+    await fromDetails("Manual do time", "Compartilhar");
+    const dialog = shareDialog("Manual do time");
+    const names = () => [...dialog.querySelectorAll(".share__name")].map((n) => n.textContent);
+    expect([...dialog.querySelectorAll(".ac-option__title")].map((n) => n.textContent)).toEqual([
+      "Só você",
+      "Pessoas e cargos que você escolher",
+      "Todos no workspace",
+    ]);
+    // Made in the Drive: the workspace's until its maker chooses.
+    expect(pressed(dialog)).toEqual(["Todos no workspace"]);
+    expect(names()).toEqual(["Todos no workspace"]);
+    await click(within(dialog).getByRole("button", { name: "Só você" }));
+    await settle(4);
+    expect(saved()).toEqual([[manual.id, { mode: "conversation", userIds: [], roleIds: [] }]]);
+    expect(pressed(dialog)).toEqual(["Só você"]);
+    expect(screen().getByText("Agora só você vê o arquivo.")).toBeTruthy();
+    // Who has access: me, its maker; administrators always see it; the link opens for nobody else.
+    expect(names()).toEqual(["Walter (você)"]);
+    expect(dialog.textContent).toContain("Administradores sempre veem.");
+    expect(dialog.textContent).toContain("Só você abre este link.");
+    // Chosen people: added to its maker.
+    await click(within(dialog).getByRole("button", { name: "Escolher pessoas" }));
+    await settle(2);
+    const add = within(dialog).getByRole("combobox", { name: "Adicionar pessoa ou cargo" });
+    add.focus();
+    await act(async () => {
+      fireEvent.keyDown(add, { key: "Enter" });
+      fireEvent.keyUp(add, { key: "Enter" });
+    });
+    await settle(2);
+    // I'm its maker: I'm not one to add.
+    expect(screen().queryByRole("option", { name: /Walter/ })).toBeNull();
+    await click(screen().getByRole("option", { name: /João/ }));
+    await settle(4);
+    expect(saved().at(-1)).toEqual([manual.id, { mode: "people", userIds: ["u-joao"], roleIds: [] }]);
+    expect(names()).toEqual(["Walter (você)", "João"]);
+    expect(dialog.textContent).not.toContain("abre este link");
+    // Everyone again.
+    await click(within(dialog).getByRole("button", { name: "Todos no workspace" }));
+    await settle(4);
+    expect(saved().at(-1)).toEqual([manual.id, { mode: "everyone", userIds: [], roleIds: [] }]);
+    expect(names()).toEqual(["Todos no workspace"]);
+  });
+
+  test("Copiar link of a Drive file only its maker sees opens the dialog, which says so", async () => {
+    const { api, manual } = await drive();
+    await api.artifacts.setSharing(ORG_ID, manual.id, { mode: "conversation", userIds: [], roleIds: [] });
+    cleanup();
+    await renderApp(`/org/${ORG_ID}/drive`, { api });
+    await settle(8);
+    await fromDetails("Manual do time", "Copiar link");
+    expect(copied).toEqual([]);
+    expect(shareDialog("Manual do time").textContent).toContain("Só você abre este link.");
+  });
+
+  test("someone else's Drive file: whose it is, and the sharing is its maker's (or an administrator's) to change", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    const plan = await api.artifacts.create(ORG_ID, {
+      title: "Plano de férias",
+      content: { kind: "table", columns: ["Quem", "Quando"], rows: [["João", "Julho"]] },
+    });
+    // As the server answers about João's own Drive file he shared with me (ADR 0157, amendment 2026-11-17).
+    const joaos = <T extends Artifact>(a: T): T =>
+      a.id === plan.id
+        ? {
+            ...a,
+            createdBy: { type: "person", id: "u-joao" },
+            sharing: { mode: "people", userIds: ["u-walter"], roleIds: [] },
+            canShare: false,
+          }
+        : a;
+    const list = api.artifacts.list;
+    api.artifacts.list = async (...args) => (await list(...args)).map(joaos);
+    const page = api.artifacts.page;
+    api.artifacts.page = async (...args) => {
+      const got = await page(...args);
+      return { ...got, artifacts: got.artifacts.map(joaos) };
+    };
+    const get = api.artifacts.get;
+    api.artifacts.get = async (...args) => joaos(await get(...args));
+    await renderApp(`/org/${ORG_ID}/drive`, { api });
+    await settle(8);
+    const dialog = await fromDetails("Plano de férias", "Compartilhar").then(() => shareDialog("Plano de férias"));
+    expect([...dialog.querySelectorAll(".ac-option__title")].map((n) => n.textContent)).toEqual([
+      "Só João",
+      "Pessoas e cargos que você escolher",
+      "Todos no workspace",
+    ]);
+    expect(pressed(dialog)).toEqual(["Pessoas e cargos que você escolher"]);
+    expect([...dialog.querySelectorAll(".share__name")].map((n) => n.textContent)).toEqual(["João", "Walter (você)"]);
+    expect(dialog.textContent).toContain("Só quem criou o arquivo e os administradores mudam quem vê.");
+    expect([...dialog.querySelectorAll("button.ac-option")].every((b) => b.hasAttribute("disabled"))).toBe(true);
+    expect(within(dialog).queryByRole("button", { name: /^Tirar/ })).toBeNull();
   });
 
   test("Copiar link of a file only its conversation sees opens the dialog; of an open one, copies the app's address", async () => {
@@ -186,7 +293,7 @@ describe("Compartilhar (ADR 0157)", () => {
     const report = await api.artifacts.create(ORG_ID, {
       title: "Relatório de visitas",
       channelId: GENERAL_ID,
-      content: { kind: "document", markdown: "# Visitas" },
+      content: { kind: "table", columns: ["Dia", "Visitas"], rows: [["Segunda", "3"]] },
     });
     // As the server answers someone João's DM with Atlas was shared with (ADR 0157).
     const outsider = <T extends Artifact>(a: T): T =>
@@ -251,7 +358,8 @@ describe("a file's link pasted in a message", () => {
   test("the API's address and the app's both show as the file's pill, never the raw address", async () => {
     const state = seedState();
     const api: ApiClient = createFakeApi(state);
-    const doc = (await api.artifacts.list(ORG_ID)).find((a) => a.kind === "document") as Artifact;
+    // A file the viewer opens (a document is a live file with a page of its own, ADR 0200).
+    const doc = (await api.artifacts.list(ORG_ID)).find((a) => a.kind === "table") as Artifact;
     // The server's ids are UUIDs (and only those parse as a file's link); the fake's aren't.
     const id = "00000000-0000-4000-8000-0000000000f2";
     const get = api.artifacts.get;
@@ -307,6 +415,10 @@ describe("the link rules, as the apps share them", () => {
     expect(onlyItsConversation({ ...dm, sharing: { mode: "conversation", userIds: [], roleIds: [] } })).toBe(true);
     expect(onlyItsConversation({ ...dm, sharing: { mode: "people", userIds: ["u"], roleIds: [] } })).toBe(false);
     expect(onlyItsConversation({ audience: { kind: "workspace" } })).toBe(false);
+    // A file of the Drive itself: only its maker sees it until shared (ADR 0157, amendment 2026-11-17).
+    const drive = { audience: { kind: "workspace" as const } };
+    expect(onlyItsConversation({ ...drive, sharing: { mode: "conversation", userIds: [], roleIds: [] } })).toBe(true);
+    expect(onlyItsConversation({ ...drive, sharing: { mode: "everyone", userIds: [], roleIds: [] } })).toBe(false);
     const one = toggledSharing(undefined, { kind: "user", id: "u" });
     expect(one).toEqual({ mode: "people", userIds: ["u"], roleIds: [] });
     expect(toggledSharing(toggledSharing(one, { kind: "role", id: "r" }), { kind: "user", id: "u" })).toEqual({

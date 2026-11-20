@@ -8,9 +8,10 @@ import {
   usePeople,
   useRoles,
 } from "@agenteschat/client";
+import { editsAgent, managesAgent, opensDm } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { can, leavesChannel, managesChannel } from "@agenteschat/client/lib/permissions";
+import { leavesChannel, managesChannel } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { leaves, removes } from "@agenteschat/client/lib/roles";
 import { useQueryClient } from "@tanstack/react-query";
@@ -237,9 +238,9 @@ export function useChannelMenu() {
 }
 
 /**
- * An agent (sidebar row, its face or name in a message, its card's ⋯): talk, its profile, its computer (`openComputer`,
- * where the caller knows this person may open it), mention, copy @, mark its DM read, edit (its owner and admins), its
- * link, stop while it works, its id.
+ * An agent (sidebar row, its face or name in a message, its card's ⋯): talk (where its DM opens for me, `opensDm`), its
+ * profile, its computer (`openComputer`, where the caller knows this person may open it), mention, copy @, mark its DM
+ * read, edit (who edits it), its link, stop while it works, its id.
  */
 export function useAgentMenu() {
   const { t } = useTranslation();
@@ -257,16 +258,19 @@ export function useAgentMenu() {
   const pins = useSidebarPins();
   /** `extra`: the sidebar row's own items (Mudar de grupo), after Fixar no topo. */
   return (
-    a: Pick<Agent, "id" | "name" | "handle" | "ownerUserId" | "builtin">,
+    a: Pick<Agent, "id" | "name" | "handle" | "ownerUserId" | "builtin" | "canTalk" | "canManage" | "canEdit">,
     extra: MenuEntry[] = [],
     openComputer?: () => void,
   ): MenuEntry[] => {
     const dm = dms?.find((d) => d.with.id === a.id);
-    const edits = can(org, "manage_agents") || a.ownerUserId === me.user.id;
+    // Its owner and who manages it land on its settings; who only edits how it works (its "Quem pode editar", ADR 0085
+    // addendum of 2026-11-17) on its instructions.
+    const settles = managesAgent(a) || a.ownerUserId === me.user.id;
+    const edits = settles || editsAgent(a);
     const working = Object.values(live.get().streams.runs).filter(
       (r) => r.agentId === a.id && isStoppable(r) && runs.canStop(r),
     );
-    const page = (tab?: "settings") =>
+    const page = (tab?: "settings" | "instructions") =>
       void navigate({
         to: "/org/$orgId/agents/$agentId",
         params: { orgId: org.id, agentId: a.id },
@@ -274,13 +278,20 @@ export function useAgentMenu() {
       });
     return [
       { kind: "header", label: a.name },
-      {
-        kind: "item",
-        id: "dm",
-        label: t("profile.dm"),
-        icon: "message",
-        run: () => void navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { orgId: org.id, agentId: a.id } }),
-      },
+      // Its DM only where the server opens it: someone's private agent, or one I only edit, would refuse it (ADR 0085
+      // addendum of 2026-11-17).
+      ...(opensDm(a)
+        ? ([
+            {
+              kind: "item",
+              id: "dm",
+              label: t("profile.dm"),
+              icon: "message",
+              run: () =>
+                void navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { orgId: org.id, agentId: a.id } }),
+            },
+          ] satisfies MenuEntry[])
+        : []),
       {
         kind: "item",
         id: "profile",
@@ -308,7 +319,13 @@ export function useAgentMenu() {
       { kind: "separator" },
       ...(edits
         ? ([
-            { kind: "item", id: "edit", label: t("contextMenu.editAgent"), icon: "edit", run: () => page("settings") },
+            {
+              kind: "item",
+              id: "edit",
+              label: t("contextMenu.editAgent"),
+              icon: "edit",
+              run: () => page(settles ? "settings" : "instructions"),
+            },
           ] satisfies MenuEntry[])
         : []),
       {

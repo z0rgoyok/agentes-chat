@@ -3,6 +3,7 @@ import { Icon } from "@agenteschat/ui";
 import { useTranslation } from "react-i18next";
 import { ChannelPinsButton } from "@/components/ChannelPins";
 import { QueueButton } from "@/components/ComputerQueue";
+import { ConversationMoreMenu, useConversationWallpaperMenu } from "@/components/ConversationMenu";
 import { useChannelMenu } from "@/components/entity-menus";
 import { NavToggle } from "@/components/NavDrawer";
 import { HeaderSearch } from "@/components/search/HeaderSearch";
@@ -12,7 +13,8 @@ import "./channel-header.css";
 
 /**
  * A channel's header, as Discord's: `#` and the name, the topic beside it while it fits whole, then icon buttons
- * (threads with their count, pins, the channel's settings, members) and the workspace search's icon.
+ * (threads with their count, pins, the channel's settings, members), the workspace search's icon and ⋯ (the channel's
+ * own list, as its right click, with this conversation's background).
  */
 export function ChannelHeader({
   channel,
@@ -44,13 +46,15 @@ export function ChannelHeader({
 }) {
   const { t } = useTranslation();
   const channelEntries = useChannelMenu();
+  const wallpaper = useConversationWallpaperMenu({ channelId: channel.id, dm: false, name: `#${channel.name}` });
+  const entries = () => channelEntries(channel, [wallpaper.entry]);
   const settings = t("shell.sidebarMenu.channelSettings");
   const total = people.length + agents.length;
   return (
     <header className="channel__header">
       <NavToggle />
       <div className="ac-actline channel__line">
-        <div className="channel__head-text" {...entityMenu(() => channelEntries(channel))}>
+        <div className="channel__head-text" {...entityMenu(entries)}>
           <h1 className="channel__title">
             <Icon name="channel" className="channel__title-hash" />
             <span>{channel.name}</span>
@@ -87,8 +91,10 @@ export function ChannelHeader({
             </button>
           )}
           {isMember && <HeaderSearch channelId={channel.id} onOpen={onSearch} searching={searching} />}
+          <ConversationMoreMenu build={entries} />
         </div>
       </div>
+      {wallpaper.dialog}
     </header>
   );
 }

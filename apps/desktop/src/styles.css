@@ -276,14 +276,25 @@ p {
     transform 0.35s var(--spring),
     opacity 0.2s;
   pointer-events: none;
-  max-width: calc(100vw - 24px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Long words wrap, never cut: a toast says what happened. */
+  width: max-content;
+  max-width: min(560px, calc(100vw - 24px));
+  overflow-wrap: anywhere;
 }
 .dk-toast[data-on] {
   transform: translate(-50%, 0);
   opacity: 1;
+}
+/* Its one action ("Reopen now"), pressable while it shows. */
+.dk-toast[data-action] {
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+}
+.dk-toast[data-action][data-on] {
+  pointer-events: auto;
+}
+.dk-toast__act {
+  flex: none;
 }
 
 /* ---------- Popover ---------- */
@@ -1701,6 +1712,8 @@ body[data-window="popover"] {
   gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
+  /* A long word (a system details line, a path) breaks inside its row instead of pushing past the card. */
+  overflow-wrap: anywhere;
 }
 .dk-crow__line {
   display: flex;

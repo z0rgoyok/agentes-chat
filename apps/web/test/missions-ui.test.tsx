@@ -155,7 +155,6 @@ describe("Missões", () => {
     ready: true,
     executors: ["claude", "agent"],
     defaultExecutor: "claude",
-    codexTooOld: false,
     ...extra,
   });
   const openAgents = async () => {

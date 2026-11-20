@@ -17,14 +17,19 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { teamWeekOn, teamWeekWhen } from "@agenteschat/client/lib/right-hand-prefs";
 import {
-  appliesInBulk,
+  markedAtFirst,
+  opensPlace,
   skipsAlone,
   type TeamWeekCard,
   type TeamWeekNames,
   type TeamWeekRow,
   type TeamWeekRowState,
+  teamWeekApplyLabel,
   teamWeekCardOf,
   teamWeekDoneText,
+  teamWeekGroups,
+  teamWeekGroupTitle,
+  teamWeekItemText,
   teamWeekRowMessage,
   teamWeekRowPlace,
   teamWeekRowState,
@@ -37,9 +42,20 @@ import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, LayoutAnimationConfig } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
-import { Button, LineIcon, Text, useReducedMotion } from "@/ui";
+import {
+  Button,
+  Disclosure,
+  Icon,
+  type IconName,
+  LineIcon,
+  PressScale,
+  RowAction,
+  Text,
+  TOUCH,
+  useReducedMotion,
+} from "@/ui";
 import { router } from "@/ui/navigation";
-import { useCardTop } from "../chat/look";
+import { useCardTop, useMessageCardCorners } from "../chat/look";
 import { chatHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
 import { AgentFace } from "../shared/Face";
@@ -47,12 +63,23 @@ import { useColors, useDirectory } from "../shared/hooks";
 import { openRightHandSettings } from "./SettingsScreen";
 
 const NANO = 1_000_000_000;
+/** An agent's face beside its rows. */
+const FACE = 32;
+/** The face and its gap: where a group's words start, so each of its marks starts there too. */
+const INDENT = FACE + 10;
+/** A suggestion's round mark. */
+const TICK = 22;
+/** How far a row's press reaches into the gaps around it: a finger's target, laid out at the words' height. */
+const REACH = 6;
+/** A row applied while the card shows fades into its done line (one done before it mounts just shows). */
+const DONE_IN = FadeIn.duration(160);
 
 /**
- * Lodi's weekly card (ADR 0137 §9), as on the web: the four numbers two by two, what worked, then each fix stacked
- * with its button under its words, applied as whoever taps; "Aplicar as N", "Agora não", and the day and hour,
- * changed in Configurações › Lodi. The day's card (ADR 0177 §2) is led by what waits on its reader and what is stuck,
- * each opened where it is.
+ * Lodi's weekly card (ADR 0137 §9), as on the web: the four numbers two by two, what worked, then what needs doing. A
+ * row that opens a place (approvals to decide, what waits on the reader, an agent that stopped) opens it on a tap;
+ * every other suggestion comes marked, under its agent's face, and the card's one button applies the marked ones as
+ * whoever taps. "Not now", and the day and hour, changed in Settings › Lodi. The day's card (ADR 0177 §2) is led by
+ * what waits on its reader and what is stuck.
  */
 export function TeamWeek({ message: m }: { message: Message }) {
   const card = m.author.type === "agent" ? teamWeekCardOf(m.meta) : null;
@@ -69,6 +96,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   const { orgId, org } = useOrg();
   const c = useColors();
   const cardTop = useCardTop();
+  const cardCorners = useMessageCardCorners();
   const dir = useDirectory();
   const channels = useChannels(orgId).data ?? [];
   const proposals = useCardProposals(orgId, card.proposalIds);
@@ -83,6 +111,8 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   const failed = useFailed();
   const modelLabel = useModelLabel();
   const [applying, setApplying] = useState(false);
+  // The reader's changes to the card's first marks, by row id: this card's own state, never saved.
+  const [marks, setMarks] = useState<Record<string, boolean>>({});
   const locale = i18n.language;
   const names: TeamWeekNames = {
     agent: (id) => (id ? dir.anyAgent(id)?.name : undefined) ?? t("channel.unknownAgent"),
@@ -100,14 +130,19 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
       approvals: approvals.data,
       waiting: waiting.data?.items.map((i) => i.id),
     }),
-    text: teamWeekRowText(t, locale, row, names),
   }));
+  const stateOf = new Map(rows.map((r) => [r.row.id, r.state] as const));
   const open = rows.filter((r) => r.state === "open");
-  const bulk = open.filter((r) => appliesInBulk(r.row));
+  const isMarked = (row: TeamWeekRow) => marks[row.id] ?? markedAtFirst(row);
+  // What the card's one button applies: the open suggestions still marked.
+  const marked = open.filter((r) => !opensPlace(r.row) && isMarked(r.row)).map((r) => r.row);
   // What waits or is stuck is opened, not applied: the head counts only what the card suggests.
   const suggested = open.filter((r) => !teamWeekRowPlace(r.row));
+  const places = card.rows.filter(opensPlace);
+  const groups = teamWeekGroups(card.rows);
   const dismissed = !!card.dismissedAt;
   const lodi = dir.agents.find(isRightHand);
+  const lodiName = lodi?.name ?? "Lodi";
   const apply = async (row: TeamWeekRow) => {
     const place = teamWeekRowPlace(row);
     if (place)
@@ -128,7 +163,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   const applyAll = async () => {
     setApplying(true);
     try {
-      for (const r of bulk) await apply(r.row);
+      for (const row of marked) await apply(row);
     } catch (e) {
       failed(e);
     } finally {
@@ -149,9 +184,9 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
     </View>
   );
   return (
-    // Its week ("Como foi a semana do time, de 28 out. a 3 nov.") is the message's text, above.
+    // Its week ("How the team's week went, Oct 28 to Nov 3") is the message's text, above.
     <View>
-      <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardTop]}>
+      <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners, cardTop]}>
         <View style={styles.head}>
           <Text variant="footnote" tone="muted" style={styles.semibold}>
             {t(teamWeekTitleKey(card))}
@@ -201,36 +236,75 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
             <Text variant="caption" tone="muted" style={styles.semibold}>
               {t(card.period === "day" ? "teamWeek.needsYou" : "teamWeek.improve")}
             </Text>
-            {rows.map(({ row, state, text }, i) => (
-              <Fix
-                key={row.id}
-                divider={i > 0}
-                message={message}
-                row={row}
-                state={state}
-                title={text.title}
-                line={text.line}
-                action={text.action}
-                proposal={proposals.find((p) => "proposalId" in row && p.id === row.proposalId)}
-                doneText={teamWeekDoneText(t, row, lodi?.name ?? "Lodi")}
-                busy={applying || act.isPending}
-                onApply={() => apply(row).catch(failed)}
-                onSkip={
-                  skipsAlone(row)
-                    ? () => act.mutateAsync({ messageId: message.id, act: { rowId: row.id, skip: true } }).catch(failed)
-                    : undefined
-                }
-              />
+            {places.map((row, i) => {
+              const text = teamWeekRowText(t, locale, row, names);
+              return (
+                <PlaceRow
+                  key={row.id}
+                  divider={i > 0}
+                  row={row}
+                  state={stateOf.get(row.id) ?? "open"}
+                  title={text.title}
+                  line={text.line}
+                  action={text.action}
+                  doneText={teamWeekDoneText(t, row, lodiName)}
+                  onOpen={() => void apply(row).catch(failed)}
+                />
+              );
+            })}
+            {groups.map((group, i) => (
+              // A hairline between groups, as between rows that open a place; none inside a group.
+              <View
+                key={group.agentId ?? group.rows[0]?.id}
+                style={[styles.group, places.length + i > 0 && [styles.divided, { borderTopColor: c.line2 }]]}
+              >
+                {group.agentId ? (
+                  <View style={styles.groupHead}>
+                    <AgentFace agentId={group.agentId} size={FACE} live={false} />
+                    <Text variant="subhead" style={[styles.semibold, styles.fill]}>
+                      {teamWeekGroupTitle(t, group, names)}
+                    </Text>
+                  </View>
+                ) : null}
+                {group.rows.map((row) => {
+                  const text = teamWeekItemText(t, locale, row, names);
+                  return (
+                    <MarkRow
+                      key={row.id}
+                      message={message}
+                      row={row}
+                      state={stateOf.get(row.id) ?? "open"}
+                      lead={!group.agentId}
+                      marked={isMarked(row)}
+                      title={text.title}
+                      line={text.line}
+                      proposal={proposals.find((p) => "proposalId" in row && p.id === row.proposalId)}
+                      doneText={teamWeekDoneText(t, row, lodiName)}
+                      applying={applying}
+                      busy={applying || act.isPending}
+                      onToggle={() => setMarks((m) => ({ ...m, [row.id]: !(m[row.id] ?? markedAtFirst(row)) }))}
+                      onSkip={
+                        skipsAlone(row)
+                          ? () =>
+                              act
+                                .mutateAsync({ messageId: message.id, act: { rowId: row.id, skip: true } })
+                                .catch(failed)
+                          : undefined
+                      }
+                    />
+                  );
+                })}
+              </View>
             ))}
           </View>
         ) : null}
         <View style={[styles.foot, { borderTopColor: c.line2 }]}>
-          {/* One row to apply has its own button for it: the footer's would only repeat it. */}
-          {!dismissed && bulk.length > 1 ? (
+          {/* What the marked rows do, in one tap: gone once nothing open is left marked. */}
+          {!dismissed && marked.length > 0 ? (
             <Button
               variant="primary"
               wide
-              label={t("teamWeek.applyAll", { count: bulk.length })}
+              label={teamWeekApplyLabel(t, marked)}
               loading={applying}
               onPress={() => void applyAll()}
             />
@@ -248,7 +322,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
             <Pressable
               accessibilityRole="button"
               onPress={openRightHandSettings}
-              hitSlop={8}
+              hitSlop={{ left: 8, right: 8 }}
               style={({ pressed }) => [styles.when, pressed && styles.pressed]}
             >
               <Text variant="footnote" tone="muted">
@@ -266,140 +340,267 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   );
 }
 
-function Fix({
+/** What leads a row about no agent, where a face would be: its kind's icon. */
+const kindIcon = (row: TeamWeekRow): IconName =>
+  row.kind === "unanswered" ? "help" : row.kind === "stalled" ? "issue" : "clock";
+
+/**
+ * A row that opens where it is (approvals, what waits on the reader, an agent that stopped): one tap on the whole
+ * row, a chevron at its end and no button. Once done, the check and what was done in its line's place.
+ */
+function PlaceRow({
   divider,
-  message,
   row,
   state,
   title,
   line,
   action,
-  proposal,
   doneText,
-  busy,
-  onApply,
-  onSkip,
+  onOpen,
 }: {
-  /** A hairline above it: every fix but the first. */
+  /** A hairline above it: every row but the section's first. */
   divider: boolean;
-  message: Message;
   row: TeamWeekRow;
   state: TeamWeekRowState;
   title: string;
   line: string;
+  /** Where the tap goes ("Open conversation"), read after the row's words. */
   action: string;
+  doneText: string;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const reduced = useReducedMotion();
+  const agentId = "agentId" in row ? row.agentId : null;
+  const lead = (
+    <View style={styles.lead}>
+      {agentId ? (
+        <AgentFace agentId={agentId} size={FACE} live={false} />
+      ) : (
+        // What waits on the reader in amber, as its number above.
+        <Icon name={kindIcon(row)} size={18} color={row.kind === "waiting" ? c.amber : c.muted} />
+      )}
+    </View>
+  );
+  return (
+    // The hairline stays out of the press, so it never scales with it.
+    <View style={divider ? [styles.divided, { borderTopColor: c.line2 }] : null}>
+      {state === "open" ? (
+        <PressScale
+          to={0.98}
+          fill={false}
+          accessibilityRole="button"
+          accessibilityLabel={`${title}, ${line}`}
+          accessibilityHint={action}
+          onPress={onOpen}
+          style={styles.placeReach}
+          contentStyle={styles.place}
+        >
+          {lead}
+          <View style={styles.fill}>
+            <Text variant="subhead" style={styles.semibold}>
+              {title}
+            </Text>
+            <Text variant="footnote" tone="muted">
+              {line}
+            </Text>
+          </View>
+          <Disclosure color={c.faint} />
+        </PressScale>
+      ) : (
+        <View style={[styles.placeReach, styles.place]}>
+          {lead}
+          <View style={styles.fill}>
+            <Text variant="subhead" tone="muted" style={styles.semibold}>
+              {title}
+            </Text>
+            {state === "done" ? (
+              <Animated.View entering={reduced ? undefined : DONE_IN} style={styles.line}>
+                <LineIcon name="check" size={13} color={c.ok} variant="footnote" />
+                <Text variant="footnote" tone="ok" style={[styles.semibold, styles.fill]}>
+                  {doneText}
+                </Text>
+              </Animated.View>
+            ) : (
+              <Text variant="footnote" tone="muted">
+                {t(state === "gone" ? "teamWeek.gone" : "teamWeek.skipped")}
+              </Text>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * A suggestion to mark, under its agent's face: a tap anywhere on the line marks or unmarks it. Unmarked, one that can
+ * be put away for good offers Dismiss; applied, it shows what was done, with Undo while its receipt allows.
+ */
+function MarkRow({
+  message,
+  row,
+  state,
+  lead,
+  marked,
+  title,
+  line,
+  proposal,
+  doneText,
+  applying,
+  busy,
+  onToggle,
+  onSkip,
+}: {
+  message: Message;
+  row: TeamWeekRow;
+  state: TeamWeekRowState;
+  /** A row about no agent: no face above it, its kind's icon before its mark. */
+  lead: boolean;
+  marked: boolean;
+  title: string;
+  line: string;
   proposal: Proposal | undefined;
   doneText: string;
+  /** The card's button is applying the marked rows: the marks hold still meanwhile. */
+  applying: boolean;
   busy: boolean;
-  onApply: () => Promise<void>;
-  /** "Dispensar": puts this one suggestion away for good. Absent on a row that has none. */
+  onToggle: () => void;
+  /** Dismiss: puts this one suggestion away for good. Absent on a row that has none. */
   onSkip?: () => Promise<unknown>;
 }) {
   const { t } = useTranslation();
-  const { orgId } = useOrg();
   const c = useColors();
   const reduced = useReducedMotion();
-  const qc = useQueryClient();
-  const failed = useFailed();
-  const actions = useAgentActions(orgId, message.channelId);
-  const [pending, setPending] = useState(false);
   const [skipping, setSkipping] = useState(false);
-  const agentId = "agentId" in row ? row.agentId : null;
   const receipt = proposal?.undoActionId ? message.actions?.find((a) => a.id === proposal.undoActionId) : undefined;
   const undoable =
     receipt && !receipt.undoneAt && receipt.undoableUntil && Date.parse(receipt.undoableUntil) > Date.now();
-  const done = state !== "open";
-  return (
-    // A flat row on the card, divided by a hairline (never a plate or a box in a card).
-    <View style={[styles.fix, divider && [styles.divided, { borderTopColor: c.line2 }]]}>
-      {/* The face and the title on one line, the rest under them at the row's width: a face never owns a column
-          beside lines of words. */}
-      <View style={[styles.fixTop, agentId ? styles.fixFace : null]}>
-        <View style={styles.lead}>
-          {agentId ? (
-            <AgentFace agentId={agentId} size={32} live={false} />
-          ) : (
-            <LineIcon
-              name={
-                row.kind === "unanswered" || row.kind === "waiting"
-                  ? "help"
-                  : row.kind === "stalled"
-                    ? "issue"
-                    : row.kind === "howto"
-                      ? "sparkle"
-                      : "clock"
-              }
-              size={15}
-              color={c.muted}
-              variant="small"
-            />
-          )}
-        </View>
-        <Text variant="small" tone={done ? "muted" : "ink"} style={[styles.semibold, styles.fill]}>
-          {title}
-        </Text>
-      </View>
-      <Text variant="footnote" tone="ink2">
-        {line}
-      </Text>
-      {state === "done" ? (
-        <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={styles.doneRow}>
-          <View style={[styles.line, styles.fill]}>
-            <LineIcon name="check" size={13} color={c.ok} variant="footnote" />
-            <Text variant="footnote" tone="ok" style={[styles.semibold, styles.fill]}>
-              {receipt?.undoneAt ? t("rightHand.card.undone") : doneText}
+  // The face's column, empty under a group's face: every mark starts where the group's words do.
+  const indent = (
+    <View style={styles.indent}>
+      {lead ? <LineIcon name={kindIcon(row)} size={18} color={c.muted} variant="subhead" /> : null}
+    </View>
+  );
+  if (state === "open")
+    return (
+      <View style={styles.markRow}>
+        <PressScale
+          to={0.98}
+          fill={false}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: marked, disabled: applying }}
+          accessibilityLabel={`${title}, ${line}`}
+          disabled={applying}
+          onPress={onToggle}
+          style={styles.fill}
+          contentStyle={styles.mark}
+        >
+          {indent}
+          <Tick look={marked ? "on" : "off"} />
+          <View style={styles.words}>
+            <Text variant="subhead" tone={marked ? "ink" : "muted"}>
+              {title}
+            </Text>
+            <Text variant="footnote" tone="muted">
+              {line}
             </Text>
           </View>
-          {undoable ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              label={t("teamWeek.undo")}
-              loading={actions.undo.isPending}
-              onPress={() =>
-                actions.undo.mutate(receipt.id, {
-                  onSuccess: () => void qc.invalidateQueries({ queryKey: keys.agents(orgId) }),
-                  onError: failed,
-                })
-              }
-            />
-          ) : null}
-        </Animated.View>
-      ) : state === "gone" || state === "skipped" ? (
-        <Text variant="footnote" tone="muted">
-          {t(state === "gone" ? "teamWeek.gone" : "teamWeek.skipped")}
-        </Text>
-      ) : (
-        <>
-          <Button
-            variant="secondary"
-            size="sm"
-            wide
-            label={action}
-            loading={pending}
-            disabled={busy || skipping}
-            onPress={() => {
-              setPending(true);
-              void onApply().finally(() => setPending(false));
-            }}
-          />
-          {onSkip ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              wide
+        </PressScale>
+        {/* Beside the line, not in it: its own target, and its own button for a screen reader. */}
+        {!marked && onSkip ? (
+          <View style={styles.side}>
+            <RowAction
               label={t("teamWeek.skip")}
-              loading={skipping}
-              disabled={busy || pending}
+              disabled={busy || skipping}
               onPress={() => {
                 setSkipping(true);
                 void onSkip().finally(() => setSkipping(false));
               }}
             />
-          ) : null}
-        </>
-      )}
+          </View>
+        ) : null}
+      </View>
+    );
+  return (
+    <View style={styles.markRow}>
+      <View style={[styles.fill, styles.mark]}>
+        {indent}
+        <Tick look={state === "done" ? "done" : "none"} />
+        <View style={styles.words}>
+          <Text variant="subhead" tone="muted">
+            {title}
+          </Text>
+          {state === "done" ? (
+            <Animated.View entering={reduced ? undefined : DONE_IN}>
+              <Text variant="footnote" tone="ok" style={styles.semibold}>
+                {receipt?.undoneAt ? t("rightHand.card.undone") : doneText}
+              </Text>
+            </Animated.View>
+          ) : (
+            <Text variant="footnote" tone="muted">
+              {t(state === "gone" ? "teamWeek.gone" : "teamWeek.skipped")}
+            </Text>
+          )}
+        </View>
+      </View>
+      {undoable ? (
+        <Animated.View entering={reduced ? undefined : DONE_IN} style={styles.side}>
+          <UndoAction message={message} actionId={receipt.id} />
+        </Animated.View>
+      ) : null}
     </View>
+  );
+}
+
+/**
+ * A suggestion's mark, round, on its title's first line: filled in ink with the check in the page's color when marked
+ * (as a task's criteria), a ring when not, the check in ok once applied, and nothing once it no longer applies.
+ */
+function Tick({ look }: { look: "on" | "off" | "done" | "none" }) {
+  const c = useColors();
+  const reduced = useReducedMotion();
+  return (
+    <LineIcon variant="subhead" size={TICK}>
+      {look === "done" ? (
+        <Animated.View entering={reduced ? undefined : DONE_IN} style={styles.tick}>
+          <Icon name="check" size={16} weight="bold" color={c.ok} />
+        </Animated.View>
+      ) : (
+        <View
+          style={[
+            styles.tick,
+            look === "on" && { backgroundColor: c.ink },
+            look === "off" && { borderWidth: 1.5, borderColor: c.faint },
+          ]}
+        >
+          {look === "on" ? <Icon name="check" size={13} weight="bold" color={c.bg} /> : null}
+        </View>
+      )}
+    </LineIcon>
+  );
+}
+
+/** Undo on an applied row: the receipt's own undo, then the agents read again (a setting it put back). */
+function UndoAction({ message, actionId }: { message: Message; actionId: string }) {
+  const { t } = useTranslation();
+  const { orgId } = useOrg();
+  const qc = useQueryClient();
+  const failed = useFailed();
+  const actions = useAgentActions(orgId, message.channelId);
+  return (
+    <RowAction
+      strong
+      label={t("teamWeek.undo")}
+      disabled={actions.undo.isPending}
+      onPress={() =>
+        actions.undo.mutate(actionId, {
+          onSuccess: () => void qc.invalidateQueries({ queryKey: keys.agents(orgId) }),
+          onError: failed,
+        })
+      }
+    />
   );
 }
 
@@ -423,15 +624,24 @@ const styles = StyleSheet.create({
   // An icon on the first line of the words beside it.
   line: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   fill: { flex: 1, minWidth: 0 },
-  fix: { gap: 10 },
   // 12 above the hairline (with the section's gap) and 12 under it.
   divided: { marginTop: 4, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  fixTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  // Beside a face the title centres on it. An icon keeps the title's first line.
-  fixFace: { alignItems: "center" },
-  // One column for whatever leads (a face, or an icon on the title's first line): the words start at one place.
-  lead: { width: 32, alignItems: "center" },
-  doneRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  // A face (or the kind's icon) centred on the words beside it, 2 above and below as laid out.
+  placeReach: { marginVertical: -REACH },
+  place: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 2 + REACH },
+  lead: { width: FACE, alignItems: "center" },
+  group: { gap: 12 },
+  // Beside a face the title centres on it.
+  groupHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  // Each line's press takes half the gap above and under it: the lines' targets meet, and none moves the words.
+  markRow: { flexDirection: "row", alignItems: "flex-start", marginVertical: -REACH },
+  mark: { flexDirection: "row", alignItems: "flex-start", paddingVertical: REACH, minHeight: TOUCH },
+  indent: { width: INDENT, paddingRight: INDENT - FACE, alignItems: "center" },
+  tick: { width: TICK, height: TICK, borderRadius: TICK / 2, alignItems: "center", justifyContent: "center" },
+  words: { flex: 1, minWidth: 0, gap: 2, marginLeft: 12 },
+  // 12 from the words, and the word on the card's edge: RowAction pads its word 4 each side. Its 32 share the title's
+  // middle in the line's padding.
+  side: { marginLeft: 8, marginRight: -4 },
   foot: {
     marginTop: 14,
     marginHorizontal: -14,
@@ -441,6 +651,7 @@ const styles = StyleSheet.create({
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  when: { alignSelf: "flex-start", minHeight: 28, justifyContent: "center" },
+  // A finger's 44 points tall, laid out as the line's 28: 8 above and below reach into the footer's gap and padding.
+  when: { alignSelf: "flex-start", minHeight: 44, marginVertical: -8, justifyContent: "center" },
   pressed: { opacity: 0.6 },
 });

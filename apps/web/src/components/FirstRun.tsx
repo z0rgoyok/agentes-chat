@@ -105,7 +105,8 @@ export function useFirstRun(agent: Agent | undefined) {
     context: Boolean(detail.data?.context?.trim()),
     team: team.length > 0,
     ai: !held && (aiState === "ready" || aiState === "waiting"),
-    apps: live.length > 0,
+    // A person's own connection isn't the team's apps.
+    apps: live.some((c) => !c.ownerUserId),
     people: (members.data?.length ?? 1) > 1 || waiting.length > 0,
   };
   const done = agent?.setup && steps.length > 0 ? firstRunDone(agent.setup, facts) : new Set<FirstRunStep>();

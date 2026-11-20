@@ -113,6 +113,14 @@ a.dv-row__detail {
   flex: none;
   color: var(--faint);
 }
+/* A phone is drawn 23 wide in its 48 box: its row keeps only the drawing's width, so its words sit right beside it. */
+.ac-list__row.dv-row--phone {
+  grid-template-columns: 24px minmax(0, 1fr) var(--dv-col-status) var(--dv-col-people) var(--control-h-sm);
+}
+.dv-row--phone > .dv-pic {
+  width: 24px;
+  overflow: hidden;
+}
 /* A row's name rises to the portrait's top (`.ac-captop`) only where it leads lines under it (a phone's width, a
    computer asking to join): on a wide row it centres on its status pill's line. */
 @media (width > 640px) {
@@ -142,7 +150,7 @@ a.dv-row__detail {
   left: calc(var(--space-4) + 24px);
   top: calc(-1 * var(--row-py));
   height: calc(2 * var(--row-py) + 24px);
-  width: calc(24px + var(--space-3) + var(--space-2));
+  width: calc(24px + var(--space-3) - 4px);
   border-left: 1.5px solid var(--line2);
   border-bottom: 1.5px solid var(--line2);
   border-bottom-left-radius: var(--radius-md);
@@ -161,8 +169,9 @@ a.dv-row__detail {
 }
 
 /* Phone width: the name beside the 48 portrait, its capitals at the portrait's top, and the status pill with its detail
-   under both at the row's full width (a portrait never owns a column of three lines). Kind and people live on the
-   device's page. Phones indent less, the elbow keeps its 4.5 gap to the phone. */
+   under both at the row's full width (a portrait never owns a column of three lines). A phone's narrow drawing owns
+   no wide column: its pill and detail stack under its name, beside it. Kind and people live on the device's page.
+   Phones indent less, the elbow keeps its 4.5 gap to the phone. */
 @media (width <= 640px) {
   .ac-list__row.dv-row {
     grid-template-columns: 48px minmax(0, 1fr) var(--control-h-sm);
@@ -192,9 +201,20 @@ a.dv-row__detail {
     grid-column: 3;
     grid-row: 1;
   }
+  .ac-list__row.dv-row--phone {
+    grid-template-columns: 24px minmax(0, 1fr) var(--control-h-sm);
+    row-gap: 2px;
+  }
+  .dv-row--phone > .dv-pic,
+  .dv-row--phone > .dv-row__end {
+    grid-row: 1 / span 2;
+  }
+  .dv-row--phone > .dv-row__status {
+    grid-column: 2;
+  }
   .ac-list__row.dv-row--child {
-    padding-left: calc(var(--space-4) + 36px);
-    background-size: calc(100% - var(--space-4) - 36px) 1px;
+    padding-left: calc(var(--space-4) + 48px);
+    background-size: calc(100% - var(--space-4) - 48px) 1px;
   }
   .dv-row--child::before {
     width: 20px;
@@ -202,16 +222,17 @@ a.dv-row__detail {
 }
 
 /* ---------- Status line (the device page, under its header) ---------------------------
-   The state, its reason as words, and its one action. Needs-you tints it. */
+   The state's reason as words and its one action, the pill being in the header's chips. Needs-you tints it. */
 .dv-statusline {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+.dv-statusline[data-status="needs"] {
   min-height: calc(var(--control-h-sm) + 2 * var(--action-clear));
   box-sizing: border-box;
   padding: var(--action-clear) var(--action-clear) var(--action-clear) var(--space-3);
   border-radius: var(--radius-lg);
-  box-shadow: inset 0 0 0 1px var(--line2);
 }
 .dv-statusline__text {
   flex: 1;
@@ -220,6 +241,9 @@ a.dv-row__detail {
   line-height: 20px;
   color: var(--ink);
   overflow-wrap: anywhere;
+}
+.dv-statusline:not([data-status="needs"]) > .dv-statusline__text {
+  color: var(--ink2);
 }
 .dv-statusline__text > small {
   color: var(--ink-muted);
@@ -231,9 +255,6 @@ a.dv-row__detail {
 .dv-statusline[data-status="needs"] {
   background: var(--attention-soft);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 22%, transparent);
-}
-.dv-statusline[data-status="needs"] > .dv-status {
-  background: var(--raised);
 }
 
 /* ---------- Live checklist ----------------------------------------------------------
@@ -1080,7 +1101,13 @@ html:not([data-pointer]) .dv-option--stretch:has(.dv-option__hit:focus-visible) 
 .dv-title > .ac-btn {
   margin-block: calc((24px - var(--control-h-sm)) / 2);
 }
+.dv-headacts {
+  flex: none;
+  gap: var(--space-2);
+  align-items: center;
+}
 .dv-headchips {
+  min-width: 0;
   gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
@@ -1163,6 +1190,14 @@ a.dv-chiplink:hover {
   }
   .dv-head > :last-child:not(.machine-page__title) {
     margin-inline-start: auto;
+  }
+  /* Beside the portrait, the pause button is its icon: words there would be a second line of text next to it. */
+  .dv-pausebtn {
+    width: var(--control-h-sm);
+    padding: 0;
+  }
+  .dv-pausebtn .ac-btn__label {
+    display: none;
   }
   .dv-statusline {
     flex-wrap: wrap;

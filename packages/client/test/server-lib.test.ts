@@ -13,6 +13,8 @@ import {
   parseConnectLink,
   readInstance,
   serverHost,
+  webSettingsUrl,
+  withoutTrailingSlashes,
 } from "../src/lib/server";
 
 const instance = (over: Record<string, unknown> = {}) => ({
@@ -36,6 +38,18 @@ function fakeFetch(answers: Record<string, { status: number; body?: unknown } | 
 }
 
 describe("server addresses", () => {
+  test("an address loses the slashes it ends with, read once however long a run of them inside it", () => {
+    expect(withoutTrailingSlashes("https://a.example//")).toBe("https://a.example");
+    expect(withoutTrailingSlashes("https://a.example//x")).toBe("https://a.example//x");
+    expect(withoutTrailingSlashes("///")).toBe("");
+    expect(webSettingsUrl("https://a.example/", "o 1", "devices")).toBe("https://a.example/org/o%201/settings/devices");
+    const started = performance.now();
+    const run = `https://a.example${"/".repeat(200_000)}x`;
+    expect(withoutTrailingSlashes(run)).toBe(run);
+    expect(withoutTrailingSlashes(`${run}//`)).toBe(run);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("a host or a full URL becomes the server's origin", () => {
     expect(normalizeServer("agentes.tail1234.ts.net")).toBe("https://agentes.tail1234.ts.net");
     expect(normalizeServer("  https://Chat.Example.com/login?x=1 ")).toBe("https://chat.example.com");

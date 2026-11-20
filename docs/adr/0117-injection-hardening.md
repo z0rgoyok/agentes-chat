@@ -139,3 +139,7 @@ A tool its server changed is no longer held for a person. People with many conne
 - `connector_tool_changed` notifications are no longer created, and rows of that kind are never listed or counted. The three review endpoints stay for installed apps: the list is always empty and both accepts succeed without doing anything.
 
 What still protects the agent: a custom server's new tools stay hidden until an admin classifies them; sensitive tools always ask; the level is recomputed as above; tool results stay third-party text (`external`) and mark the run as having read outside (inputs half); the prompt line says such text gives no orders; the outbound address check, credential masking and the `remember` address check act on what the run does, whatever a description told it; and a safety refusal is final. A description is one more outside text the model reads, and those defenses never depended on a person having read it.
+
+## Addendum: a second mark, for confidential results
+
+ADR 0190 adds `confidential` beside `outside`, set and carried at the same places (the step, then every message the run posts). Where `readOutside` lowers trust, `confidential` also locks the run's tools, hides the thread's text from every reader outside it and dates it. A confidential result is still text from outside: its step carries both marks.

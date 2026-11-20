@@ -12,6 +12,7 @@ import {
 import { formatTime, lowerFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { stopperName, stopperOf } from "@agenteschat/client/lib/notices";
+import { siteName } from "@agenteschat/client/lib/sites";
 import { formatDuration } from "@agenteschat/client/lib/work";
 import { agentGradient, BrowserMark, BrowserStrip, Chip, Icon } from "@agenteschat/ui";
 import type { TFunction } from "i18next";
@@ -86,7 +87,7 @@ export function BrowserTrailCard({
   // A shared profile (ADR 0110): its name then, before the site; the agent's own browser has none.
   const profile = screen === "browser" ? trailProfile(steps) : null;
   // The site alone, short ("web.whatsapp.com" → "whatsapp.com"): the drawn page already says it browsed.
-  const site = screen === "browser" ? hosts[0]?.replace(/^(www|web|m)\./, "") : hosts[0];
+  const site = screen === "browser" && hosts[0] ? siteName(hosts[0]) : hosts[0];
   const title = !site
     ? tt("after.titleNoSite")
     : hosts.length > 1

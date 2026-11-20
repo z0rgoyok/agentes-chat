@@ -2,9 +2,13 @@ name: iOS build
 
 # Builds the phone app for iPhone here, without EAS: `expo prebuild` makes the native project from app.config.ts
 # (it is never committed), xcodebuild archives it and exports it for the App Store, and the result goes to
-# TestFlight (or stays as the run's artifact). Signing is automatic: Xcode asks Apple for the certificate and the
-# profiles of the app and its share extension with the App Store Connect API key, so no certificate or profile is
-# kept anywhere. Production only: testers get builds through TestFlight.
+# TestFlight (or stays as the run's artifact). Signing is automatic: Xcode asks Apple for the profiles of the app and
+# its share extension with the App Store Connect API key. The one development certificate it signs the archive with
+# is kept as a secret and put in the runner's keychain: left to make one, Xcode made a new certificate on every
+# runner (each a fresh machine, the key gone with it) until the account ran out of them.
+# Production only: testers get builds through TestFlight. Each run on main with `release` = fix/feature/major first
+# raises the iPhone's version (apps/mobile/versions.json's ios), commits it and tags ios-v<version> on main, as the
+# desktop app's release does; the Android build raises its own. A branch builds the current version.
 # Runs only by hand (Actions → Run workflow). See apps/mobile/README.md, "iOS on GitHub Actions".
 #
 # Secrets (repository settings, never in the repo):
@@ -12,6 +16,8 @@ name: iOS build
 #   ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8: an App Store Connect API key (its id, the issuer id and the
 #     .p8 file's text) with the Admin role, which automatic signing needs
 # Variable: IOS_BUNDLE_ID, the managed app's registered iOS bundle id (for example app.tich.rooms).
+#   IOS_DEV_CERT_P12, IOS_DEV_CERT_PASSWORD: the development certificate with its private key (a .p12, base64) and
+#     its password. Without them a run still signs, making a certificate of its own (which piles up on the account).
 # Variable (optional): IOS_BUILD_NUMBER_BASE, added to the run number (above the last build in App Store Connect).
 # A secret still set to PLACEHOLDER (made so the names exist) counts as not set.
 on:
@@ -21,6 +27,15 @@ on:
         description: "Send to TestFlight"
         type: boolean
         default: true
+      release:
+        description: "fix = 0.0.x, feature = 0.x.0, major = x.0.0; none = build the current version (a branch always does)"
+        type: choice
+        options: [fix, feature, major, none]
+        default: fix
+      notes:
+        description: "Release notes (optional; default = commit subjects since the last release)"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -34,13 +49,41 @@ defaults:
     shell: bash
 
 jobs:
+  # Before any build, so a failed bump costs no build minutes. On main with `release` = fix/feature/major the version
+  # goes up (apps/mobile/versions.json's ios, the other store's untouched), committed and tagged ios-v<version>
+  # on main, as the desktop app's (desktop.yml); elsewhere, with none, or a build kept as an artifact (no upload), the build carries the current version.
+  version:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+      # main only takes pull requests; the release's deploy key is the one push the ruleset lets through.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - id: version
+        uses: ./.github/actions/mobile-version
+        with:
+          platform: ios
+          release: ${{ inputs.upload && inputs.release || 'none' }}
+          notes: ${{ inputs.notes }}
+          deploy-key-set: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
+
   build:
+    needs: version
     # CI_RUNNER_MACOS names another macOS runner. The App Store takes only builds made with a current Xcode.
     runs-on: ${{ vars.CI_RUNNER_MACOS || 'macos-26' }}
     timeout-minutes: 90
     env:
       APP_VARIANT: production
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'app.tich.rooms' }}
+      EXPO_PUBLIC_API_URL: https://rooms.tich.app
+      APP_PLATFORM: ios
     steps:
       # Fails in seconds, before anything is installed, when the key isn't there.
       - name: Apple secrets are set
@@ -56,7 +99,10 @@ jobs:
             if [ -z "$value" ] || [ "$value" = PLACEHOLDER ]; then echo "::error::Secret $name is not set"; missing=1; fi
           done
           if [ "$missing" = 1 ]; then echo "See apps/mobile/README.md, \"iOS on GitHub Actions\"."; exit 1; fi
+      # The release's commit (the raised version), or the run's own.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -93,6 +139,29 @@ jobs:
         run: |
           printf '%s\n' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
           chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+      # The kept development certificate in a keychain of the run's own: automatic signing finds it and makes none.
+      - name: Signing certificate
+        env:
+          IOS_DEV_CERT_P12: ${{ secrets.IOS_DEV_CERT_P12 }}
+          IOS_DEV_CERT_PASSWORD: ${{ secrets.IOS_DEV_CERT_PASSWORD }}
+        run: |
+          if [ -z "$IOS_DEV_CERT_P12" ] || [ "$IOS_DEV_CERT_P12" = PLACEHOLDER ]; then
+            echo "::warning::IOS_DEV_CERT_P12 is not set: Xcode makes a development certificate for this run."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$IOS_DEV_CERT_P12" | base64 --decode > "$RUNNER_TEMP/dev.p12"
+          security import "$RUNNER_TEMP/dev.p12" -k "$keychain" -P "$IOS_DEV_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/dev.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          # Searched before the login keychain; the runner's own keychains stay in the list.
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | tail -1
       - name: Archive
         working-directory: apps/mobile/ios
         env:
@@ -153,4 +222,6 @@ jobs:
           compression-level: 0
       - name: Remove the key
         if: always()
-        run: rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/ExportOptions.plist"
+        run: |
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/ExportOptions.plist" "$RUNNER_TEMP/dev.p12"
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2> /dev/null || true

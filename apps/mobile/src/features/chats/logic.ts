@@ -1,4 +1,5 @@
 import type {
+  Agent,
   AppNotification,
   Channel,
   DirectMessage,
@@ -9,16 +10,15 @@ import type {
   ThreadActor,
   ThreadInfo,
 } from "@agenteschat/client";
-import { hiddenAgentIds, hiddenDm } from "@agenteschat/client/lib/audience";
+import { hiddenAgentIds, hiddenDm, opensDm } from "@agenteschat/client/lib/audience";
 import { dmActivityAt } from "@agenteschat/client/lib/recent";
 import type { ServerCheck, ServerProblem } from "@agenteschat/client/lib/server";
 import { looksUnread, unreadTotal } from "@agenteschat/client/lib/unread";
 import { previewOf } from "../shared/logic";
 
 /**
- * Conversas: channels, direct messages, threads and missions in one list
- * (newest activity first), split by kind: the home's sections (Agentes, Canais, Pessoas), threads and
- * missions in their own tab, and what waits on you.
+ * Conversas: channels, direct messages, threads and missions in one list (newest activity first): the home's pinned
+ * strip and Recentes (DMs and channels, no grouping), threads and missions in their own tab, and what waits on you.
  */
 
 export interface LastLine {
@@ -259,7 +259,7 @@ export const unreadConversations = (rows: ConversationRow[]) => rows.filter((r) 
 
 /**
  * The badge of Conversas, straight from the two lists (no thread list needed): joined channels and DMs
- * with something unread, the rows of the home's sections. Threads and missions have their own tab and
+ * with something unread, the rows of the home's Recentes. Threads and missions have their own tab and
  * badge (`unreadThreadCount`), so nothing is counted twice.
  */
 export function unreadConversationCount(input: {
@@ -281,19 +281,23 @@ export function appBadgeCount(input: {
   return unreadTotal(input.channels, input.dms, input.hiddenAgents);
 }
 
-// ── The home by kind ───────────────────────────────────────────────────────
+// ── The home ────────────────────────────────────────────────────────────────
 
-/** The home's collapsible sections, in order. */
-export const HOME_SECTIONS = ["agents", "channels", "people"] as const;
+/**
+ * Conversas' collapsible sections, in order, remembered on the phone: Início's widgets, the pinned strip, Recentes, and
+ * the channels an administrator reads but isn't in.
+ */
+export const HOME_SECTIONS = ["widgets", "pinned", "recent", "otherChannels"] as const;
 export type HomeSection = (typeof HOME_SECTIONS)[number];
-/** The kinds of rows: the home's sections, and threads and missions (their own tab). */
-export type RowKind = HomeSection | "threads";
-/** A pushed list of one kind: a section's "Ver todos" (threads and missions are a tab). */
-export type ListKind = HomeSection;
-/** Rows a section shows before "Ver todos". */
-export const SECTION_MAX = 5;
+/** The kinds of rows: DMs with agents, channels, DMs with people, and threads and missions (their own tab). */
+export type RowKind = "agents" | "channels" | "people" | "threads";
+/** A pushed list of conversations: Recentes in full, its "See all" (threads and missions are a tab). */
+export const LIST_KINDS = ["recent"] as const;
+export type ListKind = (typeof LIST_KINDS)[number];
+/** Rows Recentes shows on the home before "See all". */
+export const RECENT_MAX = 20;
 
-export const isListKind = (v: unknown): v is ListKind => HOME_SECTIONS.includes(v as ListKind);
+export const isListKind = (v: unknown): v is ListKind => LIST_KINDS.includes(v as ListKind);
 
 /** Which list a row belongs to: agent DMs, channels, DMs with people, threads and missions. */
 export function kindOf(r: ConversationRow): RowKind {
@@ -305,98 +309,31 @@ export function kindOf(r: ConversationRow): RowKind {
 /** The rows of one kind, in the list's order (latest activity first). */
 export const rowsOfKind = (rows: ConversationRow[], kind: RowKind) => rows.filter((r) => kindOf(r) === kind);
 
-/** The home's sections that have rows: the first `max` of each, and how many there are in all. */
-export function homeSections(
-  rows: ConversationRow[],
-  max = SECTION_MAX,
-): { key: HomeSection; rows: ConversationRow[]; total: number; more: boolean }[] {
-  return HOME_SECTIONS.map((key) => {
-    const all = rowsOfKind(rows, key);
-    return { key, rows: all.slice(0, max), total: all.length, more: all.length > max };
-  }).filter((s) => s.total > 0);
-}
-
-/** A section of the home with the channel categories (ADR 0080): the fixed ones, or one per category. */
-export type HomeKey = HomeSection | `category:${string}`;
-export interface HomeBlock {
-  key: HomeKey;
-  /** A category's name (the fixed sections are translated by key). */
-  name?: string;
-  /** The category's id, for its "Ver todos" and its menu. */
-  categoryId?: string;
-  rows: ConversationRow[];
-  total: number;
-  more: boolean;
-  /** A category's unread rows: they stay in sight while it is closed, as on the web. */
-  unread: ConversationRow[];
-  /** How many of its first rows are pinned ("Fixar no topo"). */
-  pinned?: number;
-}
-
-/** A category's "Ver todos" route segment (`conversations/category-<id>`). */
-const CATEGORY_LIST_PREFIX = "category-";
-export const categoryListKind = (categoryId: string) => `category-${categoryId}` as const;
-export const categoryOfListKind = (kind: string) =>
-  kind.startsWith(CATEGORY_LIST_PREFIX) ? kind.slice(CATEGORY_LIST_PREFIX.length) || null : null;
-
-/** The row's agent, channel or person, as "Fixar no topo" names it. */
-const pinIdOf = (r: ConversationRow) => (r.kind === "dm" ? r.with.id : r.kind === "channel" ? r.channelId : null);
+/**
+ * Conversas' Recentes (pure): every DM and channel with no grouping, in the list's order (latest activity first);
+ * threads and missions are their own tab. A pinned conversation keeps its place by its activity: the strip above holds
+ * the pins, so nothing here is put first for them.
+ */
+export const recentRows = (rows: ConversationRow[]) => rows.filter((r) => kindOf(r) !== "threads");
 
 /**
- * The home with channel categories: Agentes, Canais (the channels with no category), one section per category
- * in the sidebar's order, then Pessoas; each the first `max` by latest activity, its pinned rows first (`pins`, as
- * the web sidebar: a pinned channel on top of Canais whatever its category). A channel whose category is unknown
- * counts as having none. Sections with no rows are left out.
+ * The pinned strip (pure): what the person pinned (the web sidebar's pins, `usePins`), agents first, then channels,
+ * then people, each in the pins' order. A pinned agent with no conversation yet stands as one to start (its row in
+ * `starters`); a pinned channel or person shows while their conversation is among `rows`. A pin of something no longer
+ * listed (gone, hidden from me, the right hand with its own field) holds no place.
  */
-export function homeLayout(
-  rows: ConversationRow[],
-  categories: readonly { id: string; name: string }[],
-  max = SECTION_MAX,
-  starters: ConversationRow[] = [],
-  pins: { agents: readonly string[]; channels: readonly string[]; people: readonly string[] } = {
-    agents: [],
-    channels: [],
-    people: [],
-  },
-): HomeBlock[] {
-  const known = new Set(categories.map((c) => c.id));
-  const pinnedFirst = (all: ConversationRow[], ids: readonly string[]) => {
-    const top = ids.flatMap((id) => all.filter((r) => pinIdOf(r) === id));
-    return { list: [...top, ...all.filter((r) => !top.includes(r))], pinned: top.length };
-  };
-  const categoryOf = (r: ConversationRow) =>
-    r.kind === "channel" && r.categoryId && known.has(r.categoryId) ? r.categoryId : null;
-  const block = (key: HomeKey, all: ConversationRow[], extra: Partial<HomeBlock> = {}): HomeBlock => ({
-    key,
-    rows: all.slice(0, max),
-    total: all.length,
-    more: all.length > max,
-    unread: all.filter((r) => r.unread > 0),
-    ...extra,
-  });
-  const pinned = (key: HomeKey, all: ConversationRow[], ids: readonly string[]) => {
-    const { list, pinned: count } = pinnedFirst(all, ids);
-    return block(key, list, count ? { pinned: Math.min(count, max) } : {});
-  };
-  const allChannels = rowsOfKind(rows, "channels");
-  const topChannels = pins.channels.flatMap((id) => allChannels.filter((r) => pinIdOf(r) === id));
-  const channels = allChannels.filter((r) => !topChannels.includes(r));
-  const agents = rowsOfKind(rows, "agents");
+export function pinnedRows(
+  rows: readonly ConversationRow[],
+  starters: readonly ConversationRow[],
+  pins: { agents: readonly string[]; channels: readonly string[]; people: readonly string[] },
+): ConversationRow[] {
+  const dmWith = (kind: "agents" | "people", id: string) => (r: ConversationRow) =>
+    r.kind === "dm" && kindOf(r) === kind && r.with.id === id;
   return [
-    // No conversation with an agent yet: the team's agents, to start one ("Ver todos" would list none).
-    agents.length > 0
-      ? pinned("agents", agents, pins.agents)
-      : { ...pinned("agents", starters, pins.agents), more: false },
-    pinned("channels", [...topChannels, ...channels.filter((r) => categoryOf(r) === null)], pins.channels),
-    ...categories.map((c) =>
-      block(
-        `category:${c.id}`,
-        channels.filter((r) => categoryOf(r) === c.id),
-        { name: c.name, categoryId: c.id },
-      ),
-    ),
-    pinned("people", rowsOfKind(rows, "people"), pins.people),
-  ].filter((b) => b.total > 0);
+    ...pins.agents.map((id) => rows.find(dmWith("agents", id)) ?? starters.find(dmWith("agents", id))),
+    ...pins.channels.map((id) => rows.find((r) => r.kind === "channel" && r.channelId === id)),
+    ...pins.people.map((id) => rows.find(dmWith("people", id))),
+  ].filter((r): r is ConversationRow => r !== undefined);
 }
 
 /** #general with nothing new in it: no unread message and no mention of me. */
@@ -405,22 +342,24 @@ export const isQuietGeneral = (r: ConversationRow) =>
 
 /**
  * The rows without a quiet #general when `hide` (pure): a personal workspace while its person is the only member
- * leaves it out of the home and of its channels' "See all", as the web's sidebar does (ADR 0159). Every workspace has
+ * leaves it out of the home's Recentes and of its "See all", as the web's sidebar does (ADR 0159). Every workspace has
  * one; with family in it, or something new there, it shows.
  */
 export const withoutQuietGeneral = (rows: ConversationRow[], hide: boolean) =>
   hide ? rows.filter((r) => !isQuietGeneral(r)) : rows;
 
 /**
- * The agents to start a conversation with, as rows of the home's Agentes section while there is no agent DM yet:
- * each a DM with no channel (`channelId: ""`), opened on press. Agents hidden from me are left out.
+ * The agents to start a conversation with, as rows: each a DM with no channel (`channelId: ""`), opened on press (a
+ * pinned agent never talked to, on the home's strip). Agents hidden from me are left out, and so is any whose DM the
+ * server wouldn't open for me (`opensDm`): one I only edit, or someone's private agent under a mere "Edit agents" (ADR
+ * 0085 addendum of 2026-11-17).
  */
 export function agentStarters(
-  agents: readonly { id: string; name: string; handle: string }[],
+  agents: readonly Pick<Agent, "id" | "name" | "handle" | "canTalk" | "canManage">[],
   hidden: ReadonlySet<string> = new Set(),
 ): ConversationRow[] {
   return agents
-    .filter((a) => !hidden.has(a.id))
+    .filter((a) => !hidden.has(a.id) && opensDm(a))
     .map((a) => ({
       kind: "dm" as const,
       key: `a:${a.id}`,
@@ -434,8 +373,9 @@ export function agentStarters(
 }
 
 /**
- * The right hand's own row (ADR 0137), first in Conversas' Agentes and never among its sorted rows: its DM, or one to
- * start (no channel yet); the other rows without it. No pin when there is none for this person (outside its audience).
+ * The right hand's own row (ADR 0137), its field under Conversas' greeting and never among the list's rows: its DM, or
+ * one to start (no channel yet); the other rows without it. No pin when there is none for this person (outside its
+ * audience).
  */
 export function rightHandPin(
   rows: ConversationRow[],
@@ -445,21 +385,6 @@ export function rightHandPin(
   const isIt = (r: ConversationRow) => r.kind === "dm" && r.with.type === "agent" && r.with.id === agent.id;
   return { pin: rows.find(isIt) ?? agentStarters([agent])[0] ?? null, rows: rows.filter((r) => !isIt(r)) };
 }
-
-/** The home's closed sections as remembered: any keys (categories come and go), anything unreadable: none. */
-export function parseHomeCollapsed(raw: string | null): string[] {
-  if (!raw) return [];
-  try {
-    const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((k): k is string => typeof k === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Closes or opens one of the home's sections. */
-export const toggleHomeCollapsed = (list: readonly string[], key: string) =>
-  list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
 
 /** The Threads tab: threads and missions, by latest activity. */
 export const threadRows = (rows: ConversationRow[]) => rowsOfKind(rows, "threads");

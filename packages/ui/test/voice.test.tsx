@@ -4,6 +4,7 @@ import { setupDom } from "../testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { VoicePlayer, type VoicePlayerProps } from "../src/components/VoicePlayer";
 import { peaksOf } from "../src/components/voice-recorder";
 import { drawVoiceWave, waveAt } from "../src/components/voice-wave";
@@ -16,14 +17,14 @@ afterEach(() => {
 
 /** The media elements the player makes; `fail()` is a load that went wrong (a 503, a dropped connection). */
 function fakeAudio(play: () => Promise<void> = () => Promise.resolve()) {
-  const made: { src: string; fail: () => void }[] = [];
+  const made: { src: string; fail: () => void; el: { playbackRate: number } }[] = [];
   globalThis.Audio = class {
     currentTime = 0;
     playbackRate = 1;
     onerror: (() => void) | null = null;
     onended: (() => void) | null = null;
     constructor(readonly src: string) {
-      made.push({ src, fail: () => this.onerror?.() });
+      made.push({ src, fail: () => this.onerror?.(), el: this });
     }
     play = play;
     pause() {}
@@ -88,6 +89,34 @@ describe("VoicePlayer", () => {
     player({ isGone: async () => false });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Ouvir" })));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("a speed its caller keeps: every player shows the new one, and the one playing takes it without starting over", async () => {
+    const made = fakeAudio();
+    function Two() {
+      const [speed, setSpeed] = useState(1);
+      return (
+        <>
+          <VoicePlayer src="/a" peaks={[0.2]} durationMs={12_000} labels={labels} speed={speed} onSpeed={setSpeed} />
+          <VoicePlayer src="/b" peaks={[0.2]} durationMs={12_000} labels={labels} speed={speed} onSpeed={setSpeed} />
+        </>
+      );
+    }
+    render(<Two />);
+    await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Ouvir" })[0] as HTMLElement));
+    await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Velocidade 1" })[1] as HTMLElement));
+    expect(screen.getAllByRole("button", { name: "Velocidade 1.5" }).map((b) => b.textContent)).toEqual([
+      "1.5×",
+      "1.5×",
+    ]);
+    expect(made.map((a) => [a.src, a.el.playbackRate])).toEqual([["/a", 1.5]]);
+    expect(screen.getByRole("button", { name: "Pausar" })).toBeTruthy();
+  });
+
+  test("with no speed from its caller it keeps its own", () => {
+    player();
+    fireEvent.click(screen.getByRole("button", { name: "Velocidade 1" }));
+    expect(screen.getByRole("button", { name: "Velocidade 1.5" }).textContent).toBe("1.5×");
   });
 });
 

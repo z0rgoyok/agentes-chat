@@ -7,13 +7,18 @@ export interface RateLimitResult {
 }
 
 /**
- * Throttling for our own endpoints (posting messages, WebSocket frames).
- * Sign-in has its own limiter inside Better Auth. Core: in-memory fixed
+ * Throttling for our own endpoints (posting messages, WebSocket frames, password tries).
+ * Better Auth keeps its own limiter per IP. Core: in-memory fixed
  * window, per process. Cloud: Redis.
  */
 export interface RateLimiter {
   consume(key: string, rule: { limit: number; windowMs: number }): Promise<RateLimitResult>;
+  /** Gives back one take of `key` in its current window, never below none. */
+  release(key: string): Promise<void>;
 }
+
+/** Seconds until a rate limit's window opens again, at least 1. */
+export const retryInSeconds = (resetAt: Date) => Math.max(1, Math.ceil((resetAt.getTime() - Date.now()) / 1000));
 
 export function createMemoryRateLimiter(now: () => number = Date.now): RateLimiter {
   const windows = new Map<string, { count: number; resetAt: number }>();
@@ -34,6 +39,10 @@ export function createMemoryRateLimiter(now: () => number = Date.now): RateLimit
         remaining: Math.max(0, rule.limit - w.count),
         resetAt: new Date(w.resetAt),
       };
+    },
+    async release(key) {
+      const w = windows.get(key);
+      if (w && w.resetAt > now() && w.count > 0) w.count--;
     },
   };
 }

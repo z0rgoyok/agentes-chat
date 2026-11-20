@@ -4,6 +4,7 @@ import i18next, { type TFunction } from "i18next";
 import type { UsageQueue, UsageQueueRow } from "../src/api/types";
 import { agentStatusShort, agentStatusText } from "../src/lib/presence";
 import {
+  usageQueueChain,
   usageQueueMeta,
   usageQueueResuming,
   usageQueueShared,
@@ -66,6 +67,10 @@ test("the queue's words: one title per phase, short rows, why one was skipped", 
   expect(usageQueueResuming(draining)).toBe(true);
   expect(usageQueueTitle(pt, "pt-BR", "Theo", draining, now)).toBe("Theo está retomando");
   expect(usageQueueTitle(pt, "pt-BR", "Theo", queue({ reason: null, rows: [] }), now)).toBe("Theo");
+  // Behind the ⓘ: every account of the order limited, and only then.
+  expect(usageQueueChain(pt, queue({ chain: 3 }))).toBe("As 3 contas do Claude chegaram ao limite.");
+  expect(usageQueueChain(pt, queue({ chain: null }))).toBeNull();
+  expect(usageQueueChain(pt, queue())).toBeNull();
   // Behind the ⓘ: the other agents on the plan.
   expect(usageQueueShared(pt, "Claude", ["Ada"])).toBe(
     "Ada usa o mesmo plano do Claude. As conversas dos dois entram na mesma fila.",

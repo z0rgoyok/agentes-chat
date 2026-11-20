@@ -5,7 +5,7 @@ setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { NEW_CHANNEL_EVENT } from "@/components/Sidebar";
-import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, GENERAL_ID, ORG_ID, seedDm, seedState } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, GENERAL_ID, meWithRole, ORG_ID, seedDm, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => {
@@ -97,14 +97,53 @@ describe("what a member's sidebar lists", () => {
     expect(box.value).toBe("@atlas monte um relatório sobre ");
   });
 
-  test("Criar canal offers only the agents that answer them", async () => {
-    await go(acme("member"));
-    await act(async () => window.dispatchEvent(new Event(NEW_CHANNEL_EVENT)));
-    await settle(3);
-    const dialog = screen().getByRole("dialog", { name: "Criar canal" });
-    const picker = within(dialog).getByRole("region", { name: "Buscar pessoa ou agente" });
-    expect(picker.textContent).toContain("Atlas");
-    expect(picker.textContent).not.toContain("Ada");
+  test("Create channel offers only the agents they may put there: their own, or ones they manage", async () => {
+    const picker = async (state: State) => {
+      await go(state);
+      await act(async () => window.dispatchEvent(new Event(NEW_CHANNEL_EVENT)));
+      await settle(3);
+      const dialog = screen().getByRole("dialog", { name: "Criar canal" });
+      return within(dialog).getByRole("region", { name: "Buscar pessoa ou agente" }).textContent;
+    };
+    // Atlas answers them, but only João and who manages Atlas put it in a channel (the server's
+    // `requirePlacesAgent`); an agent of their own they do.
+    expect(await picker(acme("member"))).not.toContain("Atlas");
+    cleanup();
+    const owning = acme("member");
+    const atlas = owning.agents.find((a) => a.id === ATLAS_ID);
+    if (atlas) atlas.ownerUserId = "u-walter";
+    expect(await picker(owning)).toContain("Atlas");
+    cleanup();
+    // "Edit agents" reaches the agents that answer them, never Ada, who answers only João (ADR 0085 addendum).
+    const keyHolder = acme("member");
+    meWithRole(keyHolder, ["manage_agents"]);
+    const offered = await picker(keyHolder);
+    expect(offered).toContain("Atlas");
+    expect(offered).not.toContain("Ada");
+  });
+
+  test("Edit agents showing the rest lists only the agents whose DM opens: someone's private agent stays unlisted", async () => {
+    const keyHolder = acme("member");
+    meWithRole(keyHolder, ["manage_agents"]);
+    keyHolder.sidebarView = { agentSort: "workspace", showAllAgents: true, pins: null };
+    await go(keyHolder);
+    // Ada answers only João: the key doesn't reach her (ADR 0085 addendum), and private means unlisted, so not even
+    // Team counts her.
+    expect(agentRows()).toEqual(["Atlas"]);
+    expect(sections()).not.toContain("Integrations");
+    expect(nav().querySelector(".sidebar__see-all")).toBeNull();
+    cleanup();
+    // With nobody responsible for her, the key reaches her: she shows, locked, and her row opens her DM.
+    const ownerless = acme("member");
+    meWithRole(ownerless, ["manage_agents"]);
+    ownerless.sidebarView = { agentSort: "workspace", showAllAgents: true, pins: null };
+    const ada = ownerless.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.ownerUserId = null;
+    await go(ownerless);
+    expect(agentRows()).toEqual(["Atlas", "Ada"]);
+    expect(within(nav()).getByRole("link", { name: /^Ada/ }).getAttribute("href")).toBe(
+      `/org/${ORG_ID}/dm/agent/${ADA_ID}`,
+    );
   });
 
   test("owners and admins see every category, and the agents that talk to them until they show the rest", async () => {

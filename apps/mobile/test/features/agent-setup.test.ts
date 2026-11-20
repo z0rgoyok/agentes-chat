@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { type SetupRowFacts, setupRow, setupSteps } from "@agenteschat/client/lib/setup-checklist";
 import { setupStepsInSight } from "../../src/features/agents/setup/steps";
+import { pushedByDefault } from "../main-stack";
+import { chatScreenSource } from "./chat-screen-source";
 import { agent, translator } from "./fixtures";
 
 // A new agent's setup checklist on the phone (ADR 0155 §2): the web's words and rules, its own screens.
@@ -29,30 +31,63 @@ test("its rows say what the web's say, in the agent's voice", async () => {
   expect(setupRow(en, "where", false, facts).title).toBe("Join #suporte");
 });
 
-test("who sees it on the phone: who manages agents every step, its owner theirs, the right hand none", () => {
+test("who sees it on the phone: who manages it every step, its owner theirs, the right hand none", () => {
   const leo = agent({ id: "a-leo", name: "Leo", ownerUserId: "u-owner", setup: { role: "sales", done: [] } });
   expect(setupSteps(leo, { meId: "u-admin", admin: true })).toEqual(["ai", "apps", "where", "who", "how"]);
   expect(setupSteps(leo, { meId: "u-owner", admin: false })).toEqual(["ai", "where", "who"]);
+  // How it works is its owner's while they edit it (its `canEdit`, ADR 0085 addendum of 2026-11-17); its apps never.
+  expect(setupSteps(leo, { meId: "u-owner", admin: false, edits: true })).toEqual(["ai", "where", "who", "how"]);
+  // Someone its "Who can edit" names edits it on its page: the checklist is for who sets it up.
+  expect(setupSteps(leo, { meId: "u-editor", admin: false, edits: true })).toEqual([]);
   expect(setupSteps({ ...leo, builtin: "right_hand" }, { meId: "u-admin", admin: true })).toEqual([]);
   expect(setupSteps({ ...leo, setup: null }, { meId: "u-admin", admin: true })).toEqual([]);
 });
 
 test("the DM draws the checklist on top for whoever sets it up, not the first day nor the no-AI line", () => {
-  const chat = src("chat/ChatScreen.tsx");
+  const chat = chatScreenSource();
   expect(chat).toContain("const setupIntro = useSetupSteps(dmAgent).length > 0 && !rightHand && !isThread;");
   // No no-AI line over it (nor over the plan hold's).
   expect(chat).toContain("member && !rightHand && !planHeld && !setupIntro");
   expect(chat.match(/<AgentSetupIntro agent=\{dmAgent\} channelId=\{channelId\} \/>/g)?.length).toBe(2);
-  // Its screen shows the same card while something is left.
-  expect(src("agents/AgentProfileScreen.tsx")).toContain('<AgentSetupCard agent={agent} place="profile" />');
+  // Only there: the agent's page has none (it read as a to-do list about the page's subject).
+  expect(src("agents/AgentProfileScreen.tsx")).not.toContain("AgentSetupCard");
+  const card = src("agents/setup/SetupCard.tsx");
+  expect(card).toContain("export function AgentSetupCard({ agent, channelId }: { agent: Agent; channelId: string })");
+  expect(card).not.toContain('place === "profile"');
+  expect(card).not.toContain("titleProfile");
 });
 
-test("each step but thinking is a pushed screen, registered in the stack; thinking opens Connect AI", () => {
+test("each step is one of the app's rows: pressable to its end, its verb on the row once done, never a word alone", () => {
+  const card = src("agents/setup/SetupCard.tsx");
+  const view = card.slice(card.indexOf("export function SetupCardView("), card.indexOf("export function SetupAsks("));
+  expect(view).toContain("<GroupedRow");
+  // The whole row opens the step, a chevron at its end; done, its verb ("Change") stands as the row's value.
+  expect(view).toContain(
+    "? { chevron: true, onPress: r.action.onPress, ...(r.done ? { value: r.action.label } : {}) }",
+  );
+  // The next step reads in semibold; "Not now" is the row's ×, gone while it saves.
+  expect(view).toContain("r.action?.primary && !r.done ? { labelParts: [{ text: r.title, mark: true }] } : {}");
+  expect(view).toContain("? { remove: { label: r.skip.label, onPress: r.skip.onPress } }");
+  // No button or text action on a line of its own under the words.
+  expect(view).not.toContain("<Button");
+  expect(view).not.toContain("<MediaRow");
+  expect(view).not.toContain("acts:");
+  // Hairlines start where the rows' words do; the head keeps the card's padding.
+  expect(card).toContain("const ROW_TEXT_X = GROUPED_ROW.padX + GROUPED_ROW.lead + 12;");
+  expect(card).toContain("cardTop: { paddingHorizontal: CARD_PAD, paddingTop: 14, paddingBottom: 6 },");
+  // A step just done is said aloud too: VoiceOver reads the row without its green line.
+  expect(card).toContain("AccessibilityInfo.announceForAccessibility(text);");
+  // The asks press as the kit's controls do, not with a hand-made pressed color.
+  const asks = card.slice(card.indexOf("export function SetupAsks("));
+  expect(asks).toContain("<PressScale");
+  expect(asks).not.toContain("pressed &&");
+});
+
+test("each step but thinking is a pushed screen (the stack's default); thinking opens Connect AI", () => {
   const card = src("agents/setup/SetupCard.tsx");
   expect(card).toContain('if (step === "ai") openConnectAi({ agentId: agent.id });');
   expect(card).toContain("else openSetupStep(agent.id, step);");
-  const layout = readFileSync(new URL("../../app/(app)/_layout.tsx", import.meta.url), "utf8");
-  expect(layout).toContain('<Stack.Screen name="agent-step/[id]" options={{ ...pushed, ...scrollUnder }} />');
+  expect(pushedByDefault("agent-step/[id]")).toBe(true);
   const steps = src("agents/setup/SetupStepScreen.tsx");
   // Nothing saves until its word on the bar; then the step is confirmed and the screen goes back.
   expect(steps).toContain("await confirm.mutateAsync(step);");
@@ -84,8 +119,9 @@ test("alone in a personal workspace, nothing asks who else talks to an agent (AD
   expect(setupStepsInSight(steps, { mode: "everyone" }, false)).toEqual([...steps]);
   const card = src("agents/setup/SetupCard.tsx");
   expect(card).toContain(
-    'setupStepsInSight(setupSteps(agent, { meId, admin: can(org, "manage_agents") }), audienceOf(agent), solo)',
+    "const steps = setupSteps(agent, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });",
   );
+  expect(card).toContain("return setupStepsInSight(steps, audienceOf(agent), solo);");
   expect(card).toContain("personal: isPersonal(org),");
 });
 

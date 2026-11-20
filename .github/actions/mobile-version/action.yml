@@ -1,0 +1,91 @@
+name: Mobile version
+description: >-
+  The phone app's version in one store (apps/mobile/versions.json), as the desktop release does it (desktop.yml). With
+  release = fix/feature/major on main: raised (patch/minor/major), committed and tagged <platform>-v<version> on main,
+  pushed with the checkout's deploy key. On another branch, or with none: the current version, nothing pushed.
+  Outputs the version and the commit to build. Run after a checkout with fetch-depth 0.
+inputs:
+  platform:
+    description: "ios or android"
+    required: true
+  release:
+    description: "fix, feature, major or none"
+    required: true
+  notes:
+    description: "Release notes (default: commit subjects since the store's last release)"
+    required: false
+    default: ""
+  deploy-key-set:
+    description: "Whether RELEASE_DEPLOY_KEY is set (the checkout's key): main only takes its push"
+    required: true
+outputs:
+  version:
+    description: "The version this build carries"
+    value: ${{ steps.version.outputs.version }}
+  ref:
+    description: "The commit to build: the release's, or the checkout's"
+    value: ${{ steps.version.outputs.ref }}
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+        RELEASE: ${{ inputs.release }}
+        NOTES: ${{ inputs.notes }}
+        HAS_KEY: ${{ inputs.deploy-key-set }}
+      run: |
+        FILE=apps/mobile/versions.json
+        CURRENT=$(jq -r --arg p "$PLATFORM" '.[$p] // empty' "$FILE")
+        if [ -z "$CURRENT" ]; then
+          echo "::error::No $PLATFORM version in $FILE"
+          exit 1
+        fi
+        if [ "$RELEASE" != none ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+          # A test build from a branch (TestFlight's internal testers, an APK): the version main has, nothing raised.
+          echo "::notice::Releases are cut from main; this build on $GITHUB_REF carries the current version $CURRENT"
+          RELEASE=none
+        fi
+        if [ "$RELEASE" != none ]; then
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::The RELEASE_DEPLOY_KEY secret is missing: a release pushes its version commit to main with that deploy key"
+            exit 1
+          fi
+          IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "$RELEASE" in
+            fix) PATCH=$((PATCH + 1)) ;;
+            feature) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            *) echo "::error::Unknown release $RELEASE"; exit 1 ;;
+          esac
+          NEXT="$MAJOR.$MINOR.$PATCH"
+          TAG="$PLATFORM-v$NEXT"
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "::error::Tag $TAG already exists"
+            exit 1
+          fi
+          PREV=$(git describe --tags --abbrev=0 --match "$PLATFORM-v*" 2>/dev/null || true)
+          if [ -z "$NOTES" ]; then
+            # The phone app's own changes and the packages it is built from. -n, not `| head`: with more than 40
+            # commits head closes the pipe, git log dies of it and pipefail ends the step (exit 141).
+            NOTES=$(git log -n 40 --no-merges --format='- %s' ${PREV:+"$PREV"..HEAD} -- apps/mobile packages)
+          fi
+          # Only this store's line changes: the other store's version stays where it is.
+          perl -0pi -e "s/\"$PLATFORM\": \"\Q$CURRENT\E\"/\"$PLATFORM\": \"$NEXT\"/" "$FILE"
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(mobile): $PLATFORM $NEXT"
+          # main may move while this runs (the other store's release among it): rebase onto it and retry. Commit and
+          # tag go up together (--atomic), so a rejected push never leaves a tag outside main.
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+            git tag -f -a "$TAG" -m "${NOTES:-$TAG}"
+            if git push --atomic origin HEAD:main "refs/tags/$TAG"; then break; fi
+            if [ "$attempt" = 3 ]; then echo "::error::Couldn't push the version to main"; exit 1; fi
+          done
+          echo "Released $PLATFORM $NEXT (tag $TAG)" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        echo "version=$(jq -r --arg p "$PLATFORM" '.[$p]' "$FILE")" >> "$GITHUB_OUTPUT"
+        echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

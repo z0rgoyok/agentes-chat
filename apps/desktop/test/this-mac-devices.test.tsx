@@ -199,7 +199,23 @@ describe("the iPhone setup window", () => {
 
       phone({ reason: "ui_not_authorized" });
       await at("Turn on UI Automation");
-      expect(step()?.textContent).toContain("The iPhone refused the test helper's taps. Unlock it");
+      // Each thing only the person can do on the iPhone, Check again, and the Mac's own repair.
+      expect(step()?.textContent).toContain("Agents see the iPhone's screen, but iOS refuses their taps.");
+      expect([...(step()?.querySelectorAll(".ac-setpath") ?? [])].map((p) => p.textContent)).toEqual([
+        "SettingsPrivacy & SecurityDeveloper Mode",
+        "SettingsDeveloperEnable UI Automation",
+      ]);
+      expect(step()?.textContent).toContain("Enter its passcode when it asks, and keep it unlocked.");
+      const runners = [...host.runners.values()];
+      const looked = runners.reduce((n, r) => n + r.looks, 0);
+      await act(async () => button(step() ?? undefined, "Check again")?.click());
+      await until(() => runners.reduce((n, r) => n + r.looks, 0) === looked + 1);
+      const repair = () => button(step() ?? undefined, "Repair the test helper");
+      await until(() => repair()?.disabled === false);
+      await act(async () => repair()?.click());
+      await until(() => runners.some((r) => r.repairs.length === 1));
+      const iphone = runners.flatMap((r) => r.phones).find((p) => p.platform === "ios");
+      expect(runners.flatMap((r) => r.repairs)).toEqual([iphone?.serial ?? ""]);
 
       for (const runner of host.runners.values()) runner.iphone = { ...runner.iphone, sdk: "26.2" };
       phone({ reason: "xcode_too_old", osVersion: "27.0" });

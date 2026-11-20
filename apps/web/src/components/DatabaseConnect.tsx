@@ -27,6 +27,7 @@ import {
   Button,
   CheckboxPill,
   Chip,
+  codeAndBold,
   Dialog,
   DialogBody,
   DialogFooter,
@@ -165,7 +166,7 @@ export function ReadOnlyUserHelp({
       <span className="small muted">{t("database.howText")}</span>
       <ol className="mail-howto__steps small">
         {(["1", "2", "3"] as const).map((n) => (
-          <li key={n}>{t(`database.how.${provider}.${n}`)}</li>
+          <li key={n}>{codeAndBold(t(`database.how.${provider}.${n}`))}</li>
         ))}
       </ol>
       <CommandBlock command={readOnlyRoleSql(database || "postgres", { wholeServer })} />
@@ -375,7 +376,7 @@ function ConnectStep({
               </Field>
             </div>
           </details>
-          {error && <Alert>{t(`database.error.${error}`)}</Alert>}
+          {error && <Alert>{codeAndBold(t(`database.error.${error}`))}</Alert>}
         </DialogBody>
       </Locked>
       <DialogFooter bar note={testing ?? t("connectFlow.nothingYet")}>
@@ -994,7 +995,7 @@ export function DatabaseScopeDialog({
                 }}
                 onPrefix={setPrefix}
               />
-              {error && <Alert>{t(`database.error.${error}`)}</Alert>}
+              {error && <Alert>{codeAndBold(t(`database.error.${error}`))}</Alert>}
             </DialogBody>
           </Locked>
           <DialogFooter>
@@ -1078,7 +1079,7 @@ export function DatabaseReconnectDialog({
                 onChange={(e) => setPassword(e.target.value)}
               />
             </Field>
-            {error && <Alert>{t(`database.error.${error}`)}</Alert>}
+            {error && <Alert>{codeAndBold(t(`database.error.${error}`))}</Alert>}
           </DialogBody>
         </Locked>
         <DialogFooter>

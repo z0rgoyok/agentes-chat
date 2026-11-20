@@ -1,8 +1,17 @@
 import { isWorkAreaAnswer, WORK_AREA_ANSWERS } from "@agenteschat/client/lib/work-area";
-import { operatorListOrgs, operatorOrg, operatorUser } from "@agenteschat/engine";
+import { eq, schema } from "@agenteschat/db";
+import {
+  operatorListOrgs,
+  operatorOrg,
+  operatorUser,
+  removeOrgLogo,
+  setOrgAccent,
+  setOrgLogo,
+} from "@agenteschat/engine";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiError, errorResponse } from "../http/errors";
-import { iso, json, OrgParams } from "../routes/app/context";
+import { body, iso, json, OrgParams } from "../routes/app/context";
+import { AccentColor } from "../routes/app/schemas";
 import type { OperatorDeps } from "./app";
 import { LimitsState, limitsJson, Meters } from "./limits";
 import { Standing, StandingState, standingJson, UserParams } from "./standing";
@@ -47,6 +56,13 @@ const Health = z
     ok: z.literal(true),
     version: z.string(),
     botCheck: BotCheck.openapi({ description: "The bot check before public forms (ADR 0075)." }),
+    eventLoopLag: z
+      .object({ p50Ms: z.number(), p99Ms: z.number(), maxMs: z.number(), at: z.string() })
+      .nullable()
+      .openapi({
+        description:
+          "How late this process ran what was due over its last minute, from the runtime's own sampling (also logged as `event loop lag`). Null: no minute ended yet.",
+      }),
   })
   .openapi("OperatorHealth");
 
@@ -56,7 +72,10 @@ const OrgSummary = z
     name: z.string(),
     createdAt: z.string(),
     standing: StandingState,
-    members: z.number().int(),
+    members: z
+      .number()
+      .int()
+      .openapi({ description: "The people its `members` limit counts: no outside collaborators." }),
     agents: z.number().int().openapi({ description: "Not archived." }),
   })
   .openapi("OperatorOrgSummary");
@@ -99,7 +118,10 @@ const Org = z
       )
       .openapi({ description: "Owners and admins, owners first." }),
     counts: z.object({
-      members: z.number().int(),
+      members: z
+        .number()
+        .int()
+        .openapi({ description: "The people its `members` limit counts: no outside collaborators (ADR 0191)." }),
       agents: z.number().int().openapi({ description: "Not archived." }),
       channels: z.number().int().openapi({ description: "Channels, not archived; no direct messages." }),
       machines: z.number().int().openapi({ description: "Connected computers." }),
@@ -159,7 +181,39 @@ const User = z
   })
   .openapi("OperatorUser");
 
-export function registerOperatorOrgs(api: OpenAPIHono, { db, version, humanCheck }: OperatorDeps) {
+const Look = z
+  .object({
+    accent: AccentColor.nullable()
+      .optional()
+      .openapi({ description: "Its accent color; null: the default. Left out: left as it is." }),
+    logo: z
+      .object({
+        contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+        base64: z.string().min(1).max(3_000_000).openapi({ description: "The image's bytes in base64, up to 2 MB." }),
+      })
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          "Its logo, square (the apps show it at 512×512 at most); checked by its bytes, metadata removed. Null: back to the agent mark. Left out: left as it is.",
+      }),
+  })
+  .openapi("OperatorLook");
+
+const LookState = z
+  .object({
+    accent: AccentColor.nullable(),
+    logo: z
+      .string()
+      .nullable()
+      .openapi({ description: "Where its members' apps load the logo; null: the agent mark." }),
+  })
+  .openapi("OperatorLookState");
+
+export function registerOperatorOrgs(
+  api: OpenAPIHono,
+  { db, version, humanCheck, eventLoopLag, pubsub, blobs }: OperatorDeps,
+) {
   const started = new Date();
   api.openapi(
     createRoute({
@@ -177,7 +231,15 @@ export function registerOperatorOrgs(api: OpenAPIHono, { db, version, humanCheck
         passed: 0,
         testing: false,
       };
-      return c.json({ ok: true as const, version, botCheck: { ...check, since: check.since.toISOString() } }, 200);
+      return c.json(
+        {
+          ok: true as const,
+          version,
+          botCheck: { ...check, since: check.since.toISOString() },
+          eventLoopLag: eventLoopLag?.() ?? null,
+        },
+        200,
+      );
     },
   );
 
@@ -235,6 +297,39 @@ export function registerOperatorOrgs(api: OpenAPIHono, { db, version, humanCheck
         },
         200,
       );
+    },
+  );
+
+  api.openapi(
+    createRoute({
+      method: "put",
+      path: "/orgs/{orgId}/look",
+      tags,
+      summary: "Set a workspace's logo and accent color (ADR 0193)",
+      description:
+        "What its members see in their apps, at once: a hosted service can give several workspaces one look. Recorded in the workspace's audit as done by the system, as when its admins change them in Settings, who can still change them afterwards. A logo that isn't a JPEG, PNG or WebP of up to 2 MB is refused (`logo.type`, `logo.too_large`, `logo.not_base64`, `logo.empty`) and nothing changes.",
+      request: { params: OrgParams, body: body(Look) },
+      responses: { 200: json(LookState), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      const { accent, logo } = c.req.valid("json");
+      const look = async () =>
+        (
+          await db
+            .select({ accent: schema.organizations.accent, logo: schema.organizations.logo })
+            .from(schema.organizations)
+            .where(eq(schema.organizations.id, orgId))
+        )[0];
+      if (!(await look())) return apiError(c, 404, "not_found", "No workspace with this id");
+      if (logo !== undefined) {
+        if (!blobs) throw new Error("the operator API needs the platform's blob store to set a logo");
+        if (logo) await setOrgLogo({ db, blobs, pubsub }, null, orgId, { imageBase64: logo.base64, ...logo });
+        else await removeOrgLogo({ db, blobs, pubsub }, null, orgId);
+      }
+      if (accent !== undefined) await setOrgAccent({ db, pubsub }, null, orgId, accent);
+      const after = await look();
+      return c.json({ accent: after?.accent ?? null, logo: after?.logo ?? null }, 200);
     },
   );
 

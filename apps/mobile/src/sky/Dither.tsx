@@ -1,9 +1,10 @@
-import { Canvas, Fill, Shader, Skia, type SkRuntimeEffect, useClock } from "@shopify/react-native-skia";
+import { Canvas, Fill, Shader, Skia, type SkRuntimeEffect } from "@shopify/react-native-skia";
 import { useState } from "react";
 import { type LayoutChangeEvent, type StyleProp, View, type ViewStyle } from "react-native";
 import { type SharedValue, useDerivedValue } from "react-native-reanimated";
 import { useLivePaused } from "@/agent/live";
 import { useReducedMotion } from "@/ui/theme";
+import { drawingFps, useDrawingClock } from "./clock";
 import { paletteUniform } from "./math";
 import { type DitherKind, shaderSource } from "./shaders";
 
@@ -48,9 +49,10 @@ export interface DitherProps {
 }
 
 /**
- * A pixel/dither drawing on a Skia shader. Time runs on the UI thread (Skia's clock), so it costs the JS
- * thread nothing; with reduced motion it is drawn once at t = 0. If the shader can't compile, the first
- * tone fills the box.
+ * A pixel/dither drawing on a Skia shader. Time runs on the UI thread (`useDrawingClock`), so it costs the JS
+ * thread nothing, and only while the drawing moves: a still one (paused off screen, or `animated={false}`) has no frame
+ * callback and is not drawn again. With reduced motion it is drawn once at t = 0. If the shader can't compile, the
+ * first tone fills the box.
  */
 export function Dither({
   kind,
@@ -66,7 +68,7 @@ export function Dither({
   style,
 }: DitherProps) {
   const reduced = useReducedMotion();
-  // Off screen (LivePause): drawn still, so Skia stops redrawing.
+  // Off screen (LivePause): its clock stops where it was, so Skia stops redrawing and it comes back without a jump.
   const paused = useLivePaused();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const onLayout = (e: LayoutChangeEvent) => {
@@ -75,8 +77,8 @@ export function Dither({
   };
   const effect = effectOf(kind);
   const { pal, last } = paletteUniform(tones);
-  const moving = animated && !reduced && !paused;
-  const clock = useClock();
+  const timed = animated && !reduced;
+  const clock = useDrawingClock(timed && !paused, drawingFps(kind));
   const base = {
     size: [size.width, size.height],
     px: pixel,
@@ -91,7 +93,7 @@ export function Dither({
     ...base,
     ...(liveWidth ? { size: [Math.max(1, liveWidth.value), size.height] } : {}),
     ...(liveWork ? { work: liveWork.value } : {}),
-    t: moving ? clock.value / 1000 : 0,
+    t: timed ? clock.value / 1000 : 0,
   }));
 
   if (!effect)

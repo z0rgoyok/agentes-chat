@@ -131,7 +131,7 @@ export const keptFromDeletion = (
   org: Pick<OrgStanding, "state" | "reason" | "notice"> & { deletionHoldAt: Date | null },
 ) => refusesNewWorkspace(org) || org.deletionHoldAt !== null;
 /** `keptFromDeletion` in SQL. */
-const keptOrg = sql<boolean>`(${heldOrg} or ${organizations.deletionHoldAt} is not null)`;
+export const keptOrg = sql<boolean>`(${heldOrg} or ${organizations.deletionHoldAt} is not null)`;
 /**
  * Its date passed, by the database's clock when the statement runs: after the lock it waited for, never when its
  * transaction began. Restoring reads the same clock the same way (`restorable`).
@@ -187,13 +187,15 @@ const DAY_MS = 86_400_000;
 /**
  * Emails `userId` a code that proves it's them before deleting the workspace `orgId`, or their account when it is null
  * (ADR 0088 §2), with the rules of every emailed code (`sendProofCode`). The email says what it deletes and whom to write
- * to if it wasn't them. Only where the server sends email: the routes check it.
+ * to if it wasn't them. With `reset`, before resetting the workspace instead, a code for that only. Only where the
+ * server sends email: the routes check it.
  */
 export async function sendDeletionCode(
   deps: { db: Database; rateLimiter: RateLimiter; emails: { publicUrl: string; support?: string | null } },
   userId: string,
   orgId: string | null,
   now = new Date(),
+  reset = false,
 ) {
   const org = orgId ? await getOrganization(deps.db, orgId) : null;
   if (orgId && !org) throw new NotFoundError("This workspace no longer exists");
@@ -201,7 +203,7 @@ export async function sendDeletionCode(
   return sendProofCode(
     deps,
     userId,
-    orgId ? `workspace:${orgId}` : "account",
+    proofPurpose(orgId, reset),
     {
       template: (code, account) => ({
         kind: "deletion_code",
@@ -209,6 +211,7 @@ export async function sendDeletionCode(
         code,
         email: account.email,
         ...stamp,
+        ...(reset ? { reset: true as const } : {}),
         support: deps.emails.support ?? null,
         url: deps.emails.publicUrl.replace(/\/$/, ""),
       }),
@@ -217,9 +220,12 @@ export async function sendDeletionCode(
   );
 }
 
+const proofPurpose = (orgId: string | null, reset: boolean) =>
+  orgId ? (reset ? (`reset:${orgId}` as const) : (`workspace:${orgId}` as const)) : ("account" as const);
+
 /**
- * Spends the code that proves it's `userId` before deleting the workspace `orgId` (their account when null), once
- * (`spendProofCode`): a code sent for anything else, or to anyone else, is wrong here.
+ * Spends the code that proves it's `userId` before deleting the workspace `orgId` (their account when null), or with
+ * `reset` before resetting it, once (`spendProofCode`): a code sent for anything else, or to anyone else, is wrong here.
  */
 export const spendDeletionCode = (
   deps: { db: Database },
@@ -227,7 +233,8 @@ export const spendDeletionCode = (
   orgId: string | null,
   code: string,
   now = new Date(),
-) => spendProofCode(deps, userId, orgId ? `workspace:${orgId}` : "account", code, "", now);
+  reset = false,
+) => spendProofCode(deps, userId, proofPurpose(orgId, reset), code, "", now);
 
 /** Codes that ran out a day ago, whatever they proved: their rows go (the hourly `deletions` tick). */
 export async function pruneDeletionCodes(db: Database, now = new Date()) {
@@ -352,6 +359,7 @@ export async function closeForDeletion(
  */
 export async function afterClosing(deps: DeletionDeps, closed: Closed) {
   caches.standing.delete(`${closed.orgId}:`);
+  caches.membership.deletePrefix(`${closed.orgId}:`);
   const event: OrgDeletingEvent = {
     type: "org.deleting",
     orgId: closed.orgId,
@@ -459,6 +467,7 @@ export async function restoreWorkspace(
     }
   });
   caches.standing.delete(`${orgId}:`);
+  caches.membership.deletePrefix(`${orgId}:`);
 }
 
 const nameOf = async (tx: Executor, userId: string) =>
@@ -520,7 +529,7 @@ export async function purgeWorkspace(deps: PurgeDeps, orgId: string, options: { 
   if (!org || keptFromDeletion(org)) return false;
 
   const released = await db.transaction((tx) => releaseOrgAccounts(tx, orgId));
-  await announceReleasedAccounts(deps.pubsub, released);
+  await announceReleasedAccounts(deps, released, { wakeWaits: false });
   await accountsSignedOut(db, orgId, released);
 
   const left = await revokeGrants(deps, orgId);
@@ -579,6 +588,7 @@ export async function purgeWorkspace(deps: PurgeDeps, orgId: string, options: { 
   }
   for (const install of gone.installs) forgetInstallationTokens(install.id);
   caches.standing.delete(`${orgId}:`);
+  caches.membership.deletePrefix(`${orgId}:`);
   // On a server without the operator API, the only trace it leaves.
   deps.log?.info("workspace deleted", { orgId, requestedBy: gone.requestedBy, via: gone.via });
   return true;
@@ -868,8 +878,11 @@ export interface AccountDeletionPlan {
   closes: { id: string; name: string; dueAt: Date | null }[];
   /** Others are in it: they leave it. */
   leaves: { id: string; name: string; role: MemberRole }[];
-  /** They are its only owner, others are in it, and it isn't being deleted: the account can't go yet. */
-  soleOwner: { id: string; name: string }[];
+  /**
+   * They are its only owner, others are in it, and it isn't being deleted: the account can't go yet. `onlyOutside`:
+   * those others are all outside collaborators (ADR 0191), who can't be owners, so someone else has to join first.
+   */
+  soleOwner: { id: string; name: string; onlyOutside: boolean }[];
   /** The computers they connected in the workspaces they leave (`personalMachines`): they go with the account. */
   computers: { orgId: string; id: string; name: string }[];
   /** Keys, connections and mailboxes they added to the workspaces they leave: those are the workspace's, and stay. */
@@ -899,6 +912,7 @@ export async function accountDeletionPlan(db: Executor, userId: string): Promise
       orgId: organizationMembers.orgId,
       others: sql<number>`count(*)::int`,
       owners: sql<number>`(count(*) filter (where ${organizationMembers.role} = 'owner'))::int`,
+      ordinary: sql<number>`(count(*) filter (where ${organizationMembers.outsideOf} is null))::int`,
     })
     .from(organizationMembers)
     .innerJoin(users, eq(users.id, organizationMembers.userId))
@@ -922,7 +936,7 @@ export async function accountDeletionPlan(db: Executor, userId: string): Promise
     }
     plan.leaves.push({ id: org.id, name: org.name, role: org.role });
     if (org.role === "owner" && Number(count?.owners ?? 0) === 0 && org.dueAt === null) {
-      plan.soleOwner.push({ id: org.id, name: org.name });
+      plan.soleOwner.push({ id: org.id, name: org.name, onlyOutside: Number(count?.ordinary ?? 0) === 0 });
     }
   }
   const left = plan.leaves.map((o) => o.id);
@@ -946,6 +960,8 @@ export async function accountDeletionPlan(db: Executor, userId: string): Promise
         inArray(connectorConnections.orgId, left),
         eq(connectorConnections.createdByUserId, userId),
         isNull(connectorConnections.revokedAt),
+        // Their own connections go with them.
+        isNull(connectorConnections.ownerUserId),
       ),
     );
   const databases = await db
@@ -975,13 +991,19 @@ export async function accountDeletionPlan(db: Executor, userId: string): Promise
   return plan;
 }
 
-/** `sole_owner`, with the names and ids of the workspaces that keep the account from going; null when none does. */
+/**
+ * `sole_owner`, with the names and ids of the workspaces that keep the account from going; null when none does.
+ * `onlyOutside`: in every one of them the others are outside collaborators, who can't be owners (ADR 0191).
+ */
 export function soleOwnerRefusal(plan: Pick<AccountDeletionPlan, "soleOwner">) {
   if (plan.soleOwner.length === 0) return null;
+  const onlyOutside = plan.soleOwner.every((o) => o.onlyOutside);
   return new ConflictError(
-    "You are the only owner of a workspace that has other members. Make someone else an owner, or delete the workspace, first.",
+    onlyOutside
+      ? "You are the only owner of a workspace whose other people are outside collaborators, who can't be owners. Invite a member and make them an owner, or delete the workspace, first."
+      : "You are the only owner of a workspace that has other members. Make someone else an owner, or delete the workspace, first.",
     "sole_owner",
-    { organizations: plan.soleOwner.map((o) => o.name), orgIds: plan.soleOwner.map((o) => o.id) },
+    { organizations: plan.soleOwner.map((o) => o.name), orgIds: plan.soleOwner.map((o) => o.id), onlyOutside },
   );
 }
 
@@ -1082,6 +1104,7 @@ export async function scheduleAccountDeletion(deps: DeletionDeps, userId: string
   });
   // Their open sockets lose every subscription now.
   for (const m of orgs) {
+    caches.membership.delete(`${m.orgId}:${userId}`);
     await publishOrgEvent(deps.pubsub, { type: "membership.revoked", orgId: m.orgId, userId, quiet: true });
     await announceMembers(deps.pubsub, m.orgId);
   }

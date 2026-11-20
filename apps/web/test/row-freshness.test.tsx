@@ -5,13 +5,12 @@ setupDom();
 
 import { type Message, steerStore } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, settle } from "./render";
 
 /*
  * A row draws again only when its own props change. What it shows from ANOTHER message of the conversation (the
- * routine report its reply folds in, the message a run read) still shows when that message reaches the cache after
- * the row is on screen.
+ * routine report its reply folds in) still shows when that message reaches the cache after the row is on screen.
  */
 
 afterEach(() => {
@@ -71,41 +70,5 @@ describe("a row shows another message that reaches the cache after it", () => {
     await settle(4);
     await act(async () => fireEvent.click(within(row("m-told")).getByRole("button", { name: "Ver relatório" })));
     expect(row("m-told").textContent).toContain("Relatório: 3 erros novos no checkout desde ontem.");
-  });
-
-  test("a reply whose run read a message heard only after the reply: its steps quote that message", async () => {
-    const { ev, heard } = await open();
-    const ids = { threadId: null, runId: "r-live", agentId: ADA_ID };
-    await ev({ type: "agent.run", ...ids, status: "running" });
-    await ev({ type: "agent.typing", ...ids });
-    await settle(2);
-    await ev({ type: "agent.run.steered", ...ids, messageId: "m-steer" });
-    await ev({ type: "agent.run.read", ...ids, messageIds: ["m-steer"] });
-    await heard({
-      id: "m-reply",
-      channelId: ENG_ID,
-      threadId: null,
-      author: { type: "agent", id: ADA_ID },
-      body: "O refresh também estava errado.",
-      mentionedAgentIds: [],
-      agentRunId: "r-live",
-      createdAt: new Date(Date.now() + 20_000).toISOString(),
-    });
-    await ev({ type: "agent.run", ...ids, status: "done" });
-    await settle(4);
-    const well = () => row("m-reply").querySelector(".live-work__steer")?.textContent ?? "";
-    expect(well()).not.toContain("Olha também o refresh");
-    await heard({
-      id: "m-steer",
-      channelId: ENG_ID,
-      threadId: null,
-      author: { type: "person", id: "u-walter" },
-      body: "Olha também o refresh",
-      mentionedAgentIds: [],
-      agentRunId: null,
-      createdAt: new Date(Date.now() + 10_000).toISOString(),
-    });
-    await settle(4);
-    expect(well()).toContain("Olha também o refresh");
   });
 });

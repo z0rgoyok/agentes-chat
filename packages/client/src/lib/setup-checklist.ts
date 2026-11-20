@@ -13,8 +13,11 @@ import { leadsWithPlan } from "./right-hand";
 
 export const SETUP_STEPS: readonly AgentSetupStep[] = ["ai", "apps", "where", "who", "how"];
 
-/** Only who manages agents changes its apps and how it works; its owner changes its AI, channels and audience. */
-const ADMIN_STEPS: ReadonlySet<AgentSetupStep> = new Set<AgentSetupStep>(["apps", "how"]);
+/**
+ * Only who manages the agent changes its apps (what gives it more, ADR 0085 addendum of 2026-11-17); its owner changes
+ * its AI, channels and audience, and how it works as whoever edits it.
+ */
+const ADMIN_STEPS: ReadonlySet<AgentSetupStep> = new Set<AgentSetupStep>(["apps"]);
 
 /** The ready-made role it started from, if the apps know it ("custom" is from scratch: none). */
 export const setupRole = (setup: AgentSetupChecklist | null | undefined): RoleId | null =>
@@ -23,17 +26,20 @@ export const setupRole = (setup: AgentSetupChecklist | null | undefined): RoleId
     : null;
 
 /**
- * The steps this person sees, in order: who manages agents, all of them; its owner, the ones they may change; anyone
- * else, none (the checklist is for who sets the agent up). An agent made before the checklist, or the right hand: none.
+ * The steps this person sees, in order. The checklist is for who sets the agent up, the people the server lets confirm
+ * its steps (`confirmSetupStep`): who manages it (`admin`, the agent's `canManage`), all of them; its owner, the ones
+ * they may change, how it works ("how": its instructions and role) while they edit it (`edits`, the agent's `canEdit`,
+ * ADR 0085 addendum of 2026-11-17); anyone else, none, someone its "Who can edit" names included (they edit it on its
+ * page). An agent made before the checklist, or the right hand: none.
  */
 export function setupSteps(
   agent: Pick<Agent, "setup" | "ownerUserId" | "builtin">,
-  viewer: { meId: string; admin: boolean },
+  viewer: { meId: string; admin: boolean; edits?: boolean },
 ): AgentSetupStep[] {
   if (!agent.setup || agent.builtin) return [];
   if (viewer.admin) return [...SETUP_STEPS];
   if (agent.ownerUserId !== viewer.meId) return [];
-  return SETUP_STEPS.filter((s) => !ADMIN_STEPS.has(s));
+  return SETUP_STEPS.filter((s) => !ADMIN_STEPS.has(s) && (s !== "how" || viewer.edits === true));
 }
 
 /** What the agent's data says, so a step done some other way (its page, a card) is done here too. */

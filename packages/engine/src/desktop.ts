@@ -34,10 +34,10 @@ import {
   computerDriving,
   type DriveRefusal,
   getMachine,
-  machineOnline,
   mayDriveComputer,
   publishMachineAgentsChanged,
   requireComputerDriver,
+  shownOnline,
 } from "./machines";
 import { can, requireActiveMembership } from "./organizations";
 import { isRightHand, isRightHandId } from "./right-hand";
@@ -101,7 +101,7 @@ export async function desktopTarget(
   const machine = agent.machineId ? await getMachine(db, orgId, agent.machineId) : null;
   if (!machine) return refused(STREAM_CLOSE.notFound, "no_computer");
   if (!hub.isLocal(machine.id)) {
-    return refused(STREAM_CLOSE.unreachable, machineOnline(machine) ? "other_server" : "offline");
+    return refused(STREAM_CLOSE.unreachable, shownOnline(machine) ? "other_server" : "offline");
   }
   if (machine.protocol < DESKTOP_PROTOCOL) return refused(STREAM_CLOSE.refused, "runner_outdated");
   if (!machine.access?.tools[kind]) return refused(STREAM_CLOSE.refused, "not_allowed");

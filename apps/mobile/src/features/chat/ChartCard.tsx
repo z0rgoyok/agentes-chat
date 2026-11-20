@@ -15,14 +15,25 @@ import {
   smoothPath,
 } from "@agenteschat/ui/sky/chart";
 import { Canvas, Circle, Group, Path, Skia } from "@shopify/react-native-skia";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type LayoutChangeEvent, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { type LayoutChangeEvent, Pressable, ScrollView, type ScrollViewInstance, StyleSheet, View } from "react-native";
+import Animated, { FadeIn, useDerivedValue, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon, IconButton, PressScale, Text, useReducedMotion, useTheme } from "@/ui";
+import {
+  EmptyState,
+  Icon,
+  motion,
+  PressScale,
+  SheetBar,
+  Text,
+  useReducedMotion,
+  useRouteSheetScrollable,
+  useTheme,
+} from "@/ui";
 import { router } from "@/ui/navigation";
 import { useColors } from "../shared/hooks";
+import { keepOpen, keptOpen } from "./kept-sizes";
 import type { Inline } from "./logic";
 import { Table } from "./MessageSpans";
 
@@ -33,7 +44,11 @@ const keyOf = (spec: ChartSpec) => JSON.stringify([spec.type, spec.title, spec.l
 /** The chart open in full screen (a route can't carry the data in its URL). */
 let opened: { spec: ChartSpec; accent: AgentColorName } | null = null;
 
-const EASE = Easing.out(Easing.cubic);
+/**
+ * A chart draws itself in once, the first time it shows (rare, and it explains the data: its bars grow from zero, its
+ * line runs left to right), on the strong ease-out every entrance uses.
+ */
+const EASE = motion.easeOut;
 
 /**
  * A chart in a message: clean shapes (rounded bars, a smooth
@@ -50,9 +65,11 @@ export const ChartCard = memo(function ChartCard({
 }) {
   const { t } = useTranslation();
   const c = useColors();
-  const [table, setTable] = useState(false);
+  // Its data names it (`keyOf`): it grows in only the first time it shows, and flipped to its table it comes back as
+  // the table when its row comes back into view (`keptOpen`), at the size the list kept for it.
+  const [key] = useState(() => keyOf(spec));
+  const [table, setTable] = useState(() => keptOpen(`chart-table:${key}`));
   const [still] = useState(() => {
-    const key = keyOf(spec);
     const seen = drawn.has(key);
     drawn.add(key);
     return seen;
@@ -72,7 +89,10 @@ export const ChartCard = memo(function ChartCard({
         </View>
         <PressScale
           to={0.92}
-          onPress={() => setTable((v) => !v)}
+          onPress={() => {
+            keepOpen(`chart-table:${key}`, !table);
+            setTable(!table);
+          }}
           accessibilityRole="switch"
           accessibilityState={{ checked: table }}
           // 30 tall in the card's head: the slop gives it the 44-point target, only up and down so it doesn't reach
@@ -107,30 +127,40 @@ export const ChartCard = memo(function ChartCard({
   );
 });
 
-/** The full screen chart (`/chart`, a native form sheet): the chart big, its table under it. */
+/** The full screen chart (`/chart`, a sheet): the chart big, its table under it. */
 export function ChartSheet() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  // The sheet's scroll view (dragging at its top moves the sheet).
+  const scroll = useRef<ScrollViewInstance>(null);
+  useRouteSheetScrollable(scroll);
   const chart = opened;
   if (!chart) {
     return (
-      <View style={[styles.sheet, styles.gone]}>
-        <Text variant="body" tone="muted">
-          {t("mobile.chart.gone")}
-        </Text>
+      // Opened again with nothing to show (the app started over on it): said as every empty place says it, with the
+      // sheet's bar to close it.
+      <View style={styles.sheet}>
+        <SheetBar onClose={() => router.back()} />
+        <View style={styles.gone}>
+          <EmptyState size="panel" icon="chart" title={t("mobile.chart.gone")} />
+        </View>
       </View>
     );
   }
   return (
-    <View style={styles.sheet}>
-      <View style={styles.sheetTop}>
-        <IconButton icon="x" plate label={t("mobile.common.close")} onPress={() => router.back()} />
-      </View>
+    <ScrollView
+      ref={scroll}
+      style={styles.flex}
+      // The bar (× alone) rides pinned at the top, on the sheet's color as the chart passes under it.
+      stickyHeaderIndices={[0]}
+      contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
+    >
+      <SheetBar onClose={() => router.back()} />
       {/* The title on a row of its own under the bar, the sheet's whole width: never cut beside its buttons. */}
       <Text variant="title" style={styles.sheetTitle}>
         {chart.spec.title}
       </Text>
-      <ScrollView contentContainerStyle={[styles.sheetBody, { paddingBottom: 24 + insets.bottom }]}>
+      <View style={styles.sheetBody}>
         {chart.spec.subtitle ? (
           <Text variant="footnote" tone="faint">
             {chart.spec.subtitle}
@@ -138,8 +168,8 @@ export function ChartSheet() {
         ) : null}
         <ChartView spec={chart.spec} accent={chart.accent} big />
         <ChartTable spec={chart.spec} />
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -300,7 +330,11 @@ function Bar({
   useEffect(() => {
     grown.value = reduced ? width : withTiming(width, { duration: 600, easing: EASE });
   }, [width, reduced, grown]);
-  const style = useAnimatedStyle(() => ({ width: grown.value }));
+  // The bar grows by its clip, on the canvas: the cells stay where they are drawn, and no view is laid out again
+  // while it grows (a width that changes every frame laid the row out every frame).
+  const clip = useDerivedValue(() =>
+    Skia.RRectXY(Skia.XYWHRect(0, 0, Math.max(0, grown.value), height), BAR_RADIUS, BAR_RADIUS),
+  );
   const cols = Math.max(1, Math.round(width / CHART_CELL));
   const rows = Math.max(1, Math.round(height / CHART_CELL));
   const ramp = useMemo(() => chartRamp(accent), [accent]);
@@ -308,13 +342,13 @@ function Bar({
   const tone = useMemo(() => (v: number) => ramp[v], [ramp]);
   return (
     <View style={[StyleSheet.absoluteFill, styles.railTrack, { backgroundColor: c.plate }]}>
-      <Animated.View style={[styles.fill, style]}>
-        {width > 0 ? (
-          <Canvas style={{ width, height }}>
+      {width > 0 ? (
+        <Canvas style={{ width, height }}>
+          <Group clip={clip}>
             <Cells paths={paths} tone={tone} />
-          </Canvas>
-        ) : null}
-      </Animated.View>
+          </Group>
+        </Canvas>
+      ) : null}
     </View>
   );
 }
@@ -477,6 +511,8 @@ function Pie({ spec, accent, big }: { spec: ChartSpec; accent: AgentColorName; b
               // biome-ignore lint/suspicious/noArrayIndexKey: the slices, in order
               key={i}
               onPress={() => setPicked((p) => (p === i ? null : i))}
+              accessibilityRole="button"
+              accessibilityLabel={`${label}: ${formatChartValue(values[i] ?? 0, spec.unit, i18n.language)}`}
               style={({ pressed }) => [
                 styles.legendRow,
                 picked !== null && picked !== i ? styles.dim : null,
@@ -542,6 +578,9 @@ function BigNumber({
   );
 }
 
+/** A bar's rounded ends, its track's and its fill's. */
+const BAR_RADIUS = 6;
+
 const styles = StyleSheet.create({
   card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   top: { flexDirection: "row", alignItems: "flex-start", gap: 4, paddingLeft: 14, paddingRight: 4, paddingTop: 10 },
@@ -556,8 +595,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.6 },
   barLabel: { width: "34%" },
   rail: { flex: 1 },
-  railTrack: { borderRadius: 6, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 6, overflow: "hidden" },
+  railTrack: { borderRadius: BAR_RADIUS, overflow: "hidden" },
   barValue: { minWidth: 44, textAlign: "right", fontWeight: "600", fontVariant: ["tabular-nums"] },
   xLabels: { flexDirection: "row", justifyContent: "space-between", paddingTop: 6, paddingHorizontal: 2 },
   picked: { paddingTop: 8, fontVariant: ["tabular-nums"] },
@@ -570,9 +608,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   number: { flexDirection: "row", alignItems: "flex-end", gap: 14 },
   numValue: { fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
-  sheet: { flex: 1, paddingTop: 14 },
-  gone: { alignItems: "center", justifyContent: "center", padding: 24 },
-  sheetTop: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
-  sheetTitle: { paddingHorizontal: 16, paddingTop: 8 },
+  sheet: { flex: 1 },
+  gone: { flex: 1, justifyContent: "center", padding: 24 },
+  sheetTitle: { paddingHorizontal: 16 },
   sheetBody: { paddingHorizontal: 16, paddingTop: 14, gap: 20 },
 });

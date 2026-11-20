@@ -22,6 +22,7 @@ import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Locked, Text, us
 import { Note } from "../ai/parts";
 import { RowBones } from "../roles/parts";
 import { Gap, SettingsPage } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { copyText, errorHaptic, goBack, successHaptic } from "../shared/parts";
 import { EMPTY_INVITE, useDraftStart, useInviteDraft } from "./draft";
 import { openPick, useStartFields } from "./InviteFields";
@@ -150,8 +151,11 @@ export function EditLinkScreen() {
               <RowBones name={56} />
             </GroupedList>
           </>
+        ) : links.isError ? (
+          // Not loaded is not gone: what happened, and the way to ask again.
+          <LoadFailed onRetry={() => void links.refetch()} />
         ) : (
-          <GroupedFooter>{links.isError ? errorText(t, links.error, i18n.language) : t("common.gone")}</GroupedFooter>
+          <GroupedFooter>{t("common.gone")}</GroupedFooter>
         )}
       </SettingsPage>
     );
@@ -173,7 +177,8 @@ export function EditLinkScreen() {
               label={copied ? t("common.copied") : t("members.copyLink")}
               onPress={() =>
                 void copyText(url).then((ok) => {
-                  if (!ok) return;
+                  // A copy the system refused says so, never a row that did nothing.
+                  if (!ok) return toast({ title: t("mobile.app.failed"), icon: "x" });
                   successHaptic();
                   setCopied(true);
                 })
@@ -281,10 +286,11 @@ export function EditInvitationScreen() {
               <RowBones name={56} />
             </GroupedList>
           </>
+        ) : invitations.isError ? (
+          // Not loaded is not gone: what happened, and the way to ask again.
+          <LoadFailed onRetry={() => void invitations.refetch()} />
         ) : (
-          <GroupedFooter>
-            {invitations.isError ? errorText(t, invitations.error, i18n.language) : t("common.gone")}
-          </GroupedFooter>
+          <GroupedFooter>{t("common.gone")}</GroupedFooter>
         )}
       </SettingsPage>
     );

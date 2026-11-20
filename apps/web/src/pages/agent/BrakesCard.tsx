@@ -1,5 +1,5 @@
 import { type AgentBrakes, BRAKES_DEFAULTS, useAgents, useUpdateAgent } from "@agenteschat/client";
-import { can } from "@agenteschat/client/lib/permissions";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { Button, Card, CheckboxPill, Input, Segmented, Select, SettingNote, SettingRow, Switch } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,7 @@ const PRS = ["0", "1", "2", "3", "5", "10"];
 /**
  * Configurações → Autonomia sem pedido (ADR 0131): what the agent may start that nobody asked for directly (costly
  * work asks first, how many jobs at once, PRs an hour) and which agents it may call. Saved at once, outside the page's
- * save bar, by who manages agents; everyone else reads it. The defaults keep today's autonomy for normal use.
+ * save bar, by who manages the agent (`managesAgent`); everyone else reads it. The defaults keep today's autonomy for normal use.
  */
 export function BrakesCard() {
   const { t } = useTranslation();
@@ -22,7 +22,7 @@ export function BrakesCard() {
   const update = useUpdateAgent(org.id, agent.id);
   const agents = useAgents(org.id);
   const toast = useToast();
-  const editable = can(org, "manage_agents");
+  const editable = managesAgent(agent);
   const saved: AgentBrakes = agent.brakes ?? BRAKES_DEFAULTS;
   const pending = update.isPending ? (update.variables?.brakes ?? {}) : {};
   const b = { ...saved, ...pending };

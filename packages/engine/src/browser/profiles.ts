@@ -1,5 +1,6 @@
 import { ACCESS_ALLOW_PROTOCOL, type AgentScope, BROWSER_PROFILE_PROTOCOL, type PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, inArray, isNull, notInArray, schema, sql } from "@agenteschat/db";
+import { managesAgent, REACH_COLUMNS } from "../audience";
 import { recordAudit } from "../audit";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { type MachineCaller, MachineRequestError } from "../machine-hub";
@@ -165,8 +166,8 @@ async function requireFreeName(db: Executor, orgId: string, name: string, except
 }
 
 /**
- * The agents of the workspace this person may give or take a profile from: everyone's with `manage_agents`, else
- * only the agents they own. Unknown ids are refused.
+ * The agents of the workspace this person may give or take a profile from: the ones they manage (`managesAgent`, ADR
+ * 0085 addendum of 2026-11-17) and the ones they own. Unknown ids are refused.
  */
 async function requireEditableAgents(
   db: Executor,
@@ -177,12 +178,11 @@ async function requireEditableAgents(
 ) {
   if (agentIds.length === 0) return;
   const rows = await db
-    .select({ id: agents.id, ownerUserId: agents.ownerUserId })
+    .select({ id: agents.id, ...REACH_COLUMNS })
     .from(agents)
     .where(and(eq(agents.orgId, orgId), inArray(agents.id, agentIds)));
   if (rows.length !== new Set(agentIds).size) throw new ValidationError("Unknown agent");
-  if (can(membership, "manage_agents")) return;
-  if (rows.some((a) => a.ownerUserId !== actorId)) {
+  if (rows.some((a) => a.ownerUserId !== actorId && !managesAgent(a, actorId, membership))) {
     throw new ForbiddenError("You can give profiles only to agents you may edit");
   }
 }
@@ -415,8 +415,8 @@ export async function deleteBrowserProfile(deps: ProfileDeps, actorId: string, o
 }
 
 /**
- * An agent's default browser: a profile it is granted, or null for its own. Whoever may edit the agent
- * (`manage_agents` or its owner).
+ * An agent's default browser: a profile it is granted, or null for its own. Who manages the agent (`managesAgent`, ADR
+ * 0085 addendum of 2026-11-17) or its owner.
  */
 export async function setAgentBrowserProfile(
   db: Database,
@@ -427,11 +427,11 @@ export async function setAgentBrowserProfile(
 ) {
   const membership = await requireActiveMembership(db, actorId, orgId);
   const [agent] = await db
-    .select({ ownerUserId: agents.ownerUserId, browserProfileId: agents.browserProfileId })
+    .select({ browserProfileId: agents.browserProfileId, ...REACH_COLUMNS })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!can(membership, "manage_agents") && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
     throw new ForbiddenError("Only an admin or the agent's owner can choose its browser");
   }
   let name: string | null = null;
@@ -498,13 +498,13 @@ export async function requestBrowserProfile(deps: NotificationDeps, actorId: str
     .select({
       name: agents.name,
       handle: agents.handle,
-      ownerUserId: agents.ownerUserId,
       machineId: sql<string | null>`coalesce(${agents.browserMachineId}, ${agents.machineId})`,
+      ...REACH_COLUMNS,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!can(membership, "manage_agents") && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
     throw new ForbiddenError("Only an admin or the agent's owner can ask for a profile");
   }
   if (agent.machineId) await requireSingleMode(deps.db, orgId, agent.machineId);

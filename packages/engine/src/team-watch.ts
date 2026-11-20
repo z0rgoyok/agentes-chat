@@ -5,6 +5,7 @@ import type { AppLocale } from "@agenteschat/i18n/locale";
 import type { Agent } from "./agents";
 import { backgroundAiState } from "./ai-status";
 import { postApprovalsDigest } from "./approvals-digest";
+import { managesAgentSql } from "./audience";
 import type { JobDeps } from "./jobs";
 import {
   inboxVisible,
@@ -356,6 +357,12 @@ interface Problem {
   to: string | null;
   needs?: RolePermission;
   orElse?: RolePermission;
+  /**
+   * The agent `id`'s own problem: with nobody it is theirs to fix, the first person who manages that agent
+   * (`managesAgent`, ADR 0085 addendum of 2026-11-17) instead of `orElse`, so a private agent's news never reaches
+   * who merely holds "Editar qualquer agente".
+   */
+  orElseManager?: true;
   /** Another kind's notice that says the same of this very thing (`saidElsewhere`). */
   elsewhere?: SQL;
 }
@@ -436,6 +443,7 @@ async function problemsOf(db: Database, orgId: string, now: Date): Promise<Probl
       id: connectorConnections.id,
       name: connectorConnections.label,
       by: connectorConnections.createdByUserId,
+      owner: connectorConnections.ownerUserId,
       since: connectorConnections.updatedAt,
     })
     .from(connectorConnections)
@@ -446,15 +454,16 @@ async function problemsOf(db: Database, orgId: string, now: Date): Promise<Probl
         isNull(connectorConnections.revokedAt),
       ),
     );
-  for (const c of connectors)
+  for (const { owner, ...c } of connectors)
     out.push({
       cause: "connector",
       ...c,
       episode: at(c.since),
       ripe: c.since < stale && recent(c.since),
-      to: c.by,
-      needs: "manage_connectors",
-      orElse: "manage_connectors",
+      // A person's own connection is theirs alone to reconnect: nobody else hears of it, as a mailbox.
+      ...(owner
+        ? { to: owner }
+        : { to: c.by, needs: "manage_connectors" as const, orElse: "manage_connectors" as const }),
     });
 
   // A mailbox is its owner's alone: nobody else hears of it, not even its address.
@@ -539,7 +548,7 @@ async function problemsOf(db: Database, orgId: string, now: Date): Promise<Probl
       ripe: true,
       to: a.owner,
       needs: "manage_agents",
-      orElse: "manage_agents",
+      orElseManager: true,
       ...(usedUp ? { elsewhere: saidElsewhere.budget(a.id) } : {}),
     });
   }
@@ -619,6 +628,19 @@ async function tellProblems(deps: NotificationDeps, orgId: string, lodi: Agent, 
     }
     return firsts.get(permission) ?? null;
   };
+  const firstManagers = new Map<string, string | null>();
+  const firstManagerOf = async (agentId: string) => {
+    if (!firstManagers.has(agentId)) {
+      const [row] = rowsOf<{ user_id: string }>(
+        await db.execute(sql`select m.user_id from organization_members m
+          join agents a on a.org_id = m.org_id and a.id = ${agentId}
+          where m.org_id = ${orgId} and ${managesAgentSql("a", sql`m.user_id`)}
+          order by (m.role = 'owner') desc, m.created_at asc limit 1`),
+      );
+      firstManagers.set(agentId, row?.user_id ?? null);
+    }
+    return firstManagers.get(agentId) ?? null;
+  };
   const markTold = async (userId: string, list: Problem[]) => {
     for (const p of list) await saidOnce(db, orgId, toldKey(userId, p));
   };
@@ -628,7 +650,14 @@ async function tellProblems(deps: NotificationDeps, orgId: string, lodi: Agent, 
   const groups = new Map<string, { userId: string; cause: TeamWatchCause; problems: Problem[] }>();
   for (const p of problems) {
     const own = p.to ? await memberOf(p.to) : null;
-    const userId = own && (!p.needs || can(own, p.needs)) ? p.to : p.orElse ? await firstWhoMay(p.orElse) : null;
+    const userId =
+      own && (!p.needs || can(own, p.needs))
+        ? p.to
+        : p.orElseManager
+          ? await firstManagerOf(p.id)
+          : p.orElse
+            ? await firstWhoMay(p.orElse)
+            : null;
     if (!userId) continue;
     if (p.elsewhere) {
       const [other] = await db

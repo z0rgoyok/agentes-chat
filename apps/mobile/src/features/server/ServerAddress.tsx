@@ -2,6 +2,7 @@ import { checkServer, normalizeServer, serverHost } from "@agenteschat/client/li
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API_URL } from "@/config";
+import { Quiet } from "@/features/auth/AuthFlow";
 import { connectToServer, problemText } from "@/features/server";
 import { ALLOW_HTTP, serverUrl } from "@/lib/server";
 import { AuthField } from "@/ui/auth/AuthField";
@@ -15,12 +16,22 @@ import { Text } from "@/ui/Text";
 import { useToast } from "@/ui/Toast";
 
 /**
- * "Onde fica o seu agentes.chat?": the team's own server (self-hosted, usually on Tailscale), by address with the
- * URL keyboard open and its return key as the action, or by the QR code the web app shows. The server is checked
- * before anything changes. `onDone` leaves it (back on the sign-in, or closing the sheet it was opened in); `scan`
- * off where the camera's screen can't be pushed (over the waiting splash).
+ * "Onde fica o seu agentes.chat?": the team's own server (self-hosted, usually on Tailscale), by address (the URL
+ * keyboard once the field is tapped, never on its own as the screen opens, its return key as the action), or by the
+ * QR code the web app shows. The server is checked before anything changes. `onDone` leaves it once the server changed
+ * (back to the sign-in under it, or closing the window it was opened in). Pushed, the system's back leaves it; opened
+ * over the waiting splash, where nothing can be pushed, it is a window of its own: no camera (`scan` off), and Cancel
+ * closes it (`onCancel`).
  */
-export function ServerAddress({ onDone, scan = true }: { onDone: () => void; scan?: boolean }) {
+export function ServerAddress({
+  onDone,
+  onCancel,
+  scan = true,
+}: {
+  onDone: () => void;
+  onCancel?: () => void;
+  scan?: boolean;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const custom = serverUrl() !== API_URL;
@@ -53,7 +64,6 @@ export function ServerAddress({ onDone, scan = true }: { onDone: () => void; sca
     <AuthScaffold
       title={t("mobile.auth.server.title")}
       subtitle={t("mobile.auth.server.subtitle")}
-      onBack={() => onDone()}
       agentMode={busy ? "run" : "idle"}
       footer={
         custom && !busy ? (
@@ -81,7 +91,6 @@ export function ServerAddress({ onDone, scan = true }: { onDone: () => void; sca
           enablesReturnKeyAutomatically
           onSubmitEditing={() => void submit()}
           accessibilityLabel={t("mobile.auth.server.label")}
-          autoFocus
         />
       </Locked>
       {error ? (
@@ -106,6 +115,7 @@ export function ServerAddress({ onDone, scan = true }: { onDone: () => void; sca
           onPress={() => router.push("/scan")}
         />
       ) : null}
+      {onCancel && !busy ? <Quiet label={t("mobile.common.cancel")} onPress={onCancel} /> : null}
     </AuthScaffold>
   );
 }

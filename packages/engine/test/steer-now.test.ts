@@ -36,11 +36,18 @@ const ask = (body: string, extra: { threadId?: string; steer?: "now" } = {}) =>
 const runs = () => f.db.select().from(schema.agentRuns);
 const runById = async (id: string) => (await runs()).find((r) => r.id === id);
 
-/** Only a plain "para" is a stop. */
+/** Only a plain "para" is a stop; the triage reads anything else at the next pause. */
 const judge: Judge = {
   name: "fake",
   ask: async (request): Promise<Record<string, JudgeAnswer>> =>
-    request.kind === "stop_request" ? { stop: { noul: request.state.message === "para" ? 0.95 : 0.05 } } : {},
+    request.kind === "steer_triage"
+      ? {
+          handling:
+            request.state.message === "para"
+              ? { choice: "stop", probabilities: { stop: 0.95 } }
+              : { choice: "add", probabilities: { add: 0.95 } },
+        }
+      : {},
 };
 
 /** Runs `fn` once, the first time an event of `type` reaches the channel. */
@@ -272,7 +279,7 @@ describe("the stop judge never holds the send", () => {
       name: "slow",
       async ask(request): Promise<Record<string, JudgeAnswer>> {
         await gate;
-        return request.kind === "stop_request" ? { stop: { noul: 0.95 } } : {};
+        return request.kind === "steer_triage" ? { handling: { choice: "stop", probabilities: { stop: 0.95 } } } : {};
       },
     };
     f = await setup();

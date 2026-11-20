@@ -127,15 +127,29 @@ describe("Velocidade (ADR 0149)", () => {
     expect(viewSpeedFits(view({ scope: "mine" }))).toBe(false);
   });
 
+  test("the advanced settings hold no API switch: nothing says it waits for the computer", () => {
+    expect(ADVANCED_DEFAULTS).not.toHaveProperty("fallback");
+    expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, now: ADVANCED_DEFAULTS })).toEqual([]);
+    expect(isAdvancedDefault("claude_code", ADVANCED_DEFAULTS)).toBe(true);
+  });
+
+  test("Só esta conta counts as a change from the defaults, and Voltar ao padrão turns it off", () => {
+    const pinned = { ...ADVANCED_DEFAULTS, accountPinned: true };
+    expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, now: pinned })).toEqual([
+      "agentPage.work.brain.pinned",
+    ]);
+    expect(isAdvancedDefault("claude_code", pinned)).toBe(false);
+    expect(advancedDefaults("claude_code", pinned)).toEqual({ ...ADVANCED_DEFAULTS, accountPinned: false });
+    expect(isAdvancedDefault("claude_code", { ...ADVANCED_DEFAULTS, accountPinned: false })).toBe(true);
+  });
+
   test("Rápida counts as a change from the defaults and is named wherever they are", () => {
     const now = { ...ADVANCED_DEFAULTS, speed: "fast" as const };
     expect(isAdvancedDefault("codex", now)).toBe(false);
-    expect(advancedParts(t, "pt-BR", { kind: "codex", autoModel: false, apiKey: false, now })).toEqual([
+    expect(advancedParts(t, "pt-BR", { kind: "codex", autoModel: false, now })).toEqual([
       "agentPage.work.brain.advanced.speed",
     ]);
-    expect(
-      advancedParts(t, "pt-BR", { kind: "codex", autoModel: false, apiKey: false, now: ADVANCED_DEFAULTS }),
-    ).toEqual([]);
+    expect(advancedParts(t, "pt-BR", { kind: "codex", autoModel: false, now: ADVANCED_DEFAULTS })).toEqual([]);
     expect(advancedContents(t, { kind: "codex", autoModel: false, speed: true })).toBe(
       "agentPage.work.brain.advanced.contents.fixedSpeed",
     );
@@ -155,19 +169,19 @@ describe("Velocidade (ADR 0149)", () => {
     expect(advancedContents(t, { kind: "model", autoModel: true })).toBe(
       "agentPage.work.brain.advanced.contents.model",
     );
-    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, apiKey: true, now: high })).toEqual([
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, now: high })).toEqual([
       "agentPage.work.brain.advanced.effort",
     ]);
-    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: true, apiKey: true, now: high })).toEqual([]);
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: true, now: high })).toEqual([]);
     expect(isAdvancedDefault("model", high)).toBe(false);
     // "Voltar ao padrão" on a key: no effort, the provider's default; a chosen medium is a level there, said as one.
     expect(advancedDefaults("model", high).effort).toBeNull();
     expect(isAdvancedDefault("model", { ...ADVANCED_DEFAULTS, effort: null })).toBe(true);
     const medium = { ...ADVANCED_DEFAULTS, effort: "medium" as const };
-    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, apiKey: true, now: medium })).toEqual([
+    expect(advancedParts(t, "pt-BR", { kind: "model", autoModel: false, now: medium })).toEqual([
       "agentPage.work.brain.advanced.effort",
     ]);
-    expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, apiKey: true, now: medium })).toEqual([]);
+    expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, now: medium })).toEqual([]);
   });
 
   test("a key offers the levels the API takes: none is the provider's default, a stored max or xhigh is high", () => {

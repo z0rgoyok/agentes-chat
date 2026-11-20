@@ -1,6 +1,5 @@
 import { type BlockChange, useArtifact, useBlockReply, useKeepBlock, useSharedBlock } from "@agenteschat/client";
 import { type BlockEvent, blockEvent, blockPage, DRAFT_SETTLE_MS } from "@agenteschat/client/lib/blocks";
-import { clockHour } from "@agenteschat/client/lib/format";
 import { chartRamp } from "@agenteschat/ui/sky/chart";
 import { randomUUID } from "expo-crypto";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,12 +8,16 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { Button, IconButton, Sky, Text, useTheme, useToast } from "@/ui";
+import { Button, IconButton, SCREEN_X, Sky, Text, useTheme, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useColors, useDirectory, useOrgId } from "../shared/hooks";
+import { useMessageCardCorners } from "../chat/look";
+import { useRowDirectory } from "../chat/row-data";
+import { PageBones } from "../files/PageBones";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useErrorToast, useOrgId, useWhen } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
-import { PushedHeader, tapHaptic } from "../shared/parts";
-import { blockMayLoad, hostScript, INLINE_HEIGHT, themeScript, withLiveBlock } from "./logic";
+import { PushedHeader } from "../shared/parts";
+import { hostScript, INLINE_HEIGHT, ISOLATED_WEB_VIEW, themeScript, withLiveBlock } from "./logic";
 import { SpecBlock } from "./SpecBlock";
 
 const SYSTEM_FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,system-ui,sans-serif';
@@ -136,23 +139,7 @@ function BlockWebView({
         key={life}
         ref={web}
         source={{ html: page }}
-        // Every address passes this list and is refused below: one that failed here would go to the system to open.
-        originWhitelist={["*"]}
-        onShouldStartLoadWithRequest={(request) => blockMayLoad(request.url)}
-        javaScriptEnabled
-        javaScriptCanOpenWindowsAutomatically={false}
-        setSupportMultipleWindows={false}
-        domStorageEnabled={false}
-        incognito
-        cacheEnabled={false}
-        sharedCookiesEnabled={false}
-        thirdPartyCookiesEnabled={false}
-        allowFileAccess={false}
-        allowFileAccessFromFileURLs={false}
-        allowUniversalAccessFromFileURLs={false}
-        geolocationEnabled={false}
-        mediaCapturePermissionGrantType="deny"
-        mediaPlaybackRequiresUserAction
+        {...ISOLATED_WEB_VIEW}
         scrollEnabled={scrolls}
         nestedScrollEnabled={false}
         bounces={false}
@@ -202,10 +189,11 @@ export function LiveBlock({
   agentId: string;
   screen?: boolean;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const when = useWhen();
   const c = useColors();
   const orgId = useOrgId();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const toast = useToast();
   const agent = dir.agentById.get(agentId);
   const blockKey = `${id}@${version}`;
@@ -226,7 +214,6 @@ export function LiveBlock({
   // Taller than the card: cut with a fade, "Ver mais" under it, which opens it whole for good.
   const tall = !screen && height > INLINE_HEIGHT;
   const openWhole = () => {
-    tapHaptic();
     keptOf(blockKey).open = true;
     setOpen(true);
   };
@@ -255,7 +242,6 @@ export function LiveBlock({
     if (!draft?.ready || reply.isPending) return;
     // A page can't swap the words under a tap: a text that just changed needs a moment on screen.
     if (Date.now() - changedAt.current < DRAFT_SETTLE_MS) return;
-    tapHaptic();
     const text = draft.text;
     reply.mutate(
       { text, clientId: randomUUID() },
@@ -284,7 +270,6 @@ export function LiveBlock({
           wide
           label={t("mobile.blocks.runPage")}
           onPress={() => {
-            tapHaptic();
             keptOf(blockKey).run = true;
             setRun(true);
           }}
@@ -294,19 +279,20 @@ export function LiveBlock({
   }
 
   const same = sent !== null && sent.text === draft?.text;
-  const time = sent
-    ? new Intl.DateTimeFormat(i18n.language, { hour: clockHour(i18n.language), minute: "2-digit" }).format(
-        new Date(sent.at),
-      )
-    : "";
+  const time = sent ? when.time(sent.at) : "";
   return (
     <View style={screen ? styles.fill : undefined}>
       <View style={screen ? styles.fill : [styles.view, { height: tall && open ? height : INLINE_HEIGHT }]}>
         {(screen || allowed) && !shared.loaded ? (
-          // Everyone's state first: a page that started from its own would show something else for a moment.
-          <View style={[styles.asleep, styles.fill]}>
-            <ActivityIndicator color={c.faint} />
-          </View>
+          // Everyone's state first: a page that started from its own would show something else for a moment. On its
+          // own screen, the page's shape meanwhile; in the card, its wheel.
+          screen ? (
+            <PageBones />
+          ) : (
+            <View style={[styles.asleep, styles.fill]}>
+              <ActivityIndicator color={c.faint} />
+            </View>
+          )
         ) : screen || allowed ? (
           <BlockWebView
             blockKey={blockKey}
@@ -367,15 +353,16 @@ export function LiveBlock({
 
 /** A block on its message: the agent's card, its title, and the block itself. */
 export function LiveBlockCard({ id, version }: { id: string; version?: number }) {
+  const cardCorners = useMessageCardCorners();
   const { t } = useTranslation();
   const c = useColors();
   const orgId = useOrgId();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const query = useArtifact(orgId, id, version);
   const a = query.data;
   if (a?.content.kind !== "block") {
     return (
-      <View style={[styles.card, styles.loading, { backgroundColor: c.raised, borderColor: c.line2 }]}>
+      <View style={[styles.card, styles.loading, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
         <ActivityIndicator color={c.faint} />
         <Text variant="footnote" tone="muted">
           {t("mobile.blocks.building")}
@@ -384,12 +371,9 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
     );
   }
   const agentId = a.createdBy.id;
-  const open = () => {
-    tapHaptic();
-    router.push({ pathname: "/block/[id]", params: { id: a.id, v: String(a.shownVersion) } });
-  };
+  const open = () => router.push({ pathname: "/block/[id]", params: { id: a.id, v: String(a.shownVersion) } });
   return (
-    <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }]}>
+    <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
       <Sky
         color={agentLook(dir.agentById.get(agentId)).color}
         surface="raised"
@@ -427,20 +411,24 @@ export function BlockScreen({ id, version }: { id: string; version?: number }) {
   const c = useColors();
   const orgId = useOrgId();
   const toast = useToast();
+  const failed = useErrorToast();
   const query = useArtifact(orgId, id, version);
   const keep = useKeepBlock(orgId, id);
   // The screen's end stays above the home indicator: the button, or the block's last lines when there is none.
   const insets = useSafeAreaInsets();
   const a = query.data;
   if (a?.content.kind !== "block") {
+    // The bar is there from the first frame (the way back included); the page's shape while it comes, a failure
+    // offers to try again.
     return (
-      <View style={[styles.fill, styles.center, { backgroundColor: c.bg }]}>
+      <View style={[styles.fill, { backgroundColor: c.bg }]}>
+        <PushedHeader title="" />
         {query.isError ? (
-          <Text variant="body" tone="muted">
-            {t("mobile.files.loadFailed")}
-          </Text>
+          <View style={[styles.fill, styles.center]}>
+            <LoadFailed onRetry={() => void query.refetch()} />
+          </View>
         ) : (
-          <ActivityIndicator color={c.faint} />
+          <PageBones />
         )}
       </View>
     );
@@ -449,8 +437,12 @@ export function BlockScreen({ id, version }: { id: string; version?: number }) {
     <View style={[styles.fill, { backgroundColor: c.bg }]}>
       <PushedHeader title={a.title} />
       {a.content.spec ? (
+        // Its fields stay above the keyboard, a tap on a control keeps it up, a drag takes it down.
         <ScrollView
           style={styles.fill}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={[styles.screenBody, a.inDrive ? { paddingBottom: insets.bottom + 8 } : null]}
         >
           <SpecBlock id={a.id} version={a.shownVersion} spec={a.content.spec} agentId={a.createdBy.id} screen />
@@ -469,7 +461,8 @@ export function BlockScreen({ id, version }: { id: string; version?: number }) {
             onPress={() =>
               keep.mutate(undefined, {
                 onSuccess: () => toast({ title: t("mobile.blocks.kept"), icon: "check" }),
-                onError: () => toast({ title: t("mobile.blocks.sendFailed"), icon: "x" }),
+                // Why it wasn't kept, in the person's words.
+                onError: failed,
               })
             }
           />
@@ -502,11 +495,12 @@ const styles = StyleSheet.create({
   asleep: { alignItems: "center", justifyContent: "center" },
   view: { overflow: "hidden" },
   fade: { position: "absolute", left: 0, right: 0, bottom: 0, height: 56 },
-  more: { alignItems: "center", paddingBottom: 8 },
+  // "Ver mais" centred under the cut (a button keeps to its own width at the row's start).
+  more: { flexDirection: "row", justifyContent: "center", paddingBottom: 8 },
   foot: { gap: 8, padding: 12, borderTopWidth: StyleSheet.hairlineWidth },
   sent: { flexDirection: "row", alignItems: "center", gap: 8 },
   mark: { width: 5, height: 5 },
-  keep: { paddingHorizontal: 16, paddingVertical: 12 },
+  keep: { paddingHorizontal: SCREEN_X, paddingTop: 12 },
   gate: { gap: 8, padding: 14 },
   screenBody: { paddingVertical: 8 },
 });

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "after_message_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;

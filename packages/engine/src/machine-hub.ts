@@ -10,6 +10,7 @@ import {
   HELLO_TIMEOUT_MS,
   IPHONE_WIFI_PROTOCOL,
   KEEP_RUNNING_PROTOCOL,
+  MACHINE_CLOSE,
   MAX_FRAME_BYTES,
   type MachineErrorCode,
   type MachineOp,
@@ -33,7 +34,7 @@ import {
   TASKS_PROTOCOL,
   type Unsubscribe,
 } from "@agenteschat/adapters";
-import { and, type Database, eq, inArray, lt, schema } from "@agenteschat/db";
+import { and, type Database, eq, inArray, lt, schema, sql } from "@agenteschat/db";
 import type { ToolImage } from "@agenteschat/providers";
 import { getAgentCached } from "./agents";
 import { UUID } from "./authority";
@@ -87,6 +88,7 @@ import {
   publishMachineAgentsChanged,
   publishMachineStatus,
   publishMachineUpdated,
+  shownStandby,
 } from "./machines";
 import {
   DISK_REARM_USE,
@@ -133,15 +135,16 @@ export interface MachineSocket {
   close(code?: number, reason?: string): void;
 }
 
-/** Close codes the runner may see. */
-export const MACHINE_CLOSE = {
-  badFrame: 4400,
-  invalidToken: 4401,
-  revoked: 4403,
-  timeout: 4408,
-  replaced: 4409,
-  outdated: 4426,
-} as const;
+export { MACHINE_CLOSE };
+
+/** How many closed sockets a computer's row keeps (`machines.disconnects`). */
+export const MACHINE_DISCONNECTS_KEPT = 10;
+
+/** How a socket closed: its code and reason, as the close event or this side said. */
+export interface MachineClose {
+  code: number;
+  reason: string;
+}
 
 /** The runner answered a request with an error (`not_found`, `exec_disabled`…). */
 export class MachineRequestError extends Error {
@@ -222,6 +225,7 @@ export async function computerBackSoon(
     justGone?: boolean;
     signal?: AbortSignal;
     canceled?: () => boolean | Promise<boolean>;
+    why?: WakeWhy;
   } = {},
 ): Promise<boolean | null> {
   let until = Date.now() + (options.waitMs ?? COMPUTER_BLIP_WAIT_MS);
@@ -232,7 +236,7 @@ export async function computerBackSoon(
     if (status?.standby && !waking) {
       waking = true;
       until = Date.now() + (options.wakeWaitMs ?? COMPUTER_WAKE_WAIT_MS);
-      void machines?.wake?.(machineId, "run").catch(() => {});
+      void machines?.wake?.(machineId, options.why ?? "run").catch(() => {});
     }
     const gone = status?.lastSeenAt ? Date.now() - Date.parse(status.lastSeenAt) : Number.POSITIVE_INFINITY;
     if (!waking && (options.justGone === false || gone >= TASK_OFFLINE_GRACE_MS)) return false;
@@ -262,6 +266,31 @@ export async function callWhenBack<T>(
   }
 }
 
+/**
+ * How long a person's request waits for a computer in standby to wake: well under the server's 120 s idle timeout
+ * (`start.ts`), leaving room for the request itself.
+ */
+export const PERSON_WAKE_WAIT_MS = 45_000;
+
+/**
+ * Whether a person's request may go to the computer now: online, or in standby and woken for it within
+ * `PERSON_WAKE_WAIT_MS` (people never see it sleep, ADR 0161). Once per request; jobs never wait.
+ */
+export async function awakeForPerson(
+  machines: Pick<MachineCaller, "status" | "wake">,
+  status: Pick<MachineStatus, "id" | "online" | "standby"> | null | undefined,
+): Promise<boolean> {
+  if (!status) return false;
+  if (status.online) return true;
+  if (!status.standby) return false;
+  const back = await computerBackSoon(machines, status.id, {
+    justGone: false,
+    wakeWaitMs: PERSON_WAKE_WAIT_MS,
+    why: "call",
+  });
+  return back === true;
+}
+
 interface Pending {
   onOutput?: MachineCallOptions["onOutput"];
   /** A `brain.turn`: its run and bridge token, so its frames (events, tool calls) prove it is alive. */
@@ -283,8 +312,10 @@ export interface MachineConnection {
   authing: boolean;
   closed: boolean;
   pending: Map<string, Pending>;
+  /** When its last frame came (a pong or any other). */
   lastPong: number;
   lastSeenWrite: number;
+  openedAt: number;
   helloTimer: ReturnType<typeof setTimeout> | null;
   pingTimer: ReturnType<typeof setInterval> | null;
   /** The runner's protocol (from its hello). */
@@ -402,9 +433,13 @@ export function isNewWork(request: MachineRequest) {
     // Its owner fixing the Mac's Xcode for an iPhone's setup, or opening it there.
     case "xcode.fix":
     case "xcode.open":
+    // Repairing an iPhone's test helper (its owner from the apps; an agent's call is refused paused before it's sent).
+    case "phone.repair":
     // Its owner looking for, or installing, a coding CLI there.
     case "clis.check":
     case "cli.install":
+    // A problem report reads the computer, paused or not.
+    case "report.collect":
       return false;
     case "secret":
       return request.action !== "discard" && request.action !== "remove" && request.action !== "activate";
@@ -495,6 +530,8 @@ export interface MachineMissionHooks {
   phonesChanged?(machine: { id: string; orgId: string }, phones: MachinePhoneRow[]): Promise<void>;
   /** Starts what may start in the machine's queue of mission tasks (ADR 0044; a resumed item waits there). */
   queue?(machineId: string): Promise<unknown>;
+  /** `room.freed`: the run first in this computer's line for room asks again now. */
+  roomFreed?(machineId: string): Promise<void>;
 }
 
 /**
@@ -505,10 +542,12 @@ export interface MachineMissionHooks {
 export interface MachineBrowserHooks {
   frame?(machineId: string, frame: Extract<RunnerFrame, { type: "browser.frame" }>): void;
   streamEnded?(machineId: string, frame: Extract<RunnerFrame, { type: "browser.stream.ended" }>): void;
-  /** Where the agent's pointer goes on the page (ADR 0040 §7.2): to whoever watches, never stored. */
+  /** Where the agent's pointer goes on the page (ADR 0040 §7.2): to whoever watches; the newest kept in memory. */
   pointer?(machineId: string, frame: Extract<RunnerFrame, { type: "browser.pointer" }>): void;
   /** The same on its desktop (ADR 0062): to whoever has that screen open. */
   desktopPointer?(machineId: string, frame: Extract<RunnerFrame, { type: "desktop.pointer" }>): void;
+  /** This socket's computer is asked to end a desktop (`desktop.session.stop`), named by its screen's id. */
+  desktopStopped?(machineId: string, screenId: string): void;
   closed?(machineId: string): void;
   /** A runner on protocol 12+ said hello here: what it should know again (open handoffs). */
   connected?(machineId: string): void;
@@ -533,6 +572,8 @@ export function createMachineHub(deps: MachineHubDeps) {
   let lastCleanup = 0;
   /** `stop()` ran: every socket closing from now on is our own stop, not the computer's drop. */
   let stopping = false;
+  /** When a ping timer last fired late: this process's event loop was busy, so pongs may be sitting unread. */
+  let loopLateAt = 0;
   const subscriptions: Unsubscribe[] = [];
   let hooks: MachineMissionHooks = {};
   let browserHooks: MachineBrowserHooks = {};
@@ -558,12 +599,24 @@ export function createMachineHub(deps: MachineHubDeps) {
     } catch {}
   };
 
-  const markOffline = async (conn: MachineConnection, serverStop: boolean) => {
+  const markOffline = async (conn: MachineConnection, serverStop: boolean, close: MachineClose) => {
     const machineId = conn.machineId as string;
+    const disconnect: schema.MachineDisconnect = {
+      connectedAt: new Date(conn.openedAt).toISOString(),
+      at: new Date().toISOString(),
+      code: close.code,
+      reason: close.reason.slice(0, 120),
+    };
     const [row] = await db
       .update(machines)
-      // Its last sign of life is its last pong (`last_seen_at` is written at most every 40 s while it is up).
-      .set({ online: false, connectedReplica: null, lastSeenAt: new Date(conn.lastPong), updatedAt: new Date() })
+      .set({
+        online: false,
+        connectedReplica: null,
+        // Its last sign of life is its last pong (`last_seen_at` is written at most every 40 s while it is up).
+        lastSeenAt: new Date(conn.lastPong),
+        disconnects: sql`jsonb_path_query_array(${JSON.stringify([disconnect])}::jsonb || ${machines.disconnects}, ${`$[0 to ${MACHINE_DISCONNECTS_KEPT - 1}]`}::jsonpath)`,
+        updatedAt: new Date(),
+      })
       .where(and(eq(machines.id, machineId), eq(machines.connectedReplica, replicaId)))
       .returning({ orgId: machines.orgId });
     if (!row) return false;
@@ -571,14 +624,18 @@ export function createMachineHub(deps: MachineHubDeps) {
     // Its running tasks become interrupted if it isn't back after the grace (any replica's worker runs it).
     // Our own stop: the runner dials the next server by itself and its tasks run on meanwhile, so only one
     // still away after a long backstop has them interrupted; it shows as an outage after the usual grace.
-    const later = (ms: number, statusOnly: boolean) =>
-      enqueue(db, {
+    // One check per machine per grace window, however often it flaps: due at the end of the window after the
+    // one it closed in, so every close still gets at least a full grace (at most two).
+    const later = (ms: number, statusOnly: boolean) => {
+      const runAt = ms > 0 ? (Math.floor(Date.now() / ms) + 2) * ms : Date.now();
+      return enqueue(db, {
         orgId: row.orgId,
         kind: "machine.tasks_offline",
         payload: statusOnly ? { machineId, statusOnly } : { machineId },
-        dedupeKey: `machine.tasks_offline:${machineId}:${statusOnly ? "status:" : ""}${Date.now()}`,
-        runAt: new Date(Date.now() + ms),
+        dedupeKey: `machine.tasks_offline:${machineId}:${statusOnly ? "status:" : ""}${runAt}`,
+        runAt: new Date(runAt),
       }).catch(() => undefined);
+    };
     if (serverStop) await later(taskOfflineGraceMs, true);
     await later(serverStop ? SERVER_STOP_TASK_GRACE_MS : taskOfflineGraceMs, false);
     return true;
@@ -629,7 +686,7 @@ export function createMachineHub(deps: MachineHubDeps) {
       try {
         conn.socket.close(1011, "server error");
       } catch {}
-      await closeConn(conn).catch(() => undefined);
+      await closeConn(conn, { code: 1011, reason: "server error" }).catch(() => undefined);
     }
   }
 
@@ -690,7 +747,7 @@ export function createMachineHub(deps: MachineHubDeps) {
       refuse(old, "replaced", "Another runner connected for this computer.", MACHINE_CLOSE.replaced);
       // Its requests end now, not when (if ever) the dead socket's close arrives: a runner that restarted
       // mid-request lost them all (its requests die with its session).
-      await closeConn(old);
+      await closeConn(old, { code: MACHINE_CLOSE.replaced, reason: "replaced" });
     }
     const now = new Date();
     // Protocol 19: the own sign-ins' usage it knows, over the last known (a runner that just started knows none).
@@ -712,6 +769,7 @@ export function createMachineHub(deps: MachineHubDeps) {
         lastSeenAt: now,
         // Awake: whatever put it in standby is over (ADR 0161).
         standbyAt: null,
+        wakeWantedAt: null,
         hostname: frame.hostname,
         os: frame.os,
         arch: frame.arch,
@@ -792,6 +850,8 @@ export function createMachineHub(deps: MachineHubDeps) {
       mcpOnce: true,
       observeEgress: machine.kind === "managed",
     });
+    // Pings start with `welcome` (the runner's watchdog starts there), not after the slower work below.
+    startPings(conn);
     // The workspace's own computer (ADR 0056 §10): ready on its first hello, with its agents, before they are listed.
     const readyEmail = deps.readyEmail ? { ...deps.readyEmail, machines: hub } : null;
     await onManagedMachineHello({ db, pubsub, readyEmail }, machine).catch((error) =>
@@ -819,20 +879,6 @@ export function createMachineHub(deps: MachineHubDeps) {
     // Protocol 9: the agents that use this computer, for the desktop app.
     if (frame.protocol >= PAUSE_PROTOCOL) await sendAgents(conn);
     if (frame.protocol >= BROWSER_PROTOCOL) browserHooks.connected?.(machine.id);
-    conn.pingTimer = setInterval(() => {
-      // The runner redials after two heartbeats without a ping. Checked once a heartbeat, a pong older than
-      // one and a half heartbeats means the ping sent a heartbeat ago went unanswered: both ends give up on
-      // the link at about the same time, so this side stops sending work into it.
-      if (Date.now() - conn.lastPong > 1.5 * heartbeatMs) {
-        try {
-          conn.socket.close(MACHINE_CLOSE.timeout, "no pong");
-        } catch {}
-        // A half-open socket may never report its close: its requests fail and the machine goes offline now.
-        void closeConn(conn);
-        return;
-      }
-      send(conn, { type: "ping", at: Date.now() });
-    }, heartbeatMs);
     await publishMachineStatus(pubsub, machine.orgId, machine.id, true);
     if (frame.protocol >= PAUSE_PROTOCOL) {
       await publishMachineUpdated(pubsub, machine.orgId, machine.id, {
@@ -1075,7 +1121,6 @@ export function createMachineHub(deps: MachineHubDeps) {
     conn: MachineConnection,
     { load, browserTraffic, egress, networkTransition }: Extract<RunnerFrame, { type: "pong" }>,
   ) {
-    conn.lastPong = Date.now();
     if (!conn.machineId) return;
     // The authenticated database kind is authoritative, including for an older or modified personal runner.
     if (conn.kind !== "managed") {
@@ -1156,6 +1201,9 @@ export function createMachineHub(deps: MachineHubDeps) {
       // Its socket closed while the caller awaited (`hub.call`'s checks): `closeConn` already failed what it had,
       // and this would never be sent or answered. Never sent, so offline: `callWhenBack` may send it again.
       if (conn.closed) return reject(new MachineOfflineError(conn.name, conn.kind));
+      if (request.op === "desktop.session.stop" && request.agent && conn.machineId) {
+        browserHooks.desktopStopped?.(conn.machineId, request.agent.id);
+      }
       const id = crypto.randomUUID();
       const timeoutMs = options.timeoutMs ?? requestTimeoutMs(request);
       const turn = request.op === "brain.turn" ? (request as Extract<MachineRequest, { op: "brain.turn" }>) : null;
@@ -1374,7 +1422,33 @@ export function createMachineHub(deps: MachineHubDeps) {
     await pubsub.publish(machineRpcReplyTopic(rpcId), { type: "machine.rpc.reply", rpcId }).catch(() => undefined);
   }
 
-  async function closeConn(conn: MachineConnection) {
+  function startPings(conn: MachineConnection) {
+    if (conn.closed || conn.pingTimer) return;
+    let lastTick = Date.now();
+    conn.pingTimer = setInterval(() => {
+      const now = Date.now();
+      if (now - lastTick - heartbeatMs > Math.min(1000, heartbeatMs / 2)) loopLateAt = now;
+      lastTick = now;
+      // The runner redials after two heartbeats without a ping. Checked once a heartbeat, nothing heard for one
+      // and a half heartbeats means the ping sent a heartbeat ago went unanswered: both ends give up on the
+      // link at about the same time, so this side stops sending work into it. Unless this process's loop ran
+      // late meanwhile: the ping went out late or its pong is still unread, and closing would only make every
+      // runner dial again into a busier server. Past four heartbeats it closes anyway.
+      const silent = now - conn.lastPong;
+      if (silent > 1.5 * heartbeatMs && (now - loopLateAt > 1.5 * heartbeatMs || silent > 4 * heartbeatMs)) {
+        try {
+          conn.socket.close(MACHINE_CLOSE.timeout, "no pong");
+        } catch {}
+        // A half-open socket may never report its close: its requests fail and the machine goes offline now.
+        void closeConn(conn, { code: MACHINE_CLOSE.timeout, reason: "no pong" });
+        return;
+      }
+      send(conn, { type: "ping", at: now });
+    }, heartbeatMs);
+  }
+
+  /** `close`: how it closed (the first caller's word stands); none known: 1005, as a close without a code reads. */
+  async function closeConn(conn: MachineConnection, close?: MachineClose) {
     if (conn.closed) return;
     conn.closed = true;
     if (conn.helloTimer) clearTimeout(conn.helloTimer);
@@ -1388,7 +1462,8 @@ export function createMachineHub(deps: MachineHubDeps) {
     if (conn.machineId && local.get(conn.machineId) === conn) {
       local.delete(conn.machineId);
       browserHooks.closed?.(conn.machineId);
-      await markOffline(conn, serverStop).catch(() => undefined);
+      const how = serverStop ? { code: 1001, reason: "server stopping" } : (close ?? { code: 1005, reason: "" });
+      await markOffline(conn, serverStop, how).catch(() => undefined);
     }
   }
 
@@ -1408,7 +1483,7 @@ export function createMachineHub(deps: MachineHubDeps) {
         // The runner came back on another replica: this socket is a stale one (outside the publisher's call stack).
         queueMicrotask(() => {
           refuse(conn, "replaced", "Another runner connected for this computer.", MACHINE_CLOSE.replaced);
-          void closeConn(conn);
+          void closeConn(conn, { code: MACHINE_CLOSE.replaced, reason: "replaced" });
         });
         return;
       }
@@ -1459,6 +1534,7 @@ export function createMachineHub(deps: MachineHubDeps) {
         pending: new Map(),
         lastPong: Date.now(),
         lastSeenWrite: 0,
+        openedAt: Date.now(),
         helloTimer: null,
         pingTimer: null,
         protocol: 0,
@@ -1466,8 +1542,9 @@ export function createMachineHub(deps: MachineHubDeps) {
       };
       conn.helloTimer = setTimeout(() => {
         // Not a refusal: a runner that just woke up (the Mac slept) may be slow to say hello, and the token is
-        // fine. A `refused` frame would make it stop for good; a plain close makes it dial again.
-        if (conn.machineId) return;
+        // fine. A `refused` frame would make it stop for good; a plain close makes it dial again. A hello still
+        // being checked waits on this server, not the runner: closing it would only queue the same hello again.
+        if (conn.machineId || conn.authing) return;
         try {
           conn.socket.close(MACHINE_CLOSE.timeout, "no hello");
         } catch {}
@@ -1476,6 +1553,8 @@ export function createMachineHub(deps: MachineHubDeps) {
     },
 
     async message(conn: MachineConnection, raw: string | Buffer | Uint8Array) {
+      // Any frame is a sign of life, not only a pong (which may queue behind a busy runner's output).
+      conn.lastPong = Date.now();
       const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
       const frame = parseRunnerFrame(text);
       if (!frame) {
@@ -1562,6 +1641,10 @@ export function createMachineHub(deps: MachineHubDeps) {
           const row = await getMachineById(db, conn.machineId).catch(() => null);
           if (row && !row.deletedAt) await phonesReported(row, frame.phones);
         }
+      } else if (frame.type === "room.freed") {
+        await hooks
+          .roomFreed?.(conn.machineId)
+          .catch((error) => deps.log?.warn("room.freed failed", { machineId: conn.machineId, error: String(error) }));
       } else if (frame.type === "keep.ended") {
         await holdEndedOnComputer({ db, pubsub }, conn.machineId, frame).catch((error) =>
           deps.log?.warn("keep.ended failed", { holdId: frame.holdId, error: String(error) }),
@@ -1605,7 +1688,8 @@ export function createMachineHub(deps: MachineHubDeps) {
       const row = await getMachineById(db, machineId);
       if (!row || row.deletedAt) throw new MachineOfflineError(row?.name ?? "computer", row?.kind);
       if (!machineOnline(row) || !row.connectedReplica || row.connectedReplica === replicaId) {
-        // Asleep by design: whatever asks for it wakes it (`callWhenBack` waits for that).
+        // Asleep by design: whatever asks for it wakes it. Who waits for that does it once, outside: a run's tool
+        // (`callWhenBack`), a person's request (`awakeForPerson`); a job fails now.
         if (inStandby(row)) void wantMachine(db, machineId, "call").catch(() => {});
         throw new MachineOfflineError(row.name, row.kind);
       }
@@ -1638,7 +1722,8 @@ export function createMachineHub(deps: MachineHubDeps) {
         executors: row.executors ?? {},
         paused: pause ? { until: pause.until, timezone: await machineOwnerTimezone(db, row).catch(() => null) } : null,
         access: row.access ?? null,
-        standby: inStandby(row),
+        // Still starting after its standby ended counts too: what waits for it waits on (`shownStandby`).
+        standby: inStandby(row) || shownStandby(row),
         ...(row.executors?.mode === "system" ? { mode: "system" as const } : {}),
       };
     },

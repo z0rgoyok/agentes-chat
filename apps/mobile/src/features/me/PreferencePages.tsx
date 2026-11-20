@@ -11,32 +11,24 @@ import {
   useSetStart,
 } from "@agenteschat/client";
 import { type AppLocale, readyLocales } from "@agenteschat/i18n/locale";
-import { SOUND_STYLES, type SoundStyle } from "@agenteschat/ui/sfx";
+import type { SoundStyle } from "@agenteschat/ui/sfx";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, StyleSheet, View } from "react-native";
 import { pushPermission, unregisterPush } from "@/lib/push";
-import { setSoundChoice, useSoundChoice } from "@/lib/sounds";
 import { readValue, STORED } from "@/lib/storage";
 import { deviceLocale, readLocaleState, rememberLocale, setLocale } from "@/providers/i18n";
 import { useOrg } from "@/providers/org";
 import { usePush } from "@/providers/push";
-import {
-  GroupedFooter,
-  GroupedHeader,
-  GroupedList,
-  GroupedRow,
-  type IconName,
-  type ThemePreference,
-  useTheme,
-  useToast,
-} from "@/ui";
+import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, type IconName, SkeletonList, useToast } from "@/ui";
+import { LoadFailed } from "../shared/FirstUse";
 import { Page } from "./parts";
+import { SurfaceLinkRow } from "./SurfaceLink";
 
 /**
- * Você's smaller screens, each pushed from its row: Workspaces, Notificações, Ao abrir o app, Respostas dos agentes,
- * Sons, Aparência and Idioma (Ícone do app is AppIconPage.tsx).
+ * Você's smaller screens, each pushed from its row: Notificações, Ao abrir o app, Respostas dos agentes, Como os
+ * agentes falam com você and Idioma (Sons and Aparência change in their row; Ícone do app is AppIconPage.tsx).
  */
 
 const SOUND_LABELS: Record<SoundStyle, string> = {
@@ -127,6 +119,15 @@ export function NotificationsPage() {
           onPress={() => void push.set(!on)}
         />
       </GroupedList>
+      <SurfaceLinkRow />
+      {prefs.isLoading ? (
+        <>
+          <View style={styles.gap} />
+          <SkeletonList rows={4} />
+        </>
+      ) : prefs.isError && !prefs.data ? (
+        <LoadFailed onRetry={() => void prefs.refetch()} />
+      ) : null}
       {prefs.data ? (
         <>
           <GroupedHeader
@@ -272,62 +273,6 @@ export function AgentStylePage() {
         />
       </GroupedList>
       <GroupedFooter>{t("settings.account.agentStyleHelp")}</GroupedFooter>
-    </Page>
-  );
-}
-
-/** Sons: on or off, then the style. */
-export function SoundsPage() {
-  const { t } = useTranslation();
-  const sounds = useSoundChoice();
-  const label = useSoundLabel();
-  return (
-    <Page title={t("mobile.me.sounds")}>
-      <View style={styles.gap} />
-      <GroupedList>
-        <GroupedRow
-          label={t("mobile.me.soundsOn")}
-          hint={{ name: t("common.about", { label: t("mobile.me.soundsOn") }), text: t("mobile.me.soundsHint") }}
-          toggle={sounds !== "off"}
-          onPress={() => setSoundChoice(sounds === "off" ? "tactile" : "off")}
-        />
-      </GroupedList>
-      {sounds !== "off" && (
-        <>
-          <GroupedHeader>{t("mobile.me.soundStyle")}</GroupedHeader>
-          <GroupedList>
-            {SOUND_STYLES.map((style) => (
-              <GroupedRow
-                key={style}
-                label={label(style)}
-                checked={sounds === style}
-                onPress={() => setSoundChoice(style)}
-              />
-            ))}
-          </GroupedList>
-        </>
-      )}
-    </Page>
-  );
-}
-
-/** Aparência: the system's, light or dark. */
-export function AppearancePage() {
-  const { t } = useTranslation();
-  const theme = useTheme();
-  return (
-    <Page title={t("mobile.me.appearance")}>
-      <View style={styles.gap} />
-      <GroupedList>
-        {(["system", "light", "dark"] as const).map((key) => (
-          <GroupedRow
-            key={key}
-            label={t(`mobile.theme.${key}`)}
-            checked={theme.preference === key}
-            onPress={() => theme.setPreference(key as ThemePreference)}
-          />
-        ))}
-      </GroupedList>
     </Page>
   );
 }

@@ -81,8 +81,12 @@ const RATE_LIMIT_WINDOWS = new Map<string, Pick<PlanWindow, "kind" | "label">>([
   ["overage", { kind: "other", label: "Extra usage" }],
 ]);
 
-/** A utilization up to 1 is a fraction. */
-const usedOf = (u: number) => (u <= 1 ? u * 100 : u);
+/**
+ * The event's utilization is always a fraction: Claude Code passes the API's `anthropic-ratelimit-unified-*-utilization`
+ * header through as a number (2.1.327, read 2026-11-18). So 1 is a full window, and one past it (1.2) is over it, never
+ * 1%. `get_usage`'s 0–100 never comes here (`claudeUsage`).
+ */
+const usedOf = (u: number) => u * 100;
 const windowKey = (w: Pick<PlanWindow, "kind" | "label">) => `${w.kind}:${w.label ?? ""}`;
 
 /**
@@ -109,7 +113,10 @@ export function withRateLimit(prev: PlanUsage | undefined, info: unknown, now = 
       read.set(windowKey(at), planWindow(at, usedOf(reading), w.resetsAt));
   }
   if (read.size === 0 && limited === Boolean(prev?.limited)) return null;
-  const windows = (prev?.windows ?? []).filter((w) => !read.has(windowKey(w)));
+  // A window this event didn't name keeps the time it was read: a week Claude restarted early must look old, not fresh.
+  const windows = (prev?.windows ?? [])
+    .filter((w) => !read.has(windowKey(w)))
+    .map((w) => (prev && !w.at && prev.at < iso(now) ? { ...w, at: prev.at } : w));
   windows.push(...read.values());
   return {
     windows: windows.slice(-PLAN_USAGE_LIMITS.windows),
@@ -118,6 +125,10 @@ export function withRateLimit(prev: PlanUsage | undefined, info: unknown, now = 
     at: iso(now),
   };
 }
+
+/** When a reading was read, as of its oldest window (a turn that named only some windows leaves the others older); 0: none. */
+export const oldestRead = (u: PlanUsage | undefined) =>
+  Math.min(Date.parse(u?.at ?? "") || 0, ...(u?.windows ?? []).flatMap((w) => (w.at ? [Date.parse(w.at) || 0] : [])));
 
 const CLAUDE_WINDOWS: [string, Pick<PlanWindow, "kind" | "label">][] = [
   ["five_hour", { kind: "five_hour" }],

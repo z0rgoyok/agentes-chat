@@ -6,7 +6,7 @@ import {
 } from "@agenteschat/client/lib/machine-outages";
 import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import {
   Button,
   GroupedFooter,
@@ -18,11 +18,12 @@ import {
   OPTION_ROW,
   ProviderLogo,
   SheetScreen,
+  SkeletonList,
   Text,
   useToast,
 } from "@/ui";
 import { AgentFace } from "../shared/Face";
-import { useColors } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
 import { SheetTitle } from "../shared/PromptForm";
 import { successHaptic, tapHaptic } from "../shared/parts";
 import { computerIcon, type MachineOutage, moveToast, sheetDesc, targetText, waitingText } from "./logic";
@@ -36,13 +37,12 @@ import { useMachineOutages, useMoveAgents } from "./queries";
  */
 export function SwitchComputerSheet({ machineId, onClose }: { machineId: string; onClose: () => void }) {
   const { t } = useTranslation();
-  const c = useColors();
   const q = useMachineOutages();
   const outage = q.data?.outages.find((o) => o.machineId === machineId) ?? null;
 
   let body: ReactNode;
   if (!q.data) {
-    body = q.isError ? <Text tone="muted">{t("mobile.app.failed")}</Text> : <ActivityIndicator color={c.muted} />;
+    body = q.isError ? <LoadFailed onRetry={() => void q.refetch()} /> : <SkeletonList rows={3} />;
   } else if (!outage || outage.agents.length === 0) {
     body = (
       <>

@@ -106,7 +106,10 @@ test("the phone's steps are the web's, read from the workspace's data (ADR 0162)
   expect(flow).toContain("railState({");
   expect(flow).toContain("funnel: null,");
   // Nothing is finished behind the person's back: only an answered workspace with no plan to wait for opens by itself.
-  expect(flow).toContain('if (!known || at !== "open" || opening.current) return;');
+  // Only the step on screen opens it, once per first run (Tentar de novo asks again), never while it is opening.
+  expect(flow).toContain(
+    'if (!focused || !known || at !== "open" || !draft || draft.autoOpened || draft.finishing) return;',
+  );
   expect(flow).toContain('void open("done");');
   expect(flow).toContain('onEnter={() => void open("skipped")}');
   // A step answered on the web meanwhile moves this one on as the app comes back, so it never makes a second team.

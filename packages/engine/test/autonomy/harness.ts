@@ -89,7 +89,7 @@ export interface JudgeTable {
 /** Judgments the engine asks along the way that the scenarios leave at the fake's defaults. */
 const INCIDENTAL = new Set([
   "tool_groups",
-  "stop_request",
+  "steer_triage",
   "agent_status",
   "context_budget",
   "ai_intent",

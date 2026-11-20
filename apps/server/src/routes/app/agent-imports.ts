@@ -22,6 +22,7 @@ import {
   body,
   createAppRouter,
   errors,
+  hookConfig,
   json,
   MULTIPART_SLACK_BYTES,
   OrgParams,
@@ -123,7 +124,10 @@ const Bundle = z
             z.object({ cron: z.string().max(200), timezone: z.string().max(64).nullable() }),
             z.object({ rule: BundleRule }),
             z.object({ at: z.string().max(40) }),
+            z.object({ webhook: z.literal(true) }),
+            z.object({ event: z.literal("github.pr_opened") }),
           ]),
+          paused: z.boolean().optional(),
         }),
       )
       .max(IMPORT_LIMITS.routines),
@@ -141,7 +145,7 @@ const Bundle = z
     todo: z
       .array(
         z.object({
-          kind: z.enum(["connection", "app", "secret", "model", "file"]),
+          kind: z.enum(["connection", "app", "secret", "model", "file", "webhook"]),
           label: z.string().max(500),
           url: z.string().max(2000).optional(),
           agents: z.array(Key).max(IMPORT_LIMITS.agents),
@@ -328,7 +332,13 @@ export function agentImportRoutes(deps: AppDeps) {
       const blobs = deps.extras?.artifacts?.blobs;
       if (!blobs) throw new Error("storage is not configured on this server");
       const plan = await applyImport(
-        { db: deps.db, blobs, pubsub: deps.adapters.pubsub, connectors: routineConnectorDeps(deps) },
+        {
+          db: deps.db,
+          blobs,
+          pubsub: deps.adapters.pubsub,
+          connectors: routineConnectorDeps(deps),
+          hooks: hookConfig(deps.config),
+        },
         c.get("user").id,
         c.req.valid("param").orgId,
         c.req.valid("json"),

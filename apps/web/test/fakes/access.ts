@@ -148,19 +148,28 @@ export function fakeAccessTree(
   const connectors = [
     ...connections
       .filter((c) => !c.revokedAt && c.connector === "github")
-      .map((c) => ({ id: c.id, connector: c.connector, label: "GitHub", custom: false, scopes: GITHUB })),
+      .map((c) => ({
+        id: c.id,
+        connector: c.connector,
+        label: "GitHub",
+        custom: false,
+        scopes: GITHUB,
+        ownerUserId: c.ownerUserId ?? null,
+      })),
     ...servers.map((s) => ({
       id: s.id,
       connector: `custom:${s.id}`,
       label: s.label,
       custom: true,
       scopes: customScopes(s),
+      ownerUserId: s.ownerUserId ?? null,
     })),
   ].map((c) => ({
     connectionId: c.id,
     connector: c.connector,
     label: c.label,
     custom: c.custom,
+    ownerUserId: c.ownerUserId,
     state: (input.connectors[c.id] ? "granted" : input.all ? "inherited" : "off") as AccessState,
     scopes: c.scopes.map((s) => ({
       scope: s.scope,
@@ -178,24 +187,45 @@ export function fakeAccessTree(
 }
 
 export function createFakeAccess(
-  connections: (orgId: string) => Promise<Connection[]>,
+  connections: (orgId: string, options?: { others?: boolean }) => Promise<Connection[]>,
   log: (method: string, ...args: unknown[]) => void,
   /** Custom MCP servers (their classified tools join the tree). */
-  servers: (orgId: string) => Promise<CustomServer[]> = async () => [],
+  servers: (orgId: string, options?: { others?: boolean }) => Promise<CustomServer[]> = async () => [],
+  /** Who is asking: someone else's personal connection shows (bare) only with `others` and while the agent holds it. */
+  meId: () => string | null = () => null,
 ): ApiClient["access"] & {
   /** A new connection, as the backend gives it (`grantToEveryAgent`): every agent's, whole. */
   connected: (connectionId: string, agentIds: string[]) => void;
+  /** The agents that hold a connection (someone else's personal row says only this). */
+  holders: (connectionId: string) => string[];
+  /** "Tirar de um agente": the agent loses the connection. */
+  takeOff: (connectionId: string, agentId: string) => void;
 } {
   const inputs = new Map<string, AccessInput>();
   const of = (agentId: string) => inputs.get(agentId) ?? empty();
-  const tree = async (orgId: string, input: AccessInput) =>
-    fakeAccessTree(input, await connections(orgId), await servers(orgId));
+  const tree = async (orgId: string, input: AccessInput, others = false) => {
+    const full = fakeAccessTree(input, await connections(orgId, { others }), await servers(orgId, { others }));
+    const me = meId();
+    const theirs = (c: AgentAccess["connectors"][number]) => Boolean(c.ownerUserId && c.ownerUserId !== me);
+    return {
+      ...full,
+      connectors: full.connectors
+        .filter((c) => !theirs(c) || input.connectors[c.connectionId])
+        .map((c) => (theirs(c) ? { ...c, scopes: [] } : c)),
+    };
+  };
   return {
-    get: async (orgId, agentId) => tree(orgId, of(agentId)),
+    get: async (orgId, agentId, options) => tree(orgId, of(agentId), options?.others === true),
     set: async (orgId, agentId, input) => {
       log("access.set", orgId, agentId, input);
       inputs.set(agentId, structuredClone(input));
       return tree(orgId, input);
+    },
+    holders: (connectionId) => [...inputs].filter(([, i]) => i.connectors[connectionId]).map(([id]) => id),
+    takeOff: (connectionId, agentId) => {
+      const input = of(agentId);
+      const { [connectionId]: _gone, ...rest } = input.connectors;
+      inputs.set(agentId, { ...input, connectors: rest });
     },
     connected: (connectionId, agentIds) => {
       for (const agentId of agentIds) {

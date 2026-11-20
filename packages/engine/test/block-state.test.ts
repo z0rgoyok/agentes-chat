@@ -104,6 +104,12 @@ describe("a live block's state is everyone's (ADR 0113)", () => {
     await expect(set({ form: { key: "sk-ant-abcdefghijklmnop" } })).rejects.toThrow("password or a key");
     await expect(set({ note: "password: hunter2" })).rejects.toThrow("password or a key");
     await expect(set({ senha: "hunter2" })).rejects.toThrow("password or a key");
+    // A model request's settings typed as JSON hold counts, not credentials; a credential written the same way is one.
+    const settings = '{"model":"x","max_tokens":4096,"usage":{"input_tokens":12,"total_tokens":15},"token":null}';
+    expect((await set({ settings })).state).toMatchObject({ settings });
+    await expect(set({ settings: '{"body":"{\\"access_token\\":\\"fake-typed-token\\"}"}' })).rejects.toThrow(
+      "password or a key",
+    );
     // An empty field named so is fine: nothing was typed.
     expect((await set({ senha: "", nome: "Bento" })).state).toMatchObject({ nome: "Bento" });
     await expect(

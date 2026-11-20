@@ -1,4 +1,5 @@
 import type { AgentAudience, BrainKind, Run } from "../api/types";
+import type { EditorsValue } from "./audience";
 import { readBudget } from "./new-agent";
 
 /*
@@ -22,13 +23,14 @@ export const AGENT_TABS = [
 export type AgentTab = (typeof AGENT_TABS)[number];
 export const isAgentTab = (v: unknown): v is AgentTab => AGENT_TABS.includes(v as AgentTab);
 
-/** Configurações' sections, in order. */
+/** Configurações' sections, in order: "Quem pode editar" after "Quem pode falar" (ADR 0085 addendum of 2026-11-17). */
 export const AGENT_SECTIONS = [
   "identity",
   "brain",
   "budget",
   "owner",
   "audience",
+  "editors",
   "channels",
   "computer",
   "danger",
@@ -52,7 +54,14 @@ export const isBrainScreen = (v: unknown): v is BrainScreen => BRAIN_SCREENS.inc
 export const PERSONAL_AGENT_TABS = ["overview", "instructions", "memory", "access", "settings", "advanced"] as const;
 
 /** Configurações' sections that a personal workspace shows in Advanced. */
-export const ADVANCED_SECTIONS: readonly AgentSection[] = ["owner", "audience", "channels", "computer", "danger"];
+export const ADVANCED_SECTIONS: readonly AgentSection[] = [
+  "owner",
+  "audience",
+  "editors",
+  "channels",
+  "computer",
+  "danger",
+];
 
 /** The tab that shows for an address: a personal workspace's advanced sections in Advanced; a team's has no Advanced. */
 export function shownAgentTab(tab: AgentTab, sec: AgentSection | undefined, personal: boolean): AgentTab {
@@ -82,14 +91,13 @@ export function agentSearch(search: Record<string, unknown>): {
   };
 }
 
-/** "Quem pensa": the brain, its model (null = the brain's default) and the fallback to the API. */
+/** "Quem pensa": the brain and its model (null = the brain's default). */
 export interface BrainChoice {
   brain: BrainKind;
   model: string | null;
-  fallback: boolean;
 }
 export const sameBrain = (a: BrainChoice, b: BrainChoice) =>
-  a.brain === b.brain && (a.brain === "model" || a.model === b.model) && a.fallback === b.fallback;
+  a.brain === b.brain && (a.brain === "model" || a.model === b.model);
 
 const sorted = (list: readonly string[]) => [...list].sort();
 export const sameList = (a: readonly string[], b: readonly string[]) => sorted(a).join("\n") === sorted(b).join("\n");
@@ -97,6 +105,23 @@ export const sameAudience = (a: AgentAudience, b: AgentAudience) =>
   (a.consultable ?? true) === (b.consultable ?? true) &&
   a.mode === b.mode &&
   (a.mode !== "people" || (sameList(a.userIds, b.userIds) && sameList(a.roleIds ?? [], b.roleIds ?? [])));
+
+const sameSet = (a: readonly string[], b: readonly string[]) => {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((id) => y.has(id));
+};
+/** The people and roles a "Quem pode editar" choice names: none under "owner". */
+const editorIds = (e: EditorsValue) => (e.mode === "people" ? e : { userIds: [], roleIds: [] });
+/**
+ * Whether two "Quem pode editar" choices name the same people and roles, as sets: "Também algumas pessoas ou cargos"
+ * with nobody picked names nobody, as "owner" does.
+ */
+export const sameEditors = (a: EditorsValue, b: EditorsValue) => {
+  const x = editorIds(a);
+  const y = editorIds(b);
+  return sameSet(x.userIds, y.userIds) && sameSet(x.roleIds, y.roleIds);
+};
 
 /** The budget typed, as the API takes it (null = the default); undefined when it isn't a valid amount. */
 export const budgetValue = (text: string): number | null | undefined => {

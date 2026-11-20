@@ -20,8 +20,10 @@ import { type AgentAppearance, setAgentAppearance, validateAppearance } from "./
 import { canTalkTo, speakerFor } from "./audience";
 import { setAgentBrain } from "./brain-settings";
 import { requireChannelAccess } from "./channels";
+import { CONNECTOR_CATALOG } from "./connectors/catalog";
 import { prefixService, toolPrefixOf, toolPrefixOfConnection } from "./connectors/connections";
 import { customScope, isCustom } from "./connectors/custom";
+import { MCP_PRESETS } from "./connectors/presets";
 import { normalizeNote } from "./consultations";
 import { type ContextDeps, schedulesOf } from "./context/summaries";
 import { publishDelivery } from "./delivery";
@@ -41,6 +43,7 @@ import { checkFrequency, createRoutine, routineTimezone } from "./routines";
 import type { ScheduleRule } from "./rrule";
 import { deliverNoticeToRun } from "./run-resume";
 import { parseSchedule } from "./schedule";
+import { SETUP_HELLO_MAX } from "./setup-checklist";
 import { isPersonalWorkspace } from "./workspace-mode";
 
 const {
@@ -97,6 +100,13 @@ export interface AgentDraft {
   mail?: ProposedMailbox[];
   /** A routine of its own, created with it (none on cards from before routines came with proposals). */
   routine?: ProposedRoutine | null;
+  /** How it introduces itself, in its own voice (ADR 0164): the speech bubble on its card, its first message. */
+  hello?: string;
+  /**
+   * Catalog apps its job needs that the workspace hasn't connected (preset ids): the review lists them for after it is
+   * created, and its chat's checklist asks to connect them.
+   */
+  later?: string[];
   ai: SuggestedAi;
 }
 
@@ -186,6 +196,16 @@ export const agentProposalOf = (meta: Record<string, unknown> | null | undefined
   return card?.kind === "agent_proposal" && card.params?.draft ? (card as AgentProposalCard) : null;
 };
 
+/** Every app the catalog offers by id: the built-in connectors and the MCP presets. */
+const CATALOG_APPS = (): { id: string; label: string; soon?: true }[] => [
+  ...Object.values(CONNECTOR_CATALOG).map((c) => ({ id: c.id, label: c.label })),
+  ...MCP_PRESETS,
+];
+
+/** The apps a draft still needs connected, for its new agent's checklist (they are read until someone says more). */
+const laterApps = (draft: AgentDraft) =>
+  draft.later?.length ? Object.fromEntries(draft.later.map((id) => [id, "read"])) : null;
+
 const expired = (card: AgentProposalCard, now = Date.now()) =>
   card.state === "pending" && Date.parse(card.expiresAt) <= now;
 
@@ -202,6 +222,8 @@ export interface AgentDraftInput {
   channels?: unknown;
   access?: unknown;
   routine?: unknown;
+  hello?: unknown;
+  connect_later?: unknown;
 }
 
 /** Where a draft is proposed: what it may name depends on who asked and who reads the card. */
@@ -279,7 +301,14 @@ async function offerOf(db: Database, at: DraftPlace): Promise<Offer> {
         toolPrefix: connectorConnections.toolPrefix,
       })
       .from(connectorConnections)
-      .where(and(eq(connectorConnections.orgId, at.orgId), isNull(connectorConnections.revokedAt)))
+      // The team's: a person's own connection reaches an agent only from that person's own page or settings.
+      .where(
+        and(
+          eq(connectorConnections.orgId, at.orgId),
+          isNull(connectorConnections.revokedAt),
+          isNull(connectorConnections.ownerUserId),
+        ),
+      )
       .orderBy(asc(connectorConnections.createdAt)),
     at.personId
       ? db
@@ -503,6 +532,20 @@ export async function checkAgentDraft(
     else if (box) mail.set(box.id, { accountId: box.id, address: box.address, level, ownerUserId: box.ownerUserId });
     else throw new ValidationError(`No connected app or mailbox "${asked}". ${offerText(offer)}`);
   }
+  const later: string[] = [];
+  for (const raw of list(input.connect_later)) {
+    const asked = str(raw).toLowerCase();
+    const preset = CATALOG_APPS().find((p) => p.id === asked || p.label.toLowerCase() === asked);
+    if (!preset) throw new ValidationError(`No app "${asked}" in the catalog: leave it out of \`connect_later\`.`);
+    if (preset.soon) {
+      throw new ValidationError(`${preset.label} can't be connected yet: leave it out and tell the person.`);
+    }
+    if (offer.apps.some((c) => c.connector === preset.id)) {
+      throw new ValidationError(`${preset.label} is connected already: give it in \`access\`.`);
+    }
+    if (!later.includes(preset.id)) later.push(preset.id);
+  }
+  const hello = str(input.hello).slice(0, SETUP_HELLO_MAX);
   const routine = input.routine ? await checkRoutine(deps, at, input.routine) : null;
   const channelIds = offer.channels.filter((c) => wanted.includes(c.name)).map((c) => c.id);
   // Its routine reports in this conversation: the agent is in it.
@@ -518,6 +561,8 @@ export async function checkAgentDraft(
     access: [...access].map(([connectionId, level]) => ({ connectionId, level })),
     mail: [...mail.values()],
     routine: routine && { ...routine, reportsIn: offer.here?.id ?? null },
+    ...(hello ? { hello } : {}),
+    ...(later.length > 0 ? { later } : {}),
   };
 }
 
@@ -574,7 +619,6 @@ export async function suggestAgentAi(
       model: AUTO_MODEL,
       credentialId: null,
       brain: "model",
-      brainFallback: false,
       brainAccountId: null,
       machineId: null,
     };
@@ -826,6 +870,8 @@ export async function createProposedAgent(
         role: draft.role,
         instructions: draft.instructions,
         ...(delegated ? { monthlyBudgetNanoUsd: delegated.budgetNanoUsd } : {}),
+        // Its chat says back how it introduced itself and asks to connect the apps it still needs (ADR 0164).
+        setup: { role: null, hello: draft.hello ?? null, apps: laterApps(draft) },
       },
       NEW_AGENT_DEFAULTS,
       { via: found.proposedBy, pubsub: deps.pubsub },
@@ -1017,7 +1063,7 @@ async function giveLines(
     ai.kind !== "account" ||
     (
       await attempt(async () => {
-        await setAgentComputerTarget(deps, userId, orgId, agent.id, ai.machineId);
+        await setAgentComputerTarget(deps, userId, orgId, agent.id, ai.machineId, { wakeWaits: false });
         await setAgentBrain(deps, userId, orgId, agent.id, { brain: ai.brain, account: ai.accountId });
         // Who may talk to it moves with its AI, after the apps read it as it was made.
         await publishAgentsChanged(deps.pubsub, orgId);

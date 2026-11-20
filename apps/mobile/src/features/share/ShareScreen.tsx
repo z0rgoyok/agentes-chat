@@ -1,11 +1,11 @@
 import { keys, useApi } from "@agenteschat/client";
 import { makesAgents } from "@agenteschat/client/lib/permissions";
+import { useTrueSheetNavigation } from "@lodev09/react-native-true-sheet/navigation/expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { type NativeStackNavigationOptions, useNavigation } from "expo-router";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Keyboard, ScrollView, type ScrollViewInstance, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -14,21 +14,23 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
 import {
   Button,
   EmptyState,
-  fieldText,
   GroupedHeader,
   GroupedList,
   GroupedRow,
   haptics,
   Icon,
   PixelOrbit,
+  SHEET_X,
+  SheetBar,
+  SheetContent,
   SheetSurface,
   Text,
   useReducedMotion,
+  useRouteSheetScrollable,
   useTheme,
 } from "@/ui";
 import { router } from "@/ui/navigation";
@@ -38,6 +40,7 @@ import { AgentFace } from "../shared/Face";
 import { useDirectory, useErrorToast, useOrgId } from "../shared/hooks";
 import { goBack } from "../shared/parts";
 import { useConversations } from "../shared/queries";
+import { TextArea } from "../shared/TextArea";
 import { handShare } from "./handoff";
 import { clearShare, SHARE_MAX_FILES, type Shared, type SharedFile, shareMessage, useShared } from "./inbox";
 
@@ -60,11 +63,12 @@ const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
  * own, then the agents, the one you talk to most recently first, faces at 36; one tap picks, "Enviar para Dora" sends.
  * Sending, the agent's face catches it (a short pop, its "thinking" look, one light tap) and its conversation opens,
  * where the photos and the words go out through the conversation's own sending, so the agent starts reading at once.
+ * The send button is the sheet's own footer: pinned to its bottom edge, it rises over the keyboard while the line is
+ * typed, so sending never waits for the keyboard to go.
  */
 export function ShareScreen() {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useTrueSheetNavigation();
   const reduced = useReducedMotion();
   const { colors } = useTheme();
   const api = useApi();
@@ -88,9 +92,10 @@ export function ShareScreen() {
     return () => clearTimeout(timer);
   }, [shared]);
 
+  // Typing the line, the sheet takes the whole screen; done, it may rest lower again. The route is a TrueSheet screen
+  // (`app/(app)/_layout.tsx`): its heights are its `detents`.
   useEffect(() => {
-    const options: NativeStackNavigationOptions = { sheetAllowedDetents: typing ? DETENTS_TYPING : DETENTS_REST };
-    navigation.setOptions(options);
+    navigation.setOptions({ detents: typing ? DETENTS_TYPING : DETENTS_REST });
   }, [navigation, typing]);
 
   // What came moves toward the agent as the face catches it: one gesture, the preview leading into the face.
@@ -101,7 +106,16 @@ export function ShareScreen() {
   }));
 
   const picked = agents.find((a) => a.id === to) ?? null;
+  // Cancelled or swiped away while the conversation opened: nothing is handed over, nothing replaces the screen.
+  const left = useRef(false);
+  useEffect(() => {
+    left.current = false;
+    return () => {
+      left.current = true;
+    };
+  }, []);
   const cancel = () => {
+    left.current = true;
     Keyboard.dismiss();
     clearShare();
     goBack();
@@ -116,6 +130,7 @@ export function ShareScreen() {
     try {
       const { channelId } = await api.dms.open(orgId, { agentId: picked.id });
       void qc.invalidateQueries({ queryKey: keys.dms(orgId) });
+      if (left.current) return;
       handShare({ channelId, files: shared.files.slice(0, SHARE_MAX_FILES), text: shareMessage(line, shared) });
       clearShare();
       // The catch plays out (it started with the tap), then the conversation: no wait added past a slow network.
@@ -128,36 +143,53 @@ export function ShareScreen() {
     }
   };
 
+  // The send button as the sheet's footer (TrueSheet's own, set on the route): it floats over the list at the sheet's
+  // bottom edge, over the home indicator at rest and right over the keyboard while it is up; the sheet keeps the
+  // list's last rows clear of it. It presses the latest `send` (the footer is drawn from the options it was set with).
+  const sendNow = useRef(send);
+  sendNow.current = send;
+  const label = picked ? t("mobile.share.send", { name: picked.name }) : t("mobile.share.pick");
+  const ready = picked !== null && !sending;
+  const hasShare = shared !== null;
+  useEffect(() => {
+    navigation.setOptions({
+      footer: hasShare ? (
+        <SheetContent>
+          <View style={styles.bar}>
+            <Button
+              variant="primary"
+              wide
+              label={label}
+              disabled={!ready}
+              loading={sending}
+              onPress={() => void sendNow.current()}
+            />
+          </View>
+        </SheetContent>
+      ) : undefined,
+      footerStyle: { backgroundColor: colors.grouped },
+      footerOptions: { position: "absolute" },
+    });
+  }, [navigation, hasShare, label, ready, sending, colors.grouped]);
+
+  // The list is the sheet's scroll view (dragging at its top moves the sheet; the sheet insets it for the keyboard
+  // and the footer).
+  const scroll = useRef<ScrollViewInstance>(null);
+  useRouteSheetScrollable(scroll);
   return (
     <SheetSurface>
       <View style={styles.fill}>
         <ScrollView
+          ref={scroll}
           style={styles.fill}
-          // The bar rides pinned at the top of this scroll view: a form sheet tracks its first scroll view, so nothing
-          // may stand before it (a bar above it is drawn under the list).
+          // The bar rides pinned at the top of this scroll view, on the sheet's color as the list passes under it.
           stickyHeaderIndices={[0]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
-          automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.scroll}
         >
-          <SheetBar>
-            <Pressable
-              onPress={cancel}
-              accessibilityRole="button"
-              hitSlop={10}
-              style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
-            >
-              <Text variant="body" tone="ink2">
-                {t("mobile.common.cancel")}
-              </Text>
-            </Pressable>
-            <Text variant="title" style={styles.title} accessibilityRole="header" numberOfLines={1}>
-              {t("mobile.share.title")}
-            </Text>
-            <View style={styles.side} />
-          </SheetBar>
+          <SheetBar title={t("mobile.share.title")} onClose={cancel} />
           <View style={styles.content}>
             {!shared ? (
               gaveUp ? (
@@ -181,26 +213,20 @@ export function ShareScreen() {
                 <Animated.View style={previewStyle}>
                   <Preview shared={shared} />
                 </Animated.View>
-                <View
-                  style={[
-                    styles.field,
-                    { backgroundColor: colors.raised, boxShadow: `0px 0px 0px 0.5px ${colors.line2}` },
-                  ]}
-                >
-                  <TextInput
-                    value={line}
-                    onChangeText={setLine}
-                    placeholder={t("mobile.share.line")}
-                    placeholderTextColor={colors.faint}
-                    onFocus={() => setTyping(true)}
-                    onBlur={() => setTyping(false)}
-                    returnKeyType="done"
-                    submitBehavior="blurAndSubmit"
-                    multiline={false}
-                    editable={!sending}
-                    style={[styles.input, fieldText("body"), { color: colors.ink }]}
-                  />
-                </View>
+                {/* The app's text field, one line here: a word to go with what came. */}
+                <TextArea
+                  value={line}
+                  onChangeText={setLine}
+                  placeholder={t("mobile.share.line")}
+                  accessibilityLabel={t("mobile.share.line")}
+                  onFocus={() => setTyping(true)}
+                  onBlur={() => setTyping(false)}
+                  returnKeyType="done"
+                  submitBehavior="blurAndSubmit"
+                  multiline={false}
+                  minHeight={44}
+                  editable={!sending}
+                />
                 {agents.length > 0 ? (
                   <>
                     <GroupedHeader>{t("mobile.share.to")}</GroupedHeader>
@@ -242,27 +268,9 @@ export function ShareScreen() {
             )}
           </View>
         </ScrollView>
-        {shared ? (
-          <View style={[styles.bar, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.grouped }]}>
-            <Button
-              variant="primary"
-              wide
-              label={picked ? t("mobile.share.send", { name: picked.name }) : t("mobile.share.pick")}
-              disabled={!picked || sending}
-              loading={sending}
-              onPress={() => void send()}
-            />
-          </View>
-        ) : null}
       </View>
     </SheetSurface>
   );
-}
-
-/** The sheet's bar, on the sheet's own color so the list passes under it when pinned. */
-function SheetBar({ children }: { children: ReactNode }) {
-  const { colors } = useTheme();
-  return <View style={[styles.head, { backgroundColor: colors.grouped }]}>{children}</View>;
 }
 
 /**
@@ -354,16 +362,10 @@ function Thumb({ file, more }: { file: SharedFile; more: number }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1, minWidth: 0 },
-  // The sheet's bar as "Novo"'s: Cancelar at the left, the title centered, clear of the grabber.
-  head: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 50, marginTop: 14, paddingHorizontal: 16 },
-  cancel: { minWidth: 72, minHeight: 44, justifyContent: "center" },
-  title: { flex: 1, textAlign: "center" },
-  side: { minWidth: 72 },
-  pressed: { opacity: 0.6 },
   waiting: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 32 },
-  // 16 from the edges; the preview and the line 12 apart, the list's own header bringing its room above it.
+  // A sheet's margins; the preview and the line 12 apart, the list's own header bringing its room above it.
   scroll: { paddingBottom: 24 },
-  content: { paddingHorizontal: 16, paddingTop: 8 },
+  content: { paddingHorizontal: SHEET_X, paddingTop: 8 },
   // What came, on a white card on the sheet's gray: thumbnails, names and text 8 apart.
   preview: { borderRadius: 20, borderBottomLeftRadius: 6, padding: 12, gap: 8, marginBottom: 12 },
   thumbs: { flexDirection: "row", gap: 8 },
@@ -388,7 +390,6 @@ const styles = StyleSheet.create({
   },
   moreText: { color: "#fff", fontVariant: ["tabular-nums"] },
   fileLine: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
-  field: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: 14, borderRadius: 14 },
-  input: { flex: 1, minWidth: 0, paddingVertical: 0 },
-  bar: { paddingHorizontal: 16, paddingTop: 12 },
+  // The footer's own room; the sheet adds the home indicator's under it at rest.
+  bar: { paddingHorizontal: SHEET_X, paddingVertical: 12 },
 });

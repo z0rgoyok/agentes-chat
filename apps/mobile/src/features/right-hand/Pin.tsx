@@ -15,7 +15,7 @@ import { useSurface } from "../shared/parts";
  * conversation's composer ("Mensagem para Atlas", its face before it), the app's card with its cut corner. It opens
  * its DM (starting one when there is none yet). It never carries a count or a dot: when the right hand answered and
  * you haven't read it, its last line takes the invitation's place, in the text's own color ("Atlas: deixei o
- * resumo na sua conversa"). It is not one of Agentes' rows.
+ * resumo na sua conversa"). It is never a row of Recentes nor a face on the pinned strip.
  */
 export function RightHandAsk({
   row,

@@ -346,10 +346,11 @@ describe("Criar agente: steps", () => {
     expect(screen().queryByRole("group", { name: "Função" })).toBeNull();
     expect(screen().queryByRole("complementary", { name: "Prévia do agente" })).toBeNull();
     expect(screen().queryByRole("button", { name: /^Continuar/ })).toBeNull();
-    // Enter in its field reads what's there, never moves the steps on.
+    // The file sheet: Enter in its field reads what's there, never moves the steps on.
+    await click(screen().getByRole("button", { name: "Tenho um arquivo ou link" }));
     const field = screen().getByLabelText("Ou cole um link do GitHub ou a resposta do outro app");
     await press(field, "Enter");
-    expect(title()).toBe("Trazer agentes de outro app");
+    expect(screen().getByRole("dialog", { name: "Trazer de um arquivo ou link" })).toBeTruthy();
 
     // A pasted reply: planned, then Importar brings the agent, and the report links to it.
     const reply = {
@@ -378,6 +379,9 @@ describe("Criar agente: steps", () => {
     const pasted = `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``;
     await act(async () => fireEvent.paste(field, { clipboardData: { getData: () => pasted } }));
     await settle(10);
+    // Who comes, in the sheet; closing it leaves the full preview on the page.
+    await click(document.querySelector(".imp-sheet .hosting-sheet__close") as HTMLElement);
+    expect(title()).toBe("Trazer agentes de outro app");
     expect(screen().getByRole("heading", { name: "Minhas automações" })).toBeTruthy();
     await click(screen().getByRole("button", { name: /^Importar 1 / }));
     await settle(8);
@@ -430,6 +434,16 @@ describe("Criar agente: steps", () => {
     expect((screen().getByLabelText("No chat") as HTMLInputElement).value).toBe("ada-dev");
     await proceed();
     expect(title()).toBe("O que a Ada Maria faz");
+  });
+
+  test("someone else's private Ada, unlisted to me, still holds @ada: Dev starts as @ada-2's suggestion", async () => {
+    const state = seedState();
+    meWithRole(state, ["create_agents"]);
+    const ada = state.agents.find((a) => a.handle === "ada");
+    if (ada) Object.assign(ada, { ownerUserId: "u-other", audience: { mode: "owner", userIds: [] } });
+    await open(state);
+    await startAs("Dev");
+    expect(document.body.textContent).toContain("@ada já é de outro agente ou pessoa. Que tal @ada-2?");
   });
 
   test("an empty name and @ only complain after trying to go on", async () => {
@@ -1002,18 +1016,13 @@ describe("Criar agente: what gets created", () => {
     await startAs("Assistente");
     await proceed(4);
     const list = await openBrain();
-    expect(optionsIn(list, "OpenCode Go")).toHaveLength(32);
+    expect(optionsIn(list, "OpenCode Go")).toHaveLength(33);
     await typeIn(screen().getByRole("combobox", { name: "Buscar modelos" }), "free");
     expect(
       within(list)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual([
-      "LongCat 2.5 FreeGrátis",
-      "Beam FreeGrátis",
-      "Crouton Alpha FreeGrátis",
-      "Iceman Contributor FreeGrátis",
-    ]);
+    ).toEqual(["LongCat 2.5 FreeGrátis", "Hy4 Flash FreeGrátis", "Beam FreeGrátis", "Iceman Contributor FreeGrátis"]);
     await typeIn(screen().getByRole("combobox", { name: "Buscar modelos" }), "deepseek flash");
     await click(screen().getByRole("option", { name: /^DeepSeek V4\.1 Flash/ }));
     expect(brainBox().textContent).toStartWith("DeepSeek V4.1 Flash pelo OpenCode Go");
@@ -1114,7 +1123,6 @@ describe("Criar agente: what gets created", () => {
       account: { id: "acc-1", label: "Claude", provider: null, mine: true, free: true },
       ownSignIn: false,
       effort: "high",
-      fallback: true,
     };
     await open(state);
     await startAs("Assistente");
@@ -1130,7 +1138,7 @@ describe("Criar agente: what gets created", () => {
     expect(state.calls.find((c) => c.method === "agents.setBrain")?.args).toEqual([
       ORG_ID,
       agentId,
-      { brain: "claude_code", account: "acc-1", model: "opus", effort: "high", contextTokens: null, fallback: true },
+      { brain: "claude_code", account: "acc-1", model: "opus", effort: "high", contextTokens: null },
     ]);
   });
 
@@ -1163,7 +1171,6 @@ describe("Criar agente: what gets created", () => {
       account: null,
       ownSignIn: true,
       effort: "high",
-      fallback: true,
     };
     const api = createFakeApi(state);
     fakeMachinesOf.get(api)?.setAiAccounts({

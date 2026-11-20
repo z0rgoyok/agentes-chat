@@ -5,44 +5,41 @@ import {
   fanOutOf,
   fanOutText,
   fanShows,
-  queueCauseText,
-  queueLiveText,
-  queueStoppable,
-  queueStopText,
   waitingFor,
 } from "@agenteschat/client/lib/computer-queue";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { Button, Chip, LineIcon, Text } from "@/ui";
 import { MSG_AVATAR, MSG_GAP, MSG_INSET, rowFrame } from "../chat/logic";
 import { useQuietInset, useRhythm, useRowLook } from "../chat/look";
+import { useRowDirectory, useRowMeId } from "../chat/row-data";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useNow } from "../shared/hooks";
-import { useStopper } from "../task-manager/hooks";
+import { useColors } from "../shared/hooks";
 import { useAgentsQueue, useOpenQueue } from "./QueueSheet";
 
 /**
  * Where "thinking" shows, at the end of the conversation, for a run that waits in line for its computer
- * (`conversationWaits`: one per run): its face and name, "Waiting for the computer. Next up, in about 1 min" or "In
- * line, 4th. After Ada, Kai and Ravi", "You go first" on my own request, and "See queue". It lives as long as the
- * receipts say the run waits: its computer's line only adds to it ("Waiting for the computer" until it knows the turn).
+ * (`conversationWaits`: one per run): its face and name, one line whatever holds it ("In line · starts soon"), "You go
+ * first" on my own request, and "See queue". It lives as long as the receipts say the run waits.
  */
-export function QueueWaitRow({ channelId, wait: { agentId, runId } }: { channelId: string; wait: ConversationWait }) {
+export const QueueWaitRow = memo(function QueueWaitRow({
+  channelId,
+  wait: { agentId, runId },
+}: {
+  channelId: string;
+  wait: ConversationWait;
+}) {
   const rhythm = useRhythm();
   const { faces } = useRowLook();
-  const { t, i18n } = useTranslation();
-  const dir = useDirectory();
-  const meId = useMeId();
-  const now = useNow(30_000);
+  const { t } = useTranslation();
+  const dir = useRowDirectory();
+  const meId = useRowMeId();
   const openQueue = useOpenQueue();
   const { machineId, queue } = useAgentsQueue([agentId]);
   const name = (id: string) => dir.anyAgent(id)?.name;
   const w = waitingFor(queue, runId ? { runOf: { [agentId]: runId } } : undefined, agentId, channelId);
-  const text = (w && queueLiveText(t, i18n.language, queue, w.runId, name, now)) ?? t("queue.live.waiting");
   const first = w?.people && w.purpose.kind === "person" && w.purpose.userId === meId;
-  const cause = w ? queueCauseText(t, queue) : null;
-  const { stopping, stop } = useStopper();
-  const freeing = w ? queueStoppable(queue) : undefined;
   const c = useColors();
   return (
     <View style={[styles.turn, rowFrame(rhythm.block, rhythm.turn)]} accessibilityLiveRegion="polite">
@@ -58,37 +55,19 @@ export function QueueWaitRow({ channelId, wait: { agentId, runId } }: { channelI
         <View style={styles.say}>
           <LineIcon name="wait" size={13} color={c.muted} variant="footnote" />
           <Text variant="footnote" tone="muted" style={styles.grow}>
-            {text}
+            {t("queue.waiting")}
           </Text>
         </View>
-        {cause ? (
-          <Text variant="footnote" tone="muted">
-            {cause}
-          </Text>
-        ) : null}
         <View style={styles.acts}>
           {first ? <Chip icon="person" label={t("queue.youFirst")} /> : null}
           {machineId ? (
             <Button variant="ghost" size="sm" label={t("queue.see")} onPress={() => openQueue(machineId)} />
           ) : null}
-          {freeing ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              label={
-                stopping.has(freeing.runId)
-                  ? t("taskManager.state.stopping")
-                  : queueStopText(t, freeing, name(freeing.agentId) ?? t("channel.unknownAgent"))
-              }
-              loading={stopping.has(freeing.runId)}
-              onPress={() => stop([freeing.runId], undefined, true)}
-            />
-          ) : null}
         </View>
       </View>
     </View>
   );
-}
+});
 
 /**
  * Under an agent's message that called several agents: one strip instead of a "busy" line each. "12 agents called ·
@@ -99,7 +78,7 @@ export function FanStrip({ message: m, receipt }: { message: Message; receipt: M
   const rhythm = useRhythm();
   const inset = useQuietInset();
   const { t, i18n } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const c = useColors();
   const openQueue = useOpenQueue();
   const { machineId, queue } = useAgentsQueue(m.mentionedAgentIds);

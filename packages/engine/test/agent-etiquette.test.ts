@@ -9,12 +9,12 @@ import {
   drainOutbox,
   insertMessage,
   isShortFollowUp,
-  isStopRequest,
   type JudgeQuestion,
   mentionNeedsNothing,
   postPersonMessage,
   type RouterStrategy,
   routeMessage,
+  steerHandling,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
 
@@ -138,11 +138,21 @@ describe("an agent's @mention of another agent", () => {
         },
       },
       fetch: (async () =>
-        Response.json({ answers: { stop: { noul: 0.9 } }, usage: { input_tokens: 20 } })) as unknown as typeof fetch,
+        Response.json({
+          answers: { handling: { type: "choice", choice: "stop", confidence: 1, probabilities: { stop: 0.9 } } },
+          usage: { input_tokens: 20 },
+        })) as unknown as typeof fetch,
     });
-    expect(await isStopRequest(judge, { orgId: "o", text: "para", agentName: "Dev", agentId: "a1", runId: "r1" })).toBe(
-      true,
-    );
+    expect(
+      await steerHandling(judge, {
+        orgId: "o",
+        text: "para",
+        agentName: "Dev",
+        task: null,
+        agentId: "a1",
+        runId: "r1",
+      }),
+    ).toBe("stop");
     expect(usage).toMatchObject([{ orgId: "o", agentId: "a1", runId: "r1", provider: "typesafe" }]);
   });
 });

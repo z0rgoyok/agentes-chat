@@ -105,7 +105,7 @@ describe("MediaRow", () => {
     const parts = src("features/usage/parts.tsx");
     const head = parts.slice(parts.indexOf("export function AccountHead("), parts.indexOf("function Tag("));
     // Whose it is comes after the head's row, not in the logo's column.
-    expect(head.indexOf("brandOf(account), whose, extra")).toBeGreaterThan(head.lastIndexOf("</View>\n      </View>"));
+    expect(head.indexOf("{sub}")).toBeGreaterThan(head.lastIndexOf("</View>\n      </View>"));
   });
 
   test("screens import it from the design system", () => {

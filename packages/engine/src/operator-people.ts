@@ -143,6 +143,7 @@ const ALLOWS = [
   "public_channel",
   "administrator",
   "task_reader",
+  "file_reader",
   "shared_everyone",
   "shared_person",
   "shared_role",
@@ -159,6 +160,7 @@ const REFUSES = [
   "not_joined",
   "not_channel_member",
   "not_task_reader",
+  "not_file_reader",
   "not_shared",
   "unknown",
 ] as const;
@@ -249,13 +251,17 @@ const channelAccess: Explain = async (db, orgId, userId, channelId, member) => {
       ? c.reads
         ? "task_reader"
         : "not_task_reader"
-      : c.inIt
-        ? "channel_member"
-        : c.kind === "channel" && can(member, "administrator")
-          ? "administrator"
-          : c.kind === "channel" && c.visibility === "public"
-            ? "not_joined"
-            : "not_channel_member";
+      : c.kind === "file"
+        ? c.reads
+          ? "file_reader"
+          : "not_file_reader"
+        : c.inIt
+          ? "channel_member"
+          : c.kind === "channel" && can(member, "administrator")
+            ? "administrator"
+            : c.kind === "channel" && c.visibility === "public"
+              ? "not_joined"
+              : "not_channel_member";
   return answered(!c.archivedAt && c.reads, rule);
 };
 
@@ -303,6 +309,8 @@ const fileAccess: Explain = async (db, orgId, userId, fileId, member) => {
       share: artifacts.share,
       shareUserIds: artifacts.shareUserIds,
       shareRoleIds: artifacts.shareRoleIds,
+      createdByType: artifacts.createdByType,
+      createdById: artifacts.createdById,
       deletedAt: artifacts.deletedAt,
       inChannel: memberOf(where, userId),
       publicChannel: publicChannel(where),
@@ -314,27 +322,33 @@ const fileAccess: Explain = async (db, orgId, userId, fileId, member) => {
     .where(and(eq(artifacts.orgId, orgId), eq(artifacts.id, fileId)));
   if (!f) return null;
   const listed = f.share === "people";
-  // An administrator reads every channel's files, never a direct conversation's, and every file shared by a list.
-  const admin = can(member, "administrator") && (f.channelKind === "channel" || listed);
+  // An administrator reads every channel's files, never a direct conversation's, every file shared by a list, and
+  // every file of the Drive itself, which lives with its maker (ADR 0157, amendment 2026-11-17).
+  const admin = can(member, "administrator") && (f.channelKind === "channel" || listed || !f.channelId);
+  const maker = !f.channelId && f.createdByType === "person" && f.createdById === userId;
   const rule: Rule = f.deletedAt
     ? "gone"
-    : !f.channelId
+    : !f.channelId && f.share === "everyone"
       ? "workspace"
       : f.share === "everyone"
         ? "shared_everyone"
         : listed && f.shareUserIds.includes(userId)
           ? "shared_person"
-          : f.inChannel
-            ? "channel_member"
-            : f.publicChannel
-              ? "public_channel"
-              : f.channelKind === "task" && f.readsChannel
-                ? "task_reader"
-                : admin
-                  ? "administrator"
-                  : listed && f.shareRoleIds.some((id) => member?.roleIds.includes(id))
-                    ? "shared_role"
-                    : "not_shared";
+          : maker
+            ? "owner"
+            : f.inChannel
+              ? "channel_member"
+              : f.publicChannel
+                ? "public_channel"
+                : f.channelKind === "task" && f.readsChannel
+                  ? "task_reader"
+                  : f.channelKind === "file" && f.readsChannel
+                    ? "file_reader"
+                    : admin
+                      ? "administrator"
+                      : listed && f.shareRoleIds.some((id) => member?.roleIds.includes(id))
+                        ? "shared_role"
+                        : "not_shared";
   return answered(!f.deletedAt && f.sees, rule);
 };
 

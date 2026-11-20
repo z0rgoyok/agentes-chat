@@ -2,12 +2,19 @@ import type { OrgRole, Person } from "@agenteschat/client";
 import { useChangeRole, useSetMemberRoles } from "@agenteschat/client";
 import { firstName } from "@agenteschat/client/lib/format";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
-import { giveRole, isBelow, PEOPLE_SEARCH_FROM, peopleWith, roleName } from "@agenteschat/client/lib/roles";
+import {
+  giveRole,
+  isBelow,
+  ownerCandidates,
+  PEOPLE_SEARCH_FROM,
+  peopleWith,
+  roleName,
+} from "@agenteschat/client/lib/roles";
 import { matchesWords } from "@agenteschat/ui/search";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
-import { Button, GroupedFooter, GroupedList, GroupedRow, SearchField, useToast } from "@/ui";
+import { GroupedFooter, GroupedList, GroupedRow, SearchField, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Gap, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
@@ -54,7 +61,7 @@ function useTakeOut() {
 }
 
 /**
- * A cargo's people (P8): Adicionar pessoas, then each person with an × that takes them out ("Tirar Carla de Suporte"),
+ * A cargo's people: Adicionar pessoas, then each person with an × that takes them out ("Tirar Carla de Suporte"),
  * or "Acima do seu cargo" for someone the viewer may not change. A search past eight.
  */
 export function RolePeopleScreen({ roleId }: { roleId: string }) {
@@ -116,12 +123,15 @@ export function RolePeopleScreen({ roleId }: { roleId: string }) {
         })}
       </GroupedList>
       {holders.length === 0 ? <GroupedFooter>{t("rolesPage.nobody", { name })}</GroupedFooter> : null}
+      {query.trim() && holders.length > 0 && shown.length === 0 ? (
+        <NoMatch q={query.trim()} clear={() => setQuery("")} />
+      ) : null}
     </SettingsPage>
   );
 }
 
 /**
- * Adicionar a {{name}} (`owner`: make owners): who may get it, checked, then the docked Adicionar; the mailbox question
+ * Adicionar a {{name}} (`owner`: make owners): who may get it, checked, then Adicionar in the bar; the mailbox question
  * first when agents would lose one. Owners are made one by one, stopping at a refusal, as on the web.
  */
 export function AddToRoleScreen({ roleId }: { roleId: string }) {
@@ -145,9 +155,10 @@ export function AddToRoleScreen({ roleId }: { roleId: string }) {
   if (!owner && !role) return <Gone title={title} />;
   const candidates = (
     owner
-      ? people.filter((p) => p.role !== "owner")
+      ? ownerCandidates(people)
       : people.filter((p) => !(p.roleIds ?? []).includes(roleId) && isBelow(viewer, p, data.roles))
   ).sort(byName);
+  const shown = candidates.filter((p) => matchesWords(`${p.name} ${p.email}`, query));
   const add = async () => {
     setBusy(true);
     let stays = true;
@@ -190,17 +201,13 @@ export function AddToRoleScreen({ roleId }: { roleId: string }) {
   return (
     <SettingsPage
       title={title}
-      locked={busy}
-      bottom={
-        <Button
-          variant="primary"
-          size="md"
-          label={picked.size ? t("rolesPage.addCount", { count: picked.size }) : t("rolesPage.add")}
-          disabled={picked.size === 0}
-          loading={busy}
-          onPress={() => void add()}
-        />
-      }
+      // Adicionar in the bar, as every form's word that saves: a search's keyboard never hides it.
+      action={{
+        label: picked.size ? t("rolesPage.addCount", { count: picked.size }) : t("rolesPage.add"),
+        disabled: picked.size === 0,
+        onPress: () => void add(),
+      }}
+      busy={busy}
     >
       <GroupedFooter>{t("rolesPage.addSub")}</GroupedFooter>
       {candidates.length > PEOPLE_SEARCH_FROM ? (
@@ -215,35 +222,36 @@ export function AddToRoleScreen({ roleId }: { roleId: string }) {
       ) : null}
       <Gap />
       <GroupedList>
-        {candidates
-          .filter((p) => matchesWords(`${p.name} ${p.email}`, query))
-          .map((p) => (
-            <GroupedRow
-              key={p.userId}
-              leading={<Face who={{ type: "person", id: p.userId }} size={30} live={false} />}
-              label={p.name}
-              sub={p.email}
-              subLines={2}
-              media
-              checked={picked.has(p.userId)}
-              onPress={() => {
-                tapHaptic();
-                setPicked((now) => {
-                  const next = new Set(now);
-                  if (!next.delete(p.userId)) next.add(p.userId);
-                  return next;
-                });
-              }}
-            />
-          ))}
+        {shown.map((p) => (
+          <GroupedRow
+            key={p.userId}
+            leading={<Face who={{ type: "person", id: p.userId }} size={30} live={false} />}
+            label={p.name}
+            sub={p.email}
+            subLines={2}
+            media
+            checked={picked.has(p.userId)}
+            onPress={() => {
+              tapHaptic();
+              setPicked((now) => {
+                const next = new Set(now);
+                if (!next.delete(p.userId)) next.add(p.userId);
+                return next;
+              });
+            }}
+          />
+        ))}
       </GroupedList>
       {candidates.length === 0 ? <GroupedFooter>{t("rolesPage.noOneLeft", { name })}</GroupedFooter> : null}
+      {query.trim() && candidates.length > 0 && shown.length === 0 ? (
+        <NoMatch q={query.trim()} clear={() => setQuery("")} />
+      ) : null}
     </SettingsPage>
   );
 }
 
 /**
- * Cargos de Carla (P11), from Membros: a switch per cargo the viewer may give, each saving on its own (the mailbox
+ * Cargos de Carla, from Membros: a switch per cargo the viewer may give, each saving on its own (the mailbox
  * question first when it would take one), every switch off while one saves. Todos is everyone's: said under them.
  */
 export function PersonRolesScreen({ userId }: { userId: string }) {
@@ -295,6 +303,19 @@ export function PersonRolesScreen({ userId }: { userId: string }) {
       </GroupedList>
       <GroupedFooter>{roles.length ? t("members.everyoneNote") : t("members.noRolesToGive")}</GroupedFooter>
     </SettingsPage>
+  );
+}
+
+/** A search that names nobody: what was looked for, and a way to clear it. */
+function NoMatch({ q, clear }: { q: string; clear: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <GroupedFooter>{t("rolesPage.holders.noMatch", { q })}</GroupedFooter>
+      <GroupedList>
+        <GroupedRow icon="x" label={t("filters.clearSearch")} onPress={clear} />
+      </GroupedList>
+    </>
   );
 }
 

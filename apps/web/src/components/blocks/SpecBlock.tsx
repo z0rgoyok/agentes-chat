@@ -1,4 +1,4 @@
-import { type BlockChange, useBlockReply, useBlockValues } from "@agenteschat/client";
+import { type BlockChange, newClientId, useBlockReply, useBlockValues } from "@agenteschat/client";
 import type { ChartSpec } from "@agenteschat/client/lib/chart";
 import { formatTime } from "@agenteschat/client/lib/format";
 import { Button, Field, Input, Segmented, Switch, Textarea } from "@agenteschat/ui";
@@ -113,7 +113,7 @@ export function SpecBlock({
     if (!draft?.ready || reply.isPending) return;
     const text = draft.text;
     reply.mutate(
-      { text, clientId: crypto.randomUUID() },
+      { text, clientId: newClientId() },
       {
         onSuccess: () => {
           const done = { text, at: new Date().toISOString() };

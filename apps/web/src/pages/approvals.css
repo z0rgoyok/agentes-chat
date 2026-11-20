@@ -501,18 +501,23 @@ html:not([data-pointer]) .ap-mi__mission:focus-visible {
   color: var(--ink);
 }
 
+/* A text-only action: the words alone, darker on hover, never a plate behind them. */
 .ap-link {
   align-self: flex-start;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink2);
+  line-height: inherit;
   text-decoration: none;
-  border-radius: 8px;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-cut);
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
 }
 .ap-link:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
 }
 html:not([data-pointer]) .ap-link:focus-visible {
   outline: none;
@@ -827,6 +832,16 @@ html:not([data-pointer]) .ap-li:focus-visible {
   box-shadow: none;
   background: none;
 }
+/* The request's sections on one surface: a list heading, then what it says, 8 apart. */
+.ap-review__sect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ap-review__sect > .ac-grouphead {
+  margin: 0;
+}
 .ap-review__why {
   margin: 0;
   font-size: 15px;
@@ -861,17 +876,8 @@ html:not([data-pointer]) .ap-li:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 16px;
-}
-.ap-review__foot button.ap-link {
-  all: unset;
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--ink2);
-}
-.ap-review__foot button.ap-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
 }
 
 /* The decision: a bar floating at the bottom of the request (the selection bar's look); the dialog's footer
@@ -911,13 +917,10 @@ html:not([data-pointer]) .ap-li:focus-visible {
   flex: 0 1 auto;
   min-width: 0;
 }
-/* The buttons alone: at the bar's end, the same room on every side of them. */
-.ap-bar--acts {
-  justify-content: flex-end;
-}
-/* "Mudar quando perguntar" at the bar's start, its buttons at the end. */
-.ap-bar__when {
-  margin-inline-end: auto;
+/* "Mudar quando perguntar" at the bar's start, its buttons at the end (alone, the same room on every side of them).
+   Wrapped under it on a narrow bar, they start at its words' edge (`.ac-tailrow`), never floating at the end. */
+.ap-bar--acts > .ap-bar__acts {
+  justify-content: flex-start;
 }
 .ap-bar--acts.ap-bar--float {
   padding: 10px;

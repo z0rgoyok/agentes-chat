@@ -2,6 +2,7 @@ import { mkdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GROK_ACCOUNT_HOMES } from "@agenteschat/adapters/command-policy";
+import { type KnownLabel, scrubLogLine } from "@agenteschat/adapters/error-scrub";
 import {
   cgroupCounters,
   diskFigures,
@@ -24,10 +25,12 @@ import {
   type MachineReplies,
   type MachineRequest,
   OWN_USAGE_ID,
+  REPORT_LOG_LINES,
   type RunnerAccess,
   type RunnerFrame,
   type RunnerInfo,
   type RunnerPause,
+  type RunnerReportParts,
   type RunnerToolchains,
   type RunnerTools,
 } from "@agenteschat/adapters/machine-protocol";
@@ -1237,6 +1240,7 @@ export class RunnerDaemon implements RequestObserver {
     const mcp = new McpBridge({
       socketPath,
       task: (taskId) => tasks.mcpTask(taskId) ?? brains.mcpTask(taskId) ?? codexRuns.get(taskId) ?? null,
+      onCall: (taskId, delta) => brains.bridgeCall(taskId, delta),
       log,
     });
     await mcp
@@ -1549,6 +1553,7 @@ export class RunnerDaemon implements RequestObserver {
       },
       cliInstall: (req) => this.cliInstaller().handle(req),
       xcodeOpen: () => this.iphoneSetup().open("xcode"),
+      reportParts: () => this.reportParts(),
     };
     // `hello` lists the accounts it already knows; a fresh look (each runs its CLI) never delays connecting:
     // it lands in `hello` if it finishes first, else comes after as `accounts.changed`. Nothing reaches the
@@ -2295,6 +2300,12 @@ export class RunnerDaemon implements RequestObserver {
     return { looking: (await this.phones?.look()) ?? false };
   }
 
+  /** The desktop app's iPhone setup repairing an iPhone's test helper (`phone.repair`). */
+  async iphoneRepair(serial: string): Promise<{ repairing: boolean }> {
+    if (!this.phones) throw new RunnerError("phone_missing", "This computer doesn't reach phones.");
+    return this.phones.repair({ serial });
+  }
+
   /** The desktop app's iPhone setup: what the Mac has, a download of the iOS platform, Xcode opened. */
   iphoneSetup(): IphoneSetup {
     this.iphone ??= new IphoneSetup({ log: this.opts.log, fixer: () => this.xcodeFixer(), ...this.opts.iphone });
@@ -3014,6 +3025,56 @@ export class RunnerDaemon implements RequestObserver {
     let text = lines.join("\n");
     if (c?.token) text = text.split(c.token).join("agm_***");
     return redactCommon(text);
+  }
+
+  /**
+   * What a problem report someone sends adds from this computer (`report.collect`, and the desktop app's `report`):
+   * facts and the end of the log, scrubbed here. Never the home, config or workspace paths, the computer's name, the
+   * organization's name or the server's address.
+   */
+  reportParts(): RunnerReportParts {
+    const c = this.config;
+    const access = this.access();
+    const ex = this.executors();
+    const bun = (process.versions as { bun?: string }).bun;
+    const server = (() => {
+      try {
+        return this.stored?.server ? new URL(this.stored.server).host : "";
+      } catch {
+        return "";
+      }
+    })();
+    const known: [string, KnownLabel][] = [
+      [this.opts.home, "computer"],
+      [os.homedir(), "computer"],
+      [os.hostname(), "computer"],
+      ...(c?.name ? ([[c.name, "computer"]] as [string, KnownLabel][]) : []),
+      ...(c?.orgName ? ([[c.orgName, "workspace"]] as [string, KnownLabel][]) : []),
+      ...(server ? ([[server, "server"]] as [string, KnownLabel][]) : []),
+    ];
+    const tail = this.opts.logFile ? tailLines(this.opts.logFile, REPORT_LOG_LINES) : [];
+    const logTail = tail.map((line) => scrubLogLine(c?.token ? line.split(c.token).join("agm_***") : line, known));
+    return {
+      runner: RUNNER_VERSION,
+      protocol: MACHINE_PROTOCOL_VERSION,
+      runtime: bun ? `bun ${bun}` : `node ${process.version}`,
+      os: `${process.platform} ${os.release()}`,
+      arch: os.arch(),
+      compiled: !!this.self.compiled,
+      managedBy: c?.managedBy ?? "terminal",
+      connection: c ? this.connState : "unpaired",
+      paused: this.pauseState().paused,
+      tools: Object.fromEntries(TOOL_NAMES.map((t) => [t, !!access.tools[t]])),
+      executors: {
+        ...(ex.claude ? { claude: ex.claude.version } : {}),
+        ...(ex.codex ? { codex: ex.codex.version } : {}),
+        ...(ex.claude?.loggedIn !== undefined ? { claudeLoggedIn: ex.claude.loggedIn } : {}),
+      },
+      agents: this.agents.length,
+      runningNow: this.jobList().length,
+      browser: { state: (this.session?.browser.states().length ?? 0) > 0 ? "open" : "closed" },
+      logTail,
+    };
   }
 }
 

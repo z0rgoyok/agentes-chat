@@ -1,5 +1,5 @@
-import type { AgentBrain, AgentBrainInput, BrainScope, MachineAccount } from "@agenteschat/client";
-import { keys, useAgentBrain, useAiAccounts, useApi, useMachines, useModels } from "@agenteschat/client";
+import type { AgentBrain, BrainScope, MachineAccount } from "@agenteschat/client";
+import { useAgentBrain, useAiAccounts, useApi, useMachines, useModels } from "@agenteschat/client";
 import {
   accountChoices,
   offersSignInAgain,
@@ -7,38 +7,42 @@ import {
   ownSignInName,
   signInOf,
 } from "@agenteschat/client/lib/ai-accounts";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { brainLine, thinksWith } from "@agenteschat/client/lib/brain";
 import { advancedContents, viewSpeedFits } from "@agenteschat/client/lib/brain-advanced";
 import { computerNameOf } from "@agenteschat/client/lib/computer";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { aiChoiceOf, planOfKind } from "@agenteschat/client/lib/no-ai";
-import { can } from "@agenteschat/client/lib/permissions";
 import { modelLimitText } from "@agenteschat/client/lib/plan-usage";
 import { brainPlan, geminiPersonal, isPlanId, planFreeHint, planOf } from "@agenteschat/client/lib/plans";
 import { apiProviderOf, isAuto, providerLabel } from "@agenteschat/client/lib/providers";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
-import { extraUsageOn, limitOffers, planState } from "@agenteschat/ui/plan-state";
-import { useQueryClient } from "@tanstack/react-query";
+import { limitOffers, planState } from "@agenteschat/ui/plan-state";
 import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
 import {
   Glass,
+  GROUPED_ROW,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
+  motion,
   ProviderLogo,
+  SCREEN_X,
+  SkeletonList,
   Text,
   useReducedMotion,
   useTheme,
-  useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useColors, useDirectory, useMeId } from "../shared/hooks";
+import { Gap } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useMeId, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedHeader } from "../shared/parts";
 import { PlanMeter, PlanModels } from "../usage/parts";
@@ -51,6 +55,7 @@ import {
   accountRow,
   accountSaved,
   agentAccounts,
+  agentChain,
   modelInput,
   modelRows,
   modelSections,
@@ -58,7 +63,8 @@ import {
   thinkingUsage,
 } from "./logic";
 import { openConnectAi } from "./NoAiCard";
-import { AiRow, Note, PlanHoldNote, usePlanHold } from "./parts";
+import { AiRow, Note, openRenameAiAccount, PlanHoldNote, usePlanHold } from "./parts";
+import { useSaveBrain } from "./useSaveBrain";
 
 /*
  * An agent's AI on the phone (the web's "Quem pensa" for a plan, ADR 0059), from "Pensa com" on its profile, under what
@@ -66,7 +72,7 @@ import { AiRow, Note, PlanHoldNote, usePlanHold } from "./parts";
  * its owner's, or that computer's own sign-in), one row per account, which is the plan choice (another plan's starts
  * on that plan's default model), then the model, that plan's usage with, at its limit, the owner's other accounts that
  * could think instead, and
- * "Configuração avançada" (ADR 0086: effort, context window, "Atende outras pessoas", the API when away, on a screen of
+ * "Configuração avançada" (ADR 0086: effort, context window, "Atende outras pessoas", "Só esta conta", on a screen of
  * its own). Each choice saves at once. Another AI, or one more login of an account other agents think with where it
  * may have one per agent ("Também usada por Theo"), goes through Connect an AI. Its owner and admins open it; only its
  * owner picks an account or lets other people talk to it on the plan (`canUsePlans`).
@@ -78,36 +84,6 @@ export const openAgentAi = (agentId: string) => router.push(`/agent-ai/${agentId
 /** Opens an agent's model, from its AI. `scope`: which of the right hand's two AIs (its own by default). */
 export const openAgentModel = (agentId: string, scope?: BrainScope) =>
   router.push(`/agent-model/${agentId}${scope ? `?scope=${scope}` : ""}` as never);
-
-/** Saves a change to the agent's AI at once and says so (or that it failed). */
-function useSaveBrain(agentId: string, scope?: BrainScope) {
-  const { t } = useTranslation();
-  const { orgId } = useOrg();
-  const api = useApi();
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const save = async (input: AgentBrainInput, done: string | ((saved: AgentBrain) => string)) => {
-    setBusy(true);
-    try {
-      const saved = await api.agents.setBrain(orgId, agentId, { ...(scope ? { scope } : {}), ...input });
-      qc.setQueryData(scope ? [...keys.agentBrain(orgId, agentId), scope] : keys.agentBrain(orgId, agentId), saved);
-      toast({ title: typeof done === "string" ? done : done(saved), icon: "check" });
-    } catch {
-      toast({ title: t("agentPage.work.failed"), icon: "x" });
-    } finally {
-      for (const key of [
-        keys.agentBrain(orgId, agentId),
-        keys.agents(orgId),
-        keys.aiAccounts(orgId),
-        keys.aiStatus(orgId),
-      ])
-        void qc.invalidateQueries({ queryKey: key });
-      setBusy(false);
-    }
-  };
-  return { busy, save };
-}
 
 export function AgentAiScreen({ agentId }: { agentId: string }) {
   const { t, i18n } = useTranslation();
@@ -122,15 +98,20 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
   const name = agent?.name ?? "";
   const g = agentGrammar(name);
   const ownerFirst = agent?.ownerUserId ? dir.memberById.get(agent.ownerUserId)?.name.split(" ")[0] : undefined;
-  // As on the web: its owner and admins load it, members don't.
-  const allowed = (meId !== null && agent?.ownerUserId === meId) || can(org, "manage_agents");
+  // As on the web: its owner and who manages it (the server's `canManage`) load it, members don't.
+  const allowed = (meId !== null && agent?.ownerUserId === meId) || managesAgent(agent);
   const brain = useAgentBrain(orgId, agentId, allowed);
-  const { busy, save } = useSaveBrain(agentId);
+  const { pending, save } = useSaveBrain(agentId);
   // Looking at the plan: its usage is looked up again (it comes back as `machine.updated`).
   useEffect(() => {
     void api.machines.refreshAccountUsage(orgId).catch(() => undefined);
   }, [api, orgId]);
 
+  // A pull asks the plans for their usage again and reads the agent's AI again.
+  const pull = usePullRefresh(() => {
+    void api.machines.refreshAccountUsage(orgId).catch(() => undefined);
+    return brain.refetch();
+  });
   const view = brain.data;
   const kind = accountKindOf(view?.brain);
   // Its computer's row, where that computer's own sign-in shows once its CLI is signed in.
@@ -153,9 +134,10 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
       ...(also && a?.email ? { email: a.email } : {}),
     });
   const computer = computerNameOf(t, org?.name ?? "", view?.computer?.name ?? "", isPersonal(org));
-  const mayPick = view !== undefined && !busy;
+  // The account picked while its save is on its way, else the saved one: its row is checked on the tap.
+  const account = pending.account !== undefined ? pending.account : view?.account;
   const choose = (a: MachineAccount | null) => {
-    if (!view || !mayPick || (a?.id ?? null) === view.account) return;
+    if (!view || (a?.id ?? null) === account) return;
     const input = accountInput(view, a);
     const done = (saved: AgentBrain) => accountSaved(t, i18n.language, name, a, input, saved);
     const others = a ? takenFrom(a, name) : [];
@@ -170,7 +152,10 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
   const usage = view && kind ? thinkingUsage(view, kind) : undefined;
   const limited = usage ? planState(usage).state === "limited" : false;
   const modelLimit = modelLimitText(t, i18n.language, usage, current?.provider, model?.value);
-  const offers = limited && kind && view ? limitOffers(accounts, kind, view.account).slice(0, 2) : [];
+  const chain = view ? agentChain(view, agentId, agent?.ownerUserId) : { moves: false, waits: false };
+  // At its limit with another account of its order that has room, its runs go on there: no way out by hand.
+  const waits = limited && (chain.waits || !chain.moves);
+  const offers = waits && kind && view ? limitOffers(accounts, kind, view.account).slice(0, 2) : [];
   const signedOut = current != null && signInOf(current) === "signed_out" && current.mine;
   const signInAgain = current != null && offersSignInAgain(current) && current.mine;
   // A coding plan's key that its endpoint refused: a new key, on that plan's page.
@@ -181,7 +166,7 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
     ? t(refused ? "aiAccounts.page.keyRefused" : "agentPage.work.brain.accountSignedOut")
     : current != null && signInOf(current) === "unknown"
       ? t("aiAccounts.page.statusUnknown")
-      : limited
+      : waits
         ? t("agentPage.work.brain.v2.fullWait", g)
         : lends
           ? t("agentPage.work.brain.accountOthers")
@@ -201,6 +186,9 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
       <PushedHeader title={t("mobile.intentAgents.thinks")} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        {...(allowed
+          ? { refreshControl: <RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} /> }
+          : {})}
         contentContainerStyle={[styles.in, { paddingBottom: insets.bottom + 24 }]}
       >
         <View style={styles.hero}>
@@ -209,13 +197,15 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
             {thinks.text}
           </Text>
         </View>
-        {hold ? <PlanHoldNote org={org} /> : null}
+        {hold ? <PlanHoldNote org={org} inset /> : null}
         {!allowed ? (
-          <Note icon="lock">{t("agentPage.lock.admins")}</Note>
+          <Note icon="lock" inset>
+            {t("agentPage.lock.admins")}
+          </Note>
         ) : brain.isPending ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={3} />
         ) : !view ? (
-          <Note icon="x">{t("common.loadFailed")}</Note>
+          <LoadFailed onRetry={() => void brain.refetch()} />
         ) : (
           <>
             {/* The account first: on the phone the account list is the plan choice, which the model then follows. */}
@@ -227,8 +217,7 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
                     <GroupedRow
                       leading={<ProviderLogo id={kind} size="sm" />}
                       label={ownSignInName(t, view.ownSignIn && view.canUsePlans, computer, kind)}
-                      checked={view.account === null}
-                      disabled={!mayPick}
+                      checked={account === null}
                       onPress={() => choose(null)}
                     />
                   ) : null}
@@ -236,9 +225,11 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
                     <AiRow
                       key={c.login.id}
                       row={accountRow(t, c, name, i18n.language)}
-                      checked={c.login.id === view.account}
-                      disabled={!mayPick}
+                      checked={c.login.id === account}
                       onPress={() => (c.also ? connect(c.login, true) : choose(c.login))}
+                      {...(c.login.mine && view.computer
+                        ? { onRename: () => view.computer && openRenameAiAccount(view.computer.machineId, c.login.id) }
+                        : {})}
                     />
                   ))}
                   {adds ? (
@@ -256,14 +247,22 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
                   ) : null}
                 </GroupedList>
                 {kind === "antigravity" && geminiPersonal(current) ? (
-                  <Note icon="info">{t("connectAi.plan.gemini.warning")}</Note>
+                  <Note icon="info" inset>
+                    {t("connectAi.plan.gemini.warning")}
+                  </Note>
                 ) : null}
                 {lockedHere ? (
-                  <Note icon="lock">
+                  <Note icon="lock" inset>
                     {t("connectAi.accountsLocked", { name: pairer?.name.split(" ")[0] ?? "", computer })}
                   </Note>
                 ) : null}
-                {accountNote ? <GroupedFooter>{accountNote}</GroupedFooter> : null}
+                {accountNote || chain.moves ? (
+                  <GroupedFooter>
+                    {[accountNote, chain.moves && !waits ? t("agentPage.work.brain.movesOn") : null]
+                      .filter(Boolean)
+                      .join("\n")}
+                  </GroupedFooter>
+                ) : null}
               </>
             ) : null}
             {kind ? (
@@ -297,20 +296,11 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
                           ? t("aiAccounts.usage.offer.useUnknown", { label: a.label })
                           : t("aiAccounts.usage.offer.use", { label: a.label, pct: used })
                       }
-                      disabled={busy}
+                      checked={a.id === account}
                       onPress={() => choose(a)}
                     />
                   ))}
-                  {extraUsageOn(usage) ? (
-                    <GroupedRow
-                      label={t("usageCard.extraTitle")}
-                      labelLines={2}
-                      toggle={view.extraUsage}
-                      disabled={busy || !(current ? current.mine : view.canUsePlans)}
-                      onPress={() => void save({ extraUsage: !view.extraUsage }, t("usageCard.extraTitle"))}
-                    />
-                  ) : null}
-                  {limited && view.canUsePlans && view.canManageAccounts ? (
+                  {waits && view.canUsePlans && view.canManageAccounts ? (
                     <GroupedRow
                       icon="plus"
                       label={t("aiAccounts.usage.offer.connect")}
@@ -321,31 +311,27 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
                 {modelLimit ? <GroupedFooter>{modelLimit}</GroupedFooter> : null}
               </>
             ) : null}
-            <View style={styles.advanced}>
-              <GroupedList>
+            <Gap />
+            <GroupedList>
+              <GroupedRow
+                label={t("agentPage.work.brain.advanced.title")}
+                sub={advancedContents(t, {
+                  kind: view.brain,
+                  autoModel: isAuto(view.brain === "model" ? agent?.model : view.effectiveModel),
+                  speed: viewSpeedFits(view),
+                })}
+                chevron
+                onPress={() => openAgentAdvanced(agentId)}
+              />
+              {kind && view.canEdit && (view.account !== null || ownRow) && dir.agents.some((a) => a.id !== agentId) ? (
                 <GroupedRow
-                  label={t("agentPage.work.brain.advanced.title")}
-                  sub={advancedContents(t, {
-                    kind: view.brain,
-                    autoModel: isAuto(view.brain === "model" ? agent?.model : view.effectiveModel),
-                    speed: viewSpeedFits(view),
-                  })}
+                  label={t("agentPage.work.brain.copy.row")}
+                  sub={t("agentPage.work.brain.copy.rowLine")}
                   chevron
-                  onPress={() => openAgentAdvanced(agentId)}
+                  onPress={() => openAgentSetup(agentId)}
                 />
-                {kind &&
-                view.canEdit &&
-                (view.account !== null || ownRow) &&
-                dir.agents.some((a) => a.id !== agentId) ? (
-                  <GroupedRow
-                    label={t("agentPage.work.brain.copy.row")}
-                    sub={t("agentPage.work.brain.copy.rowLine")}
-                    chevron
-                    onPress={() => openAgentSetup(agentId)}
-                  />
-                ) : null}
-              </GroupedList>
-            </View>
+              ) : null}
+            </GroupedList>
             {view.canUsePlans ? (
               <>
                 <GroupedHeader>{t("mobile.ai.another")}</GroupedHeader>
@@ -368,7 +354,6 @@ export function AgentAiScreen({ agentId }: { agentId: string }) {
 
 /** How far the dock travels to leave the screen, past its own height. */
 const DOCK_OUT = 28;
-const DOCK_SPRING = { stiffness: 240, damping: 26, mass: 1 };
 
 /**
  * The effort, floating over the model list in the thumb's reach, whatever is scrolled under it. It slides away with
@@ -394,11 +379,12 @@ function EffortDock({
   const effort = useEffortChoice(agentId, view ? advancedOf(view).effort : undefined, scope);
   const out = useSharedValue(shown ? 0 : 1);
   const height = useSharedValue(0);
+  // A drawer's slide (`motion.sheet`); with reduced motion it is simply there or gone.
   useEffect(() => {
-    out.value = reduced ? (shown ? 0 : 1) : withSpring(shown ? 0 : 1, DOCK_SPRING);
+    out.set(reduced ? (shown ? 0 : 1) : withSpring(shown ? 0 : 1, motion.sheet));
   }, [shown, reduced, out]);
   const slid = useAnimatedStyle(() => ({
-    transform: [{ translateY: out.value * (height.value + insets.bottom + DOCK_OUT) }],
+    transform: [{ translateY: out.get() * (height.get() + insets.bottom + DOCK_OUT) }],
   }));
   return (
     <Animated.View
@@ -406,7 +392,7 @@ function EffortDock({
       accessibilityElementsHidden={!shown}
       importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
       onLayout={(e) => {
-        height.value = e.nativeEvent.layout.height;
+        height.set(e.nativeEvent.layout.height);
         onHeight(e.nativeEvent.layout.height);
       }}
       style={[styles.dock, { bottom: insets.bottom + 8, boxShadow: shadows.e2 }, slid]}
@@ -435,7 +421,11 @@ export function AgentModelScreen({ agentId, scope }: { agentId: string; scope?: 
   const dir = useDirectory();
   const g = agentGrammar(dir.agentById.get(agentId)?.name ?? "");
   const brain = useAgentBrain(orgId, agentId, true, false, scope);
-  const { busy, save } = useSaveBrain(agentId, scope);
+  const pull = usePullRefresh(brain.refetch);
+  const { pending, save } = useSaveBrain(agentId, scope);
+  // The model tapped while its save is on its way: its row is checked on the tap, and the effort follows it.
+  const [tapped, setTapped] = useState<string | null>(null);
+  const picked = pending.model !== undefined ? tapped : null;
   // Opened straight from a link too: the plans' lists come with it.
   useModels();
   const view = brain.data;
@@ -445,51 +435,61 @@ export function AgentModelScreen({ agentId, scope }: { agentId: string; scope?: 
   // A model without a maker of its own wears its plan's mark, else its brain's.
   const mark = (plan && view?.accounts.find((a) => a.id === view.account)?.provider) || (view?.brain ?? "");
   const hasModels = view !== undefined && view.brain !== "model";
-  const fixed = hasModels && !isAuto(view.effectiveModel);
+  const fixed = hasModels && !isAuto(picked ?? view.effectiveModel);
   const [dock, setDock] = useState(0);
   return (
     <View style={[styles.screen, { backgroundColor: c.grouped }]}>
       <PushedHeader title={t("agentPage.work.brain.planModel")} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
         contentContainerStyle={[styles.in, { paddingBottom: insets.bottom + 24 + (fixed ? dock : 0) }]}
       >
         {brain.isPending ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={4} />
         ) : !view || view.brain === "model" ? (
-          <Note icon="x">{t("common.loadFailed")}</Note>
+          // An agent on an API key has no plan's models to pick here: what opened this can't be shown, as a failed load.
+          <LoadFailed onRetry={() => void brain.refetch()} />
         ) : (
           modelSections(rows).map((s) => (
             <Fragment key={s.maker ?? ""}>
               {s.maker ? <GroupedHeader>{providerLabel(s.maker)}</GroupedHeader> : null}
               <GroupedList>
-                {s.rows.map((r) => (
-                  <GroupedRow
-                    key={r.value}
-                    label={r.label}
-                    {...(r.sub ? { sub: r.sub } : {})}
-                    {...(r.note ? { hint: { name: t("common.about", { label: r.label }), text: r.note } } : {})}
-                    {...(isAuto(r.value)
-                      ? { icon: "sparkle" as const }
-                      : { leading: <ProviderLogo id={r.maker ?? mark} size="sm" /> })}
-                    checked={r.checked}
-                    disabled={busy || !view.canEdit}
-                    onPress={() => {
-                      if (r.checked) return;
-                      const ai = aiChoiceOf(view);
-                      const done = t("agentPage.work.saved.brain", {
-                        ...g,
-                        brain: ai === "key" ? r.label : thinksWith(t, ai, r.label),
-                      });
-                      void save(modelInput(r.value, view), done);
-                    }}
-                  />
-                ))}
+                {s.rows.map((r) => {
+                  const checked = picked !== null ? r.value === picked : r.checked;
+                  return (
+                    <GroupedRow
+                      key={r.value}
+                      label={r.label}
+                      {...(r.sub ? { sub: r.sub } : {})}
+                      {...(r.note ? { hint: { name: t("common.about", { label: r.label }), text: r.note } } : {})}
+                      {...(isAuto(r.value)
+                        ? { icon: "sparkle" as const }
+                        : { leading: <ProviderLogo id={r.maker ?? mark} size="sm" /> })}
+                      checked={checked}
+                      disabled={!view.canEdit}
+                      onPress={() => {
+                        if (checked) return;
+                        const ai = aiChoiceOf(view);
+                        const done = t("agentPage.work.saved.brain", {
+                          ...g,
+                          brain: ai === "key" ? r.label : thinksWith(t, ai, r.label),
+                        });
+                        setTapped(r.value);
+                        void save(modelInput(r.value, view), done);
+                      }}
+                    />
+                  );
+                })}
               </GroupedList>
             </Fragment>
           ))
         )}
-        {view && freeHint ? <Note icon="info">{freeHint}</Note> : null}
+        {view && freeHint ? (
+          <Note icon="info" inset>
+            {freeHint}
+          </Note>
+        ) : null}
       </ScrollView>
       {hasModels ? <EffortDock agentId={agentId} scope={scope} shown={fixed} onHeight={setDock} /> : null}
     </View>
@@ -501,11 +501,10 @@ const styles = StyleSheet.create({
   in: { paddingHorizontal: 16, paddingTop: 8 },
   hero: { alignItems: "center", gap: 10, paddingTop: 6, paddingBottom: 4 },
   center: { textAlign: "center" },
-  loading: { marginTop: 16 },
-  meter: { paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  // A list without a header keeps a header's room above it.
-  advanced: { marginTop: 20 },
-  dock: { position: "absolute", left: 10, right: 10, borderRadius: 28 },
+  // On a grouped row's edges, as the rows under it.
+  meter: { paddingHorizontal: GROUPED_ROW.padX, paddingVertical: 12, gap: 10 },
+  // Floating over the list on the screen's own sides, as everything else on it.
+  dock: { position: "absolute", left: SCREEN_X, right: SCREEN_X, borderRadius: 28 },
   dockGlass: {
     paddingHorizontal: 16,
     paddingTop: 12,

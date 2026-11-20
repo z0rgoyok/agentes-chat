@@ -17,7 +17,7 @@ import type {
 } from "../api/types";
 import { agentGrammar } from "./grammar";
 import { plainLine } from "./markdown";
-import { isVoiceMeta, voiceLength, voiceWord } from "./voice";
+import { isVoiceMeta, voiceLength, voiceOf, voiceWord } from "./voice";
 
 /**
  * GIFs and stickers in chat (ADR 0091), the half the web and the phone app share: what a message's `meta.media`
@@ -200,7 +200,9 @@ export const mediaWord = (t: TFunction, kind: MediaKind) =>
  * no text: `meta.media` as a message stores it, or the kind a preview's meta carries.
  */
 export function textOrMedia(t: TFunction, body: string, meta: Meta): string {
-  // A voice message's words are the agents': people read its name, whatever the body holds (ADR 0100).
+  // A voice message's words are the agents': people read what was typed beside it, else its name (ADR 0100).
+  const typed = voiceOf(meta)?.text;
+  if (typed) return typed;
   if (isVoiceMeta(meta)) return voiceWord(t, voiceLength(meta));
   if (body.trim()) return body;
   const kind = messageMediaOf(meta)?.kind ?? mediaKindOf(meta?.media);

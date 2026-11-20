@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { eq, schema } from "@agenteschat/db";
+import { orgTopic } from "@agenteschat/adapters";
+import { and, eq, schema } from "@agenteschat/db";
 import { browser, createTestServer, joinByInvitation, pairComputer, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
@@ -211,4 +212,69 @@ test("the logo for a connected computer: machine token, ETag/304, 404 without on
   expect((await fetchLogo()).status).toBe(404);
   expect((await api(`/machines/${machineId}`, { method: "DELETE" })).status).toBe(204);
   expect((await fetchLogo()).status).toBe(401);
+});
+
+test("workspace accent (ADR 0193): admins set and clear it; it rides /me and the organization; audited; announced", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const accentApi = `/api/app/organizations/${orgId}/accent`;
+  const announced: unknown[] = [];
+  t.adapters.pubsub.subscribe(orgTopic(orgId), (e) => {
+    if (e.type === "org.broadcast") announced.push(e.event);
+  });
+  const accentOf = async (who: ReturnType<typeof browser>) => {
+    const org = (await (await who(`/api/app/organizations/${orgId}`)).json()) as { accent?: string | null };
+    const me = (await (await who("/api/app/me")).json()) as { organizations: { id: string; accent?: string | null }[] };
+    return [org.accent, me.organizations.find((o) => o.id === orgId)?.accent];
+  };
+
+  expect(await accentOf(owner)).toEqual([null, null]);
+  for (const bad of [{}, { accent: "red" }, { accent: "#12345" }, { accent: "#1234567" }, { accent: 12 }]) {
+    expect({ bad, status: (await owner(accentApi, { method: "PUT", json: bad })).status }).toEqual({
+      bad,
+      status: 400,
+    });
+  }
+
+  const put = await owner(accentApi, { method: "PUT", json: { accent: "#7C3AED" } });
+  expect(await put.json()).toEqual({ accent: "#7c3aed" });
+  expect(await accentOf(owner)).toEqual(["#7c3aed", "#7c3aed"]);
+  expect(announced).toContainEqual({ type: "org.look", orgId });
+
+  // Members see it and can't change it; nobody outside reaches it.
+  const ana = await member(owner, orgId, "ana@example.com");
+  expect(await accentOf(ana)).toEqual(["#7c3aed", "#7c3aed"]);
+  expect((await ana(accentApi, { method: "PUT", json: { accent: "#000000" } })).status).toBe(403);
+  expect((await browser(t)(accentApi, { method: "PUT", json: { accent: "#000000" } })).status).toBe(401);
+
+  // Setting the same color again changes nothing; null is the default again.
+  expect((await owner(accentApi, { method: "PUT", json: { accent: "#7c3aed" } })).status).toBe(200);
+  expect(await (await owner(accentApi, { method: "PUT", json: { accent: null } })).json()).toEqual({ accent: null });
+  expect(await accentOf(owner)).toEqual([null, null]);
+
+  const audit = await t.db
+    .select({ action: schema.auditLog.action, actorType: schema.auditLog.actorType, details: schema.auditLog.details })
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.orgId, orgId), eq(schema.auditLog.action, "organization.accent_changed")))
+    .orderBy(schema.auditLog.id);
+  expect(audit.map((a) => [a.actorType, a.details])).toEqual([
+    ["person", { from: null, to: "#7c3aed" }],
+    ["person", { from: "#7c3aed", to: null }],
+  ]);
+});
+
+test("workspace accent: 20 changes an hour per workspace, then 429 rate_limited", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const put = (i: number) =>
+    owner(`/api/app/organizations/${orgId}/accent`, {
+      method: "PUT",
+      json: { accent: `#0000${i.toString(16).padStart(2, "0")}` },
+    });
+  for (let i = 0; i < 20; i++) expect((await put(i)).status).toBe(200);
+  const limited = await put(20);
+  expect(limited.status).toBe(429);
+  expect(((await limited.json()) as { error: { code: string } }).error.code).toBe("rate_limited");
 });

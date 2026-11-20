@@ -1372,6 +1372,7 @@
     },
     "expect": {
       "pass": true,
+      "ack": "never",
       "behavior": "@dev already answered and the person only thanked. It passes: nothing posted."
     }
   },
@@ -1469,6 +1470,7 @@
     },
     "expect": {
       "pass": false,
+      "ack": "never",
       "behavior": "Called by name in a DM: it answers briefly or reacts, never stays silent, never writes the silence word.",
       "skipJudge": ["looked_first", "next_step", "asks_well"]
     }
@@ -1965,6 +1967,7 @@
     },
     "expect": {
       "pass": false,
+      "ack": "never",
       "mustCall": ["send_gif"],
       "behavior": "Sends a GIF with send_gif. It never says it can't send GIFs.",
       "skipJudge": ["looked_first", "next_step", "asks_well"]
@@ -2237,10 +2240,10 @@
         "chefe>rita": 1
       },
       "personSees": {
-        "maxAgentMessages": 3,
+        "maxAgentMessages": 4,
         "noteLines": 0
       },
-      "behavior": "Chefe hands the job to Rita. Asked how it went while Rita is still on it, it says Rita has it and since when, without asking or telling her again and without saying nothing happened. Once Rita is done, it reports once.",
+      "behavior": "Chefe hands the job to Rita. Asked how it went while Rita is still on it, it says Rita has it and since when, without asking or telling her again and without saying nothing happened. Once Rita is done, what came of it reaches the person from Rita and Diogo themselves, and Chefe doesn't relay it.",
       "skipJudge": ["looked_first", "next_step"],
       "rubric": [
         "Asked how it went while Rita was still working, the reply says Rita is on it and since when, and doesn't say nothing happened or that she hasn't answered."
@@ -2679,6 +2682,7 @@
       "skipJudge": ["looked_first", "next_step"],
       "mustNotCall": ["show_block", "start_poll", "create_artifact"],
       "evidence": ["412"],
+      "ack": "never",
       "behavior": "Lia answers with the number in one line."
     }
   },
@@ -2800,6 +2804,7 @@
     "expect": {
       "skipJudge": ["looked_first", "next_step"],
       "mustNotCall": ["start_poll", "create_artifact"],
+      "ack": "never",
       "behavior": "Lia recommends one plan and says why, in the reply."
     }
   },
@@ -2909,6 +2914,511 @@
         "Doesn't ask which file to send, on a card or in text, and doesn't present it as a guess ('I assumed…', 'if you meant the other one…').",
         "Promises nothing it doesn't do in the same turn (such as attaching the file later)."
       ]
+    }
+  },
+  {
+    "id": "say-now-web-research",
+    "title": "Pesquisa na web em várias rodadas: uma linha antes de começar, o resultado na resposta",
+    "source": "synthetic (ADR 0207): the person waited through every search and page with nothing on screen",
+    "agent": {
+      "name": "Rui",
+      "handle": "rui",
+      "role": "Pesquisa de mercado",
+      "instructions": "Acompanha concorrentes e resume notícias para o time."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. Concorrentes acompanhados: Banco Azul (também chamado de Azul Pay) e Caixa Norte. Taxas da maquininha Vela: débito 1,19%, crédito à vista 2,99%, crédito parcelado em até 12x 4,99%; recebimento em 1 dia útil."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "mercado",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@rui pesquisa as taxas de maquininha que o Banco Azul e a Caixa Norte cobram hoje e monta uma comparação com as nossas",
+          "en": "@rui look up the card machine fees Banco Azul and Caixa Norte charge today and put together a comparison with ours"
+        }
+      }
+    },
+    "web": {
+      "search": [
+        {
+          "when": ["azul", "caixa"],
+          "results": [
+            {
+              "title": "Taxas da maquininha Azul Pay | Banco Azul",
+              "url": "https://www.bancoazul.example/maquininha/taxas",
+              "snippet": "Veja as taxas da maquininha Azul Pay para débito, crédito à vista e parcelado, e o prazo de recebimento."
+            },
+            {
+              "title": "Maquininha Caixa Norte: planos e taxas para o seu negócio",
+              "url": "https://www.caixanorte.example/lojista/taxas",
+              "snippet": "Conheça os planos da maquininha Caixa Norte e compare as taxas de cada um."
+            }
+          ]
+        },
+        {
+          "when": ["azul"],
+          "results": [
+            {
+              "title": "Taxas da maquininha Azul Pay | Banco Azul",
+              "url": "https://www.bancoazul.example/maquininha/taxas",
+              "snippet": "Veja as taxas da maquininha Azul Pay para débito, crédito à vista e parcelado, e o prazo de recebimento."
+            },
+            {
+              "title": "Banco Azul lança cartão sem anuidade para lojistas",
+              "url": "https://news.example.com/banco-azul-cartao",
+              "snippet": "O Banco Azul anunciou um cartão sem anuidade para lojistas, com cashback de 2%."
+            }
+          ]
+        },
+        {
+          "when": ["caixa"],
+          "results": [
+            {
+              "title": "Maquininha Caixa Norte: planos e taxas para o seu negócio",
+              "url": "https://www.caixanorte.example/lojista/taxas",
+              "snippet": "Conheça os planos da maquininha Caixa Norte e compare as taxas de cada um."
+            }
+          ]
+        }
+      ],
+      "pages": {
+        "https://www.bancoazul.example/maquininha/taxas": {
+          "body": "<html><head><title>Taxas da maquininha Azul Pay</title></head><body><h1>Taxas da maquininha Azul Pay</h1><p>Para lojistas com faturamento de até R$ 30 mil por mês, em vigor desde 1º de novembro.</p><ul><li>Débito: 1,39%</li><li>Crédito à vista: 3,09%</li><li>Crédito parcelado em até 12x: 4,79%</li></ul><p>Recebimento em 1 dia útil, sem mensalidade.</p></body></html>"
+        },
+        "https://www.caixanorte.example/lojista/taxas": {
+          "body": "<html><head><title>Maquininha Caixa Norte</title></head><body><h1>Planos da maquininha Caixa Norte</h1><h2>Plano Essencial (sem mensalidade)</h2><ul><li>Débito: 0,99%</li><li>Crédito à vista: 3,19%</li><li>Crédito parcelado em até 12x: 5,29%</li></ul><p>Recebimento em 30 dias; antecipação por 1,5% ao mês.</p></body></html>"
+        }
+      }
+    },
+    "expect": {
+      "investigate": true,
+      "ack": "first",
+      "evidence": ["1,39", "1.39", "0,99", "0.99", "3,19", "3.19"],
+      "ask": "never",
+      "behavior": "Before searching, it says in one short line what it is about to do (say_now), in Marina's language, with no fee and no time in it. Then it searches and reads both pricing pages (Azul Pay: débito 1,39%, crédito à vista 3,09%, parcelado 4,79%, 1 dia útil; Caixa Norte: débito 0,99%, crédito à vista 3,19%, parcelado 5,29%, 30 dias) and answers with the comparison against Vela's own fees (1,19%, 2,99%, 4,99%, 1 dia útil).",
+      "skipJudge": ["next_step"],
+      "rubric": [
+        "The line before the work only says what it is about to do; the fees and the comparison come in the final reply, which doesn't open by saying that line again.",
+        "The comparison uses the fees read on the two pages and Vela's own, and says where Vela is cheaper (crédito à vista against both, débito against Azul Pay) and where it isn't (débito against Caixa Norte, parcelado against Azul Pay)."
+      ]
+    }
+  },
+  {
+    "id": "say-now-code-investigation",
+    "title": "Investigação no código em várias rodadas: avisa numa linha antes de abrir o código",
+    "source": "synthetic (ADR 0207), on the fixtures of dev-review-prompt-subscription: finding the cause takes several searches and reads",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura (iOS e Android). Repositórios no GitHub: lumen/app (app React Native) e lumen/api (backend). Erros no Sentry (projetos lumen-app e lumen-api). A API roda no Railway."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "topic": "Engenharia",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada as avaliações negativas na loja subiram muito essa semana, e acho que tem a ver com o momento em que o app pede avaliação. Investiga no código o que mudou e me diz a causa.",
+          "en": "@ada negative store reviews went way up this week, and I think it's about when the app asks for a review. Dig into the code, find what changed and tell me the cause."
+        }
+      }
+    },
+    "connectors": ["github", "sentry"],
+    "issues": true,
+    "fixtures": {
+      "github_search_code": [
+        {
+          "when": ["subscription_completed"],
+          "result": "3 results\nlumen/app src/review/review-prompt.ts:40   if (event === \"subscription_completed\") {\nlumen/app src/analytics/events.ts:18   export const SUBSCRIPTION_COMPLETED = \"subscription_completed\";\nlumen/app src/checkout/PaywallScreen.tsx:16   analytics.track(SUBSCRIPTION_COMPLETED, { plan, price });"
+        },
+        {
+          "when": ["SUBSCRIPTION_COMPLETED"],
+          "result": "2 results\nlumen/app src/analytics/events.ts:18   export const SUBSCRIPTION_COMPLETED = \"subscription_completed\";\nlumen/app src/checkout/PaywallScreen.tsx:16   analytics.track(SUBSCRIPTION_COMPLETED, { plan, price });"
+        },
+        {
+          "when": ["session"],
+          "result": "4 results\nlumen/app src/analytics/events.ts:5   export const SESSION_FINISHED = \"session_finished\"; // props: sessionId, durationSec, completedPct (0–1)\nlumen/app src/player/PlayerScreen.tsx:16   analytics.track(SESSION_FINISHED, { sessionId, durationSec, completedPct });\nlumen/app src/player/PlayerScreen.tsx:14   storage.set(\"sessions_finished\", (storage.getNumber(\"sessions_finished\") ?? 0) + 1);\nlumen/app src/review/review-prompt.ts:25   if (event === \"session_finished\" && (props.completedPct as number) >= 0.9) {"
+        },
+        {
+          "when": ["medita"],
+          "result": "2 results (meditations are 'sessions' in the code)\nlumen/app src/player/PlayerScreen.tsx:16   analytics.track(SESSION_FINISHED, { sessionId, durationSec, completedPct });\nlumen/app src/analytics/events.ts:5   export const SESSION_FINISHED = \"session_finished\";"
+        },
+        {
+          "when": ["requestReview"],
+          "result": "3 results\nlumen/app src/review/review-prompt.ts:42   StoreReview.requestReview();\nlumen/app src/review/review-prompt.ts:49   StoreReview.requestReview();\nlumen/app src/native/store-review.ts:9   export function requestReview() {"
+        },
+        {
+          "when": ["review"],
+          "result": "3 results\nlumen/app src/review/review-prompt.ts:42   StoreReview.requestReview();\nlumen/app src/review/review-prompt.ts:43   analytics.track(\"review_prompt_shown\", { trigger: event });\nlumen/app src/native/store-review.ts:9   export function requestReview() {"
+        },
+        {
+          "when": ["onAnalyticsEvent"],
+          "result": "2 results\nlumen/app src/review/review-prompt.ts:14   export function onAnalyticsEvent(event: string, props: EventProps) {\nlumen/app src/analytics/index.ts:21   listeners.forEach((l) => l(event, props)); // onAnalyticsEvent is registered at startup"
+        }
+      ],
+      "github_get_file_contents": [
+        {
+          "when": ["review-prompt.test"],
+          "result": "src/review/review-prompt.test.ts (lumen/app, main) — 14 lines\n1   import { onAnalyticsEvent } from \"./review-prompt\";\n2   import { StoreReview } from \"../native/store-review\";\n3\n4   jest.mock(\"../native/store-review\");\n5\n6   test(\"asks after a 7-day streak\", () => {\n7     onAnalyticsEvent(\"streak_reached\", { days: 7 });\n8     expect(StoreReview.requestReview).toHaveBeenCalledTimes(1);\n9   });\n10\n11  test(\"asks right after subscribing\", () => {\n12    onAnalyticsEvent(\"subscription_completed\", { plan: \"annual\", price: 199 });\n13    expect(StoreReview.requestReview).toHaveBeenCalledTimes(1);\n14  });"
+        },
+        {
+          "when": ["review-prompt"],
+          "result": "src/review/review-prompt.ts (lumen/app, main) — 52 lines\n1   import { analytics, type EventProps } from \"../analytics\";\n2   import { StoreReview } from \"../native/store-review\";\n3   import { storage } from \"../storage\";\n4\n5   const ASKED_KEY = \"review_prompt_asked_at\";\n6   const MIN_DAYS_BETWEEN = 60;\n7\n8   function askedRecently(): boolean {\n9     const at = storage.getNumber(ASKED_KEY);\n10    return at !== undefined && Date.now() - at < MIN_DAYS_BETWEEN * 86_400_000;\n11  }\n12\n13  // Moments we consider happy: ask for a store review there.\n14  export function onAnalyticsEvent(event: string, props: EventProps) {\n15    if (askedRecently()) return;\n16    if (event === \"streak_reached\" && (props.days as number) >= 7) {\n17      ask(event);\n18      return;\n19    }\n20    if (event === \"goal_completed\" && props.firstTime === true) {\n21      ask(event);\n22      return;\n23    }\n24    // A meditation counts as finished at 90% (PlayerScreen.tsx:14 counts it in sessions_finished).\n25    if (event === \"session_finished\" && (props.completedPct as number) >= 0.9) {\n26      if ((storage.getNumber(\"sessions_finished\") ?? 0) >= 3) {\n27        ask(event);\n28        return;\n29      }\n30    }\n31    if (event === \"app_opened\" && props.daysSinceInstall === 14) {\n32      ask(event);\n33      return;\n34    }\n35    // No prompt while people are still deciding.\n36    if (event === \"paywall_viewed\" || event === \"trial_started\") return;\n37\n38    // Paying is a happy moment too (added in PR #52)\n39    // TODO: the payment sheet may still be open here\n40    if (event === \"subscription_completed\") {\n41      // fires synchronously from PaywallScreen.tsx:16, before the store sheet closes\n42      StoreReview.requestReview();\n43      analytics.track(\"review_prompt_shown\", { trigger: event });\n44      storage.set(ASKED_KEY, Date.now());\n45    }\n46  }\n47\n48  function ask(trigger: string) {\n49    StoreReview.requestReview();\n50    analytics.track(\"review_prompt_shown\", { trigger });\n51    storage.set(ASKED_KEY, Date.now());\n52  }"
+        },
+        {
+          "when": ["store-review"],
+          "result": "src/native/store-review.ts (lumen/app, main) — 11 lines\n1   import * as StoreReviewNative from \"expo-store-review\";\n2\n3   // Thin wrapper so tests can mock the native module.\n4   // iOS shows the system sheet at most 3 times a year; Android uses the in-app review flow.\n5   // Neither tells us whether the sheet appeared or what the person did.\n6   export const StoreReview = { requestReview };\n7\n8   // Shows over whatever is on screen, including a payment sheet that is still closing.\n9   export function requestReview() {\n10    void StoreReviewNative.requestReview();\n11  }"
+        },
+        {
+          "when": ["events.ts"],
+          "result": "src/analytics/events.ts (lumen/app, main) — 18 lines\n1   // Analytics event names (Himetrica). Keep them in sync with the dashboard.\n2   export const APP_OPENED = \"app_opened\";\n3   export const ONBOARDING_FINISHED = \"onboarding_finished\";\n4   export const SESSION_STARTED = \"session_started\";\n5   export const SESSION_FINISHED = \"session_finished\"; // props: sessionId, durationSec, completedPct (0–1)\n6   export const STREAK_REACHED = \"streak_reached\";\n7   export const GOAL_COMPLETED = \"goal_completed\";\n8   export const HABIT_CHECKED = \"habit_checked\";\n9   export const SETTINGS_OPENED = \"settings_opened\";\n10  export const LANGUAGE_SELECTED = \"language_selected\";\n11  export const PAYWALL_VIEWED = \"paywall_viewed\";\n12  export const TRIAL_STARTED = \"trial_started\";\n13  export const PURCHASE_STARTED = \"purchase_started\";\n14  export const PURCHASE_FAILED = \"purchase_failed\";\n15  export const RESTORE_COMPLETED = \"restore_completed\";\n16  export const REVIEW_PROMPT_SHOWN = \"review_prompt_shown\";\n17  // Fired by PaywallScreen.tsx after purchase() resolves, while the store sheet may still be closing.\n18  export const SUBSCRIPTION_COMPLETED = \"subscription_completed\";"
+        },
+        {
+          "when": ["PlayerScreen"],
+          "result": "src/player/PlayerScreen.tsx (lumen/app, main) — 24 lines\n1   import { analytics } from \"../analytics\";\n2   import { SESSION_FINISHED, SESSION_STARTED } from \"../analytics/events\";\n3   import { storage } from \"../storage\";\n4   import { useNavigation } from \"../navigation\";\n5\n6   export function PlayerScreen({ sessionId, durationSec }: { sessionId: string; durationSec: number }) {\n7     const navigation = useNavigation();\n8\n9     const onStart = () => analytics.track(SESSION_STARTED, { sessionId });\n10\n11    // Called when the audio ends or the person leaves the session.\n12    const onEnd = (completedPct: number) => {\n13      if (completedPct >= 0.9) {\n14        storage.set(\"sessions_finished\", (storage.getNumber(\"sessions_finished\") ?? 0) + 1);\n15      }\n16      analytics.track(SESSION_FINISHED, { sessionId, durationSec, completedPct });\n17      navigation.replace(\"SessionDone\", { sessionId });\n18    };\n19\n20    return <Player sessionId={sessionId} onStart={onStart} onEnd={onEnd} />;\n21  }\n22\n23  // SessionDone shows the streak and the \"how do you feel\" check-in.\n24  export default PlayerScreen;"
+        },
+        {
+          "when": ["PaywallScreen"],
+          "result": "src/checkout/PaywallScreen.tsx (lumen/app, main) — 20 lines\n1   import { analytics } from \"../analytics\";\n2   import { SUBSCRIPTION_COMPLETED } from \"../analytics/events\";\n3   import { purchase } from \"../billing/store\";\n4   import { useNavigation } from \"../navigation\";\n5\n6   export function PaywallScreen({ plan, price }: { plan: string; price: number }) {\n7     const navigation = useNavigation();\n8     const [loading, setLoading] = useState(false);\n9     const onPurchase = async () => {\n10      setLoading(true);\n11      const result = await purchase(plan); // resolves when the store confirms; its sheet is still animating out\n12      if (result.status !== \"ok\") {\n13        setLoading(false);\n14        return showError(result);\n15      }\n16      analytics.track(SUBSCRIPTION_COMPLETED, { plan, price });\n17      navigation.replace(\"Welcome\");\n18    };\n19    return <Paywall plan={plan} price={price} loading={loading} onPurchase={onPurchase} />;\n20  }"
+        },
+        {
+          "when": ["\"path\":\"src/review\""],
+          "result": "src/review (dir)\nreview-prompt.ts\nreview-prompt.test.ts"
+        },
+        {
+          "when": ["\"path\":\"src\""],
+          "result": "src (dir)\nanalytics/\ncheckout/\nnative/\nplayer/\nreview/\nstorage/\nApp.tsx"
+        },
+        {
+          "when": ["\"path\":\"\""],
+          "result": "/ (dir)\nandroid/\nios/\nsrc/\npackage.json\nREADME.md"
+        }
+      ],
+      "github_list_commits": [
+        {
+          "result": "a91c2f0  feat(review): ask for a review after subscribing (#52)  — 9 days ago\n77de1b3  fix(paywall): price label on small screens — 12 days ago"
+        }
+      ],
+      "github_list_pull_requests": [
+        {
+          "result": "#52 feat(review): ask for a review after subscribing · merged 9 days ago by bruno\n#49 fix(paywall): price label on small screens · merged 12 days ago"
+        }
+      ],
+      "github_get_pull_request": [
+        {
+          "when": ["52"],
+          "result": "PR #52 feat(review): ask for a review after subscribing · lumen/app · author bruno · merged 9 days ago into main · 1 file changed (src/review/review-prompt.ts, +8)\nBody: \"Paying is a happy moment: ask for a review right after subscription_completed.\""
+        }
+      ],
+      "github_get_pull_request_diff": [
+        {
+          "when": ["52"],
+          "result": "diff --git a/src/review/review-prompt.ts b/src/review/review-prompt.ts\n@@ -36,2 +36,10 @@\n+  // Paying is a happy moment too (added in PR #52)\n+  // TODO: the payment sheet may still be open here\n+  if (event === \"subscription_completed\") {\n+    // fires synchronously from PaywallScreen.tsx:16, before the store sheet closes\n+    StoreReview.requestReview();\n+    analytics.track(\"review_prompt_shown\", { trigger: event });\n+    storage.set(ASKED_KEY, Date.now());\n+  }"
+        }
+      ]
+    },
+    "expect": {
+      "investigate": true,
+      "ack": "first",
+      "mustCall": ["github_get_file_contents"],
+      "mustNotExecute": ["github_merge_pull_request"],
+      "evidence": ["review-prompt.ts", "subscription_completed"],
+      "ask": "never",
+      "behavior": "Before opening the code, it says in one short line what it will look at (say_now), with no cause in it. Then it searches the code for where the app asks for a review, reads src/review/review-prompt.ts and finds that PR #52 added a synchronous request on subscription_completed (lines 40–42), while the store payment sheet may still be open; it answers with that cause and a concrete fix (ask later, after the Welcome screen or another happy moment), as a PR or a proposed one. No merging.",
+      "rubric": [
+        "The line before the work only says what it will look at; the cause (review-prompt.ts on subscription_completed, added in PR #52) comes in the final reply.",
+        "Proposes a specific code change as a PR (or opens a draft PR) instead of only a plan or a list of options."
+      ]
+    }
+  },
+  {
+    "id": "say-now-line-holds-no-result",
+    "title": "A linha antes do trabalho nunca traz resultado: os números e a causa vêm na resposta",
+    "source": "synthetic (ADR 0207), on the fixtures of qa-crash-language-switch: a line with a result in it is half an answer, sent early",
+    "agent": {
+      "preset": "qa"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura (iOS e Android, React Native com módulos nativos). Repositório lumen/app. Erros no Sentry (projeto lumen-app)."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "qa",
+      "trigger": {
+        "author": "Bruno",
+        "body": {
+          "pt": "@iris o app tá fechando sozinho quando a pessoa troca o idioma pra inglês no Android. Quantas vezes isso já aconteceu, com quantas pessoas, desde quando, e qual a causa?",
+          "en": "@iris the app closes by itself when people switch the language to English on Android. How many times has it happened, to how many people, since when, and what's the cause?"
+        }
+      }
+    },
+    "connectors": ["sentry", "github"],
+    "issues": true,
+    "fixtures": {
+      "sentry_search_issues": [
+        {
+          "result": "lumen-app · unresolved\n- LUMEN-ANDROID-1C9  NullPointerException in LocaleSwitcher.applyLocale  · first seen 2 days ago (app 2.14.0, Android only) · 312 events · 41 users · top devices: Samsung A-series (Android 13/14)\n- LUMEN-APP-77  Network request failed  · ongoing, 3% of sessions"
+        }
+      ],
+      "sentry_get_issue_details": [
+        {
+          "when": ["1C9"],
+          "result": "LUMEN-ANDROID-1C9 NullPointerException: Attempt to invoke 'Context.getResources()' on a null object\n  at LocaleSwitcher.applyLocale (LocaleSwitcher.kt:30)\n  at SettingsModule.setLanguage (SettingsModule.kt:14)\nbreadcrumbs: settings_opened → language_selected(en) → crash\nrelease 2.14.0 · Android 13 (61%), 14 (39%) · devices: Samsung Galaxy A14, A34, A54"
+        }
+      ],
+      "github_list_commits": [
+        {
+          "when": ["c4d5e6f"],
+          "result": "c4d5e6f  refactor(android): LocaleSwitcher without activity reference (#61) — 3 days ago (in 2.14.0) · files: LocaleSwitcher.kt, MainActivity.kt"
+        },
+        {
+          "result": "c4d5e6f  refactor(android): LocaleSwitcher without activity reference (#61) — 3 days ago (in 2.14.0)\n9e8f7a6  chore: bump version to 2.14.0 — 3 days ago\n5b4c3d2  feat(settings): language picker as a modal — 2 weeks ago"
+        }
+      ],
+      "github_search_code": [
+        {
+          "when": ["LocaleSwitcher"],
+          "result": "3 results\nlumen/app android/app/src/main/java/app/lumen/LocaleSwitcher.kt:30   val res = activity?.baseContext!!.resources\nlumen/app android/app/src/main/java/app/lumen/SettingsModule.kt:14   LocaleSwitcher.applyLocale(tag)\nlumen/app android/app/src/main/java/app/lumen/MainActivity.kt:31   LocaleSwitcher.attach(this)"
+        },
+        {
+          "when": ["applyLocale"],
+          "result": "2 results\nlumen/app android/app/src/main/java/app/lumen/LocaleSwitcher.kt:22   fun applyLocale(tag: String) {\nlumen/app android/app/src/main/java/app/lumen/SettingsModule.kt:14   LocaleSwitcher.applyLocale(tag)"
+        }
+      ],
+      "github_get_file_contents": [
+        {
+          "when": ["LocaleSwitcher"],
+          "result": "android/app/src/main/java/app/lumen/LocaleSwitcher.kt (lumen/app, main) — 35 lines\n1   package app.lumen\n2\n3   import android.app.Activity\n4   import android.content.res.Configuration\n5   import java.lang.ref.WeakReference\n6   import java.util.Locale\n7\n8   // Changes the app language at runtime (Settings → Idioma).\n9   // c4d5e6f: no longer holds the Activity; MainActivity calls attach() in onResume and detach() in onPause.\n10  object LocaleSwitcher {\n11    private var activityRef: WeakReference<Activity>? = null\n12\n13    fun attach(activity: Activity) {\n14      activityRef = WeakReference(activity)\n15    }\n16\n17    fun detach() {\n18      activityRef = null\n19    }\n20\n21    // Called from SettingsModule.setLanguage on the React Native module thread.\n22    fun applyLocale(tag: String) {\n23      val locale = Locale.forLanguageTag(tag)\n24      Locale.setDefault(locale)\n25      val activity = activityRef?.get()\n26      // The language picker is a modal: when the person confirms, MainActivity may be paused (detach() ran).\n27      val config = Configuration().apply { setLocale(locale) }\n28      @Suppress(\"DEPRECATION\")\n29      // TODO(c4d5e6f): activity can be null here; before the refactor we held a strong reference\n30      val res = activity?.baseContext!!.resources\n31      res.updateConfiguration(config, res.displayMetrics)\n32      activity?.runOnUiThread { activity.recreate() }\n33    }\n34  }\n35"
+        },
+        {
+          "when": ["SettingsModule"],
+          "result": "android/app/src/main/java/app/lumen/SettingsModule.kt (lumen/app, main) — 16 lines\n1   package app.lumen\n2\n3   import com.facebook.react.bridge.ReactApplicationContext\n4   import com.facebook.react.bridge.ReactContextBaseJavaModule\n5   import com.facebook.react.bridge.ReactMethod\n6\n7   class SettingsModule(private val ctx: ReactApplicationContext) : ReactContextBaseJavaModule(ctx) {\n8     override fun getName() = \"Settings\"\n9\n10    @ReactMethod\n11    fun setLanguage(tag: String) {\n12      ctx.getSharedPreferences(\"settings\", 0).edit().putString(\"language\", tag).apply()\n13      // The picker modal is still closing here; MainActivity may be paused.\n14      LocaleSwitcher.applyLocale(tag)\n15    }\n16  }"
+        }
+      ]
+    },
+    "expect": {
+      "investigate": true,
+      "ack": "first",
+      "ackNever": ["312", "41"],
+      "mustCall": ["sentry_search_issues|sentry_search_events"],
+      "evidence": ["1C9", "LocaleSwitcher"],
+      "ask": "never",
+      "behavior": "Before looking, it says in one short line what it will check (Sentry and the code), with no number, cause or time in it. Then it finds LUMEN-ANDROID-1C9 in Sentry (312 events, 41 people, first seen 2 days ago in 2.14.0, Android only), reads the stack trace and LocaleSwitcher.kt:30, links it to the refactor c4d5e6f, and answers Bruno with the numbers and the cause in its final reply.",
+      "rubric": [
+        "The line before the work holds no result: the numbers (312 events, 41 people), since when and the cause all come in the final reply."
+      ]
+    }
+  },
+  {
+    "id": "say-now-once-then-thanks",
+    "title": "Uma linha por pedido: a pesquisa leva uma, o \"valeu!\" depois dela não leva nenhuma",
+    "source": "synthetic (ADR 0207): one line per request, never again for the thanks that follows",
+    "agent": {
+      "name": "Rui",
+      "handle": "rui",
+      "role": "Pesquisa de mercado",
+      "instructions": "Acompanha concorrentes e resume notícias para o time."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. Concorrentes acompanhados: Banco Azul (também chamado de Azul Pay) e Caixa Norte. Taxas da maquininha Vela: débito 1,19%, crédito à vista 2,99%, crédito parcelado em até 12x 4,99%; recebimento em 1 dia útil."
+    },
+    "conversation": {
+      "where": "dm",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "Rui, pesquisa quantos clientes o Banco Azul e a Caixa Norte dizem ter hoje e me diz quem cresceu mais no último ano",
+          "en": "Rui, look up how many customers Banco Azul and Caixa Norte say they have today and tell me who grew more over the last year"
+        }
+      },
+      "steps": [
+        {
+          "say": {
+            "pt": "valeu!",
+            "en": "thanks!"
+          },
+          "expect": {
+            "ack": "never"
+          }
+        }
+      ]
+    },
+    "web": {
+      "search": [
+        {
+          "when": ["azul", "caixa"],
+          "results": [
+            {
+              "title": "Azul Pay chega a 3 milhões de clientes",
+              "url": "https://news.example.com/azul-pay-3mi",
+              "snippet": "A maquininha do Banco Azul divulgou os números de outubro e comparou com o mesmo mês do ano passado."
+            },
+            {
+              "title": "Caixa Norte divulga os resultados do terceiro trimestre",
+              "url": "https://www.caixanorte.example/imprensa/resultados-3t",
+              "snippet": "Lojistas ativos, volume transacionado e a comparação com o ano anterior."
+            }
+          ]
+        },
+        {
+          "when": ["azul"],
+          "results": [
+            {
+              "title": "Azul Pay chega a 3 milhões de clientes",
+              "url": "https://news.example.com/azul-pay-3mi",
+              "snippet": "A maquininha do Banco Azul divulgou os números de outubro e comparou com o mesmo mês do ano passado."
+            }
+          ]
+        },
+        {
+          "when": ["caixa"],
+          "results": [
+            {
+              "title": "Caixa Norte divulga os resultados do terceiro trimestre",
+              "url": "https://www.caixanorte.example/imprensa/resultados-3t",
+              "snippet": "Lojistas ativos, volume transacionado e a comparação com o ano anterior."
+            }
+          ]
+        }
+      ],
+      "pages": {
+        "https://news.example.com/azul-pay-3mi": {
+          "body": "<html><head><title>Azul Pay chega a 3 milhões de clientes</title></head><body><h1>Azul Pay chega a 3 milhões de clientes</h1><p>A Azul Pay, a maquininha do Banco Azul, passou de 3 milhões de clientes lojistas em outubro, segundo o banco. Um ano antes eram 2,1 milhões.</p></body></html>"
+        },
+        "https://www.caixanorte.example/imprensa/resultados-3t": {
+          "body": "<html><head><title>Caixa Norte: resultados do terceiro trimestre</title></head><body><h1>Resultados do terceiro trimestre</h1><p>A Caixa Norte encerrou setembro com 1,8 milhão de lojistas ativos, ante 1,6 milhão no mesmo período do ano passado.</p></body></html>"
+        }
+      }
+    },
+    "expect": {
+      "investigate": true,
+      "ack": "first",
+      "evidence": ["3 milh", "3 million", "2,1", "2.1", "1,8", "1.8"],
+      "personSees": {
+        "maxAgentMessages": 2
+      },
+      "ask": "never",
+      "behavior": "For the research it says one short line first (say_now), then searches, reads both pages and answers: Azul Pay went from 2,1 to 3 milhões de clientes (about +43%) and Caixa Norte from 1,6 to 1,8 milhão de lojistas (about +12%), so Azul Pay grew more. To the \"valeu!\" after it, it reacts or answers in a few words, with no line before that: one line in the whole conversation.",
+      "skipJudge": ["next_step"],
+      "rubric": [
+        "The research reply brings the numbers from the two pages and says Azul Pay grew more over the year.",
+        "The thanks gets a reaction or a few words, never another line about work or a new search."
+      ]
+    }
+  },
+  {
+    "id": "say-now-greeting",
+    "title": "Um bom-dia não tem linha antes: só a resposta",
+    "source": "synthetic (ADR 0207): a greeting needs no word before the answer",
+    "agent": {
+      "name": "Rui",
+      "handle": "rui",
+      "role": "Pesquisa de mercado",
+      "instructions": "Acompanha concorrentes e resume notícias para o time."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. Concorrentes acompanhados: Banco Azul (também chamado de Azul Pay) e Caixa Norte. Taxas da maquininha Vela: débito 1,19%, crédito à vista 2,99%, crédito parcelado em até 12x 4,99%; recebimento em 1 dia útil."
+    },
+    "conversation": {
+      "where": "dm",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "Oi Rui, bom dia! Tudo certo por aí?",
+          "en": "Hi Rui, good morning! All good over there?"
+        }
+      }
+    },
+    "expect": {
+      "pass": false,
+      "ack": "never",
+      "behavior": "Greets Marina back in a line or two. There is nothing to work on: no line before work (say_now) and no tool.",
+      "skipJudge": ["looked_first", "next_step", "asks_well"]
+    }
+  },
+  {
+    "id": "say-now-quick-from-context",
+    "title": "Pergunta que o contexto já responde: a resposta direto, sem linha antes",
+    "source": "synthetic (ADR 0207): a quick answer gets no line before it, even with the web at hand",
+    "agent": {
+      "name": "Rui",
+      "handle": "rui",
+      "role": "Pesquisa de mercado",
+      "instructions": "Acompanha concorrentes e resume notícias para o time."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. Concorrentes acompanhados: Banco Azul (também chamado de Azul Pay) e Caixa Norte. Taxas da maquininha Vela: débito 1,19%, crédito à vista 2,99%, crédito parcelado em até 12x 4,99%; recebimento em 1 dia útil."
+    },
+    "conversation": {
+      "where": "dm",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "Rui, qual é mesmo a nossa taxa no débito?",
+          "en": "Rui, what's our debit fee again?"
+        }
+      }
+    },
+    "web": {
+      "search": []
+    },
+    "expect": {
+      "ack": "never",
+      "evidence": ["1,19", "1.19"],
+      "behavior": "Answers at once from the workspace context (débito 1,19%), with no line before it and no search.",
+      "skipJudge": ["looked_first", "next_step", "asks_well"],
+      "rubric": ["Answers from what it already knows, without searching the web or saying it will look first."]
+    }
+  },
+  {
+    "id": "say-now-thanks",
+    "title": "Um \"valeu\" não tem linha antes: reage ou responde em poucas palavras",
+    "source": "synthetic (ADR 0207): a thanks needs no word before the answer",
+    "agent": {
+      "name": "Rui",
+      "handle": "rui",
+      "role": "Pesquisa de mercado",
+      "instructions": "Acompanha concorrentes e resume notícias para o time."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. Concorrentes acompanhados: Banco Azul (também chamado de Azul Pay) e Caixa Norte. Taxas da maquininha Vela: débito 1,19%, crédito à vista 2,99%, crédito parcelado em até 12x 4,99%; recebimento em 1 dia útil."
+    },
+    "conversation": {
+      "where": "dm",
+      "prior": [
+        {
+          "author": "Marina",
+          "body": "Rui, me manda o link do relatório de concorrentes de outubro?"
+        },
+        {
+          "author": "agent",
+          "body": "Aqui: https://drive.vela.example/relatorios/concorrentes-outubro.pdf"
+        }
+      ],
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "valeu, Rui!",
+          "en": "thanks, Rui!"
+        }
+      }
+    },
+    "expect": {
+      "pass": false,
+      "ack": "never",
+      "behavior": "Only a thanks: it reacts or answers in a few words, with no line before work (say_now) and no tool.",
+      "skipJudge": ["looked_first", "next_step", "asks_well"]
     }
   }
 ]

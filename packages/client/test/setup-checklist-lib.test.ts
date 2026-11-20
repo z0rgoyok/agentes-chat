@@ -39,10 +39,20 @@ const agent = (setup: AgentSetupChecklist | null, ownerUserId: string | null = "
 });
 
 describe("setup checklist", () => {
-  test("who manages agents sees every step; its owner the ones they may change; anyone else none", () => {
+  test("who manages the agent sees every step; its owner the ones they may change; anyone else none", () => {
     expect(setupSteps(agent(fresh()), { meId: "u_admin", admin: true })).toEqual(["ai", "apps", "where", "who", "how"]);
+    // Its owner edits how it works (ADR 0085 addendum of 2026-11-17): "how" too, never its apps.
+    expect(setupSteps(agent(fresh()), { meId: "u_owner", admin: false, edits: true })).toEqual([
+      "ai",
+      "where",
+      "who",
+      "how",
+    ]);
+    // An older server says nothing of editing: "how" stays out.
     expect(setupSteps(agent(fresh()), { meId: "u_owner", admin: false })).toEqual(["ai", "where", "who"]);
     expect(setupSteps(agent(fresh()), { meId: "u_other", admin: false })).toEqual([]);
+    // Someone its "Who can edit" names edits it on its page: the checklist stays its owner's and its managers'.
+    expect(setupSteps(agent(fresh()), { meId: "u_editor", admin: false, edits: true })).toEqual([]);
   });
 
   test("an agent made before it, or the right hand, has none", () => {

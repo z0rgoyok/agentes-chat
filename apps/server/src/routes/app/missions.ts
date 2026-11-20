@@ -162,7 +162,6 @@ const Mission = z
         online: z.boolean(),
         lentBy: z.string().nullable(),
         executors: z.array(Executor).openapi({ description: "Who can program on that computer." }),
-        codexTooOld: z.boolean(),
       })
       .nullable(),
     needsComputer: z.boolean().openapi({ description: "Handed over without a computer: the owner sets one." }),
@@ -316,7 +315,6 @@ const EligibleAgent = z
     ready: z.boolean(),
     executors: z.array(Executor).openapi({ description: 'Who can program on its computer ("Quem programa").' }),
     defaultExecutor: Executor.nullable(),
-    codexTooOld: z.boolean().openapi({ description: "Codex is installed but too old for missions." }),
     commandApproval: CommandApproval.openapi({
       description: 'The autonomy its new missions start with ("Usar como padrão"; default low_risk_auto).',
     }),

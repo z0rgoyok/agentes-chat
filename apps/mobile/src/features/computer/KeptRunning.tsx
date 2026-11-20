@@ -1,9 +1,9 @@
 import { type Hold, useAgentHolds, useStopHold } from "@agenteschat/client";
 import { holdLine } from "@agenteschat/client/lib/holds";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/providers/org";
-import { GroupedHeader, GroupedList, GroupedRow, IconButton, Sheet, useToast } from "@/ui";
+import { GroupedHeader, GroupedList, GroupedRow, type HeaderAction, Sheet, useToast } from "@/ui";
 import { chooseAction } from "../settings/parts";
 import { useDirectory, useNow } from "../shared/hooks";
 
@@ -33,6 +33,7 @@ function useKept(agentId: string) {
       hold.what,
       [
         {
+          icon: "stop",
           label: t("agentComputer.kept.stop"),
           destructive: true,
           onPress: () =>
@@ -72,20 +73,31 @@ export function KeptRunningList({ agentId }: { agentId: string }) {
   );
 }
 
-/** On the computer's full screen, beside its header: the same list in a sheet. Nothing while there is none. */
-export function KeptRunningButton({ agentId }: { agentId: string }) {
+/**
+ * On the computer's screen, a button in its bar: the same list in a sheet. No button while there is none; the sheet
+ * stays while it is open, so stopping the last one doesn't pull it from under the finger.
+ */
+export function useKeptRunningAction(agentId: string): { action: HeaderAction | null; sheet: ReactNode } {
   const { t } = useTranslation();
   const { orgId } = useOrg();
   const q = useAgentHolds(orgId, agentId);
   const [open, setOpen] = useState(false);
   const count = q.data?.holds.length ?? 0;
-  if (count === 0 && !open) return null;
-  return (
-    <>
-      <IconButton icon="play" plate label={t("agentComputer.kept.count", { count })} onPress={() => setOpen(true)} />
-      <Sheet open={open} onClose={() => setOpen(false)}>
-        <KeptRunningList agentId={agentId} />
-      </Sheet>
-    </>
-  );
+  return {
+    action:
+      count > 0
+        ? {
+            icon: "play",
+            sf: "play.circle",
+            label: t("agentComputer.kept.count", { count }),
+            onPress: () => setOpen(true),
+          }
+        : null,
+    sheet:
+      count > 0 || open ? (
+        <Sheet open={open} onClose={() => setOpen(false)}>
+          <KeptRunningList agentId={agentId} />
+        </Sheet>
+      ) : null,
+  };
 }

@@ -19,6 +19,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { requestLimitIp } from "../../http/client-ip";
 import { apiError, errorResponse } from "../../http/errors";
 import type { Logger } from "../../logger";
+import { OthersQuery } from "./connectors-custom";
 import {
   type AppDeps,
   body,
@@ -161,11 +162,15 @@ export function mailRoutes(deps: AppDeps, log: Logger) {
       tags,
       security,
       summary: "Connected mailboxes and which agents use them (no secrets)",
-      request: { params: OrgParams },
+      description:
+        "A mailbox is its person's (who connected it, ADR 0038): the person's own and any left with no person. With `others=1`, for who manages connectors, also everyone else's, with only their name, person and agents.",
+      request: { params: OrgParams, query: OthersQuery },
       responses: { 200: json(z.object({ accounts: z.array(MailAccount) })), ...errors },
     }),
     async (c) => {
-      const accounts = await listMailAccounts(db, c.get("user").id, c.req.valid("param").orgId);
+      const accounts = await listMailAccounts(db, c.get("user").id, c.req.valid("param").orgId, {
+        others: c.req.valid("query").others === "1",
+      });
       return c.json({ accounts }, 200);
     },
   );
@@ -347,7 +352,8 @@ export function mailRoutes(deps: AppDeps, log: Logger) {
       path: "/organizations/{orgId}/mail/accounts/{accountId}/suggested-addresses",
       tags,
       security,
-      summary: "Addresses this mailbox has sent from (its sent folder), to offer as its other addresses (admins)",
+      summary:
+        "Addresses this mailbox has sent from (its sent folder), to offer as its other addresses (its person only)",
       request: { params: AccountParams },
       responses: { 200: json(z.object({ addresses: z.array(z.string()) })), ...errors },
     }),

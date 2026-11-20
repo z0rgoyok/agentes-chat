@@ -38,6 +38,9 @@ const limiter = () => {
       used.set(key, count);
       return { allowed: count <= rule.limit, remaining: Math.max(0, rule.limit - count), resetAt: new Date(0) };
     },
+    async release(key: string) {
+      used.set(key, Math.max(0, (used.get(key) ?? 0) - 1));
+    },
   };
 };
 
@@ -114,6 +117,8 @@ test("a person asks: one email queued in their name, saying which agent wrote it
   expect(mail.subject).toBe("Feedback from bia");
   expect(mail.text).toContain("Written by: Dev (@dev), an agent, when they asked");
   expect(mail.text).toContain("Workspace: Acme");
+  // What an agent sends is nobody's request for help: an agent can be steered into sending one.
+  expect(await f.db.select().from(schema.supportRequests)).toEqual([]);
 });
 
 test("it counts toward the person's hour, the form's own", async () => {

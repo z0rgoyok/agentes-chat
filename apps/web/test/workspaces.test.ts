@@ -9,7 +9,7 @@ test("this server's workspaces first with their unread counts, then every other 
     here: CLOUD_SERVER,
     orgs: [
       { id: "acme", name: "Acme", logo: "/api/app/org-logos/acme/a.png" },
-      { id: "norte", name: "Estúdio Norte" },
+      { id: "norte", name: "Estúdio Norte", accent: "#f97316" },
     ],
     currentOrgId: "acme",
     unread: [
@@ -32,7 +32,7 @@ test("this server's workspaces first with their unread counts, then every other 
   expect(groups[2]?.rows).toEqual([]);
   expect(groups[0]?.rows).toEqual([
     { id: "acme", name: "Acme", logo: "/api/app/org-logos/acme/a.png", unread: 2, current: true },
-    { id: "norte", name: "Estúdio Norte", logo: null, unread: 3, current: false },
+    { id: "norte", name: "Estúdio Norte", logo: null, accent: "#f97316", unread: 3, current: false },
   ]);
   expect(groups[1]?.rows).toEqual([{ id: "oficina", name: "Oficina", logo: null, unread: 1, current: false }]);
 });

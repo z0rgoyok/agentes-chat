@@ -274,6 +274,18 @@ describe("what carries a tip", () => {
     expect(await shows(page(`<button role="switch" aria-label="Sons">${ICON}</button>`))).toBeNull();
   });
 
+  test("a button's words cut short by its place are said whole; whole ones say nothing", async () => {
+    const cut = (scroll: number) => {
+      const button = page('<button><span class="ac-btn__label">Usar Conta compartilhada do time · Max</span></button>');
+      const label = button.firstElementChild as HTMLElement;
+      Object.defineProperty(label, "scrollWidth", { configurable: true, value: scroll });
+      Object.defineProperty(label, "clientWidth", { configurable: true, value: 120 });
+      return button;
+    };
+    expect(await shows(cut(240))).toBe("Usar Conta compartilhada do time · Max");
+    expect(await shows(cut(120))).toBeNull();
+  });
+
   test("a label's tip inside a titled row: the row's title stays closed in the browser meanwhile", async () => {
     const row = page(`<div title="Linha"><button aria-label="Fechar">${ICON}</button></div>`);
     const close = row.querySelector("button") as HTMLElement;

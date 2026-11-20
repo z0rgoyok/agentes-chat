@@ -1,5 +1,5 @@
 import { and, desc, type Executor, eq, inArray, isNull, or, schema, sql } from "@agenteschat/db";
-import { type AuthorityRun, fedByRoutine, type RunAuthority, runAuthority } from "./authority";
+import { type AuthorityRun, fedByRoutine, type RunAuthority, runAuthority, transcriptKeys } from "./authority";
 import { caches, cachesEnabled } from "./cache";
 import { postedBySql } from "./message-place";
 
@@ -109,6 +109,10 @@ async function readOutsideItself(db: Executor, run: OutsideRun): Promise<boolean
   );
 }
 
+/**
+ * One of the run's tool results came from outside, or a message with `meta.readOutside` (a forwarded one, say) was
+ * steered into it while it worked. One statement for both: every run asks this.
+ */
 async function stepReadOutside(db: Executor, run: OutsideRun): Promise<boolean> {
   const [step] = await db
     .select({ id: agentRunSteps.id })
@@ -116,8 +120,15 @@ async function stepReadOutside(db: Executor, run: OutsideRun): Promise<boolean> 
     .where(
       and(
         eq(agentRunSteps.runId, run.id),
-        eq(agentRunSteps.kind, "tool_result"),
-        sql`${agentRunSteps.data}->'data'->>'outside' = 'true'`,
+        or(
+          and(eq(agentRunSteps.kind, "tool_result"), sql`${agentRunSteps.data}->'data'->>'outside' = 'true'`),
+          and(
+            eq(agentRunSteps.kind, "context"),
+            sql`exists (select 1 from messages m
+              where m.org_id = ${run.orgId} and m.meta->>'readOutside' = 'true'
+                and m.id in (select jsonb_array_elements_text(${agentRunSteps.data}->'steeredMessageIds')::uuid))`,
+          ),
+        ),
       ),
     )
     .limit(1);
@@ -144,7 +155,7 @@ async function outsideRun(db: Executor, orgId: string, runId: string) {
       orgId: agentRuns.orgId,
       triggerMessageId: agentRuns.triggerMessageId,
       background: agentRuns.background,
-      transcript: agentRuns.transcript,
+      transcript: transcriptKeys("steeredBy", "harnessTried"),
     })
     .from(agentRuns)
     .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, runId)));

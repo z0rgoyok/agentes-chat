@@ -81,7 +81,7 @@ export interface BrainPickOption {
 }
 
 /** Claude's own models describe themselves by family; any other, by its price ("Grátis" for a free one). */
-const CLAUDE_FAMILIES = ["sonnet", "opus", "haiku"] as const;
+const CLAUDE_FAMILIES = ["sonnet", "opus", "haiku", "fable"] as const;
 const claudeFamily = (model: Model) =>
   model.provider === "anthropic" ? CLAUDE_FAMILIES.find((f) => model.id.toLowerCase().includes(f)) : undefined;
 const freeModel = (model: Model) => model.inputUsdPerMTok === 0 && model.outputUsdPerMTok === 0;
@@ -318,7 +318,7 @@ export function brainPickOptions(
         ),
       ),
       ...mine
-        .map((a) => ({ ...a, label: accountTitle(a) }))
+        .map((a) => ({ ...a, label: accountTitle(t, a) }))
         .flatMap((a) =>
           rows(
             { kind, choice, machineId: a.machineId, accountId: a.id, account: a.label },
@@ -388,13 +388,17 @@ export function needsOwnSignIn(
   return !ownSignInReady({ ownSignIn: row?.mine === true }, row, p.kind);
 }
 
-/** The list's runs of options under one heading, in order (the phone draws each as a group). */
-export function pickGroups<O extends Pick<BrainPickOption, "group">>(options: readonly O[]) {
-  const out: { group?: string; options: O[] }[] = [];
+/**
+ * The list's runs of options under one heading, in order (the phone draws each as a group). `groupKey` tells apart
+ * two groups whose headings read alike (two owners of one first name); `key`, the group's own.
+ */
+export function pickGroups<O extends Pick<BrainPickOption, "group"> & { groupKey?: string }>(options: readonly O[]) {
+  const out: { key?: string; group?: string; options: O[] }[] = [];
   for (const o of options) {
+    const key = o.groupKey ?? o.group;
     const last = out.at(-1);
-    if (last && last.group === o.group) last.options.push(o);
-    else out.push({ ...(o.group ? { group: o.group } : {}), options: [o] });
+    if (last && last.key === key) last.options.push(o);
+    else out.push({ ...(key ? { key } : {}), ...(o.group ? { group: o.group } : {}), options: [o] });
   }
   return out;
 }
@@ -580,7 +584,7 @@ export function modelPickerTiles(
   for (const a of view.accounts) {
     const theirs = a.mine || a.ownerId === ownerUserId || a.id === view.account;
     if (!theirs || !runs(a.kind) || (a.status !== "active" && a.id !== view.account)) continue;
-    add(planOfAccount(a), { id: a.id, label: accountTitle(a), usage: a.usage, provider: a.provider });
+    add(planOfAccount(a), { id: a.id, label: accountTitle(t, a), usage: a.usage, provider: a.provider });
   }
   for (const o of view.options) {
     if (o.kind === "model" || !runs(o.kind)) continue;

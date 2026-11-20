@@ -3,14 +3,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Routine, RoutineRun } from "@agenteschat/client";
 import {
+  byAgent,
   cleanFilter,
   draftChanges,
   draftInput,
   draftOf,
   draftTrigger,
   everyMinutes,
+  fixFor,
   futureRuns,
+  HORIZON_AGENTS,
   hasFired,
+  horizonAgents,
   horizonLanes,
   horizonPos,
   horizonRange,
@@ -23,7 +27,6 @@ import {
   laneTag,
   mailTrouble,
   nextLine,
-  routineAgents,
   routineSections,
   routineTitle,
   ruleOf,
@@ -181,8 +184,18 @@ describe("the list", () => {
     expect(ids(routineSections(list, { status: "all", agentId: null, query: "email" }, whenOf).live)).toEqual(["e"]);
   });
 
-  test("the agents with routines, once each, in order", () => {
-    expect(routineAgents(list)).toEqual(["dev", "infra"]);
+  test("broken by agent as the web reads them: one section each, A to Z, live before paused in each", () => {
+    const names: Record<string, string> = { dev: "Theo", infra: "Ana" };
+    const s = routineSections(list, { status: "all", agentId: null, query: "" }, whenOf);
+    const groups = byAgent([...s.live, ...s.paused], (id) => names[id] ?? id, "pt-BR");
+    expect(groups.map((g) => [g.agentId, ids(g.routines)])).toEqual([
+      ["infra", ["e", "b"]],
+      ["dev", ["a", "c"]],
+    ]);
+    // Accents and case aside, as a phone's lists sort names.
+    const sorted = byAgent([a, b], (id) => (id === "dev" ? "álvaro" : "Bia"), "pt-BR");
+    expect(sorted.map((g) => g.agentId)).toEqual(["dev", "infra"]);
+    expect(byAgent([], () => "")).toEqual([]);
   });
 });
 
@@ -457,16 +470,42 @@ describe("the horizon", () => {
     expect(horizonPos(NOW, from, to)).toBeCloseTo(4 / 24, 10);
   });
 
-  test("a lane's tag: minutes within the hour, else the time; hourly ones only within the hour", () => {
-    const r = routine({ id: "r" });
-    expect(laneTag(r, [later(30 * MIN)], NOW)).toEqual({ kind: "soon", minutes: 30, at: later(30 * MIN) });
-    expect(laneTag(r, [later(10_000)], NOW)).toEqual({ kind: "soon", minutes: 1, at: later(10_000) });
-    expect(laneTag(r, [later(3 * HOUR)], NOW)).toEqual({ kind: "at", at: later(3 * HOUR) });
-    expect(laneTag(r, [], NOW)).toBeNull();
-    expect(laneTag({ ...r, state: "running" }, [later(HOUR)], NOW)).toBeNull();
-    const hourly = routine({ id: "h", trigger: { ...daily, rule: { ...daily.rule, freq: "hourly" as const } } });
-    expect(laneTag(hourly, [later(3 * HOUR)], NOW)).toBeNull();
-    expect(laneTag(hourly, [later(20 * MIN)], NOW)).toEqual({ kind: "soon", minutes: 20, at: later(20 * MIN) });
+  test("a lane's tag: minutes within the hour, else the time; none while the agent works", () => {
+    expect(laneTag(later(30 * MIN), false, NOW)).toEqual({ kind: "soon", minutes: 30 });
+    expect(laneTag(later(10_000), false, NOW)).toEqual({ kind: "soon", minutes: 1 });
+    expect(laneTag(later(3 * HOUR), false, NOW)).toEqual({ kind: "at", at: later(3 * HOUR) });
+    expect(laneTag(undefined, false, NOW)).toBeNull();
+    expect(laneTag(later(HOUR), true, NOW)).toBeNull();
+  });
+
+  test("one lane per agent: at work first, then the soonest; the next run named, with what runs with it", () => {
+    const from = new Date(NOW.getTime() - 4 * HOUR);
+    const soon = routine({ id: "s", agentId: "infra", name: "Backup" });
+    const also = routine({ id: "t", agentId: "infra", name: "Limpeza" });
+    const late = routine({ id: "l", agentId: "dev", name: "Resumo" });
+    const busy = routine({ id: "b", agentId: "ops", state: "running" });
+    const quiet = routine({ id: "q", agentId: "quiet" });
+    const ran = routine({
+      id: "r",
+      agentId: "past",
+      recentRuns: [run({ id: "x", at: later(-HOUR), status: "reported" })],
+    });
+    const future: Record<string, string[]> = {
+      s: [later(HOUR), later(5 * HOUR)],
+      t: [later(HOUR + 10 * MIN)],
+      l: [later(3 * HOUR)],
+    };
+    const { agents, idle } = horizonAgents([late, soon, also, busy, quiet, ran], (r) => future[r.id] ?? [], from, NOW);
+    expect(agents.map((x) => x.agentId)).toEqual(["ops", "infra", "dev", "past"]);
+    // An agent with nothing in the window has no lane.
+    expect(idle).toBe(1);
+    const infra = agents[1];
+    expect(infra?.next?.routine.id).toBe("s");
+    expect(infra?.next?.together).toBe(1);
+    expect(infra?.future).toEqual([later(HOUR), later(HOUR + 10 * MIN), later(5 * HOUR)]);
+    expect(agents[3]?.past.map((x) => x.at)).toEqual([later(-HOUR)]);
+    expect(agents[0]?.running).toBe(true);
+    expect(HORIZON_AGENTS).toBeLessThanOrEqual(5);
   });
 });
 
@@ -552,7 +591,7 @@ test("a run's Abrir na conversa keeps off the Ver mais right above it: no slop o
   expect(open.slice(open.lastIndexOf("<Pressable"))).toContain("hitSlop={{ bottom: 13, left: 13, right: 13 }}");
 });
 
-test("Nova rotina's templates: one row opens the search, by area, and picking one fills the draft", async () => {
+test("Nova rotina's templates: one row pushes the search, by area, and picking one fills the draft", async () => {
   // The screens are components the tests can't render: what they wire in, as text.
   const read = (f: string) => Bun.file(new URL(`../../src/features/routines/${f}`, import.meta.url).pathname).text();
   const [form, picker] = await Promise.all([read("RoutineForm.tsx"), read("TemplatePicker.tsx")]);
@@ -564,19 +603,104 @@ test("Nova rotina's templates: one row opens the search, by area, and picking on
   expect(form).toContain("rule: templateRule(picked, x.rule)");
   expect(form).not.toContain("PRESETS");
   expect(picker).toContain("routineTemplateOptions(t, catalog)");
-  expect(picker).toContain("<PickList");
+  // A screen pushed over the form, never a sheet: the app's picker, by area, with its search.
+  expect(picker).toContain("openOptionPick({");
+  expect(picker).toContain('router.push("/option-pick")');
+  expect(picker).toContain("group: o.group");
+  expect(picker).not.toContain("<Sheet");
   // An app not connected yet has its way there, as a mailbox does.
   expect(picker).toContain('router.push("/connectors")');
 });
 
-test('a routine\'s row and its runs line show their words whole: they wrap, never end in a "…" that hides them', async () => {
-  // The screens are components the tests can't render: what they hold back, as text.
-  const read = (f: string) => Bun.file(new URL(`../../src/features/routines/${f}`, import.meta.url).pathname).text();
-  const [parts, screen] = await Promise.all([read("parts.tsx"), read("RoutineScreen.tsx")]);
-  const row = parts.slice(parts.indexOf("export const RoutineRow"), parts.indexOf("const styles = StyleSheet.create"));
-  expect(row).toContain("{title}");
-  expect(row).not.toContain("numberOfLines");
-  // Where it delivers keeps its icon on its first line as it wraps.
-  expect(row).toContain('<LineIcon variant="footnote" name={targetIcon(r.target)}');
+test('a routine\'s runs line shows its words whole: it wraps, never ends in a "…" that hides them', async () => {
+  const screen = await Bun.file(
+    new URL("../../src/features/routines/RoutineScreen.tsx", import.meta.url).pathname,
+  ).text();
   expect(screen.slice(screen.indexOf("<RunStrip"))).not.toMatch(/numberOfLines=\{1\}[^>]*>\s*\{words\.caption/);
+});
+
+describe("Rotinas on the phone, as the web reads them", () => {
+  const read = (f: string) => readFileSync(join(import.meta.dir, "../../src/features/routines", f), "utf8");
+
+  test("the list is broken by agent: a section each, its face and name as the head, standard grouped rows", () => {
+    const list = read("RoutinesScreen.tsx");
+    expect(list).toContain("byAgent([...sections.live, ...sections.paused], nameOf, i18n.language)");
+    expect(list).toContain("<AgentSection");
+    expect(list).toContain("<MediaRow");
+    expect(list).toContain("size={MEDIA_ROW.row.face}");
+    expect(list).toContain("<GroupedRow");
+    // No oversized rows: no list face at 52 and no title of its own size.
+    expect(list).not.toContain("size={52}");
+    expect(list).not.toContain("<ListRow");
+    // Its one-offs that ran fold under "Concluídos", with the lists' own fold.
+    expect(list).toContain("<CollapsibleSection");
+    // A list that didn't load says so with Retry, not with its own words and button.
+    expect(list).toContain("<LoadFailed onRetry");
+  });
+
+  test("the horizon has one lane per agent, each tagged with its next run's time and routine", () => {
+    const horizon = read("RoutineHorizon.tsx");
+    expect(horizon).toContain("horizonAgents(scheduled, futureOf, from, at)");
+    expect(horizon).toContain('t("routines.horizon.showAll")');
+    expect(horizon).toContain("routineTitle(next.routine)");
+  });
+
+  test("the form picks on pushed screens, never a list opened in place in its card", () => {
+    const form = read("RoutineForm.tsx");
+    expect(form).toContain("openAgentPick({");
+    expect(form).toContain('router.push("/agent-pick")');
+    expect(form).toContain("everyone: true");
+    expect(form).toContain('router.push("/option-pick")');
+    expect(form).toContain("closeAgentPick();");
+    expect(form).toContain("closeOptionPick();");
+    for (const inPlace of ['open === "agent"', 'open === "target"', 'open === "mailbox"', 'open === "folder"'])
+      expect({ inPlace, found: form.includes(inPlace) }).toEqual({ inPlace, found: false });
+    // What starts it is a row of the "when" card picked in the app's picker: five segments ran off a phone.
+    expect(form).toContain("onPress={pickKind}");
+    expect(form).not.toContain("<Segmented");
+    // Labels over their fields are the kit's stacked field.
+    expect(form).toContain("<GroupedField stacked");
+    expect(form).not.toContain("function StackedField");
+  });
+
+  test("a routine's screen: the system's menu in its bar, its actions as rows, its state in words", () => {
+    const screen = read("RoutineScreen.tsx");
+    expect(screen).toContain("{...(menu ? { actions: [menu] } : {})}");
+    expect(screen).not.toContain("SheetHostProvider");
+    expect(screen).not.toContain("<Chip");
+    expect(screen).not.toContain("ActivityIndicator");
+    expect(screen).toContain("<MissingScreen");
+    const menu = read("hooks.tsx");
+    expect(menu).toContain("menu: items,");
+    expect(menu).toContain("chooseAction(");
+    expect(menu).not.toContain("useSheet");
+  });
+
+  test("a new routine, a move to another agent and a copy: only for an agent that answers who sets up its routines", () => {
+    // A routine asks its agent on its creator's behalf: the server makes one, moves one or copies one only for who may
+    // make one for that agent (`createsRoutinesFor`, ADR 0085 addendum of 2026-11-17); editing keeps the routine's own.
+    const form = read("RoutineForm.tsx");
+    expect(form).toContain("dir.agents.filter((a) => createsRoutinesFor(a) || a.id === routine?.agentId)");
+    expect(form).not.toContain("managesRoutinesOf");
+    // "Duplicate" goes by the agent, not by the routine's own `canManage` (its creator still edits it).
+    expect(read("hooks.tsx")).toContain("if (!widget && createsRoutinesFor(dir.agentById.get(r.agentId)))");
+    // The routine an agent's proposal left to make, the same.
+    expect(readFileSync(join(import.meta.dir, "../../src/features/agents/ProposalCard.tsx"), "utf8")).toContain(
+      'createsRoutinesFor(dir.agentById.get(card.agentId ?? ""))',
+    );
+  });
+
+  test("a paused routine's Take over only for who may make one for its agent; its other fixes for who changes it", () => {
+    // Taking it over makes it mine: the server's create check (`takeOverRoutine`, ADR 0053 §6.2; ADR 0085 addendum of
+    // 2026-11-17). A named editor its agent doesn't answer still changes it, never takes it over.
+    const orphan = routine({ id: "r1", active: false, pausedReason: "creator_left" });
+    const editorOnly = { canManageRoutines: true, canTalk: false };
+    const answers = { canManageRoutines: true, canTalk: true };
+    expect(fixFor(orphan, answers)).toBe("take_over");
+    expect(fixFor(orphan, editorOnly)).toBeNull();
+    expect(fixFor(orphan, undefined)).toBeNull();
+    expect(fixFor(routine({ id: "r2", active: false, pausedReason: "failing" }), editorOnly)).toBe("resume");
+    expect(fixFor({ ...orphan, canManage: false }, answers)).toBeNull();
+    expect(read("RoutineScreen.tsx")).toContain("const fix = fixFor(r, dir.agentById.get(r.agentId));");
+  });
 });

@@ -63,9 +63,9 @@ describe("coding plans' models", () => {
     expect(aliases("kimi")).toEqual({ opus: "k3.1-pro", sonnet: "kimi-for-coding", haiku: "kimi-for-coding" });
     expect(ids("minimax")).toEqual(["MiniMax-M3.1-Flash[1m]"]);
     expect(aliases("opencode")).toEqual({ opus: "minimax-m3", sonnet: "minimax-m3", haiku: "claude-haiku-5-5" });
-    // All 31 of OpenCode Go's live list (2026-11-09). The ones that train on what they're sent say so, and those and
+    // All 32 of OpenCode Go's live list (2026-11-17). The ones that train on what they're sent say so, and those and
     // the free ones run only when chosen: "Automático" never picks one.
-    expect(ids("opencode")).toHaveLength(31);
+    expect(ids("opencode")).toHaveLength(32);
     for (const m of models("opencode").filter((m) => /contributor/.test(m.id)))
       expect(m.needs === "paidTraining" || m.needs === "freeTraining").toBe(true);
     for (const m of models("opencode").filter((m) => /free|contributor/.test(m.id))) expect(m.alias).toBeUndefined();
@@ -109,10 +109,10 @@ describe("coding plans' models", () => {
   });
 
   test("a model its plan prices at 0 is marked free; every other one isn't", () => {
-    // OpenCode Go's live list (2026-11-09) prices exactly these at 0. Zen's free tier (`*-free` on
+    // OpenCode Go's live list (2026-11-17) prices exactly these at 0. Zen's free tier (`*-free` on
     // opencode.ai/zen/v1/models, `big-pickle`) answers only the OpenCode CLI, so no plan here lists it.
     const free = PLAN_IDS.flatMap((p) => models(p).flatMap((m) => (m.free ? [m.id] : [])));
-    expect(free).toEqual(["longcat-2.5-free", "beam-free", "crouton-alpha-free", "iceman-contributor-free"]);
+    expect(free).toEqual(["longcat-2.5-free", "hy4-flash-free", "beam-free", "iceman-contributor-free"]);
     expect(ids("opencode")).not.toContain("deepseek-v4.1-flash-free");
     expect(ids("opencode")).toContain("deepseek-v4.1-flash");
     expect(ids("opencode")).toContain("glm-5.3-flash");

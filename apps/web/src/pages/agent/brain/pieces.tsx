@@ -14,6 +14,7 @@ import {
   RadioGroup,
   Segmented,
   Switch,
+  windowAmount,
 } from "@agenteschat/ui";
 import {
   type CSSProperties,
@@ -51,14 +52,21 @@ export function PlanWindows({ usage, provider }: { usage: PlanUsage; provider?: 
       <div className="bd-wins">
         {rows.map((w, i) => {
           const name = text.window(w);
-          const renews = w.resetsAt && Date.parse(w.resetsAt) > now ? text.resets(w.resetsAt) : null;
+          const renews = w.resetsAt && Date.parse(w.resetsAt) > now && !w.stale ? text.resets(w.resetsAt) : null;
           return (
-            <div key={`${w.kind}:${w.label ?? i}`} className="bd-win" data-level={planLevel(w.used)}>
+            <div
+              key={`${w.kind}:${w.label ?? i}`}
+              className="bd-win"
+              data-level={w.stale ? "ok" : planLevel(w.used)}
+              data-stale={w.stale || undefined}
+            >
               <span className="bd-win__name">{name}</span>
-              <span className="bd-win__bar" aria-hidden="true">
-                <i style={{ "--used": `${Math.min(100, w.used)}%` } as CSSProperties} />
-              </span>
-              <span className="bd-win__n">{w.used}%</span>
+              {!w.stale && (
+                <span className="bd-win__bar" aria-hidden="true">
+                  <i style={{ "--used": `${Math.min(100, w.used)}%` } as CSSProperties} />
+                </span>
+              )}
+              <span className="bd-win__n">{windowAmount(usage, w, text)}</span>
               <small className="bd-win__at">{renews}</small>
             </div>
           );
@@ -372,4 +380,21 @@ export function useGlide<T extends HTMLElement>(key: unknown) {
     return () => watch.disconnect();
   }, []);
   return ref;
+}
+
+/** "Só esta conta" (ADR 0041 §6): at a limit the agent waits for its own account instead of going on with the next. */
+export function PinAccount({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const { t } = useTranslation();
+  const id = useId();
+  return (
+    <div className="plan-replies">
+      <span className="ac-hintline">
+        <label htmlFor={id}>{t("agentPage.work.brain.pinned")}</label>
+        <InfoHint name={t("common.about", { label: t("agentPage.work.brain.pinned") })}>
+          {t("agentPage.work.brain.pinnedHint")}
+        </InfoHint>
+      </span>
+      <Switch id={id} checked={on} onCheckedChange={onChange} />
+    </div>
+  );
 }

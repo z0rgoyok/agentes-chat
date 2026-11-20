@@ -262,6 +262,44 @@ describe("propose_agent", () => {
     );
   });
 
+  test("how it introduces itself and the catalog apps it still needs: on the draft, in its checklist made in one click", async () => {
+    f = await setup();
+    await connect(f, "github", "GitHub");
+    const ctx = await runFor(f, f.owner.id, "quero um agente de campanhas");
+    // A connected app, one the catalog doesn't have and one that can't be connected yet: refused, with why.
+    for (const [app, says] of [
+      ["github", "is connected already"],
+      ["nope-app", 'No app "nope-app" in the catalog'],
+      ["meta-ads", "can't be connected yet"],
+    ] as const) {
+      const bad = await propose(f, ctx, { ...ADA, connect_later: [app] });
+      expect(bad.isError).toBe(true);
+      expect(bad.content).toContain(says);
+    }
+    expect(await proposals(f)).toHaveLength(0);
+    const out = await propose(f, ctx, {
+      ...ADA,
+      hello: "Cuido das telas com você.",
+      connect_later: ["Klaviyo", "klaviyo"],
+    });
+    expect(out.isError).toBeUndefined();
+    const id = (out.data as { agentProposal: { messageId: string } }).agentProposal.messageId;
+    const { draft } = (await cardOf(f, id)).params;
+    expect(draft.hello).toBe("Cuido das telas com você.");
+    expect(draft.later).toEqual(["klaviyo"]);
+    const made = await createProposedAgent(
+      { db: f.db, pubsub: f.pubsub, gateway: f.gateway },
+      f.owner.id,
+      f.org.id,
+      id,
+    );
+    const [row] = await f.db
+      .select({ setup: schema.agents.setup })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, made.agent.id));
+    expect(row?.setup).toMatchObject({ hello: "Cuido das telas com você.", apps: { klaviyo: "read" } });
+  });
+
   test("apps by name or by service: a Stripe account is 'stripe'; with two, its name says which", async () => {
     f = await setup();
     const acme = await connect(f, `custom:${crypto.randomUUID()}`, "Stripe (Acme)", "stripe");

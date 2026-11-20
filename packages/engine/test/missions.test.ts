@@ -15,7 +15,9 @@ import {
   chooseDecision,
   closeMission,
   createAgent,
+  createJobHandlers,
   createMission,
+  createMissionHooks,
   createMissionRunToolSource,
   decideCommand,
   decideJoinRequest,
@@ -58,12 +60,12 @@ import {
   startSessionTask,
   stopMission,
   syncMissionFiles,
+  systemWithConversation,
   taskNotice,
-  versionOf,
 } from "../src";
 import { addMember, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
-import { ownerWrites } from "./mission-helpers";
+import { missionComputerBrain, ownerWrites } from "./mission-helpers";
 
 let f: Fixture;
 afterEach(async () => {
@@ -216,11 +218,13 @@ async function proposed(
     judge?: NonNullable<Parameters<typeof setup>[0]>["judge"];
   } = {},
 ) {
+  const computer = missionComputerBrain();
   f = await setup({
     machines: true,
     missionTools: true,
     reply: options.reply ?? (() => ({ chunks: ["ok"] })),
     ...(options.judge ? { judge: options.judge } : {}),
+    brains: computer.brains,
   });
   const paired = await pairedMachine();
   const runner = missionRunner(f.machineHub as MachineHub);
@@ -242,7 +246,7 @@ async function proposed(
     resume: false,
   });
   const task = runner.started[0] as TaskStartRequest;
-  return { view, runner, task, paired };
+  return { view, runner, task, paired, turns: computer.turns };
 }
 
 /**
@@ -436,7 +440,7 @@ describe("missions (ADR 0029)", () => {
   });
 
   test("update_plan versions the plan; changes after the first post one line; mission brief in the run's context", async () => {
-    const { view, runner, task: plan } = await proposed();
+    const { view, runner, task: plan, turns } = await proposed();
     const first = ok(
       await runner.mcp(plan.taskId, "update_plan", {
         items: [
@@ -474,7 +478,9 @@ describe("missions (ADR 0029)", () => {
       threadId: view.threadId,
     });
     await drainOutbox(f.db, f.handlers);
-    const system = JSON.stringify(f.provider.calls.at(-1)?.request.system ?? "");
+    // What the mission's Claude Code reads as its system text: the agent's, then this conversation's.
+    const last = turns.at(-1);
+    const system = last ? systemWithConversation(last) : "";
     expect(system).toContain("# Mission in this thread");
     expect(system).toContain("Plan: 1 of 2 done");
     // The run is the main session, whatever its brain: it does the work itself.
@@ -482,7 +488,97 @@ describe("missions (ADR 0029)", () => {
     expect(system).not.toContain("send_to_mission");
   });
 
-  test("roles: a non-participant's or commenter's mention is a suggestion (no run); a decider's starts a run; accept forwards it", async () => {
+  test("a person writes in the mission's thread while the mission's computer is offline: the run waits for that computer, says so once, and goes on when it is back", async () => {
+    const { view, turns } = await proposed();
+    const mission = await missionRow();
+    const missionMachine = mission.machineId as string;
+    // The agent's own computer is another one, online: only the mission's computer may hold the run.
+    const own = await pairMachine(deps(), f.owner.id, f.org.id, { name: "Mac mini", ...RUNNER, exec: true });
+    await setAgentComputerTarget(deps(), f.owner.id, f.org.id, f.agent.id, own.machineId);
+    const [agent] = await f.db.select().from(schema.agents).where(eq(schema.agents.id, f.agent.id));
+    expect(agent?.machineId).toBe(own.machineId);
+    expect(missionMachine).not.toBe(own.machineId);
+    let missionOnline = false;
+    const handlers = createJobHandlers({
+      ...f.jobDeps,
+      machines: {
+        status: async (id) => ({
+          id,
+          orgId: f.org.id,
+          name: "MacBook",
+          online: id !== missionMachine || missionOnline,
+          execAllowed: true,
+          os: "darwin",
+          protocol: MACHINE_PROTOCOL_VERSION,
+          executors: { claude: { version: "2.1.300", loggedIn: true }, detectedAt: new Date().toISOString() },
+        }),
+      },
+    });
+    const turnsBefore = turns.length;
+    const callsBefore = f.provider.calls.length;
+    const write = (body: string) =>
+      postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+        body,
+        threadId: view.threadId,
+      });
+    const waiting = async () =>
+      f.db
+        .select()
+        .from(schema.agentRuns)
+        .where(and(eq(schema.agentRuns.threadRootId, view.threadId), eq(schema.agentRuns.status, "waiting_input")));
+    const waitNotes = async () =>
+      (await f.db.select().from(schema.messages).where(eq(schema.messages.threadId, view.threadId))).filter(
+        (m) => m.meta.bodyCode === "brain_unavailable",
+      );
+
+    await write("@dev how is it going?");
+    await drainOutbox(f.db, handlers);
+    let [run, ...more] = await waiting();
+    expect(more).toHaveLength(0);
+    expect(run?.waitingMachineId).toBe(missionMachine);
+    expect((run?.transcript as { waitingForBrain?: unknown } | undefined)?.waitingForBrain).toMatchObject({
+      kind: "claude_code",
+      machineId: missionMachine,
+      code: "machine_offline",
+    });
+    // The API never stands in, and the computer brain is not asked either.
+    expect(f.provider.calls).toHaveLength(callsBefore);
+    expect(turns).toHaveLength(turnsBefore);
+    let notes = await waitNotes();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.meta.brainUnavailable).toMatchObject({
+      brain: "claude_code",
+      code: "machine_offline",
+      machineId: missionMachine,
+    });
+
+    // Another message while it waits: still one note for this outage.
+    await write("@dev any news?");
+    await drainOutbox(f.db, handlers);
+    notes = await waitNotes();
+    expect(notes).toHaveLength(1);
+    expect((await waiting()).map((r) => r.waitingMachineId)).toEqual([missionMachine]);
+    expect(f.provider.calls).toHaveLength(callsBefore);
+
+    // The hub calls its online hook when the runner says hello again.
+    missionOnline = true;
+    await createMissionHooks({ ...f.missionDeps, tools: f.jobDeps.tools }).online?.(missionMachine);
+    await drainOutbox(f.db, handlers);
+    [run] = await f.db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, run?.id as string));
+    expect(run?.status).toBe("done");
+    expect(run?.waitingMachineId).toBeNull();
+    expect(await waiting()).toHaveLength(0);
+    expect(f.provider.calls).toHaveLength(callsBefore);
+    expect(turns.length).toBeGreaterThan(turnsBefore);
+    const last = turns.at(-1);
+    expect(last?.session?.machineId).toBe(missionMachine);
+    expect(last ? systemWithConversation(last) : "").toContain("# Mission in this thread");
+  });
+
+  test("roles:a non-participant's or commenter's mention is a suggestion (no run); a decider's starts a run; accept forwards it", async () => {
     const { view } = await proposed();
     const bia = await addMember(f.db, f.org.id, "member", "bia");
     const caio = await addMember(f.db, f.org.id, "member", "caio");
@@ -930,6 +1026,25 @@ describe("missions (ADR 0029)", () => {
     await expect(requestToJoin(md(), zed.id, f.org.id, view.id)).rejects.toMatchObject({ code: "mission.not_found" });
   });
 
+  test("the workspace's computer asleep in standby: making a mission wakes it and goes on once it is back", async () => {
+    f = await setup({ machines: true, missionTools: true, brains: missionComputerBrain().brains });
+    const paired = await pairedMachine();
+    await f.db
+      .update(schema.machines)
+      .set({ kind: "managed", standbyAt: new Date() })
+      .where(eq(schema.machines.id, paired.machineId));
+    const made = createMission(md(), f.owner.id, f.org.id, {
+      agentId: f.agent.id,
+      channelId: f.general.id,
+      goal: "Build our mobile app",
+      title: "Mobile app",
+      repoDir: "app",
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    await missionRunner(f.machineHub as MachineHub).hello(paired.token);
+    expect((await made).title).toBe("Mobile app");
+  });
+
   test("eligible agents: every agent, with a reason when it can't (no computer, commands off, old runner, audience); offline still eligible", async () => {
     f = await setup({ machines: true, missionTools: true });
     const elig = (userId = f.owner.id) => eligibleMissionAgents(md(), userId, f.org.id);
@@ -945,7 +1060,6 @@ describe("missions (ADR 0029)", () => {
         ready: false,
         executors: [],
         defaultExecutor: null,
-        codexTooOld: false,
         commandApproval: "low_risk_auto",
       },
     ]);
@@ -965,7 +1079,6 @@ describe("missions (ADR 0029)", () => {
         // An older runner that doesn't report its CLIs: Claude Code is assumed.
         executors: ["claude", "agent"],
         defaultExecutor: "claude",
-        codexTooOld: false,
         commandApproval: "low_risk_auto",
       },
     ]);
@@ -1076,7 +1189,7 @@ describe("missions (ADR 0029)", () => {
     expect(await ask(10)).toMatchObject({ ok: false, error: { code: "mission.rate_limited" } });
   });
 
-  test("hello stores the coding CLIs; Codex counts only from the minimum version; Claude Code is required to choose it", async () => {
+  test("hello stores the coding CLIs; Codex counts at any version; Claude Code is required to choose it", async () => {
     f = await setup({ machines: true, missionTools: true });
     const paired = await pairedMachine();
     const runner = missionRunner(f.machineHub as MachineHub);
@@ -1096,48 +1209,36 @@ describe("missions (ADR 0029)", () => {
     const [machine] = await f.db.select().from(schema.machines);
     expect(machine?.executors).toMatchObject({ codex: { version: "codex-cli 0.150.0" } });
     expect(machineExecutors(machine as typeof schema.machines.$inferSelect)).toEqual({
-      available: ["agent"],
-      codexTooOld: true,
+      available: ["codex", "agent"],
     });
-    expect(
-      machineExecutors({
-        protocol: 7,
-        execAllowed: true,
-        executors: { codex: { version: "codex-cli 0.163.0" }, detectedAt: "x" },
-      }).available,
-    ).toEqual(["codex", "agent"]);
+    // Whatever the version line says, even none: a run on a CLI that lacks a flag fails with the CLI's own error.
+    for (const version of [
+      "0.100.0",
+      "codex-cli 0.170.0",
+      "WARNING: proceeding, even though we could not update PATH",
+      "",
+    ]) {
+      expect(
+        machineExecutors({ protocol: 7, execAllowed: true, executors: { codex: { version }, detectedAt: "x" } })
+          .available,
+      ).toEqual(["codex", "agent"]);
+    }
     // Codex background tasks don't run on Windows yet: a mission there can't ask Codex for its items.
     const codexHere = {
       protocol: 7,
       execAllowed: true,
       executors: { codex: { version: "codex-cli 0.163.0" }, detectedAt: "x" },
     };
-    expect(missionExecutors({ ...codexHere, os: "windows" }).available).toEqual(["agent"]);
+    expect(missionExecutors({ ...codexHere, os: "windows" })).toEqual({ available: ["agent"] });
     expect(missionExecutors({ ...codexHere, os: "darwin" }).available).toEqual(["codex", "agent"]);
-    // The version as the runner reports it, read part by part (a long run of digits is no version).
-    expect(versionOf("codex-cli 0.163.0")).toEqual([0, 163, 0]);
-    expect(versionOf("0".repeat(5000))).toBeNull();
-    // No update makes it, so an old Codex there isn't worth an "update it".
-    const oldCodex = { codex: { version: "codex-cli 0.150.0" }, detectedAt: "x" };
-    expect(missionExecutors({ ...codexHere, executors: oldCodex, os: "windows" })).toEqual({
-      available: ["agent"],
-      codexTooOld: false,
-    });
-    await expect(
-      createMission(md(), f.owner.id, f.org.id, {
-        agentId: f.agent.id,
-        channelId: f.general.id,
-        goal: "Build",
-        executor: "codex",
-      }),
-    ).rejects.toMatchObject({ code: "mission.executor_outdated" });
+    // Without Claude Code there, a mission's default is our agent.
     const view = await createMission(md(), f.owner.id, f.org.id, {
       agentId: f.agent.id,
       channelId: f.general.id,
       goal: "Build",
     });
     expect(view.executor).toBe("agent");
-    expect(view.machine?.executors).toEqual(["agent"]);
+    expect(view.machine?.executors).toEqual(["codex", "agent"]);
   });
 
   test("Codex on a Windows computer: asking it for a mission's items says it doesn't run there, not to update", async () => {

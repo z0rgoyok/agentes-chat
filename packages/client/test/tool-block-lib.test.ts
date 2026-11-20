@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
 import type { LiveRun, LiveWork } from "../src/index";
 import { applyChannelEvent, emptyStreams, isQuiet, QUIET_AFTER_MS } from "../src/index";
-import { type Activity, barEntries, toolActivity } from "../src/lib/activity";
+import { type Activity, barEntries, serviceKey, toolActivity } from "../src/lib/activity";
 import {
   callLogo,
   foldSteps,
@@ -23,6 +23,7 @@ import {
   toolNow,
   toolPhrase,
   toolWhy,
+  waitStep,
   workApps,
   workFromSteps,
   workMeta,
@@ -183,6 +184,45 @@ describe("the block's lines", () => {
     expect(
       workSteps({ steps: 2, calls: [{ name: "tiktok_find_tools", connector: "TikTok Ads" }], durationMs: 0 }),
     ).toBe(2);
+  });
+
+  test("the line before slow work (`say_now`, ADR 0207) is its own message, not a line; `post_message` is one", () => {
+    expect(toolItemsLive([call("1", "say_now")])).toEqual([]);
+    const items = toolItemsLive([
+      call("1", "mcp__agentes__say_now"),
+      call("2", "browser_open"),
+      call("3", "post_message"),
+    ]);
+    expect(items.map((i) => (i.kind === "call" ? `${i.line.kind}×${i.line.count}` : i.kind))).toEqual([
+      "browsing×1",
+      "postingMessage×1",
+    ]);
+    expect(toolCalls(items)).toBe(2);
+    expect(toolApps(items)).toEqual([{ kind: "browsing" }, { kind: "postingMessage" }]);
+    // Going out right after a call refused for its arguments: the step line names that call's work, never the line.
+    const slipped = call("1", "github_search_issues", { connector: "GitHub", failed: true, slip: true });
+    const going = [slipped, call("2", "say_now", { running: true, ms: undefined })];
+    expect(toolItemsLive(going).map((i) => (i.kind === "call" ? `${i.line.key}:${i.line.state}` : i.kind))).toEqual([
+      "1:run",
+    ]);
+    expect(waitStep(t, going)).toBe('Chat.activity.consulting|{"app":"GitHub"} · search issues…');
+    // Saved: the run's steps leave it out, and so do the closed block's count and logos.
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 19, 10, 0, s)).toISOString();
+    const saved = workFromSteps([
+      {
+        seq: 1,
+        kind: "tool_call",
+        data: { toolUseId: "t1", name: "say_now", input: { text: "Bora! Vou abrir o painel e já te mando." } },
+        createdAt: at(0),
+      },
+      { seq: 2, kind: "tool_result", data: { toolUseId: "t1", content: "Posted." }, createdAt: at(1) },
+      { seq: 3, kind: "tool_call", data: { toolUseId: "t2", name: "browser_open", input: {} }, createdAt: at(1) },
+      { seq: 4, kind: "tool_result", data: { toolUseId: "t2", content: "ok" }, createdAt: at(3) },
+    ]);
+    expect(saved.steps.map((s) => s.tool)).toEqual(["browser_open"]);
+    expect(toolCalls(toolItemsSaved(saved))).toBe(1);
+    expect(workSteps({ steps: 1, calls: [{ name: "say_now", n: 1 }], durationMs: 900 })).toBe(0);
+    expect(workApps([{ name: "mcp__agentes__say_now" }, { name: "browser_open" }])).toEqual([{ kind: "browsing" }]);
   });
 
   test("coming back later is ours, not apps called follow and cancel", () => {
@@ -638,6 +678,18 @@ describe("each call's service and its logo", () => {
     expect(second?.hint).toBe("list issues");
   });
 
+  test("a connection's service by its name, each run of spaces or parentheses read once", () => {
+    expect(serviceKey("Google Drive (ana@acme.com) 2")).toBe("google_drive");
+    expect(serviceKey("Notion  3")).toBe("notion");
+    expect(serviceKey("A (b) (c)")).toBe("a_(b)");
+    expect(serviceKey("A (b)) 2")).toBe("a_(b))");
+    const started = performance.now();
+    expect(serviceKey(`a${" ".repeat(100_000)}b`)).toBe("a_b");
+    expect(serviceKey(`a${"(".repeat(100_000)}`)).toBe(`a${"(".repeat(100_000)}`);
+    expect(serviceKey(`a${" (".repeat(50_000)}x)`)).toBe("a");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("the block's logos: each service once, in order of first use, four at most", () => {
     const items = toolItemsLive([
       call("1", "mail_wnogueira_search", { connector: "Email", service: "gmail" }),
@@ -801,6 +853,11 @@ describe("a lone quick read that only fed the answer shows no card", () => {
     expect(makingImage({ step: { tool: "shell" } })).toBe(false);
     expect(makingImage({ step: { said: "Vou desenhar" } })).toBe(false);
     expect(makingImage({})).toBe(false);
+    // Ours onto a canvas (ADR 0197): while its call runs, on any brain; its end (`tool` null) ends it.
+    expect(makingImage({ tool: "generate_image" })).toBe(true);
+    expect(makingImage({ tool: "mcp__agentes__generate_image" })).toBe(true);
+    expect(makingImage({ tool: "mcp__higgsfield__generate_image" })).toBe(false);
+    expect(makingImage({ tool: null })).toBe(false);
   });
 
   test("saved: the run's lone call is quiet by meta.work; calls another card shows are left out of the count", () => {

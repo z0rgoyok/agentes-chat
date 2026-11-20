@@ -77,10 +77,9 @@ describe("night install", () => {
     expect(installNight(new Date(2026, 10, 12, 4, 59))).toBe("2026-11-12");
     expect(installNight(new Date(2026, 10, 12, 5, 0))).toBeNull();
   });
-  test("unset follows the server here, a choice wins", () => {
-    expect(autoUpdateOn(null, true)).toBe(true);
-    expect(autoUpdateOn(null, false)).toBe(false);
-    expect(autoUpdateOn(false, true)).toBe(false);
-    expect(autoUpdateOn(true, false)).toBe(true);
+  test("unset is on, a choice wins", () => {
+    expect(autoUpdateOn(null)).toBe(true);
+    expect(autoUpdateOn(false)).toBe(false);
+    expect(autoUpdateOn(true)).toBe(true);
   });
 });

@@ -230,3 +230,44 @@ for (const [name, make] of HARNESSES) {
     });
   });
 }
+
+/**
+ * Bitwarden answers 400 `version_header` to a request with no client version, which broke every connect and read on
+ * the real cloud. Both callers (the login and the API) carry it, and the client's own name beside it.
+ */
+test("bitwarden carries its client version and name on every call", async () => {
+  const fake = await createFakeBitwarden({
+    logins: [
+      {
+        id: "7d0c1f9e-0000-4000-8000-000000000010",
+        name: "Acme",
+        folder: "Agents",
+        username: "ana@acme.example",
+        password: "fake-contract-bw-pass-9",
+        uris: [{ uri: "https://admin.acme.example/login", match: null }],
+      },
+    ],
+  });
+  const source = createBitwardenSource({ fetch: fake.fetch, timeoutMs: 1_000 });
+  const result = await source.connect({
+    server: "bitwarden.com",
+    clientId: FAKE_BW.clientId,
+    clientSecret: FAKE_BW.clientSecret,
+    masterPassword: FAKE_BW.masterPassword,
+    folder: "Agents",
+  });
+  const conn: VaultConnection = {
+    id: "contract-version",
+    orgId: "org-contract",
+    config: result.config,
+    secret: result.secret,
+  };
+  await source.list(conn);
+
+  expect(fake.calls.length).toBeGreaterThan(0);
+  for (const call of fake.calls) {
+    expect(call.headers["bitwarden-client-version"]).toMatch(/^\d{4}\.\d+\.\d+$/);
+    expect(call.headers["bitwarden-client-name"]).toBe("cli");
+    expect(call.headers["device-type"]).toBeTruthy();
+  }
+});

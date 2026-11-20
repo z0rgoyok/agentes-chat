@@ -1,0 +1,669 @@
+/*
+ * The spreadsheet editor (ADR 0196): toolbar, formula bar, the canvas grid with its DOM overlay, the sheet tabs.
+ * Neutral first: the person's own selection and focus are ink, other people and agents bring their own color, and
+ * cells stay white (the theme's raised surface) under a calm page.
+ */
+
+.sheet {
+  container: sheet / inline-size;
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* One row of 32 px controls in groups, scrolling sideways with faded edges when it doesn't fit. */
+.sheet-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h-md);
+  padding: 0 var(--page-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  overflow-x: auto;
+  /* Sideways only: a finger's target past a button's 32 (the kit's touch rule) would scroll it by a sliver. */
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.sheet-tools::-webkit-scrollbar {
+  display: none;
+}
+.sheet-tools > * {
+  flex: none;
+}
+.sheet-tools[data-sides="end"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.sheet-tools[data-sides="start"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 48px);
+  mask-image: linear-gradient(to right, transparent, #000 48px);
+}
+.sheet-tools[data-sides="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+.sheet-tools__sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 var(--space-1);
+  background: var(--line2);
+}
+.sheet-tools .ac-btn[aria-pressed="true"] {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+  color: var(--ink);
+}
+/* A button that opens a menu: its icon, then a small chevron. */
+.sheet-tools__menu {
+  gap: 0;
+  padding: 0 var(--space-1);
+}
+.sheet-tools__chev {
+  color: var(--ink-muted);
+}
+/* A color button: the icon over a bar of the color chosen (none: a hairline). */
+.sheet-tools__color {
+  position: relative;
+}
+.sheet-tools__swatch {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+  transform: translateX(-50%);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+/* Where a menu row's check would be, when it isn't checked: the words still line up. */
+.sheet-tools__blank {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+
+/* Read-only: a quiet line where the toolbar would be. */
+.sheet-quiet {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-height: var(--control-h-md);
+  padding: var(--space-1) var(--page-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+.sheet-quiet__words {
+  min-width: 0;
+}
+
+/* ── Formula bar ────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* One line, no boxes: the address as quiet text, a hairline, the fx mark, the cell's content. */
+.sheet-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h-md);
+  padding: 0 var(--page-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+/* The address reads as text (76 wide); its field shows only while it holds the focus. Its padding sits in the bar's
+   own edge (the negative margin), so the words line up with the toolbar's first glyph. */
+.sheet-bar__name {
+  flex: none;
+  box-sizing: border-box;
+  width: calc(76px + var(--space-2));
+  height: var(--control-h-sm);
+  margin: 0 0 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--control-r-sm);
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  outline: none;
+  cursor: text;
+}
+.sheet-bar__name:hover {
+  background: var(--plate-soft);
+}
+.sheet-bar__name:focus {
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow:
+    0 0 0 1px var(--line2),
+    0 0 0 4px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.sheet-bar__name[aria-invalid="true"] {
+  box-shadow:
+    0 0 0 1px var(--danger),
+    0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.sheet-bar__sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--line2);
+}
+.sheet-bar__fx {
+  flex: none;
+  display: inline-flex;
+  color: var(--faint);
+}
+.sheet-bar__field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+.sheet-bar__fx-box {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A cell's text as typed: a textarea over a layer that draws a formula's references in their colors. */
+.sheet-fx {
+  position: relative;
+  min-width: 0;
+}
+.sheet-fx__input,
+.sheet-fx__back {
+  box-sizing: border-box;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  tab-size: 4;
+}
+.sheet-fx__input {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--ink);
+  resize: none;
+  outline: none;
+}
+.sheet-fx__back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--ink);
+  pointer-events: none;
+}
+.sheet-fx--formula .sheet-fx__input {
+  color: transparent;
+}
+.sheet-fx--formula .sheet-fx__input::selection {
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  color: transparent;
+}
+
+/* The bar's field: one line that scrolls sideways; a value in the page's face, a formula in the code face (it is code). */
+.sheet-bar__input,
+.sheet-bar__fx-box .sheet-fx__back {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-1);
+  font-size: var(--control-fs-md);
+  line-height: var(--control-h-sm);
+  white-space: pre;
+  overflow: hidden;
+}
+.sheet-bar__fx-box.sheet-fx--formula :is(.sheet-bar__input, .sheet-fx__back) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.sheet-bar__input[readonly] {
+  color: var(--ink);
+}
+
+/* ── Grid ───────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+.sheet-grid {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--raised);
+}
+/* Sized to the whole sheet: native scrollbars, momentum and wheel. The canvas drawn over it shows the window. */
+.sheet-grid__scroller {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+.sheet-grid__space {
+  pointer-events: none;
+}
+.sheet-grid__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.sheet-grid__overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sheet-grid__overlay [data-interactive] {
+  pointer-events: auto;
+}
+
+/* The cell's editor: always there and focused while the grid has the keys, seen only while typing. */
+.sheet-grid__editor-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-lifted);
+  display: flex;
+}
+.sheet-grid__editor {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.sheet-grid__editor[data-editing="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sheet-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 2px solid var(--ink);
+  background: var(--raised);
+  box-shadow: var(--e2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 17px;
+}
+.sheet-editor__input,
+.sheet-editor .sheet-fx__back {
+  min-height: 20px;
+  padding: 2px var(--space-1) 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* At least the cell's height, taller with text that wraps or breaks onto more lines. */
+.sheet-editor__input {
+  min-height: 100%;
+  field-sizing: content;
+  overflow: hidden;
+}
+.sheet-grid__editor[data-editing="false"] .sheet-editor {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Someone's name over their range's top-right corner. */
+.sheet-grid__tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-raised);
+  opacity: 0;
+  visibility: hidden;
+}
+.sheet-grid__tag[data-shown="true"] {
+  opacity: 1;
+  visibility: visible;
+}
+.sheet-grid__name {
+  gap: var(--space-1);
+  transform: translate(-100%, -100%);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 var(--radius-sm);
+}
+.sheet-grid__name .ac-avatar {
+  margin-left: -2px;
+}
+
+/* An error cell's meaning, under it. */
+.sheet-grid__tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-lifted);
+  max-width: 280px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--glass-solid);
+  box-shadow: var(--e2);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  opacity: 0;
+  visibility: hidden;
+}
+.sheet-grid__tip[data-shown="true"] {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Where a row or column being resized will end. */
+.sheet-grid__guide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-lifted);
+  background: var(--ink);
+  opacity: 0;
+}
+.sheet-grid__guide[data-axis="col"] {
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+}
+.sheet-grid__guide[data-axis="row"] {
+  width: 100%;
+  height: 2px;
+  margin-top: -1px;
+}
+.sheet-grid__guide[data-shown="true"] {
+  opacity: 1;
+}
+
+/* "Add 100 rows", under the last one. */
+.sheet-grid__more {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: var(--space-3) var(--space-2);
+  visibility: hidden;
+}
+.sheet-grid__more[data-shown="true"] {
+  visibility: visible;
+}
+
+/* Agents' cursors over the cells, clipped to them (never over the headers). */
+.sheet-grid__cursors {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet-grid__tag,
+  .sheet-grid__tip {
+    transition:
+      opacity var(--dur-fast) var(--out),
+      visibility var(--dur-fast);
+  }
+}
+
+/* ── Sheet tabs and the status line ─────────────────────────────────────────────────────────────────────────────── */
+
+.sheet-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h-md);
+  padding: 0 var(--page-x);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.sheet-tabs__strip {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sheet-tabs__strip::-webkit-scrollbar {
+  display: none;
+}
+.sheet-tabs__slot {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.sheet-tabs__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--control-r-sm);
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: pan-x;
+  user-select: none;
+}
+.sheet-tabs__tab:hover {
+  background: var(--plate);
+  color: var(--ink);
+}
+.sheet-tabs__tab.is-on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.sheet-tabs__tab.is-on::after,
+.sheet-tabs__mark {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+}
+/* A tab's own color: a bar under its name (over the open one's ink bar). */
+.sheet-tabs__mark {
+  height: 3px;
+  background: var(--tab);
+}
+.sheet-tabs__tab.is-dragging {
+  opacity: 0.5;
+}
+html:not([data-pointer]) .sheet-tabs__tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sheet-tabs__drop {
+  position: absolute;
+  left: calc(-1 * var(--space-1) / 2 - 1px);
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+}
+.sheet-tabs__strip > .sheet-tabs__drop {
+  position: static;
+  flex: none;
+  height: 20px;
+}
+.sheet-tabs__anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+.ac-input.sheet-tabs__rename {
+  flex: none;
+  width: auto;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--control-r-sm);
+  font-size: var(--text-sm);
+}
+.sheet-tabs__status {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Narrow: the sum alone. */
+@container sheet (max-width: 560px) {
+  .sheet-tabs__status .sheet-stat--more {
+    display: none;
+  }
+}
+
+/* ── Color menus ────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+.sheet-colors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+.sheet-colors__auto {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.sheet-colors__auto:hover,
+.sheet-colors__auto[aria-pressed="true"] {
+  background: var(--plate);
+}
+/* "Automático": a white swatch crossed by a line. */
+.sheet-colors__none {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  overflow: hidden;
+}
+.sheet-colors__none::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 50%;
+  height: 1.5px;
+  background: var(--danger);
+  transform: rotate(-45deg);
+}
+.sheet-colors__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-1);
+}
+.sheet-colors__swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+.sheet-colors__swatch.is-on {
+  box-shadow:
+    0 0 0 2px var(--raised),
+    0 0 0 4px var(--ink);
+}
+html:not([data-pointer]) .sheet-colors__swatch:focus-visible,
+html:not([data-pointer]) .sheet-colors__auto:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Formula help ───────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* Under the field being typed in: functions to pick, the signature with the current argument, or what is wrong. The
+   functions are the kit's menu rows (a name over its description), `--menu-pad` from the list's edge. */
+.sheet-assist {
+  position: fixed;
+  z-index: var(--z-floating);
+  min-width: 260px;
+  max-width: min(420px, calc(100vw - 2 * var(--space-4)));
+  border-radius: var(--radius-md);
+  box-shadow: var(--e3);
+}
+.sheet-assist__sig,
+.sheet-assist__problem {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.sheet-assist__sig {
+  color: var(--ink-muted);
+}
+.sheet-assist__sig b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.sheet-assist__problem {
+  color: var(--danger);
+}
+.sheet-assist__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--menu-pad);
+}
+.sheet-assist__name {
+  font-weight: 600;
+}
+
+/* ── Loading ────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+.sheet-skeleton {
+  flex: 1 1 auto;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:
+    100px 24px,
+    100px 24px;
+  background-position: 48px 24px;
+  opacity: 0.7;
+}

@@ -5,40 +5,42 @@ import {
   type Level,
   type LevelState,
   levelOf,
-  nextLevel,
   resourcesOf,
 } from "@agenteschat/client/lib/access-levels";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { addsConnectors, can } from "@agenteschat/client/lib/permissions";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, InfoHint, Segmented, Text } from "@/ui";
+import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Segmented, SkeletonList } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { mayCreate } from "../new/logic";
-import { FirstUse } from "../shared/FirstUse";
-import { useColors, useErrorToast } from "../shared/hooks";
-import { errorHaptic, tapHaptic } from "../shared/parts";
+import { FirstUse, LoadFailed } from "../shared/FirstUse";
+import { useErrorToast } from "../shared/hooks";
+import { errorHaptic } from "../shared/parts";
 import { resourceName, useAgentsAccess, useConnectedById, useSetLevels } from "./hooks";
 import { type AccessKind, AREA_ICON, accessColumns } from "./logic";
-import { SettingsPage } from "./parts";
+import { chooseAction, SettingsPage } from "./parts";
 
 /**
  * Agentes e acesso (admins), as the web's matrix: agents × the connected services (or the built-in areas), each a
- * level. On the phone each agent is a group and each service a row: a tap moves its level on (Sem acesso → Ler →
- * Ler e escrever) and saves right away. Sensitive actions keep asking at any level (the row says so); fine-tuning
- * tool by tool is the connector's Ferramentas.
+ * level. On the phone each agent is a group and each service a row: a tap lists its levels (Sem acesso, Ler, Ler e
+ * escrever) in the app's short menu, the one in use checked, and a pick saves right away. The switch between services
+ * and built-in areas stays on top, where the list's change never moves it. Sensitive actions keep asking at any level
+ * (the row says so); fine-tuning tool by tool is the connector's Ferramentas. Only the agents this person manages
+ * (the server's `canManage`): "Editar qualquer agente" doesn't reach someone's private agent (ADR 0085 addendum).
  */
 export function AccessScreen() {
   const { t } = useTranslation();
-  const c = useColors();
   const failed = useErrorToast();
   const { orgId, org } = useOrg();
   const admin = can(org, "manage_agents");
   const agents = useAgents(orgId);
-  const list = agents.data ?? [];
+  const all = agents.data ?? [];
+  const list = all.filter((a) => managesAgent(a));
   const access = useAgentsAccess(list, admin);
   const items = useConnectedById();
   const set = useSetLevels();
@@ -49,10 +51,8 @@ export function AccessScreen() {
   const table = first !== undefined && columns.length > 0 && !access.loading;
   const busyAgents = new Set(Object.keys(pending).map((k) => k.split("|")[0]));
 
-  const cycle = (agent: Agent, r: AccessResource, current: LevelState) => {
+  const setLevel = (agent: Agent, r: AccessResource, level: Level) => {
     if (busyAgents.has(agent.id)) return;
-    tapHaptic();
-    const level = nextLevel(r, current);
     const k = `${agent.id}|${r.id}`;
     setPending((p) => ({ ...p, [k]: level }));
     set.mutate(
@@ -71,8 +71,21 @@ export function AccessScreen() {
       },
     );
   };
+  // The levels this service or area has, in the app's short menu: the one in use checked, a pick saves.
+  const chooseLevel = (agent: Agent, r: AccessResource, name: string, current: LevelState) =>
+    chooseAction(
+      name,
+      r.levels.map((level) => ({
+        label: t(`access.level.${level}`),
+        checked: level === current,
+        onPress: () => {
+          if (level !== current) setLevel(agent, r, level);
+        },
+      })),
+      t("common.cancel"),
+    );
 
-  if (!admin) {
+  if (!admin || (all.length > 0 && list.length === 0)) {
     return (
       <SettingsPage title={t("settings.section.access")}>
         <View style={styles.note}>
@@ -83,18 +96,15 @@ export function AccessScreen() {
   }
   return (
     <SettingsPage title={t("settings.section.access")}>
-      <GroupedFooter>{t("settings.sectionText.access")}</GroupedFooter>
-      <View style={styles.head}>
-        <InfoHint
-          name={t("common.about", { label: t("access.matrixTitle") })}
-          text={t("access.matrixHint")}
-          variant="title"
-        >
-          <Text variant="title" tone="ink">
-            {t("access.matrixTitle")}
-          </Text>
-        </InfoHint>
+      {/* What the page is, its matrix's explanation behind the ⓘ (the bar's title already names it). */}
+      <GroupedFooter
+        hint={{ name: t("common.about", { label: t("access.matrixTitle") }), text: t("access.matrixHint") }}
+      >
+        {t("settings.sectionText.access")}
+      </GroupedFooter>
+      <View style={styles.switch}>
         <Segmented
+          wide
           items={[
             { key: "connector", label: t("access.kind.connectors") },
             { key: "builtin", label: t("access.kind.builtin") },
@@ -104,10 +114,9 @@ export function AccessScreen() {
         />
       </View>
       {access.unavailable ? <GroupedFooter>{t("access.unavailable")}</GroupedFooter> : null}
-      {agents.isLoading || (list.length > 0 && access.loading) ? (
-        <ActivityIndicator color={c.muted} style={styles.loading} />
-      ) : null}
-      {agents.isSuccess && list.length === 0 ? (
+      {agents.isError && !agents.data ? <LoadFailed onRetry={() => void agents.refetch()} /> : null}
+      {agents.isLoading || (list.length > 0 && access.loading) ? <SkeletonList rows={4} /> : null}
+      {agents.isSuccess && all.length === 0 ? (
         <FirstUse
           place="agents"
           size="panel"
@@ -152,8 +161,9 @@ export function AccessScreen() {
                         label={name}
                         {...(asks ? { sub: t("access.asksLegend") } : {})}
                         value={t(`access.level.${level}`)}
+                        menu
                         disabled={busyAgents.has(a.id)}
-                        onPress={() => cycle(a, r, level)}
+                        onPress={() => chooseLevel(a, r, name, level)}
                       />
                     );
                   })}
@@ -162,13 +172,12 @@ export function AccessScreen() {
             );
           })
         : null}
-      {table ? <GroupedFooter>{t("mobile.settings.access.how")}</GroupedFooter> : null}
     </SettingsPage>
   );
 }
 
 const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
-  head: { gap: 12, paddingHorizontal: 4, paddingTop: 20, paddingBottom: 4 },
-  loading: { marginVertical: 16 },
+  // The switch on the groups' edge, a header's room above it.
+  switch: { paddingTop: 20, paddingBottom: 4 },
 });

@@ -16,20 +16,37 @@ import { removalLines } from "@agenteschat/client/lib/removal";
 import { isBelow, leaves, removes } from "@agenteschat/client/lib/roles";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useQueryClient } from "@tanstack/react-query";
+import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import { Alert } from "react-native";
 import { useOrg } from "@/providers/org";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Locked, PersonAvatar, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openAgentAi } from "../ai/AgentAiScreen";
 import { Page } from "../me/parts";
 import { useOpenDm } from "../new/useOpenDm";
-import { rolesHref } from "../roles/parts";
-import { chooseAction } from "../settings/parts";
+import { RowBones, rolesHref } from "../roles/parts";
+import { chooseAction, Gap } from "../settings/parts";
 import { Face } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useMeId } from "../shared/hooks";
-import { errorHaptic, Loaded, successHaptic } from "../shared/parts";
-import { invitersOf, memberActions, memberLine, membersByName, whenWords } from "./logic";
+import { errorHaptic, Loaded, successHaptic, useLatest } from "../shared/parts";
+import { invitersOf, memberActions, memberLine, membersByName, outsideLine, whenWords } from "./logic";
+
+/** What leads each of a person's actions in their row's menu. */
+const ACT_ICON = { dm: "chat", roles: "shield", leave: "out", remove: "trash" } as const;
+/**
+ * How long a removal's preview (what goes with the person) is reused: it is read as the row's menu opens, so Remove
+ * confirms at once, and it is read again for any later removal.
+ */
+const REMOVAL_FRESH_MS = 30_000;
+
+/** The preview of removing someone, as the confirmation reads it. */
+const removalQuery = (api: ReturnType<typeof useApi>, orgId: string, userId: string) => ({
+  queryKey: ["org", orgId, "removal", userId],
+  queryFn: () => api.orgs.removal(orgId, userId),
+  staleTime: REMOVAL_FRESH_MS,
+});
 
 /**
  * Membros (ADR 0090): whoever may invite gets "Convidar pessoas" on top (what waits on them, the links and the
@@ -40,9 +57,12 @@ export function MembersPage() {
   const { t, i18n } = useTranslation();
   const { orgId, org } = useOrg();
   const c = useColors();
+  const api = useApi();
+  const qc = useQueryClient();
   const meId = useMeId();
   const people = usePeople(orgId);
-  const roles = useRoles(orgId).data?.roles ?? [];
+  const rolesQ = useRoles(orgId);
+  const roles = rolesQ.data?.roles ?? [];
   const invites = can(org, "invite_people");
   const list = people.data;
   const remove = useRemoveFlow();
@@ -56,6 +76,37 @@ export function MembersPage() {
   // Their cargos (P11): who manages people, for someone below them (or themselves), with a cargo to give.
   const givesCargos = (m: Person) =>
     !frozen && can(org, "manage_members") && isBelow(viewer, m, roles) && roles.some((r) => r.givable);
+  // Sorted once per list: the page draws again on every change of anyone's presence.
+  const sorted = useMemo(() => (list ? membersByName(list, i18n.language) : []), [list, i18n.language]);
+  // A row's menu, the same function for every row and render (the rows are memoized).
+  const openMenu = useLatest((m: Person, acts: MemberAct[]) => {
+    const run = {
+      dm: () => void openDm({ userId: m.userId }),
+      roles: () => router.push(rolesHref.person(m.userId)),
+      remove: () => void remove(m),
+    };
+    const removes = acts.includes("remove") || acts.includes("leave");
+    // What goes with them is read while the menu opens: Remove asks at once.
+    if (removes) void qc.prefetchQuery(removalQuery(api, orgId, m.userId));
+    chooseAction(
+      m.name,
+      acts.map((a) => ({
+        icon: ACT_ICON[a],
+        label: t(
+          a === "dm"
+            ? "profile.dm"
+            : a === "roles"
+              ? "rolesPage.rolesCta"
+              : a === "leave"
+                ? "members.remove.leave"
+                : "members.remove.item",
+        ),
+        destructive: a === "remove" || a === "leave",
+        onPress: run[a === "leave" ? "remove" : a],
+      })),
+      t("common.cancel"),
+    );
+  });
 
   return (
     <Page
@@ -66,8 +117,10 @@ export function MembersPage() {
             ? t("settings.section.members")
             : t("members.title")
       }
+      // A pull reads the people and their roles again.
+      onRefresh={() => Promise.allSettled([people.refetch(), rolesQ.refetch()])}
     >
-      <View style={styles.gap} />
+      <Gap />
       <Locked when={frozen} readable>
         {invites ? (
           <GroupedList>
@@ -82,55 +135,76 @@ export function MembersPage() {
       {list ? (
         <Loaded>
           <GroupedList>
-            {membersByName(list, i18n.language).map((m) => {
-              const acts = memberActions(m.userId === meId, Boolean(removable(m)), givesCargos(m));
-              const run = {
-                dm: () => void openDm({ userId: m.userId }),
-                roles: () => router.push(rolesHref.person(m.userId)),
-                remove: () => void remove(m),
-              };
-              return (
-                <GroupedRow
-                  key={m.userId}
-                  leading={
-                    <Face who={{ type: "person", id: m.userId }} size={30} live={false} presence ring={c.raised} />
-                  }
-                  label={m.userId === meId ? `${m.name}${t("common.youSuffix")}` : m.name}
-                  sub={memberLine(t, i18n.language, m, roles)}
-                  {...(acts.length > 0
-                    ? {
-                        more: true,
-                        onPress: () =>
-                          chooseAction(
-                            m.name,
-                            acts.map((a) => ({
-                              label: t(
-                                a === "dm"
-                                  ? "profile.dm"
-                                  : a === "roles"
-                                    ? "rolesPage.rolesCta"
-                                    : a === "leave"
-                                      ? "members.remove.leave"
-                                      : "members.remove.item",
-                              ),
-                              destructive: a === "remove" || a === "leave",
-                              onPress: run[a === "leave" ? "remove" : a],
-                            })),
-                            t("common.cancel"),
-                          ),
-                      }
-                    : {})}
-                />
-              );
-            })}
+            {sorted.map((m) => (
+              <MemberRow
+                key={m.userId}
+                person={m}
+                mine={m.userId === meId}
+                sub={memberLine(t, i18n.language, m, roles)}
+                removable={Boolean(removable(m))}
+                cargos={givesCargos(m)}
+                ring={c.raised}
+                onMenu={openMenu}
+                leading
+              />
+            ))}
           </GroupedList>
         </Loaded>
+      ) : people.isError ? (
+        // A list that didn't load is not a spinner forever: what happened, and the way to ask again (or the pull).
+        <LoadFailed onRetry={() => void people.refetch()} />
       ) : (
-        <ActivityIndicator color={c.muted} style={styles.loading} />
+        // The rows' shape while they load: nothing jumps when they come.
+        <GroupedList>
+          <RowBones />
+          <RowBones name={56} />
+          <RowBones name={34} />
+        </GroupedList>
       )}
     </Page>
   );
 }
+
+type MemberAct = ReturnType<typeof memberActions>[number];
+
+/**
+ * A person on Members: their face with its presence, their name (marked as you on one's own row), their line and,
+ * for an outside collaborator, whom they work for; a tap opens their actions. Drawn again only when what it shows
+ * changes.
+ */
+const MemberRow = memo(function MemberRow({
+  person: m,
+  mine,
+  sub,
+  removable,
+  cargos,
+  ring,
+  onMenu,
+}: {
+  person: Person;
+  mine: boolean;
+  sub: string;
+  removable: boolean;
+  cargos: boolean;
+  /** The surface the face's presence badge is ringed in. */
+  ring: string;
+  onMenu: (m: Person, acts: MemberAct[]) => void;
+  /** Always with a face: GroupedList reads it to start the hairline after the face's column, as a GroupedRow's. */
+  leading: boolean;
+}) {
+  const { t } = useTranslation();
+  const acts = memberActions(mine, removable, cargos);
+  const outside = outsideLine(t, m);
+  return (
+    <GroupedRow
+      leading={<Face who={{ type: "person", id: m.userId }} size={30} live={false} presence ring={ring} />}
+      label={mine ? `${m.name}${t("common.youSuffix")}` : m.name}
+      sub={sub}
+      {...(outside ? { belowText: outside } : {})}
+      {...(acts.length > 0 ? { more: true, onPress: () => onMenu(m, acts) } : {})}
+    />
+  );
+});
 
 /**
  * "Remover do workspace" (or "Sair do workspace"): what goes with the person, as the server reads it, in the system's
@@ -154,11 +228,8 @@ export function useRemoveFlow() {
     let lines: string[];
     let preview: RemovalPreview;
     try {
-      preview = await qc.fetchQuery({
-        queryKey: ["org", orgId, "removal", m.userId],
-        queryFn: () => api.orgs.removal(orgId, m.userId),
-        staleTime: 0,
-      });
+      // Read as the row's menu opened: the confirmation shows at once, and waits only for a read still on its way.
+      preview = await qc.fetchQuery(removalQuery(api, orgId, m.userId));
       lines = removalLines(t, preview, { name: m.name, org: orgName, mine, meId: meId ?? "" });
     } catch (e) {
       return failed(e);
@@ -262,8 +333,3 @@ function Suggestions() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  gap: { height: 14 },
-  loading: { marginVertical: 16 },
-});

@@ -205,6 +205,39 @@ describe("a teammate's settings, on the right hand's card", () => {
     expect(sent.textContent).toContain("Enviado para João");
   });
 
+  test("a Reports to line went only to who manages Ada and the agent she'd go under too", async () => {
+    // Bruno holds "Edit agents"; Atlas answers only João, so the key doesn't reach it (ADR 0085 addendum of
+    // 2026-11-17): putting Ada under Atlas changes Atlas too, and the server sends the line to João alone.
+    const state = asMember(
+      withCard(
+        seedState(),
+        settingsRow({
+          canDecide: false,
+          askedAt: NOW.toISOString(),
+          settings: [{ field: "reports_to", from: null, to: ATLAS_ID, label: { to: "Atlas" } }],
+        }),
+      ),
+    );
+    const [admin] = state.roles ?? [];
+    if (admin)
+      state.roles?.push({
+        ...admin,
+        id: "role-editors",
+        name: "Editores",
+        position: 1,
+        permissions: ["manage_agents"],
+      });
+    const joao = state.members.find((m) => m.userId === "u-joao");
+    if (joao)
+      state.members.push({ ...joao, userId: "u-bruno", name: "Bruno", handle: "bruno", roleIds: ["role-editors"] });
+    const atlas = state.agents.find((a) => a.id === ATLAS_ID);
+    if (atlas) atlas.audience = { mode: "owner", userIds: [] };
+    await go(state);
+    const sent = [...document.querySelectorAll(".rq")].find((el) => el.textContent?.includes("Enviado para"));
+    expect(sent?.textContent).toContain("Enviado para João");
+    expect(sent?.textContent).not.toContain("Bruno");
+  });
+
   test("an agent asking for its own skill: the same card, on itself, sent on by a member who can't decide", async () => {
     const state = asMember(seedState());
     const dm = seedDm(state, { type: "agent", id: ADA_ID });
@@ -228,7 +261,8 @@ describe("a teammate's settings, on the right hand's card", () => {
       "Propõe uma mudança",
       "Preciso da skill excel",
       "Ada · Configurações",
-      "Só admins mudam as skills de um agente",
+      // Its skills are whoever can edit it (ADR 0085 addendum of 2026-11-17).
+      "Só quem pode editar um agente muda as skills dele",
     ])
       expect(c.textContent).toContain(shown);
     const lines = [...c.querySelectorAll(".rq__setting")].map((l) =>

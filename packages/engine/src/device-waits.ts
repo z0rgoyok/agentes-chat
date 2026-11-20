@@ -1,6 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, type Executor, eq, schema, sql } from "@agenteschat/db";
 import { getAgentCached } from "./agents";
+import { managesAgent } from "./audience";
 import { type DeviceTarget, firstNames, targetMachineId, targetName, targetRule } from "./device-resolve";
 import type { MachinePhoneRow } from "./devices";
 import { ForbiddenError, NotFoundError } from "./errors";
@@ -440,8 +441,8 @@ export async function expireDeviceWait(deps: DeviceWaitDeps, runId: string, wait
 }
 
 /**
- * Try now or Stop waiting on a run's device card: whom the agent works for, the agent's owner, or whoever manages
- * agents. Null: the run waits on no device.
+ * Try now or Stop waiting on a run's device card: whom the agent works for, the agent's owner, or who manages the
+ * agent (`managesAgent`, ADR 0085 addendum of 2026-11-17). Null: the run waits on no device.
  */
 export async function deviceWaitAction(
   deps: DeviceWaitDeps,
@@ -457,7 +458,9 @@ export async function deviceWaitAction(
   const found = await cardOf(deps.db, w.run, w.waitId);
   const agent = await getAgentCached(deps.db, orgId, w.run.agentId);
   const mayAct =
-    found?.card.requesterUserId === actorId || agent?.ownerUserId === actorId || can(membership, "manage_agents");
+    found?.card.requesterUserId === actorId ||
+    agent?.ownerUserId === actorId ||
+    (agent ? managesAgent(agent, actorId, membership) : can(membership, "manage_agents"));
   if (!mayAct) throw new ForbiddenError("Only the person it works for, the agent's owner or an admin can do this");
   const who = (await firstNames(deps.db, [actorId])).get(actorId) ?? "A person";
   const resumed =

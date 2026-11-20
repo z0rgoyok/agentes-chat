@@ -50,14 +50,14 @@ test("calendar API: a task's due date says who has it", async () => {
   const { orgId, agentId } = await seedOrg(owner);
   const api = (path: string, init?: Parameters<typeof owner>[1]) =>
     owner(`/api/app/organizations/${orgId}${path}`, init);
-  const assignee = { type: "agent", id: agentId };
-  expect((await api("/issues", { json: { title: "Login", dueDate: "2026-10-21", assignee } })).status).toBe(201);
+  const assignees = [{ type: "agent", id: agentId }];
+  expect((await api("/issues", { json: { title: "Login", dueDate: "2026-10-21", assignees } })).status).toBe(201);
   expect((await api("/issues", { json: { title: "Textos", dueDate: "2026-10-22" } })).status).toBe(201);
   const range = (await (await api("/calendar?from=2026-10-19T00:00:00Z&to=2026-10-26T00:00:00Z")).json()) as {
-    deadlines: { title: string; assignee: unknown }[];
+    deadlines: { title: string; assignees: unknown }[];
   };
-  expect(range.deadlines.map((d) => [d.title, d.assignee])).toEqual([
-    ["Login", assignee],
-    ["Textos", null],
+  expect(range.deadlines.map((d) => [d.title, d.assignees])).toEqual([
+    ["Login", assignees],
+    ["Textos", []],
   ]);
 });

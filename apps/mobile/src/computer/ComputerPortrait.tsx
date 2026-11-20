@@ -1,7 +1,15 @@
 import { useMachines } from "@agenteschat/client";
 import { computerKind } from "@agenteschat/client/lib/machines";
 import { COMPUTER_GRID } from "@agenteschat/ui/computer/portrait";
-import { Canvas, createPicture, PaintStyle, Picture, Skia, type SkPaint } from "@shopify/react-native-skia";
+import {
+  Canvas,
+  createPicture,
+  PaintStyle,
+  Picture,
+  Skia,
+  type SkPaint,
+  type SkPicture,
+} from "@shopify/react-native-skia";
 import { memo, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { frameClock } from "@/agent/clock";
@@ -36,6 +44,34 @@ function cellPaint(color: string): SkPaint {
   return p;
 }
 
+/** One frame of a portrait as a picture: one path per tone, scaled from the 48 grid to `size`. */
+function drawPortrait(kind: PortraitKind, state: ComputerState, dark: boolean, t: number, size: number): SkPicture {
+  const runs: CellRun[] = portraitFrame(kind, state, dark, t);
+  const k = size / COMPUTER_GRID;
+  return createPicture(
+    (canvas) => {
+      canvas.scale(k, k);
+      for (const run of runs) {
+        const path = Skia.Path.MakeFromSVGString(cellsToSvg(run.cells));
+        if (path) canvas.drawPath(path, cellPaint(run.color));
+      }
+    },
+    { width: size, height: size },
+  );
+}
+
+const stills = new Map<string, SkPicture>();
+/** The still frame, drawn once for every portrait that shows it (a list of computers away draws the same one). */
+function stillPortrait(kind: PortraitKind, state: ComputerState, dark: boolean, size: number): SkPicture {
+  const key = `${kind}|${state}|${dark ? 1 : 0}|${size}`;
+  let p = stills.get(key);
+  if (!p) {
+    p = drawPortrait(kind, state, dark, STILL_T, size);
+    stills.set(key, p);
+  }
+  return p;
+}
+
 /** The shared clock's time at the portraits' pace while `active`; otherwise the still frame. */
 function usePortraitTime(active: boolean): number {
   const paused = useLivePaused();
@@ -63,21 +99,13 @@ export interface ComputerPortraitProps {
 
 function ComputerPortraitView({ kind, state, size = 48, live = true, label }: ComputerPortraitProps) {
   const { scheme, reducedMotion } = useTheme();
-  const t = usePortraitTime(live && !reducedMotion);
-  const picture = useMemo(() => {
-    const runs: CellRun[] = portraitFrame(kind, state, scheme === "dark", t);
-    const k = size / COMPUTER_GRID;
-    return createPicture(
-      (canvas) => {
-        canvas.scale(k, k);
-        for (const run of runs) {
-          const path = Skia.Path.MakeFromSVGString(cellsToSvg(run.cells));
-          if (path) canvas.drawPath(path, cellPaint(run.color));
-        }
-      },
-      { width: size, height: size },
-    );
-  }, [kind, state, scheme, t, size]);
+  // Offline nothing in it moves (a dark screen, no agent, the lights off): it holds the still frame, off the clock.
+  const t = usePortraitTime(live && !reducedMotion && state !== "offline");
+  const dark = scheme === "dark";
+  const picture = useMemo(
+    () => (t === STILL_T ? stillPortrait(kind, state, dark, size) : drawPortrait(kind, state, dark, t, size)),
+    [kind, state, dark, t, size],
+  );
   return (
     <View
       accessible={Boolean(label)}

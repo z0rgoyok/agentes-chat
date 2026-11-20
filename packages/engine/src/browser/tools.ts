@@ -419,6 +419,9 @@ export function browserErrorText(error: string) {
  */
 export function runnerFailureText(error: string | undefined, code?: string): string {
   const said = error || "the command failed";
+  if (code === "browser_stuck") {
+    return `${said.replace(/\.$/, "")}. ${NOT_RESPONDING}`;
+  }
   if (code === "get_blocked") {
     return "The page tried to send the password in its address, and the computer stopped that request: nothing was sent. Don't type it on that page again; tell the person the site's sign-in looks wrong.";
   }
@@ -435,6 +438,10 @@ export function runnerFailureText(error: string | undefined, code?: string): str
   if (code && (VAULT_TYPE_REFUSALS as readonly string[]).includes(code)) return browserErrorText(`${code}: ${said}`);
   return browserErrorText(said);
 }
+
+/** After a browser that stopped answering: what the agent does, and doesn't, next. */
+const NOT_RESPONDING =
+  "Don't guess why and don't try again right away: tell the person the browser on that computer isn't responding, and that the agentes app's runner log there says why.";
 
 /** Why a secret can't be typed in the browser. */
 function secretMissingText(name: string, held: { site: string | null; gone?: boolean } | null) {
@@ -494,6 +501,9 @@ function refuseIfOff(error: unknown, status: { machineId: string; machineName: s
     throw new ToolOffError(explain(error, status.machineName), { machineId: status.machineId, tool: "browser" });
 }
 
+/** " within N s", from the hub's timeout words. */
+const secondsIn = (message: string) => / within \d+ s/.exec(message)?.[0] ?? "";
+
 /** Runner refusals → what the agent reads. */
 function explain(error: unknown, machineName: string): string {
   if (error instanceof MachineOfflineError || error instanceof MachinePausedError) return error.message;
@@ -506,7 +516,7 @@ function explain(error: unknown, machineName: string): string {
     case "paused":
       return `The owner paused the computer ${machineName}: nothing new can start there until they resume it. Tell the people.`;
     case "timeout":
-      return `The browser took too long (${error.message}). The page may still be loading: read it again, or wait for something specific with browser_wait.`;
+      return `The computer ${machineName} didn't answer${secondsIn(error.message)} and didn't say why. ${NOT_RESPONDING}`;
     case "canceled":
       return error.message;
     default:

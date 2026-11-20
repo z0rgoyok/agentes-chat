@@ -7,7 +7,7 @@ import type { Issue, IssuesView } from "@agenteschat/client";
 import { ISSUES_VIEW_DEFAULT } from "@agenteschat/client/lib/issues-view";
 import { box, place } from "@agenteschat/ui/testing";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -26,6 +26,16 @@ const cardTitles = (el: HTMLElement) =>
 const cardOf = (number: number) => document.querySelector<HTMLElement>(`[data-card="${number}"]`) as HTMLElement;
 const toast = () => document.querySelector(".ac-toast")?.textContent ?? "";
 const live = () => document.querySelector(".issues-body [aria-live]")?.textContent ?? "";
+const ADA = { type: "agent" as const, id: ADA_ID };
+const ATLAS = { type: "agent" as const, id: ATLAS_ID };
+const JOAO = { type: "person" as const, id: "u-joao" };
+/** The fake's tasks, some of them given to several, as the server keeps them. */
+async function withAssignees(change: Record<number, Issue["assignees"]>, state = seedState()) {
+  const api = createFakeApi(state);
+  for (const [number, assignees] of Object.entries(change))
+    await api.issues.update(ORG_ID, (await api.issues.get(ORG_ID, Number(number))).id, { assignees });
+  return { state, api };
+}
 
 /** happy-dom lays nothing out: each column a box side by side, its cards stacked inside, 90px apart. */
 function layBoard() {
@@ -227,10 +237,67 @@ describe("Tarefas: a card", () => {
   });
 
   test("nobody on it and nothing going on: no third part, no placeholder", async () => {
-    await go(undefined, withTasks({ 132: { assignee: null } }));
+    await go(undefined, withTasks({ 132: { assignees: [] } }));
     expect(cardOf(132).querySelector(".issue-card__who")).toBeNull();
     expect(cardOf(132).textContent).not.toContain("Sem responsável");
     expect(cardOf(131).querySelector(".issue-card__who .ac-who > b")?.textContent).toBe("João");
+  });
+
+  test("several have it: their faces alone, overlapping, everyone's name on them; three faces, then +2", async () => {
+    const state = seedState();
+    const more = ["Bia", "Caio"].map((name) => {
+      const userId = `u-${name.toLowerCase()}`;
+      state.members.push({ ...(state.members[1] as (typeof state.members)[number]), userId, name, handle: userId });
+      return { type: "person" as const, id: userId };
+    });
+    const tasks = {
+      132: { assignees: [ADA, JOAO] },
+      131: { assignees: [JOAO, ADA, ATLAS, ...more] },
+      // Its run is Ada's, the second of who has it.
+      129: { assignees: [JOAO, ADA], work: work("running") },
+    };
+    await go(state, withTasks(tasks, state));
+    const two = within(cardOf(132)).getByRole("img", { name: "Ada e João" });
+    expect(two.getAttribute("title")).toBe("Ada e João");
+    expect(two.classList.contains("issue-faces")).toBe(true);
+    expect(two.querySelectorAll(".ac-avatar-stack > .ac-avatar")).toHaveLength(2);
+    expect(two.querySelector(".issue-faces__more")).toBeNull();
+    // No name beside them: the faces are who has it, the names are their title and what the link is described by.
+    expect(cardOf(132).querySelector(".issue-card__who .ac-who")).toBeNull();
+    const whoId = cardOf(132).getAttribute("aria-describedby")?.split(" ")[0];
+    expect(document.getElementById(whoId ?? "")?.textContent).toBe("Responsável: Ada e João");
+    const five = within(cardOf(131)).getByRole("img", { name: "João, Ada, Atlas, Bia e Caio" });
+    expect(five.querySelectorAll(".ac-avatar-stack > .ac-avatar")).toHaveLength(3);
+    expect(five.querySelector(".issue-faces__more")?.textContent).toBe("+2");
+    // The agent at work keeps its moving face among the others, and the state follows the faces.
+    const working = cardOf(129).querySelectorAll(".issue-faces .ac-avatar");
+    expect([...working].map((f) => f.classList.contains("ac-avatar--running"))).toEqual([false, true]);
+    expect(working[1]?.classList.contains("issue-faces__working")).toBe(true);
+    expect(cardOf(129).querySelector(".issue-faces + .issue-card__state")?.textContent).toBe("Trabalhando");
+    // One only: the face and the name, as before.
+    expect(cardOf(128).querySelector(".issue-card__who .ac-who > b")?.textContent).toBe("Ada");
+    expect(cardOf(128).querySelector(".issue-faces")).toBeNull();
+
+    // The list's "Assignee" column says it the same way.
+    cleanup();
+    const listed = seedState({ issuesView: view({ layout: "list" }) });
+    listed.members = state.members;
+    await go(listed, withTasks(tasks, listed));
+    const row = document.querySelector<HTMLElement>('.issue-list__row[data-card="131"]') as HTMLElement;
+    const faces = within(row).getByRole("img", { name: "João, Ada, Atlas, Bia e Caio" });
+    expect(faces.querySelector(".issue-faces__more")?.textContent).toBe("+2");
+  });
+
+  test("the faces' CSS: one box in the line of words, nothing clipped, the working face in front", async () => {
+    const css = await Bun.file(new URL("../src/pages/issues.css", import.meta.url).pathname).text();
+    const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+    expect(rule(".issue-faces")).toContain("display: inline-flex");
+    expect(rule(".issue-faces")).toContain(
+      "vertical-align: calc(var(--cap-top) - var(--cap-mid) - var(--faces-size) / 2)",
+    );
+    expect(rule(".issue-faces")).not.toContain("overflow");
+    expect(rule(".issue-faces .issue-faces__working")).toContain("z-index");
+    expect(rule(".issue-faces + .issue-card__state")).toContain("margin-inline-start: var(--space-2)");
   });
 
   test("the card's CSS: the title wraps whole, a long name wraps under the face, the state moves whole", async () => {
@@ -313,12 +380,90 @@ describe("Tarefas: moving a card", () => {
     expect(column("João").querySelector("[data-spot]")).toBeTruthy();
     await drop(600, 760);
     expect(document.querySelector(".issue-ghost")).toBeNull();
-    expect((await api.issues.get(ORG_ID, 132)).assignee).toEqual({ type: "person", id: "u-joao" });
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([{ type: "person", id: "u-joao" }]);
     expect(cardTitles(column("João"))).toContain("Tabela de concorrentes atualizada");
     expect(toast()).toContain("#132 agora está com João.");
     await click(screen().getByRole("button", { name: "Desfazer" }));
     await settle(10);
-    expect((await api.issues.get(ORG_ID, 132)).assignee).toEqual({ type: "agent", id: ADA_ID });
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([{ type: "agent", id: ADA_ID }]);
+  });
+
+  test("grouped by assignee: a task several have is under each of them; dragged from one to another, that one gives its place", async () => {
+    const { state, api } = await withAssignees(
+      { 132: [ADA, JOAO] },
+      seedState({ issuesView: view({ group: "assignee" }) }),
+    );
+    await go(state, api);
+    expect(layBoard()).toEqual(["Ada", "Atlas", "João", "Sem responsável"]);
+    const title = "Tabela de concorrentes atualizada";
+    const has = (name: string) => cardTitles(column(name)).includes(title);
+    const count = (name: string) => column(name).querySelector("[data-count]")?.textContent;
+    expect([has("Ada"), has("Atlas"), has("João"), has("Sem responsável")]).toEqual([true, false, true, false]);
+    // Each column counts its own: the task is one of Ada's three and one of João's three.
+    expect([count("Ada"), count("João")]).toEqual(["3", "3"]);
+    // Ada's card of it goes to Atlas: Atlas takes Ada's place, João keeps his.
+    const inColumn = (name: string) => column(name).querySelector<HTMLElement>('[data-card="132"]') as HTMLElement;
+    await drag(inColumn("Ada"), 400, 300);
+    expect(column("Atlas").classList.contains("is-over")).toBe(true);
+    // João's card of it stays where it is while Ada's moves.
+    expect(inColumn("João").closest("[data-slot]")?.hasAttribute("hidden")).toBe(false);
+    await drop(400, 300);
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([ATLAS, JOAO]);
+    expect([has("Ada"), has("Atlas"), has("João")]).toEqual([false, true, true]);
+    expect(toast()).toContain("#132 agora está com Atlas.");
+    await click(screen().getByRole("button", { name: "Desfazer" }));
+    await settle(10);
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([ADA, JOAO]);
+    expect([has("Ada"), has("Atlas"), has("João")]).toEqual([true, false, true]);
+
+    // Dropped on "No assignee" it leaves only the one it came from.
+    layBoard();
+    await drag(inColumn("João"), 900, 300);
+    expect(column("Sem responsável").classList.contains("is-over")).toBe(true);
+    await drop(900, 300);
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([ADA]);
+    expect([has("Ada"), has("João"), has("Sem responsável")]).toEqual([true, false, false]);
+    expect(toast()).toContain("#132 não está mais com João.");
+
+    // Onto someone who has it already: named once.
+    await api.issues.update(ORG_ID, (await api.issues.get(ORG_ID, 132)).id, { assignees: [ADA, JOAO] });
+    cleanup();
+    await go(state, api);
+    layBoard();
+    await drag(inColumn("Ada"), 600, 300);
+    await drop(600, 300);
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([JOAO]);
+    expect(column("João").querySelectorAll('[data-card="132"]')).toHaveLength(1);
+  });
+
+  test("grouped by assignee: from No assignee a drop gives the task to one more", async () => {
+    const { state, api } = await withAssignees({ 132: [] }, seedState({ issuesView: view({ group: "assignee" }) }));
+    await go(state, api);
+    layBoard();
+    await drag(cardOf(132), 600, 300);
+    await drop(600, 300);
+    expect((await api.issues.get(ORG_ID, 132)).assignees).toEqual([JOAO]);
+    expect(toast()).toContain("#132 agora está com João.");
+  });
+
+  test("the assignee filter: a task several have shows when any of them is picked, never under nobody", async () => {
+    const shown = async (assignees: string[]) => {
+      cleanup();
+      const { state, api } = await withAssignees({ 132: [ADA, JOAO] }, seedState({ issuesView: view({ assignees }) }));
+      await go(state, api);
+      return cardTitles(document.body).includes("Tabela de concorrentes atualizada");
+    };
+    expect(await shown([`agent:${ADA_ID}`])).toBe(true);
+    expect(await shown(["person:u-joao"])).toBe(true);
+    expect(await shown([`agent:${ATLAS_ID}`, "person:u-joao"])).toBe(true);
+    expect(await shown([`agent:${ATLAS_ID}`])).toBe(false);
+    expect(await shown(["none"])).toBe(false);
+    // The header counts it once among the ones with agents.
+    cleanup();
+    const { state, api } = await withAssignees({ 132: [ADA, ATLAS, JOAO], 131: [] });
+    await go(state, api);
+    expect(screen().getByText("5 em aberto · 3 com agentes")).toBeTruthy();
+    expect(screen().getByText(/1 sem responsável/)).toBeTruthy();
   });
 
   test("dropped on Sem responsável the task has nobody", async () => {
@@ -326,7 +471,7 @@ describe("Tarefas: moving a card", () => {
     layBoard();
     await drag(cardOf(130), 900, 300);
     await drop(900, 300);
-    expect((await api.issues.get(ORG_ID, 130)).assignee).toBeNull();
+    expect((await api.issues.get(ORG_ID, 130)).assignees).toEqual([]);
     expect(toast()).toContain("#130 ficou sem responsável.");
     // The card without anyone: no third part, no placeholder.
     expect(cardOf(130).querySelector(".issue-card__who")).toBeNull();

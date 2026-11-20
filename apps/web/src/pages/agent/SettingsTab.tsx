@@ -7,11 +7,12 @@ import {
   useUsage,
 } from "@agenteschat/client";
 import { groupOf, NO_GROUP } from "@agenteschat/client/lib/agent-groups";
-import { audienceSummary } from "@agenteschat/client/lib/audience";
+import { audienceSummary, editorsSummary } from "@agenteschat/client/lib/audience";
 import { engineOfBrain } from "@agenteschat/client/lib/brain";
 import { modelUnpriced } from "@agenteschat/client/lib/endpoints";
 import { formatMonth, formatPercent, formatTokensShort, formatUsd } from "@agenteschat/client/lib/format";
 import { addsAgentsTo } from "@agenteschat/client/lib/permissions";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import {
   type AgentAppearance,
   agentGradient,
@@ -30,7 +31,7 @@ import {
 } from "@agenteschat/ui";
 import type { CSSProperties, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { AudienceChoice } from "@/components/AgentAudience";
+import { AudienceChoice, EditorsChoice } from "@/components/AgentAudience";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentComputerPanel } from "@/components/AgentComputer";
 import {
@@ -55,6 +56,7 @@ import {
   type AgentSection,
   type Field as EditField,
   FIELD_PLACE,
+  ownsOrManages,
 } from "@/lib/agent-edit";
 import { BLANK_LOOK, cleanHandle } from "@/lib/new-agent";
 import { BrakesCard } from "./BrakesCard";
@@ -67,6 +69,7 @@ const SECTION_ICON: Record<AgentSection, IconName> = {
   budget: "wallet",
   owner: "members",
   audience: "message",
+  editors: "edit",
   channels: "channel",
   computer: "computer",
   danger: "archive",
@@ -232,11 +235,13 @@ export function SettingsTab({
   const admin = viewer === "admin";
   const groups = useAgentGroups(org.id).data ?? [];
   const inGroup = groupOf(groups, agent.id);
-  // "Quem pensa" lives in the sentence under the name now (its dialog saves at once).
+  // "Quem pensa" lives in the sentence under the name now (its dialog saves at once). Nobody edits how the right hand
+  // works (ADR 0137): it has no "Quem pode editar".
   const sections = AGENT_SECTIONS.filter(
     (s) =>
       s !== "brain" &&
       (s !== "danger" || admin) &&
+      (s !== "editors" || !isRightHand(agent)) &&
       (part === "all" || ADVANCED_SECTIONS.includes(s) === (part === "advanced")),
   );
   const has = (s: AgentSection) => sections.includes(s);
@@ -373,6 +378,12 @@ export function SettingsTab({
             </Section>
           )}
 
+          {has("editors") && (
+            <Section id="editors" title={t("editors.title", g)} fields={["editors"]}>
+              <EditorsEditor />
+            </Section>
+          )}
+
           {part !== "basic" && <BrakesCard />}
 
           {has("channels") && (
@@ -395,7 +406,7 @@ export function SettingsTab({
 
           {has("computer") && (
             <Section id="computer" title={t("computer.title", g)} fields={["machine"]}>
-              {viewer === "member" ? (
+              {!ownsOrManages(viewer) ? (
                 <p className="small muted">
                   {t("agentPage.computer.hidden", { owner: ownerFirst ?? t("roles.adminLower") })}
                 </p>
@@ -560,6 +571,9 @@ export function OwnerEditor() {
               set("owner", v);
               if (v !== NO_OWNER && draft.audience.userIds.includes(v))
                 set("audience", { ...draft.audience, userIds: draft.audience.userIds.filter((id) => id !== v) });
+              // Its owner always edits it: out of "Quem pode editar" too.
+              if (v !== NO_OWNER && draft.editors.userIds.includes(v))
+                set("editors", { ...draft.editors, userIds: draft.editors.userIds.filter((id) => id !== v) });
             }}
           />
           <WasLine changeKey="owner" />
@@ -617,6 +631,38 @@ export function AudienceEditor({ layout = "cards" }: { layout?: "cards" | "rows"
           <span className="small muted">{t("audience.notListed")}</span>
         </>
       )}
+    </>
+  );
+}
+
+/**
+ * Who edits how it works ("Quem pode editar", ADR 0085 addendum of 2026-11-17): its owner and who manages it change
+ * it; everyone else reads it. `layout`: as `AudienceEditor`'s.
+ */
+export function EditorsEditor({ layout = "cards" }: { layout?: "cards" | "rows" } = {}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const { agent, g, draft, set, can } = useAgentEdit();
+  const ownerId = draft.owner === NO_OWNER ? null : draft.owner;
+  return can("editors") ? (
+    <>
+      <EditorsChoice
+        layout={layout}
+        value={draft.editors}
+        onChange={(next) => set("editors", next)}
+        ownerUserId={ownerId}
+        agentName={agent.name}
+        idPrefix="agp-editors"
+      />
+      <WasLine changeKey="editors" />
+    </>
+  ) : (
+    <>
+      <span className="agp-chips">
+        <Chip icon="edit">{editorsSummary(t, agent, (id) => dir.memberById.get(id)?.name, dir.roleName)}</Chip>
+      </span>
+      <span className="small muted">{t("editors.note", g)}</span>
     </>
   );
 }

@@ -266,6 +266,25 @@ describe("the right hand approves for a person (ADR 0139 §2)", () => {
     expect(decisionCalls()).toHaveLength(0);
   });
 
+  test("a chain rooted in a message from an outside chat surface is its own: no decision, the card stays Ana's", async () => {
+    const { lodi } = await world();
+    await on();
+    const surfaceAsk = await runFor({ userId: f.owner.id }, lodi.id, {
+      via: { kind: "surface", surface: "example chat", linkId: crypto.randomUUID() },
+    });
+    const relay = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "agent", agentId: lodi.id, runId: surfaceAsk.runId, hop: 1 },
+      body: "@dev propõe uma agente de triagem",
+    });
+    const { delegate, card } = await proposeAndDecide(await runFor({ triggerMessageId: relay.id }));
+    expect(delegate?.state).toBe("own");
+    expect(card.state).toBe("pending");
+    expect(await decisions()).toHaveLength(0);
+    expect(decisionCalls()).toHaveLength(0);
+  });
+
   test("only what came from the person's own message, and never more than they could decide", async () => {
     await world();
     await on();

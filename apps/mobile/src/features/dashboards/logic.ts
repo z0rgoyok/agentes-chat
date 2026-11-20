@@ -443,12 +443,9 @@ export function audienceDraftOf(
 export const withAudience = (draft: AudienceDraft, audience: DashboardAudience): AudienceDraft =>
   fitEditRoles({ ...draft, audience });
 
-/** A role chip tapped: in or out of who sees it (and, when out, out of who edits it). */
-export const toggleRole = (draft: AudienceDraft, roleId: string): AudienceDraft =>
-  fitEditRoles({
-    ...draft,
-    roleIds: draft.roleIds.includes(roleId) ? draft.roleIds.filter((r) => r !== roleId) : [...draft.roleIds, roleId],
-  });
+/** The roles that see it, picked on their screen (one taken out also leaves who edits it). */
+export const withRoles = (draft: AudienceDraft, roleIds: readonly string[]): AudienceDraft =>
+  fitEditRoles({ ...draft, roleIds: [...roleIds] });
 
 /** The "Who edits" menu: anyone who sees it, only you and admins, and (with roles to pick) "Some roles…". */
 export type EditorsChoice = "viewers" | "owner" | "roles";

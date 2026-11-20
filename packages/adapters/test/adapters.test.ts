@@ -99,15 +99,21 @@ test("memory presence tracks connections per user", async () => {
   expect(await p.online("other")).toEqual([]);
 });
 
-test("memory rate limiter uses fixed windows", async () => {
+test("memory rate limiter uses fixed windows; a take given back counts no more, in its window only", async () => {
   let t = 0;
   const rl = createMemoryRateLimiter(() => t);
   const rule = { limit: 2, windowMs: 1000 };
   expect((await rl.consume("k", rule)).allowed).toBe(true);
   expect((await rl.consume("k", rule)).allowed).toBe(true);
+  await rl.release("k");
+  expect((await rl.consume("k", rule)).allowed).toBe(true);
   expect((await rl.consume("k", rule)).allowed).toBe(false);
   expect((await rl.consume("other", rule)).allowed).toBe(true);
   t = 1000;
+  await rl.release("k");
+  expect((await rl.consume("k", rule)).remaining).toBe(1);
+  await rl.release("k");
+  await rl.release("k");
   expect((await rl.consume("k", rule)).remaining).toBe(1);
 });
 

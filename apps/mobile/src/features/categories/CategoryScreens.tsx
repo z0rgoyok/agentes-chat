@@ -12,20 +12,22 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, StyleSheet, TextInput } from "react-native";
+import { StyleSheet, TextInput } from "react-native";
 import { useOrg } from "@/providers/org";
 import {
+  EmptyState,
   GroupedField,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
-  Text,
+  SkeletonList,
   useFieldText,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { Gap, SettingsPage } from "../settings/parts";
+import { confirmAction, Gap, SettingsPage, useUnsavedGuard } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useMeId, useOrgId } from "../shared/hooks";
 import { successHaptic } from "../shared/parts";
 import { arrangesCategories, categoryHrefs, channelSteps, movesChannel, stepBefore } from "./logic";
@@ -44,8 +46,9 @@ function channelLine(channels: Channel[], categoryId: string | null, except?: st
 /**
  * "Categoria" of a channel (ADR 0080), from its ⋯ sheet or a long press on the home: "Sem categoria" and the
  * categories, each with its channels, the current one checked; a tap moves it and goes back. Admins get
- * "Nova categoria", which takes the channel along. Below, its place among the channels next to it, one step
- * up or down (the home lists channels by latest activity, the web's sidebar in this order).
+ * "Nova categoria", which takes the channel along, and "Categorias" (the order, names and delete): the home lists
+ * conversations with no grouping, so this is where the phone reaches them. Below, its place among the channels next
+ * to it, one step up or down (the home lists channels by latest activity, the web's sidebar in this order).
  */
 export function PickCategoryScreen({ channelId }: { channelId: string }) {
   const { t } = useTranslation();
@@ -86,25 +89,37 @@ export function PickCategoryScreen({ channelId }: { channelId: string }) {
       >
         {t("mobile.categories.where", { channel: channel?.name ?? "" })}
       </GroupedHeader>
-      <GroupedList>
-        <GroupedRow
-          label={t("channelCategories.noCategory")}
-          sub={t("channelCategories.noCategoryDesc")}
-          checked={current === null}
-          disabled={place.isPending}
-          onPress={() => pick(null, t("channelCategories.noCategory"))}
-        />
-        {(categories.data ?? []).map((c) => (
+      {/* The choices once the categories are in: before, their rows' shape (never "No category" alone, checked). */}
+      {categories.data && channels.data ? (
+        <GroupedList>
           <GroupedRow
-            key={c.id}
-            label={c.name}
-            sub={channelLine(all, c.id, channelId) || t("channelCategories.moveEmptyCategory")}
-            checked={current === c.id}
+            label={t("channelCategories.noCategory")}
+            sub={t("channelCategories.noCategoryDesc")}
+            checked={current === null}
             disabled={place.isPending}
-            onPress={() => pick(c.id, c.name)}
+            onPress={() => pick(null, t("channelCategories.noCategory"))}
           />
-        ))}
-      </GroupedList>
+          {categories.data.map((c) => (
+            <GroupedRow
+              key={c.id}
+              label={c.name}
+              sub={channelLine(all, c.id, channelId) || t("channelCategories.moveEmptyCategory")}
+              checked={current === c.id}
+              disabled={place.isPending}
+              onPress={() => pick(c.id, c.name)}
+            />
+          ))}
+        </GroupedList>
+      ) : categories.isError || channels.isError ? (
+        <LoadFailed
+          onRetry={() => {
+            void categories.refetch();
+            void channels.refetch();
+          }}
+        />
+      ) : (
+        <SkeletonList rows={3} />
+      )}
       {arrangesCategories(org) ? (
         <>
           <Gap />
@@ -112,7 +127,15 @@ export function PickCategoryScreen({ channelId }: { channelId: string }) {
             <GroupedRow
               icon="plus"
               label={t("channelCategories.newCategory")}
+              chevron
               onPress={() => router.push(categoryHrefs.create(channelId))}
+            />
+            <GroupedRow
+              icon="list"
+              label={t("mobile.categories.title")}
+              sub={t("mobile.categories.manageHint")}
+              chevron
+              onPress={() => router.push(categoryHrefs.manage)}
             />
           </GroupedList>
         </>
@@ -158,6 +181,8 @@ export function NewCategoryScreen({ channelId }: { channelId?: string }) {
     (categories.data ?? []).some((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase()),
     create.isPending || create.isSuccess,
   );
+  // Back with a name typed and not created asks first, as every form does.
+  const leave = useUnsavedGuard(name.trim().length > 0 && !create.isSuccess);
   const save = () => {
     if (!name.trim()) return toast({ title: t("channelCategories.nameEmpty"), icon: "x" });
     if (taken) return toast({ title: t("channelCategories.nameTaken", { name: name.trim() }), icon: "x" });
@@ -168,6 +193,7 @@ export function NewCategoryScreen({ channelId }: { channelId?: string }) {
         onSuccess: (category) => {
           successHaptic();
           toast({ title: t("channelCategories.created", { name: category.name }) });
+          leave();
           router.back();
         },
         onError: (e) => toast({ title: errorText(t, e), icon: "x" }),
@@ -195,7 +221,6 @@ export function NewCategoryScreen({ channelId }: { channelId?: string }) {
             placeholder={t("channelCategories.namePlaceholder")}
             placeholderTextColor={c.faint}
             maxLength={NAME_MAX}
-            autoFocus
             autoCapitalize="words"
             returnKeyType="done"
             onSubmitEditing={save}
@@ -228,8 +253,8 @@ export function NewCategoryScreen({ channelId }: { channelId?: string }) {
 }
 
 /**
- * "Categorias" (admins), from a category's long press: the order (each one opens to rename, move up or down,
- * or delete) and "Nova categoria".
+ * "Categorias" (admins), from a channel's "Categoria": the order (each one opens to rename, move up or down, or
+ * delete) and "Nova categoria".
  */
 export function CategoriesScreen() {
   const { t } = useTranslation();
@@ -238,9 +263,16 @@ export function CategoriesScreen() {
   const categories = useChannelCategories(orgId);
   const list = categories.data ?? [];
   return (
-    <SettingsPage title={t("mobile.categories.title")}>
+    <SettingsPage
+      title={t("mobile.categories.title")}
+      onRefresh={() => Promise.allSettled([categories.refetch(), channels.refetch()])}
+    >
       <Gap />
-      {list.length > 0 ? (
+      {categories.isLoading ? (
+        <SkeletonList rows={3} />
+      ) : categories.isError && !categories.data ? (
+        <LoadFailed onRetry={() => void categories.refetch()} />
+      ) : list.length > 0 ? (
         <GroupedList>
           {list.map((x) => {
             const n = (channels.data ?? []).filter((c) => c.categoryId === x.id).length;
@@ -256,19 +288,17 @@ export function CategoriesScreen() {
           })}
         </GroupedList>
       ) : (
-        <Text tone="faint" style={styles.empty}>
-          {t("mobile.categories.none")}
-        </Text>
+        <EmptyState size="inline" title={t("mobile.categories.none")} />
       )}
       <Gap />
       <GroupedList>
         <GroupedRow
           icon="plus"
           label={t("channelCategories.newCategory")}
+          chevron
           onPress={() => router.push(categoryHrefs.create())}
         />
       </GroupedList>
-      <GroupedFooter>{t("mobile.categories.manageHelp")}</GroupedFooter>
     </SettingsPage>
   );
 }
@@ -291,11 +321,16 @@ export function EditCategoryScreen({ categoryId }: { categoryId: string }) {
   const value = name ?? category?.name ?? "";
   const ids = list.map((x) => x.id);
   const inIt = (channels.data ?? []).filter((x) => x.categoryId === categoryId);
+  // Back with a new name not saved asks first; deleting it leaves at once.
+  const leave = useUnsavedGuard(Boolean(category) && name !== null && name.trim() !== category?.name);
   const save = () => {
     if (!category) return;
     const next = value.trim();
     if (!next) return toast({ title: t("channelCategories.nameEmpty"), icon: "x" });
-    if (next === category.name) return router.back();
+    if (next === category.name) {
+      leave();
+      return router.back();
+    }
     if (list.some((x) => x.id !== categoryId && x.name.trim().toLowerCase() === next.toLowerCase()))
       return toast({ title: t("channelCategories.nameTaken", { name: next }), icon: "x" });
     rename.mutate(
@@ -303,6 +338,7 @@ export function EditCategoryScreen({ categoryId }: { categoryId: string }) {
       {
         onSuccess: () => {
           successHaptic();
+          leave();
           router.back();
         },
         onError: (e) => toast({ title: errorText(t, e), icon: "x" }),
@@ -317,27 +353,28 @@ export function EditCategoryScreen({ categoryId }: { categoryId: string }) {
       { onError: (e) => toast({ title: errorText(t, e), icon: "x" }) },
     );
   };
-  const askDelete = () =>
-    category &&
-    Alert.alert(t("mobile.categories.deleteTitle", { name: category.name }), t("channelCategories.deleteDesc"), [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("channelCategories.delete"),
-        style: "destructive",
-        onPress: () =>
-          remove.mutate(categoryId, {
-            onSuccess: () => {
-              toast({
-                title: inIt.length
-                  ? t("channelCategories.deleted", { name: category.name, count: inIt.length })
-                  : t("channelCategories.deletedEmpty", { name: category.name }),
-              });
-              router.back();
-            },
-            onError: (e) => toast({ title: errorText(t, e), icon: "x" }),
-          }),
-      },
-    ]);
+  const askDelete = () => {
+    if (!category) return;
+    confirmAction({
+      title: t("mobile.categories.deleteTitle", { name: category.name }),
+      text: t("channelCategories.deleteDesc"),
+      action: t("channelCategories.delete"),
+      cancel: t("common.cancel"),
+      onConfirm: () =>
+        remove.mutate(categoryId, {
+          onSuccess: () => {
+            toast({
+              title: inIt.length
+                ? t("channelCategories.deleted", { name: category.name, count: inIt.length })
+                : t("channelCategories.deletedEmpty", { name: category.name }),
+            });
+            leave();
+            router.back();
+          },
+          onError: (e) => toast({ title: errorText(t, e), icon: "x" }),
+        }),
+    });
+  };
   const at = ids.indexOf(categoryId);
   return (
     <SettingsPage
@@ -403,5 +440,4 @@ export function useMovesChannel(channelId: string) {
 
 const styles = StyleSheet.create({
   input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
-  empty: { textAlign: "center", paddingVertical: 24 },
 });

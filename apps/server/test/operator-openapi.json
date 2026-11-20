@@ -3,7 +3,7 @@
   "info": {
     "title": "agentes.chat operator API",
     "version": "test",
-    "description": "Workspace and account lookups, what a run did and why a message started one or none, what a workspace connected, recorded, asked and scheduled, what a person was notified of and reaches, the messages no run answered, the job queue, the emails queued to an address and what model calls spent, workspace standing, billing holds and limits (ADR 0079), the events feed and review blocks, the workspaces' computers from an external provisioner, who may sign up (the waiting list and early-access invitations, ADR 0078), how new Claude sign-ins for all agents are made (ADR 0150), and how connectors are used (ADR 0103), for the people who run this instance (ADR 0056)."
+    "description": "Workspace and account lookups, what a run did and why a message started one or none, what a workspace connected, recorded, asked and scheduled, what a person was notified of and reaches, the messages no run answered, the job queue, the emails queued to an address and what model calls spent, the times a member asked for help, one piece of what a workspace wrote read with a reason and a member's support request answered by email (the reveal door), a workspace told afterwards that its content was read to investigate suspected abuse, workspace standing, billing holds and limits (ADR 0079), a workspace's logo and accent color (ADR 0193), the extra hostnames this server answers on with their look (ADR 0194), outside collaborators (ADR 0191), the events feed and review blocks, the workspaces' computers from an external provisioner, who may sign up (the waiting list and early-access invitations, ADR 0078), how new Claude sign-ins for all agents are made (ADR 0150), and how connectors are used (ADR 0103), for the people who run this instance (ADR 0056)."
   },
   "servers": [
     {
@@ -20,7 +20,7 @@
       "operator": {
         "type": "http",
         "scheme": "bearer",
-        "description": "This server's `OPERATOR_API_TOKEN`. Or its `OPERATOR_API_READ_TOKEN`, accepted only for `GET` and `HEAD` and never under `/review/`: anything else answers 403 `forbidden`."
+        "description": "This server's `OPERATOR_API_TOKEN`. Or its `OPERATOR_API_READ_TOKEN`, accepted only for `GET` and `HEAD` and never under `/review/`: anything else answers 403 `forbidden`. Under `/reveal/` neither is accepted: only `OPERATOR_API_REVEAL_TOKEN` is, for `POST` alone, and it is refused (403) everywhere else. On a server that didn't set it, every path under `/reveal/` answers 403."
       }
     },
     "schemas": {
@@ -36,9 +36,28 @@
           },
           "botCheck": {
             "$ref": "#/components/schemas/OperatorBotCheck"
+          },
+          "eventLoopLag": {
+            "type": ["object", "null"],
+            "properties": {
+              "p50Ms": {
+                "type": "number"
+              },
+              "p99Ms": {
+                "type": "number"
+              },
+              "maxMs": {
+                "type": "number"
+              },
+              "at": {
+                "type": "string"
+              }
+            },
+            "required": ["p50Ms", "p99Ms", "maxMs", "at"],
+            "description": "How late this process ran what was due over its last minute, from the runtime's own sampling (also logged as `event loop lag`). Null: no minute ended yet."
           }
         },
-        "required": ["ok", "version", "botCheck"]
+        "required": ["ok", "version", "botCheck", "eventLoopLag"]
       },
       "OperatorBotCheck": {
         "type": "object",
@@ -131,7 +150,8 @@
             "$ref": "#/components/schemas/OperatorStandingState"
           },
           "members": {
-            "type": "integer"
+            "type": "integer",
+            "description": "The people its `members` limit counts: no outside collaborators."
           },
           "agents": {
             "type": "integer",
@@ -195,7 +215,8 @@
             "type": "object",
             "properties": {
               "members": {
-                "type": "integer"
+                "type": "integer",
+                "description": "The people its `members` limit counts: no outside collaborators (ADR 0191)."
               },
               "agents": {
                 "type": "integer",
@@ -324,7 +345,7 @@
             "type": ["integer", "null"],
             "minimum": 1,
             "maximum": 100000,
-            "description": "People in it, blocked accounts included; agents, invitations and requests to join never count."
+            "description": "People in it, blocked accounts included; agents, invitations, requests to join and outside collaborators (ADR 0191) never count."
           },
           "membersMax": {
             "type": ["integer", "null"],
@@ -383,6 +404,53 @@
           }
         },
         "required": ["storageBytes", "uploadBytes24h", "ownStorage", "platformUsdThisMonth"]
+      },
+      "OperatorLookState": {
+        "type": "object",
+        "properties": {
+          "accent": {
+            "$ref": "#/components/schemas/AccentColor"
+          },
+          "logo": {
+            "type": ["string", "null"],
+            "description": "Where its members' apps load the logo; null: the agent mark."
+          }
+        },
+        "required": ["accent", "logo"]
+      },
+      "AccentColor": {
+        "type": ["string", "null"],
+        "pattern": "^#[0-9a-fA-F]{6}$",
+        "description": "A `#rrggbb` color.",
+        "example": "#7c3aed"
+      },
+      "OperatorLook": {
+        "type": "object",
+        "properties": {
+          "accent": {
+            "type": ["string", "null"],
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "description": "Its accent color; null: the default. Left out: left as it is.",
+            "example": "#7c3aed"
+          },
+          "logo": {
+            "type": ["object", "null"],
+            "properties": {
+              "contentType": {
+                "type": "string",
+                "enum": ["image/jpeg", "image/png", "image/webp"]
+              },
+              "base64": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 3000000,
+                "description": "The image's bytes in base64, up to 2 MB."
+              }
+            },
+            "required": ["contentType", "base64"],
+            "description": "Its logo, square (the apps show it at 512×512 at most); checked by its bytes, metadata removed. Null: back to the agent mark. Left out: left as it is."
+          }
+        }
       },
       "OperatorUser": {
         "type": "object",
@@ -540,6 +608,40 @@
         "enum": ["payment", "unpaid", "ended", null],
         "description": "`payment`: no plan yet. `unpaid`: its payment failed. `ended`: its plan ended. Agents stop as with any hold; people still read and write."
       },
+      "OperatorOutsideAccessState": {
+        "type": "string",
+        "enum": ["pending", "member"],
+        "description": "`pending`: a request waits for someone in the workspace who may invite people to approve or deny it. `member`: they are in, as an outside collaborator."
+      },
+      "OperatorOutsidePeople": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "outsideOf": {
+                  "type": "string",
+                  "description": "Who the person works for, shown beside their name in the workspace."
+                },
+                "state": {
+                  "$ref": "#/components/schemas/OperatorOutsideAccessState"
+                },
+                "since": {
+                  "type": "string",
+                  "description": "When the request was filed (`pending`) or they got in (`member`)."
+                }
+              },
+              "required": ["userId", "outsideOf", "state", "since"]
+            }
+          }
+        },
+        "required": ["people"]
+      },
       "OperatorEventPage": {
         "type": "object",
         "properties": {
@@ -568,7 +670,7 @@
           },
           "type": {
             "type": "string",
-            "description": "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `platform_ai.threshold` or `account.failure` (ADR 0056 §5 lists each one's `data`). Ignore types you don't know: new ones keep v1."
+            "description": "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `support.requested`, `support.replied`, `platform_ai.threshold`, `account.failure`, `surface.cap_reached`, `outside_access.granted`, `outside_access.denied` or `outside_access.ended` (ADR 0056 §5 lists each one's `data`; ADR 0191 the last three's). Ignore types you don't know: new ones keep v1."
           },
           "orgId": {
             "type": ["string", "null"],
@@ -1840,7 +1942,7 @@
                   "properties": {
                     "cause": {
                       "type": "string",
-                      "description": "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `offline`, `standby`, …) or `provider_outage`. Ignore values you don't know."
+                      "description": "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `machine_offline`, `machine_paused`, …) or `provider_outage`. A wait for room names the gate that held it when it began: `busy:line` (another run ahead), `busy:sign_in` (its plan sign-in at its cap), `busy:spacing` (agents' turns start seconds apart), `busy:memory` (the computer refused it for room); plain `busy` before these were kept. Ignore values you don't know."
                     },
                     "waits": {
                       "type": "integer",
@@ -2313,7 +2415,7 @@
                   "properties": {
                     "cause": {
                       "type": "string",
-                      "description": "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `offline`, `standby`, …) or `provider_outage`. Ignore values you don't know."
+                      "description": "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `machine_offline`, `machine_paused`, …) or `provider_outage`. A wait for room names the gate that held it when it began: `busy:line` (another run ahead), `busy:sign_in` (its plan sign-in at its cap), `busy:spacing` (agents' turns start seconds apart), `busy:memory` (the computer refused it for room); plain `busy` before these were kept. Ignore values you don't know."
                     },
                     "waits": {
                       "type": "integer",
@@ -2477,6 +2579,189 @@
           }
         },
         "required": ["from", "to", "bucket", "totals", "series", "more", "orgId", "agents"]
+      },
+      "OperatorRunTimings": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string",
+            "enum": ["brain", "model"]
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Runs created in the window, with the filters."
+          },
+          "profiled": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Of them, the ones that kept at least one claim's stages."
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brain": {
+                  "type": ["string", "null"],
+                  "description": "What the runs thought with: `model` (a provider's API) or a coding CLI. `other`: none the server knows. Null: runs that had no turn yet."
+                },
+                "model": {
+                  "type": ["string", "null"],
+                  "description": "With `by=model`: the model of the run's latest turn, null when it had none. Else always null."
+                },
+                "stage": {
+                  "type": "string",
+                  "description": "`claim`, `context`, `model` (each turn), `persist`, `events`, `end`… a step inside a stage after it (`context.build`). `other`: a name not shaped like one the server writes."
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Stages measured, not runs: a run has one `model` per turn."
+                },
+                "medianMs": {
+                  "type": ["integer", "null"]
+                },
+                "p90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "p99Ms": {
+                  "type": ["integer", "null"]
+                },
+                "maxMs": {
+                  "type": ["integer", "null"]
+                }
+              },
+              "required": ["brain", "model", "stage", "count", "medianMs", "p90Ms", "p99Ms", "maxMs"]
+            },
+            "description": "By brain, then model, then the slowest median first. At most 300: the most measured."
+          },
+          "stagesMore": {
+            "type": "boolean",
+            "description": "More stages than were listed."
+          },
+          "computerStarts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brain": {
+                  "type": ["string", "null"],
+                  "description": "What the runs thought with: `model` (a provider's API) or a coding CLI. `other`: none the server knows. Null: runs that had no turn yet."
+                },
+                "model": {
+                  "type": ["string", "null"],
+                  "description": "With `by=model`: the model of the run's latest turn, null when it had none. Else always null."
+                },
+                "turns": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Turns on a computer that said how they started."
+                },
+                "warm": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Of them, on a process already open."
+                },
+                "initMedianMs": {
+                  "type": ["integer", "null"],
+                  "description": "A new process until it said it was ready."
+                },
+                "initP90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "initP99Ms": {
+                  "type": ["integer", "null"]
+                },
+                "warmFirstEventMedianMs": {
+                  "type": ["integer", "null"],
+                  "description": "Turn start to its first event."
+                },
+                "warmFirstEventP90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "warmFirstEventP99Ms": {
+                  "type": ["integer", "null"]
+                },
+                "coldFirstEventMedianMs": {
+                  "type": ["integer", "null"]
+                },
+                "coldFirstEventP90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "coldFirstEventP99Ms": {
+                  "type": ["integer", "null"]
+                }
+              },
+              "required": [
+                "brain",
+                "model",
+                "turns",
+                "warm",
+                "initMedianMs",
+                "initP90Ms",
+                "initP99Ms",
+                "warmFirstEventMedianMs",
+                "warmFirstEventP90Ms",
+                "warmFirstEventP99Ms",
+                "coldFirstEventMedianMs",
+                "coldFirstEventP90Ms",
+                "coldFirstEventP99Ms"
+              ]
+            },
+            "description": "By brain, then model. At most 300: the ones with most turns."
+          },
+          "waits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cause": {
+                  "type": "string",
+                  "description": "`brain_unavailable:<code>`, a wait for its computer or a sign-in on it, by its code: `busy` for room, `machine_offline`, `not_logged_in`, … `other`: not shaped like one. A wait for room names the gate that held it when it began: `busy:line` (another run ahead), `busy:sign_in` (its plan sign-in at its cap), `busy:spacing` (agents' turns start seconds apart), `busy:memory` (the computer refused it for room); plain `busy` before these were kept. Ignore values you don't know."
+                },
+                "brain": {
+                  "type": ["string", "null"],
+                  "description": "What the runs thought with: `model` (a provider's API) or a coding CLI. `other`: none the server knows. Null: runs that had no turn yet."
+                },
+                "model": {
+                  "type": ["string", "null"],
+                  "description": "With `by=model`: the model of the run's latest turn, null when it had none. Else always null."
+                },
+                "waits": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Distinct runs that waited."
+                },
+                "medianSec": {
+                  "type": ["integer", "null"]
+                },
+                "p90Sec": {
+                  "type": ["integer", "null"]
+                },
+                "p99Sec": {
+                  "type": ["integer", "null"]
+                },
+                "totalSec": {
+                  "type": ["integer", "null"]
+                }
+              },
+              "required": ["cause", "brain", "model", "waits", "runs", "medianSec", "p90Sec", "p99Sec", "totalSec"]
+            },
+            "description": "The waits for a computer alone (a provider's outage is not among them). By brain, then model, then most waits first, at most 300: the most frequent. Each wait lasts until the run's next step, its end, or the earlier of now and `to`."
+          }
+        },
+        "required": ["from", "to", "by", "runs", "profiled", "stages", "stagesMore", "computerStarts", "waits"]
       },
       "OperatorAiAccounts": {
         "type": "object",
@@ -2896,6 +3181,55 @@
                   "type": ["string", "null"],
                   "description": "`turn` or `probe`."
                 },
+                "usage": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "limited": {
+                      "type": "boolean",
+                      "description": "The plan refused a request for its limit."
+                    },
+                    "checkedAt": {
+                      "type": ["string", "null"],
+                      "description": "When the server last asked its computer to read a plan stuck at its limit again."
+                    },
+                    "windows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "five_hour",
+                              "seven_day",
+                              "seven_day_opus",
+                              "seven_day_sonnet",
+                              "monthly",
+                              "other"
+                            ],
+                            "description": "`other`: a window the list has no word for; never the provider's own name for it."
+                          },
+                          "usedPercent": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "resetsAt": {
+                            "type": ["string", "null"]
+                          },
+                          "at": {
+                            "type": ["string", "null"],
+                            "description": "When this window was last read, where that is before `usageAt`: a later reading that didn't name it kept the older one. Null: at `usageAt`."
+                          }
+                        },
+                        "required": ["kind", "usedPercent", "resetsAt", "at"]
+                      },
+                      "description": "At most 10."
+                    }
+                  },
+                  "required": ["limited", "checkedAt", "windows"],
+                  "description": "Its plan's windows as its computer last reported them (`usageAt`); null: none."
+                },
                 "runnerVersion": {
                   "type": ["string", "null"]
                 },
@@ -2926,6 +3260,7 @@
                 "lastFailureAt",
                 "usageAt",
                 "usageSource",
+                "usage",
                 "runnerVersion",
                 "protocol"
               ]
@@ -2986,12 +3321,17 @@
           {
             "type": "object",
             "properties": {
+              "percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
               "changedAt": {
                 "type": ["string", "null"],
                 "description": "When it last changed; null: never."
               }
             },
-            "required": ["changedAt"]
+            "required": ["percent", "changedAt"]
           }
         ]
       },
@@ -3003,8 +3343,8 @@
           },
           "rollout": {
             "type": "string",
-            "enum": ["selected", "all"],
-            "description": "`selected`: only the workspaces in `orgIds`. `all`: every workspace."
+            "enum": ["selected", "percent", "all"],
+            "description": "`selected`: only the workspaces in `orgIds`. `percent`: those plus `percent` of all workspaces, picked by a stable hash of the workspace's id (raising it only adds workspaces). `all`: every workspace."
           },
           "orgIds": {
             "type": "array",
@@ -3014,6 +3354,12 @@
             },
             "maxItems": 500,
             "description": "Deduplicated; each must exist."
+          },
+          "percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "With `percent`: the share of workspaces, 0–100 (0 when left out). Kept as 0 with any other rollout."
           }
         },
         "required": ["method", "rollout", "orgIds"]
@@ -3210,6 +3556,7 @@
                     "channel",
                     "dm",
                     "task_conversation",
+                    "file_conversation",
                     "message",
                     "run",
                     "task",
@@ -3217,7 +3564,7 @@
                     "computer",
                     "ai_account"
                   ],
-                  "description": "`user`: an account (by its id) or a member (by handle). `dm`: a direct conversation. `task_conversation`: the channel a task's conversation is in. `file`: a file in the Drive. `computer`: a connected computer. `ai_account`: a sign-in to an AI plan on a computer."
+                  "description": "`user`: an account (by its id) or a member (by handle). `dm`: a direct conversation. `task_conversation`: the channel a task's conversation is in. `file_conversation`: the channel a live file's conversation is in. `file`: a file in the Drive. `computer`: a connected computer. `ai_account`: a sign-in to an AI plan on a computer."
                 },
                 "id": {
                   "type": "string"
@@ -3459,11 +3806,11 @@
                 },
                 "name": {
                   "type": "string",
-                  "description": "A channel's name. A direct or a task's conversation's is made up."
+                  "description": "A channel's name. A direct, a task's or a file's conversation's is made up."
                 },
                 "kind": {
                   "type": "string",
-                  "description": "`channel`, `dm` or `task`."
+                  "description": "`channel`, `dm`, `task` or `file`."
                 },
                 "visibility": {
                   "type": "string",
@@ -3544,7 +3891,7 @@
                 },
                 "model": {
                   "type": "string",
-                  "description": "The API's model: what `model` thinks with, and a CLI's fallback."
+                  "description": "The API's model: what `model` thinks with."
                 },
                 "brainModel": {
                   "type": ["string", "null"],
@@ -3656,7 +4003,7 @@
           },
           "model": {
             "type": "string",
-            "description": "The API's model: what `model` thinks with, and a CLI's fallback."
+            "description": "The API's model: what `model` thinks with."
           },
           "brainModel": {
             "type": ["string", "null"],
@@ -3716,7 +4063,9 @@
           },
           "fallback": {
             "type": "boolean",
-            "description": "When its CLI can't answer, it answers through the API."
+            "enum": [false],
+            "deprecated": true,
+            "description": "Always false: the API never answers for a computer brain (ADR 0032's 2026-11-15 addendum). Kept for v1 callers."
           },
           "provider": {
             "type": ["string", "null"],
@@ -3984,7 +4333,7 @@
           },
           "waitCode": {
             "type": ["string", "null"],
-            "description": "What it last waited on that isn't a person: `busy`, `machine_offline`, `plan_limit`, `budget`, `usage_pause`, `work_queue`, `provider_outage`… Ignore values you don't know."
+            "description": "What it last waited on that isn't a person: `busy`, `machine_offline`, `plan_limit`, `budget`, `usage_pause`, `work_queue`, `provider_outage`… On an ended run: what it waited on when it ended. Ignore values you don't know."
           },
           "waitSource": {
             "type": ["string", "null"],
@@ -3992,16 +4341,81 @@
           },
           "waitResetsAt": {
             "type": ["string", "null"],
-            "description": "When the limit it waits on resets, when known."
+            "description": "When the limit it waits on resets, when known. With every account of the order at its limit, the first of them."
+          },
+          "waitAccountId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The AI sign-in whose plan it waits on (`plan_limit`, or a long-work pause on a plan). Null: the plan is its computer's own sign-in, or it waits on a budget or on no plan."
+          },
+          "waitAccountMachineId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The computer that sign-in is on. With `waitAccountId` null and this set: that computer's own sign-in is the plan it waits on."
+          },
+          "accountId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The AI account it went on with at its plan's limit (ADR 0041 §6): its plan waits and usage are that account's. Null: its agent's own (`accountId` on the agent)."
           },
           "waitingMachineId": {
             "type": ["string", "null"],
             "format": "uuid",
             "description": "The computer it waits for."
           },
+          "canceled": {
+            "type": ["object", "null"],
+            "properties": {
+              "by": {
+                "type": "string",
+                "enum": ["person", "agent", "system"],
+                "description": "`person`; `agent` (an agent stopped it at that person's word); `system` (the server did, for `reason`)."
+              },
+              "userId": {
+                "type": ["string", "null"],
+                "description": "The person who stopped it, or at whose word."
+              },
+              "agentId": {
+                "type": ["string", "null"],
+                "format": "uuid",
+                "description": "With `agent`: the agent that stopped it."
+              },
+              "reason": {
+                "type": ["string", "null"],
+                "enum": [
+                  "agent_archived",
+                  "channel_deleted",
+                  "consultation_expired",
+                  "mission_stopped",
+                  "mission_closed",
+                  "mission_executor_changed",
+                  "routine_superseded",
+                  "routine_waiting_plan",
+                  "routine_waiting_budget",
+                  "routine_waiting_computer",
+                  "routine_stalled",
+                  "routine_stale",
+                  "routine_waiting_plan_late",
+                  "routine_waiting_budget_late",
+                  "routine_stopped",
+                  "routine_paused",
+                  "routine_deleted",
+                  "routine_creator_left",
+                  "workspace_paused",
+                  "workspace_suspended",
+                  "workspace_deleting",
+                  "other",
+                  null
+                ],
+                "description": "With `system`, why: its agent or its conversation was deleted (`agent_archived`, `channel_deleted`), a consultation ran out, its mission stopped, closed or changed who works on it (`mission_…`), its routine's next firing took its place, gave up on what it waited for, or was stopped, paused or deleted (`routine_…`), or its workspace was paused, suspended or is being deleted (`workspace_…`). `other`: a reason this list does not hold. Null for a person's stop."
+              }
+            },
+            "required": ["by", "userId", "agentId", "reason"],
+            "description": "Who or what stopped it. Null unless `status` is `canceled`, and for a canceled run that kept no error: nothing says who stopped it."
+          },
           "errorCode": {
             "type": ["string", "null"],
-            "description": "The app's code for `error`: `run.no_ai`, `run.budget_exceeded`, `run.provider_rate_limit`, `run.cli_failed`, `run.canceled`… and `run.failed` for anything unrecognized."
+            "description": "The app's code for `error`: `run.no_ai`, `run.budget_exceeded`, `run.provider_rate_limit`, `run.cli_failed`, `run.canceled`… and `run.failed` for anything unrecognized. A run the system stopped reads `run.canceled` too, where the app has no code of its own for the reason: `canceled` says which."
           },
           "error": {
             "type": ["string", "null"],
@@ -4043,7 +4457,11 @@
           "waitCode",
           "waitSource",
           "waitResetsAt",
+          "waitAccountId",
+          "waitAccountMachineId",
+          "accountId",
           "waitingMachineId",
+          "canceled",
           "errorCode",
           "error",
           "createdAt",
@@ -4119,7 +4537,7 @@
                 },
                 "tool": {
                   "type": ["string", "null"],
-                  "description": "A tool call's and its result's."
+                  "description": "A tool call's and its result's. An error's whose `reason` is `brain_stalled`: the CLI's own tool it hung in."
                 },
                 "builtIn": {
                   "type": ["boolean", "null"],
@@ -4139,11 +4557,64 @@
                 },
                 "code": {
                   "type": ["string", "null"],
-                  "description": "An error's, or a tool result's own."
+                  "description": "An error's, or a tool result's own (`tool.unknown`, `tool.invalid_input`, `tool.failed`, `tool.not_allowed`…). On an error whose `reason` is `no_ai`: why the run had nothing to think with, one of `no_key`, `not_signed_in`, `no_computer`, `cli_missing`, `computer_away`, `computer_failed`, `cli_failed`, `plan_limit`, `model_limit`, `model_region`, `model_off`, `plan_inactive`, `commands_off`, `plan_not_shared`, `plans_not_yours`, `runner_outdated`, `plan_tools`, `plan_hold`, `plan_unattended`; null on a run from before the server kept it. On an error whose `reason` is `brain_stalled` (the computer stopped the CLI after it said nothing for too long): where it was, `model` (waiting for the model's answer), `tool` (in one of its own tools, `tool`) or `compacting`."
+                },
+                "errorClass": {
+                  "type": ["string", "null"],
+                  "enum": [
+                    "unknown_tool",
+                    "invalid_arguments",
+                    "rate_limited",
+                    "unauthorized",
+                    "forbidden",
+                    "not_found",
+                    "timeout",
+                    "server_error",
+                    "other",
+                    null
+                  ],
+                  "description": "A tool result's. How a failed result failed, in one word. Exact when the server kept the failure's status (`errorStatus`) or its own code (`tool.unknown`, `tool.invalid_input`), which it does for calls made since it kept them; otherwise read from the result's first words, which is a guess, and `other` when they say nothing known. Null: it did not fail, or the server refused it (`refusal`)."
+                },
+                "errorStatus": {
+                  "type": ["integer", "null"],
+                  "description": "A tool result's. The number the failed call's error carried: an HTTP status (`401`, `429`, `503`…) or a JSON-RPC error code (`-32601`…), never its words. Null: it carried none, the tool answered the error itself, or the call was made before the server kept this."
                 },
                 "reason": {
                   "type": ["string", "null"],
-                  "description": "An error's: `transient`, `provider_outage`, `brain_unavailable`, `usage_wait`, `canceled`, `gave_up`, `recovered`, `interrupted`…"
+                  "description": "An error's: `transient`, `provider_outage`, `brain_unavailable`, `brain_stalled`, `usage_wait`, `no_ai`, `canceled`, `gave_up`, `recovered`, `interrupted`… A `context` step's that handed the run's unread messages on to another run (`redispatchedMessageIds`): why, one of `done`, `failed`, `canceled`, `interrupted`, `swept`, `held`."
+                },
+                "toRunId": {
+                  "type": ["string", "null"],
+                  "format": "uuid",
+                  "description": "A `context` step's that handed messages on, or that let go of messages answered while its run was parked: the run they went to."
+                },
+                "pause": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "enum": ["plan", "budget"]
+                    },
+                    "usedPercent": {
+                      "type": ["number", "null"],
+                      "description": "How much of it was used, as read then."
+                    },
+                    "window": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "five_hour",
+                        "seven_day",
+                        "seven_day_opus",
+                        "seven_day_sonnet",
+                        "monthly",
+                        "other",
+                        null
+                      ],
+                      "description": "A plan's: which of its windows the reading is of. Null for a budget."
+                    }
+                  },
+                  "required": ["source", "usedPercent", "window"],
+                  "description": "An error's whose `reason` is `usage_wait`, when long work paused near a limit: what it paused on and the reading that paused it. The step's `at` is when the run parked on that reading; when the reading itself was taken is not kept with the run. Null on a wait at a hard limit (`plan_limit`): the provider refused, nothing was read."
                 },
                 "model": {
                   "type": ["string", "null"],
@@ -4158,10 +4629,14 @@
                   "minimum": 0,
                   "description": "How long a tool call's input and a tool result's text are, never either of them."
                 },
+                "inputDigest": {
+                  "type": ["string", "null"],
+                  "description": "A tool call's. Stands for the call's input, which is never returned: 16 hex characters, equal for two calls of one workspace whose inputs are equal, the reason the agent stated for the call (its `why`) aside. It compares with no other workspace's or server's, and says nothing else. Null: the call has no input."
+                },
                 "durationMs": {
                   "type": ["integer", "null"],
                   "minimum": 0,
-                  "description": "A tool result's: since its call; null when the call is on an earlier page."
+                  "description": "A tool result's: since its call; null when the call is on an earlier page. A `brain_stalled` error's: how long nothing came from the CLI."
                 },
                 "messageId": {
                   "type": ["string", "null"],
@@ -4186,10 +4661,15 @@
                 "isError",
                 "refusal",
                 "code",
+                "errorClass",
+                "errorStatus",
                 "reason",
+                "toRunId",
+                "pause",
                 "model",
                 "stopReason",
                 "chars",
+                "inputDigest",
                 "durationMs",
                 "messageId",
                 "records"
@@ -4306,6 +4786,101 @@
             },
             "required": ["calls", "input", "output", "cacheRead", "cacheWrite", "costUsd", "byModel"]
           },
+          "claims": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "endedAt": {
+                  "type": ["string", "null"],
+                  "description": "When the claim ended; null: it was kept without it."
+                },
+                "totalMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Its stages' time in all."
+                },
+                "queries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "The SQL statements it issued."
+                },
+                "stages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "stage": {
+                        "type": "string",
+                        "description": "`claim`, `context`, `model#1` (the turn it is of), `persist`, `events`, `end` (after the last of them)… `other`: a name not shaped like one the server writes."
+                      },
+                      "ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "queries": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "parts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "stage": {
+                              "type": "string"
+                            },
+                            "ms": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "queries": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": ["stage", "ms", "queries"]
+                        },
+                        "description": "Steps inside the stage, back to back from its start (`context`: `tools_granted`, `ai_state`, `checks`, `build`, `judging`, `summary`); what they leave of `ms` came after the last."
+                      }
+                    },
+                    "required": ["stage", "ms", "queries"]
+                  },
+                  "description": "In the order they ran, at most 200."
+                },
+                "stagesCut": {
+                  "type": "boolean",
+                  "description": "It kept more than 200 stages."
+                },
+                "computerTurns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "warm": {
+                        "type": "boolean",
+                        "description": "On a process already open."
+                      },
+                      "initMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "A new process until it said it was ready."
+                      },
+                      "firstEventMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "Turn start to its first event."
+                      }
+                    },
+                    "required": ["warm", "initMs", "firstEventMs"]
+                  },
+                  "description": "How each of its turns on a computer started, as the computer said, at most 50."
+                }
+              },
+              "required": ["endedAt", "totalMs", "queries", "stages", "stagesCut", "computerTurns"]
+            },
+            "description": "Where the time went each time a worker took the run up (a claim), oldest first: the last 10 the run kept, none on a run that kept none. A wait between two claims is in neither."
+          },
           "machine": {
             "type": ["object", "null"],
             "properties": {
@@ -4337,7 +4912,7 @@
             "description": "The computer it is tied to; null: none."
           }
         },
-        "required": ["run", "steps", "stepCount", "asks", "jobs", "moreJobs", "usage", "machine"]
+        "required": ["run", "steps", "stepCount", "asks", "jobs", "moreJobs", "usage", "claims", "machine"]
       },
       "OperatorAsk": {
         "type": "object",
@@ -4444,7 +5019,11 @@
           },
           "lastError": {
             "type": ["string", "null"],
-            "description": "Its first 300 characters; cleared 30 days after the job ended."
+            "description": "Its first 300 characters; cleared 30 days after the job ended. Null for a job of a run of a confidential thread."
+          },
+          "lastErrorStatus": {
+            "type": ["integer", "null"],
+            "description": "The HTTP status the error behind `lastError` carried (an email or a push provider's refusal: `422`, `429`…). Null: it carried none, or the job failed before the server kept this. It stays after `lastError` is cleared."
           },
           "runId": {
             "type": ["string", "null"],
@@ -4475,6 +5054,7 @@
           "lockedUntil",
           "lockedBy",
           "lastError",
+          "lastErrorStatus",
           "runId",
           "cause",
           "createdAt",
@@ -4552,6 +5132,26 @@
             "type": ["string", "null"],
             "description": "The result's own code, when it has one."
           },
+          "errorClass": {
+            "type": ["string", "null"],
+            "enum": [
+              "unknown_tool",
+              "invalid_arguments",
+              "rate_limited",
+              "unauthorized",
+              "forbidden",
+              "not_found",
+              "timeout",
+              "server_error",
+              "other",
+              null
+            ],
+            "description": "How a failed result failed, in one word. Exact when the server kept the failure's status (`errorStatus`) or its own code (`tool.unknown`, `tool.invalid_input`), which it does for calls made since it kept them; otherwise read from the result's first words, which is a guess, and `other` when they say nothing known. Null: it did not fail, or the server refused it (`refusal`)."
+          },
+          "errorStatus": {
+            "type": ["integer", "null"],
+            "description": "The number the failed call's error carried: an HTTP status (`401`, `429`, `503`…) or a JSON-RPC error code (`-32601`…), never its words. Null: it carried none, the tool answered the error itself, or the call was made before the server kept this."
+          },
           "durationMs": {
             "type": ["integer", "null"],
             "minimum": 0,
@@ -4561,6 +5161,10 @@
             "type": "integer",
             "minimum": 0,
             "description": "How long its input is: the input is never returned."
+          },
+          "inputDigest": {
+            "type": ["string", "null"],
+            "description": "Stands for the call's input, which is never returned: 16 hex characters, equal for two calls of one workspace whose inputs are equal, the reason the agent stated for the call (its `why`) aside. It compares with no other workspace's or server's, and says nothing else. Null: the call has no input."
           },
           "resultChars": {
             "type": ["integer", "null"],
@@ -4580,8 +5184,11 @@
           "outcome",
           "refusal",
           "code",
+          "errorClass",
+          "errorStatus",
           "durationMs",
           "inputChars",
+          "inputDigest",
           "resultChars"
         ]
       },
@@ -4799,7 +5406,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "The router's own marks on the pick (`follow-up`, `default`, `alone`, `talking to`, `for people`, `held back`…), never a model's words about the message."
+                      "description": "The router's own marks on the pick (`follow-up`, `default`, `alone`, `talking to`, `for people`, `held back`…), never a model's words about the message. When nobody was picked: `under need gate` (the message's need for an agent scored under the gate) and `default cap` (the pick it would have had by default was past the hour's limit)."
                     },
                     "error": {
                       "type": ["string", "null"],
@@ -4911,7 +5518,7 @@
                     },
                     "waitCode": {
                       "type": ["string", "null"],
-                      "description": "What it last waited on that isn't a person: `busy`, `machine_offline`, `plan_limit`, `budget`, `usage_pause`, `work_queue`, `provider_outage`… Ignore values you don't know."
+                      "description": "What it last waited on that isn't a person: `busy`, `machine_offline`, `plan_limit`, `budget`, `usage_pause`, `work_queue`, `provider_outage`… On an ended run: what it waited on when it ended. Ignore values you don't know."
                     },
                     "waitSource": {
                       "type": ["string", "null"],
@@ -4919,16 +5526,81 @@
                     },
                     "waitResetsAt": {
                       "type": ["string", "null"],
-                      "description": "When the limit it waits on resets, when known."
+                      "description": "When the limit it waits on resets, when known. With every account of the order at its limit, the first of them."
+                    },
+                    "waitAccountId": {
+                      "type": ["string", "null"],
+                      "format": "uuid",
+                      "description": "The AI sign-in whose plan it waits on (`plan_limit`, or a long-work pause on a plan). Null: the plan is its computer's own sign-in, or it waits on a budget or on no plan."
+                    },
+                    "waitAccountMachineId": {
+                      "type": ["string", "null"],
+                      "format": "uuid",
+                      "description": "The computer that sign-in is on. With `waitAccountId` null and this set: that computer's own sign-in is the plan it waits on."
+                    },
+                    "accountId": {
+                      "type": ["string", "null"],
+                      "format": "uuid",
+                      "description": "The AI account it went on with at its plan's limit (ADR 0041 §6): its plan waits and usage are that account's. Null: its agent's own (`accountId` on the agent)."
                     },
                     "waitingMachineId": {
                       "type": ["string", "null"],
                       "format": "uuid",
                       "description": "The computer it waits for."
                     },
+                    "canceled": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "by": {
+                          "type": "string",
+                          "enum": ["person", "agent", "system"],
+                          "description": "`person`; `agent` (an agent stopped it at that person's word); `system` (the server did, for `reason`)."
+                        },
+                        "userId": {
+                          "type": ["string", "null"],
+                          "description": "The person who stopped it, or at whose word."
+                        },
+                        "agentId": {
+                          "type": ["string", "null"],
+                          "format": "uuid",
+                          "description": "With `agent`: the agent that stopped it."
+                        },
+                        "reason": {
+                          "type": ["string", "null"],
+                          "enum": [
+                            "agent_archived",
+                            "channel_deleted",
+                            "consultation_expired",
+                            "mission_stopped",
+                            "mission_closed",
+                            "mission_executor_changed",
+                            "routine_superseded",
+                            "routine_waiting_plan",
+                            "routine_waiting_budget",
+                            "routine_waiting_computer",
+                            "routine_stalled",
+                            "routine_stale",
+                            "routine_waiting_plan_late",
+                            "routine_waiting_budget_late",
+                            "routine_stopped",
+                            "routine_paused",
+                            "routine_deleted",
+                            "routine_creator_left",
+                            "workspace_paused",
+                            "workspace_suspended",
+                            "workspace_deleting",
+                            "other",
+                            null
+                          ],
+                          "description": "With `system`, why: its agent or its conversation was deleted (`agent_archived`, `channel_deleted`), a consultation ran out, its mission stopped, closed or changed who works on it (`mission_…`), its routine's next firing took its place, gave up on what it waited for, or was stopped, paused or deleted (`routine_…`), or its workspace was paused, suspended or is being deleted (`workspace_…`). `other`: a reason this list does not hold. Null for a person's stop."
+                        }
+                      },
+                      "required": ["by", "userId", "agentId", "reason"],
+                      "description": "Who or what stopped it. Null unless `status` is `canceled`, and for a canceled run that kept no error: nothing says who stopped it."
+                    },
                     "errorCode": {
                       "type": ["string", "null"],
-                      "description": "The app's code for `error`: `run.no_ai`, `run.budget_exceeded`, `run.provider_rate_limit`, `run.cli_failed`, `run.canceled`… and `run.failed` for anything unrecognized."
+                      "description": "The app's code for `error`: `run.no_ai`, `run.budget_exceeded`, `run.provider_rate_limit`, `run.cli_failed`, `run.canceled`… and `run.failed` for anything unrecognized. A run the system stopped reads `run.canceled` too, where the app has no code of its own for the reason: `canceled` says which."
                     },
                     "error": {
                       "type": ["string", "null"],
@@ -4972,7 +5644,11 @@
                     "waitCode",
                     "waitSource",
                     "waitResetsAt",
+                    "waitAccountId",
+                    "waitAccountMachineId",
+                    "accountId",
                     "waitingMachineId",
+                    "canceled",
                     "errorCode",
                     "error",
                     "createdAt",
@@ -5379,7 +6055,7 @@
                 "items": {
                   "type": "string"
                 },
-                "description": "The router's own marks on the pick (`follow-up`, `default`, `alone`, `talking to`, `for people`, `held back`…), never a model's words about the message."
+                "description": "The router's own marks on the pick (`follow-up`, `default`, `alone`, `talking to`, `for people`, `held back`…), never a model's words about the message. When nobody was picked: `under need gate` (the message's need for an agent scored under the gate) and `default cap` (the pick it would have had by default was past the hour's limit)."
               },
               "error": {
                 "type": ["string", "null"],
@@ -5899,6 +6575,110 @@
                 "onBehalfOfUserId": {
                   "type": ["string", "null"],
                   "description": "An agent's: the person behind that run."
+                },
+                "facts": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "fromMode": {
+                      "type": ["string", "null"],
+                      "enum": ["everyone", "people", "owner", null],
+                      "description": "`agent.audience_changed`: who could talk to the agent before (`everyone`, `people`: the ones listed, `owner`)."
+                    },
+                    "toMode": {
+                      "type": ["string", "null"],
+                      "enum": ["everyone", "people", "owner", null],
+                      "description": "`agent.audience_changed`: and who can now."
+                    },
+                    "peopleAdded": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`agent.audience_changed`: how many people the list gained, never who."
+                    },
+                    "peopleRemoved": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`agent.audience_changed`: how many it lost."
+                    },
+                    "rolesAdded": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`agent.audience_changed`: how many roles the list gained."
+                    },
+                    "rolesRemoved": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`agent.audience_changed`: how many it lost."
+                    },
+                    "via": {
+                      "type": ["string", "null"],
+                      "enum": ["invitation", null],
+                      "description": "`agent.audience_changed`: `invitation` when inviting someone made the change; null: someone saved it."
+                    },
+                    "tools": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`connector.tool_definitions_changed`: how many of the connection's tools changed what they say of themselves, never which."
+                    },
+                    "descriptionsChanged": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`connector.tool_definitions_changed`: how many of them changed their description."
+                    },
+                    "inputsChanged": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "`connector.tool_definitions_changed`: how many of them changed the input they take."
+                    },
+                    "fromStatus": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "queued",
+                        "running",
+                        "waiting_approval",
+                        "waiting_input",
+                        "done",
+                        "failed",
+                        "canceled",
+                        null
+                      ],
+                      "description": "`run.canceled`: the run's status when it was stopped."
+                    },
+                    "reason": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "agent_archived",
+                        "channel_deleted",
+                        "consultation_expired",
+                        "mission_stopped",
+                        "mission_closed",
+                        "mission_executor_changed",
+                        "routine_superseded",
+                        "routine_waiting_plan",
+                        "routine_waiting_budget",
+                        "routine_waiting_computer",
+                        "routine_stalled",
+                        "routine_stale",
+                        "routine_waiting_plan_late",
+                        "routine_waiting_budget_late",
+                        "routine_stopped",
+                        "routine_paused",
+                        "routine_deleted",
+                        "routine_creator_left",
+                        "workspace_paused",
+                        "workspace_suspended",
+                        "workspace_deleting",
+                        "other",
+                        null
+                      ],
+                      "description": "`run.canceled`: why the system stopped it, as a run's `canceled.reason`; null: a person did."
+                    },
+                    "agentId": {
+                      "type": ["string", "null"],
+                      "format": "uuid",
+                      "description": "`run.canceled`: the run's agent."
+                    }
+                  },
+                  "description": "What the entry's details say in listed words, counts and ids, for three actions, each with its own keys: `agent.audience_changed`, `connector.tool_definitions_changed` and `run.canceled`. Null for every other action."
                 }
               },
               "required": [
@@ -5911,10 +6691,11 @@
                 "targetId",
                 "outcome",
                 "runId",
-                "onBehalfOfUserId"
+                "onBehalfOfUserId",
+                "facts"
               ]
             },
-            "description": "Never an entry's details."
+            "description": "Never an entry's details, but the facts named in `facts`."
           },
           "next": {
             "type": ["string", "null"],
@@ -6351,6 +7132,7 @@
               "public_channel",
               "administrator",
               "task_reader",
+              "file_reader",
               "shared_everyone",
               "shared_person",
               "shared_role",
@@ -6365,13 +7147,354 @@
               "not_joined",
               "not_channel_member",
               "not_task_reader",
+              "not_file_reader",
               "not_shared",
               "unknown"
             ],
-            "description": "What decided. Yes: `owner` (the agent's or the computer's), `audience_everyone`, `audience_person` (named in its audience), `audience_role` (holds a role of its audience), `workspace` (for the whole workspace: a task or a file outside any conversation, a workspace's computer nobody owns), `channel_member` (in the channel, or in the one the task or the file is in), `public_channel` (the task or the file is in one), `administrator`, `task_reader` (sees the task whose conversation it is), `shared_everyone`, `shared_person`, `shared_role` (the file's sharing), `granted_once` (a person let their agents use the computer for now). No: `not_a_member` (of the workspace), `account_closed` (blocked, or being deleted), `workspace_suspended`, `gone` (archived, deleted or removed), `no_permission` (no role of theirs lets them talk to agents), `owner_only`, `not_in_audience`, `not_joined` (a public channel they may join), `not_channel_member`, `not_task_reader`, `not_shared`. `unknown`: the server's own check answered, and no rule here explains it."
+            "description": "What decided. Yes: `owner` (the agent's or the computer's, or who made a file of the Drive itself), `audience_everyone`, `audience_person` (named in its audience), `audience_role` (holds a role of its audience), `workspace` (for the whole workspace: a task outside any conversation, a file of the Drive itself shared with everyone, a workspace's computer nobody owns), `channel_member` (in the channel, or in the one the task or the file is in), `public_channel` (the task or the file is in one), `administrator`, `task_reader` (sees the task whose conversation it is), `file_reader` (reads the live file whose conversation it is), `shared_everyone`, `shared_person`, `shared_role` (the file's sharing), `granted_once` (a person let their agents use the computer for now). No: `not_a_member` (of the workspace), `account_closed` (blocked, or being deleted), `workspace_suspended`, `gone` (archived, deleted or removed), `no_permission` (no role of theirs lets them talk to agents), `owner_only`, `not_in_audience`, `not_joined` (a public channel they may join), `not_channel_member`, `not_task_reader`, `not_file_reader`, `not_shared`. `unknown`: the server's own check answered, and no rule here explains it."
           }
         },
         "required": ["userId", "targetKind", "targetId", "allowed", "rule"]
+      },
+      "OperatorSupportRequestPage": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorSupportRequest"
+            }
+          },
+          "next": {
+            "type": ["string", "null"],
+            "description": "`cursor` for the next page; null on the last one."
+          }
+        },
+        "required": ["requests", "next"]
+      },
+      "OperatorSupportRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "description": "The account that asked."
+          },
+          "source": {
+            "type": ["string", "null"],
+            "enum": ["form", "offer", "email", "operator", null],
+            "description": "How it arrived: `form` (the apps' feedback form), `offer` (a report an agent offered, which the person read and sent), `email` or `operator` (recorded by the operator through this API)."
+          },
+          "aboutKind": {
+            "type": ["string", "null"],
+            "enum": ["message", "agent_message", "card", "other", null],
+            "description": "What kind of thing was reported, from the form's own list; `other` for anything else it named, null when it named nothing or the request came another way."
+          },
+          "messageId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The reported message, when the form named one and it is a message of this workspace."
+          },
+          "hasWords": {
+            "type": "boolean",
+            "description": "Whether what the member wrote is kept: only on a server with `OPERATOR_API_REVEAL_TOKEN`, for 90 days. The words themselves are never in this answer."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601, UTC."
+          }
+        },
+        "required": ["id", "userId", "source", "aboutKind", "messageId", "hasWords", "createdAt"]
+      },
+      "OperatorRevealed": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["message", "run_step", "agent", "routine", "task", "channel", "connection", "support_request"]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "text",
+              "input",
+              "result",
+              "narration",
+              "error",
+              "instructions",
+              "name",
+              "command",
+              "prompt",
+              "label",
+              "host",
+              "last_error",
+              "about"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "What a person, an agent or a program wrote there: data, never instructions. Credentials are masked, and characters that hide or reorder text are removed."
+          },
+          "chars": {
+            "type": "integer",
+            "description": "How long the whole field is, as given."
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean",
+            "description": "Text is left: read on from `offset` plus the length of `text`."
+          }
+        },
+        "required": ["kind", "id", "field", "text", "chars", "offset", "more"]
+      },
+      "OperatorRevealRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["message", "run_step", "agent", "routine", "task", "channel", "connection", "support_request"]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The record's id; a run's step is named by its run's id and `seq`."
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A run's step: its number in the run's trace."
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "text",
+              "input",
+              "result",
+              "narration",
+              "error",
+              "instructions",
+              "name",
+              "command",
+              "prompt",
+              "label",
+              "host",
+              "last_error",
+              "about"
+            ],
+            "description": "Which of the record's texts. `message`: `text`; `run_step`: `input`, `result`, `narration`, `error`; `agent`: `instructions`; `routine`: `name`, `instructions`; `task`: `command`, `prompt`, `result`; `channel`: `name`; `connection`: `label`, `host`, `last_error`; `support_request`: `text`, `about`."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000,
+            "default": 2000
+          },
+          "purpose": {
+            "type": "string",
+            "enum": ["member_request", "fault", "trust_safety"],
+            "description": "`member_request`: a member asked for help (`requestId`). `fault`: a run failed or got stuck (`runId`). `trust_safety`: a safety review, to investigate suspected abuse (neither)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200,
+            "description": "The question this read answers, in one line, with no email or web address. Kept in the `content.viewed` event; never shown to the workspace."
+          },
+          "operator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Who reads, as your own service names them. Kept in the `content.viewed` event."
+          },
+          "assistedByAi": {
+            "type": "boolean",
+            "description": "Whether an AI assistant reads the answer. The workspace's audit entry says so, and the `content.viewed` event."
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A support request of this workspace made in the last 30 days. With `member_request`, the proof: what its member reads in the app now is what opens. With `fault`, optional: the report the run was about, which the run's days then count back from. Refused with `trust_safety`."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "With `fault`, the proof: a run of this workspace made in the last 14 days (or up to 14 days before `requestId`'s request) that failed, stands still for over an hour with nothing a person is asked to do, or holds a failed step. Refused with `trust_safety`."
+          }
+        },
+        "required": ["kind", "id", "field", "purpose", "reason", "operator", "assistedByAi"],
+        "additionalProperties": false
+      },
+      "OperatorReplied": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "replies": {
+            "type": "integer",
+            "description": "How many replies this request now has, of the 3 it may get."
+          }
+        },
+        "required": ["requestId", "replies"]
+      },
+      "OperatorReplyRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The support request answered: one of this workspace made in the last 90 days."
+          },
+          "template": {
+            "type": "string",
+            "enum": ["received", "need_more", "resolved", "handed_over"],
+            "description": "One of this server's own sentences, sent in the member's language: `received` (the request is being looked into), `need_more` (more details are needed), `resolved` (what they reported is fixed) or `handed_over` (a person now has the request). This or `text`, never both."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Your own words, as plain text: a line break ends a paragraph, and nothing else in it is rendered or becomes a link. Kept nowhere but the email."
+          },
+          "operator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Who answers, as your own service names them. Kept in the `support.replied` event."
+          },
+          "assistedByAi": {
+            "type": "boolean",
+            "description": "Whether an AI assistant wrote the answer. The email and the workspace's audit entry say so."
+          }
+        },
+        "required": ["requestId", "operator", "assistedByAi"],
+        "additionalProperties": false
+      },
+      "OperatorDisclosure": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": ["from", "to", "count"]
+      },
+      "OperatorDisclosureRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the first of the reads was made."
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the last was made: after `from`, at most 90 days after it, and not in the future."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "How many items you read. Your own count: this server checks it against nothing."
+          }
+        },
+        "required": ["from", "to", "count"],
+        "additionalProperties": false
+      },
+      "OperatorHost": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "Lower case, no trailing dot.",
+            "example": "app.northwind.example"
+          },
+          "name": {
+            "type": "string"
+          },
+          "accent": {
+            "$ref": "#/components/schemas/AccentColor"
+          },
+          "logo": {
+            "type": "boolean",
+            "description": "It has a logo."
+          },
+          "poweredBy": {
+            "type": "boolean",
+            "description": "Its pages before sign-in end with the powered-by line."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["host", "name", "accent", "logo", "poweredBy", "createdAt", "updatedAt"]
+      },
+      "OperatorHostLook": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "Shown where the product's name stands."
+          },
+          "accent": {
+            "type": ["string", "null"],
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "description": "Its accent color; null: the default. Left out: left as it is (none on a new host).",
+            "example": "#7c3aed"
+          },
+          "logo": {
+            "type": ["object", "null"],
+            "properties": {
+              "contentType": {
+                "type": "string",
+                "enum": ["image/jpeg", "image/png", "image/webp"]
+              },
+              "base64": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 3000000,
+                "description": "The image's bytes in base64, up to 2 MB."
+              }
+            },
+            "required": ["contentType", "base64"],
+            "description": "Its logo, checked by its bytes, metadata removed; shown at the sign-in page's lockup height. Null: the name alone. Left out: left as it is."
+          },
+          "poweredBy": {
+            "type": "boolean",
+            "description": "Its pages before sign-in end with a line linking to the software's site. Left out: left as it is (true on a new host)."
+          }
+        },
+        "required": ["name"]
       }
     },
     "parameters": {}
@@ -6523,6 +7646,76 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OperatorOrg"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/look": {
+      "put": {
+        "tags": ["Operator"],
+        "summary": "Set a workspace's logo and accent color (ADR 0193)",
+        "description": "What its members see in their apps, at once: a hosted service can give several workspaces one look. Recorded in the workspace's audit as done by the system, as when its admins change them in Settings, who can still change them afterwards. A logo that isn't a JPEG, PNG or WebP of up to 2 MB is refused (`logo.type`, `logo.too_large`, `logo.not_base64`, `logo.empty`) and nothing changes.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorLook"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorLookState"
                 }
               }
             }
@@ -7097,6 +8290,257 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/outside-access": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Ask a workspace to let an account in as an outside collaborator",
+        "description": "Files a request to join that whoever may invite people in the workspace approves or denies like any other, told the same way. Approved, the account joins at once and never counts toward the `members` limit, even in a full workspace. Asking again while the request waits changes nothing. 409 `join.member` when the account is already in the workspace, `join.waiting` while another request to join waits for its address, `join.full` while 50 outside requests already wait in the workspace (counted apart from the asks through its invitation links), `outside_access.account_closed` when the account is blocked or waiting for its deletion (one that becomes so while its request waits has the request closed when someone approves it, with `outside_access.ended`). The events feed tells the answer: `outside_access.granted` or `outside_access.denied`, and `outside_access.ended` when they leave or are removed, or when the request is over unanswered (run out, told by a daily sweep, or gone with the account), each with `data.userId`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The account to let in. It must exist."
+                  },
+                  "outsideOf": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "description": "Who the person works for, shown beside their name in the workspace."
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Shown with the request to the people who answer it, in the app only."
+                  }
+                },
+                "required": ["userId", "outsideOf"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "$ref": "#/components/schemas/OperatorOutsideAccessState"
+                    }
+                  },
+                  "required": ["state"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused as the workspace stands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Operator"],
+        "summary": "A workspace's outside collaborators, waiting and in",
+        "description": "The requests still waiting for an answer, then the people in, each oldest first.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOutsidePeople"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/outside-access/{userId}": {
+      "delete": {
+        "tags": ["Operator"],
+        "summary": "End an account's outside access to a workspace",
+        "description": "Closes its request still waiting, or removes the outside collaborator as anyone removed from a workspace is. With neither, nothing changes. 409 `outside_access.member` for an ordinary member, before anything changes: only someone in the workspace removes one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "userId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": ["none"]
+                    }
+                  },
+                  "required": ["state"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused as the workspace stands",
             "content": {
               "application/json": {
                 "schema": {
@@ -8699,6 +10143,103 @@
         }
       }
     },
+    "/analytics/run-timings": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "Where the runs' time went: each stage, how computer turns started and the waits, per brain or model",
+        "description": "Of the runs created in the window: 2 days at most across workspaces, 31 in one (`orgId`). Counts, times and the server's own words only: no message, no name. An unknown workspace answers with zeros.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: runs created at or after it.",
+              "example": "2026-10-30T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: runs created at or after it.",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: runs created before it. After `from`, at most 2 days apart across workspaces and 31 with `orgId`. Else 400 `analytics.range`.",
+              "example": "2026-10-31T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: runs created before it. After `from`, at most 2 days apart across workspaces and 31 with `orgId`. Else 400 `analytics.range`.",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only this workspace's runs."
+            },
+            "required": false,
+            "description": "Only this workspace's runs.",
+            "name": "orgId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only this agent's runs. Only with `orgId`."
+            },
+            "required": false,
+            "description": "Only this agent's runs. Only with `orgId`.",
+            "name": "agentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["brain", "model"],
+              "default": "brain",
+              "description": "`brain`: a row per brain. `model`: a row per brain and model."
+            },
+            "required": false,
+            "description": "`brain`: a row per brain. `model`: a row per brain and model.",
+            "name": "by",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorRunTimings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (`analytics.range`: the dates)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/analytics/ai-accounts": {
       "get": {
         "tags": ["Operator"],
@@ -9238,11 +10779,11 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["channel", "dm", "task"],
-              "description": "`channel`, `dm` (a direct conversation) or `task` (a task's conversation). Absent: all of them."
+              "enum": ["channel", "dm", "task", "file"],
+              "description": "`channel`, `dm` (a direct conversation), `task` (a task's conversation) or `file` (a live file's conversation). Absent: all of them."
             },
             "required": false,
-            "description": "`channel`, `dm` (a direct conversation) or `task` (a task's conversation). Absent: all of them.",
+            "description": "`channel`, `dm` (a direct conversation), `task` (a task's conversation) or `file` (a live file's conversation). Absent: all of them.",
             "name": "kind",
             "in": "query"
           },
@@ -9622,8 +11163,8 @@
     "/runs/{runId}/trace": {
       "get": {
         "tags": ["Operator"],
-        "summary": "One run from start to end: its steps, what it asked, its jobs, what it spent and its computer",
-        "description": "Which tool each step called, whether it is the server's own, whether it failed and how big its input and result were, never either of them. The steps page back from the end with `beforeSeq`.",
+        "summary": "One run from start to end: its steps, what it asked, its jobs, what it spent, where its time went and its computer",
+        "description": "Which tool each step called, whether it is the server's own, whether it failed and how, and how big its input and result were, never either of them. The steps page back from the end with `beforeSeq`.",
         "parameters": [
           {
             "schema": {
@@ -9707,7 +11248,7 @@
       "get": {
         "tags": ["Operator"],
         "summary": "The tools a workspace's agents called, newest first; or how many, by tool, agent or outcome",
-        "description": "Which tool, whether it is the server's own, how the call ended and how long it took, with how long its input and its result are, never either of them.",
+        "description": "Which tool, whether it is the server's own, how the call ended (and, failed, how) and how long it took, with how long its input and its result are, never either of them.",
         "parameters": [
           {
             "schema": {
@@ -10637,7 +12178,7 @@
       "get": {
         "tags": ["Operator"],
         "summary": "A workspace's audit log, newest first: who did what to what, never an entry's details",
-        "description": "What people changed and what agents did, every entry as stored and without its details: those hold a tool's input and what a change was made of. A tool that writes an entry of its own beside its `tool.call` shows as two.",
+        "description": "What people changed and what agents did, every entry as stored and without its details, which hold a tool's input and what a change was made of: never an entry's details, but the facts named here (`facts`). A tool that writes an entry of its own beside its `tool.call` shows as two.",
         "parameters": [
           {
             "schema": {
@@ -11213,6 +12754,629 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/support-requests": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "The times a workspace's members asked whoever runs the server for help, newest first",
+        "description": "Who asked, how it arrived, when, what kind of thing they reported and which message: ids and listed words. Never what they wrote. A request is kept 365 days.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSupportRequestPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Record that a member asked for help another way",
+        "description": "For a request that reached the operator outside the app (a mail from the address of their account, a call). The account must be a member of the workspace the app would let in now, else 404. The same `source` and `ref` again answer the request first recorded and write nothing.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 320,
+                    "description": "The member who asked."
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": ["email", "operator"],
+                    "description": "`email`: they wrote from the address of their account. `operator`: recorded by hand."
+                  },
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Your own id for it (a mail's id, a record's): sent again, it is the same request."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "What they wrote. Kept only on a server with `OPERATOR_API_REVEAL_TOKEN`; dropped otherwise."
+                  }
+                },
+                "required": ["userId", "source", "ref"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSupportRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reveal/orgs/{orgId}": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Read one field of one record of what a workspace wrote, with a reason",
+        "description": "Only with `OPERATOR_API_REVEAL_TOKEN`. One record a call, at most 2000 characters, for one of three purposes. Two are proved by a record of the workspace. For `member_request`: the support request is this workspace's and recent (403 `reveal.no_request`), its member still is one (`reveal.requester`) and reads the record in the app now (`reveal.not_visible`). For `fault`: the run failed or got stuck in its days (`reveal.no_fault`), the record is its step, the message that started it or one it wrote, its agent's instructions, its routine or a task it started, or, for a run that went on past a failed step, that step's `error` and its call's `input` alone (`reveal.not_the_fault`), and it is not of a direct conversation (`reveal.direct_conversation`). For `trust_safety`, a safety review to investigate suspected abuse, no record proves the purpose and the call names none (`requestId` or `runId` with it is a 400): this server has no record of an abuse investigation, so your own service answers for the cause. It opens every kind but a support request's words (`reveal.not_visible`), and of a direct conversation never a message that no agent wrote and that started no run (`reveal.direct_conversation`). What a run of a confidential thread holds opens under no purpose: its steps and a task it started answer 403 `reveal.confidential` where the purpose would have opened them, and a message of such a thread reads as its stub. Before any text is read, the read is recorded: a `content.viewed` event with the reason, and, for `member_request` and `fault`, an entry in the workspace's own audit log (`operator.content_read`) with what was read, the purpose and its proof, never the reason. A read for `trust_safety` writes the event and no entry: you tell the workspace afterwards with `POST /orgs/{orgId}/content-reads/disclosure`, when your review ends and 7 days after the read at the latest. A record of another workspace, a deleted one and one nobody has answer the same 404. An `error` of something that did not fail is 409 `reveal.no_error`. At most 30 calls a minute (429 `reveal.limit_minute`), 100 reads of one workspace in 24 hours (`reveal.limit_workspace`) and, on the whole server, 150 reads for `trust_safety` in 24 hours (`reveal.limit_untold`).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorRevealRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorRevealed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the reveal token, the door is closed, the purpose does not open this, or a confidential thread keeps it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It holds no error (`reveal.no_error`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past the door's own limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reveal/orgs/{orgId}/replies": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Answer a member's support request at the address of their account",
+        "description": "Only with `OPERATOR_API_REVEAL_TOKEN`. An email to the address the request's account has now, in that account's language: one of this server's own sentences (`template`) or your own words (`text`, plain text of at most 2000 characters). No argument names an address, a name or a subject. The email says that this server answers, that an AI assistant wrote it when `assistedByAi`, and where to write back when `SUPPORT_EMAIL` is set. A reply reads nothing: a request can be answered after the 30 days in which it opens content, for the 90 days its words are kept (403 `reveal.request_old` after that). Its member must still be one (`reveal.requester`). A request of another workspace and one nobody has answer the same 404. In one transaction with the email's job, the reply is recorded: a `support.replied` event and an entry in the workspace's own audit log (`operator.support_replied`), each with the request, the template or the word `text`, how long your words were and `assistedByAi`. Never the words: they are in the email's job alone, and leave it once the email is sent or given up. At most 3 replies to one request (429 `reveal.limit_request`) and 60 from this server in 24 hours (`reveal.limit_day`), counted from those events; a call counts toward the door's 30 a minute (`reveal.limit_minute`). A server that sends no email answers 409 `reveal.no_email`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorReplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorReplied"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request: both or neither of `template` and `text`, or a `text` that says nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the reveal token, the door is closed, the request is too old or its member is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This server sends no email (`reveal.no_email`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past the replies' own limits, or the door's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/content-reads/disclosure": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Tell a workspace, afterwards, that its content was read to investigate suspected abuse",
+        "description": "Only with `OPERATOR_API_TOKEN`. An operator that read content for `trust_safety` tells the workspace afterwards that it did: one entry in the workspace's own audit log (`operator.content_review_disclosed`, actor `system`) with the period and how many items, and nothing else: no reason, no record, no text. You owe it when your review ends, and 7 days after the read at the latest. The same `from` and `to` again answer the entry first written and write nothing, so a call that timed out can be sent again; another period writes its own entry.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorDisclosureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorDisclosure"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request: a period that has not ended, is backwards or too long, or a count out of bounds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the full token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hosts": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "The extra hostnames this server answers on (ADR 0194)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/OperatorHost"
+                      }
+                    }
+                  },
+                  "required": ["hosts"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hosts/{host}": {
+      "put": {
+        "tags": ["Operator"],
+        "summary": "Register a hostname, or replace its look (ADR 0194)",
+        "description": "On that host the pages before sign-in show its name, logo and accent, and sign-in is by email alone. Point the hostname at this server and serve a certificate for it first: the server only answers what reaches it. It runs no bot check, and nothing ties an account to a host, so any account's email lookup, password sign-in and reset can be asked there: what guards them is the limits per network, tighter on registered hosts (10 email lookups in 10 minutes and 5 sign-ups in 15 minutes per network, for all of them together), and the wrong passwords per account (10 in 15 minutes from one network, 50 from all), each counted in a server process's memory, so a restart starts them again (ADR 0075). Applies at once on this process and within 30 s on the others. Refusals: `host.invalid` (not a hostname: no scheme, port or path, at least one dot), `host.own` (`PUBLIC_URL`'s host or one of `EXTRA_TRUSTED_ORIGINS`), `host.too_many` (409, past 1000), `host.needs_https` (409, `PUBLIC_URL` isn't https, so the session cookies a registered host sets would carry no Secure flag), and a logo's as for a workspace's (`logo.type`, `logo.too_large`, `logo.not_base64`, `logo.empty`).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 260,
+              "example": "app.northwind.example"
+            },
+            "required": true,
+            "name": "host",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorHostLook"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorHost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Too many hosts, or `PUBLIC_URL` isn't https",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Operator"],
+        "summary": "Stop treating a hostname as registered, and delete its logo (ADR 0194)",
+        "description": "Its origin is no longer trusted and its pages show the product's own look. Sessions people hold there are not ended: they stop being reachable there once its traffic stops reaching this server. 404 when it isn't registered.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 260,
+              "example": "app.northwind.example"
+            },
+            "required": true,
+            "name": "host",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done"
           },
           "400": {
             "description": "Invalid request",

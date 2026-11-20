@@ -1,9 +1,8 @@
 import { SECRET_FILE } from "./agent-import";
-import { zip } from "./docx";
 import { ValidationError } from "./errors";
 import { can, requirePermission } from "./organizations";
 import { type GithubReadDeps, linkedRepository } from "./skills";
-import { inflateZipEntry } from "./zip";
+import { inflateZipEntry, zip } from "./zip";
 
 /**
  * Notes for the wiki from a GitHub link (a repository, a folder or one Markdown file): what the app's own import

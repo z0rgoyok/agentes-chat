@@ -201,17 +201,26 @@ export function useRefuseApproval(a: Approval, onRefused?: () => void) {
       router.push(`/approval/${a.id}?mode=refuse`);
       return;
     }
-    Alert.prompt(
-      t("mobile.approval.refuseAsk"),
-      t(`mobile.approval.refuseWhy${g}`, { name }),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        { text: t("mobile.approval.refuse"), style: "destructive", onPress: (reason) => send(reason ?? "") },
-      ],
-      "plain-text",
-    );
+    promptRefusal(t, name, send);
   };
   return { refuse, pending: decide.isPending };
+}
+
+/**
+ * iOS: the system's alert that asks before refusing, with the reason as an optional field and Recusar in red (the
+ * platform's alerts take text there). Cancelar leaves everything as it was; `send` gets what was typed. The cards and
+ * the request's sheet ask with this one alert.
+ */
+export function promptRefusal(t: TFunction, name: string, send: (reason: string) => void) {
+  Alert.prompt(
+    t("mobile.approval.refuseAsk"),
+    t(`mobile.approval.refuseWhy${genderOf(name)}`, { name }),
+    [
+      { text: t("mobile.common.cancel"), style: "cancel" },
+      { text: t("mobile.approval.refuse"), style: "destructive", onPress: (reason) => send(reason ?? "") },
+    ],
+    "plain-text",
+  );
 }
 
 /**

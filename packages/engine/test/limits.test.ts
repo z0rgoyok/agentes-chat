@@ -17,13 +17,17 @@ import {
   listMessages,
   messageRouter,
   type OrgLimits,
+  operatorListOrgs,
   operatorOrg,
+  orgLimitsView,
+  orgOverview,
   PLATFORM_CAP,
   parseSkillMarkdown,
   platformCapJudge,
   platformCapReached,
   postPersonMessage,
   type RouterStrategy,
+  requestOutsideAccess,
   resendInvitation,
   restoreArtifact,
   routeMessage,
@@ -184,6 +188,45 @@ describe("members", () => {
     expect(
       (await createInvitation(f.db, f.owner.id, f.org.id, { email: "x@example.com", role: "member" })).token,
     ).toBeString();
+  });
+
+  test("an outside collaborator takes no seat: a full workspace lets them in and stays exactly full (ADR 0191)", async () => {
+    f = await setup();
+    await limit({ members: 1 });
+    const full = { code: "org.members_full", params: { members: 1, limit: 1 } };
+    await expect(assertMemberRoom(f.db, f.org.id)).rejects.toMatchObject(full);
+
+    const cai = await person("cai@example.com");
+    const request = await requestOutsideAccess(
+      { db: f.db, publicUrl: "https://agentes.test" },
+      { orgId: f.org.id, userId: cai.id, outsideOf: "Example Consulting" },
+    );
+    expect(await approveJoinRequest({ db: f.db }, "https://agentes.test", f.owner.id, f.org.id, request.id)).toEqual({
+      outcome: "joined",
+    });
+    const [member] = await f.db
+      .select({ outsideOf: schema.organizationMembers.outsideOf })
+      .from(schema.organizationMembers)
+      .where(eq(schema.organizationMembers.userId, cai.id));
+    expect(member).toEqual({ outsideOf: "Example Consulting" });
+
+    // Two people are in. What the limit and the operator's counts read is still one; the sidebar counts both.
+    expect((await orgLimitsView(f.db, f.owner.id, f.org.id)).members).toMatchObject({ used: 1, limit: 1 });
+    expect((await operatorOrg(f.db, f.org.id))?.counts.members).toBe(1);
+    expect((await operatorListOrgs(f.db, { limit: 10 })).orgs.find((o) => o.id === f.org.id)?.members).toBe(1);
+    expect((await orgOverview(f.db, f.owner.id, f.org.id)).people).toBe(2);
+
+    // Still exactly full for an ordinary person, and one more seat takes exactly one more.
+    await expect(
+      createInvitation(f.db, f.owner.id, f.org.id, { email: "dan@example.com", role: "member" }),
+    ).rejects.toMatchObject(full);
+    await limit({ members: 2 });
+    const { token } = await createInvitation(f.db, f.owner.id, f.org.id, { email: "dan@example.com", role: "member" });
+    expect(await acceptInvitation(f.db, await person("dan@example.com"), token)).toMatchObject({ orgId: f.org.id });
+    await expect(assertMemberRoom(f.db, f.org.id)).rejects.toMatchObject({
+      code: "org.members_full",
+      params: { members: 2, limit: 2 },
+    });
   });
 });
 

@@ -9,10 +9,17 @@ import { proposalWhy } from "../src/lib/proposals";
 import { legacyPatch, lodiPrefsOf, teamWeekOn, teamWeekWhen } from "../src/lib/right-hand-prefs";
 import {
   appliesInBulk,
+  markedAtFirst,
+  opensPlace,
   skipsAlone,
   type TeamWeekCard,
   type TeamWeekNames,
+  type TeamWeekRow,
+  teamWeekApplyLabel,
   teamWeekCardOf,
+  teamWeekGroups,
+  teamWeekGroupTitle,
+  teamWeekItemText,
   teamWeekRowMessage,
   teamWeekRowPlace,
   teamWeekRowState,
@@ -400,4 +407,43 @@ test("suggestions: archive an idle agent, a smaller model for light work, each p
   }
   // A code this build has no words for reads as the sentence the server sent with it.
   expect(proposalWhy(t, { why: "It is new.", whyCode: "a_later_reason" as never })).toBe("It is new.");
+});
+
+test("mark and apply: what opens a place stays a row, the rest under each agent's face, archiving unmarked", () => {
+  const t = tOf("pt-BR");
+  const more: TeamWeekRow[] = [
+    { id: "howto:1", kind: "howto", agentId: "ada", itemId: "i1", title: "Montar o relatório semanal", uses: 19 },
+    { id: "budget:theo", kind: "budget", agentId: "theo", proposalId: "p3", stops: 1, from: 10e9, to: 20e9 },
+    { id: "howto:2", kind: "howto", agentId: "ada", itemId: "i2", title: "Revisar contratos", uses: 12 },
+    { id: "retire:caio", kind: "retire", agentId: "caio", proposalId: "p4" },
+  ];
+  const rows = [...card.rows, ...more];
+  expect(rows.filter(opensPlace).map((r) => r.kind)).toEqual(["approvals"]);
+  // Each agent's rows join the group where it first shows; a row about no agent stands alone.
+  const groups = teamWeekGroups(rows);
+  expect(groups.map((g) => [g.agentId, g.rows.map((r) => r.id)])).toEqual([
+    ["ada", ["budget:ada", "stalled:t", "howto:1", "howto:2"]],
+    ["theo", ["channel:theo", "budget:theo"]],
+    [null, ["unanswered:c"]],
+    ["caio", ["retire:caio"]],
+  ]);
+  expect(groups.map((g) => teamWeekGroupTitle(t, g, names))).toEqual(["Ada", "Theo", null, "Caio"]);
+  const learned = teamWeekGroups(more.filter((r) => r.kind === "howto"));
+  expect(teamWeekGroupTitle(t, learned[0] as never, names)).toBe("Ada aprendeu 2 jeitos de trabalhar");
+  expect(teamWeekGroupTitle(t, { agentId: "ada", rows: [more[0] as TeamWeekRow] }, names)).toBe(
+    "Ada aprendeu um jeito de trabalhar",
+  );
+  // Under the face, the title leaves out the agent's name.
+  const item = (id: string) => teamWeekItemText(t, "pt-BR", rows.find((r) => r.id === id) as TeamWeekRow, names);
+  expect(item("howto:1")).toEqual({ title: "Montar o relatório semanal", line: "Usado 19×" });
+  expect(item("budget:theo")).toEqual({ title: "Orçamento: US$ 10 → US$ 20", line: "Parou 1 vez no limite do mês." });
+  expect(item("retire:caio").title).toBe("Arquivar");
+  expect(item("unanswered:c").title).toBe("Um agente para as perguntas de #atendimento");
+  // Archiving waits for its own mark; the button says what the marked rows do.
+  expect(more.filter(markedAtFirst).map((r) => r.id)).toEqual(["howto:1", "budget:theo", "howto:2"]);
+  const howtos = more.filter((r) => r.kind === "howto");
+  expect(teamWeekApplyLabel(t, howtos)).toBe("Virar 2 skills");
+  expect(teamWeekApplyLabel(t, howtos.slice(0, 1))).toBe("Virar skill");
+  expect(teamWeekApplyLabel(t, more.slice(0, 2))).toBe("Aplicar as 2");
+  expect(teamWeekApplyLabel(tOf("en"), howtos)).toBe("Make 2 skills");
 });

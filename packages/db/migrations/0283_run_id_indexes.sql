@@ -1,0 +1,2 @@
+CREATE INDEX IF NOT EXISTS "usage_records_run_id_index" ON "usage_records" USING btree ("run_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "routine_runs_agent_run_id_index" ON "routine_runs" USING btree ("agent_run_id");

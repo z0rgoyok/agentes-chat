@@ -679,6 +679,7 @@ const toolsSetup = (judge?: NonNullable<Parameters<typeof setup>[0]>["judge"], t
     askUser: true,
     askAgent: true,
     react: true,
+    sayNow: true,
     followUps: true,
     workTools: true,
     blockTools: true,
@@ -712,6 +713,9 @@ test("Claude Code: two sessions of one agent list the same tools, every one it h
   // By name, the search over them last.
   expect(listed.slice(-2)).toEqual(["find_tools", "use_tool"]);
   expect(listed.slice(0, -2)).toEqual(listed.slice(0, -2).sort());
+  // The line before slow work (ADR 0207) is in hand from the first round, never behind a computer brain's tool search.
+  const upFront = (JSON.parse(dmTurn.tools) as { name: string; upFront?: boolean }[]).filter((t) => t.upFront);
+  expect(upFront.map((t) => t.name)).toEqual(["say_now"]);
   // "What you can do" names them all, and how to search them.
   expect(dmTurn.turn.system).toContain("`list_issues`");
   expect(dmTurn.turn.system).toContain("- Search all your tools by what you need with `find_tools`");

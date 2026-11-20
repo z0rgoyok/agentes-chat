@@ -7,7 +7,6 @@ import { ChoicesCard } from "@/components/blocks/ChoicesCard";
 import { LiveBlock } from "@/components/blocks/LiveBlock";
 import { PollCard } from "@/components/blocks/PollCard";
 import { SpecBlock } from "@/components/blocks/SpecBlock";
-import { Markdown } from "@/lib/markdown";
 import { FileSummary, FileView } from "./FileView";
 import { HtmlFrame } from "./HtmlFrame";
 import { MermaidOrCode } from "./Mermaid";
@@ -27,8 +26,12 @@ export function ArtifactContentView({
 }) {
   const { t } = useTranslation();
   switch (content.kind) {
+    // A live file, a document included (ADR 0200), opens on its own page, never here.
     case "document":
-      return <Markdown source={content.markdown} />;
+    case "spreadsheet":
+    case "slides":
+    case "canvas":
+      return null;
     case "table":
       return <TableView columns={content.columns} rows={content.rows} />;
     case "diff":

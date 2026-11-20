@@ -110,6 +110,8 @@ export interface StartRunOptions {
   park?: number;
   /** A parked wake: when it started waiting. Its run's place in the computer's line counts from then. */
   parkedSince?: number;
+  /** How long the router took to pick the agent: kept in the run's first claim's profile. */
+  routerMs?: number;
 }
 
 /**
@@ -246,7 +248,11 @@ export async function startOrJoinRun(
   await enqueue(tx, {
     orgId: message.orgId,
     kind: "agent_run.execute",
-    payload: { runId: run.id, ...(options.parkedSince ? { lineSince: options.parkedSince } : {}) },
+    payload: {
+      runId: run.id,
+      ...(options.parkedSince ? { lineSince: options.parkedSince } : {}),
+      ...(options.routerMs !== undefined ? { routerMs: options.routerMs } : {}),
+    },
     dedupeKey: `agent_run.execute:${run.id}`,
     maxAttempts: 4,
   });

@@ -1,12 +1,13 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, eq, gt, gte, inArray, ne, schema, sql } from "@agenteschat/db";
 import { planCheckedAt } from "@agenteschat/ui/plan-state";
+import { managesAgent, REACH_COLUMNS } from "./audience";
 import { cancelRun, mayStopRun, runRequester } from "./cancel";
 import { writtenSince } from "./catch-up";
 import { ANSWER_ANYWAY_MS, type ClosedNote } from "./catch-up-triage";
 import { readableChannelIds } from "./channels";
 import { ForbiddenError, NotFoundError } from "./errors";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
 import { replyThreadOf } from "./runs";
 
 const { agentRuns, agents, agentWorks, channels, messages, routineRuns, routines } = schema;
@@ -62,6 +63,13 @@ export interface UsageQueue {
   resetsAt: string | null;
   /** A plan's line: when its plan was last read or asked about (`planCheckedAt`), which a limit lifted early needs. */
   checkedAt: string | null;
+  /**
+   * A plan's line: the account it waits on, which is another than the agent's own when its run went on with the next
+   * account of the order (ADR 0041 §6); null: the computer's own sign-in, or a budget.
+   */
+  account: { id: string; label: string } | null;
+  /** Every account of the order is at its limit: how many (`resetsAt` is when the first resets); null otherwise. */
+  chain: number | null;
   /** Other agents waiting in the same plan's line (it belongs to the sign-in, not the agent). */
   sharedWith: string[];
   rows: UsageQueueRow[];
@@ -81,7 +89,7 @@ const rank = (r: { background: boolean; workId: string | null }) => (r.backgroun
 export async function usageQueue(db: Database, viewerId: string, orgId: string, agentId: string): Promise<UsageQueue> {
   const membership = await requirePermission(db, viewerId, orgId, "read");
   const [agent] = await db
-    .select({ id: agents.id, ownerUserId: agents.ownerUserId })
+    .select({ id: agents.id, ...REACH_COLUMNS })
     .from(agents)
     .where(and(eq(agents.orgId, orgId), eq(agents.id, agentId)));
   if (!agent) throw new NotFoundError("Agent not found");
@@ -94,6 +102,7 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
       waitKey: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitKey'`,
       plan: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'plan'`,
       resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
+      chain: sql<number | null>`(${agentRuns.transcript}->'waitingForBrain'->>'chain')::int`,
       since: sql<string>`coalesce(${agentRuns.transcript}->'waitingForBrain'->>'since',
         ${agentRuns.transcript}->'usageWait'->>'since', ${agentRuns.transcript}->'catchUp'->>'since',
         (extract(epoch from ${agentRuns.createdAt}) * 1000)::bigint::text)`,
@@ -215,14 +224,17 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
         )
     : [];
   const budget = head?.code === "budget" || head?.source === "budget";
-  const checkedAt = !budget && head?.waitKey ? await planKeyCheckedAt(db, orgId, head.waitKey) : null;
-  const mayAll = agent.ownerUserId === viewerId || can(membership, "manage_agents");
+  const read = !budget && head?.waitKey ? await planKeyRead(db, orgId, head.waitKey) : null;
+  // Its owner and who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17) stop all of it.
+  const mayAll = agent.ownerUserId === viewerId || managesAgent(agent, viewerId, membership);
   return {
     agentId,
     reason: head ? (budget ? "budget" : "plan") : null,
     plan: head?.plan ?? null,
     resetsAt: ordered.find((r) => r.resetsAt)?.resetsAt ?? null,
-    checkedAt,
+    checkedAt: read?.checkedAt ?? null,
+    account: read?.account ?? null,
+    chain: (!budget && head?.chain) || null,
     sharedWith: shared.map((s) => s.agentId),
     rows,
     hidden: ordered.length - shown.length,
@@ -231,23 +243,33 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
   };
 }
 
-/** When the plan a line waits on (`usageWaitKey`: `plan:<computer>:<kind>:<account or own>`) was last read or asked about. */
-async function planKeyCheckedAt(db: Database, orgId: string, key: string): Promise<string | null> {
+/**
+ * The plan a line waits on (`usageWaitKey`: `plan:<computer>:<kind>:<account or own>`): its account, and when it was
+ * last read or asked about.
+ */
+async function planKeyRead(
+  db: Database,
+  orgId: string,
+  key: string,
+): Promise<{ checkedAt: string | null; account: { id: string; label: string } | null } | null> {
   const [, machineId, kind, account] = key.split(":");
   if (!machineId || !kind || !account) return null;
   if (account !== "own") {
     const [row] = await db
-      .select({ usage: schema.machineAccounts.usage })
+      .select({ usage: schema.machineAccounts.usage, label: schema.machineAccounts.label })
       .from(schema.machineAccounts)
       .where(and(eq(schema.machineAccounts.orgId, orgId), eq(schema.machineAccounts.id, account)));
-    return planCheckedAt(row?.usage as { at?: string; checkedAt?: string } | null | undefined);
+    return {
+      checkedAt: planCheckedAt(row?.usage as { at?: string; checkedAt?: string } | null | undefined),
+      account: row ? { id: account, label: row.label } : null,
+    };
   }
   const [row] = await db
     .select({ executors: schema.machines.executors })
     .from(schema.machines)
     .where(and(eq(schema.machines.orgId, orgId), eq(schema.machines.id, machineId)));
   const own = row?.executors.ownUsage as Record<string, { at?: string }> | undefined;
-  return planCheckedAt(own?.[kind]);
+  return { checkedAt: planCheckedAt(own?.[kind]), account: null };
 }
 
 const CLOSED_SHOWN_MS = 24 * 3600_000;

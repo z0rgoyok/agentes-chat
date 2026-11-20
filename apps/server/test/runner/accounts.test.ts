@@ -28,7 +28,9 @@ import {
   accountEnv,
   accountSignIn,
   agentAccountHome,
+  CODEX_REFRESH_AFTER_MS,
   codexAuthOf,
+  codexProbeSafe,
   grantOf,
   grokAuthOf,
   lentAccounts,
@@ -58,6 +60,7 @@ const FAKE_ENV = [
   "FAKE_CODEX_DELAY",
   "FAKE_CODEX_REFRESHED",
   "FAKE_ACCOUNT_STATUS",
+  "FAKE_ACCOUNT_USAGE",
   "FAKE_ACCOUNT_STATUS_DELAY",
 ];
 const dirs: string[] = [];
@@ -1165,6 +1168,16 @@ test.if(posix)(
   20_000,
 );
 
+test("root reads a ChatGPT sign-in for all agents' limits only while Codex won't refresh it", () => {
+  const home = tempDir("codex-probe-");
+  dirs.push(home);
+  expect(codexProbeSafe(home, Date.now())).toBe(false);
+  const at = Date.parse("2030-01-01T00:00:00.000Z");
+  writeFileSync(path.join(home, "auth.json"), codexAuth("r1", at));
+  expect(codexProbeSafe(home, at + 24 * 3600_000)).toBe(true);
+  expect(codexProbeSafe(home, at + CODEX_REFRESH_AFTER_MS - 30 * 60_000)).toBe(false);
+});
+
 test("in an agent's worker: root's copy goes in unless the agent's is newer, and a refreshed one goes back", async () => {
   const home = tempDir("codex-home-");
   dirs.push(home);
@@ -1638,6 +1651,7 @@ function sharedLoginSetup(ready = true, over: Partial<AccountManagerOptions> = {
           CLAUDE_CONFIG_DIR: store,
           FAKE_ACCOUNT_LOG: process.env.FAKE_ACCOUNT_LOG,
           ...(process.env.FAKE_ACCOUNT_MODE ? { FAKE_ACCOUNT_MODE: process.env.FAKE_ACCOUNT_MODE } : {}),
+          ...(process.env.FAKE_ACCOUNT_USAGE ? { FAKE_ACCOUNT_USAGE: process.env.FAKE_ACCOUNT_USAGE } : {}),
         } as Record<string, string>,
         home: store,
       }),
@@ -1796,6 +1810,32 @@ test.if(posix)("a new sign-in of this kind that fails or is canceled leaves no u
   expect(removed).toEqual([id, canceled]);
   expect(existsSync(path.join(root, "claude_code", `${canceled}.method`))).toBe(false);
 });
+
+test.if(posix)(
+  "Claude's own login: a turn's refusal ends when its provider answers the usage call; one it doesn't answer stays out",
+  async () => {
+    process.env.FAKE_ACCOUNT_USAGE = "1";
+    const { m, root, store } = sharedLoginSetup(true, { usageTtlMs: 0 });
+    const id = LOGIN(209);
+    await signInClaude(m, id, false, true, "cli_login");
+    const invalid = path.join(root, "claude_code", `${id}.invalid`);
+    // A refresh another process had just rotated failed one turn: the login itself still works.
+    await m.refused("claude_code", id);
+    m.invalidate();
+    expect((await m.list())[0]).toMatchObject({ loggedIn: false });
+    m.probeUsage([id]);
+    await waitFor(() => !existsSync(invalid), 5000);
+    m.invalidate();
+    expect((await m.list())[0]).toMatchObject({ loggedIn: true, authMethod: "cli_login" });
+    // Ended for real (the store has no sign-in): the provider refuses the call too, and it stays signed out.
+    rmSync(path.join(store, "signed-in"), { force: true });
+    await m.refused("claude_code", id);
+    m.probeUsage([id]);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(existsSync(invalid)).toBe(true);
+  },
+  20_000,
+);
 
 test.if(posix)(
   "switched off or failing its check: the sign-in stays as known, no CLI touches its store, and only removing ends it",

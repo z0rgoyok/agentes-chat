@@ -1,11 +1,9 @@
 import { type AgentMailbox, useAgentMail, useMailAccounts, useSetAgentMail } from "@agenteschat/client";
 import type { Level } from "@agenteschat/client/lib/access-levels";
-import { canTalk } from "@agenteschat/client/lib/audience";
+import { canTalk, managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { defaultPolicy, mailAccessOf, onlyForOwner, toMailLevel } from "@agenteschat/client/lib/mail";
-import { can } from "@agenteschat/client/lib/permissions";
+import { defaultPolicy, mailAccessOf, mailboxName, onlyForOwner, toMailLevel } from "@agenteschat/client/lib/mail";
 import { useTranslation } from "react-i18next";
-import { useOrg } from "@/providers/org";
 import { useToast } from "@/ui";
 import { pickLevel } from "../connectors/pick-level";
 import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
@@ -39,16 +37,21 @@ export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[
   const { t } = useTranslation();
   const orgId = useOrgId();
   const meId = useMeId();
-  const org = useOrg().org;
   const dir = useDirectory();
   const toast = useToast();
   const agent = dir.agentById.get(agentId);
-  const accounts = useMailAccounts(orgId, enabled);
-  const list = (accounts.data ?? []).filter((a) => a.status !== "pending");
+  // Someone else's mailbox shows only while this agent holds it (who manages connectors gets those, named by label).
+  const accounts = useMailAccounts(orgId, enabled, { others: true });
+  const list = (accounts.data ?? []).filter(
+    (a) =>
+      a.status !== "pending" &&
+      (!a.ownerUserId || a.ownerUserId === meId || a.agents.some((x) => x.agentId === agentId)),
+  );
   const mail = useAgentMail(orgId, agentId, enabled && list.length > 0);
   const set = useSetAgentMail(orgId);
   if (!enabled || list.length === 0 || !mail.data) return [];
-  const managesAgent = can(org, "manage_agents") || (!!meId && agent?.ownerUserId === meId);
+  // Who manages it (the server's `canManage`) or its owner takes a mailbox away.
+  const manages = managesAgent(agent) || (!!meId && agent?.ownerUserId === meId);
   const save = (accountId: string, saved: AgentMailbox | undefined, level: Level) =>
     set.mutate(
       {
@@ -65,12 +68,12 @@ export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[
   return list.map((account): MailboxLine => {
     const saved = mail.data?.find((m) => m.accountId === account.id);
     const level = toLevel(saved?.level ?? "none");
-    const may = mailAccessOf(account, { userId: meId, talks: canTalk(agent), managesAgent });
+    const may = mailAccessOf(account, { userId: meId, talks: canTalk(agent), managesAgent: manages });
     const owner = account.ownerUserId ? dir.memberById.get(account.ownerUserId)?.name : undefined;
     const theirs = account.ownerUserId !== meId;
     return {
       id: account.id,
-      address: account.address,
+      address: account.address || mailboxName(t, account),
       level: t(`access.level.${level}`),
       sub: theirs ? (owner ? t("mail.agent.ownerOnly", { name: owner }) : t("mail.agent.ownerOnlyUnknown")) : null,
       hint:

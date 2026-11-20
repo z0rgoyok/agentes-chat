@@ -633,7 +633,6 @@ html:not([data-pointer]) .nwc-ask:focus-visible {
   padding-block: 4px;
 }
 .nwc-asked:hover {
-  background: var(--plate);
   color: var(--ink);
 }
 html:not([data-pointer]) .nwc-asked:focus-visible {
@@ -726,7 +725,6 @@ html:not([data-pointer]) .nwc-pk .ac-select__trigger:focus-visible {
   flex: none;
 }
 button.nwc-who:hover {
-  background: var(--plate);
   color: var(--ink);
 }
 html:not([data-pointer]) button.nwc-who:focus-visible {

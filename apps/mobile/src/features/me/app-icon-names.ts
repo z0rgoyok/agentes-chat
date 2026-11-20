@@ -1,11 +1,11 @@
 import {
   APP_ICONS,
   type AppIconId,
-  DEFAULT_APP_ICON,
   type MadeIcon,
   madeIconId,
   madeIconOf,
   madeIcons,
+  PHONE_APP_ICON,
 } from "@agenteschat/client/lib/app-icons";
 
 /** An icon the phone can show: one of the ready ones, or one the person made. */
@@ -23,7 +23,7 @@ const IOS_PREFIX = "AppIcon-";
  */
 export function nativeIconName(icon: PhoneIcon, os: string): string | null {
   const id = idOf(icon);
-  if (os === "ios") return id === DEFAULT_APP_ICON ? null : `${IOS_PREFIX}${id}`;
+  if (os === "ios") return id === PHONE_APP_ICON ? null : `${IOS_PREFIX}${id}`;
   return `AppIcon${id
     .split("-")
     .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
@@ -38,9 +38,9 @@ let byAlias: Map<string, MadeIcon> | null = null;
 /** The icon a native name stands for (an unknown name is the shipped one). */
 export function iconOfNativeName(name: string | null, os: string): PhoneIcon {
   const ready = APP_ICONS.find((id) => nativeIconName(id, os) === name);
-  if (ready || !name) return ready ?? DEFAULT_APP_ICON;
+  if (ready || !name) return ready ?? PHONE_APP_ICON;
   if (os === "ios")
-    return (name.startsWith(IOS_PREFIX) ? madeIconOf(name.slice(IOS_PREFIX.length)) : null) ?? DEFAULT_APP_ICON;
+    return (name.startsWith(IOS_PREFIX) ? madeIconOf(name.slice(IOS_PREFIX.length)) : null) ?? PHONE_APP_ICON;
   byAlias ??= new Map(madeIcons().map((icon) => [nativeIconName(icon, os) ?? "", icon]));
-  return byAlias.get(name) ?? DEFAULT_APP_ICON;
+  return byAlias.get(name) ?? PHONE_APP_ICON;
 }

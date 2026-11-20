@@ -1,4 +1,4 @@
-import { type SQL, type schema, sql } from "@agenteschat/db";
+import { and, gte, lt, type SQL, type schema, sql } from "@agenteschat/db";
 
 /**
  * How far before its post a message's `created_at` can be: the lead a brain wrote right before its question card, and
@@ -23,6 +23,22 @@ export function landedAfterSql(m: { createdAt: Column; id: Column }, at: SQL | D
   return sql`(${m.createdAt} > ${t} - ${PLACE_KEPT_MS / 1000}::int * interval '1 second'
     and (${m.createdAt} > ${t} or ${m.id} > ${postedFrom}))`;
 }
+
+/** When the server posted a message (ms): its id is a UUIDv7 from the clock at its insert. Mirrors packages/client's. */
+export const postedAtOf = (id: string) => Number.parseInt(id.slice(0, 8) + id.slice(9, 13), 16);
+
+/**
+ * The read mark that covers message `m` and nothing posted after it, for `landedAfterSql`: at or past its place, and
+ * in a millisecond after its post (`landedAfterSql` reads any id from the mark's millisecond on as landed after it).
+ * A `createdAt` read back into a Date is cut to milliseconds while Postgres keeps microseconds: the next millisecond
+ * is past it.
+ */
+export const readMarkFor = (m: { id: string; createdAt: Date }) =>
+  new Date(Math.max(m.createdAt.getTime(), postedAtOf(m.id)) + 1);
+
+/** SQL: `column` is in the millisecond of `at`, a time read back cut to milliseconds while Postgres keeps microseconds. */
+export const inMillisecondOf = (column: typeof schema.messages.createdAt, at: Date) =>
+  and(gte(column, at), lt(column, new Date(at.getTime() + 1)));
 
 /**
  * SQL: message `m` was in the conversation when message `ref` was posted: placed before it, or posted before it in a

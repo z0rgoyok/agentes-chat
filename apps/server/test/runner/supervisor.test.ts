@@ -641,6 +641,22 @@ test("each worker hears which account its own agent thinks with and its person's
   expect(await errorCode(() => run)).toBe("dropped");
 });
 
+test("a worker that crashes on a full disk says so to what it ran, so the run can name the cause", async () => {
+  const t = setup();
+  t.sup.boot();
+  t.sup.attach();
+  const run = handleRequest(t.ctx, exec(ANA, "sleep 100"), scope().scope);
+  await waitFor(() => t.workers.length === 1);
+  const ana = t.last(ANA.id);
+  ana.hello();
+  await requestOn(ana);
+  ana.stderr.write("ENOSPC: no space left on device, write\n");
+  ana.crash();
+  const err = (await Promise.resolve(run).catch((e: unknown) => e)) as RunnerError;
+  expect(err.code).toBe("dropped");
+  expect(err.message).toContain("disk is full (no space left on device)");
+});
+
 test("a cancel reaches only the worker that runs that request", async () => {
   const t = setup();
   t.sup.boot();
@@ -1092,6 +1108,24 @@ test("root counts the live view of its agents' browsers it relays: frames up, pe
   const req = await requestOn(ana, 1);
   ana.send({ type: "result", id: req.id, ok: true, data: execDone });
   await Promise.all([run, input]);
+});
+
+test("a worker's pointer on its agent's desktop goes up; one said for another agent never does", async () => {
+  const t = setup();
+  t.sup.boot();
+  t.sup.attach();
+  const run = handleRequest(t.ctx, exec(ANA), scope().scope);
+  await waitFor(() => t.workers.length === 1);
+  const ana = t.last(ANA.id);
+  ana.hello();
+  const pointer = { type: "desktop.pointer", agentId: ANA.id, x: 83, y: 46, width: 1280, height: 900, act: "click" };
+  ana.send({ ...pointer, agentId: BIA.id });
+  ana.send(pointer);
+  await waitFor(() => t.up.some((f) => f.type === "desktop.pointer"));
+  expect(t.up.filter((f) => f.type === "desktop.pointer")).toEqual([pointer]);
+  const req = await requestOn(ana, 1);
+  ana.send({ type: "result", id: req.id, ok: true, data: execDone });
+  await run;
 });
 
 test("a worker's browser frames go to its agent's live view when it takes them, else up as before", async () => {

@@ -57,8 +57,8 @@ import {
  * - Before sending anything the machine is checked: offline, commands off,
  *   an older runner, no Claude Code, or not logged in (the agent's account,
  *   ADR 0041, when it has one) end the turn at once
- *   with an `error` whose `retryable: true` tells the engine it may fall back
- *   to the model brain (ADR 0032 §5).
+ *   with an `error` whose `retryable: true` tells the engine the run may wait
+ *   for the computer (ADR 0032 §5).
  *
  * - Live steering (runner protocol 15): once the turn is sent, the brain
  *   hands the engine `steer` (`BrainIO.steerable`): a person's messages go to
@@ -169,7 +169,7 @@ const err = (code: string, message: string, retryable: boolean): BrainEvent => (
 /**
  * Why the agent's account can't take the turn (ADR 0041; null: it can): a
  * runner older than accounts, or an account its CLI signed out. It never
- * falls back to another account (the model fallback still may answer).
+ * falls back to another account.
  */
 export function accountUnavailable(
   status: { name?: string; protocol?: number; kind?: string; executors?: { mode?: string } } | null,
@@ -450,6 +450,8 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
           ...accountFields(status?.protocol, turn),
           ...contextFields(status?.protocol, turn, "claude_code"),
           ...(turn.personWaiting ? { personWaiting: true } : {}),
+          // Each answer the turn finishes before it goes on is its own message (ADR 0112).
+          answers: "each",
         };
         deps.hub
           .call<"brain.turn">(

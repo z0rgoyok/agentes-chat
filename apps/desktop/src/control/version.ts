@@ -118,10 +118,13 @@ export function noteLines(notes: string | undefined): string[] {
     .filter((l) => l.length > 0 && !l.startsWith("#"));
 }
 
-/** Preferences › Updates › "Install updates by itself, at night": unset, on while the server runs here. */
+/**
+ * Preferences › Updates › "Install updates by itself, at night": unset, on in every desktop app. Headless runners and
+ * servers (CLI, VPS) have no such setting: they update when their owner does.
+ */
 export const AUTO_UPDATE_PREF = "autoUpdate";
 
-export const autoUpdateOn = (pref: boolean | null, serverHere: boolean) => pref ?? serverHere;
+export const autoUpdateOn = (pref: boolean | null) => pref ?? true;
 
 /** The night's install window, local time: from 03:00 until 05:00. */
 const NIGHT_FROM = 3;

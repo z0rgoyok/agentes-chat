@@ -7,8 +7,11 @@ import {
   type BrowserSocketData,
   createRealtime,
   currentSubscriptions,
+  MEMBERSHIP_RECHECK_TICKS,
   parseClientFrame,
+  SESSION_RECHECK_MS,
   type SocketData,
+  sessionRecheckPeriod,
 } from "../src/realtime/ws";
 import {
   browser,
@@ -200,6 +203,34 @@ test("a subscribe whose check can't run (the database is away) answers an error 
   again.ws.close();
 });
 
+/** The test server's realtime on its own port, rechecking every `ms` (membership every `MEMBERSHIP_RECHECK_TICKS`). */
+function fastRecheckServer(db: TestServer["db"], ms: number) {
+  const realtime = createRealtime({
+    db,
+    auth: t.auth,
+    config: t.config,
+    log: createLogger("error"),
+    ...t.adapters,
+    sessionRecheckMs: ms,
+  });
+  return Bun.serve<SocketData>({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req, srv) => realtime.fetch(req, srv, (r) => t.app.fetch(r)),
+    websocket: realtime.websocket,
+  });
+}
+
+test("an open socket rechecks its session every minute plus its own jitter of up to 15 s, its channels every 5th time", () => {
+  expect(SESSION_RECHECK_MS).toBe(60_000);
+  expect(sessionRecheckPeriod(SESSION_RECHECK_MS, () => 0)).toBe(60_000);
+  expect(sessionRecheckPeriod(SESSION_RECHECK_MS, () => 0.999_999)).toBe(74_999);
+  const periods = new Set(Array.from({ length: 20 }, () => sessionRecheckPeriod(SESSION_RECHECK_MS)));
+  expect(periods.size).toBeGreaterThan(1);
+  for (const p of periods) expect(p >= 60_000 && p < 75_000).toBe(true);
+  expect(MEMBERSHIP_RECHECK_TICKS).toBe(5);
+});
+
 /** `db` whose queries settle a couple of ms later, on a timer. */
 function answersLater<T extends object>(target: T): T {
   return new Proxy(target, {
@@ -228,20 +259,7 @@ test("a channel subscribed while the periodic membership check runs stays subscr
   const { orgId, channelId } = await seedOrg(owner);
   // The same server with the periodic check every few ms, so subscribes keep landing inside its query, and each
   // query answering a moment later, as over a network (PGlite answers before any frame can come in between).
-  const realtime = createRealtime({
-    db: answersLater(t.db),
-    auth: t.auth,
-    config: t.config,
-    log: createLogger("error"),
-    ...t.adapters,
-    sessionRecheckMs: 5,
-  });
-  const fast = Bun.serve<SocketData>({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch: (req, srv) => realtime.fetch(req, srv, (r) => t.app.fetch(r)),
-    websocket: realtime.websocket,
-  });
+  const fast = fastRecheckServer(answersLater(t.db), 1);
   try {
     const c = connect(`ws://127.0.0.1:${fast.port}/api/ws?orgId=${orgId}`, { origin: ORIGIN, cookie: owner.cookie() });
     await c.opened;
@@ -545,26 +563,31 @@ test("a missed revocation event is reconciled from durable membership", async ()
       ? Promise.resolve()
       : publish(topic, event);
 
-  const a = connect(wsUrl(orgId), { origin: ORIGIN, cookie: ana.cookie() });
-  await a.opened;
-  a.send({ type: "subscribe", channelId });
-  await a.next((f) => f.type === "subscribed" && f.channelId === channelId);
-  expect((await currentSubscriptions(t.db, anaId, orgId, [channelId]))?.has(channelId)).toBe(true);
+  const fast = fastRecheckServer(t.db, 20);
+  try {
+    const a = connect(`ws://127.0.0.1:${fast.port}/api/ws?orgId=${orgId}`, { origin: ORIGIN, cookie: ana.cookie() });
+    await a.opened;
+    a.send({ type: "subscribe", channelId });
+    await a.next((f) => f.type === "subscribed" && f.channelId === channelId);
+    expect((await currentSubscriptions(t.db, anaId, orgId, [channelId]))?.has(channelId)).toBe(true);
 
-  expect(
-    (
-      await owner(`/api/app/organizations/${orgId}/channels/${channelId}/members/people/${anaId}`, {
-        method: "DELETE",
-      })
-    ).status,
-  ).toBe(204);
-  expect((await currentSubscriptions(t.db, anaId, orgId, [channelId]))?.has(channelId)).toBe(false);
-  expect(await a.next((f) => f.type === "unsubscribed" && f.channelId === channelId, 20_000)).toMatchObject({
-    reason: "revoked",
-  });
-  const closed = new Promise<number>((resolve) => a.ws.addEventListener("close", (e) => resolve(e.code)));
-  expect((await owner(`/api/app/organizations/${orgId}/members/${anaId}`, { method: "DELETE" })).status).toBe(204);
-  expect(await Promise.race([closed, Bun.sleep(20_000).then(() => -1)])).toBe(4403);
+    expect(
+      (
+        await owner(`/api/app/organizations/${orgId}/channels/${channelId}/members/people/${anaId}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(204);
+    expect((await currentSubscriptions(t.db, anaId, orgId, [channelId]))?.has(channelId)).toBe(false);
+    expect(await a.next((f) => f.type === "unsubscribed" && f.channelId === channelId, 20_000)).toMatchObject({
+      reason: "revoked",
+    });
+    const closed = new Promise<number>((resolve) => a.ws.addEventListener("close", (e) => resolve(e.code)));
+    expect((await owner(`/api/app/organizations/${orgId}/members/${anaId}`, { method: "DELETE" })).status).toBe(204);
+    expect(await Promise.race([closed, Bun.sleep(20_000).then(() => -1)])).toBe(4403);
+  } finally {
+    await Promise.race([fast.stop(true), Bun.sleep(500)]);
+  }
 }, 60_000);
 
 test("a new message reaches the other members' sockets as `channel.activity` (no content), never the author's", async () => {

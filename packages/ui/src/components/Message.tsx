@@ -63,6 +63,11 @@ export interface MessageProps extends Omit<HTMLAttributes<HTMLElement>, "childre
    * or keyboard focus): "entrou na conversa" on a reply nobody asked for.
    */
   note?: { label: ReactNode; tip: ReactNode };
+  /**
+   * A small glyph before the time that says where the message came from (an outside chat app), its words as its
+   * accessible name. Unlike the head, it shows on every row: my own, grouped ones and bubbles.
+   */
+  mark?: ReactNode;
   /** A person-facing state on the header line, with an icon (or a `mark`, e.g. a PixelSpinner): "enviando…". */
   status?: { icon?: IconName; mark?: ReactNode; label: ReactNode };
   /** A new row: slides in (opacity/transform only; none with reduced motion). */
@@ -143,6 +148,7 @@ export function Message({
   gutterTime,
   meta,
   note,
+  mark,
   status,
   entering,
   grouped,
@@ -180,7 +186,8 @@ export function Message({
   const menuOpen = Boolean(menu) && menuAt !== null;
   const footed = mine && !inBubble && (run === "end" || run === "solo");
   // A grouped row's receipt: in the gutter, or with no faces (so no gutter) on the line under the words.
-  const groupedAside = Boolean(aside) && grouped && !mine && !inBubble;
+  const groupedAside = Boolean(aside || mark) && grouped && !mine && !inBubble;
+  const markNode = mark && <span className="ac-msg__mark">{mark}</span>;
   const gutterAside = groupedAside && look?.faces !== false;
   const footAside = groupedAside && look?.faces === false;
   // The keys' focus in my row: its head is hidden, so its time's details open under its bubble.
@@ -229,6 +236,7 @@ export function Message({
       className={grouped || waiting || mine ? "ac-visually-hidden" : inBubble ? "ac-msg__bubble-head" : "ac-msg__head"}
     >
       <span className="ac-msg__author">{author}</span>
+      {!inBubble && !grouped && !waiting && !mine && markNode}
       {/* In a bubble the time is its last thing; my row's hidden head still reads it. */}
       {(!inBubble || mine) && clock}
       {note && (
@@ -258,6 +266,7 @@ export function Message({
   // a bubble of mine), and the receipt's mark.
   const stamp = inBubble ? (
     <span className="ac-msg__stamp">
+      {markNode}
       {mine ? (
         (statusNode ?? (
           <Tip
@@ -348,7 +357,12 @@ export function Message({
           <Tip className="ac-msg__gutter-time" tip={meta} look="ac-msg__tip" aria-hidden="true">
             {gutterTime ?? time}
           </Tip>
-          {gutterAside && <span className="ac-msg__aside">{aside}</span>}
+          {gutterAside && (
+            <span className="ac-msg__aside">
+              {markNode}
+              {aside}
+            </span>
+          )}
         </span>
       ) : (
         <span className="ac-msg__avatar">{avatar}</span>
@@ -376,6 +390,7 @@ export function Message({
               </span>
             ) : (
               <>
+                {markNode}
                 <Tip
                   className="ac-msg__own-time"
                   tip={meta}
@@ -391,9 +406,15 @@ export function Message({
             )}
           </div>
         )}
+        {mine && !inBubble && !footed && markNode && <div className="ac-msg__own-foot">{markNode}</div>}
         {(foot || footAside) && (
           <div className="ac-msg__foot">
-            {footAside && <span className="ac-msg__aside">{aside}</span>}
+            {footAside && (
+              <span className="ac-msg__aside">
+                {markNode}
+                {aside}
+              </span>
+            )}
             {foot}
           </div>
         )}

@@ -1,5 +1,7 @@
 import { createTurnstileCheck, type HumanAction, type HumanCheck, type HumanCheckRefusal } from "@agenteschat/adapters";
 import { type Config, ConfigError } from "@agenteschat/config";
+import type { Database } from "@agenteschat/db";
+import { hostLook } from "@agenteschat/engine";
 import type { Logger } from "../logger";
 import { requestIp, requestLimitIp } from "./client-ip";
 import { HUMAN_PASS_PREFIX, type HumanPasses } from "./human-pass";
@@ -32,17 +34,21 @@ const REFUSALS: Record<HumanCheckRefusal, string> = {
 
 /**
  * A public form's bot check (ADR 0075): the refusal to answer with a 403, or null when it passes or there is none.
+ * None on a registered host (ADR 0194): Turnstile's widget takes a fixed list of hostnames, so it can't run on an
+ * open-ended list of them; the limits per network and per account guard sign-in there. The waiting lists keep it on
+ * every host: their forms are the landing page's, never a registered host's.
  * `pass`: where the form follows the e-mail's lookup, the address it is for; a pass that lookup gave stands for the
  * check then (`human-pass.ts`), and one that doesn't count is refused like a refused token, so the page sends its own.
  */
 export async function humanCheckRefusal(
   check: HumanCheck | null | undefined,
+  db: Database,
   headers: { get(name: string): string | null | undefined },
   action: HumanAction,
   trustedProxies: readonly string[] | undefined,
   pass?: { passes: HumanPasses; email: string },
 ): Promise<{ code: HumanCheckRefusal; message: string } | null> {
-  if (!check) return null;
+  if (!check || (action !== "waitlist" && (await hostLook(db, headers.get("host"))))) return null;
   const sent = headers.get(HUMAN_CHECK_HEADER);
   if (sent?.startsWith(HUMAN_PASS_PREFIX)) {
     const network = requestLimitIp(headers, trustedProxies);

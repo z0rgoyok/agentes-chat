@@ -1,0 +1,66 @@
+/* "Send a report" (ReportProblem.tsx): fields one form gap apart, notes and the full text in quiet boxes. */
+.report-problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--form-gap);
+}
+.report-problem__lead,
+.report-problem__sent {
+  margin: 0;
+}
+.report-problem__sent {
+  font-weight: 600;
+  user-select: text;
+}
+.report-problem__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.report-problem__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-3);
+  list-style: none;
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+  color: var(--muted);
+}
+.report-problem__error {
+  margin: 0;
+  color: var(--danger);
+}
+.report-problem__all summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.report-problem__all summary::-webkit-details-marker {
+  display: none;
+}
+.report-problem__all summary .ac-icon {
+  transition: transform 0.15s var(--out);
+}
+.report-problem__all[open] summary .ac-icon {
+  transform: rotate(90deg);
+}
+.report-problem__text {
+  max-height: 280px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

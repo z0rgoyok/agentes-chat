@@ -31,7 +31,6 @@ const go = async (state: State = seedState(), api: ApiClient = createFakeApi(sta
   return { ...r, state, api };
 };
 const button = (name: string | RegExp) => screen().getByRole("button", { name });
-const radio = (name: string) => screen().getByRole("radio", { name });
 const click = async (el: Element, rounds = 4) => {
   await act(async () => fireEvent.click(el));
   await settle(rounds);
@@ -40,12 +39,34 @@ const calls = (state: State, method: string) => state.calls.filter((c) => c.meth
 const applies = (state: State) => calls(state, "imports.apply").map((c) => c.args[1] as ImportInput);
 const text = () => document.body.textContent ?? "";
 
-/** Files into one of the flow's pickers ("Arquivos para importar", "Pasta para importar"). */
+/** The sheet that is open, by its title. */
+const sheetOf = (name: string) => screen().getByRole("dialog", { name });
+/** Closes the open sheet with its ×. */
+const closeSheet = async () => {
+  const sheet = screen().getByRole("dialog");
+  await click(within(sheet).getAllByRole("button", { name: "Fechar" })[0] as HTMLElement, 4);
+};
+/** "Tenho um arquivo ou link": the sheet with the drop zone, the pickers and the paste field, unless one is open. */
+const openFile = async () => {
+  if (!screen().queryByRole("dialog")) await click(button("Tenho um arquivo ou link"), 4);
+};
+/**
+ * From the sheet's steps to the page's full preview: its × closes it, leaving the plan on the page. A sheet still
+ * reading, or saying what went wrong, stays.
+ */
+const toPreview = async () => {
+  const sheet = screen().queryByRole("dialog");
+  if (!sheet) return;
+  if (sheet.querySelector(".imp-choice") || !sheet.querySelector("input, .imp-reading")) await closeSheet();
+};
+/** Files into one of the file sheet's pickers ("Arquivos para importar", "Pasta para importar"), on to the preview. */
 const pick = async (label: string, files: File[]) => {
+  await openFile();
   const input = screen().getByLabelText(label) as HTMLInputElement;
   Object.defineProperty(input, "files", { configurable: true, value: files });
   await act(async () => fireEvent.change(input));
   await settle(10);
+  await toPreview();
 };
 /** A fixture folder as the folder picker gives it: every path under the folder's name. */
 const folder = (name: string): File[] => {
@@ -85,7 +106,7 @@ const folderEntry = (dir: string, path: string): unknown => {
     },
   };
 };
-/** Drags `dt` over the flow and drops it. */
+/** Drags `dt` over the import page and drops it: the file sheet opens reading it, then on to the preview. */
 const drop = async (dt: { files: File[]; items: unknown[] }) => {
   const zone = document.querySelector(".imp-pick") as HTMLElement;
   const dataTransfer = { ...dt, types: ["Files"], dropEffect: "none" };
@@ -93,6 +114,7 @@ const drop = async (dt: { files: File[]; items: unknown[] }) => {
   expect(text()).toContain("Pode soltar");
   await act(async () => fireEvent.drop(zone, { dataTransfer }));
   await settle(10);
+  await toPreview();
 };
 /** The plan row whose title is `title`. */
 const row = (title: string) => {
@@ -130,12 +152,17 @@ const exportReply = (app: string, name: string) => ({
   todo: [],
   leftOut: [],
 });
-/** A reply pasted in the link field as an app answers in its chat: some words, then the JSON in a code block. */
-const pasteReply = async (reply: object) => {
-  const field = screen().getByLabelText("Ou cole um link do GitHub ou a resposta do outro app");
+/**
+ * A reply pasted as an app answers in its chat (some words, then the JSON in a code block), in the open sheet's field
+ * `label` (the file sheet's, opened if none is), on to the preview.
+ */
+const pasteReply = async (reply: object, label = "Ou cole um link do GitHub ou a resposta do outro app") => {
+  await openFile();
+  const field = screen().getByLabelText(label);
   const pasted = `Aqui está:\n\`\`\`json\n${JSON.stringify(reply, null, 2)}\n\`\`\``;
   await act(async () => fireEvent.paste(field, { clipboardData: { getData: () => pasted } }));
   await settle(10);
+  await toPreview();
 };
 /** `imports.apply` answering with `plan` for the dry run (and the default fake otherwise). */
 const withPlan = (api: ApiClient, state: State, plan: (input: ImportInput) => ImportItemResult[]) => {
@@ -231,15 +258,21 @@ describe("Configurações → Importar e exportar", () => {
     }
   });
 
-  test("the picker: each app by its mark and name alone; the lock line keeps what matters, the rest in its ⓘ", async () => {
+  test("the page: each app by its mark and name alone, and one button for a file or link, whose sheet has the drop zone, the paste field and the lock line", async () => {
     await go();
     expect(document.querySelector(".imp-source .ac-option__desc")).toBeNull();
     expect(button("OpenClaw").textContent).toBe("OpenClaw");
-    expect(document.querySelector(".imp-drop__area")?.textContent).toBe(
+    // Nothing to drop or paste on the page itself: that is the button's sheet.
+    expect(document.querySelector(".imp-drop")).toBeNull();
+    expect(screen().queryByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeNull();
+    await click(button("Tenho um arquivo ou link"), 4);
+    const sheet = sheetOf("Trazer de um arquivo ou link");
+    expect(sheet.querySelector(".imp-drop__area")?.textContent).toBe(
       "Solte aqui a pasta, o arquivo ou o .zipou clique para escolher",
     );
+    expect(within(sheet).getByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeTruthy();
     // Read before anything is dropped, by whoever is about to drop a folder that holds keys.
-    const lock = document.querySelector(".imp-pick > .imp-note") as HTMLElement;
+    const lock = sheet.querySelector(".imp-sheet__body > .imp-note") as HTMLElement;
     expect(iconLine(lock)).toBe(true);
     expect(lock.querySelector(".ac-hintline > span")?.textContent).toBe(
       "Lido no seu navegador. Arquivos de chaves e de login nunca são abertos.",
@@ -248,156 +281,105 @@ describe("Configurações → Importar e exportar", () => {
     const about = within(lock).getByRole("button", { name: "Sobre Privacidade" });
     const more = "Um link do GitHub passa pelo servidor do workspace. Nada muda aqui até você confirmar.";
     expect(document.getElementById(about.getAttribute("aria-describedby") ?? "")?.textContent).toBe(more);
-    await click(about, 2);
-    expect(screen().getByRole("tooltip").textContent).toBe(more);
   });
 
-  test("Grok Bot: Conectar com MCP by default, in the bot's own steps, then the request; nothing to drop or paste", async () => {
+  test("Grok Bot: its sheet has the bot's own steps to connect MCP, numbered, then the request; nothing to drop or paste", async () => {
     const writes: string[] = [];
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: async (s: string) => void writes.push(s) },
     });
     await go();
-    await click(button("Grok Bot"), 2);
-    const how = screen().getByRole("radiogroup", { name: "Como trazer" });
-    expect(
-      within(how)
-        .getAllByRole("radio")
-        .map((r) => [r.textContent, r.getAttribute("aria-checked")]),
-    ).toEqual([
-      ["Conectar com MCP", "true"],
-      ["Só o pedido", "false"],
-    ]);
-    const mcp = screen().getByRole("region", { name: "Conectar com MCP" });
-    expect(mcp.querySelector("p")?.textContent).toBe(
+    await click(button("Grok Bot"), 4);
+    const sheet = sheetOf("Trazer o time do Grok Bot");
+    expect(sheet.querySelector(".imp-sheet__text")?.textContent).toBe(
       "O MCP deixa o Grok Bot acessar este workspace, e ele cria os agentes aqui sozinho.",
     );
     // In order: the access is picked where the sign-in asks, and the server is attached before the request.
-    const steps = [...mcp.querySelectorAll("ol > li")];
-    expect(steps.map((li) => (li.querySelector(".apps-step > span") ?? li).textContent)).toEqual([
+    const steps = () => [...sheet.querySelectorAll(".imp-do .ac-mediarow__head")].map((b) => b.textContent);
+    expect(steps()).toEqual([
       "Na conversa com o seu bot, mande:",
       "Clique em Add it e depois em Authorize.",
       "Entre com sua conta do agentes.chat na página que abrir e escolha Criar e editar agentes, rotinas e skills.",
       "Na conversa, digite @ e escolha agentes.",
       "Cole este pedido no app:",
     ]);
-    expect([...mcp.querySelectorAll(".machine-command__code")].map((c) => c.textContent)).toEqual([
+    expect([...sheet.querySelectorAll(".imp-do__n")].map((n) => n.textContent)).toEqual(["1", "2", "3", "4", "5"]);
+    expect([...sheet.querySelectorAll(".machine-command__code")].map((c) => c.textContent)).toEqual([
       `Add a custom MCP server called agentes at ${SERVER_URL}`,
     ]);
     const prompt = `Use o servidor MCP do agentes.chat que você acabou de conectar (${SERVER_URL}) para trazer o que você tem para o agentes.chat. Primeiro chame import_summary para ver o que já existe lá e não duplicar nada. Depois, para cada agente, instrução, skill e rotina que você tem, crie o equivalente com create_agent, create_skill e create_routine, e guarde o que cada agente deve lembrar com add_memory.`;
-    expect((within(mcp).getByLabelText("Pedido para o seu app de IA") as HTMLTextAreaElement).value).toBe(prompt);
-    await click(within(mcp).getByRole("button", { name: "Copiar o pedido" }), 2);
+    expect((within(sheet).getByLabelText("Pedido para o seu app de IA") as HTMLTextAreaElement).value).toBe(prompt);
+    await click(within(sheet).getByRole("button", { name: "Copiar o pedido" }), 2);
     expect(writes).toEqual([prompt]);
-    expect(mcp.textContent).toContain("Esperando os agentes chegarem…");
+    expect(sheet.textContent).toContain("Esperando os agentes chegarem…");
     // What to check shows only once a while passes with nothing.
-    expect(mcp.textContent).not.toContain("Nada depois de alguns minutos?");
+    expect(sheet.textContent).not.toContain("Nada depois de alguns minutos?");
     // Grok Bot's steps say where: no help link, and nothing here to drop or paste.
-    expect(within(mcp).queryByRole("link")).toBeNull();
-    expect(document.querySelector(".imp-drop")).toBeNull();
-    expect(screen().queryByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeNull();
+    expect(within(sheet).queryByRole("link")).toBeNull();
+    expect(sheet.querySelector(".imp-drop")).toBeNull();
+    expect(sheet.querySelector("input")).toBeNull();
 
-    // Só o pedido: today's request, the drop zone and the paste field.
-    await click(radio("Só o pedido"), 2);
-    expect(screen().queryByRole("region", { name: "Conectar com MCP" })).toBeNull();
-    expect(screen().getByRole("region", { name: "Peça para o seu bot exportar" })).toBeTruthy();
-    expect(document.querySelector(".imp-drop")).toBeTruthy();
-    expect(screen().getByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeTruthy();
-    // The pick stays with its source: another card has its own default, and Grok Bot keeps Só o pedido.
-    await click(button("Hermes Agent"), 2);
-    expect(radio("Conectar com MCP").getAttribute("aria-checked")).toBe("true");
-    await click(button("Grok Bot"), 2);
-    expect(radio("Só o pedido").getAttribute("aria-checked")).toBe("true");
+    // The request and the answer, in two steps: the answer pasted, never a file.
+    await click(within(sheet).getByRole("button", { name: "Prefiro colar o pedido e trazer a resposta" }), 2);
+    expect(steps()).toEqual(["Cole na conversa com o seu bot", "Cole aqui a resposta inteira"]);
+    expect((within(sheet).getByLabelText("Pedido de exportação") as HTMLTextAreaElement).value).toBe(EXPORT_PROMPT);
+    expect(within(sheet).getByLabelText("Cole aqui a resposta inteira")).toBeTruthy();
+    expect(sheet.querySelector(".imp-drop")).toBeNull();
+    expect(sheet.textContent).not.toContain("Esperando os agentes chegarem…");
+    // The pick stays with its source: another card has its own default, and Grok Bot keeps the request.
+    await closeSheet();
+    await click(button("Outro app"), 4);
+    expect(sheetOf("Trazer de outro app").textContent).toContain("Esperando os agentes chegarem…");
+    await closeSheet();
+    await click(button("Grok Bot"), 4);
+    expect(within(sheetOf("Trazer o time do Grok Bot")).getByLabelText("Cole aqui a resposta inteira")).toBeTruthy();
+    await click(button("Voltar para o MCP"), 4);
+    expect(sheetOf("Trazer o time do Grok Bot").textContent).toContain("Esperando os agentes chegarem…");
   });
 
-  test("ChatGPT dots: Só o pedido by default; MCP shows ChatGPT's own steps and its notes", async () => {
+  test("ChatGPT dots: the request by default, its file dropped; Conectar com MCP shows ChatGPT's own steps and its notes", async () => {
     await go();
-    await click(button("ChatGPT dots"), 2);
-    expect(radio("Só o pedido").getAttribute("aria-checked")).toBe("true");
-    expect(screen().getByRole("region", { name: "Peça para o seu dot exportar" })).toBeTruthy();
-    await click(radio("Conectar com MCP"), 2);
-    const mcp = screen().getByRole("region", { name: "Conectar com MCP" });
-    expect(mcp.querySelector("p")?.textContent).toBe(
+    await click(button("ChatGPT dots"), 4);
+    const sheet = sheetOf("Trazer o time do ChatGPT dots");
+    expect([...sheet.querySelectorAll(".imp-do .ac-mediarow__head")].map((b) => b.textContent)).toEqual([
+      "Cole num chat novo",
+      "Solte aqui o arquivo que ele criar",
+    ]);
+    expect(sheet.querySelector(".imp-drop")).toBeTruthy();
+    expect(within(sheet).queryByLabelText("Cole aqui a resposta inteira")).toBeNull();
+    await click(within(sheet).getByRole("button", { name: "Conectar com MCP" }), 4);
+    expect(sheet.querySelector(".imp-sheet__text")?.textContent).toBe(
       "O MCP deixa o seu dot acessar este workspace por um plugin que você adiciona no ChatGPT, e ele cria os agentes aqui sozinho.",
     );
-    const open = within(mcp).getByRole("link", { name: "Abrir o ChatGPT" });
+    const open = within(sheet).getByRole("link", { name: "Abrir o ChatGPT" });
     expect([open.getAttribute("href"), open.getAttribute("target")]).toEqual(["https://chatgpt.com/plugins", "_blank"]);
-    expect(within(mcp).getByText(SERVER_URL)).toBeTruthy();
-    expect(mcp.textContent).toContain("Não dá para adicionar pelo app do celular.");
-    expect(mcp.textContent).toContain(
+    expect(within(sheet).getByText(SERVER_URL)).toBeTruthy();
+    expect(sheet.textContent).toContain("Não dá para adicionar pelo app do celular.");
+    expect(sheet.textContent).toContain(
       "Entre com sua conta do agentes.chat na página que abrir e escolha Criar e editar agentes, rotinas e skills.",
     );
   });
 
-  test("the file apps: MCP by default in each one's own words; Por arquivo brings back where its file is", async () => {
-    await go();
-    const codes = () => [...document.querySelectorAll(".machine-command__code")].map((c) => c.textContent);
-    await click(button("Hermes Agent"), 2);
-    expect(codes()).toEqual([`mcp_servers:\n  agentes:\n    url: "${SERVER_URL}"\n    auth: oauth`]);
-    const words = () =>
-      [...document.querySelectorAll(".apps-steps > li")].map(
-        (li) => (li.querySelector(".apps-step > span") ?? li).textContent,
-      );
-    expect(words()).toEqual([
-      "Cole em ~/.hermes/config.yaml:",
-      "Para entrar, rode hermes mcp login agentes.",
-      "Entre com sua conta do agentes.chat na página que abrir e escolha Criar e editar agentes, rotinas e skills.",
-      "Depois digite /reload-mcp na conversa.",
-      "Cole este pedido no app:",
-    ]);
-    expect(document.querySelector(".imp-tip")).toBeNull();
-    expect(document.querySelector(".imp-drop")).toBeNull();
-    await click(radio("Por arquivo"), 2);
-    expect(document.querySelector(".imp-tip")?.textContent).toContain("hermes profile export");
-    expect(document.querySelector(".imp-drop")).toBeTruthy();
-
-    await click(button(/^OpenClaw$/), 2);
-    // The Gateway starts again once the sign-in ends, before the request is pasted.
-    expect(codes()).toEqual([
-      `openclaw gateway stop\nopenclaw mcp set agentes '{"url":"${SERVER_URL}","transport":"streamable-http","auth":"oauth"}'\nopenclaw mcp login agentes\nopenclaw gateway start`,
-    ]);
-
-    await click(button("OpenMausBot"), 2);
-    expect(text()).toContain("Abra Plugins\u00a0›\u00a0MCP servers.");
-    expect(codes()).toEqual([SERVER_URL]);
-
-    // No menu words documented: the generic step and the help page, in a new tab.
-    await click(button(/^OpenBot\.run$/), 2);
-    expect(text()).toContain("Cole o endereço no app. Ele abre esta página para você entrar.");
-    const help = screen().getByRole("link", { name: "Como conectar, app por app" });
-    expect([help.getAttribute("href"), help.getAttribute("target")]).toEqual([
-      "https://agentes.chat/pt/docs/apps-de-ia#connect",
-      "_blank",
-    ]);
-
-    // Paperclip and our own export take no MCP server: their tip alone.
-    for (const name of [/^Paperclip$/, /^agentes\.chat$/]) {
-      await click(button(name), 2);
-      expect(screen().queryByRole("radiogroup", { name: "Como trazer" })).toBeNull();
-      expect(document.querySelector(".imp-tip")).toBeTruthy();
-      expect(document.querySelector(".imp-drop")).toBeTruthy();
-    }
-  });
-
-  test("a server apps on the internet can't reach: no MCP choice, today's steps and one line saying why", async () => {
+  test("a server apps on the internet can't reach: the request alone, no MCP to switch to, and one line saying why", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     (fakeAppsOf.get(api) as FakeApps).serverPublic = false;
     await go(state, api);
-    await click(button("Grok Bot"), 2);
-    expect(screen().queryByRole("radiogroup", { name: "Como trazer" })).toBeNull();
-    expect(screen().getByRole("region", { name: "Peça para o seu bot exportar" })).toBeTruthy();
-    expect(screen().getByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeTruthy();
-    expect(text()).toContain(
+    await click(button("Grok Bot"), 4);
+    const sheet = sheetOf("Trazer o time do Grok Bot");
+    expect(within(sheet).getByLabelText("Cole aqui a resposta inteira")).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "Voltar para o MCP" })).toBeNull();
+    expect(sheet.textContent).toContain(
       "Conectar com MCP não está disponível neste servidor, porque apps na internet só alcançam um endereço https público.",
     );
   });
 
-  test("the agents the app creates arrive live: only mine made after the step opened, each linked to its page", async () => {
+  test("the agents the app creates arrive live: only mine made after the sheet opened, each linked to its page", async () => {
     const state = seedState();
     const me = state.me?.user.id as string;
     const base = state.agents[0] as State["agents"][number];
-    // Mine, but here before the step opened.
+    // Mine, but here before the sheet opened.
     state.agents.push({ ...base, id: "a-old", name: "Velho", handle: "velho", ownerUserId: me });
     const r = await go(state);
     await act(async () => r.sockets.last().open());
@@ -409,14 +391,19 @@ describe("Configurações → Importar e exportar", () => {
     );
     await act(async () => r.sockets.last().push({ type: "event", scope: "org", event: { type: "agents.changed" } }));
     await settle(6);
-    const mcp = screen().getByRole("region", { name: "Conectar com MCP" });
-    expect(mcp.querySelector(".imp-arrivals__line")?.textContent).toBe("1 agente chegou");
+    const sheet = sheetOf("1 agente chegou");
     expect(
-      within(mcp)
+      within(sheet)
         .getAllByRole("link")
         .map((a) => [a.textContent, a.getAttribute("href")]),
-    ).toEqual([["Nina", `/org/${ORG_ID}/agents/a-nina`]]);
-    expect(mcp.textContent).not.toContain("Esperando os agentes chegarem…");
+    ).toEqual([
+      ["Nina", `/org/${ORG_ID}/agents/a-nina`],
+      ["Ver o que chegou", `/org/${ORG_ID}/team`],
+    ]);
+    // More may come: it keeps watching, and the team stands on the green side.
+    expect(sheet.textContent).toContain("Esperando os próximos…");
+    expect(sheet.textContent).not.toContain("Esperando os agentes chegarem…");
+    expect(sheet.querySelector(".ac-journey")?.getAttribute("data-journey")).toBe("here");
     // In place: nothing here moved the page.
     expect(r.router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/import`);
   });
@@ -433,46 +420,37 @@ describe("Configurações → Importar e exportar", () => {
     const r = await renderPage(<Embedded />, { api, path: "/onboarding" });
     await settle(6);
     await click(button("Grok Bot"), 4);
-    expect(radio("Conectar com MCP").getAttribute("aria-checked")).toBe("true");
+    expect(text()).toContain("Esperando os agentes chegarem…");
     state.agents.push({ ...base, id: "a-nina", name: "Nina", handle: "nina", ownerUserId: me });
     await act(async () => r.services.queryClient.invalidateQueries({ queryKey: ["org", ORG_ID, "agents"] }));
     await settle(6);
-    expect(text()).toContain("1 agente chegou");
-    expect(text()).toContain("Nina");
-    expect(screen().queryByRole("link", { name: "Nina" })).toBeNull();
+    const sheet = sheetOf("1 agente chegou");
+    expect(sheet.textContent).toContain("Nina");
+    expect(within(sheet).queryByRole("link")).toBeNull();
+    expect(within(sheet).getByRole("button", { name: "Continuar" })).toBeTruthy();
     expect(r.router.state.location.pathname).toBe("/onboarding");
   });
 
-  test("the flow's own imports never count as arrived: Só o pedido, Importar outro arquivo, then MCP waits again", async () => {
+  test("the flow's own imports never count as arrived: the request, Importar outro arquivo, then MCP waits again", async () => {
     const { state } = await go();
     await click(button("Grok Bot"), 4);
     expect(text()).toContain("Esperando os agentes chegarem…");
-    await click(radio("Só o pedido"), 2);
-    await pasteReply(exportReply("grok-bot", "Minhas automações"));
+    await click(button("Prefiro colar o pedido e trazer a resposta"), 2);
+    await pasteReply(exportReply("grok-bot", "Minhas automações"), "Cole aqui a resposta inteira");
     await click(button(/^Importar \d+ ite/), 8);
     expect(state.agents.some((a) => a.name === "Newsy")).toBe(true);
     await click(button("Importar outro arquivo"), 4);
-    expect(button("Grok Bot").getAttribute("aria-pressed")).toBe("true");
-    await click(radio("Conectar com MCP"), 6);
+    await click(button("Grok Bot"), 4);
+    await click(button("Voltar para o MCP"), 6);
     const line = () => document.querySelector(".imp-arrivals__line")?.textContent;
     expect(line()).toBe("Esperando os agentes chegarem…");
-    // Another source's MCP step counts from when it opened, not from the first one's.
-    await click(button("Hermes Agent"), 6);
+    // Another source's MCP steps count from when they opened, not from the first one's.
+    await closeSheet();
+    await click(button("Outro app"), 6);
     expect(line()).toBe("Esperando os agentes chegarem…");
   });
 
-  test("a file dropped on the MCP steps, then Trocar arquivo: focus lands on the steps, the drop zone isn't there", async () => {
-    await go();
-    await click(button("Grok Bot"), 4);
-    const file = new File([JSON.stringify(exportReply("grok-bot", "Meu bot"))], "agentes-chat-export.json");
-    await drop({ files: [file], items: [] });
-    expect(text()).toContain("Veio do Grok Bot");
-    await click(button("Trocar arquivo"), 4);
-    expect(document.querySelector(".imp-drop")).toBeNull();
-    expect(document.activeElement).toBe(screen().getByRole("region", { name: "Conectar com MCP" }));
-  });
-
-  test("the apps list fails: each source keeps its request or tip, with no MCP choice", async () => {
+  test("the apps list fails: Grok Bot keeps its request, with no MCP to switch to", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     api.apps = {
@@ -483,14 +461,12 @@ describe("Configurações → Importar e exportar", () => {
     };
     await go(state, api);
     await click(button("Grok Bot"), 6);
-    expect(screen().queryByRole("radiogroup", { name: "Como trazer" })).toBeNull();
-    expect(screen().getByRole("region", { name: "Peça para o seu bot exportar" })).toBeTruthy();
-    expect(screen().getByLabelText("Ou cole um link do GitHub ou a resposta do outro app")).toBeTruthy();
-    await click(button("Hermes Agent"), 2);
-    expect(document.querySelector(".imp-tip")?.textContent).toContain("hermes profile export");
+    const sheet = sheetOf("Trazer o time do Grok Bot");
+    expect(within(sheet).getByLabelText("Cole aqui a resposta inteira")).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "Voltar para o MCP" })).toBeNull();
   });
 
-  test("the agents can't be read when the MCP step opens: it says why and reads them again", async () => {
+  test("the agents can't be read when the MCP steps open: it says why and reads them again", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     const list = api.agents.list;
@@ -504,12 +480,12 @@ describe("Configurações → Importar e exportar", () => {
     };
     await go(state, api);
     await click(button("Grok Bot"), 8);
-    const mcp = () => screen().getByRole("region", { name: "Conectar com MCP" });
-    expect(mcp().textContent).not.toContain("Esperando os agentes chegarem…");
-    expect(within(mcp()).getByRole("alert")).toBeTruthy();
+    const sheet = () => sheetOf("Trazer o time do Grok Bot");
+    expect(sheet().textContent).not.toContain("Esperando os agentes chegarem…");
+    expect(within(sheet()).getByRole("alert")).toBeTruthy();
     fail = false;
-    await click(within(mcp()).getByRole("button", { name: "Tentar de novo" }), 8);
-    expect(mcp().textContent).toContain("Esperando os agentes chegarem…");
+    await click(within(sheet()).getByRole("button", { name: "Tentar de novo" }), 8);
+    expect(sheet().textContent).toContain("Esperando os agentes chegarem…");
   });
 
   test("its notes and lists lead each line with an icon on the line's first row", async () => {
@@ -535,9 +511,8 @@ describe("Configurações → Importar e exportar", () => {
     const take = (...selectors: string[]) => {
       for (const s of selectors) seen.push([s, [...document.querySelectorAll(s)]]);
     };
+    await openFile();
     take(".imp-note");
-    await click(button(/^Paperclip$/), 1);
-    take(".imp-tip");
     await pick("Pasta para importar", folder("paperclip-company"));
     take(".imp-note");
     await click(button(/^Importar \d+ itens/), 8);
@@ -548,31 +523,33 @@ describe("Configurações → Importar e exportar", () => {
     }
   });
 
-  test("agentes.chat, with one other workspace on this server: a link to its export instead of the path", async () => {
+  test("agentes.chat: where its file is, and with one other workspace on this server, a link to it", async () => {
     const state = seedState();
     state.me?.organizations.push({ id: "org-north", name: "Estúdio Norte", role: "owner", showActivity: true });
     await go(state);
-    await click(button(/^agentes\.chat$/), 1);
-    const tip = document.querySelector(".imp-tip") as HTMLElement;
-    expect(tip.textContent).toBe("Baixe o arquivo do outro workspace e solte o .json aqui.Baixar de Estúdio Norte");
-    const link = within(tip).getByRole("link", { name: "Baixar de Estúdio Norte" });
+    await click(button(/^agentes\.chat$/), 4);
+    const sheet = sheetOf("Trazer de outro workspace");
+    expect([...sheet.querySelectorAll(".imp-do .ac-mediarow__head")].map((b) => b.textContent)).toEqual([
+      "Baixe o arquivo do outro workspace",
+      "Solte aqui o .json",
+    ]);
+    expect(sheet.textContent).toContain(
+      "Lá, em Configurações\u00a0›\u00a0Importar e exportar\u00a0›\u00a0Baixar o arquivo.",
+    );
+    const link = within(sheet).getByRole("link", { name: "Abrir Estúdio Norte numa aba nova" });
     expect(link.getAttribute("href")).toBe("/org/org-north/settings/import");
     expect(link.getAttribute("target")).toBe("_blank");
+    expect(sheet.querySelector(".imp-drop")).toBeTruthy();
   });
 
   test("a folder is recognized and planned on the server; unchecking an agent holds back what needs it; Importar applies and reports", async () => {
     const { state } = await go();
-    // Each app the parsers read has a card with where its file is, but OpenBot, which few use: the drop zone reads
-    // any of them, and the help behind Outro app says where OpenBot's files are.
+    // Each app the parsers read has a card, but OpenBot, which few use: the file sheet reads any of them, and the help
+    // behind Outro app says where OpenBot's files are.
     for (const name of ["OpenBot.run", "OpenMausBot", "Hermes Agent", "OpenClaw", "Paperclip"]) {
       expect(button(new RegExp(`^${name.replace(".", "\\.")}$`))).toBeTruthy();
     }
     expect(screen().queryByRole("button", { name: /^OpenBot$/ })).toBeNull();
-    await click(button(/^OpenBot\.run$/), 1);
-    await click(radio("Por arquivo"), 1);
-    expect(text()).toContain("Solte o openbot-import.json");
-    await click(button(/^agentes\.chat$/), 1);
-    expect(text()).toContain("Configurações → Importar e exportar → Baixar o arquivo");
 
     await pick("Pasta para importar", folder("paperclip-company"));
     // Read here, planned there: nothing is written before Importar.
@@ -633,7 +610,7 @@ describe("Configurações → Importar e exportar", () => {
       "Ada e Linus usam OPENAI_API_KEY. Não vem no arquivo: os agentes pedem no chat.",
     ]);
     await click(button("Importar outro arquivo"), 2);
-    expect(document.activeElement?.textContent).toContain("Solte aqui a pasta, o arquivo ou o .zip");
+    expect(document.activeElement).toBe(button("Tenho um arquivo ou link"));
   });
 
   test("routines that arrived paused at their agent's limit are counted in the report", async () => {
@@ -808,15 +785,16 @@ describe("Configurações → Importar e exportar", () => {
       },
     });
     await go();
-    await click(button(/^Outro app/), 2);
-    await click(radio("Só o pedido"), 2);
-    const other = screen().getByRole("region", { name: "Peça para o outro app exportar" });
+    await click(button(/^Outro app/), 4);
+    await click(button("Prefiro colar o pedido e trazer a resposta"), 2);
+    const other = sheetOf("Trazer de outro app");
     expect((within(other).getByLabelText("Pedido de exportação") as HTMLTextAreaElement).value).toBe(EXPORT_PROMPT);
     // Where each app puts its file is on the help page, one link under the request.
-    expect(other.querySelector("dl")).toBeNull();
     const where = within(other).getByRole("link", { name: "Onde cada app entrega" });
     expect(where.getAttribute("href")).toBe("https://agentes.chat/pt/docs/import#other-apps");
     expect(where.className).toBe("ac-link ac-link--muted");
+    // What it gives back: a file to drop, or its answer to paste.
+    expect(other.querySelector(".imp-drop")).toBeTruthy();
 
     await click(within(other).getByRole("button", { name: "Copiar o pedido" }), 2);
     expect(within(other).getByRole("status").textContent).toContain("Não deu para copiar.");
@@ -826,48 +804,46 @@ describe("Configurações → Importar e exportar", () => {
     expect(within(other).getByRole("button", { name: "Copiado" })).toBeTruthy();
     expect(within(other).getByRole("status").textContent).toBe("Agora é só colar no outro app.");
 
-    await pasteReply(exportReply("claude", "Minhas automações"));
+    await pasteReply(
+      exportReply("claude", "Minhas automações"),
+      "Solte o arquivo que ele devolver, ou cole a resposta",
+    );
     expect(screen().getByRole("heading", { name: "Minhas automações" })).toBeTruthy();
     expect(text()).toContain("Veio do Claude");
     expect(document.querySelector(".imp-head .imp-mark img")).toBeNull();
     expect(screen().getByRole("checkbox", { name: "Trazer Newsy" }).getAttribute("aria-checked")).toBe("true");
     await click(button("Trocar arquivo"), 2);
-    expect(button(/^Outro app/).getAttribute("aria-pressed")).toBe("true");
+    expect(button("Tenho um arquivo ou link")).toBeTruthy();
   });
 
-  test("Grok Bot and ChatGPT dots: the same request in each app's own words, and a reply lands on its own card", async () => {
+  test("Grok Bot and ChatGPT dots: the same request in each app's own words, and a reply is known by its app wherever it lands", async () => {
     await go();
-    await click(button("Grok Bot"), 2);
-    await click(radio("Só o pedido"), 2);
-    const grok = screen().getByRole("region", { name: "Peça para o seu bot exportar" });
-    expect([...grok.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-      "Copie o pedido abaixo.",
-      "Cole na conversa com o seu bot.",
-      "Ele responde com o JSON: copie a resposta inteira e cole no campo de baixo.",
-    ]);
+    await click(button("Grok Bot"), 4);
+    await click(button("Prefiro colar o pedido e trazer a resposta"), 2);
+    const grok = sheetOf("Trazer o time do Grok Bot");
+    expect(grok.querySelector(".imp-sheet__text")?.textContent).toBe(
+      "O bot escreve tudo o que tem num JSON. Você cola aqui e confere antes de criar.",
+    );
     expect((within(grok).getByLabelText("Pedido de exportação") as HTMLTextAreaElement).value).toBe(EXPORT_PROMPT);
     // Its steps say where: the help page's list is for any other app.
     expect(within(grok).queryByRole("link")).toBeNull();
+    await closeSheet();
 
-    await click(button("ChatGPT dots"), 2);
-    const dots = screen().getByRole("region", { name: "Peça para o seu dot exportar" });
-    expect([...dots.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-      "Copie o pedido abaixo.",
-      "Cole num chat novo.",
-      "Baixe o arquivo que ele criar e solte aqui.",
-    ]);
+    await click(button("ChatGPT dots"), 4);
+    const dots = sheetOf("Trazer o time do ChatGPT dots");
+    expect(dots.querySelector(".imp-sheet__text")?.textContent).toBe(
+      "O seu dot escreve tudo o que tem num arquivo. Você solta aqui e confere antes de criar.",
+    );
     expect((within(dots).getByLabelText("Pedido de exportação") as HTMLTextAreaElement).value).toBe(EXPORT_PROMPT);
+    await closeSheet();
 
-    // A Grok Bot reply pasted with any card picked: from Grok Bot, by its logo, and its card picked after.
-    await click(button(/^Outro app/), 2);
-    await click(radio("Só o pedido"), 2);
+    // A Grok Bot reply pasted in the file sheet: from Grok Bot, by its logo.
     await pasteReply(exportReply("grok-bot", "Minhas automações"));
     expect(text()).toContain("Veio do Grok Bot");
     expect(document.querySelector(".imp-head .imp-mark img")?.getAttribute("src")).toBe("/brands/grok-bot.svg");
     await click(button("Trocar arquivo"), 2);
-    expect(button("Grok Bot").getAttribute("aria-pressed")).toBe("true");
 
-    // The file a dot makes, dropped.
+    // The file a dot makes, dropped on the page.
     const file = new File([JSON.stringify(exportReply("chatgpt-dots", "Meu dot"))], "agentes-chat-export.json");
     await drop({ files: [file], items: [] });
     expect(text()).toContain("Veio do ChatGPT dots");
@@ -913,6 +889,7 @@ describe("Configurações → Importar e exportar", () => {
     await pick("Arquivos para importar", [fixture("sales-desk.openmaus.json")]);
     expect(alert()).toContain("Lemos os arquivos, mas não deu para comparar com o workspace.");
     await click(retry() as HTMLElement, 10);
+    await toPreview();
     expect(screen().getByRole("heading", { name: "Sales desk" })).toBeTruthy();
 
     await click(button("Trocar arquivo"), 2);
@@ -1003,6 +980,280 @@ describe("Configurações → Importar e exportar", () => {
         .getByRole("link", { name: "Conectar" })
         .getAttribute("href"),
     ).toBe(`/org/${ORG_ID}/settings/connectors`);
+  });
+
+  describe("an app that keeps its agents on the person's computer", () => {
+    /** What `agentes-runner migrate --from openbot` writes: OpenBot's own transfer file, a skill and a workspace. */
+    const migrated = () =>
+      new File(
+        [
+          zip({
+            "openbot-transfer.json": JSON.stringify({
+              format: "openbot-instance-transfer",
+              version: 1,
+              source: { appVersion: "", exportedAt: "2026-11-16T12:00:00.000Z" },
+              agents: [
+                {
+                  key: "scout",
+                  name: "Scout",
+                  title: "Pesquisa de mercado",
+                  description: "You look things up.",
+                  avatarSeed: "s1",
+                  avatarHue: 120,
+                  avatar: null,
+                  provider: "claude",
+                  model: "claude-opus",
+                  reasoningEffort: "high",
+                  notifications: true,
+                  skills: ["agents/scout/skills/research"],
+                  files: "agents/scout/workspace",
+                  routines: [
+                    {
+                      key: "r1",
+                      name: "Daily",
+                      instruction: "Check prices",
+                      active: false,
+                      timezone: "America/Sao_Paulo",
+                      schedule: { kind: "daily", time: "09:00" },
+                    },
+                  ],
+                  webhookRoutines: [{ key: "r2", name: "On push", instruction: "x", active: true, timezone: "" }],
+                  memories: [{ text: "Likes short answers" }],
+                },
+              ],
+              settings: {
+                mcpServers: [],
+                customProviders: [],
+                customAgents: [],
+                sidebarSections: [],
+                routineFlows: [],
+                workflows: [
+                  {
+                    title: "Weekly prices",
+                    graph: {
+                      nodes: [
+                        {
+                          id: "t",
+                          kind: "trigger",
+                          at: { x: 0, y: 0 },
+                          fields: { trigger: "schedule", timezone: "UTC" },
+                          schedule: { kind: "weekly", weekday: 1, time: "09:00" },
+                        },
+                        {
+                          id: "a",
+                          kind: "agent",
+                          at: { x: 1, y: 0 },
+                          fields: { agentId: "scout", task: "Research prices" },
+                        },
+                        {
+                          id: "o",
+                          kind: "output",
+                          at: { x: 2, y: 0 },
+                          fields: { target: "chat-channel", channelId: "launch" },
+                        },
+                      ],
+                      edges: [
+                        { id: "e1", from: "t", to: "a", type: "text" },
+                        { id: "e2", from: "a", to: "o", type: "text" },
+                      ],
+                      strokes: [],
+                    },
+                  },
+                ],
+              },
+              shared: null,
+              signedIn: [],
+              channels: [
+                {
+                  key: "launch",
+                  name: "Launch",
+                  title: "",
+                  instructions: "",
+                  members: ["scout"],
+                  lead: null,
+                  image: null,
+                  archived: false,
+                  memories: [],
+                  routines: [],
+                },
+                {
+                  key: "old",
+                  name: "Old",
+                  title: "",
+                  instructions: "",
+                  members: ["scout"],
+                  lead: null,
+                  image: null,
+                  archived: true,
+                  memories: [],
+                  routines: [],
+                },
+              ],
+            }),
+            "agents/scout/skills/research/SKILL.md": "---\nname: research\ndescription: Look it up\n---\n\nLook it up.",
+            "agents/scout/workspace/reports/week.md": "# Week\n",
+          }).slice(),
+        ],
+        "agentes-chat-import-openbot.zip",
+      );
+    const field = (sheet: HTMLElement, label: string) => within(sheet).getByLabelText(label) as HTMLTextAreaElement;
+
+    test("its card opens its ways, the command first: each one's steps, and Back to them; the pick stays", async () => {
+      await go();
+      await click(button("OpenBot.run"), 6);
+      const ways = sheetOf("Trazer o time do OpenBot");
+      const rows = [...ways.querySelectorAll(".imp-paths .imp-row__open")].map((b) => b.textContent);
+      expect(rows).toEqual([
+        "Com um comando o mais completoTraz tudo, até arquivos e workflows. Pelo assistente de código ou terminal",
+        "Conectando o OpenBotEle cria os agentes aqui pelo MCP. Sem arquivos nem workflows",
+        "Pedindo ao OpenBotEle escreve o que sabe, você cola aqui. Sem arquivos nem workflows",
+      ]);
+      expect(ways.textContent).toContain("Chaves, senhas e sessões do OpenBot nunca vêm, por nenhum caminho.");
+      // Nothing to drop before a way is picked.
+      expect(ways.querySelector(".imp-drop")).toBeNull();
+
+      // Its own agent creates them here through MCP: the app's steps, the request, and the wait.
+      await click(within(ways).getByRole("button", { name: /^Conectando o OpenBot/ }), 4);
+      const mcp = sheetOf("Conectando o OpenBot");
+      expect(mcp.querySelector(".imp-sheet__text")?.textContent).toBe(
+        "O MCP deixa o OpenBot acessar este workspace, e ele cria os agentes aqui sozinho.",
+      );
+      expect(within(mcp).getByLabelText("Pedido para o seu app de IA")).toBeTruthy();
+      expect(mcp.textContent).toContain("Esperando os agentes chegarem…");
+      await click(within(mcp).getByRole("button", { name: "Voltar" }), 4);
+
+      // Its agent writes the export: the request, then the file or the answer.
+      await click(within(sheetOf("Trazer o time do OpenBot")).getByRole("button", { name: /^Pedindo ao OpenBot/ }), 4);
+      const ask = sheetOf("Pedindo ao OpenBot");
+      expect(ask.textContent).toContain("Numa conversa com um agente do OpenBot, cole este pedido");
+      expect((within(ask).getByLabelText("Pedido de exportação") as HTMLTextAreaElement).value).toBe(EXPORT_PROMPT);
+      expect(within(ask).getByLabelText("Solte o arquivo que ele criar, ou cole a resposta")).toBeTruthy();
+      expect(ask.querySelector(".imp-drop")).toBeTruthy();
+      // Closed and opened again, the card is where it was left.
+      await closeSheet();
+      await click(button("OpenBot.run"), 6);
+      expect(sheetOf("Pedindo ao OpenBot")).toBeTruthy();
+      await click(within(sheetOf("Pedindo ao OpenBot")).getByRole("button", { name: "Voltar" }), 4);
+
+      await click(within(sheetOf("Trazer o time do OpenBot")).getByRole("button", { name: /^Com um comando/ }), 4);
+      const sheet = sheetOf("Com um comando");
+      const request = field(sheet, "Pedido para o assistente de código").value;
+      expect(request).toContain("Move my OpenBot agents to agentes.chat.");
+      expect(request).toContain("Ask me where to save the export file.");
+      expect(request).toContain('/migrate.sh | sh -s -- --from openbot --out "<folder>" --json');
+      expect(request).toContain("agentes-chat-import-openbot.zip");
+      expect(sheet.textContent).toContain("Só leitura. Chaves, senhas e sessões do OpenBot nunca são lidas.");
+      expect(sheet.textContent).toContain("agentes-chat-import-openbot.zip, na pasta que você escolheu");
+
+      await click(within(sheet).getByRole("radio", { name: "Windows" }), 2);
+      expect(field(sheet, "Pedido para o assistente de código").value).toContain(
+        '/migrate.ps1))) -From openbot -Out "<folder>" -Json',
+      );
+      await click(within(sheet).getByRole("button", { name: "Prefiro rodar o comando eu mesmo" }), 2);
+      expect(sheet.textContent).toContain("Cole no PowerShell");
+      expect(field(sheet, "Comando").value).toMatch(
+        /^& \(\[scriptblock\]::Create\(\(irm \S+\/migrate\.ps1\)\)\) -From openbot$/,
+      );
+      await click(within(sheet).getByRole("radio", { name: "Mac ou Linux" }), 2);
+      expect(sheet.textContent).toContain("Cole no terminal");
+      expect(field(sheet, "Comando").value).toMatch(/^curl -fsSL \S+\/migrate\.sh \| sh -s -- --from openbot$/);
+
+      // Each app on a computer has the same sheet, in its own name.
+      await closeSheet();
+      // No card stays picked under it: the page is back to the cards and the file button.
+      expect(button("OpenBot.run").getAttribute("aria-pressed")).toBe("false");
+      expect(button("Tenho um arquivo ou link")).toBeTruthy();
+      await click(button("Hermes Agent"), 6);
+      await click(within(sheetOf("Trazer o time do Hermes")).getByRole("button", { name: /^Com um comando/ }), 4);
+      expect(field(sheetOf("Com um comando"), "Pedido para o assistente de código").value).toContain("--from hermes");
+      await closeSheet();
+      // Paperclip has no chat to ask in nor MCP: the command is its only way, with nothing to go back to.
+      await click(button("Paperclip"), 6);
+      const paperclip = sheetOf("Trazer o time do Paperclip");
+      expect(field(paperclip, "Pedido para o assistente de código").value).toContain("--from paperclip");
+      expect(within(paperclip).queryByRole("button", { name: "Voltar" })).toBeNull();
+    });
+
+    test("the file dropped there: who comes, what comes with them, the workflows; then they arrive", async () => {
+      const { state } = await go();
+      await click(button("OpenBot.run"), 6);
+      await click(within(sheetOf("Trazer o time do OpenBot")).getByRole("button", { name: /^Com um comando/ }), 4);
+      const input = within(sheetOf("Com um comando")).getByLabelText("Arquivos para importar");
+      Object.defineProperty(input, "files", { configurable: true, value: [migrated()] });
+      await act(async () => fireEvent.change(input));
+      await settle(12);
+
+      // Who comes: a title and a line each.
+      const who = sheetOf("Quem vem");
+      expect(who.textContent).toContain("Scout");
+      expect(who.textContent).toContain("Pesquisa de mercado");
+      await click(within(who).getByRole("button", { name: "Continuar" }), 6);
+
+      // What comes with them, a row a kind; the archived channel stays behind.
+      const kinds = sheetOf("O que vem com eles");
+      for (const text of ["2 rotinas", "Uma chega pausada, como estava lá", "1 memória", "1 skill", "1 canal"])
+        expect(kinds.textContent).toContain(text);
+      expect(kinds.textContent).toContain("1 arquivo para o Drive");
+      // A kind's arrow opens its list; one unchecked there, the kind says how many of how many.
+      await click(within(kinds).getByRole("button", { name: /^2 rotinas/ }), 6);
+      const list = sheetOf("2 rotinas");
+      expect(list.textContent).toContain("Daily");
+      expect(list.textContent).toContain("Scout · endereço novo");
+      await click(within(list).getByRole("checkbox", { name: "Trazer On push" }), 4);
+      await click(within(list).getByRole("button", { name: "Voltar" }), 6);
+      expect(sheetOf("O que vem com eles").textContent).toContain("1 de 2 rotinas");
+      await click(within(sheetOf("O que vem com eles")).getByRole("button", { name: "Continuar" }), 6);
+
+      // The workflows: what each becomes, its steps behind its arrow.
+      const flows = sheetOf("Os workflows");
+      expect(flows.textContent).toContain("Rotina · Scout");
+      await click(within(flows).getByRole("button", { name: /^Weekly prices/ }), 6);
+      const steps = sheetOf("Weekly prices");
+      expect(steps.textContent).toContain("Research prices");
+      expect(steps.textContent).toContain("Posta em #launch");
+      await click(within(steps).getByRole("button", { name: "Voltar" }), 6);
+
+      // Nothing is made before the last step's button. The routine that was off comes off; the webhook one gets a
+      // new address; the workflow is a routine posting in its channel.
+      expect(applies(state).every((a) => a.dryRun)).toBe(true);
+      const [plan] = applies(state);
+      expect(plan?.bundle.routines).toMatchObject([
+        { name: "Daily", paused: true },
+        { name: "On push", trigger: { webhook: true } },
+        { name: "Weekly prices", channel: "launch", trigger: { cron: "0 9 * * 1", timezone: "UTC" } },
+      ]);
+      expect(plan?.bundle.channels.map((c) => c.name)).toEqual(["launch"]);
+      expect(plan?.bundle.todo).toContainEqual({ kind: "webhook", label: "On push", agents: ["scout"] });
+      expect(sheetOf("Os workflows").textContent).toContain("ganha um endereço novo aqui");
+
+      await click(within(sheetOf("Os workflows")).getByRole("button", { name: /^Trazer 1 agente e mais / }), 30);
+      const here = sheetOf("O time chegou");
+      expect(here.textContent).toContain("Scout já está aqui.");
+      expect(state.agents.some((a) => a.name === "Scout")).toBe(true);
+      const made = applies(state).filter((a) => !a.dryRun);
+      expect(made.flatMap((a) => a.pick ?? [])).not.toContain("routine:scout/r2");
+      expect(calls(state, "imports.copyFile")).toHaveLength(1);
+
+      // Closing it leaves the import's own report on the page.
+      await click(within(here).getByRole("button", { name: "Ver o que chegou" }), 6);
+      expect(screen().queryByRole("dialog")).toBeNull();
+      expect(screen().getByRole("region", { name: "Chegou tudo" })).toBeTruthy();
+    });
+
+    test("closing the sheet at a step leaves the full preview, with nothing made", async () => {
+      const { state } = await go();
+      await click(button("OpenBot.run"), 6);
+      await click(within(sheetOf("Trazer o time do OpenBot")).getByRole("button", { name: /^Com um comando/ }), 4);
+      const input = within(sheetOf("Com um comando")).getByLabelText("Arquivos para importar");
+      Object.defineProperty(input, "files", { configurable: true, value: [migrated()] });
+      await act(async () => fireEvent.change(input));
+      await settle(12);
+      await click(within(sheetOf("Quem vem")).getByRole("button", { name: "Continuar" }), 6);
+      await closeSheet();
+      expect(screen().queryByRole("dialog")).toBeNull();
+      expect(screen().getByRole("checkbox", { name: "Trazer Scout" })).toBeTruthy();
+      expect(applies(state).every((a) => a.dryRun)).toBe(true);
+    });
   });
 
   describe("an OpenBot.run export with the agents' own files", () => {

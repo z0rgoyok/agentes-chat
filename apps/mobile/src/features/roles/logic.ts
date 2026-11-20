@@ -194,11 +194,11 @@ export function permissionGroups(
     .filter((g) => g.rows.length > 0);
 }
 
-/** What a switch does on a cargo: save its keys, or ask who keeps what everyone has ("Quem pode", P5). */
+/** What a switch does on a cargo: save its keys, or ask who keeps what everyone has ("Quem pode"). */
 export type RowIntent = { kind: "save"; permissions: string[] } | { kind: "who" } | { kind: "admin" };
 
 /**
- * Turning a row on or off on `role` (Todos too, W10): on gives it (Todos: to everyone); off takes the cargo's own,
+ * Turning a row on or off on `role` (Todos too): on gives it (Todos: to everyone); off takes the cargo's own,
  * unless everyone has it (then "Quem pode", set to "Só alguns cargos"); on Todos off always asks, with the cargos that
  * hold it ticked. Administrador on asks first.
  */
@@ -213,7 +213,7 @@ export function rowIntent(role: OrgRole, everyone: OrgRole | undefined, row: str
 
 /**
  * Picking a computers' step on `role`: at or above Todos' it saves (a cargo keeps no key Todos already gives); below
- * Todos' it asks who keeps Todos' step, Todos going down to the one picked (W3, W10).
+ * Todos' it asks who keeps Todos' step, Todos going down to the one picked.
  */
 export function stepIntent(
   role: OrgRole,
@@ -232,7 +232,7 @@ export function stepIntent(
 // ── Quem pode ───────────────────────────────────────────────────────────────
 
 /**
- * "Quem pode {{short}}" (P5): Todos or only some cargos, and which. `step` is the computers' step Todos goes to
+ * "Quem pode {{short}}": Todos or only some cargos, and which. `step` is the computers' step Todos goes to
  * (0 for a key: nobody but the ticked); `keep` the level a ticked cargo keeps (1, or Todos' old step).
  */
 export interface WhoCan {
@@ -250,7 +250,7 @@ export const tickable = (r: OrgRole) => !isEveryone(r) && r.editable && !isAdmin
 
 /**
  * Where "Quem pode" opens. From a cargo turning off what everyone has: "Só alguns cargos", every other cargo the
- * viewer may change ticked, this one not (W4). From Todos: the cargos that already hold it ticked. For the computers
+ * viewer may change ticked, this one not. From Todos: the cargos that already hold it ticked. For the computers
  * `step` is the one picked below Todos': Todos goes down to it, the ticked keep Todos' old step.
  */
 export function whoCanStart(roles: readonly OrgRole[], row: string, from: OrgRole, step?: number): WhoCan {
@@ -367,7 +367,7 @@ export function channelAudienceLine(
   return t("mobile.roles.only", { names: roleNames(t, a.roleIds, roles) });
 }
 
-/** What a tap on a channel does on a cargo's Canais (W5's table; Todos as W10). */
+/** What a tap on a channel does on a cargo's Canais (Todos' own as any cargo's). */
 export type ChannelIntent =
   | { kind: "who" }
   | { kind: "save"; input: ReturnType<typeof accessInput>; open?: "role" | "everyone" }
@@ -392,7 +392,7 @@ export function channelIntent(role: OrgRole, channel: Channel, manages: boolean)
   return { kind: "save", input: accessInput({ mode: "roles", roleIds: [role.id] }), open: "role" };
 }
 
-/** "Quem vê #canal" (P6b): Todos, only some cargos (which), or only who is added. */
+/** "Quem vê #canal": Todos, only some cargos (which), or only who is added. */
 export interface WhoSees {
   mode: "public" | "roles" | "private";
   roleIds: ReadonlySet<string>;
@@ -507,7 +507,7 @@ export function agentAudienceLine(
   return named.length ? t("mobile.roles.only", { names: namesText(t, named, 2) }) : t("audience.mode.owner");
 }
 
-/** What a tap on an agent does on a cargo's Agentes (W7's table; Todos as W10). */
+/** What a tap on an agent does on a cargo's Agentes (Todos' own as any cargo's). */
 export type AgentIntent = { kind: "who"; start: AgentAudience } | { kind: "save"; audience: AgentAudience };
 
 /**
@@ -546,7 +546,7 @@ export function agentIntent(role: OrgRole, agent: Agent, roles: readonly OrgRole
   return { kind: "save", audience: to("people", [...a.roleIds, role.id], a.userIds) };
 }
 
-/** What Quem fala com's Salvar sends (P7b): the choice, "Outros agentes podem consultar" as saved. */
+/** What Quem fala com's Salvar sends: the choice, "Outros agentes podem consultar" as saved. */
 export const agentWhoPatch = (who: AgentAudience, saved: Pick<AgentAudience, "consultable">) =>
   audiencePatch({ ...who, consultable: saved.consultable });
 
@@ -572,7 +572,7 @@ export function agentLosingLine(
     : t("mobile.roles.nobodyLoses");
 }
 
-/** Whether neither Todos nor this cargo lets its people talk to agents: the Agentes tab says so first (W7). */
+/** Whether neither Todos nor this cargo lets its people talk to agents: the Agentes tab says so first. */
 export function talkGate(role: OrgRole, everyone: OrgRole | undefined) {
   return !isAdmin(role) && rowState(role, everyone, "talk_to_agents").level === 0;
 }
@@ -580,7 +580,7 @@ export function talkGate(role: OrgRole, everyone: OrgRole | undefined) {
 // ── A cargo's people, and the order ─────────────────────────────────────────
 
 /**
- * The question before a cargo takes mailboxes from agents (W9's mailbox step as the system's alert): one line per
+ * The question before a cargo takes mailboxes from agents (in the system's alert): one line per
  * mailbox ("Max perde bruno@example.com, a caixa de e-mail de Bruno."), then who gives it back.
  */
 export function mailLossQuestion(
@@ -625,11 +625,11 @@ export function orderSteps(order: readonly OrgRole[], id: string) {
 export const orderChanged = (order: readonly OrgRole[], saved: readonly OrgRole[]) =>
   order.some((r, i) => r.id !== saved[i]?.id);
 
-/** Whether the viewer gives and takes this cargo (P8): not Todos, below them, and they manage people. */
+/** Whether the viewer gives and takes this cargo: not Todos, below them, and they manage people. */
 export const givesRole = (org: Parameters<typeof can>[0], role: Pick<OrgRole, "kind" | "givable">) =>
   !isEveryone(role) && role.givable && can(org, "manage_members");
 
-/** The cargos a person may get from the viewer (P11): those below them whose keys they hold (`givable`). */
+/** The cargos a person may get from the viewer: those below them whose keys they hold (`givable`). */
 export const givableRoles = (roles: readonly OrgRole[]) => custom(roles).filter((r) => r.givable);
 
 /** "Começar de" for a new cargo: the templates, then "Igual a" each cargo whose keys the viewer holds. */

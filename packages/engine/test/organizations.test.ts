@@ -84,6 +84,7 @@ describe("permissions", () => {
         rank: null,
         roleIds: [],
         orgLogo: null,
+        orgAccent: null,
         standing: { state: "active", reason: null, notice: "shown", deletionDueAt: null },
         start: { page: "home", channelId: null },
         showActivity: false,

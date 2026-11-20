@@ -79,3 +79,27 @@ describe("Uso por pessoa's amounts on plans (#24)", () => {
     expect(list).not.toContain("data.plansOnly");
   });
 });
+
+describe("an account's use by kind on the phone (the web's KindShares)", () => {
+  // The account's agents and its kinds are on its own pushed screen, opened from its row on Uso.
+  const screen = readFileSync(join(import.meta.dir, "../../src/features/usage/UsageAccountScreen.tsx"), "utf8");
+
+  test("the kind rows sit under the agents, inside Detalhes, from the shared order and whole cells", () => {
+    const detail = screen.slice(screen.indexOf("function Detail("), screen.indexOf("function HandoffNudge("));
+    expect(detail.indexOf('<GroupedHeader>{t("usage.kinds.label")}</GroupedHeader>')).toBeGreaterThan(
+      detail.indexOf('<GroupedHeader>{t("shell.agents")}</GroupedHeader>'),
+    );
+    expect(detail.indexOf('<GroupedHeader>{t("shell.agents")}</GroupedHeader>')).toBeGreaterThan(
+      detail.indexOf("{details ? ("),
+    );
+    expect(screen).toContain("accountKinds(account)");
+    expect(screen).toContain("shareCells(t, i18n.language, window, { share: k.percent, tokens: k.tokens })");
+  });
+
+  test("near the limit only, the hint says why and its row opens the DM with that agent, ready to type", () => {
+    expect(screen).toContain("{near ? <HandoffNudge account={account} /> : null}");
+    expect(screen).toContain('<GroupedFooter>{t("usage.hint.handoffs")}</GroupedFooter>');
+    expect(screen).toContain("openDm({ agentId: target.id }, { compose: true })");
+    expect(screen).toContain('t("usage.hint.message", { name: target.name })');
+  });
+});

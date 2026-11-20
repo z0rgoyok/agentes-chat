@@ -31,7 +31,7 @@ export function forgetWidgetSuggestions(orgId: string, agentId?: string) {
 
 /**
  * The names of the connections an agent may read: those it holds any grant on (a scope, a tool or all of a
- * connection), or every one of the workspace's when it holds every tool (`*`).
+ * connection), or every one of the team's when it holds every tool (`*`).
  */
 export async function agentSourceNames(db: Database, orgId: string, agentId: string): Promise<string[]> {
   const rows = await db
@@ -41,6 +41,8 @@ export async function agentSourceNames(db: Database, orgId: string, agentId: str
       and(
         eq(connectorConnections.orgId, orgId),
         isNull(connectorConnections.revokedAt),
+        // A person's own connection isn't named: suggestions are kept per agent, for whoever asks.
+        isNull(connectorConnections.ownerUserId),
         sql`exists (select 1 from ${agentScopes} s where s.org_id = ${orgId}::uuid and s.agent_id = ${agentId}::uuid
           and s.scope not like 'deny:%'
           and (s.connection_id = ${connectorConnections.id} or (s.connection_id is null and s.scope = '*')))`,

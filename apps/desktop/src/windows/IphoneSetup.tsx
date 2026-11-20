@@ -127,6 +127,16 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
         .then((r) => setXcodeOpened(r.opened))
         .catch((err: unknown) => toast(errorText(t, err), "alert"));
   };
+  const [repairing, setRepairing] = useState(false);
+  /** The Mac stops the iPhone's test helper and builds it again; the iPhone's state then shows the build. */
+  const repair = (serial: string) => {
+    if (!homeId || repairing) return;
+    setRepairing(true);
+    void store
+      .request(homeId, { type: "iphone.repair", serial })
+      .catch((err: unknown) => toast(errorText(t, err), "alert"))
+      .finally(() => setRepairing(false));
+  };
   const [terminal, setTerminal] = useState(false);
   /** This Mac fixes its own Xcode (macOS asks for its password for `select`), or stops the fix. */
   const fixXcode = (action: "start" | "cancel", kind: "select" | "update") => {
@@ -209,6 +219,7 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
     helper: t("desktop.iphone.helperHint"),
   };
   const tip = hintFor(t, t("desktop.iphone.tip"), t("desktop.iphone.tipHint"));
+  const repairHint = hintFor(t, t("devices.iphone.repair"), t("devices.iphone.repairHint"));
   const title = (step: IphoneSetupStep) =>
     step === "account"
       ? t("desktop.iphone.account")
@@ -484,7 +495,16 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
       case "uiAutomation":
         return (
           <>
-            {reason === "ui_not_authorized" ? t("devices.iphone.uiRefusedText") : t("devices.iphone.uiAutomationText")}
+            {reason === "ui_not_authorized" && <span>{t("devices.iphone.uiRefusedText")}</span>}
+            <span>{t("devices.iphone.uiTurnOn")}</span>
+            <SettingsPath
+              label={t("devices.onTheIphone")}
+              segments={[
+                t("devices.iphone.path.settings"),
+                t("devices.iphone.path.privacy"),
+                t("devices.iphone.path.devMode"),
+              ]}
+            />
             <SettingsPath
               label={t("devices.onTheIphone")}
               segments={[
@@ -493,6 +513,26 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
                 t("devices.iphone.path.uiAutomation"),
               ]}
             />
+            <span>{t("devices.iphone.uiPasscode")}</span>
+            <span className="dk-ip__act">
+              <Button size="sm" icon="refresh" loading={checking} disabled={checking || repairing} onClick={check}>
+                {t("devices.iphone.uiCheck")}
+              </Button>
+              {phone && (
+                <span className="ac-hintline">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={repairing}
+                    disabled={checking || repairing}
+                    onClick={() => repair(phone.serial)}
+                  >
+                    {t("devices.iphone.repair")}
+                  </Button>
+                  <InfoHint name={repairHint.name}>{repairHint.text}</InfoHint>
+                </span>
+              )}
+            </span>
           </>
         );
       default:
@@ -511,6 +551,8 @@ export function IphoneSetup({ onClose }: { onClose: () => void }) {
             </>
           );
         if (reason === "team_limit") return t("devices.iphone.teamLimitText");
+        if (reason === "ios_behind_xcode" && phone?.osVersion && setup?.sdk)
+          return t("devices.iphone.iosBehind", { ios: phone.osVersion, sdk: setup.sdk });
         return states.helper === "active" ? t("desktop.iphone.helperBuilding") : t("desktop.iphone.helperText");
     }
   };

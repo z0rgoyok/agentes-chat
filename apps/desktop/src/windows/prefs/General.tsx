@@ -1,6 +1,6 @@
 import type { AppLocale } from "@agenteschat/i18n/locale";
 import { Button, Dialog, DialogFooter, Input, Select, Switch } from "@agenteschat/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHost, useSnapshot, useStore } from "../../app";
 import { BROWSER_NOTIFY_PREF } from "../../control/browser";
@@ -44,10 +44,71 @@ export function General() {
   const [language, setLanguage] = usePref<AppLocale | "auto">(LOCALE_PREF, "auto");
   const [leaving, setLeaving] = useState<Home | null>(null);
   const [busy, setBusy] = useState(false);
+  const linux = host.platform === "linux";
+  // Linux: Compatibility mode as the next opening will have it; null until read.
+  const [compat, setCompat] = useState<boolean | null>(null);
+  const [compatSaving, setCompatSaving] = useState(false);
+  // The system's own WEBKIT_DISABLE_DMABUF_RENDERER decides, not the switch.
+  const [compatOwn, setCompatOwn] = useState(false);
+  const [askReopen, setAskReopen] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const iconShown = menuBarShown(menuBar, works || local.run);
   useEffect(() => {
     void host.setTrayVisible(iconShown).catch(() => {});
   }, [host, iconShown]);
+
+  // An opening that fell back to compatibility mode says so here once, with the way back to the graphics card.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read once per window
+  useEffect(() => {
+    if (!linux) return;
+    host
+      .compatMode()
+      .then((mode) => {
+        setCompat(mode.on);
+        setCompatOwn(mode.own);
+        if (!mode.fellBack) return;
+        toast(t("desktop.prefs.general.compatFellBack"), "alert", {
+          label: t("desktop.prefs.general.compatTryCard"),
+          run: () => void changeCompat(false, true),
+        });
+      })
+      .catch(() => setCompat(true));
+  }, [host, linux]);
+
+  const reopenNow = async () => {
+    setReopening(true);
+    try {
+      await host.reopen();
+    } catch {
+      setReopening(false);
+      setAskReopen(false);
+      toast(t("desktop.common.error"), "alert");
+    }
+  };
+  // Read when pressed: a toast's action keeps the render it was made in.
+  const askFirst = useRef(false);
+  askFirst.current = works || local.run;
+  /** While agents work here or agentes.chat runs here, asks first, as Quit does. */
+  const reopen = () => (askFirst.current ? setAskReopen(true) : void reopenNow());
+
+  /** The drawing mode changes only on a new start: reopen now, or say it will. */
+  const changeCompat = async (on: boolean, reopenAfter = false) => {
+    setCompatSaving(true);
+    try {
+      await host.setCompatMode(on);
+      setCompat(on);
+      if (reopenAfter) reopen();
+      else
+        toast(t("desktop.prefs.general.compatReopen"), "info", {
+          label: t("desktop.prefs.general.reopenNow"),
+          run: reopen,
+        });
+    } catch {
+      toast(t("desktop.common.error"), "alert");
+    } finally {
+      setCompatSaving(false);
+    }
+  };
 
   // The name arrives with the first status.
   useEffect(() => {
@@ -258,7 +319,50 @@ export function General() {
             }
           />
         )}
+        {linux && (
+          <PrefRow
+            title={t("desktop.prefs.general.compatTitle")}
+            hint={hintFor(
+              t,
+              t("desktop.prefs.general.compatTitle"),
+              compatOwn
+                ? t("common.joinSentences", {
+                    a: t("desktop.prefs.general.compatDesc"),
+                    b: t("desktop.prefs.general.compatOwn"),
+                  })
+                : t("desktop.prefs.general.compatDesc"),
+            )}
+            htmlFor="compat"
+            end={
+              <Switch
+                id="compat"
+                aria-describedby="compat-hint"
+                checked={compat !== false}
+                disabled={compat === null || compatSaving || compatOwn}
+                onCheckedChange={(on) => void changeCompat(on)}
+              />
+            }
+          />
+        )}
       </PrefCard>
+
+      <Dialog
+        open={askReopen}
+        onOpenChange={(open) => !open && !reopening && setAskReopen(false)}
+        title={t("desktop.prefs.general.reopenTitle")}
+        description={t(local.run ? "desktop.tray.quitHereBody" : "desktop.prefs.general.reopenBody")}
+        closeLabel={t("desktop.common.close")}
+        width={440}
+      >
+        <DialogFooter bar>
+          <Button variant="ghost" onClick={() => setAskReopen(false)} disabled={reopening}>
+            {t("desktop.common.cancel")}
+          </Button>
+          <Button variant="primary" loading={reopening} onClick={() => void reopenNow()}>
+            {t("desktop.prefs.general.reopenNow")}
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <Dialog
         open={!!leaving}

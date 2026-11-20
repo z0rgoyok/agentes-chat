@@ -32,6 +32,8 @@ const UNKNOWN = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
 const HOUR_EACH_WAY = `from=${new Date(Date.now() - 3600_000).toISOString()}&to=${new Date(Date.now() + 3600_000).toISOString()}`;
 const ID = expect.stringMatching(/^[0-9a-f-]{36}$/);
 const TIME = expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+/** What stands for a tool call's input. */
+const DIGEST = expect.stringMatching(/^[0-9a-f]{16}$/);
 
 // Everything anyone writes here (people, the model, the tools, their inputs) says "canary": no answer may.
 const tools: ToolSource = {
@@ -219,6 +221,7 @@ type Trace = {
   jobs: Record<string, unknown>[];
   moreJobs: boolean;
   usage: Record<string, unknown> & { byModel: Record<string, unknown>[] };
+  claims: { totalMs: number; stages: { stage: string; ms: number; queries: number }[] }[];
   machine: unknown;
 };
 type Event = Record<string, unknown> & { type: string; id: string; at: string };
@@ -350,7 +353,11 @@ test("runs: newest first with what each waits for or failed with; filters, pages
     waitCode: null,
     waitSource: null,
     waitResetsAt: null,
+    waitAccountId: null,
+    waitAccountMachineId: null,
+    accountId: null,
     waitingMachineId: null,
+    canceled: null,
     errorCode: null,
     error: null,
     createdAt: TIME,
@@ -427,10 +434,15 @@ test("a run's trace: its steps without their contents, what it asked, its jobs a
     isError: null,
     refusal: null,
     code: null,
+    errorClass: null,
+    errorStatus: null,
     reason: null,
+    toRunId: null,
+    pause: null,
     model: null,
     stopReason: null,
     chars: null,
+    inputDigest: null,
     durationMs: null,
     messageId: null,
     records: [],
@@ -453,6 +465,7 @@ test("a run's trace: its steps without their contents, what it asked, its jobs a
       tool: "lookup",
       builtIn: true,
       chars: JSON.stringify({ q: "canary-tool-input" }).length + 1,
+      inputDigest: DIGEST,
     },
     {
       ...none,
@@ -493,6 +506,7 @@ test("a run's trace: its steps without their contents, what it asked, its jobs a
       lockedUntil: null,
       lockedBy: "drain",
       lastError: null,
+      lastErrorStatus: null,
       runId: look.run.id,
       cause: null,
       createdAt: TIME,
@@ -524,6 +538,13 @@ test("a run's trace: its steps without their contents, what it asked, its jobs a
   expect(Number(look.usage.input)).toBeGreaterThan(0);
   expect(Number(look.usage.costUsd)).toBeGreaterThan(0);
   expect(look.machine).toBeNull();
+  // Where its time went, as the worker that ran it kept it: every stage it timed is given by its own name.
+  const timed = look.claims.flatMap((c) => c.stages.map((s) => s.stage.replace(/#\d+$/, "")));
+  expect(timed).toEqual(expect.arrayContaining(["claim", "context", "model"]));
+  expect(timed).not.toContain("other");
+  expect(look.claims.every((c) => c.stages.every((s) => Number.isInteger(s.ms) && Number.isInteger(s.queries)))).toBe(
+    true,
+  );
 
   // The steps page back from the end.
   const last = await trace(sent.look, "?limit=2");
@@ -600,8 +621,17 @@ test("tool calls: which tool and whose, how each ended and how big it was; filte
   const told = async (query = "") => (await ok<Page>(await calls(query))).calls.map((c) => c.tool);
   const look = await runOf(sent.look);
   const ship = await runOf(sent.ship);
-  const fact = { runId: ID, agentId: org.agentId, at: TIME, seq: expect.any(Number) };
-  const own = { ...fact, builtIn: true, connector: null, connectorKind: null, refusal: null, code: null };
+  const fact = { runId: ID, agentId: org.agentId, at: TIME, seq: expect.any(Number), inputDigest: DIGEST };
+  const own = {
+    ...fact,
+    builtIn: true,
+    connector: null,
+    connectorKind: null,
+    refusal: null,
+    code: null,
+    errorClass: null,
+    errorStatus: null,
+  };
   const LOOKUP = {
     ...own,
     runId: look.id,
@@ -661,6 +691,9 @@ test("tool calls: which tool and whose, how each ended and how big it was; filte
     tool: "rm_rf",
     builtIn: false,
     outcome: "error",
+    // The gateway's own code for it, which is what its class is read from.
+    code: "tool.unknown",
+    errorClass: "unknown_tool",
     resultChars: "Unknown tool rm_rf".length,
   };
   const CONNECTED = {
@@ -1047,6 +1080,11 @@ test("what an explanation works out as things are now: holds, standing, and who 
     "nobody_picked",
     ["follow-up", "for people"],
   ]);
+  // Nobody picked, for what the scores or the hour's cap decided: the router's own two marks for it.
+  expect(await decided({ strategy: "jev", reason: "under need gate; default cap; jev: canary words" })).toEqual([
+    "nobody_picked",
+    ["under need gate", "default cap"],
+  ]);
   expect(await decided({ strategy: "mention-jev", selectedAgentIds: [org.agentId], reason: "@dev: 0.40" })).toEqual([
     "picked_not_started",
     [],
@@ -1112,6 +1150,13 @@ test("a run's status as people read it, and what it waits for, from the marks th
     waitCode: "plan_limit",
     waitResetsAt: "2026-12-01T00:00:00.000Z",
   });
+  // A run that went on with the next account at its plan's limit (ADR 0041 §6) names that account, not its agent's own.
+  const moved = "0193ffff-0000-4000-8000-0000000000aa";
+  await t.db
+    .update(schema.agentRuns)
+    .set({ transcript: { accountMove: { from: UNKNOWN, to: moved, tried: [UNKNOWN, moved] } } })
+    .where(eq(schema.agentRuns.id, run.id));
+  expect((await trace(sent.ship)).run.accountId).toBe(moved);
   expect(await waiting({ code: "usage_pause", source: "budget" })).toEqual({
     ...none,
     shown: "waiting_budget",
@@ -1137,4 +1182,345 @@ test("a run's status as people read it, and what it waits for, from the marks th
     ...none,
     shown: "waiting_input",
   });
+});
+
+// ── Facts: what a failure, a stop, a wait and an input say in a number, an id or a listed word ────────────────────────
+
+/** A run of its own, with the marks a test puts on it: nothing else here reads it. */
+async function bareRun(
+  set: Partial<typeof schema.agentRuns.$inferInsert> = {},
+  where: { orgId: string; agentId: string; channelId: string } = org,
+) {
+  const [run] = await t.db
+    .insert(schema.agentRuns)
+    .values({
+      orgId: where.orgId,
+      agentId: where.agentId,
+      channelId: where.channelId,
+      threadRootId: crypto.randomUUID(),
+      triggerMessageId: crypto.randomUUID(),
+      trigger: "mention",
+      hop: 1,
+      ...set,
+    })
+    .returning();
+  if (!run) throw new Error("no run");
+  return run;
+}
+type ToolCall = Record<string, unknown> & { seq: number };
+const traceOf = (runId: string) => get(`/runs/${runId}/trace`).then((res) => ok<Trace>(res));
+const callsOf = async (run: { id: string; orgId: string }) =>
+  (
+    await ok<{ calls: ToolCall[] }>(
+      await get(`/orgs/${run.orgId}/tool-calls?runId=${run.id}&limit=200&${HOUR_EACH_WAY}`),
+    )
+  ).calls;
+
+test("a tool call's input digest: equal inputs of one workspace match, the stated reason aside, and nothing else does", async () => {
+  const run = await bareRun();
+  const inputs: [name: string, input: unknown][] = [
+    ["same", { q: "canary-same", n: 1 }],
+    ["reordered", { n: 1, q: "canary-same" }],
+    ["one_why", { q: "canary-same", n: 1, why: "canary-why: the person asked." }],
+    ["another_why", { q: "canary-same", n: 1, why: "canary-why: nothing else answers it." }],
+    ["other", { q: "canary-other", n: 1 }],
+    ["nested_why", { q: "canary-same", n: 1, more: { why: "canary-kept" } }],
+    ["empty", {}],
+    ["words", "canary-words"],
+  ];
+  for (const [name, input] of inputs) await addRunStep(t.db, run, "tool_call", { toolUseId: name, name, input });
+  await addRunStep(t.db, run, "tool_call", { toolUseId: "none", name: "none" });
+  await addRunStep(t.db, run, "tool_call", { toolUseId: "null", name: "null", input: null });
+
+  const calls = await callsOf(run);
+  const steps = (await traceOf(run.id)).steps.filter((s) => s.kind === "tool_call");
+  const digest = (name: string) => calls.find((c) => c.tool === name)?.inputDigest;
+  // The trace and the list of calls say the same of each call.
+  expect(steps.map((s) => [s.tool, s.inputDigest])).toEqual(calls.map((c) => [c.tool, c.inputDigest]).reverse());
+  for (const [name] of inputs) expect({ name, digest: digest(name) }).toEqual({ name, digest: DIGEST });
+  expect(digest("none")).toBeNull();
+  // A null stored in the input's place is no input either: no digest that every such call would share.
+  expect(calls.find((c) => c.tool === "null")).toMatchObject({ inputDigest: null, inputChars: 0 });
+  expect(digest("reordered")).toBe(digest("same"));
+  expect(digest("one_why")).toBe(digest("same"));
+  expect(digest("another_why")).toBe(digest("same"));
+  // Only the call's own reason is left out: a `why` further in is the tool's.
+  expect(new Set(["same", "other", "nested_why", "empty", "words"].map(digest)).size).toBe(5);
+
+  // The same input in another workspace is another digest: one workspace's calls compare with no other's.
+  const [globex] = await t.db.insert(schema.organizations).values({ name: "Globex" }).returning();
+  const elsewhere = { orgId: globex?.id ?? "", agentId: crypto.randomUUID(), channelId: crypto.randomUUID() };
+  await t.db
+    .insert(schema.agents)
+    .values({ id: elsewhere.agentId, orgId: elsewhere.orgId, name: "Dev", handle: "dev", model: "claude-sonnet-5-5" });
+  await t.db.insert(schema.channels).values({ id: elsewhere.channelId, orgId: elsewhere.orgId, name: "general" });
+  const theirs = await bareRun({}, elsewhere);
+  await addRunStep(t.db, theirs, "tool_call", { toolUseId: "same", name: "same", input: { q: "canary-same", n: 1 } });
+  const [there] = await callsOf(theirs);
+  expect(there?.inputDigest).toEqual(DIGEST);
+  expect(there?.inputDigest).not.toBe(digest("same"));
+  // And it is no hash anyone can make from the input alone.
+  const hash = new Bun.CryptoHasher("sha256").update(JSON.stringify({ n: 1, q: "canary-same" })).digest("hex");
+  expect(JSON.stringify([calls, steps])).not.toContain(hash.slice(0, 16));
+  expect(JSON.stringify([calls, steps, there])).not.toContain("canary");
+});
+
+test("a failed tool result's class: from the status or the code the server kept, else from its words", async () => {
+  const run = await bareRun();
+  const results: [name: string, result: Record<string, unknown> | null, errorClass: string | null][] = [
+    // The number the thrown error carried decides, whatever its words say.
+    ["s401", { content: "canary: rate limit exceeded", data: { code: "tool.failed", status: 401 } }, "unauthorized"],
+    ["s403", { content: "canary", data: { code: "tool.failed", status: 403 } }, "forbidden"],
+    ["s404", { content: "canary: too many requests", data: { code: "tool.failed", status: 404 } }, "not_found"],
+    ["s408", { content: "canary", data: { code: "tool.failed", status: 408 } }, "timeout"],
+    ["s422", { content: "canary", data: { code: "tool.failed", status: 422 } }, "invalid_arguments"],
+    ["s429", { content: "canary", data: { code: "tool.failed", status: 429 } }, "rate_limited"],
+    ["s503", { content: "canary", data: { code: "tool.failed", status: 503 } }, "server_error"],
+    ["s504", { content: "canary", data: { code: "tool.failed", status: 504 } }, "timeout"],
+    ["rpc-method", { content: "canary", data: { code: "tool.failed", status: -32601 } }, "unknown_tool"],
+    ["rpc-params", { content: "canary", data: { code: "tool.failed", status: -32602 } }, "invalid_arguments"],
+    ["rpc-timeout", { content: "canary", data: { code: "tool.failed", status: -32001 } }, "timeout"],
+    // A status that names no class leaves it to the words.
+    ["s409", { content: "Tool failed: canary conflict", data: { code: "tool.failed", status: 409 } }, "other"],
+    // The gateway's own codes.
+    ["unknown", { content: 'No Acme tool named "canary".', data: { code: "tool.unknown" } }, "unknown_tool"],
+    ["invalid", { content: "canary", data: { code: "tool.invalid_input" } }, "invalid_arguments"],
+    // Kept before the server stored either: what the result's first words say.
+    ["w-unknown", { content: "Unknown tool canary_tool" }, "unknown_tool"],
+    ["w-invalid", { content: "Invalid input: input.canary: required" }, "invalid_arguments"],
+    ["w-validation", { content: "Tool failed: canary Validation failed" }, "invalid_arguments"],
+    ["w-rate", { content: "Tool failed: 429 canary Too Many Requests" }, "rate_limited"],
+    ["w-quota", { content: "Tool failed: canary quota exceeded" }, "rate_limited"],
+    ["w-auth", { content: "Tool failed: canary Unauthorized" }, "unauthorized"],
+    ["w-token", { content: "Tool failed: the canary token has expired" }, "unauthorized"],
+    ["w-forbidden", { content: "Tool failed: canary permission denied" }, "forbidden"],
+    ["w-missing", { content: "Tool failed: canary repository not found" }, "not_found"],
+    ["w-timeout", { content: "Tool failed: canary request timed out" }, "timeout"],
+    ["w-server", { content: "Tool failed: canary Internal Server Error" }, "server_error"],
+    ["w-other", { content: "Tool failed: canary said no" }, "other"],
+    // A number is a status only as a whole word.
+    ["w-digits", { content: "Tool failed: canary took 14290 ms" }, "other"],
+    // What is stored in the status's place and is no whole number is no status.
+    ["s-words", { content: "canary", data: { code: "tool.failed", status: "canary 404" } }, "other"],
+    ["s-fraction", { content: "canary", data: { code: "tool.failed", status: 404.5 } }, "other"],
+    // A tool's own number under the same name is no status of a failure: of a result that did not fail, of one the
+    // gateway did not mark as thrown, or outside what the gateway writes.
+    ["own-ok", { content: "canary", isError: false, data: { url: "https://example.com", status: 200 } }, null],
+    ["own-thrown-ok", { content: "canary", isError: false, data: { code: "tool.failed", status: 503 } }, null],
+    ["own-failed", { content: "canary", data: { status: 503 } }, "other"],
+    ["own-coded", { content: "canary", data: { code: "tool.invalid_input", status: 404 } }, "invalid_arguments"],
+    ["s-far", { content: "canary", data: { code: "tool.failed", status: 77410 } }, "other"],
+    ["s-low", { content: "canary", data: { code: "tool.failed", status: 99 } }, "other"],
+    ["rpc-far", { content: "canary", data: { code: "tool.failed", status: -31999 } }, "other"],
+    // It did not fail, the server refused it, or it has no result yet.
+    ["fine", { content: "canary not found", isError: false }, null],
+    ["refused", { content: "Not allowed: canary", data: { refusal: "noAccess" } }, null],
+    ["pending", null, null],
+  ];
+  for (const [name, result] of results) {
+    await addRunStep(t.db, run, "tool_call", { toolUseId: name, name, input: {} });
+    if (result) await addRunStep(t.db, run, "tool_result", { toolUseId: name, name, isError: true, ...result });
+  }
+  const expected = Object.fromEntries(results.map(([name, , errorClass]) => [name, errorClass]));
+  const calls = await callsOf(run);
+  expect(Object.fromEntries(calls.map((c) => [c.tool, c.errorClass]))).toEqual(expected);
+  const steps = (await traceOf(run.id)).steps;
+  const answered = steps.filter((s) => s.kind === "tool_result");
+  expect(Object.fromEntries(answered.map((s) => [s.tool, s.errorClass]))).toEqual({ ...expected, pending: undefined });
+  expect(steps.filter((s) => s.kind === "tool_call").map((s) => [s.errorClass, s.errorStatus])).toEqual(
+    results.map(() => [null, null]),
+  );
+
+  // The status itself, in both reads; a call's own code beside it.
+  const status = (rows: Record<string, unknown>[]) =>
+    Object.fromEntries(rows.flatMap((r) => (r.errorStatus === null ? [] : [[r.tool, r.errorStatus]])));
+  const STATUSES = {
+    s401: 401,
+    s403: 403,
+    s404: 404,
+    s408: 408,
+    s409: 409,
+    s422: 422,
+    s429: 429,
+    s503: 503,
+    s504: 504,
+    "rpc-method": -32601,
+    "rpc-params": -32602,
+    "rpc-timeout": -32001,
+  };
+  expect(status(calls)).toEqual(STATUSES);
+  expect(status(answered)).toEqual(STATUSES);
+  expect(calls.find((c) => c.tool === "unknown")).toMatchObject({ outcome: "error", code: "tool.unknown" });
+  expect(calls.find((c) => c.tool === "refused")).toMatchObject({ outcome: "refused", refusal: "noAccess" });
+  expect(JSON.stringify([calls, steps])).not.toContain("canary");
+});
+
+test("a canceled run says who or what stopped it; the system's stop reads run.canceled, in a list, a filter and a count", async () => {
+  const stops: [error: string | null, canceled: Record<string, unknown> | null, errorCode: string | null][] = [
+    [`canceled_by:${ownerId}`, { by: "person", userId: ownerId, agentId: null, reason: null }, "run.canceled"],
+    [
+      `canceled_by:${ownerId}|agent:${org.agentId}`,
+      { by: "agent", userId: ownerId, agentId: org.agentId, reason: null },
+      "run.canceled",
+    ],
+    [
+      "routine_waiting_plan",
+      { by: "system", userId: null, agentId: null, reason: "routine_waiting_plan" },
+      "run.canceled",
+    ],
+    ["mission_closed", { by: "system", userId: null, agentId: null, reason: "mission_closed" }, "run.canceled"],
+    ["channel_deleted", { by: "system", userId: null, agentId: null, reason: "channel_deleted" }, "run.canceled"],
+    // A reason the app has a code of its own for keeps it.
+    ["agent_archived", { by: "system", userId: null, agentId: null, reason: "agent_archived" }, "run.agent_archived"],
+    [
+      "This workspace is on hold: canary reason someone wrote",
+      { by: "system", userId: null, agentId: null, reason: "workspace_paused" },
+      "run.org_paused",
+    ],
+    // A word the list doesn't hold, and words in its place: `other`, never the text.
+    ["routine_canary_code", { by: "system", userId: null, agentId: null, reason: "other" }, "run.canceled"],
+    ["canary words someone wrote", { by: "system", userId: null, agentId: null, reason: "other" }, "run.canceled"],
+    // Ids that are no ids leave nothing in their place.
+    [
+      "canceled_by:canary words|agent:canary",
+      { by: "agent", userId: null, agentId: null, reason: null },
+      "run.canceled",
+    ],
+    // An older row's stop by a mission with nobody behind it is the system's, never a person named so.
+    ["canceled_by:mission", { by: "system", userId: null, agentId: null, reason: "other" }, "run.canceled"],
+    // A canceled run that kept no error says nothing of who stopped it.
+    [null, null, null],
+  ];
+  const made: string[] = [];
+  for (const [error] of stops) made.push((await bareRun({ status: "canceled", error, finishedAt: new Date() })).id);
+  // The same word on a run that failed is no stop: it reads as before.
+  const failed = await bareRun({ status: "failed", error: "routine_waiting_plan", finishedAt: new Date() });
+
+  const listed = (await ok<RunPage>(await runs("?limit=200"))).runs;
+  const told = (id: string) => listed.find((r) => r.id === id);
+  expect(made.map((id) => [told(id)?.canceled, told(id)?.errorCode])).toEqual(stops.map(([, c, code]) => [c, code]));
+  expect(told(failed.id)).toMatchObject({ status: "failed", canceled: null, errorCode: "run.failed" });
+  // A trace says the same of its run.
+  expect((await traceOf(made[2] ?? "")).run).toEqual(told(made[2] ?? "") as Run);
+
+  // The filter and the count go by the code each row answers.
+  const ids = async (query: string) => (await ok<RunPage>(await runs(`?limit=200&${query}`))).runs.map((r) => r.id);
+  const canceled = made.filter((_, i) => stops[i]?.[2] === "run.canceled");
+  expect((await ids("errorCode=run.canceled")).sort()).toEqual([...canceled].sort());
+  expect(await ids("errorCode=run.failed")).toEqual([failed.id]);
+  expect(await ids("errorCode=run.agent_archived")).toEqual([made[5] ?? ""]);
+  const counted = await ok<{ errors: { errorCode: string; runs: number }[] }>(await runs("?groupBy=error"));
+  const count = (code: string) => counted.errors.find((e) => e.errorCode === code)?.runs;
+  expect([count("run.canceled"), count("run.failed"), count("run.agent_archived"), count("run.org_paused")]).toEqual([
+    canceled.length,
+    1,
+    1,
+    1,
+  ]);
+  // A stopped run's error still comes back as stored; `canceled` never repeats its words.
+  expect(JSON.stringify(listed.map((r) => r.canceled))).not.toContain("canary");
+});
+
+test("a run that waits on a plan names its sign-in and its computer; a paused long work, what it paused on", async () => {
+  const [machineId, accountId] = [crypto.randomUUID(), crypto.randomUUID()];
+  const parked = (waitingForBrain: Record<string, unknown>) =>
+    bareRun({ status: "waiting_input", transcript: { waitingForBrain } });
+  const usageWait = (run: { id: string; orgId: string }, pause?: unknown) =>
+    addRunStep(t.db, run, "error", {
+      reason: "usage_wait",
+      code: "usage_pause",
+      message: "canary: long work paused",
+      ...(pause === undefined ? {} : { pause }),
+      until: new Date().toISOString(),
+    });
+  const facts = async (run: { id: string }) => {
+    const found = await traceOf(run.id);
+    const { waitCode, waitSource, waitAccountId, waitAccountMachineId } = found.run;
+    return {
+      run: { waitCode, waitSource, waitAccountId, waitAccountMachineId },
+      pause: found.steps.filter((s) => s.kind === "error").map((s) => s.pause),
+    };
+  };
+
+  // Long work paused at 96% of its week, on an account's plan.
+  const onAccount = await parked({
+    code: "usage_pause",
+    source: "plan",
+    waitKey: `plan:${machineId}:claude_code:${accountId}`,
+  });
+  await usageWait(onAccount, { source: "plan", used: 96, window: "seven_day" });
+  expect(await facts(onAccount)).toEqual({
+    run: { waitCode: "usage_pause", waitSource: "plan", waitAccountId: accountId, waitAccountMachineId: machineId },
+    pause: [{ source: "plan", usedPercent: 96, window: "seven_day" }],
+  });
+  const [step] = (await traceOf(onAccount.id)).steps.filter((s) => s.kind === "error");
+  expect(step).toMatchObject({ reason: "usage_wait", code: "usage_pause", at: TIME });
+
+  // The plan of the computer's own sign-in: no account. At a hard limit nothing was read: no pause.
+  const own = await parked({ code: "plan_limit", waitKey: `plan:${machineId}:codex:own` });
+  await usageWait(own);
+  expect(await facts(own)).toEqual({
+    run: { waitCode: "plan_limit", waitSource: null, waitAccountId: null, waitAccountMachineId: machineId },
+    pause: [null],
+  });
+
+  // A budget is no sign-in, and has no window.
+  const budget = await parked({ code: "usage_pause", source: "budget", waitKey: `budget:${org.agentId}` });
+  await usageWait(budget, { source: "budget", used: 97.5 });
+  expect(await facts(budget)).toEqual({
+    run: { waitCode: "usage_pause", waitSource: "budget", waitAccountId: null, waitAccountMachineId: null },
+    pause: [{ source: "budget", usedPercent: 97.5, window: null }],
+  });
+
+  // Only listed words, numbers and ids come out of what is stored there.
+  const odd = await parked({ code: "usage_pause", source: "plan", waitKey: "plan:canary words:codex:canary words" });
+  await usageWait(odd, { source: "plan", used: "canary", window: "canary_window" });
+  await usageWait(odd, { source: "canary words", used: 50, window: "five_hour" });
+  await usageWait(odd, "canary words");
+  expect(await facts(odd)).toEqual({
+    run: { waitCode: "usage_pause", waitSource: "plan", waitAccountId: null, waitAccountMachineId: null },
+    pause: [{ source: "plan", usedPercent: null, window: null }, null, null],
+  });
+  expect(JSON.stringify(await traceOf(odd.id))).not.toContain("canary");
+});
+
+test("a trace's steps: why a run had no AI, and the run a hand-on sent its unread messages to", async () => {
+  // Nothing to think with: the step says why in a listed word, and any other word in its place reads as absent.
+  const noAi = await bareRun({ status: "failed", error: "no_ai", finishedAt: new Date() });
+  for (const code of ["no_key", "not_signed_in", "plan_unattended", "canary_word", "tool.unknown"]) {
+    await addRunStep(t.db, noAi, "error", { reason: "no_ai", code });
+  }
+  await addRunStep(t.db, noAi, "error", { reason: "no_ai" });
+  const noAiTrace = await traceOf(noAi.id);
+  expect(noAiTrace.run).toMatchObject({ status: "failed", errorCode: "run.no_ai" });
+  expect(noAiTrace.steps.map((s) => [s.reason, s.code])).toEqual([
+    ["no_ai", "no_key"],
+    ["no_ai", "not_signed_in"],
+    ["no_ai", "plan_unattended"],
+    ["no_ai", null],
+    ["no_ai", null],
+    ["no_ai", null],
+  ]);
+
+  // A run that ended with messages it never read: each step that handed them on says why and to which run.
+  const ended = await bareRun({ status: "done", finishedAt: new Date() });
+  const [took, closed] = [crypto.randomUUID(), crypto.randomUUID()];
+  const unread = [crypto.randomUUID()];
+  await addRunStep(t.db, ended, "context", { redispatchedMessageIds: unread, reason: "done", toRunId: took });
+  await addRunStep(t.db, ended, "context", { released: { messageIds: unread, toRunId: closed } });
+  await addRunStep(t.db, ended, "context", {
+    redispatchedMessageIds: unread,
+    reason: "canary_word",
+    toRunId: "canary",
+  });
+  // A reason on a step that hands nothing on is some other note's.
+  await addRunStep(t.db, ended, "context", { passed: { how: "tool" }, reason: "done" });
+  const handed = (await traceOf(ended.id)).steps.map((s) => [s.kind, s.records, s.reason, s.toRunId]);
+  expect(handed).toEqual([
+    ["context", expect.arrayContaining(["redispatchedMessageIds", "toRunId"]), "done", took],
+    ["context", ["released"], null, closed],
+    ["context", expect.arrayContaining(["redispatchedMessageIds"]), null, null],
+    ["context", expect.arrayContaining(["passed"]), null, null],
+  ]);
+  expect(JSON.stringify([noAiTrace, handed])).not.toContain("canary");
 });

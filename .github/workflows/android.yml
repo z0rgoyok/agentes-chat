@@ -3,7 +3,9 @@ name: Android build
 # Builds the phone app for Android here, without EAS: `expo prebuild` makes the native project from app.config.ts
 # (it is never committed), Gradle builds it and signs it with the upload key, and the result is kept as the run's
 # artifact (and, for production with the Play secret set, sent to the Play Store's internal track as a draft).
-# Runs only by hand (Actions → Run workflow). See apps/mobile/README.md, "Android on GitHub Actions".
+# Runs only by hand (Actions → Run workflow). See apps/mobile/README.md, "Android on GitHub Actions". A production
+# run on main with `release` = fix/feature/major first raises Android's version (apps/mobile/versions.json's android),
+# commits it and tags android-v<version> on main, as the desktop app's release does; the iOS build raises its own.
 #
 # Secrets (repository settings, never in the repo):
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD: the upload key
@@ -19,6 +21,15 @@ on:
         type: choice
         options: [preview, production]
         default: preview
+      release:
+        description: "fix = 0.0.x, feature = 0.x.0, major = x.0.0; none = build the current version (a branch always does)"
+        type: choice
+        options: [fix, feature, major, none]
+        default: fix
+      notes:
+        description: "Release notes (optional; default = commit subjects since the last release)"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -33,7 +44,33 @@ defaults:
     shell: bash
 
 jobs:
+  # Before any build, so a failed bump costs no build minutes. On main with `release` = fix/feature/major the version
+  # goes up (apps/mobile/versions.json's android, the other store's untouched), committed and tagged android-v<version>
+  # on main, as the desktop app's (desktop.yml); elsewhere, with none, or a preview, the build carries the current version.
+  version:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+      # main only takes pull requests; the release's deploy key is the one push the ruleset lets through.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - id: version
+        uses: ./.github/actions/mobile-version
+        with:
+          platform: android
+          release: ${{ inputs.variant == 'production' && inputs.release || 'none' }}
+          notes: ${{ inputs.notes }}
+          deploy-key-set: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
+
   build:
+    needs: version
     # Fits GitHub's standard runner (4 cores, 16 GB, ubuntu-24.04 with the Android SDK): the steps below free disk,
     # add swap and cap Gradle's workers and heaps. With every core and a 6 GB heap for both Gradle and Kotlin's
     # daemon next to the parallel C++ compiles, the runner was shut down mid-build, most likely out of memory.
@@ -42,6 +79,7 @@ jobs:
     timeout-minutes: 90
     env:
       APP_VARIANT: ${{ inputs.variant }}
+      APP_PLATFORM: android
     steps:
       # Fails in seconds, before anything is installed, when the key isn't there.
       - name: Upload key is set
@@ -68,7 +106,10 @@ jobs:
           sudo mkswap /extra.swap > /dev/null
           sudo swapon /extra.swap
           df -h / && free -h
+      # The release's commit (the raised version), or the run's own.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json

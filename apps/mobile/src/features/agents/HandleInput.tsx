@@ -1,48 +1,49 @@
-import { StyleSheet, TextInput, View } from "react-native";
+import type { Ref } from "react";
+import { StyleSheet, TextInput, type TextInputInstance, View } from "react-native";
 import { fieldText, GROUPED_ROW, Icon, Text } from "@/ui";
+import { NEXT_FIELD } from "../settings/parts";
 import { useColors } from "../shared/hooks";
 
 /**
- * An agent's @ field (a new agent's, Editar's Menções): the @ drawn before what is typed. `grouped`: a row of a
- * grouped list, which draws the surface; `ok` checks a free @ at its end.
+ * An agent's @ field (a new agent's, Editar's Menções), a row of a grouped list, which draws the surface: the @ drawn
+ * before what is typed; `ok` checks a free @ at its end. `ref`: the field, for a form whose Next comes to it. `next`: its
+ * return key goes on to the form's next field (Edit agent's role) instead of closing the keyboard.
  */
 export function HandleInput({
   value,
   onChangeText,
   label,
   placeholder,
-  grouped = false,
   ok = false,
+  next = false,
+  ref,
 }: {
   value: string;
   onChangeText: (value: string) => void;
   label: string;
   placeholder?: string;
-  grouped?: boolean;
   ok?: boolean;
+  next?: boolean;
+  ref?: Ref<TextInputInstance | null>;
 }) {
   const c = useColors();
   return (
-    <View
-      style={
-        grouped
-          ? [styles.affix, styles.row]
-          : [styles.affix, styles.field, { backgroundColor: c.raised, borderColor: c.line }]
-      }
-    >
+    <View style={styles.row}>
       <Text variant="body" tone="faint">
         @
       </Text>
       <TextInput
+        ref={ref}
         value={value}
         onChangeText={onChangeText}
+        {...(next ? NEXT_FIELD : { returnKeyType: "done" as const })}
         maxLength={32}
         autoCapitalize="none"
         autoCorrect={false}
         placeholder={placeholder}
         placeholderTextColor={c.faint}
         accessibilityLabel={label}
-        style={[styles.affixInput, grouped && styles.rowInput, fieldText("body"), { color: c.ink }]}
+        style={[styles.input, fieldText("body"), { color: c.ink }]}
       />
       {ok ? <Icon name="check" size={18} color={c.ok} /> : null}
     </View>
@@ -60,9 +61,12 @@ export function ErrorLine({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  affix: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 14 },
-  field: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
-  row: { minHeight: GROUPED_ROW.minHeight, paddingHorizontal: GROUPED_ROW.padX },
-  affixInput: { flex: 1, paddingVertical: 12 },
-  rowInput: { paddingVertical: GROUPED_ROW.tallPadY },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    minHeight: GROUPED_ROW.minHeight,
+    paddingHorizontal: GROUPED_ROW.padX,
+  },
+  input: { flex: 1, paddingVertical: GROUPED_ROW.tallPadY },
 });

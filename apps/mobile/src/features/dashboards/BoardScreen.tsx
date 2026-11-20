@@ -1,18 +1,15 @@
 import { busyWidgets } from "@agenteschat/client";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, RefreshControl, StyleSheet, View } from "react-native";
-import { Button, IconButton, Text, useTheme } from "@/ui";
+import { RefreshControl, StyleSheet, View } from "react-native";
 import { router } from "@/ui/navigation";
 import { FirstUse } from "../shared/FirstUse";
 import { usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
-import { PushedHeader } from "../shared/parts";
-import { SheetHostProvider } from "../shared/SheetHost";
 import { useBoard } from "./hooks";
 import { HOME, phoneRows, widgetsInOrder } from "./logic";
 import { useBoardMenu } from "./menu";
-import { AudienceLine, ProposalBanner, useBoardByline } from "./parts";
+import { AudienceLine, MissingScreen, ProposalBanner, useBoardByline } from "./parts";
 import { WidgetPeek } from "./WidgetPeek";
 
 /** While a widget is being built or updated, the board is asked again this often (events usually come first). */
@@ -22,24 +19,15 @@ const BUSY_POLL_MS = 15_000;
 export const newWidgetHref = (dashboardId: string) => `/widget-new?dashboardId=${dashboardId}` as const;
 
 /**
- * A dashboard, pushed (ADR 0135), with a large title as Routines: its name in the content, scrolling away under the
- * glass bar, whose own title fades in. Under the name, who made it, who sees it and how many widgets; an agent's
+ * A dashboard, pushed (ADR 0135), with a large title as Routines (the system's on iOS, folding into the bar as it
+ * scrolls; drawn on Android, the bar's title fading in). Under the name, who made it, who sees it and how many widgets; an agent's
  * request to publish it; then its widgets on two columns (a 2-wide one takes the whole row, a 2-high one draws its
  * data big), or "Add widget" when empty. Share (the globe or the lock), "+" and "…" (Organize, Rename, Pin, Delete)
  * in the bar. `id` is `home` for My Home,
  * made the first time it is opened.
  */
 export function BoardScreen({ id }: { id: string }) {
-  return (
-    <SheetHostProvider>
-      <Board id={id} />
-    </SheetHostProvider>
-  );
-}
-
-function Board({ id }: { id: string }) {
   const { t } = useTranslation();
-  const { colors: c } = useTheme();
   const { board, loading, failed, refetch } = useBoard(id);
   const menu = useBoardMenu(board);
   const pull = usePullRefresh(refetch);
@@ -52,21 +40,12 @@ function Board({ id }: { id: string }) {
   }, [busy, refetch]);
   if (!board) {
     return (
-      <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-        <PushedHeader title={id === HOME ? t("dashboards.home") : ""} solid={false} grouped />
-        <View style={styles.center}>
-          {loading ? (
-            <ActivityIndicator color={c.muted} />
-          ) : (
-            <>
-              <Text tone="muted" style={styles.centerText}>
-                {failed ? t("mobile.dashboards.loadFailed") : t("dashboards.errors.notFound")}
-              </Text>
-              <Button variant="secondary" size="sm" label={t("mobile.common.retry")} onPress={() => void refetch()} />
-            </>
-          )}
-        </View>
-      </View>
+      <MissingScreen
+        title={id === HOME ? t("dashboards.home") : ""}
+        state={loading ? "loading" : failed ? "failed" : "gone"}
+        onRetry={() => void refetch()}
+        gone={t("dashboards.errors.notFound")}
+      />
     );
   }
   const home = board.kind === "home";
@@ -80,19 +59,23 @@ function Board({ id }: { id: string }) {
       title={title}
       grouped
       refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
-      right={
-        <View style={styles.barRight}>
-          {board.canManage && !home ? (
-            <IconButton
-              icon={board.audience === "workspace" ? "globe" : "lock"}
-              label={t("dashboards.share.action")}
-              onPress={share}
-            />
-          ) : null}
-          {board.canEdit ? <IconButton icon="plus" label={t("widgets.add.label")} onPress={add} /> : null}
-          {menu.any ? <IconButton icon="more" label={menu.label} onPress={menu.open} /> : null}
-        </View>
-      }
+      // The system's own bar buttons: who sees it, a new widget and the "…" (the system's menu on iOS).
+      actions={[
+        ...(board.canManage && !home
+          ? [
+              {
+                icon: board.audience === "workspace" ? ("globe" as const) : ("lock" as const),
+                sf: board.audience === "workspace" ? ("globe" as const) : ("lock" as const),
+                label: t("dashboards.share.action"),
+                onPress: share,
+              },
+            ]
+          : []),
+        ...(board.canEdit
+          ? [{ icon: "plus" as const, sf: "plus" as const, label: t("widgets.add.label"), onPress: add }]
+          : []),
+        ...(menu ? [menu] : []),
+      ]}
     >
       <View style={styles.in}>
         {home ? null : (
@@ -125,11 +108,7 @@ function Board({ id }: { id: string }) {
 const GAP = 10;
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   in: { paddingHorizontal: 16, gap: 10 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32 },
-  centerText: { textAlign: "center" },
-  barRight: { flexDirection: "row", alignItems: "center" },
   meta: { paddingHorizontal: 4 },
   grid: { gap: GAP },
   row: { flexDirection: "row", gap: GAP },

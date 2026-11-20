@@ -73,7 +73,6 @@ const mission = (over: Partial<Mission> = {}): Mission => ({
     online: true,
     lentBy: null,
     executors: ["claude", "agent"],
-    codexTooOld: false,
   },
   needsComputer: false,
   role: "owner",

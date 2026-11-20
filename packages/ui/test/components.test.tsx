@@ -62,6 +62,29 @@ describe("Button", () => {
     expect(remove.disabled).toBe(true);
   });
 
+  test("its words are one label a narrow place can cut, its icon and keys beside it; an element child stays as written", () => {
+    render(
+      <>
+        <div>
+          <Button icon="message">Falar com o Assistente de Atendimento</Button>
+        </div>
+        <div>
+          <Button kbd={["⌘", "↵"]}>Enviar {2} itens</Button>
+        </div>
+        <div>
+          <Button>
+            <b>Negrito</b>
+          </Button>
+        </div>
+      </>,
+    );
+    const talk = body().getByRole("button", { name: "Falar com o Assistente de Atendimento" });
+    expect([...talk.children].map((c) => c.getAttribute("class"))).toEqual(["ac-icon", "ac-btn__label"]);
+    const send = body().getByRole("button", { name: /^Enviar 2 itens/ });
+    expect(send.querySelector(":scope > .ac-btn__label")?.textContent).toBe("Enviar 2 itens");
+    expect(body().getByRole("button", { name: "Negrito" }).querySelector(".ac-btn__label")).toBeNull();
+  });
+
   test("variants map to the design classes; default type is button", () => {
     render(
       <>
@@ -268,8 +291,10 @@ describe("ApprovalCard", () => {
     );
     const cards = container.querySelectorAll(".ac-approval--done");
     expect(cards).toHaveLength(2);
-    expect(cards[0]?.querySelector(".ac-chip")?.className).toBe("ac-chip ac-chip--done");
-    expect(cards[1]?.querySelector(".ac-chip")?.className).toBe("ac-chip");
+    // The chip ends the head's line, or starts its own under who asked (`.ac-tail`).
+    expect(cards[0]?.querySelector(".ac-chip")?.className).toBe("ac-chip ac-chip--done ac-tail");
+    expect(cards[1]?.querySelector(".ac-chip")?.className).toBe("ac-chip ac-tail");
+    expect(cards[0]?.querySelector(".ac-approval__head")?.classList.contains("ac-tailrow")).toBe(true);
     expect(container.querySelector(".ac-approval__actions")).toBeNull();
   });
 });

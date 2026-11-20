@@ -250,10 +250,10 @@ button.wiki-folder-row__act:hover {
   color: var(--ink2);
   cursor: pointer;
 }
+/* Its buttons end the bar's line, or start their own under what's chosen (`.ac-tailrow`). */
 .wiki-pickbar__acts {
   display: flex;
   gap: var(--space-2);
-  margin-left: auto;
 }
 .wiki-bulk-agents {
   display: flex;
@@ -275,10 +275,11 @@ button.wiki-folder-row__act:hover {
   color: var(--muted);
 }
 .wiki-trash__bar {
+  --tail-gap: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: var(--tail-gap);
   padding: 10px 14px;
   border-radius: 12px;
   background: var(--plate);
@@ -286,7 +287,6 @@ button.wiki-folder-row__act:hover {
 .wiki-trash__acts {
   display: flex;
   gap: var(--space-2);
-  margin-left: auto;
 }
 .wiki-trash__list {
   display: flex;

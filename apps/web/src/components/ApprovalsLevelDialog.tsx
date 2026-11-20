@@ -94,7 +94,7 @@ export function WhenAsksLink({
   const [open, setOpen] = useState(false);
   const [everyAgent, setEveryAgent] = useState(false);
   const boxId = useId();
-  if (!agent || !changesWhenAsks(org, approval)) return null;
+  if (!agent || !changesWhenAsks(agent, approval)) return null;
   const choose = (level: ApprovalsLevel) => {
     const all = everyAgent;
     change.mutate(
@@ -139,7 +139,9 @@ export function WhenAsksLink({
         saving={saving}
         onChoose={choose}
       >
-        {can(org, "manage_agents") && (
+        {/* The workspace's level reaches private agents too: owners and administrators only (ADR 0085 addendum of
+            2026-11-17, the server's `setWorkspaceApprovalsLevel`). */}
+        {can(org, "administrator") && (
           <label htmlFor={boxId} className="scope-row">
             <Checkbox id={boxId} checked={everyAgent} onCheckedChange={setEveryAgent} disabled={saving} />
             <span className="scope-row__text">{t("approvalsLevel.everyAgent")}</span>
@@ -151,8 +153,9 @@ export function WhenAsksLink({
 }
 
 /**
- * Settings → Aprovações (ADR 0173 addendum 2026-11-15), for who may set every agent's level: the workspace's level,
- * which every agent without its own choice follows. The dialog says how many agents keep their own.
+ * Settings → Aprovações (ADR 0173 addendum 2026-11-15), for who may set every agent's level, private ones included
+ * (owners and administrators, ADR 0085 addendum of 2026-11-17): the workspace's level, which every agent without its
+ * own choice follows. The dialog says how many agents keep their own.
  */
 export function WorkspaceApprovalsRow() {
   const { t } = useTranslation();
@@ -161,7 +164,7 @@ export function WorkspaceApprovalsRow() {
   const agents = useAgents(org.id).data ?? [];
   const set = useSetWorkspaceApprovalsLevel(org.id);
   const [open, setOpen] = useState(false);
-  if (!can(org, "manage_agents")) return null;
+  if (!can(org, "administrator")) return null;
   const title = t("approvalsLevel.title");
   const level = (set.isPending ? set.variables?.level : undefined) ?? settings.data?.approvalsLevel ?? "risky";
   const own = ownApprovalsCount(agents);

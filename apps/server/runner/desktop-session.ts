@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createCipheriv, randomBytes, randomInt } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomInt } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import {
   chmodSync,
@@ -88,7 +88,9 @@ import { KeyedQueue } from "./queue";
  *   again at its next start (`reopen`, ADR 0168): its Terminals, as new shells
  *   in the folders theirs were in, each with a line saying why; its other
  *   apps, as the desktop's keeper listed their windows (`desktop-keeper.py`);
- *   and the agent's Chrome, when it showed there, which opens its last tabs.
+ *   and the agent's Chrome, when it showed there, which opens again the tabs
+ *   the runner kept of it (`recordTabs` in `browser.ts`: its web pages, each
+ *   once, 8 at most, never a popup or a tab a person opened).
  *   A desktop that ends while the runner runs (stopped, crashed) forgets it; one that ends once the runner is stopping (a reboot stops both
  *   at once) keeps it.
  */
@@ -347,6 +349,32 @@ export function runnerEnv(home: string): Record<string, string> {
 export function runnerUser(runnerHome: string, agentFolder: string, agent: AgentScope): DesktopUser {
   const home = path.join(agentFolder, ".agentes", "home");
   return { prefix: [], env: runnerEnv(home), home, dir: path.join(runnerHome, "desktop", id8(agent)) };
+}
+
+/**
+ * `sun_path` fits 107 bytes here (108 with its terminator). A desktop's socket is `dir`'s `vnc.sock`; when that path
+ * is too long for one (a runner home with a long user name), it goes to `agentes-desktop-<uid>` in the temp folder,
+ * named after the path so the same desktop always gets the same one. That folder is the runner's own and 0700
+ * (`ownSocketFolder`): in a shared /tmp another user could otherwise take the name first.
+ * Single-user mode only: in system mode the agent's /tmp is its own, so the runner couldn't reach a socket there.
+ * The desktop's other files (its cookie, its log, its record) stay where they are.
+ */
+export const LONG_SOCKET_PATH = 107;
+
+export function desktopSocketPath(dir: string, tmp = os.tmpdir(), uid = process.getuid?.() ?? 0) {
+  const inDir = path.join(dir, "vnc.sock");
+  if (Buffer.byteLength(inDir) <= LONG_SOCKET_PATH) return inDir;
+  const id = createHash("sha256").update(inDir).digest("hex").slice(0, 16);
+  return path.join(tmp, `agentes-desktop-${uid}`, `${id}.vnc.sock`);
+}
+
+/** Makes `folder` 0700, and refuses one that is a link, someone else's, or open to others. */
+export function ownSocketFolder(folder: string, uid = process.getuid?.() ?? 0) {
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  const st = lstatSync(folder);
+  if (!st.isDirectory() || st.uid !== uid || (st.mode & 0o077) !== 0) {
+    throw new RunnerError("internal", `The desktop's socket folder ${folder} isn't the runner's own, 0700`);
+  }
 }
 
 /**
@@ -612,7 +640,7 @@ interface Desktop extends Saved {
 
 /**
  * What is open on a desktop, in `<id8>.open`: its Terminals as the folders their shells were in, oldest first; its other
- * apps as the keeper listed their windows; whether the agent's Chrome showed there (its tabs are its own session's,
+ * apps as the keeper listed their windows; whether the agent's Chrome showed there (its tabs are kept in its profile,
  * which it opens again); and the computer it was kept on. Background work comes back through the server (ADR 0168).
  */
 export interface OpenOnDesktop {
@@ -1132,10 +1160,10 @@ export class DesktopSessions {
   /**
    * What was open on the desktop before the computer restarted or moved opens again, on the session's bus, where its
    * settings and the look's prompt are: the agent's Chrome when it showed there (the runner's own, through Browser's
-   * way, which opens its last tabs); each Terminal a new shell in its folder (one that is gone is left out), with
-   * `terminalNote` above its first prompt; each other app with its command line in its folder. Only the bus comes from
-   * the session's environment: what the agent's processes hold is never handed to the launcher, which starts as root
-   * in system mode.
+   * way, which opens the tabs the runner kept of it, `recordTabs`); each Terminal a new shell in its folder (one that
+   * is gone is left out), with `terminalNote` above its first prompt; each other app with its command line in its
+   * folder. Only the bus comes from the session's environment: what the agent's processes hold is never handed to the
+   * launcher, which starts as root in system mode.
    */
   private async reopen(d: Desktop, open: OpenOnDesktop) {
     if (this.desktops.get(d.agent.id) !== d || !this.alive(d)) return;
@@ -1233,12 +1261,13 @@ export class DesktopSessions {
       const passwords = { full: newPassword(), view: newPassword() };
       while (passwords.view === passwords.full) passwords.view = newPassword();
       const files = {
-        socket: path.join(user.dir, "vnc.sock"),
+        socket: user.ids ? path.join(user.dir, "vnc.sock") : desktopSocketPath(user.dir),
         xauthority: path.join(user.dir, "Xauthority"),
         passwd: user.ids
           ? path.join(this.opts.runDir ?? SYSTEM_RUN_DIR, String(user.ids.uid), "passwd")
           : path.join(user.dir, "passwd"),
       };
+      if (path.dirname(files.socket) !== user.dir) ownSocketFolder(path.dirname(files.socket));
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       const logFile = path.join(this.dir, `${id8(agent)}.log`);
       // A desktop that ended by itself starts again at once: the log of the start that ended stays (`.log.1`).
@@ -1683,7 +1712,10 @@ export class DesktopSessions {
  * in a terminal); no blacklist (TigerVNC counts attempts, not
  * failures, so a burst of reconnects after a deploy would lock everyone out,
  * and behind a 0600 socket it protects nothing); X only through the cookie
- * file, no TCP; no screen saver.
+ * file, no TCP; no screen saver; no pointer drawn (`-nocursor`): TigerVNC
+ * draws it into the picture of a viewer whose own pointer is elsewhere, so
+ * whoever watches saw the computer's arrow beside the agent's cursor the
+ * apps draw (ADR 0040 §7.2); in control the person's own pointer shows.
  */
 function xvncArgs(files: { socket: string; xauthority: string; passwd: string }, name: string): string[] {
   return [
@@ -1712,6 +1744,7 @@ function xvncArgs(files: { socket: string; xauthority: string; passwd: string },
     "tcp",
     "-s",
     "0",
+    "-nocursor",
     "-desktop",
     name,
   ];

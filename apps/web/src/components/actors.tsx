@@ -37,7 +37,7 @@ export function useActors() {
       label: m.name,
       leading: avatar({ type: "person", id: m.userId }, "sm"),
     })),
-    ...dir.agents
+    ...[...dir.agentById.values()]
       .filter((a) => listsAgent(org, a) || `agent:${a.id}` === current)
       .map((a) => ({
         value: `agent:${a.id}`,

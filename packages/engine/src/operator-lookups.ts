@@ -222,13 +222,13 @@ export async function operatorMembers(db: Database, orgId: string, query: PageQu
 
 // ── A workspace's channels ───────────────────────────────────────────────────
 
-export const OPERATOR_CHANNEL_KINDS = ["channel", "dm", "task"] as const;
+export const OPERATOR_CHANNEL_KINDS = ["channel", "dm", "task", "file"] as const;
 
 const CHANNEL_ID = sql.raw(`"channels"."id"`);
 
 /**
- * A workspace's channels, direct conversations and tasks' conversations, newest first, in keyset pages: how many
- * people and agents are in each, never what was said there. Null: no such workspace.
+ * A workspace's channels, direct conversations and tasks' and live files' conversations, newest first, in keyset
+ * pages: how many people and agents are in each, never what was said there. Null: no such workspace.
  */
 export async function operatorChannels(
   db: Database,
@@ -346,7 +346,7 @@ export const operatorAccountColumns = {
  */
 export async function operatorAgent(db: Database, agentId: string) {
   const [agent] = await db
-    .select({ ...agentColumns, previousHandles: agents.previousHandles, fallback: agents.brainFallback })
+    .select({ ...agentColumns, previousHandles: agents.previousHandles })
     .from(agents)
     .where(eq(agents.id, agentId));
   if (!agent) return null;
@@ -450,6 +450,7 @@ export const OPERATOR_MATCH_KINDS = [
   "channel",
   "dm",
   "task_conversation",
+  "file_conversation",
   "message",
   "run",
   "task",
@@ -528,12 +529,15 @@ const findChannels = async (db: Database, where: Where) =>
       .orderBy(asc(channels.id))
       .limit(OPERATOR_RESOLVE_MAX)
   ).map(({ kind, name, ...row }) =>
-    // A direct conversation's name is a digest of who is in it, a task's conversation's is made up: neither is shown.
+    // A direct conversation's name is a digest of who is in it, a task's or a file's conversation's is made up: none is
+    // shown.
     kind === "dm"
       ? matchOf("dm")(row)
       : kind === "task"
         ? matchOf("task_conversation")(row)
-        : matchOf("channel")({ ...row, name }),
+        : kind === "file"
+          ? matchOf("file_conversation")(row)
+          : matchOf("channel")({ ...row, name }),
   );
 
 const findMessages = async (db: Database, where: Where) =>

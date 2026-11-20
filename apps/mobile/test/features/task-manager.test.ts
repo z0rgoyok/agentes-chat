@@ -27,9 +27,8 @@ import {
   taskSubline,
   tasksBadge,
 } from "../../src/features/task-manager/logic";
+import { pushedByDefault } from "../main-stack";
 import { translator } from "./fixtures";
-
-const APP = join(import.meta.dir, "../../app/(app)");
 
 const task = (over: Partial<ManagedTask> & { runId: string }): ManagedTask => ({
   agentId: "dev",
@@ -152,32 +151,34 @@ describe("one line a row", () => {
     // Every row opens what says it whole (a task's screen, its agent's tasks, a computer's line): a chevron, never a
     // stop button squeezing the title.
     expect(screen).not.toContain("end={stop}");
-    expect(screen).toContain('<Icon name="right" size={15} color={c.faint} />');
+    expect(screen).toContain("<Disclosure />");
     for (const row of ["computer.name", "title"]) expect(screen).toContain(`<OneLine title={${row}}`);
   });
 
-  test("what holds the waiting work: today's line, then up to three causes, each one line that opens its way out", () => {
+  test("what holds the waiting work: its heading, then up to three causes, each one line that opens its way out", () => {
     const screen = read("TaskManagerScreen.tsx");
     expect(screen).toContain("const causes = shownCauses(all);");
-    // A computer in the strip is not listed again under Computadores.
-    expect(screen).toContain("const listed = computersBesides(computers, causes);");
-    expect(screen).toContain("{listed.map((m, i) => (");
-    expect(screen).toContain('t("taskManager.capacity.today", {');
-    // Today's count is asked by this screen alone: an agent's tasks, a task and a DM's header count what ended.
-    expect(screen).toContain("useTasksToday({ doneToday: true })");
-    for (const other of ["TaskScreen.tsx", "AgentTasksScreen.tsx", "AgentTasksButton.tsx"])
+    // One block for what holds the work: no today's line, no second Computadores list.
+    expect(screen).toContain(
+      '<SectionHeader title={t("taskManager.capacity.label")} count={causes.length + lined.length} />',
+    );
+    expect(screen).not.toContain("taskManager.capacity.today");
+    expect(screen).not.toContain("taskManager.queue.computers");
+    // A computer with a line is a row of the same block, opening its line.
+    expect(screen).toContain("const lined = computersBesides(computers, causes).filter((m) => m.inLine > 0);");
+    // No screen asks for today's count any more.
+    for (const other of ["TaskManagerScreen.tsx", "TaskScreen.tsx", "AgentTasksScreen.tsx", "AgentTasksButton.tsx"])
       expect(read(other)).not.toContain("doneToday: true");
     expect(read("hooks.ts")).toContain("doneToday: options.doneToday ?? false,");
     expect(screen).toContain('<OneLine title={title} line={line} variant="subhead" />');
     for (const way of [
       'router.push("/usage")',
-      "openQueue(cause.machineId)",
       'router.push("/settings/devices")',
       "router.push(taskHref(first.runId))",
     ])
       expect(screen).toContain(way);
     // Nothing waits, nothing shows.
-    expect(screen).toContain("{causes.length > 0 ? (");
+    expect(screen).toContain("{causes.length + lined.length > 0 ? (");
   });
 
   test("its screen says it whole: the title and what it is about with no limit of lines, the state's words", () => {
@@ -211,12 +212,21 @@ describe("one line a row", () => {
     expect(read("parts.tsx")).not.toContain("taskClock");
   });
 
-  test("stopping several asks with the agent's face and the question on one line, what happens under them", () => {
-    const parts = read("parts.tsx");
-    expect(parts).toMatch(
-      /<MediaRow\s*size="row"\s*face=\{<AgentFace agentId=\{agentId\} size=\{MEDIA_ROW\.row\.face\}/,
-    );
-    expect(parts).not.toContain("confirmHead");
+  test("stopping several asks once, in the system's alert: how many and whose, never a card opened in place", () => {
+    const list = read("AgentTasksScreen.tsx");
+    expect(list).toContain("Alert.alert(");
+    expect(list).toContain('text: t("taskManager.confirm.stop", { count: stoppable.length }),');
+    // The in-place confirmation card it replaced is gone.
+    expect(read("parts.tsx")).not.toContain("StopConfirm");
+  });
+
+  test("a list that didn't load says so and offers to try again; a task's screen loads in its rows' shape", () => {
+    expect(read("TaskManagerScreen.tsx")).toContain("<LoadFailed onRetry={() => void tasks.refetch()} />");
+    expect(read("AgentTasksScreen.tsx")).toContain("<LoadFailed onRetry={() => void query.refetch()} />");
+    const page = read("TaskScreen.tsx");
+    expect(page).toContain("<SkeletonList rows={3} />");
+    expect(page).not.toContain("ActivityIndicator");
+    expect(page).toContain("{stopNote ? <GroupedFooter>{stopNote}</GroupedFooter> : null}");
   });
 });
 
@@ -349,23 +359,27 @@ describe("a computer's line (ADR 0128)", () => {
   const now = Date.parse("2026-11-02T14:00:00.000Z");
   const full = { machineId: "m1", position: 2, of: 3, people: false, estimatedStartAt: null };
 
-  test("a task waiting for room on its computer says its place, not just that the computer is full", async () => {
+  test("a task waiting its turn says one line, whatever holds it, its place or its estimate", async () => {
     const t = await translator("pt-BR");
     const inLine = task({ runId: "r1", status: "waiting_input", held: "computer_busy", line: full });
-    const said = (x: ManagedTask) => taskStateWords(t, "pt-BR", x, rowState(x, NONE), now).state;
-    expect(said(inLine)).toBe("Na fila · 2º");
-    expect(said({ ...inLine, line: null })).toBe("Computador cheio");
-    expect(said(task({ runId: "r2" }))).toBe("Trabalhando");
+    const words = (x: ManagedTask) => taskStateWords(t, "pt-BR", x, rowState(x, NONE), now);
+    const one = { state: "Na fila · começa em seguida", next: null };
+    expect(words(inLine)).toEqual(one);
+    expect(words({ ...inLine, line: null })).toEqual(one);
+    expect(words({ ...inLine, line: { ...full, position: 1, estimatedStartAt: "2026-11-02T14:03:00.000Z" } })).toEqual(
+      one,
+    );
+    expect(words(task({ runId: "r2" })).state).toBe("Trabalhando");
   });
 
-  test("a computer on the task manager: full with how many wait, or room, and how many run", async () => {
+  test("a computer on the task manager: how many wait, or room, and how many run", async () => {
     const t = await translator("pt-BR");
-    expect(computerRoomText(t, { working: 3, inLine: 2 })).toBe("Cheio · 2 na fila · 3 trabalhando");
+    expect(computerRoomText(t, { working: 3, inLine: 2 })).toBe("2 na fila · 3 trabalhando");
     expect(computerRoomText(t, { working: 1, inLine: 0 })).toBe("Tem espaço · 1 trabalhando");
     expect(computerRoomText(t, { working: 0, inLine: 0 })).toBe("Tem espaço");
   });
 
-  test("what holds the work, in the rows' words: a plan by its wait's return, a full computer once, with its facts", async () => {
+  test("what holds the work, in the rows' words: a plan by its wait's return; a turn in line is no cause", async () => {
     const t = await translator("pt-BR");
     const onPlan = (runId: string) =>
       task({
@@ -392,26 +406,11 @@ describe("a computer's line (ADR 0128)", () => {
       { id: "m2", name: "Servidor", working: 1, inLine: 0 },
     ];
     const causes = shownCauses([onPlan("a"), onPlan("b"), inLine("c")]);
-    const [plan, computer] = causes.map((c) => causeWords(t, "pt-BR", c, computers));
+    const [plan, ...rest] = causes.map((c) => causeWords(t, "pt-BR", c, computers));
     expect(plan?.name).toBe("Plano do Claude no limite");
     expect(plan?.fact).toMatch(/^Volta (às|amanhã|\S+ às) .+ · 2 tarefas$/);
-    expect(computer).toEqual({ name: "Computador da equipe", fact: "Cheio · 4 na fila · 2 trabalhando" });
-    // The other computer still lists under Computadores; the one in the strip does not.
-    expect(computersBesides(computers, causes).map((c) => c.id)).toEqual(["m2"]);
-  });
-
-  test("under its place, when it should start, in the computer line's words; no made-up time without an estimate", async () => {
-    const t = await translator("pt-BR");
-    const soon = task({
-      runId: "r1",
-      status: "waiting_input",
-      held: "computer_busy",
-      line: { ...full, estimatedStartAt: "2026-11-02T14:03:00.000Z" },
-    });
-    const next = (x: ManagedTask) => taskStateWords(t, "pt-BR", x, rowState(x, NONE), now).next;
-    expect(next(soon)).toBe("começa em ~3 min");
-    expect(next({ ...soon, line: full })).toBe("Começa quando tiver memória livre");
-    expect(next(task({ runId: "r2" }))).toBeNull();
+    expect(rest).toEqual([]);
+    expect(computersBesides(computers, causes).map((c) => c.id)).toEqual(["m1", "m2"]);
   });
 });
 
@@ -460,10 +459,8 @@ describe("why a task waits", () => {
 
 describe("navigation", () => {
   test("the task manager, a task and an agent's tasks are pushed screens, in the stack", () => {
-    const layout = readFileSync(join(APP, "_layout.tsx"), "utf8");
-    expect(layout).toContain(`name="task-manager/index" options={{ ...pushed, ...scrollUnder }}`);
-    expect(layout).toContain(`name="task-manager/[runId]" options={{ ...pushed, ...scrollUnder }}`);
-    expect(layout).toContain(`name="agent-tasks/[agentId]" options={{ ...pushed, ...scrollUnder }}`);
+    for (const route of ["task-manager/index", "task-manager/[runId]", "agent-tasks/[agentId]"])
+      expect({ route, pushed: pushedByDefault(route) }).toEqual({ route, pushed: true });
   });
 });
 

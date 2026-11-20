@@ -6,7 +6,7 @@
 import type { AppNotification, NotificationEvent, NotificationKind } from "../api/types";
 
 /** Same names as `SOUNDS` in `@agenteschat/ui/sfx`. */
-export type SoundName = "send" | "reply" | "done" | "attention" | "approved" | "error" | "stop" | "mention";
+export type SoundName = "send" | "reply" | "done" | "attention" | "approved" | "error" | "stop" | "mention" | "discard";
 
 let player: ((name: SoundName) => void) | null = null;
 

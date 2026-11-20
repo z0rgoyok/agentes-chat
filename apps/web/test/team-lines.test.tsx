@@ -5,7 +5,7 @@ setupDom();
 
 import type { Agent } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, ATLAS_ID, createFakeApi, GENERAL_ID, ORG_ID, seedState, withRightHand } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, GENERAL_ID, meWithRole, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => {
@@ -194,5 +194,70 @@ describe("Responde a, by clicking (ADR 0148 addendum)", () => {
     const menu = screen().getByRole("menu");
     await click(within(menu).getByRole("menuitemradio", { name: "Atlas" }));
     expect(calls(state, "agents.setLines")).toEqual([[[{ agentId: ADA_ID, reportsToAgentId: ATLAS_ID }]]]);
+  });
+});
+
+/**
+ * I hold "Edit agents", but Atlas answers João, its owner, and someone else, not me: the key doesn't reach it (ADR 0085
+ * addendum of 2026-11-17), so I put nobody under it, and no Undo puts anyone back there. Bia, like Ada, answers
+ * everyone. Answering someone besides its owner, Atlas isn't private: it is still listed.
+ */
+const unreached = () => {
+  const state = withRightHand(seedState());
+  meWithRole(state, ["manage_agents"]);
+  const atlas = state.agents.find((a) => a.id === ATLAS_ID);
+  if (atlas) atlas.audience = { mode: "people", userIds: ["u-someone"] };
+  state.agents.push({
+    ...(state.agents.find((a) => a.id === ADA_ID) as Agent),
+    id: BIA,
+    name: "Bia",
+    handle: "bia",
+    reportsToAgentId: null,
+  });
+  return state;
+};
+const optionNames = () =>
+  screen()
+    .getAllByRole("option")
+    .map((o) => o.textContent ?? "");
+
+describe("Reports to, under an agent the key doesn't reach", () => {
+  test("taking an agent from under it applies with no Undo; under one I manage, Undo is there", async () => {
+    const state = unreached();
+    const ada = state.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.reportsToAgentId = ATLAS_ID;
+    await go(state, `agents/${ADA_ID}?tab=settings&sec=identity`);
+    await pick("Responde a", "Ninguém");
+    expect(calls(state, "agents.setLines")).toEqual([[[{ agentId: ADA_ID, reportsToAgentId: null }]]]);
+    expect(document.body.textContent).toContain("Ada não responde mais a um agente");
+    // Putting Ada back under Atlas would be refused: the server needs who manages the supervisor too.
+    expect(screen().queryByRole("button", { name: "Desfazer" })).toBeNull();
+    await pick("Responde a", "Bia");
+    expect(calls(state, "agents.setLines").at(-1)).toEqual([[{ agentId: ADA_ID, reportsToAgentId: BIA }]]);
+    await click(screen().getByRole("button", { name: "Desfazer" }));
+    expect(calls(state, "agents.setLines").at(-1)).toEqual([[{ agentId: ADA_ID, reportsToAgentId: null }]]);
+  });
+
+  test("Departments: the Supervisor offers only agents I manage, keeps the one they report to now, no Apply under it", async () => {
+    const state = unreached();
+    state.agentGroups = [{ id: "g-int", name: "Integrations", agentIds: [ADA_ID, BIA] }];
+    await team(state, "sectors");
+    const field = screen().getByRole("combobox", { name: "Supervisor de Integrations" });
+    field.focus();
+    await act(async () => fireEvent.keyDown(field, { key: "Enter" }));
+    const offered = optionNames();
+    expect(offered.some((n) => n.includes("Bia"))).toBe(true);
+    expect(offered.some((n) => n.includes("Atlas"))).toBe(false);
+    cleanup();
+    // Ada reports to Atlas: still named, and Bia isn't put under it from here.
+    const under = unreached();
+    under.agentGroups = [{ id: "g-int", name: "Integrations", agentIds: [ADA_ID, BIA] }];
+    const ada = under.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.reportsToAgentId = ATLAS_ID;
+    await team(under, "sectors");
+    expect(screen().getByRole("combobox", { name: "Supervisor de Integrations" }).textContent).toContain("Atlas");
+    expect(document.body.textContent).toContain("1 agente sem supervisor");
+    expect(screen().queryByRole("button", { name: "Aplicar" })).toBeNull();
+    expect(calls(under, "agents.setLines")).toEqual([]);
   });
 });

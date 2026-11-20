@@ -166,8 +166,8 @@ describe("Quem pensa as one list (the new agent's step)", () => {
     expect(options.filter((o) => o.free).map((o) => o.value)).toEqual([
       "some-free-model",
       "opencode@m1#acc-go/longcat-2.5-free",
+      "opencode@m1#acc-go/hy4-flash-free",
       "opencode@m1#acc-go/beam-free",
-      "opencode@m1#acc-go/crouton-alpha-free",
       "opencode@m1#acc-go/iceman-contributor-free",
     ]);
     expect(finds(options, "deepseek-v4.1-flash")).toEqual(["opencode@m1#acc-go/deepseek-v4.1-flash"]);
@@ -220,6 +220,9 @@ describe("Quem pensa as one list (the new agent's step)", () => {
     ).toBe("brain.free · brain.modelTag.cheap");
     expect(brainModelLine(t, "claude_code", undefined, { value: "opus", label: "Opus" })).toBe(
       "agentPage.work.brain.modelLine.opus",
+    );
+    expect(brainModelLine(t, "claude_code", undefined, { value: "fable", label: "Fable" })).toBe(
+      "agentPage.work.brain.modelLine.fable",
     );
     expect(brainModelLine(t, "codex", undefined, { value: "gpt", label: "GPT" })).toBeUndefined();
   });
@@ -316,9 +319,11 @@ describe("OpenCode (ADR 0132) in Quem pensa", () => {
     const goModels = keyed.slice(3).map((o) => (o.pick as { model: string }).model);
     expect(goModels.every((m) => m.startsWith("opencode-go/"))).toBe(true);
     expect(goModels).toContain("opencode-go/deepseek-v4.1-flash");
-    // Go thinks through Claude Code, where OpenCode's free tier never answers: a hint says where they run.
+    // Go thinks through Claude Code, where OpenCode's free tier never answers: a hint says where they run. Go's own
+    // free models (`hy4-flash-free`) are its list's, not the free tier's.
     const go = options.filter((o) => "accountId" in o.pick && o.pick.accountId === "acc-go");
-    expect(go.some((o) => o.value.endsWith("-flash-free"))).toBe(false);
+    for (const id of ["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free"])
+      expect(go.some((o) => o.value.endsWith(`/${id}`))).toBe(false);
     expect(go[0]?.hint).toBe("brain.opencodeFreeHint");
     expect(options.find((o) => o.value === "claude@m1/auto")?.hint).toBeUndefined();
     expect(planFreeHint(t, CODING_PLANS.opencode)).toBe("brain.opencodeFreeHint");
@@ -508,5 +513,22 @@ describe("the model picker: the agent's AI changed in place", () => {
       brain: null,
       model: "gpt-6",
     });
+  });
+});
+
+describe("pickGroups", () => {
+  test("two groups of the same heading stay two where their keys differ (two owners of one first name)", () => {
+    const groups = pickGroups([
+      { group: "De João", groupKey: "owner:u1" },
+      { group: "De João", groupKey: "owner:u2" },
+      { group: "De João", groupKey: "owner:u2" },
+      { group: "Claude" },
+      { group: "Claude" },
+    ]);
+    expect(groups.map((g) => [g.key, g.group, g.options.length])).toEqual([
+      ["owner:u1", "De João", 1],
+      ["owner:u2", "De João", 2],
+      ["Claude", "Claude", 2],
+    ]);
   });
 });

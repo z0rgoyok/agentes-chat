@@ -4,6 +4,7 @@ import {
   createFakeErrorReporter,
   MACHINE_PROTOCOL_VERSION,
   orgTopic,
+  RUNNER_STOPPED_CLOSE,
   type ServerFrame,
   sealSecret,
   secretAad,
@@ -28,12 +29,14 @@ import {
   listMachines,
   listNotifications,
   MACHINE_CONTROL_TOPIC,
+  MACHINE_DISCONNECTS_KEPT,
   MachineDroppedError,
   type MachineHub,
   MachineOfflineError,
   MachineRequestError,
   machineAgents,
   NotFoundError,
+  offlineCause,
   postPersonMessage,
   receiveMachineUpload,
   registerPushDevice,
@@ -185,6 +188,57 @@ describe("a runner that dies mid-request (brain turns never stay working)", () =
     expect(row).toMatchObject({ online: false, connectedReplica: null });
   });
 
+  test("each close is kept, newest first and capped, and the list says why the computer is offline", async () => {
+    f = await setup({ machines: true });
+    const hub = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-c", heartbeatMs: 20 });
+    hubs.push(hub);
+    const paired = await pair();
+    const cause = async () => (await listMachines(f.db, f.owner.id, f.org.id))[0]?.offlineCause;
+
+    const stopping = fakeRunner(hub);
+    await stopping.hello(paired.token);
+    expect(await cause()).toBeNull();
+    await stopping.disconnect({ code: RUNNER_STOPPED_CLOSE, reason: "stopped" });
+    expect(await cause()).toBe("stopped");
+
+    const dropping = fakeRunner(hub);
+    await dropping.hello(paired.token);
+    await dropping.disconnect();
+    expect(await cause()).toBe("dropped");
+
+    const silent = fakeRunner(hub, { dead: true });
+    await silent.hello(paired.token);
+    await until(async () => (await cause()) === "unresponsive", "the no-pong close");
+    const [row] = await f.db.select().from(schema.machines);
+    expect(row?.disconnects.map((d) => d.code)).toEqual([4408, 1005, RUNNER_STOPPED_CLOSE]);
+    expect(row?.disconnects[0]).toMatchObject({ reason: "no pong" });
+    const first = row?.disconnects[0];
+    expect(Date.parse(first?.connectedAt ?? "")).toBeLessThanOrEqual(Date.parse(first?.at ?? ""));
+
+    for (let i = 0; i < MACHINE_DISCONNECTS_KEPT; i++) {
+      const again = fakeRunner(hub);
+      await again.hello(paired.token);
+      await again.disconnect({ code: 1006, reason: "" });
+    }
+    const [capped] = await f.db.select().from(schema.machines);
+    expect(capped?.disconnects).toHaveLength(MACHINE_DISCONNECTS_KEPT);
+    expect(capped?.disconnects.every((d) => d.code === 1006)).toBe(true);
+  });
+
+  test("the offline cause: none for the workspace's own computer, or past a close a later sign of life overrides", () => {
+    const at = "2026-01-01T10:00:00.000Z";
+    const disconnects = [{ connectedAt: at, at, code: 4408, reason: "no pong" }];
+    const before = new Date("2026-01-01T09:59:59Z");
+    expect(offlineCause({ kind: "connected", disconnects, lastSeenAt: before }, false)).toBe("unresponsive");
+    expect(offlineCause({ kind: "connected", disconnects, lastSeenAt: before }, true)).toBeNull();
+    expect(offlineCause({ kind: "managed", disconnects, lastSeenAt: before }, false)).toBeNull();
+    expect(offlineCause({ kind: "connected", disconnects: [], lastSeenAt: before }, false)).toBeNull();
+    // A replica that died left the row online: its later pongs say nothing about this old close.
+    expect(
+      offlineCause({ kind: "connected", disconnects, lastSeenAt: new Date("2026-01-01T10:05:00Z") }, false),
+    ).toBeNull();
+  });
+
   test("a silent runner is dropped two heartbeats after its last pong, as the runner drops a silent server", async () => {
     f = await setup({ machines: true });
     const hub = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-s", heartbeatMs: 100 });
@@ -196,6 +250,41 @@ describe("a runner that dies mid-request (brain turns never stay working)", () =
     // Gone at the second heartbeat (200 ms), not the fourth.
     expect(await within(turn, 300)).toBeInstanceOf(MachineDroppedError);
     expect(runner.closed()).toMatchObject({ code: 4408 });
+  });
+
+  test("a server whose loop stalls keeps the runners whose pongs it couldn't read in time; a dead link still goes", async () => {
+    f = await setup({ machines: true });
+    const hub = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-l", heartbeatMs: 100 });
+    hubs.push(hub);
+    const alive = fakeRunner(hub, { pong: true });
+    await alive.hello((await pair()).token);
+    const dead = fakeRunner(hub, { dead: true });
+    await dead.hello((await pair(f.owner.id, "Gone box")).token);
+    // Busy for over two heartbeats (under the four after which silence closes anyway): the next ping tick fires
+    // late, long after the last pong it could read.
+    void alive.frame({ type: "pong", at: Date.now() });
+    Bun.sleepSync(220);
+    await Bun.sleep(400);
+    expect(alive.closed()).toBeNull();
+    expect(alive.sent.filter((frame) => frame.type === "ping").length).toBeGreaterThanOrEqual(3);
+    expect(dead.closed()).toMatchObject({ code: 4408, reason: "no pong" });
+  });
+
+  test("a computer that keeps dropping gets one offline check per grace window, a full grace after its last drop", async () => {
+    f = await setup({ machines: true });
+    const grace = 3_600_000;
+    const hub = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-f", taskOfflineGraceMs: grace });
+    hubs.push(hub);
+    const paired = await pair();
+    for (let i = 0; i < 5; i++) {
+      const runner = fakeRunner(hub);
+      await runner.hello(paired.token);
+      await runner.disconnect({ code: 1006, reason: "" });
+    }
+    const lastDrop = Date.now();
+    const jobs = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, "machine.tasks_offline"));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.nextAttemptAt.getTime()).toBeGreaterThanOrEqual(lastDrop + grace);
   });
 
   test("a request cut by its socket closing fails as dropped (it may have run); our own stop says it is ours", async () => {
@@ -231,8 +320,11 @@ describe("a runner that dies mid-request (brain turns never stay working)", () =
     const graces = (await jobs())
       .map((j) => ({ ms: j.nextAttemptAt.getTime() - j.createdAt.getTime(), payload: j.payload }))
       .sort((a, b) => a.ms - b.ms);
-    expect(graces[0]?.ms).toBeLessThan(TASK_OFFLINE_GRACE_MS + 5000);
-    expect(graces[1]?.ms).toBeLessThan(TASK_OFFLINE_GRACE_MS + 5000);
+    // Due at the end of the window after the one it closed in: a full grace at least, two at most.
+    for (const g of graces.slice(0, 2)) {
+      expect(g.ms).toBeGreaterThan(TASK_OFFLINE_GRACE_MS - 5000);
+      expect(g.ms).toBeLessThanOrEqual(2 * TASK_OFFLINE_GRACE_MS);
+    }
     expect(graces.slice(0, 2).map((g) => g.payload)).toContainEqual({
       machineId: paired.machineId,
       statusOnly: true,
@@ -581,6 +673,19 @@ describe("a runner that dies mid-request (brain turns never stay working)", () =
     expect(woke).toEqual([paired.machineId]);
   });
 
+  test("room.freed asks the computer's line again (protocol 69)", async () => {
+    f = await setup({ machines: true });
+    const hub = f.machineHub as MachineHub;
+    const freed: string[] = [];
+    hub.setMissionHooks({ roomFreed: async (id) => void freed.push(id) });
+    const paired = await pair();
+    const runner = fakeRunner(hub);
+    await runner.hello(paired.token);
+    await runner.frame({ type: "room.freed" });
+    await Bun.sleep(5);
+    expect(freed).toEqual([paired.machineId]);
+  });
+
   test("CLIs found mid-session replace the hello's (the browser and the rest stay) and wake what waited", async () => {
     f = await setup({ machines: true });
     const hub = f.machineHub as MachineHub;
@@ -721,6 +826,20 @@ describe("machines and targets", () => {
     await setAgentComputerTarget(deps(), f.owner.id, f.org.id, f.agent.id, box.machineId);
     const [machine] = await listMachines(f.db, f.owner.id, f.org.id);
     expect(machine?.agents.map((a) => a.handle)).toEqual(["dev", "qa"]);
+  });
+
+  test("a private agent on a computer is named only to who lists it and to who paired that computer", async () => {
+    f = await setup();
+    const bia = await addMember(f.db, f.org.id, "member", "bia");
+    const carl = await addMember(f.db, f.org.id, "member", "carl");
+    const box = await pair(bia.id, "Bia's laptop");
+    await setAgentComputerTarget(deps(), f.owner.id, f.org.id, f.agent.id, box.machineId);
+    await f.db.update(schema.agents).set({ audienceMode: "owner" }).where(eq(schema.agents.id, f.agent.id));
+    const named = async (userId: string) =>
+      (await listMachines(f.db, userId, f.org.id))[0]?.agents.map((a) => a.handle);
+    expect(await named(carl.id)).toEqual([]);
+    expect(await named(bia.id)).toEqual(["dev"]);
+    expect(await named(f.owner.id)).toEqual(["dev"]);
   });
 
   test("list, rename and delete: every member sees them, only the pairer or an admin changes them", async () => {
@@ -874,6 +993,11 @@ describe("hub", () => {
     await Bun.sleep(60);
     expect(slow.sent).toEqual([]);
     expect(slow.closed()).toMatchObject({ code: 4408 });
+    // A hello the server is still checking (a busy database) is not a runner that said nothing.
+    const checking = fakeRunner(hub);
+    checking.conn.authing = true;
+    await Bun.sleep(60);
+    expect(checking.closed()).toBeNull();
   });
 
   test("hello → welcome and online; bad token and outdated runners are refused", async () => {

@@ -12,6 +12,7 @@ import { eq, schema } from "@agenteschat/db";
 import type { ToolImage } from "@agenteschat/providers";
 import { getAgentCached } from "./agents";
 import { recordAudit } from "./audit";
+import { kickRoomQueue } from "./computer-queue";
 import { getContextItems, personMayRead } from "./context/items";
 import { ValidationError } from "./errors";
 import { cutText } from "./format";
@@ -667,5 +668,6 @@ export function createMissionHooks(deps: HookDeps): MachineMissionHooks {
       // Runs that waited for this computer's brain (ADR 0032 §5) try again.
       await resumeRunsWaitingForMachine(deps.db, machineId, { pubsub: deps.pubsub }).catch(() => undefined);
     },
+    roomFreed: (machineId) => kickRoomQueue(deps.db, machineId),
   };
 }

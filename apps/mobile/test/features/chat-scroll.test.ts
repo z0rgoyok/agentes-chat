@@ -1,12 +1,33 @@
 import { describe, expect, test } from "bun:test";
+import { createDockHeight } from "../../src/features/chat/dock-height";
 import {
   appendedKeys,
+  bandAim,
   lastSeenKey,
   type Place,
   placeCorrection,
   type ScrollRow,
   unseenBelow,
 } from "../../src/features/chat/scroll";
+
+describe("the dock's height", () => {
+  test("tells who reads it when it changes, and only then", () => {
+    const dock = createDockHeight();
+    let told = 0;
+    const stop = dock.subscribe(() => told++);
+    expect(dock.get()).toBe(0);
+    dock.set(96);
+    dock.set(96);
+    expect(dock.get()).toBe(96);
+    expect(told).toBe(1);
+    dock.set(130);
+    expect(told).toBe(2);
+    stop();
+    dock.set(96);
+    expect(told).toBe(2);
+    expect(dock.get()).toBe(96);
+  });
+});
 
 describe("appendedKeys", () => {
   test("new rows at the bottom", () => {
@@ -123,5 +144,57 @@ describe("placeCorrection", () => {
     expect(placeCorrection({ end: true }, list(900, 0))).toBeNull();
     expect(placeCorrection({ end: true }, list(900, 30))).toBeNull();
     expect(placeCorrection({ end: true }, list(0, 900))).toBe("end");
+  });
+});
+
+describe("bandAim", () => {
+  // A list 800 tall whose top 110 runs under the floating bar, with 100 of dock (and keyboard) at its foot: the room
+  // rows show in is 590 tall, from 110 to 700.
+  const LIST = 800;
+  const DOCK = 100;
+  const room = { band: LIST - 110 - DOCK, top: 110 };
+  // Where Legend List puts a row's top in its frame for `scrollToIndex` (`calculateOffsetWithOffsetPosition`): the
+  // offset, then the share of what is left beside the row over the dock.
+  const rowTop = (aim: { viewPosition: number; viewOffset: number }, size: number) =>
+    aim.viewOffset + aim.viewPosition * (LIST - DOCK - size);
+
+  test("a row sent to the top lands under the bar, not behind it", () => {
+    const aim = bandAim({ ...room, viewPosition: 0, size: 60, tall: "start" });
+    expect(aim).toEqual({ viewPosition: 0, viewOffset: 110 });
+    expect(rowTop(aim, 60)).toBe(110);
+  });
+  test("centred in the room, not in the list's whole height", () => {
+    const aim = bandAim({ ...room, viewPosition: 0.5, size: 60, tall: "end" });
+    expect(rowTop(aim, 60) + 30).toBe(110 + room.band / 2);
+  });
+  test("its end on the dock takes no offset", () => {
+    const aim = bandAim({ ...room, viewPosition: 1, size: 60, tall: "end" });
+    expect(aim).toEqual({ viewPosition: 1, viewOffset: 0 });
+    expect(rowTop(aim, 60) + 60).toBe(LIST - DOCK);
+  });
+  test("a row taller than the room shows its start under the bar, or its end on the dock", () => {
+    const start = bandAim({ ...room, viewPosition: 0.5, size: 650, tall: "start" });
+    expect(rowTop(start, 650)).toBe(110);
+    const end = bandAim({ ...room, viewPosition: 0.5, size: 650, tall: "end" });
+    expect(rowTop(end, 650) + 650).toBe(LIST - DOCK);
+  });
+  test("a row not measured yet gets the list's fallback: a tall one shows its start under the bar or its end on the dock", () => {
+    const start = bandAim({ ...room, viewPosition: 0.4, size: undefined, tall: "start" });
+    expect(start).toEqual({ viewPosition: 0.4, viewOffset: 110, viewPositionFallback: "start" });
+    // Short, it lands in the room; taller than the list, the fallback puts its start under the bar (the offset).
+    expect(rowTop(start, 60)).toBeGreaterThanOrEqual(110);
+    expect(rowTop({ viewPosition: 0, viewOffset: start.viewOffset }, 900)).toBe(110);
+    // "Ver" on the requests: no offset, so the fallback's end lands on the dock, never under it.
+    const end = bandAim({ ...room, viewPosition: 0.5, size: undefined, tall: "end" });
+    expect(end).toEqual({ viewPosition: 0.5, viewOffset: 0, viewPositionFallback: "end" });
+    expect(rowTop({ viewPosition: 1, viewOffset: end.viewOffset }, 900) + 900).toBe(LIST - DOCK);
+    // Short, its end (the request's card) stays over the dock.
+    expect(rowTop(end, 400) + 400).toBeLessThanOrEqual(LIST - DOCK);
+  });
+  test("under a pinned card the list starts below the bar: no offset", () => {
+    expect(bandAim({ band: 500, top: 0, viewPosition: 0, size: 60, tall: "start" })).toEqual({
+      viewPosition: 0,
+      viewOffset: 0,
+    });
   });
 });

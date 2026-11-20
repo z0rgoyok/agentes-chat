@@ -18,15 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  type TextInputInstance,
-  View,
-} from "react-native";
+import { AccessibilityInfo, StyleSheet, TextInput, type TextInputInstance, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import {
   Button,
@@ -36,7 +28,8 @@ import {
   GroupedHeader,
   GroupedList,
   GroupedRow,
-  InfoHint,
+  Sheet,
+  SkeletonList,
   Text,
   useToast,
 } from "@/ui";
@@ -47,16 +40,20 @@ import { useMemoryOriginText } from "../agents/useMemoryOriginText";
 import { Note } from "../ai/parts";
 import { ZoneList } from "../me/AccountPage";
 import { PHOTO_MAX_BASE64, photoContentType } from "../me/logic";
+import { useProblemReports } from "../report/ReportProblemButton";
+import { ReportProblemSheet } from "../report/ReportProblemSheet";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors } from "../shared/hooks";
 import { OrgAvatar } from "../shared/OrgAvatar";
 import { errorHaptic, goBack, MONO, successHaptic } from "../shared/parts";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
 import { overLimit, TextArea } from "../shared/TextArea";
+import { AccentRow } from "./AccentRow";
 import { missingIdeas, nameOnLeave, withIdea, zoneLabel } from "./logic";
-import { chooseAction, Gap, SettingsPage } from "./parts";
+import { chooseAction, Gap, SettingsPage, Uploading } from "./parts";
 
-/** How long "Salvo" stays under the title after a change saved by itself. */
-const SAVED_MS = 1800;
+/** The workspace's logo at the top of Geral (`OrgAvatar`'s corners: one cut, the other three round). */
+const LOGO = 84;
 /** The context saves this long after the last key (and when its field is left). */
 const CONTEXT_SAVE_MS = 800;
 const CONTEXT_LIMIT = { max: FIELD_LIMITS.workspaceContext };
@@ -106,11 +103,9 @@ export function GeneralScreen() {
   const [name, setName] = useState("");
   const [context, setContext] = useState("");
   const [timezone, setTimezone] = useState("");
-  const [saved, setSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
   const loaded = useRef<string | null>(null);
   const contextTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const contextField = useRef<TextInputInstance | null>(null);
   const picked = useZonePick();
 
@@ -133,7 +128,6 @@ export function GeneralScreen() {
   useEffect(
     () => () => {
       clearTimeout(contextTimer.current);
-      clearTimeout(savedTimer.current);
       const now = latest.current;
       if (!now.editable || !now.settings) return;
       const patch: Partial<OrgSettings> = {};
@@ -155,12 +149,8 @@ export function GeneralScreen() {
   const save = (patch: Partial<OrgSettings>) => {
     if (!editable) return;
     update.mutate(patch, {
-      onSuccess: () => {
-        setSaved(true);
-        AccessibilityInfo.announceForAccessibility(t("settings.savedShort"));
-        clearTimeout(savedTimer.current);
-        savedTimer.current = setTimeout(() => setSaved(false), SAVED_MS);
-      },
+      // The control already shows the change (it moves as it is tapped); a screen reader hears that it stuck.
+      onSuccess: () => AccessibilityInfo.announceForAccessibility(t("settings.savedShort")),
       onError: () => toast({ title: t("mobile.app.failed"), icon: "x" }),
     });
   };
@@ -265,9 +255,18 @@ export function GeneralScreen() {
     chooseAction(
       t("orgLogo.title"),
       [
-        { label: t("mobile.me.account.fromLibrary"), onPress: () => void uploadLogo("library") },
-        { label: t("mobile.me.account.fromCamera"), onPress: () => void uploadLogo("camera") },
-        ...(org?.logo ? [{ label: t("orgLogo.remove"), destructive: true, onPress: () => void removeLogo() }] : []),
+        { icon: "photos", label: t("mobile.me.account.fromLibrary"), onPress: () => void uploadLogo("library") },
+        { icon: "camera", label: t("mobile.me.account.fromCamera"), onPress: () => void uploadLogo("camera") },
+        ...(org?.logo
+          ? [
+              {
+                icon: "trash" as const,
+                label: t("orgLogo.remove"),
+                destructive: true,
+                onPress: () => void removeLogo(),
+              },
+            ]
+          : []),
       ],
       t("mobile.common.cancel"),
     );
@@ -280,19 +279,21 @@ export function GeneralScreen() {
 
   const logo = (
     <View style={styles.logo}>
-      <OrgAvatar logo={org?.logo} size={84} />
+      <View>
+        <OrgAvatar logo={org?.logo} size={LOGO} />
+        {uploading ? <Uploading style={styles.logoBusy} /> : null}
+      </View>
       {editable ? (
-        <Pressable
-          onPress={changeLogo}
-          disabled={uploading}
-          accessibilityRole="button"
-          hitSlop={12}
-          style={({ pressed }) => (pressed ? styles.pressed : null)}
-        >
-          <Text variant="subhead" tone={uploading ? "faint" : "ink2"} style={styles.semibold}>
-            {org?.logo ? t("orgLogo.change") : t("orgLogo.add")}
-          </Text>
-        </Pressable>
+        // The design system's text button (its press and haptic), centered under the logo by its own box.
+        <View>
+          <Button
+            variant="text"
+            size="sm"
+            label={org?.logo ? t("orgLogo.change") : t("orgLogo.add")}
+            disabled={uploading}
+            onPress={changeLogo}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -337,7 +338,8 @@ export function GeneralScreen() {
       />
     </GroupedList>
   );
-  const approvals = can(org, "manage_agents") ? (
+  // The workspace's level reaches private agents too: owners and administrators only (ADR 0085 addendum of 2026-11-17).
+  const approvals = can(org, "administrator") ? (
     <>
       <WorkspaceApprovalsRow />
       <Gap />
@@ -357,22 +359,20 @@ export function GeneralScreen() {
       />
     </GroupedList>
   );
+  // The context is one field of the form: a group header over it (its ⓘ says who reads it), never a heading of its own.
   const contextPart = (
     <>
-      <View style={styles.contextHead}>
-        <InfoHint
-          name={t("common.about", { label: contextTitle })}
-          text={t("common.joinSentences", {
+      <GroupedHeader
+        hint={{
+          name: t("common.about", { label: contextTitle }),
+          text: t("common.joinSentences", {
             a: t("settings.contextSubtitle"),
             b: t(modeKey(org, "settings.contextHelp"), { name: orgName }),
-          })}
-          variant="title"
-        >
-          <Text variant="title" tone="ink">
-            {contextTitle}
-          </Text>
-        </InfoHint>
-      </View>
+          }),
+        }}
+      >
+        {contextTitle}
+      </GroupedHeader>
       <TextArea
         ref={contextField}
         value={context}
@@ -386,7 +386,7 @@ export function GeneralScreen() {
       />
       {editable && missing.length > 0 ? (
         <View style={styles.ideas}>
-          <Text variant="small" tone="muted">
+          <Text variant="footnote" tone="faint" style={styles.ideasLead}>
             {t("settings.contextMissing")}
           </Text>
           <View style={styles.ideaRow}>
@@ -415,7 +415,6 @@ export function GeneralScreen() {
             ? t("mobile.settings.edit")
             : t("settings.section.general")
       }
-      subtitle={saved ? t("settings.savedShort") : undefined}
       frozen={settingsFrozen(org, "general")}
     >
       {!editable ? (
@@ -423,7 +422,14 @@ export function GeneralScreen() {
           <Note icon="lock">{t("settings.readOnly")}</Note>
         </View>
       ) : null}
-      {personal ? (
+      {/* The form fills from the settings: until they come, the rows' shape (typing into an empty form would be lost). */}
+      {!settings.data ? (
+        settings.isError ? (
+          <LoadFailed onRetry={() => void settings.refetch()} />
+        ) : (
+          <SkeletonList rows={3} />
+        )
+      ) : personal ? (
         // About you: what the agents know about the person first; the workspace's own rows under "This workspace".
         <>
           {contextPart}
@@ -441,6 +447,8 @@ export function GeneralScreen() {
       ) : (
         <>
           {logo}
+          <AccentRow editable={editable} />
+          <Gap />
           <GroupedList>
             {nameField}
             {zoneField}
@@ -456,6 +464,7 @@ export function GeneralScreen() {
 
       <TeamMemory />
       <UsageStatistics />
+      <ProblemReport />
     </SettingsPage>
   );
 }
@@ -529,7 +538,8 @@ function UsageStatistics() {
   const set = useSetServerTelemetry();
   const data = telemetry.data;
   if (!data) return null;
-  const on = data.enabled && !data.envOff;
+  // What is being saved shows at once: the switch moves as it is tapped, not when the server answers.
+  const on = (set.isPending ? set.variables : undefined) ?? (data.enabled && !data.envOff);
   const envOff = data.envOff
     ? t(data.report.install === "desktop" ? "settings.telemetry.envOffDesktop" : "settings.telemetry.envOff")
     : null;
@@ -545,12 +555,31 @@ function UsageStatistics() {
             text: t("settings.telemetry.help"),
           }}
           toggle={on}
-          disabled={data.envOff || set.isPending}
+          disabled={data.envOff}
           onPress={() => set.mutate(!on, { onError: () => toast({ title: t("mobile.app.failed"), icon: "x" }) })}
         />
         <GroupedRow label={t("settings.telemetry.see")} chevron onPress={() => router.push("/settings/telemetry")} />
       </GroupedList>
       {envOff ? <GroupedFooter>{envOff}</GroupedFooter> : null}
+    </>
+  );
+}
+
+/** "Send a report" for anything not tied to one screen: self-hosted servers only. */
+function ProblemReport() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (!useProblemReports()) return null;
+  return (
+    <>
+      <GroupedHeader>{t("problemReport.settingsTitle")}</GroupedHeader>
+      <GroupedList>
+        <GroupedRow label={t("problemReport.button")} chevron onPress={() => setOpen(true)} />
+      </GroupedList>
+      <GroupedFooter>{t("problemReport.settingsText")}</GroupedFooter>
+      <Sheet open={open} onClose={() => setOpen(false)}>
+        {open && <ReportProblemSheet place="settings" onClose={() => setOpen(false)} />}
+      </Sheet>
     </>
   );
 }
@@ -577,8 +606,10 @@ export function TelemetryScreen() {
             </Text>
           </View>
         </GroupedList>
+      ) : telemetry.isError ? (
+        <LoadFailed onRetry={() => void refetch()} />
       ) : telemetry.isLoading ? (
-        <ActivityIndicator color={c.muted} />
+        <SkeletonList rows={3} />
       ) : null}
     </SettingsPage>
   );
@@ -604,11 +635,18 @@ export function OrgZonePage() {
 const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
   logo: { alignItems: "center", gap: 8, paddingTop: 14, paddingBottom: 14 },
-  semibold: { fontWeight: "600" },
-  pressed: { opacity: 0.6 },
+  logoBusy: {
+    width: LOGO,
+    height: LOGO,
+    borderTopLeftRadius: LOGO * 0.3,
+    borderTopRightRadius: LOGO * 0.3,
+    borderBottomRightRadius: LOGO * 0.3,
+    borderBottomLeftRadius: LOGO * 0.09,
+  },
   input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
-  contextHead: { paddingHorizontal: 4, paddingTop: 24, paddingBottom: 10 },
-  ideas: { gap: 8, paddingHorizontal: 4, paddingTop: 10 },
+  // "Still to say:" where a footer's words start, the ideas' buttons from the field's edge under it.
+  ideas: { gap: 8, paddingTop: 10 },
+  ideasLead: { paddingHorizontal: 16 },
   ideaRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   code: { paddingHorizontal: 14, paddingVertical: 12 },
   mono: { fontFamily: MONO, fontSize: 12, lineHeight: 17 },

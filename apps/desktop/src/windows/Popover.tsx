@@ -197,10 +197,10 @@ export function Popover() {
   useEffect(() => {
     const night = installNight(new Date(now));
     if (!night || triedNight.current === night || !update.state.available || jobs.length > 0) return;
-    if (!autoUpdateOn(readPref<boolean | null>(AUTO_UPDATE_PREF, null), local.run)) return;
+    if (!autoUpdateOn(readPref<boolean | null>(AUTO_UPDATE_PREF, null))) return;
     triedNight.current = night;
     void host.installUpdate().catch(() => {});
-  }, [now, update.state.available, jobs.length, local.run, host]);
+  }, [now, update.state.available, jobs.length, host]);
 
   useOnShown("popover", () => {
     setPauseMenu(false);

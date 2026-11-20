@@ -84,3 +84,13 @@ test("a popover's list under a head gives way to the window's room and scrolls t
     if (r.selectors.some((s) => /\.ac-tz__list(?![\w-])/.test(s)))
       expect(r.declarations.filter(([p]) => p === "max-height")).toEqual([]);
 });
+
+test("a list in a dialog's body has no box of its own: the body scrolls it, only when the window can't hold it", async () => {
+  const kit = await read(KIT);
+  expect(last(kit, ".ac-dialog__body", "overflow-y")).toBe("auto");
+  expect(last(kit, ".ac-dialog__body", "min-height")).toBe("0");
+  const css = await read("apps/web/src/components/arrival/arrival.css");
+  for (const list of [".arrival-have__scroll", ".arrival-picks"])
+    for (const p of ["max-height", "height", "overflow", "overflow-y"])
+      expect([list, p, last(css, list, p)]).toEqual([list, p, undefined]);
+});

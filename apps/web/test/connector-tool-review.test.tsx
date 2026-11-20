@@ -275,6 +275,8 @@ describe("the agent page: one line, never a paragraph of tool names", () => {
       pending: 0,
       needsReview: false,
       server: { ...SERVER, tools: SERVER.tools.map((x) => ({ ...x, access: x.level ?? null, pending: false })) },
+      ownerUserId: null,
+      agentIds: [],
     };
     const resource: AccessResource = {
       id: "connector:srv-ads",

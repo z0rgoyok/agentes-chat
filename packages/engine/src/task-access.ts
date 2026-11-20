@@ -2,7 +2,7 @@ import { and, type Executor, eq, isNotNull, rowsOf, type SQL, schema, sql } from
 import { caches } from "./cache";
 import { maySql } from "./permissions";
 
-const { issues, channels, channelMembers, agents } = schema;
+const { issues, issueAssignees, channels, channelMembers, agents, artifacts } = schema;
 
 /** Who a task or a wiki page is for (ADR 0151): "only me" is a list of one. Administrators always see it. */
 export type Audience = { mode: "everyone" } | { mode: "people"; userIds: string[] };
@@ -37,14 +37,44 @@ export const taskReaderSql = (channelId: SQL, userId: SQL) => sql`exists (
   select 1 from ${issues} ti where ti.conversation_channel_id = ${channelId} and ${taskSeenSql("ti", userId)})`;
 
 /**
- * Whether `userId` reads the channel `channelId`, by the rule of `requireChannelAccess` and `readableChannelIds`: a
- * member, an administrator in a channel (public or private, never a DM), or who sees the task of a task's conversation.
+ * How many files' conversations deep a file may live and still be read where it lives (ADR 0199): a file made in a live
+ * file's conversation is read by who reads that file, and so is that file's own conversation. Past it only a file's
+ * sharing reaches it. The reading rules nest (a file's conversation is read by who reads the file, which may live in
+ * another file's conversation), and this keeps each statement finite.
  */
-export const channelReaderSql = (channelId: SQL, userId: SQL) => sql`(exists (
+export const FILE_CONVERSATION_DEPTH = 1;
+
+/**
+ * A live file's conversation (ADR 0199) is read by whoever reads the file (`fileSeenSql`), never by its own membership:
+ * people are never members of a `file` channel. True when `channelId` is a live file's conversation, the file is not in
+ * the trash and `userId` reads it. `channelId` must not name a column of `artifacts` (the subquery's own row hides it).
+ */
+export const fileConversationReaderSql = (channelId: SQL, userId: SQL, depth = FILE_CONVERSATION_DEPTH): SQL =>
+  sql`exists (select 1 from ${artifacts} where ${artifactCol("conversation_channel_id")} = ${channelId}
+    and ${artifactCol("deleted_at")} is null and ${fileSeenSql(userId, depth)})`;
+
+/**
+ * Whether `userId` reads a conversation no person is a member of, by what it stands for: a task's (ADR 0145), read by
+ * whoever sees the task, or a live file's (ADR 0199), read by whoever reads the file. False for any other channel.
+ */
+export const conversationReaderSql = (channelId: SQL, userId: SQL) =>
+  sql`(${taskReaderSql(channelId, userId)} or ${fileConversationReaderSql(channelId, userId)})`;
+
+/**
+ * Whether `userId` reads the channel `channelId`, by the rule of `requireChannelAccess` and `readableChannelIds`: a
+ * member, an administrator in a channel (public or private, never a DM), who sees the task of a task's conversation,
+ * or who reads the file of a live file's conversation (`depth`: see `FILE_CONVERSATION_DEPTH`).
+ */
+export const channelReaderSql = (channelId: SQL, userId: SQL, depth = FILE_CONVERSATION_DEPTH): SQL => sql`(exists (
     select 1 from ${channelMembers} rm where rm.channel_id = ${channelId} and rm.user_id = ${userId})
   or exists (select 1 from ${channels} rc where rc.id = ${channelId}
     and ((rc.kind = 'channel' and ${maySql(sql`rc.org_id`, userId, "administrator")})
-      or (rc.kind = 'task' and ${taskReaderSql(channelId, userId)}))))`;
+      or (rc.kind = 'task' and ${taskReaderSql(channelId, userId)})${
+        depth > 0
+          ? sql`
+      or (rc.kind = 'file' and ${fileConversationReaderSql(sql`rc.id`, userId, depth - 1)})`
+          : sql``
+      })))`;
 
 /** The people of `orgId` who read the channel `channelId` (`channelReaderSql`), as a subquery of `user_id`. */
 export const channelReadersSql = (orgId: SQL, channelId: SQL) => sql`(select cr.user_id from organization_members cr
@@ -55,7 +85,25 @@ export const channelReadersSql = (orgId: SQL, channelId: SQL) => sql`(select cr.
  * from a room no person reads (a routine's); the people there from a DM or a private channel; from a task's own
  * conversation, who sees that task.
  */
-export async function audienceOfConversation(db: Executor, channelId: string): Promise<Audience> {
+export async function audienceOfConversation(db: Executor, channelId: string, depth = 0): Promise<Audience> {
+  // A live file's conversation (ADR 0199): who reads the file, as where it lives says (its sharing only widens it).
+  const [file] = await db
+    .select({
+      channelId: artifacts.channelId,
+      share: artifacts.share,
+      createdByType: artifacts.createdByType,
+      createdById: artifacts.createdById,
+    })
+    .from(artifacts)
+    .where(eq(artifacts.conversationChannelId, channelId));
+  if (file) {
+    if (file.share === "everyone") return { mode: "everyone" };
+    // A file of the Drive itself not shared with everyone lives with its maker (ADR 0157, amendment 2026-11-17).
+    if (!file.channelId) return { mode: "people", userIds: file.createdByType === "person" ? [file.createdById] : [] };
+    // Files made in each other's conversations go a few levels at most; past them, the narrowest audience.
+    if (depth >= 4) return { mode: "people", userIds: [] };
+    return audienceOfConversation(db, file.channelId, depth + 1);
+  }
   const [c] = await db
     .select({
       kind: channels.kind,
@@ -92,13 +140,15 @@ export async function taskReadersAmong(db: Executor, issueId: string, userIds: r
 }
 
 /**
- * The task's agent of the task conversation `channelId` (ADR 0145): its assignee when that is an agent, else the agent
- * that created it, else the agent that last wrote in its conversation; archived ones never. Its conversation is a DM
+ * The task's agent of the task conversation `channelId` (ADR 0145): the first agent among its assignees, in their
+ * order (ADR 0188), else the agent that created it, else the agent that last wrote in its conversation; archived ones never. Its conversation is a DM
  * with that agent: a message there that names nobody is for it (`insertMessageWithRuns`). A uuid, or null.
  */
 export const taskAgentSql = (channelId: SQL) => sql`(select coalesce(
-    (select ta.id from ${agents} ta where ti.assignee_type = 'agent' and ta.id::text = ti.assignee_id
-      and ta.org_id = ti.org_id and ta.archived_at is null),
+    (select ta.id from ${issueAssignees} tia
+      join ${agents} ta on ta.id::text = tia.assignee_id and ta.org_id = ti.org_id and ta.archived_at is null
+      where tia.issue_id = ti.id and tia.assignee_type = 'agent'
+      order by tia.position, tia.created_at limit 1),
     (select ta.id from ${agents} ta where ti.created_by_type = 'agent' and ta.id::text = ti.created_by_id
       and ta.org_id = ti.org_id and ta.archived_at is null),
     (select tm.author_agent_id from ${schema.messages} tm
@@ -111,20 +161,24 @@ export const taskAgentSql = (channelId: SQL) => sql`(select coalesce(
 /**
  * Agents join a task's conversation as members (so a mention there reaches them like anywhere else) when they see
  * the task: one of the whole workspace, one limited to people (who mentioned it reads it, and an agent reaches what
- * they reach), or one of a channel they are in (or a public one), by current handle (a person's mention). By id: the
- * task's assignee, whoever assigned it saw the task. Returns the agents added now.
+ * they reach), or one of a channel they are in (or a public one), by current handle (a person's mention). By id: an
+ * assignee of the task, whoever assigned it saw the task. Returns the agents added now.
  */
 export async function admitTaskAgents(
   db: Executor,
   orgId: string,
   channelId: string,
-  /** `taskAgent`: the task's agent too (`taskAgentSql`), whoever created or took the task before. */
-  who: { handles?: string[]; ids?: string[]; taskAgent?: boolean },
+  /**
+   * `taskAgent`: the task's agent too (`taskAgentSql`), whoever created or took the task before. `assigned`: every
+   * agent that has the task.
+   */
+  who: { handles?: string[]; ids?: string[]; taskAgent?: boolean; assigned?: boolean },
 ): Promise<string[]> {
   const handles = (who.handles ?? []).filter((h) => /^[a-z0-9_-]+$/.test(h));
   const ids = (who.ids ?? []).filter((v) => /^[0-9a-f-]{36}$/i.test(v));
   const taskAgent = who.taskAgent === true;
-  if (handles.length === 0 && ids.length === 0 && !taskAgent) return [];
+  const assigned = who.assigned === true;
+  if (handles.length === 0 && ids.length === 0 && !taskAgent && !assigned) return [];
   const rows = rowsOf<{ agent_id: string }>(
     await db.execute(sql`insert into ${channelMembers} (org_id, channel_id, agent_id)
       select a.org_id, ${channelId}::uuid, a.id from ${agents} a
@@ -132,6 +186,8 @@ export async function admitTaskAgents(
       where a.org_id = ${orgId}::uuid and a.archived_at is null
         and (a.id = any(${`{${ids.join(",")}}`}::uuid[])
           or (${taskAgent}::boolean and a.id = ${taskAgentSql(sql`${channelId}::uuid`)})
+          or (${assigned}::boolean and exists (select 1 from ${issueAssignees} ia where ia.issue_id = i.id
+            and ia.assignee_type = 'agent' and ia.assignee_id = a.id::text))
           or (a.handle = any(${`{${handles.join(",")}}`}::text[]) and (i.restricted or i.channel_id is null
             or exists (select 1 from ${channelMembers} am where am.channel_id = i.channel_id and am.agent_id = a.id)
             or exists (select 1 from ${channels} ac where ac.id = i.channel_id and ac.visibility = 'public'
@@ -149,6 +205,17 @@ export async function admitTaskAgents(
 export const artifactCol = (name: string) => sql.raw(`"artifacts"."${name}"`);
 
 /**
+ * Whether `userId` reads a file of the Drive itself (no conversation) where it lives, as a condition over `artifacts`
+ * (ADR 0157, amendment 2026-11-17): its maker and administrators. Its sharing (`fileSharedSql`) widens it, and a new
+ * one is shared with everyone. `userId` may be a column.
+ */
+export function driveKeeperSql(userId: SQL) {
+  const c = artifactCol;
+  return sql<boolean>`((${c("created_by_type")} = 'person' and ${c("created_by_id")} = ${userId})
+    or ${maySql(c("org_id"), userId, "administrator")})`;
+}
+
+/**
  * Whether a file's sharing (ADR 0157) shows it to `userId` past its conversation, as a condition over `artifacts`: the
  * whole workspace, or a list that names them, holds a role of theirs, or them as an administrator. The workspace
  * membership is the caller's check. `userId` may be a column.
@@ -162,13 +229,14 @@ export function fileSharedSql(userId: SQL) {
 }
 
 /**
- * Whether `userId` reads a file at all, where it lives (`channelReaderSql`, or a public channel) or through its
- * sharing, as a condition over `artifacts`. Mirrors `personCanRead` in `artifacts.ts`.
+ * Whether `userId` reads a file at all, where it lives (`channelReaderSql`, or a public channel; for a file of the
+ * Drive itself, `driveKeeperSql`) or through its sharing, as a condition over `artifacts`. Mirrors `personCanRead` in
+ * `artifacts.ts`. `depth`: how many live files' conversations deep where it lives may be (`FILE_CONVERSATION_DEPTH`).
  */
-export function fileSeenSql(userId: SQL) {
+export function fileSeenSql(userId: SQL, depth = FILE_CONVERSATION_DEPTH) {
   const c = artifactCol;
-  return sql<boolean>`(${c("channel_id")} is null or ${fileSharedSql(userId)}
-    or ${channelReaderSql(c("channel_id"), userId)}
+  return sql<boolean>`((${c("channel_id")} is null and ${driveKeeperSql(userId)}) or ${fileSharedSql(userId)}
+    or ${channelReaderSql(c("channel_id"), userId, depth)}
     or exists (select 1 from ${channels} pc where pc.id = ${c("channel_id")} and pc.kind = 'channel'
       and pc.visibility = 'public'))`;
 }

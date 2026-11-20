@@ -1,15 +1,20 @@
 import type { PlanUsage, PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, inArray, type SQL, schema, sql } from "@agenteschat/db";
 import { extraUsageLeft, PLAN_PAUSE, planBinding, planState } from "@agenteschat/ui/plan-state";
+import { ACCESS_COLUMNS, type AgentAccessFields, managesRoutinesOf, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
+import { UUID } from "./authority";
 import { forgetPlanLimit, storedPlanUsage } from "./brains/select";
 import type { BrainKind } from "./brains/types";
 import { mayStopRun, runRequester } from "./cancel";
 import { ConflictError, ForbiddenError } from "./errors";
 import { publishMessageCreated } from "./events";
+import { inMillisecondOf } from "./message-place";
 import { type Message, messageView } from "./messages";
-import { can, type Membership, requireActiveMembership } from "./organizations";
+import { type Membership, requireActiveMembership } from "./organizations";
 import { enqueue } from "./outbox";
+import { isRightHand } from "./right-hand";
+import { missStaleRoutineRun } from "./routine-firing";
 import { isTerminal } from "./runs";
 import { effectiveAgentBudget, monthStartUtc } from "./usage";
 
@@ -51,6 +56,16 @@ export const usageWaitKey = (
     | { code: "plan_limit"; machineId: string; kind: BrainKind; accountId?: string }
     | { code: "budget"; agentId: string },
 ) => (w.code === "budget" ? `budget:${w.agentId}` : `plan:${w.machineId}:${w.kind}:${w.accountId ?? "own"}`);
+
+/**
+ * A plan's `usageWaitKey` read back: the computer its sign-in is on and, when the sign-in is an account's, that
+ * account (null: the computer's own). Null for a budget's key and for anything else.
+ */
+export function planOfWaitKey(key: unknown): { machineId: string | null; accountId: string | null } | null {
+  const [plan, machineId = "", kind, accountId = "", ...more] = typeof key === "string" ? key.split(":") : [];
+  if (plan !== "plan" || !kind || !accountId || more.length > 0) return null;
+  return { machineId: UUID.test(machineId) ? machineId : null, accountId: UUID.test(accountId) ? accountId : null };
+}
 
 /** A run in a usage line: people's conversations (0), then long work (1), then routines (2). */
 const lineRank = (r: { background: boolean; workId: string | null }) => (r.background ? 2 : r.workId ? 1 : 0);
@@ -187,7 +202,7 @@ export async function lineHeadLooks(db: Executor, orgId: string, key: string, no
  * A turn on a plan just went through, so the plan has room again: the runs parked on its limit (`plan_limit`, the same
  * `key`) go on now, in `usageWaitPlace`'s order, 60 s apart, instead of each sleeping until its own timer (a later
  * reset reading, an unknown reset's re-checks). Without this a routine's slot could wait well past the reset while a
- * person's reply on the same plan had already gone through. A long-work pause (95%) keeps its timer: a quick reply
+ * person's reply on the same plan had already gone through. A long-work pause (99%) keeps its timer: a quick reply
  * going through says nothing about its line. One job per wait; the old timed one finds the wait gone and does nothing.
  * Only waits on the same `model` (a model's own weekly limit isn't lifted by another model's turn); a wait stored
  * without one is woken. `room`: a reading of the plan taken `at` has room again (`wakeOnRoom`): every wait on the
@@ -242,14 +257,15 @@ export async function wakePlanWaits(
           .select({
             ...fields,
             waitModel: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'model'`,
-            extraUsage: agents.brainExtraUsage,
+            brainAccountLentBy: runLentBy,
+            builtin: agents.builtin,
           })
           .from(agentRuns)
           .innerJoin(agents, eq(agents.id, agentRuns.agentId))
           .where(parked(sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`))
           .orderBy(agentRuns.createdAt)
           .limit(100)
-      ).filter((r) => longWorkHasRoom(planReading(reading, r.waitModel, r.extraUsage, now)))
+      ).filter((r) => longWorkHasRoom(planReading(reading, r.waitModel, paysExtraUsage(r), now)))
     : [];
   const due = [...limits, ...pauses]
     .map((r) => ({ ...r, since: Number(r.since), parkedAt: Number(r.parkedAt ?? r.since) }))
@@ -363,7 +379,7 @@ export const overrideHolds = (o: { until: string | null } | undefined, now = Dat
 
 /**
  * Where long work on `model` stands under this reading of its plan (the executor's gate and the wakes read it alike):
- * its binding window, and whether it may go on into the plan's paid extra usage (`extraUsage`: the agent's switch).
+ * its binding window, and whether it may go on into the plan's paid extra usage (`extraUsage`: `paysExtraUsage`).
  * Null: nothing binds.
  */
 export function planReading(
@@ -409,12 +425,24 @@ export const continuesPastPlan = (r: { source: "plan" | "budget"; used: number; 
   r !== null && r.source === "plan" && !r.extra && r.used >= PLAN_FULL;
 
 /**
- * Why Continuar agora is refused (`continuesPastPlan`), in the words both places use: the agent's extra-usage switch
- * is off, or it is on but the plan has no extra usage left (none reported, or that window is used up too).
+ * Long work may go on into the plan's paid extra usage where the plan reports it on (ADR 0118, its 2026-11-15
+ * addendum): on the agent's owner's own plan. Never on someone else's plan lent to it, which bills that person, nor
+ * for the team's right hand: both started with it off while it was a switch.
+ */
+export const paysExtraUsage = (agent: { brainAccountLentBy?: string | null; builtin?: string | null }) =>
+  !agent.brainAccountLentBy && !isRightHand(agent);
+
+/** Whose plan lent to a run it thinks with (`paysExtraUsage`): the account it moved to's (`AccountMove.lentBy`), else its agent's. */
+const runLentBy = sql<string | null>`case when ${schema.agentRuns.transcript} ? 'accountMove'
+  then ${schema.agentRuns.transcript}->'accountMove'->>'lentBy' else ${schema.agents.brainAccountLentBy} end`;
+
+/**
+ * Why Continuar agora is refused (`continuesPastPlan`), in the words both places use: the agent's long work never
+ * uses paid extra usage (`paysExtraUsage`), or the plan has none left (none reported, or that window is used up too).
  */
 export const CONTINUE_PAST_PLAN = {
   extra_off:
-    "This plan's window is used up and this agent's long work doesn't use paid extra usage: turn that on in its AI settings to continue now, or it picks up after the reset",
+    "This plan's window is used up and this agent's long work doesn't use the plan's paid extra usage: it picks up after the reset",
   extra_used_up:
     "This plan's window is used up and its paid extra usage is used up or unavailable: it picks up after the reset",
 } as const;
@@ -432,9 +460,7 @@ export async function pausedPlanReading(
   if (!ref?.machineId) return null;
   const usage = await storedPlanUsage(db, orgId, ref.machineId, kind, ref.accountId).catch(() => null);
   const top = planBinding(usage, { model: ref.model ?? null });
-  return top
-    ? { source: "plan" as const, used: top.used, extra: extraUsage && extraUsageLeft(usage), extraSwitch: extraUsage }
-    : null;
+  return top ? { source: "plan" as const, used: top.used, extra: extraUsage && extraUsageLeft(usage) } : null;
 }
 
 /** Why Continuar agora on the paused run `runId` would go past its plan without extra usage (`continuesPastPlan`); null: it may go on. */
@@ -447,16 +473,18 @@ export async function pauseContinuesPastPlan(
   const [row] = await db
     .select({
       wait: sql<Record<string, unknown> | null>`${agentRuns.transcript}->'waitingForBrain'`,
-      extraUsage: agents.brainExtraUsage,
+      brainAccountLentBy: runLentBy,
+      builtin: agents.builtin,
     })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
     .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, runId)));
   const wait = row?.wait as { kind?: BrainKind; source?: string; reading?: PlanReadingRef } | null | undefined;
   if (!row || !wait?.kind || wait.source === "budget") return null;
-  const reading = await pausedPlanReading(db, orgId, wait.kind, wait.reading, row.extraUsage);
+  const extraUsage = paysExtraUsage(row);
+  const reading = await pausedPlanReading(db, orgId, wait.kind, wait.reading, extraUsage);
   if (!continuesPastPlan(reading)) return null;
-  return row.extraUsage ? "extra_used_up" : "extra_off";
+  return extraUsage ? "extra_used_up" : "extra_off";
 }
 
 /** Refuses Continuar agora that would go past the plan without extra usage, as `<where>.continue_<reason>`. */
@@ -497,10 +525,14 @@ export const USAGE_WINDOW_WORDS: Record<string, string> = {
   monthly: "of its month",
 };
 
-/** What a computer brain reads in "# This turn" from 90% of its plan (ADR 0118). */
+/**
+ * What a computer brain reads in "# This turn" from 90% of its plan (ADR 0118). `granted`: a person let this work go
+ * past the pause line (Continuar agora, or `ignore_usage_limit`).
+ */
 export function usageNoticeText(
   plan: string,
   r: { used: number; window?: string; resetsAt?: string; extra?: boolean },
+  granted = false,
 ) {
   const window = r.window ? ` ${USAGE_WINDOW_WORDS[r.window] ?? ""}`.trimEnd() : "";
   const resets = r.resetsAt ? ` and resets at ${r.resetsAt}` : "";
@@ -509,8 +541,24 @@ export function usageNoticeText(
     `Your ${plan} plan is at ${r.used}%${window}${resets}.`,
     r.extra
       ? "Its paid extra usage is on, so long work goes on past the plan's limit and replies to people go on too."
-      : "At 95% long work pauses by itself and picks up after the reset, and replies to people go on. Keep working as usual and leave each finished step in a working state. Before you start something big, tell the people it may pause.",
+      : granted
+        ? "A person told you to go past the pause line for this work. Keep working: only the plan's own limit (100%) stops you."
+        : `At ${PLAN_PAUSE}% long work pauses by itself and picks up after the reset, and replies to people go on. Keep working as usual and leave each finished step in a working state. Before you start something big, tell the people it may pause. If a person tells you to ignore the limit or to keep going anyway, call ${IGNORE_LIMIT_TOOL} and go on.`,
   ].join("\n");
+}
+
+/** The tool a person's "ignore the limit" in the chat goes through (`grantUsageOverride`). */
+export const IGNORE_LIMIT_TOOL = "ignore_usage_limit";
+
+/** Whether a person let this run go past the pause line from the chat (`usageGrant`, on the row or in `t`). */
+export async function usageGranted(db: Executor, runId: string, t?: { usageGrant?: unknown }) {
+  if (t?.usageGrant) return true;
+  const { agentRuns } = schema;
+  const [row] = await db
+    .select({ granted: sql<boolean>`${agentRuns.transcript} ? 'usageGrant'` })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId));
+  return row?.granted === true;
 }
 
 /** Whether a routine's run was started by Rodar agora (a person asked for it now), not by its schedule. */
@@ -776,7 +824,7 @@ export async function joinUsageNote(
       meta: sql`jsonb_set(${messages.meta}, '{usageWait,runIds}',
         coalesce(${messages.meta}->'usageWait'->'runIds', '[]'::jsonb) || to_jsonb(${run.id}::text))`,
     })
-    .where(and(eq(messages.id, last.id), eq(messages.createdAt, last.createdAt)))
+    .where(and(eq(messages.id, last.id), inMillisecondOf(messages.createdAt, last.createdAt)))
     .returning();
   return { note: note ?? null };
 }
@@ -832,15 +880,19 @@ export async function overrideUsagePause(
     userId: string;
     details: Record<string, unknown>;
     channelId?: string | null;
+    /** Told in the chat (`grantUsageOverride`): the run keeps going past the line for good (`usageGrant`). */
+    grant?: boolean;
   },
 ): Promise<boolean> {
   const { agentRuns } = schema;
   const override = { until: p.until, by: p.userId };
+  const grant = p.grant ? { usageGrant: { by: p.userId, at: new Date().toISOString() } } : {};
   const [moved] = await tx
     .update(agentRuns)
     .set({
       transcript: sql`${agentRuns.transcript} || jsonb_build_object('usagePause',
-        coalesce(${agentRuns.transcript}->'usagePause', '{}'::jsonb) || jsonb_build_object('override', ${JSON.stringify(override)}::jsonb))`,
+        coalesce(${agentRuns.transcript}->'usagePause', '{}'::jsonb) || jsonb_build_object('override', ${JSON.stringify(override)}::jsonb))
+        || ${JSON.stringify(grant)}::jsonb`,
     })
     .where(
       and(
@@ -873,16 +925,30 @@ export async function overrideUsagePause(
 
 /**
  * Who may press Continuar agora on a paused run: the card's people (`mayStopRun`) and, for a routine's run, Rotinas'
- * (its creator, whoever manages routines).
+ * (its creator, whoever manages that agent's routines: `managesRoutinesOf`, ADR 0085 addendum of 2026-11-17). The
+ * agent is the run's own, even when its routine moved to another since: `row.agent`, its `ACCESS_COLUMNS` when the
+ * caller's select has them (a caller checking many runs passes them), else read here once for both rules.
  */
 export async function mayContinuePause(
   db: Executor,
   userId: string,
   membership: Membership,
-  row: Parameters<typeof mayStopRun>[3] & { routineId: string | null; routineCreatorId: string | null },
+  row: Parameters<typeof mayStopRun>[3] & {
+    routineId: string | null;
+    routineCreatorId: string | null;
+    agent?: AgentAccessFields;
+  },
 ) {
-  if (row.routineId && (row.routineCreatorId === userId || can(membership, "manage_routines"))) return true;
-  return mayStopRun(db, userId, membership, row);
+  if (!row.routineId) return mayStopRun(db, userId, membership, row);
+  if (row.routineCreatorId === userId) return true;
+  const [agent] = row.agent
+    ? [row.agent]
+    : await db
+        .select(ACCESS_COLUMNS)
+        .from(schema.agents)
+        .where(and(eq(schema.agents.orgId, row.run.orgId), eq(schema.agents.id, row.run.agentId)));
+  if (agent && managesRoutinesOf(agent, userId, membership)) return true;
+  return mayStopRun(db, userId, membership, { ...row, agent });
 }
 
 /**
@@ -895,13 +961,21 @@ export async function continuePausedRuns(
   userId: string,
   orgId: string,
   runIds: string[],
+  options: { grant?: boolean } = {},
 ): Promise<{ continued: number }> {
   const { db } = deps;
   const { agentRuns, agents, messages, routineRuns, routines } = schema;
   const membership = await requireActiveMembership(db, userId, orgId);
   const rows = await db
     .select({
-      run: { id: agentRuns.id, orgId: agentRuns.orgId, triggerMessageId: agentRuns.triggerMessageId },
+      run: {
+        id: agentRuns.id,
+        orgId: agentRuns.orgId,
+        agentId: agentRuns.agentId,
+        triggerMessageId: agentRuns.triggerMessageId,
+      },
+      // What `mayContinuePause` reads of each run's agent, read with the runs.
+      agent: ACCESS_COLUMNS,
       ownerUserId: agents.ownerUserId,
       requester: runRequester,
       routineId: routines.id,
@@ -944,7 +1018,8 @@ export async function continuePausedRuns(
         waitId: waitId as string,
         until: resetsAt,
         userId,
-        details: { source: source ?? "plan" },
+        details: { source: source ?? "plan", ...(options.grant ? { via: "chat" } : {}) },
+        ...(options.grant ? { grant: true, until: null } : {}),
       }),
     );
     if (!moved) continue;
@@ -957,6 +1032,69 @@ export async function continuePausedRuns(
   }
   if (continued === 0 && refused) throw refused;
   return { continued };
+}
+
+/**
+ * A person told the agent in the chat to ignore its usage limit (`ignore_usage_limit`): the same people as Continuar
+ * agora (`mayStopRun` on the run that heard it). That run goes past the pause line for good (`usageGrant`, audited as
+ * `usage.continued` with `via: chat`), and so does each of the agent's paused runs the person may continue
+ * (`continuePausedRuns`), up to the plan's own allowance. `granted` false: this person may not.
+ */
+export async function grantUsageOverride(
+  deps: { db: Database; pubsub?: PubSub },
+  userId: string,
+  orgId: string,
+  agentId: string,
+  runId: string,
+): Promise<{ granted: boolean; continued: number }> {
+  const { db } = deps;
+  const { agentRuns, agents, messages } = schema;
+  const membership = await requireActiveMembership(db, userId, orgId);
+  const [row] = await db
+    .select({ run: agentRuns, ownerUserId: agents.ownerUserId, requester: runRequester })
+    .from(agentRuns)
+    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(messages, and(eq(messages.id, agentRuns.triggerMessageId), eq(messages.orgId, agentRuns.orgId)))
+    .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, runId)));
+  if (!row || !(await mayStopRun(db, userId, membership, row))) return { granted: false, continued: 0 };
+  const grant = { by: userId, at: new Date().toISOString() };
+  await db
+    .update(agentRuns)
+    .set({
+      transcript: sql`${agentRuns.transcript} || jsonb_build_object('usageGrant', ${JSON.stringify(grant)}::jsonb)`,
+    })
+    .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, runId)));
+  await recordAudit(db, {
+    orgId,
+    actor: { type: "person", id: userId },
+    action: "usage.continued",
+    target: { type: "agent_run", id: runId },
+    details: { via: "chat", until: null },
+    channelId: row.run.channelId,
+  });
+  const paused = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.orgId, orgId),
+        eq(agentRuns.agentId, agentId),
+        eq(agentRuns.status, "waiting_input"),
+        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`,
+      ),
+    )
+    .limit(100);
+  const { continued } =
+    paused.length > 0
+      ? await continuePausedRuns(
+          deps,
+          userId,
+          orgId,
+          paused.map((r) => r.id),
+          { grant: true },
+        ).catch(() => ({ continued: 0 }))
+      : { continued: 0 };
+  return { granted: true, continued };
 }
 
 /**
@@ -975,7 +1113,7 @@ export async function continueUsagePause(
   const { db } = deps;
   const { agentRuns, agents, messages } = schema;
   const [row] = await db
-    .select({ run: agentRuns, ownerUserId: agents.ownerUserId, requester: runRequester })
+    .select({ run: agentRuns, agent: REACH_COLUMNS, ownerUserId: agents.ownerUserId, requester: runRequester })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
     .leftJoin(messages, and(eq(messages.id, agentRuns.triggerMessageId), eq(messages.orgId, agentRuns.orgId)))
@@ -1065,7 +1203,7 @@ export async function usageNoteHandOn(
     const [row] = await deps.db
       .update(messages)
       .set({ meta: sql`jsonb_set(${messages.meta}, '{usageWait}', ${next})` })
-      .where(and(eq(messages.id, note.id), eq(messages.createdAt, note.createdAt)))
+      .where(and(eq(messages.id, note.id), inMillisecondOf(messages.createdAt, note.createdAt)))
       .returning();
     if (row && deps.pubsub) await publishMessageCreated(deps.pubsub, messageView(row));
   }
@@ -1098,13 +1236,26 @@ export async function stopAgentUsageWaits(deps: { db: Database; pubsub?: PubSub 
 /**
  * The agent thinks with another AI account or model now: what waited on the old one's limit goes on, in line order,
  * 60 s apart, on the new sign-in (each claim reads the agent's brain again; one still limited parks in its new line).
+ * Its computer waits go on too: one for a plan that isn't its owner's ends only with another account, and no
+ * reconnect signals that. Not one whose cut-off turn already ran tools (another brain would run them again), nor a
+ * routine's whose slot is stale (`missStaleRoutineRun`, as when its computer comes back).
  */
-export async function wakeAgentUsageWaits(db: Executor, orgId: string, agentId: string, now = Date.now()) {
+export async function wakeAgentUsageWaits(
+  db: Database,
+  orgId: string,
+  agentId: string,
+  options: { pubsub?: PubSub; now?: number; delayMs?: number } = {},
+) {
   const { agentRuns } = schema;
+  const now = options.now ?? Date.now();
+  const start = now + (options.delayMs ?? 0);
   const found = await db
     .select({
       id: agentRuns.id,
       waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
+      code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
+      executed: sql<number>`coalesce(jsonb_array_length(${agentRuns.transcript}->'interruptedTurn'->'executed'), 0)`,
+      cut: sql<string | null>`${agentRuns.transcript}->'interruptedTurn'->>'cause'`,
       background: agentRuns.background,
       workId: agentRuns.workId,
       since: waitSinceSql,
@@ -1116,23 +1267,70 @@ export async function wakeAgentUsageWaits(db: Executor, orgId: string, agentId: 
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.agentId, agentId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' in ('plan_limit', 'budget', 'usage_pause')`,
+        sql`${agentRuns.transcript} ? 'waitingForBrain'`,
       ),
     )
     .limit(500);
   const rows = found
-    .filter((r) => r.waitId)
+    .filter(
+      (r) => r.waitId && (USAGE_WAIT_CODES.has(r.code ?? "") || !turnStaysOnItsComputer(Number(r.executed), r.cut)),
+    )
     .map((r) => ({ ...r, since: Number(r.since) }))
     .sort(inLineOrder);
-  for (const [i, r] of rows.entries()) {
+  const woken: string[] = [];
+  for (const r of rows) {
+    // A usage wait's staleness is the executor's to judge (it names why it came too late).
+    if (r.background && !USAGE_WAIT_CODES.has(r.code ?? "")) {
+      if (await missStaleRoutineRun({ db, pubsub: options.pubsub }, r.id, new Date(now))) continue;
+    }
     await enqueue(db, {
       orgId,
       kind: "agent_run.execute",
       payload: { runId: r.id, wait: r.waitId },
       dedupeKey: `agent_run.execute:${r.id}:switched:${r.waitId}`,
-      runAt: new Date(now + i * RESUME_GAP_MS),
+      runAt: new Date(start + woken.length * RESUME_GAP_MS),
       maxAttempts: 4,
     });
+    woken.push(r.id);
   }
+  return woken;
+}
+
+/**
+ * A cut-off turn only its own computer may finish: tools already ran in it (another brain would redo them), or the
+ * plan cut it after it worked, stored with no executed tools when the runner can't name them (a CLI's own tools).
+ */
+export const turnStaysOnItsComputer = (executed: number, cause: string | null | undefined) =>
+  executed > 0 || cause === "plan_limit";
+
+/**
+ * Agents with a run waiting on an account it moved to at its plan's limit (`Transcript.accountMove`): when that account
+ * goes or stops serving them, the run is woken (`wakeAgentsBrainWaits`) to go back to its agent's own.
+ */
+export async function agentsMovedOnto(db: Executor, orgId: string, accountIds: readonly string[]): Promise<string[]> {
+  if (accountIds.length === 0) return [];
+  const { agentRuns } = schema;
+  const rows = await db
+    .selectDistinct({ id: agentRuns.agentId })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.orgId, orgId),
+        eq(agentRuns.status, "waiting_input"),
+        inArray(sql`${agentRuns.transcript}->'accountMove'->>'to'`, [...accountIds]),
+      ),
+    );
   return rows.map((r) => r.id);
+}
+
+/** After what these agents think with changed (their AI, account or computer): `wakeAgentUsageWaits` for each. */
+export async function wakeAgentsBrainWaits(
+  deps: { db: Database; pubsub?: PubSub },
+  orgId: string,
+  agentIds: string[],
+  options: { delayMs?: number } = {},
+) {
+  for (const id of new Set(agentIds)) {
+    await wakeAgentUsageWaits(deps.db, orgId, id, { pubsub: deps.pubsub, ...options }).catch(() => null);
+  }
 }

@@ -14,6 +14,7 @@ export * from "./context-limits";
 export * from "./custom";
 export * from "./embeddings";
 export * from "./gemini";
+export * from "./images";
 export * from "./key-check";
 export * from "./openai";
 export * from "./openrouter";

@@ -360,14 +360,6 @@ describe("Conectar uma IA: one picker, plans first", () => {
     const ui = await stylesheet("../../../packages/ui/src/styles/components.css");
     expect(ruleOf(ui, '.ac-option[aria-pressed="true"]::after')).toContain("height: 18px");
     const layout = await stylesheet("../src/layout.css");
-    // A row has two lines: its check goes on the first, its name's, past the row's padding (the page's 22px line
-    // where the lh unit is unknown).
-    expect(ruleOf(ui, ".ac-option")).toContain("padding: var(--space-3)");
-    const key = ".ai-picker > .ac-option.ai-picker__key::after";
-    expect(ruleOf(layout, key)).toContain("top: calc(var(--space-3) + 11px - 9px)");
-    expect(ruleOf(layout.split("\n@supports (top: 1lh) {")[1] ?? "", key)).toContain(
-      "top: calc(var(--space-3) + 0.5lh - 9px)",
-    );
     // The form's rhythm: the panel stands from the select as any field from the next.
     expect(ruleOf(layout, ".ai-picker")).toContain("gap: var(--form-gap)");
   });
@@ -569,7 +561,8 @@ describe("Conectar uma IA: one picker, plans first", () => {
     await choose("Gemini");
     const panel = within(dialog).getByRole("region", { name: "Seu plano do Gemini" });
     expect(panel.textContent).toContain("Google AI Pro, Google AI Ultra ou Gemini Enterprise");
-    const warning = "O Google diz que usar um plano pessoal do Gemini dentro de outros apps pode suspender a conta.";
+    const warning =
+      "O Google diz que usar um plano pessoal do Gemini dentro de outros apps pode suspender a conta. Para não correr esse risco, use uma chave de API do Gemini ou o Gemini Enterprise.";
     expect(shownText(panel)).toContain(warning);
     await click(within(panel).getByRole("button", { name: "Usar o Gemini Enterprise" }));
     expect(shownText(panel)).not.toContain(warning);
@@ -914,6 +907,24 @@ describe("Conectar uma IA: one picker, plans first", () => {
     expect(dialog.textContent).toContain("Atualize o agentes no computador para usar a chave de um plano");
     await click(within(dialog).getByRole("button", { name: "Usar uma chave de API agora" }));
     expect(payWith(dialog, "Com chave de API").getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("OpenCode not installed on its computer: said so, with no API key offered, since the key row can't take OpenCode's", async () => {
+    const { dialog, choose } = await connect({
+      computers: [{ ...MAC, keys: false, brains: { claude_code: true, codex: true, opencode: false } }],
+      brain: {
+        options: [
+          ...fakeAgentBrain(ADA_ID).options,
+          { kind: "opencode", available: false, reason: "not_installed", models: [], defaultModel: null },
+        ],
+      },
+    });
+    await choose("OpenCode");
+    expect(dialog.textContent).toContain("O OpenCode não está instalado no MacBook.");
+    expect(within(dialog).queryByRole("button", { name: "Usar uma chave de API agora" })).toBeNull();
+    // Another plan its computer can't take keeps the key one click away.
+    await choose("Kimi Code");
+    expect(within(dialog).getByRole("button", { name: "Usar uma chave de API agora" })).toBeTruthy();
   });
 
   test("a program not on the computer: one line, the Claude app told apart behind an ⓘ, installed or looked for from here", async () => {
@@ -1269,7 +1280,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
     machines?.endLogin("login_1", { state: "done", account: claudeMax });
     await withPopup(() => click(within(dialog).getByRole("button", { name: "Entrar com Claude" })));
     await settle(8);
-    expect(dialog.textContent).toContain("Ada agora pensa com Claude Max.");
+    expect(dialog.textContent).toContain("Ada agora pensa com Claude.");
     await choose("Chave de API");
     const panel = within(dialog).getByRole("region", { name: "Chave de API" });
     // Right under its select; Claude's panel is gone from above it.
@@ -1471,7 +1482,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
       ATLAS_ID,
       { brain: "codex", account: "acct_plus" },
     ]);
-    expect(dialog.textContent).toContain("Atlas agora pensa com ChatGPT Plus.");
+    expect(dialog.textContent).toContain("Atlas agora pensa com ChatGPT.");
     await choose("Claude");
     expect(agent().textContent).toContain("Ada");
   });
@@ -1528,7 +1539,7 @@ describe("Atende outras pessoas, in the plan's panel", () => {
     expect(calls(state, "agents.setBrain").map((c) => c.args)).toEqual([
       [ORG_ID, ADA_ID, { brain: "codex", account: "acct_plus", onlyOwner: false }],
     ]);
-    expect(dialog.textContent).toContain("Ada agora pensa com ChatGPT Plus.");
+    expect(dialog.textContent).toContain("Ada agora pensa com ChatGPT.");
     // Ada thinks with it now: off saves at once, with nothing asked.
     await click(replies(panel));
     expect(calls(state, "agents.setBrain").at(-1)?.args).toEqual([ORG_ID, ADA_ID, { onlyOwner: true }]);
@@ -1775,7 +1786,7 @@ describe("All agents: one plan for the team, a login per agent", () => {
     const shared = { ...claudeMax, shared: true, usedBy: ["Atlas"] };
     const { state, dialog } = await connect({ brain: { accounts: [shared] }, computers: [SHARING] });
     const panel = within(dialog).getByRole("region", { name: "Seu plano do Claude" });
-    const use = within(panel).getByRole("button", { name: /^Usar Claude Max/ });
+    const use = within(panel).getByRole("button", { name: /^Usar Conta sem nome/ });
     expect(use.querySelector(".ac-option__desc")?.textContent).toBe("Também usada por Atlas");
     // The sign-in waits behind Another account.
     expect(within(panel).queryByRole("button", { name: "Entrar com Claude" })).toBeNull();
@@ -1789,7 +1800,7 @@ describe("All agents: one plan for the team, a login per agent", () => {
       { brain: "claude_code", account: "acct_max" },
     ]);
     expect(calls(state, "machines.beginAccountLogin")).toHaveLength(0);
-    expect(dialog.textContent).toContain("Ada agora pensa com Claude Max.");
+    expect(dialog.textContent).toContain("Ada agora pensa com Claude.");
   });
 
   test("an agent on the API key stays out of All agents: a plan would make it answer only its owner", async () => {
@@ -2030,7 +2041,7 @@ describe("All agents: one plan for the team, a login per agent", () => {
       ADA_ID,
       { brain: "codex", account: "acct_plus" },
     ]);
-    expect(dialog.textContent).toContain("Ada agora pensa com ChatGPT Plus.");
+    expect(dialog.textContent).toContain("Ada agora pensa com rafael@gmail.com.");
   });
 
   test("an account already there that thinks for another agent, or one an older server doesn't send: only Try again", async () => {
@@ -2065,7 +2076,7 @@ describe("All agents: one plan for the team, a login per agent", () => {
     await choose("ChatGPT");
     const panel = within(dialog).getByRole("region", { name: "Seu plano do ChatGPT" });
     expect(panel.textContent).toContain(
-      "ChatGPT saiu da conta aqui. Entre de novo nela e os agentes dela continuam com ela.",
+      "walt@acme.com saiu da conta aqui. Entre de novo nela e os agentes dela continuam com ela.",
     );
     await withPopup(() => click(within(panel).getByRole("button", { name: "Entrar com ChatGPT" })));
     await settle(6);
@@ -2090,7 +2101,7 @@ describe("All agents: one plan for the team, a login per agent", () => {
     const { state, dialog, choose } = await connect({ accounts: [gpt] });
     await choose("ChatGPT");
     const panel = within(dialog).getByRole("region", { name: "Seu plano do ChatGPT" });
-    expect(panel.textContent).toContain("Você já tem ChatGPT aqui. Entre de novo nela, ou use outra conta.");
+    expect(panel.textContent).toContain("Você já tem walt@acme.com aqui. Entre de novo nela, ou use outra conta.");
     expect(within(panel).queryByRole("button", { name: "Entrar com ChatGPT" })).toBeNull();
     const again = within(panel).getByRole("button", { name: "Entrar de novo" });
     expect(again.className).toContain("primary");
@@ -2250,7 +2261,7 @@ describe("A sign-in through a restart of the server or a reconnect of its comput
     }
     machines?.endLogin("login_1", { state: "done", account: chatgptPlus });
     await ask(22_000);
-    expect(shownText(dialog)).toContain("Ada agora pensa com ChatGPT Plus.");
+    expect(shownText(dialog)).toContain("Ada agora pensa com rafael@gmail.com.");
     expect(shownText(dialog)).not.toMatch(/Não deu para entrar|não respondeu/);
     expect(calls(state, "agents.setBrain").map((c) => c.args[2])).toEqual([{ brain: "codex", account: "acct_plus" }]);
   });
@@ -2312,7 +2323,7 @@ describe("A sign-in through a restart of the server or a reconnect of its comput
     online = true;
     machines?.endLogin("login_1", { state: "done", account: chatgptPlus });
     await ask(25_000);
-    expect(shownText(dialog)).toContain("Ada agora pensa com ChatGPT Plus.");
+    expect(shownText(dialog)).toContain("Ada agora pensa com rafael@gmail.com.");
     expect(calls(state, "machines.beginAccountLogin")).toHaveLength(1);
     expect(calls(state, "machines.cancelAccountLogin")).toHaveLength(0);
   });

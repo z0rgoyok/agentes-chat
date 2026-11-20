@@ -144,7 +144,7 @@ function ColumnCards({
           <div
             key={e.item.id}
             className="issues-col__slot"
-            data-slot={e.item.id}
+            data-slot={dnd.slot(e.item, g.id)}
             hidden={e.state === "hidden" || undefined}
             data-landing={e.state === "landing" || undefined}
           >
@@ -181,7 +181,7 @@ function FoldedCards({
         (e) =>
           e.kind === "card" &&
           e.state === "picked" && (
-            <div key={e.item.id} className="issues-col__slot" data-slot={e.item.id}>
+            <div key={e.item.id} className="issues-col__slot" data-slot={dnd.slot(e.item, g.id)}>
               {renderCard(e.item, g.id, e.state)}
             </div>
           ),

@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { errorText } from "./errors";
 import { joinNames, relativeTime } from "./format";
+import { ownerSplit, ownerTabsShown } from "./owner-split";
 
 /**
  * What a GitHub link holds when `skills.import` answers with skills to pick from, else null. `via`: which of the
@@ -261,18 +262,11 @@ export function skillRemovalText(t: TFunction, users: readonly { name: string }[
  * A list of skills split as the Vault splits its items (ADR 0144): the team's, the person's own personal ones, and
  * other people's (only who manages agents gets those, name and person only).
  */
-export function skillScopes<T extends Pick<Skill, "ownerUserId">>(skills: readonly T[], userId: string) {
-  const team: T[] = [];
-  const mine: T[] = [];
-  const others: T[] = [];
-  for (const s of skills) (s.ownerUserId ? (s.ownerUserId === userId ? mine : others) : team).push(s);
-  return { team, mine, others };
-}
+export const skillScopes = ownerSplit;
 
 /** The skills a person may turn on for an agent: the team's and their own personal ones. */
 export const skillsToGive = <T extends Pick<Skill, "ownerUserId">>(skills: readonly T[], userId: string) =>
   skills.filter((s) => !s.ownerUserId || s.ownerUserId === userId);
 
 /** Whether Skills shows "Equipe | Pessoal": a workspace of one person keeps one library, unless personal ones exist. */
-export const skillsSplit = (members: number, skills: readonly Pick<Skill, "ownerUserId">[]) =>
-  members > 1 || skills.some((s) => s.ownerUserId);
+export const skillsSplit = ownerTabsShown;

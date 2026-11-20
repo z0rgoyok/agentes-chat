@@ -10,7 +10,7 @@ import { useSession } from "@/providers/session";
 import { AuthScaffold, CENTER } from "@/ui/auth/AuthScaffold";
 import { Button } from "@/ui/Button";
 import { haptics } from "@/ui/haptics";
-import { router } from "@/ui/navigation";
+import { landOn } from "@/ui/navigation";
 import { Text } from "@/ui/Text";
 
 /** How long the token's session gets to arrive before the screen says so (never a screen that waits forever). */
@@ -20,7 +20,8 @@ const SIGN_IN_WAIT_MS = 15_000;
  * A connect link, `agenteschat://connect?server=…[&token=…]` (the web app's QR code, the self-host setup):
  * the server is checked and shown under the question, on that server's own sky (dusk on a team's own: you see where
  * you are going), and nothing changes until the person confirms, so a QR code never points the app somewhere else on
- * its own. With a token, the app lands signed in.
+ * its own. With a token, the app lands signed in. Opened over the app or the sign-in, the system's back returns there;
+ * "Not now" (or Close, on a link that isn't one) leaves for the app's start either way.
  */
 export default function Connect() {
   const { t } = useTranslation();
@@ -50,7 +51,7 @@ export default function Connect() {
 
   // The token's session arrives a moment after the answer: into the app once it has.
   useEffect(() => {
-    if (signingIn && session.signedIn) router.replace("/");
+    if (signingIn && session.signedIn) landOn("/");
   }, [signingIn, session.signedIn]);
   useEffect(() => {
     if (!signingIn || session.signedIn) return;
@@ -61,12 +62,12 @@ export default function Connect() {
     return () => clearTimeout(timer);
   }, [signingIn, session.signedIn]);
 
-  const leave = () => router.replace(session.signedIn ? "/" : "/sign-in");
+  const leave = () => landOn(session.signedIn ? "/" : "/sign-in");
 
   if (!server)
     return (
-      <AuthScaffold title={t("mobile.auth.connect.notALink")} onBack={leave}>
-        <Button variant="primary" wide label={t("mobile.common.back")} onPress={leave} />
+      <AuthScaffold title={t("mobile.auth.connect.notALink")}>
+        <Button variant="primary" wide label={t("mobile.common.close")} onPress={leave} />
       </AuthScaffold>
     );
 
@@ -86,7 +87,7 @@ export default function Connect() {
       return setRefused(true);
     }
     // Signed in there already: its workspaces; otherwise its sign-in.
-    router.replace(signedInServers().includes(check.server) ? "/" : "/sign-in");
+    landOn(signedInServers().includes(check.server) ? "/" : "/sign-in");
   };
 
   const problem = check && !check.ok ? t(problemText(check.problem, target), { host }) : null;
@@ -99,7 +100,6 @@ export default function Connect() {
       subtitle={host}
       subtitleStrong
       skyHost={host}
-      onBack={leave}
       agentMode={!check || busy || signingIn ? "run" : "idle"}
     >
       {plan.signOut && !stuck ? (
@@ -113,7 +113,7 @@ export default function Connect() {
         </Text>
       ) : null}
       {stuck ? (
-        <Button variant="primary" wide label={t("mobile.common.continue")} onPress={() => router.replace("/sign-in")} />
+        <Button variant="primary" wide label={t("mobile.common.continue")} onPress={() => landOn("/sign-in")} />
       ) : problem ? (
         <Button variant="primary" wide label={t("mobile.common.retry")} onPress={() => setAttempt((a) => a + 1)} />
       ) : (

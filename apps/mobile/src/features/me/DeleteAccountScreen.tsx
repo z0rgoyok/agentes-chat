@@ -1,5 +1,4 @@
 import { ApiError, useAccountDeletionPlan, useApi, useAuthConfig, useMe } from "@agenteschat/client";
-import { formatTimeLeft } from "@agenteschat/client/lib/actions";
 import {
   type AccountDeletionLine,
   accountDeletionLines,
@@ -18,14 +17,29 @@ import { settingUp } from "@agenteschat/client/lib/guards";
 import { typedCode } from "@agenteschat/client/lib/join-requests";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { deleteAccount } from "@/features/account";
-import { Button, CARD_PAD, Card, HoldButton, type IconName, LineIcon, Locked, SCREEN_X, Text, useToast } from "@/ui";
+import {
+  Button,
+  CARD_PAD,
+  Card,
+  HoldButton,
+  type IconName,
+  LineIcon,
+  Locked,
+  SCREEN_X,
+  SkeletonList,
+  Text,
+  useToast,
+} from "@/ui";
 import { AuthField } from "@/ui/auth/AuthField";
 import { PasswordField } from "@/ui/auth/PasswordField";
 import { openWebPath } from "../links/open-web";
-import { useColors, useNow } from "../shared/hooks";
+import { ResendCode } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors } from "../shared/hooks";
 import { PushedHeader } from "../shared/parts";
 import { preflightMissing } from "./logic";
 
@@ -41,8 +55,8 @@ const LINE_ICON: Record<AccountDeletionLine["kind"], IconName> = {
 };
 
 /**
- * Apagar conta (App Store 5.1.1(v)). The title and first line say it's the whole account, not one workspace, 7 days out
- * with a way back until then. What goes and what stays, from the preflight (each workspace that closes with what it holds, what they leave, the computers
+ * Apagar conta (App Store 5.1.1(v)), under the bar's title as every pushed screen (no heading drawn of its own). The
+ * first line says it's the whole account, not one workspace, 7 days out with a way back until then. What goes and what stays, from the preflight (each workspace that closes with what it holds, what they leave, the computers
  * removed, what stays behind with where to disconnect it on the website, and where plans are billed that theirs stop
  * renewing), the way to delete just a workspace on the website, then a hold. A workspace that still needs this person
  * as its only owner comes first, with its two ways out on the website (People, or deleting it; its onboarding, while
@@ -75,9 +89,6 @@ export function DeleteAccountScreen() {
   const legacy = plan.isError && preflightMissing(plan.error);
   const proof = legacy ? null : deletionProof(config, me?.user.hasPassword);
   const blockers = plan.data?.soleOwner ?? [];
-  const left = sent ? Math.max(0, sent.resendAt - Date.now()) : 0;
-  // A repaint every second while the countdown runs; the time itself is read just above.
-  useNow(left > 0 ? 1000 : 60_000);
   const toSend = proof ? proofToSend(proof, { sent: sent !== null, code, password }) : null;
   const ready = toSend === null || toSend.ready;
   const web = openWebPath;
@@ -172,12 +183,14 @@ export function DeleteAccountScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
       <PushedHeader title={t("mobile.me.deleteAccount")} solid={false} />
-      <ScrollView
+      {/* The code or the password sits under the list of what goes: it scrolls clear of the keyboard on both systems. */}
+      <KeyboardAwareScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        bottomOffset={24}
         contentContainerStyle={[styles.in, { paddingBottom: insets.bottom + 24 }]}
       >
-        <Text variant="display">{t("deleteAccount.title")}</Text>
         <Text variant="body" tone="muted">
           {t("deleteAccount.intro")} {t(legacy ? "mobile.delete.intro" : "mobile.delete.introGrace")}
         </Text>
@@ -216,9 +229,9 @@ export function DeleteAccountScreen() {
           </Card>
         ) : null}
         {plan.isError && !legacy ? (
-          <Button variant="secondary" label={t("mobile.common.retry")} onPress={() => void plan.refetch()} />
+          <LoadFailed onRetry={() => void plan.refetch()} />
         ) : !plan.data && !legacy ? (
-          <ActivityIndicator color={c.muted} />
+          <SkeletonList rows={2} />
         ) : blockers.length > 0 || blockedBy.length > 0 ? (
           <Card>
             <View style={styles.list}>
@@ -229,7 +242,14 @@ export function DeleteAccountScreen() {
                 return (
                   <View key={o.id} style={styles.line}>
                     <Text variant="small" tone="ink2">
-                      {t(setup ? "deleteAccount.soleOwnerSettingUp" : "deleteAccount.soleOwner", { name: named(o) })}
+                      {t(
+                        setup
+                          ? "deleteAccount.soleOwnerSettingUp"
+                          : o.onlyOutside
+                            ? "deleteAccount.soleOwnerOutside"
+                            : "deleteAccount.soleOwner",
+                        { name: named(o) },
+                      )}
                     </Text>
                     <View style={styles.acts}>
                       <Button
@@ -283,19 +303,23 @@ export function DeleteAccountScreen() {
                 <Text variant="small" tone="muted">
                   {t("proof.sent", { email: sent.email })}
                 </Text>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  label={left > 0 ? t("proof.resendIn", { time: formatTimeLeft(left) }) : t("proof.resend")}
-                  disabled={left > 0 || busy}
-                  loading={sending}
+                <ResendCode
+                  resendAt={sent.resendAt}
+                  disabled={busy}
+                  sending={sending}
                   onPress={() => void sendCode()}
                 />
               </View>
             ) : null}
             {proof === "password" ? (
               <Locked when={busy} style={styles.proof}>
-                <PasswordField label={t("proof.password")} value={password} onChangeText={setPassword} />
+                {/* Not focused as it appears: the keyboard would cover what deleting takes before it is read. */}
+                <PasswordField
+                  label={t("proof.password")}
+                  value={password}
+                  onChangeText={setPassword}
+                  autoFocus={false}
+                />
               </Locked>
             ) : null}
             {refused ? (
@@ -328,7 +352,7 @@ export function DeleteAccountScreen() {
             <HoldButton label={t("mobile.delete.hold")} disabled={!ready || busy} onConfirm={() => void confirm()} />
           </>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

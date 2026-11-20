@@ -204,6 +204,24 @@ describe("refusals in the phone's words", () => {
     expect(failureText(en, new ApiError(400, "join.code_wrong", "x"))).toBe("Wrong code. Try again.");
   });
 
+  test("an account out of password tries: when to try again, in minutes from the server's wait", async () => {
+    const out = refusalOf({ error: { status: 429, code: "TOO_MANY_PASSWORD_TRIES", retryIn: 61 } });
+    expect(out).toEqual({
+      status: 429,
+      code: "TOO_MANY_PASSWORD_TRIES",
+      kind: undefined,
+      cloud: undefined,
+      retryIn: 61,
+    });
+    const refused = out ?? { status: 0 };
+    expect(refusalText(await translator("en"), refused)).toBe(
+      "Too many password tries on this account. Try again in 2 minutes.",
+    );
+    expect(refusalText(await translator("pt-BR"), { ...refused, retryIn: 30 })).toBe(
+      "Muitas tentativas de senha nesta conta. Tente de novo em 1 minuto.",
+    );
+  });
+
   test("a limit: the sign-in's e-mail step says the sign-in's words, as the web's does, other calls the API's", async () => {
     const en = await translator("en");
     const limit = new ApiError(429, "rate_limited", "Too many requests. Try again later.");

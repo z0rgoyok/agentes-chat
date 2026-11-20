@@ -11,6 +11,7 @@ import {
   saveLevels,
   toolsAt,
 } from "@agenteschat/client/lib/access-levels";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { type ConnectedItem, connectedItems, itemName } from "@agenteschat/client/lib/connected";
 import type { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { addsConnectors, can, makesAgents } from "@agenteschat/client/lib/permissions";
@@ -190,7 +191,7 @@ export function LevelRow({
    * A short fact under the name, inside the row (the account, a server's host). A list passes it on every row, `null`
    * where there is none, so its rows share one height and one axis.
    */
-  meta?: string | null;
+  meta?: ReactNode;
   /** What the chosen level gives, behind an ⓘ beside the name. */
   hint?: ReactNode;
   asks?: string[];
@@ -309,7 +310,9 @@ export function RulesToggle({
  * Settings → "Agentes e acesso" (admins): agents × connectors (or the
  * built-in areas), each cell a level. A click cycles Sem acesso → Ler → Ler
  * e escrever and saves right away. Fine-tuning per tool is the connector's
- * "Ferramentas" (what the organization allows at all).
+ * "Ferramentas" (what the organization allows at all). Only the agents the
+ * person manages (`managesAgent`, ADR 0085 addendum of 2026-11-17): someone's
+ * private agent stays out of reach of who merely holds "Editar qualquer agente".
  */
 export function AccessMatrixSection() {
   const { t } = useTranslation();
@@ -317,7 +320,7 @@ export function AccessMatrixSection() {
   const look = useRightHandLook();
   const admin = can(org, "manage_agents");
   const agents = useAgents(org.id);
-  const list = agents.data ?? [];
+  const list = (agents.data ?? []).filter((a) => managesAgent(a));
   const access = useAgentsAccess(list, admin);
   const items = useConnectedById();
   const set = useSetLevels();

@@ -1527,6 +1527,14 @@ describe("live view", () => {
     const b = viewer(f.owner.id);
     expect((await remote.watch(b.viewer, f.org.id, f.agent.id)).streaming).toBe(false);
     expect(b.got[0]).toMatchObject({ type: "browser.unavailable", reason: "offline" });
+    // The workspace's own computer asleep in standby: coming back, never offline (ADR 0161).
+    await f.db
+      .update(schema.machines)
+      .set({ kind: "managed", standbyAt: new Date() })
+      .where(eq(schema.machines.id, machine.machineId));
+    const c = viewer(f.owner.id);
+    expect((await remote.watch(c.viewer, f.org.id, f.agent.id)).streaming).toBe(false);
+    expect(c.got[0]).toMatchObject({ type: "browser.unavailable", reason: "reconnecting" });
   });
 
   test("a browser a person drives from here gets no keep-alive read in front of their clicks", async () => {

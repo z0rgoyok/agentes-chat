@@ -8,6 +8,7 @@ import { useOrg } from "@/providers/org";
 import { Button, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, InkOrbit, Segmented } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note, Step, StepsCard } from "../ai/parts";
+import { RowBones } from "../roles/parts";
 import { CommandBlock, Gap, SettingsPage } from "../settings/parts";
 import { useMeId } from "../shared/hooks";
 import { openComputer, openThisPhone } from "./DevicesScreen";
@@ -16,6 +17,15 @@ import { ConnectedHero, DevicePortrait, JoinRequestCard } from "./parts";
 import { useConnectLink, useDeviceMutation, useDevices } from "./queries";
 
 const openConnect = (kind: ConnectKind) => router.push({ pathname: "/settings/devices/connect", params: { kind } });
+
+/**
+ * Done, once the computer is in: the whole flow goes (its steps never stay under the computer's page, for the back to
+ * walk through again), back to the devices' list, and the computer's page opens over it.
+ */
+const finishOn = (machineId: string) => {
+  router.dismissTo("/settings/devices");
+  openComputer(machineId);
+};
 
 /**
  * "Conectar um dispositivo": this phone (its own guide), another computer through the desktop app on it, or a server
@@ -82,7 +92,7 @@ function AppFlow() {
       {...(found
         ? {
             bottom: (
-              <Button variant="primary" wide label={t("mobile.common.done")} onPress={() => openComputer(found.id)} />
+              <Button variant="primary" wide label={t("mobile.common.done")} onPress={() => finishOn(found.id)} />
             ),
           }
         : {})}
@@ -140,7 +150,7 @@ function LinkFlow({ kind }: { kind: "server" | "computer" }) {
                 variant="primary"
                 wide
                 label={t("mobile.common.done")}
-                onPress={() => (state.machineId ? openComputer(state.machineId) : undefined)}
+                onPress={() => (state.machineId ? finishOn(state.machineId) : undefined)}
               />
             ),
           }
@@ -180,6 +190,11 @@ function LinkFlow({ kind }: { kind: "server" | "computer" }) {
               <Gap />
               {link ? (
                 <CommandBlock command={link.commands[shell]} copiedTitle={t("mobile.devices.connect.copied")} />
+              ) : make.isPending ? (
+                // The line's place while it is made: nothing jumps when it comes.
+                <GroupedList>
+                  <RowBones name={80} />
+                </GroupedList>
               ) : null}
               <GroupedFooter>{t("mobile.devices.connect.once")}</GroupedFooter>
             </>

@@ -6,6 +6,7 @@ import type {
   AgentSetupResult,
   BrainMachine,
   CommandApproval,
+  MachineAccount,
   Model,
   NewAgentSetup,
 } from "../api/types";
@@ -34,7 +35,6 @@ export function setupOfBrain(view: AgentBrain): AgentSetup | null {
     effort: view.effort,
     ...(viewSpeedFits(view) ? { speed: view.speed } : {}),
     contextTokens: view.contextTokens,
-    fallback: view.fallback,
     onlyOwner: view.onlyOwner,
     ...(view.autonomy ? { autonomy: view.autonomy } : {}),
   };
@@ -130,7 +130,11 @@ export type NewAgentStart = (
       brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
       machineId: string;
       computer: string;
-      account: { id: string; label: string } | null;
+      /** Said as everywhere (`accountTitle`, `accountInLine` for an unnamed one: its maker). */
+      account: Pick<
+        MachineAccount,
+        "id" | "kind" | "label" | "named" | "email" | "plan" | "mine" | "keyHint" | "provider"
+      > | null;
       /** Saved as its "Quem pensa" once the agent exists. */
       input: AgentBrainInput;
     }
@@ -163,14 +167,25 @@ export function newAgentStart(
     brain: s.brain,
     machineId: s.computer.machineId,
     computer: s.computer.name,
-    account: s.account ? { id: s.account.id, label: s.account.label } : null,
+    account: s.account
+      ? {
+          id: s.account.id,
+          kind: s.brain,
+          label: s.account.label,
+          named: s.account.named,
+          email: s.account.email ?? null,
+          plan: s.account.plan ?? null,
+          mine: s.account.mine,
+          keyHint: null,
+          provider: s.account.provider,
+        }
+      : null,
     input: {
       brain: s.brain,
       account: s.account?.id ?? null,
       model: s.model,
       effort: s.effort ?? null,
       contextTokens: s.contextTokens,
-      fallback: s.fallback ?? true,
     },
     ...autonomy,
   };
@@ -204,13 +219,11 @@ export function newAgentStartText(
   const parts = advancedParts(t, language, {
     kind: start.brain,
     autoModel: isAuto(value),
-    apiKey: true,
     now: {
       effort: effortLevel(start.input.effort),
       speed: "standard",
       contextTokens: isContextLimit(start.input.contextTokens) ? start.input.contextTokens : null,
       onlyOwner: true,
-      fallback: start.input.fallback ?? true,
     },
   });
   const plan = planOfAccount({ kind: start.brain, provider: o.provider ?? null });

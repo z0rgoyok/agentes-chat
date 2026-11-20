@@ -122,6 +122,7 @@ export const RUN_CODES = [
   "computer_busy",
   "computer_failed",
   "computer_timeout",
+  "disk_full",
   "cli_failed",
   "account_missing",
   "our_error",
@@ -439,3 +440,50 @@ export const eventWebhook = (event: RoutineEvent): WebhookProvider | null =>
     : event === "github.pr_opened" || event === "deploy.succeeded"
       ? "github"
       : null;
+
+const CRON_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+/**
+ * A simple cron (minute hour day month weekday: numbers, lists, an hour step) as the rule the server would keep for it
+ * (`cronToRule` in packages/engine/src/rrule.ts), to say it in words before it exists; null when it doesn't map.
+ */
+export function cronRule(cron: string, timezone: string): ApiRule | null {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [mi, h, dom, mon, dow] = parts as [string, string, string, string, string];
+  if (!/^\d+$/.test(mi)) return null;
+  const pad = (x: number) => String(x).padStart(2, "0");
+  const minute = pad(Number(mi));
+  let days: number[] | null = null;
+  if (dow !== "*") {
+    days = [];
+    for (const part of dow.split(",")) {
+      const range = /^(\d)-(\d)$/.exec(part);
+      if (range) for (let x = Number(range[1]); x <= Number(range[2]); x++) days.push(x % 7);
+      else if (/^\d$/.test(part)) days.push(Number(part) % 7);
+      else return null;
+    }
+  }
+  const byWeekday = days ? [...new Set(days)].sort().map((d) => CRON_DAYS[d] as string) : undefined;
+  const list = (field: string) => (/^\d+(,\d+)*$/.test(field) ? field.split(",").map(Number) : null);
+  const step = /^\*\/(\d+)$/.exec(h);
+  if (h === "*" || step) {
+    if (dom !== "*" || mon !== "*") return null;
+    return { freq: "hourly", interval: step ? Number(step[1]) : 1, times: [`00:${minute}`], timezone, byWeekday };
+  }
+  const hours = list(h);
+  if (!hours) return null;
+  const times = hours.map((x) => `${pad(x)}:${minute}`);
+  if (mon !== "*") {
+    const months = list(mon);
+    const monthDays = list(dom);
+    return months && monthDays && !byWeekday
+      ? { freq: "yearly", byMonth: months, byMonthDay: monthDays, times, timezone }
+      : null;
+  }
+  if (dom !== "*") {
+    const monthDays = list(dom);
+    return monthDays && !byWeekday ? { freq: "monthly", byMonthDay: monthDays, times, timezone } : null;
+  }
+  return byWeekday ? { freq: "weekly", byWeekday, times, timezone } : { freq: "daily", times, timezone };
+}

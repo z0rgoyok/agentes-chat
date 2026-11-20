@@ -40,8 +40,18 @@ function DeviceWaitPill({
     api.devices.deviceWait(org, runId ?? "", action),
   );
   if (info.over) return <AskDone done words={t("mobile.devices.wait.back", { device: info.device })} />;
+  // What the button did, said at once: a device still away changes nothing on the card.
   const run = (action: "retry" | "stop") =>
-    act.mutate(action, { onError: (err) => toast({ title: errorText(t, err), icon: "x" }) });
+    act.mutate(action, {
+      onSuccess: () =>
+        toast({
+          title: t(action === "retry" ? "mobile.devices.wait.tried" : "mobile.devices.wait.stopped", {
+            device: info.device,
+          }),
+          icon: "check",
+        }),
+      onError: (err) => toast({ title: errorText(t, err), icon: "x" }),
+    });
   const other = async () => {
     const usable = (devices.data?.devices ?? [])
       .flatMap((d) => [d, ...d.phones])

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { chatScreenSource } from "./chat-screen-source";
 
 /** A file of the app, as text: where a reply's parts go lives in components the tests can't render. */
 const source = (path: string) => readFileSync(join(import.meta.dir, "../../src/features/chat", path), "utf8");
@@ -25,8 +26,9 @@ describe("a reply's tools sit last", () => {
           "<TurnTools",
           "<SavedTools",
           "<NoAiCard message={m} />",
-          // The foot is the reply's last part: only the double tap's one-time hint and its 👍 over the row follow it.
-          "{foot}\n          </RowPartContext.Provider>\n          {hintNode}\n        </View>\n        {popNode}\n      </Pressable>\n    </>\n  );\n});",
+          // The foot is the reply's last part: only the double tap's one-time hint follows it in the body (the time a
+          // pull shows and the 👍 over the row are outside it).
+          "{foot}\n          </RowParts>\n          {hintNode}\n        </Animated.View>\n",
         ]),
       ),
     ).toBe(true);
@@ -44,7 +46,7 @@ describe("a reply's tools sit last", () => {
     const row = source("MessageRow.tsx");
     const [toolsAt, footAt] = at(row, [
       "<SavedTools\n",
-      "{foot}\n          </RowPartContext.Provider>\n          {hintNode}\n        </View>\n        {popNode}\n      </Pressable>\n    </>\n  );\n});",
+      "{foot}\n          </RowParts>\n          {hintNode}\n        </Animated.View>\n",
     ]);
     const last = row.slice(toolsAt, footAt);
     for (const card of [
@@ -71,10 +73,13 @@ describe("a reply's tools sit last", () => {
 describe("agents it asked first: one pair row right before the reply, never inside it", () => {
   test("saved: the row sits before the reply's own row (which then shows its face and name), none in its body", () => {
     const row = source("MessageRow.tsx");
-    expect(ascending(at(row, ["const grouped = groupedIn && !pair;", "{pair}\n      {quote && !inBubble"]))).toBe(true);
+    // The pair, then what the message is about in a live file (ADR 0199) and its quote, then the reply's own row.
+    expect(
+      ascending(at(row, ["const grouped = groupedIn && !pair;", "{pair}\n      {liveRef ? (", "{quote && !inBubble"])),
+    ).toBe(true);
     const [bodyAt, endAt] = at(row, [
-      "<View style={[styles.body, { gap: rhythm.part }]}>",
-      "{foot}\n          </RowPartContext.Provider>\n          {hintNode}\n        </View>\n        {popNode}\n      </Pressable>",
+      "<Animated.View style={[styles.body, { gap: rhythm.part }, inBubble && giveWay.style, compact && slide]}>",
+      "{foot}\n          </RowParts>\n          {hintNode}\n        </Animated.View>\n",
     ]);
     expect(row.slice(bodyAt, endAt)).not.toContain("Consult");
   });
@@ -121,7 +126,7 @@ describe("agents it asked first: one pair row right before the reply, never insi
     expect(reach).not.toContain("reach.see");
     // One older than the conversation's list goes back is loaded on its own, never the "Entregue ao" text.
     expect(source("ConsultGroup.tsx")).toContain(
-      "useConsultationConversation(orgId, channelId, id && list.isSuccess && !listed ? id : null)",
+      "useConsultationConversation(orgId, channelId, id && list.loaded && !listed ? id : null)",
     );
     const row = source("MessageRow.tsx");
     expect(row).toContain("const reached = useMemo(() => reachHandoffs(m.meta), [m.meta]);");
@@ -131,9 +136,11 @@ describe("agents it asked first: one pair row right before the reply, never insi
 
 describe("an exchange between the same two agents", () => {
   test("is one row on its first asking run's reply, and one conversation when opened", () => {
-    expect(source("ConsultGroup.tsx")).toContain("groupsByRun(asExchanges(list.data ?? []))");
+    // Grouped once for the conversation (`RowConsults`), each reply's row reading its run's.
+    expect(source("row-data.tsx")).toContain("byRun: groupsByRun(asExchanges(list ?? []))");
+    expect(source("ConsultGroup.tsx")).toContain("const group = runId ? list.byRun.get(runId) : undefined;");
     expect(source("ConsultGroup.tsx")).toContain("consultPair(items, now, askerId,");
-    expect(source("ChatScreen.tsx")).toContain("asExchanges(consultData)");
+    expect(chatScreenSource()).toContain("asExchanges(consultData)");
     expect(source("ConsultationScreen.tsx")).toContain("useExchangeConversation(");
   });
 });
@@ -144,7 +151,7 @@ describe("one call is its own line", () => {
     expect(tools).toContain("const one = oneCall(items);");
     expect(tools).toContain("one={one}");
     expect(tools).toContain("const lone = savedOneLine(meta, onCard);");
-    expect(tools).toContain("<Line line={{ ...only.line, detail }} color={color} onToggle={onToggle} />");
+    expect(tools).toContain("<Line line={{ ...only.line, detail }} color={color} onToggle={onToggle} keep={keep} />");
   });
 });
 
@@ -160,11 +167,11 @@ describe("nothing more than the message shows", () => {
 });
 
 describe("what agents did under each reply: the person's own setting, off by default", () => {
-  test("off, a done reply keeps only what it read and a saved one draws no block; the live block stays", () => {
+  test("off, a done reply draws nothing and a saved one no block; the live block stays", () => {
     const tools = source("ToolCalls.tsx");
-    // Done and off: no call is "now", so only the messages it read stay (the branch for a reply with no call).
+    // Done and off: no call is "now", so nothing shows (the branch for a reply with no call: its words are the reply).
     expect(tools).toContain("(done && !showsActivity(org)) ? null : toolNow(items);");
-    expect(tools).toContain('const shown = done ? items.filter((i) => i.kind === "steer") : items;');
+    expect(tools).toContain('const said = done ? [] : items.flatMap((i) => (i.kind === "say" ? [i] : []));');
     expect(tools).toContain("if (!compact || shown === 0 || !showsActivity(org)) return null;");
     // The cards that carry content or wait for a person aren't the tools' and stay in the row.
     const row = source("MessageRow.tsx");
@@ -177,7 +184,7 @@ describe("what agents did under each reply: the person's own setting, off by def
   test("Você has the row and its page, and a secret request's card shows without its text", () => {
     const me = readFileSync(join(import.meta.dir, "../../src/features/me/MeScreen.tsx"), "utf8");
     expect(me).toContain('onPress={() => open("/me/activity")}');
-    const route = readFileSync(join(import.meta.dir, "../../app/(app)/me/activity.tsx"), "utf8");
+    const route = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/me/activity.tsx"), "utf8");
     expect(route).toContain("<ActivityPage />");
     expect(source("logic.ts")).toMatch(/hidesBody = [^;]*secretRequestOf\(m\.meta\)/);
   });
@@ -277,50 +284,44 @@ describe("a stretch's pause on the phone (ADR 0089)", () => {
   });
 });
 
-describe("a plan account on the phone (IA e uso › Contas): a row that opens", () => {
+describe("a plan account on the phone (IA e uso › Contas): a row that pushes its own screen", () => {
   const screen = source("../usage/UsageScreen.tsx");
+  const detail = source("../usage/UsageAccountScreen.tsx");
 
-  test("closed: its mark, name, plan and owner, one meter for the fullest window, the alert; it says it opens", () => {
-    const row = screen.slice(...at(screen, ["function AccountRow(", "function AgentShares("]));
-    const head = row.slice(...at(row, ["<Pressable", "</Pressable>"]));
-    expect(head).toContain("accessibilityState={{ expanded: open }}");
+  test("its row: its mark, name, plan and owner, one meter for the fullest window, the alert; it opens a screen", () => {
+    const row = screen.slice(...at(screen, ["function AccountRow(", "/** The API per agent:"]));
     expect(
-      ascending(
-        at(head, ["<ProviderLogo", "accountName(t, account)", "{owner}", "text.short(line.top)", "line.alert"]),
-      ),
+      ascending(at(row, ["<ProviderLogo", "accountName(t, account)", "{owner}", "text.short(line.top)", "line.alert"])),
     ).toBe(true);
-    // Near its limit it starts open; every other one starts closed.
-    expect(row).toContain('useState(line != null && line.state !== "ok")');
-    // Nothing of the open row is drawn while it is closed.
-    expect(row.indexOf("{open ? (")).toBeGreaterThan(row.indexOf("</Pressable>"));
+    expect(row).toContain("onPress={() => openUsageAccount(account.key)}");
+    // Nothing opens in place under it.
+    expect(row).not.toContain("{open ? (");
+    expect(row).not.toContain("expanded");
+    expect(screen).not.toContain("function AgentShares(");
   });
 
-  test("open: bars split by agent, then one list, then when it renews and how old, then the month, then the way to the AI accounts screen", () => {
-    const row = screen.slice(...at(screen, ["function AccountRow(", "function AgentShares("]));
-    const body = row.slice(row.indexOf("{open ? ("));
+  test("its screen: the bars, one Detalhes row that opens the agents and the month in place, then the way to the AI accounts screen", () => {
     expect(
-      ascending(
-        at(body, ["brandOf(account)", "usage={splitUsage(", "{list}", "usageViews.monthTokens", "mobile.ai.row"]),
-      ),
+      ascending(at(detail, ['t("common.details")', "{details ? (", 't("shell.agents")', "{tokens}", "mobile.ai.row"])),
     ).toBe(true);
-    // The row already says where the plan stands: the meter doesn't say it again.
-    expect(body).toMatch(/<PlanMeter\s+plain/);
+    // Split by agent only while Detalhes shows the agents that explain the colours.
+    expect(detail).toMatch(/details\s+\? splitUsage\(/);
+    // The title says the account: the meter doesn't say where the plan stands again.
+    expect(detail).toMatch(/<PlanMeter\s+plain/);
+    expect(detail).toContain('t("usageViews.monthTokens", {');
+    // The logo names the maker: no line saying it again.
+    expect(detail).not.toContain("brandOf(");
     // Only its owner manages it, on the AI accounts screen.
-    expect(body).toContain("account.mine && account.accountId ?");
-    expect(row).not.toContain("account.agents.map");
-    const list = screen.slice(...at(screen, ["function AgentShares(", "/** The API per agent:"]));
-    // One line of words per agent, no column titles over them.
-    expect(list).not.toContain("usageViews.thisMonth");
-    expect(ascending(at(list, ["openAgentUsage(a.agentId)", "usageViews.moreAgents"]))).toBe(true);
-    // "Usa agora" only for an agent using it now, never for the folded row.
-    expect(list).toContain("shareFacts(t, i18n.language, window, a)");
-    expect(list).toContain(
-      "shareFacts(t, i18n.language, window, { share: shares.restShare, tokens: shares.restTokens })",
-    );
-    // The renewal moves under the list, once.
+    expect(detail).toContain("account.mine && account.accountId ?");
+    // Every agent, nothing folded, its share as the row's value, its tokens under its name, the row to its own usage.
+    expect(detail).toContain("const agents = [...shares.shown, ...shares.rest];");
+    expect(detail).not.toContain("usageViews.moreAgents");
+    expect(detail).toContain("shareCells(t, i18n.language, window, a)");
+    expect(detail).toMatch(/onPress=\{\(\) => router\.push\(`\/agent-usage\/\$\{a\.agentId\}`/);
+    // Without an account's list inside, each window says when it renews under its bar; the age only once it matters.
     const parts = source("../usage/parts.tsx");
     expect(
-      ascending(at(parts, ["!children ? (", "{children}\n      {children && renews ?", "text.updated(usage.at)"])),
+      ascending(at(parts, ["!children ? (", "{children}\n      {children && renews ?", "planAgeShown(usage, now)"])),
     ).toBe(true);
   });
 
@@ -444,6 +445,8 @@ describe("the secret card on the phone", () => {
     expect(asks).toContain("lineMark: { flexShrink: 0, width: 20, height: 20,");
     // The fuse and the time left under the decision, never on the card's top line.
     expect(asks).toContain('{waitsFor === "you" && expiry ? <View style={styles.expiryRow}>{expiry}</View> : null}');
+    // From the card's edge, as the buttons above it: never floating at the other end on a line of its own.
+    expect(asks).toContain('expiryRow: { flexDirection: "row", marginTop: 10 },');
     expect(asks).toContain('{waitsFor && waitsFor !== "you" && !ended ? (');
   });
 });
@@ -490,7 +493,7 @@ describe("an agent's offer card is done for everyone once it's done", () => {
     expect(routeAgent(link, "a-other")).toBeUndefined();
     expect(routeAgent(link, undefined)).toBeUndefined();
     // The route hands the screen only what `routeAgent` keeps.
-    const route = readFileSync(join(import.meta.dir, "../../app/(app)/settings/skills/new.tsx"), "utf8");
+    const route = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/settings/skills/new.tsx"), "utf8");
     expect(route).toContain("forAgentId={routeAgent(url, agent)}");
     // The screen sends it only on an install from the card's link with its row checked, never on a read.
     const screen = readFileSync(join(import.meta.dir, "../../src/features/settings/SkillsScreen.tsx"), "utf8");

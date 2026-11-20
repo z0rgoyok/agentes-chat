@@ -44,7 +44,7 @@ const typing = (ev: (event: Record<string, unknown>) => Promise<void>) =>
 const cancels = (state: ReturnType<typeof seedState>) => state.calls.filter((c) => c.method === "agents.cancelRun");
 
 describe("while it works the bar alone says it: no row in the conversation, writing or not", () => {
-  test("on a step: the bar says what it does, its time and its stop; nothing in the conversation", async () => {
+  test("on a step: the bar says what it does and its time, the composer stops it; nothing in the conversation", async () => {
     const { state, ev } = await open();
     await thinking(ev);
     await act(() => new Promise((r) => setTimeout(r, 2100)));
@@ -58,14 +58,15 @@ describe("while it works the bar alone says it: no row in the conversation, writ
       "mexendo nos arquivos do PC · refresh.ts…",
     );
     expect(bar().querySelector(".ac-typing__elapsed")?.textContent).toMatch(/^1\d s$/);
-    // Nothing to go back to.
+    // Nothing to go back to, and no stop of its own (the composer's).
     expect(within(bar()).queryByRole("button", { name: "Ver" })).toBeNull();
-    await act(async () => fireEvent.click(within(bar()).getByRole("button", { name: "Parar" })));
+    expect(bar().querySelector(".stop-run")).toBeNull();
+    await act(async () => fireEvent.click(screen().getByRole("button", { name: "Parar a Ada" })));
     await settle(2);
     expect(cancels(state)).toHaveLength(1);
   });
 
-  test("writing: still no row and none of its words; the bar says it writes, its time and its stop", async () => {
+  test("writing: still no row and none of its words; the bar says it writes and its time, the composer stops it", async () => {
     const { state, ev } = await open();
     await writing(ev);
     expect(row()).toBeNull();
@@ -73,12 +74,12 @@ describe("while it works the bar alone says it: no row in the conversation, writ
     expect(bar().dataset.active).toBe("true");
     expect(bar().querySelector(".ac-typing__text")?.textContent).toBe("Ada escrevendo…");
     expect(bar().querySelector(".ac-typing__elapsed")?.textContent).toMatch(/^1\d s$/);
-    await act(async () => fireEvent.click(within(bar()).getByRole("button", { name: "Parar" })));
+    await act(async () => fireEvent.click(screen().getByRole("button", { name: "Parar a Ada" })));
     await settle(2);
     expect(cancels(state)).toHaveLength(1);
   });
 
-  test("someone typing beside it: 'Ada mexendo… · 13 s · João digitando…', the time and the stop hers", async () => {
+  test("someone typing beside it: 'Ada mexendo… · 13 s · João digitando…', the time hers", async () => {
     const { ev } = await open();
     await thinking(ev);
     await typing(ev);
@@ -90,9 +91,9 @@ describe("while it works the bar alone says it: no row in the conversation, writ
     expect(also.classList.contains("ac-typing__also")).toBe(true);
     expect(also.textContent).toBe("João digitando…");
     expect(also.querySelector(".ac-typing__typers")?.textContent).toBe("João");
-    // Both faces, and the stop at its end.
+    // Both faces, and who types ends the line (no stop after it: the composer's).
     expect(bar().querySelectorAll(".ac-typing__tok")).toHaveLength(2);
-    expect(bar().lastElementChild?.querySelector(".stop-run")).not.toBeNull();
+    expect(bar().lastElementChild).toBe(also);
   });
 });
 

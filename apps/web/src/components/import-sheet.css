@@ -1,0 +1,291 @@
+/* Bringing a team in, whatever the source (ImportSheet.tsx): the sheet under the crossing. */
+.imp-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.imp-sheet__text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+/* A subheading and its list, closer to each other than to the rest. */
+.imp-sheet__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.imp-sheet__sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+.imp-sheet__alt {
+  width: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 13.5px;
+}
+/* While the server's way in is still read: the steps that depend on it come once it's known. */
+.imp-sheet__wait {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: var(--space-4) 0;
+}
+
+/* The steps: each a MediaRow, its number and title on one line and what to do under them. */
+.imp-do {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.imp-do__n {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--plate);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* An app's command to copy wraps inside the step instead of running off the sheet. */
+.imp-do .machine-command {
+  margin: 0;
+}
+.imp-do .machine-command__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The command is one line or two: no taller than it. */
+.imp-do__text.ac-input[data-command] {
+  min-height: 0;
+}
+.imp-do .imp-other__copy {
+  justify-content: space-between;
+}
+.imp-do__hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.imp-do__alt {
+  align-self: flex-start;
+  font-size: 13px;
+}
+.imp-do .imp-reading {
+  border: 1.5px dashed var(--line2);
+  border-radius: var(--radius-lg);
+}
+
+/* Who is coming: a face, a name and a role each, rows divided by a line. */
+.imp-team {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.imp-team li {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+/* "And N more": their faces together, then their names. */
+.imp-team li:not(.ac-mediarow) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.imp-team__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14.5px;
+  line-height: 20px;
+}
+.imp-team__text b {
+  font-weight: 500;
+}
+.imp-team__link {
+  color: inherit;
+  text-decoration: none;
+}
+.imp-team__link:hover {
+  text-decoration: underline;
+}
+.imp-team__text span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imp-team__faces {
+  display: inline-flex;
+  flex: none;
+}
+.imp-team__faces > * + * {
+  margin-left: -8px;
+}
+
+/* The agents' files on their way to the Drive. */
+.imp-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.imp-copy__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14.5px;
+  line-height: 20px;
+}
+.imp-copy__line b {
+  font-weight: 650;
+}
+.imp-copy__count {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.imp-copy__bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--plate);
+}
+.imp-copy__bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ink);
+  transition: width 0.2s ease-out;
+}
+
+/* ── Choosing what comes, a step at a time ───────────────────────────────── */
+/* Out of an ActionRow, the text takes what the box and the face leave. */
+.imp-choice .imp-row > .imp-row__text {
+  flex: 1;
+  min-width: 0;
+}
+/* Every row's first line is 20px tall: the box, the icon or face and the title share its middle. */
+.imp-choice .imp-row__title {
+  line-height: 20px;
+}
+.imp-choice .imp-row__lead {
+  min-height: 20px;
+}
+.imp-choice .imp-row > .ac-check {
+  margin-top: 1px;
+}
+/* A row with a face: its first line is the face's height (24px), the box and the name on its middle. */
+.imp-choice .imp-row:has(> .imp-row__lead > .ac-avatar) .imp-row__title {
+  line-height: 24px;
+}
+.imp-choice .imp-row:has(> .imp-row__lead > .ac-avatar) > .ac-check {
+  margin-top: 3px;
+}
+/* A row for several things: the box, then the rest one button that opens their list, its arrow on the title's line. */
+.imp-choice .imp-row.imp-row--opens {
+  padding-block: 0;
+}
+.imp-choice .imp-row.imp-row--opens > .ac-check {
+  margin-top: calc(var(--row-py) + 1px);
+}
+.imp-row__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: var(--row-py) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.imp-row__open > .imp-row__text {
+  flex: 1;
+  min-width: 0;
+}
+.imp-row__go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+  color: var(--muted);
+}
+.imp-row__open:hover .imp-row__go {
+  color: var(--ink);
+}
+html:not([data-pointer]) .imp-row__open:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+/* A workflow's steps, as they arrive. */
+.imp-flow {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 8px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.imp-flow > li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--ink2);
+  overflow-wrap: anywhere;
+}
+/* Each step is an `.ac-iconline`; an icon as wide as a face (18px), so every step's words start in one column. */
+.imp-flow > li > .ac-icon {
+  margin-inline: 1px;
+  color: var(--muted);
+}
+.imp-flow b {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* What a "no" leads to, under its condition. */
+.imp-flow--sub {
+  padding: 8px 0 0;
+}
+.imp-flow__by {
+  color: var(--muted);
+}
+.imp-flow > li > span {
+  min-width: 0;
+}
+/* An app's ways: each line says what the way brings and needs, whole. */
+.imp-paths .imp-row__line {
+  display: block;
+  overflow: visible;
+}
+/* The way that brings the most says so, as words in the colour of good news. */
+.imp-paths__best {
+  color: var(--ok);
+}

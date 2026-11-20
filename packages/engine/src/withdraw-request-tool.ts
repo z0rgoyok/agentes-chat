@@ -5,6 +5,7 @@ import { hasOpenRequest, openRequestsOf, WITHDRAW_REQUEST_TOOL, WITHDRAW_RULE } 
 import { quietEnd, withdrawMoot } from "./parked-asks";
 import { withdrawQuestion } from "./questions";
 import { withdrawSecretRequest } from "./secrets";
+import { confidentialRefusal } from "./tools/confidential-lock";
 import type { ToolDefinition, ToolSource } from "./tools/types";
 
 const { agentRuns } = schema;
@@ -37,21 +38,33 @@ export function createWithdrawRequestToolSource(deps: { pubsub?: PubSub } = {}):
           content:
             "No open request of yours has that id: it was answered, ended, isn't yours or is in another conversation.",
         };
-      const reason = typeof input.reason === "string" && input.reason.trim() ? input.reason.trim().slice(0, 300) : null;
+      // From a confidential thread (ADR 0190) no reason goes with it: the run that waits reads it, and so do the
+      // people at the card.
+      const reason =
+        !ctx.confidential && typeof input.reason === "string" && input.reason.trim()
+          ? input.reason.trim().slice(0, 300)
+          : null;
       const d = { db: ctx.db, pubsub: deps.pubsub };
       // Another of its runs still waits on it: nobody answered, so that run owes nobody for it and may stay quiet.
       const [waiting] =
         open.runId && open.runId !== ctx.runId
           ? await ctx.db.select().from(agentRuns).where(eq(agentRuns.id, open.runId))
           : [];
+      // And only a request of that same thread is taken back: withdrawing one elsewhere moves a run the lock does
+      // not hold, at a word from this one.
+      if (ctx.confidential && open.runId !== ctx.runId && waiting?.threadRootId !== ctx.threadRootId) {
+        return confidentialRefusal();
+      }
       const moot =
         waiting &&
         (await withdrawMoot(
           d,
           waiting,
           open,
-          `You withdrew this ${open.kind === "question" ? "question" : "request"} yourself${reason ? ` (${reason})` : ""}: nobody will answer it, and nobody waits on it. Go on without it; if nothing is left to do or say, ${quietEnd(waiting)}.`,
+          `You withdrew this ${open.kind === "question" ? "question" : "request"} yourself${reason ? ` (${reason})` : ""}, in your newer turn here, which answers the person: nobody will answer it, and nobody waits on it. Go on without it only with work left to do; otherwise ${quietEnd(waiting)}.`,
           reason,
+          // That newer turn has what the person said since: this one only answers them again if it does more.
+          true,
         ));
       const done =
         moot ||

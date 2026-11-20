@@ -7,7 +7,6 @@ import {
   useApi,
   useModels,
 } from "@agenteschat/client";
-import { CUSTOM_PROVIDER } from "@agenteschat/client/lib/endpoints";
 import { errorText, keyRefusal } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
@@ -16,6 +15,7 @@ import {
   freePlanAccount,
   noAiLockedLine,
   PLAN_CHOICES,
+  planTitle,
 } from "@agenteschat/client/lib/no-ai";
 import { can, makesAgents } from "@agenteschat/client/lib/permissions";
 import {
@@ -33,35 +33,48 @@ import {
   thinksWithLine,
 } from "@agenteschat/client/lib/right-hand";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, usePreventRemove } from "expo-router";
-import { useCallback, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import type { TFunction } from "i18next";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
-import { Button, Text, useToast } from "@/ui";
+import { Button, GroupedFooter, SkeletonList, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useColors, useDirectory, useMeId } from "../shared/hooks";
-import { PushedHeader } from "../shared/parts";
-import { ConnectAiFlow, viewOf } from "./ConnectAiSteps";
+import { BottomBar, PushedHeader } from "../shared/parts";
+import { ConnectAiPage, viewOf } from "./ConnectAiSteps";
 import { ConnectScene } from "./ConnectScene";
-import type { FlowView } from "./logic";
+import {
+  askOf,
+  type ConnectAiFlow,
+  connectAiHref,
+  endConnectAi,
+  type KeyDraft,
+  type PushedPage,
+  patchConnectAi,
+  startConnectAi,
+  useConnectAi,
+} from "./connect-flow";
+import { FLOW_STEPS, type FlowView, flowStep } from "./logic";
 import { PlanHoldNote, usePlanHold } from "./parts";
 
 /**
- * The first run's API key (the web's key panel, saved by the step's button): a pay-as-you-go key for the
- * workspace. Agents without a key of their own think with the newest one of their provider, so nothing else needs
- * pointing. `orgId` is passed in: the first run goes before a workspace is chosen.
+ * The workspace's API key typed on the key's page (the web's key panel, saved by the page's button): a pay-as-you-go
+ * key for the workspace. Agents without a key of their own think with the newest one of their provider, so nothing
+ * else needs pointing. The key and whose it is are the flow's (`draft`: the makers' page picks the maker); the save's
+ * state is the page's own.
  */
-export function useConnectKey(orgId: string, asked?: string) {
+export function useConnectKey(orgId: string, draft: KeyDraft, setDraft: (patch: Partial<KeyDraft>) => void) {
   const { t } = useTranslation();
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
-  const [provider, setProvider] = useState<ProviderId>(() => providerGuess(undefined, asked));
-  // "Outro provedor" (ADR 0146): its own form, saved by its own button (a sheet only: the first run saves a key).
-  const [custom, setCustom] = useState(asked === CUSTOM_PROVIDER);
-  const [key, setKeyRaw] = useState("");
+  const { provider, custom, text: key } = draft;
+  const setProvider = (next: ProviderId) => setDraft({ provider: next });
+  // "Outro provedor" (ADR 0146): its own form, saved by its own button.
+  const setCustom = (on: boolean) => setDraft({ custom: on });
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const [refused, setRefused] = useState<ReturnType<typeof keyRefusal>>(null);
@@ -89,10 +102,9 @@ export function useConnectKey(orgId: string, asked?: string) {
   const looksRight = clean.length === 0 || keyLooksValid(provider, clean);
   // A pasted key says whose it is when only one provider's keys look like it.
   const setKey = (value: string) => {
-    setKeyRaw(value);
     setFailed(false);
     setRefused(null);
-    if (value.trim().length > 12) setProvider(providerGuess(value, provider));
+    setDraft({ text: value, ...(value.trim().length > 12 ? { provider: providerGuess(value, provider) } : {}) });
   };
   const save = async (): Promise<Credential | null> => {
     if (!clean || saving) return null;
@@ -142,20 +154,76 @@ export function useConnectKey(orgId: string, asked?: string) {
 
 export type ConnectKey = ReturnType<typeof useConnectKey>;
 
-/** The flow's three steps as the bar's subtitle: the way, the sign-in or the key, done. */
-const STEPS = 3;
-
 /**
- * "Conectar uma IA" as pushed screens (`/connect-ai?from=<messageId>&intent=<step>&provider=<id>&agentId=<id>
- * &plan=<plan>&email=<address>&ready=1&forNew=1`), one question per screen under a bar that counts the steps
- * ("1 de 3 · Dora"): how the agent will think (a plan or a key, and what the workspace already has), then the plan's
- * sign-in on the agent's computer or the workspace's API key (ConnectAiFlow), then done. The native back goes one
- * page back inside the flow before it leaves it. A message that asked for one of them opens on its page, and `plan`
- * on that plan's (Sign in again). Once connected from a message, the agent answers it by itself. `email`: one more
- * login of the account other agents use. `ready`: opened because the workspace's computer just got ready (its
- * notification): a plan's page says so.
+ * "Conectar uma IA" (`/connect-ai?from=<messageId>&intent=<step>&provider=<id>&agentId=<id>&plan=<plan>
+ * &email=<address>&ready=1&forNew=1&again=<login>`): its first page, which starts the flow from its address. The flow
+ * is one pushed screen per question, asked in the bar ("Como a Dora vai pensar?") over a line that counts the steps
+ * ("1 de 3"): how the agent will think (a plan or a key, and what the workspace already has), then the plan's sign-in
+ * on the agent's computer or the workspace's API key, then done. Each page past this one is pushed over the one before
+ * (`ConnectAiPushed`), so the system's back (the bar's button and the edge swipe) goes one page back, and from this
+ * one leaves the flow. A message that asked for a plan or a key opens on that page, and `plan` on that plan's (Sign in
+ * again). Once connected from a message, the agent answers it by itself. `email`: one more login of the account other
+ * agents use. `again`: with `plan`, Settings' Sign in again (a new key for a coding plan's): that exact login, `email`
+ * its own. `ready`: opened because the workspace's computer just got ready (its notification): a plan's page says so.
  */
-export function ConnectAiSheet() {
+export function ConnectAiStart() {
+  const params = useLocalSearchParams<Partial<Record<string, string>>>();
+  // Started on the first render, so every page reads it from its first frame; ended when this page leaves the stack
+  // (the back from it, or Pronto taking the whole flow away).
+  const [id] = useState(() => startConnectAi(askOf(params)));
+  useEffect(() => () => endConnectAi(id), [id]);
+  const [view] = useState(() =>
+    viewOf(PLAN_CHOICES.find((c) => c === params.plan) ?? choiceOfIntent(params.intent as ConnectIntent | undefined)),
+  );
+  return <ConnectAiScreen flowId={id} depth={1} view={view} />;
+}
+
+/** A page of the flow past its first (`/connect-ai/<page>?s=<flow>&d=<depth>&choice=<plan>`). */
+export function ConnectAiPushed({ page }: { page: PushedPage["page"] }) {
+  const { s, d, choice } = useLocalSearchParams<{ s?: string; d?: string; choice?: string }>();
+  const view: FlowView =
+    page === "plan" ? { page, choice: PLAN_CHOICES.find((c) => c === choice) ?? "claude" } : { page };
+  return <ConnectAiScreen flowId={s ?? ""} depth={Math.max(1, Number(d) || 1)} view={view} />;
+}
+
+/** A page's title in the bar, past the first page's question. */
+function pageTitle(t: TFunction, view: PushedPage) {
+  if (view.page === "have") return t("connectAi.chat.allTitle");
+  if (view.page === "plans") return t("connectAi.pick.placeholder");
+  if (view.page === "key") return t("connectAi.key.title");
+  if (view.page === "makers") return t("mobile.ai.whose");
+  return planTitle(t, view.choice);
+}
+
+function ConnectAiScreen({ flowId, depth, view }: { flowId: string; depth: number; view: FlowView }) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const live = useConnectAi(flowId);
+  // Pronto takes the flow's pages away together: a page still sliding off once the flow ended keeps what it showed.
+  const last = useRef(live);
+  if (live) last.current = live;
+  const flow = live ?? last.current;
+  if (!flow)
+    // Opened by its address alone, with no flow under it: the bar and its back, nothing to ask.
+    return (
+      <View style={[styles.screen, { backgroundColor: c.grouped }]}>
+        <PushedHeader title={t("connectAi.title.any")} solid={false} grouped />
+      </View>
+    );
+  return <FlowScreen flowId={flowId} flow={flow} depth={depth} view={view} />;
+}
+
+function FlowScreen({
+  flowId,
+  flow,
+  depth,
+  view,
+}: {
+  flowId: string;
+  flow: ConnectAiFlow;
+  depth: number;
+  view: FlowView;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const qc = useQueryClient();
@@ -164,37 +232,32 @@ export function ConnectAiSheet() {
   const dir = useDirectory();
   const c = useColors();
   const status = useAiStatus(orgId);
-  const params = useLocalSearchParams<{
-    from?: string;
-    provider?: string;
-    agentId?: string;
-    intent?: string;
-    plan?: string;
-    email?: string;
-    ready?: string;
-    forNew?: string;
-  }>();
+  const { ask } = flow;
   // An API key is the organization's (admins); a plan thinks only for its owner's agents (ADR 0059 §3).
   const mayAddKey = can(org, "manage_credentials");
   const hold = usePlanHold(orgId, org);
   // From the create-agent step: for the agent being made, never one I have.
   // The team's right hand thinks with each person's own AI (ADR 0137 §11): everyone's to connect for their DM.
-  const mine = params.forNew === "1" ? [] : dir.agents.filter((a) => a.ownerUserId === meId || isRightHand(a));
-  const named = params.agentId ? [params.agentId] : null;
+  const mine = ask.forNew === "1" ? [] : dir.agents.filter((a) => a.ownerUserId === meId || isRightHand(a));
+  const named = ask.agentId ? [ask.agentId] : null;
   const agents = (named ? mine.filter((a) => named.includes(a.id)) : mine).map((a) => ({ id: a.id, name: a.name }));
-  // The agents a plan was connected for here: they think with it before the AI status says so.
-  const [linked, setLinked] = useState<string[]>([]);
-  const hasAi = (id: string) => linked.includes(id) || (aiStateOf(status.data, id) ?? "no_ai") !== "no_ai";
-  const [view, setView] = useState<FlowView>(() =>
-    viewOf(PLAN_CHOICES.find((c) => c === params.plan) ?? choiceOfIntent(params.intent as ConnectIntent | undefined)),
+  // The agents connected on any page of this flow think with it before the AI status says so.
+  const hasAi = (id: string) => flow.linked.includes(id) || (aiStateOf(status.data, id) ?? "no_ai") !== "no_ai";
+  // Settings' Sign in again: that login, on the plan's page it opened on.
+  const againChoice = PLAN_CHOICES.find((choice) => choice === ask.plan);
+  const again = ask.again && againChoice ? { id: ask.again, choice: againChoice, email: ask.email ?? null } : undefined;
+  const form = useConnectKey(orgId, flow.key, (patch) =>
+    patchConnectAi(flowId, (now) => ({ key: { ...now.key, ...patch } })),
   );
-  const form = useConnectKey(orgId, params.provider);
   const models = useModels();
   const toast = useToast();
+  // What this page connected: the key, an account for the agents to come, or an agent's plan (or what it had).
   const [keySaved, setKeySaved] = useState(false);
+  const [accountAdded, setAccountAdded] = useState(false);
+  const [planDone, setPlanDone] = useState(false);
   const answer = () => {
     void qc.invalidateQueries({ queryKey: keys.aiStatus(orgId) });
-    if (params.from) void api.chat.answerNow(orgId, params.from).catch(() => undefined);
+    if (ask.from) void api.chat.answerNow(orgId, ask.from).catch(() => undefined);
   };
   // Opened for one agent: its name in the title.
   const one = named?.length === 1 ? dir.agentById.get(named[0] ?? "") : undefined;
@@ -214,39 +277,41 @@ export function ConnectAiSheet() {
   };
   // No agent of theirs yet, and it isn't opened for someone else's: a plan signs in for the agents they create.
   const bare = !named && agents.length === 0;
-  const [accountAdded, setAccountAdded] = useState(false);
   // Or one of that plan they already have, which the plan's page says is connected.
   const ai = useAiAccounts(orgId, bare);
-  const planAccount = bare && view.page === "plan" ? freePlanAccount(ai.data?.accounts, view.choice) : undefined;
+  // Signing a login in again is never done before it starts, even when that login reads as free.
+  const planAccount =
+    bare && !again && view.page === "plan" ? freePlanAccount(ai.data?.accounts, view.choice) : undefined;
   const hasPlan = planAccount !== undefined;
   // That plan's next step is an agent that thinks with it, for whoever may make one (never over one being made).
-  const makeWith = planAccount && params.forNew !== "1" && makesAgents(org) ? planAccount : undefined;
+  const makeWith = planAccount && ask.forNew !== "1" && makesAgents(org) ? planAccount : undefined;
   // Someone else's agent: who connects a plan instead.
   const owner = one?.ownerUserId ? dir.memberById.get(one.ownerUserId)?.name : undefined;
   const locked =
     agents.length > 0 || bare ? undefined : one ? noAiLockedLine(t, one.name, owner) : t("noAi.lockedAdmins");
-  const close = () => {
-    if (router.canGoBack()) router.back();
-  };
+  // The next page, pushed over this one: the system's back comes back here.
+  const go = (next: PushedPage) => router.push(connectAiHref(flowId, depth + 1, next) as never);
+  // Pronto: every page of the flow goes, down to its first, back to where it was opened from.
+  const leave = () => router.dismiss(depth);
   const insets = useSafeAreaInsets();
-  // The bar's title and the way back come from the flow, page by page.
-  const [chrome, setChrome] = useState<{ title: string; back: (() => void) | null }>({ title: "", back: null });
-  const onChrome = useCallback((next: { title: string; back: (() => void) | null }) => setChrome(next), []);
-  const done = keySaved || linked.length > 0 || accountAdded || hasPlan;
-  // Past the first page, the native back (the button and the edge swipe) goes back inside the flow; once done,
-  // back and "Pronto" leave it.
-  usePreventRemove(chrome.back !== null && !done, () => chrome.back?.());
-  const step = done ? STEPS : view.page === "home" ? 1 : 2;
-  const subtitle = [t("mobile.ai.stepOf", { step, total: STEPS }), one?.name ?? null].filter(Boolean).join(" · ");
-  const ready = !hold && !dir.loading && !status.isPending;
+  const done = keySaved || planDone || accountAdded || hasPlan;
+  const step = flowStep(view, done);
+  const home = view.page === "home" && !done;
+  // The first page asks its question in the bar ("Como a Dora vai pensar?"), which names the agent: the line under it
+  // counts the steps alone. Past it, the bar names the page and the line the agent it is for.
+  const subtitle = [t("mobile.ai.stepOf", { step, total: FLOW_STEPS }), home ? null : (one?.name ?? null)]
+    .filter(Boolean)
+    .join(" · ");
+  const title = done
+    ? t("connectAi.done")
+    : view.page === "home"
+      ? one
+        ? t("mobile.ai.question", agentGrammar(one.name))
+        : t("mobile.ai.questionAny")
+      : pageTitle(t, view);
   return (
     <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={done ? t("connectAi.done") : chrome.title || t("connectAi.title.any")}
-        subtitle={subtitle}
-        solid={false}
-        grouped
-      />
+      <PushedHeader title={title} subtitle={subtitle} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -254,31 +319,23 @@ export function ConnectAiSheet() {
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 32 }]}
       >
         {view.page === "home" && !done ? <ConnectScene /> : null}
-        {ready && view.page === "home" && !done ? (
-          // The question the first page answers, then the ways under it.
-          <View style={styles.head}>
-            <Text variant="title2" accessibilityRole="header">
-              {one ? t("mobile.ai.question", agentGrammar(one.name)) : t("mobile.ai.questionAny")}
-            </Text>
-            <Text variant="small" tone="muted">
-              {t("mobile.ai.questionLead")}
-            </Text>
-          </View>
-        ) : null}
+        {/* Under the band, what the question in the bar leaves open; the ways come under it. */}
+        {home && !hold ? <GroupedFooter>{t("mobile.ai.questionLead")}</GroupedFooter> : null}
         {hold ? (
-          <PlanHoldNote org={org} />
+          <PlanHoldNote org={org} inset />
         ) : dir.loading || status.isPending ? (
-          <ActivityIndicator color={c.faint} style={styles.loading} />
+          <SkeletonList rows={3} />
         ) : (
-          <ConnectAiFlow
+          <ConnectAiPage
             view={view}
-            onView={setView}
-            sheetTitle={t("connectAi.title.any")}
-            onChrome={onChrome}
+            go={go}
+            flowId={flowId}
+            flow={flow}
             agents={agents}
             hasAi={hasAi}
-            {...(params.agentId ? { startAgentId: params.agentId } : {})}
-            {...(params.email ? { email: params.email } : {})}
+            {...(ask.agentId ? { startAgentId: ask.agentId } : {})}
+            {...(ask.email ? { email: ask.email } : {})}
+            {...(again ? { again } : {})}
             locked={locked}
             bare={bare}
             onAccount={() => {
@@ -290,7 +347,7 @@ export function ConnectAiSheet() {
             {...(one && one.ownerUserId !== meId && mayAddKey && !rightHand
               ? { theirs: { id: one.id, name: one.name } }
               : {})}
-            justReady={params.ready === "1"}
+            justReady={ask.ready === "1"}
             mayAddKey={mayAddKey}
             keyForm={form}
             keySaved={keySaved}
@@ -313,6 +370,8 @@ export function ConnectAiSheet() {
                   void qc.invalidateQueries({ queryKey: keys.agentBrain(orgId, one.id) });
                 } else await settleKey(key);
                 setKeySaved(true);
+                // Saved, and its field gone: the flow keeps no copy of the key for the next time its page opens.
+                form.setKey("");
                 answer();
               })
             }
@@ -325,25 +384,32 @@ export function ConnectAiSheet() {
             // Computers live in the app: no site opens for one.
             onComputer={() => router.push("/computer-setup" as never)}
             onPlanDone={(id) => {
-              setLinked((l) => [...l, id]);
+              patchConnectAi(flowId, (now) => ({ linked: [...now.linked, id] }));
+              setPlanDone(true);
               answer();
             }}
           />
         )}
       </ScrollView>
       {done ? (
-        // The last step's one button, at the screen's foot.
-        <View style={[styles.foot, { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: c.grouped }]}>
-          {makeWith ? (
-            <Button
-              variant="primary"
-              wide
-              label={t("connectAi.makeAgent")}
-              onPress={() => router.replace(`/new-agent?account=${encodeURIComponent(makeWith.id)}` as never)}
-            />
-          ) : null}
-          <Button variant={makeWith ? "secondary" : "primary"} wide label={t("connectAi.done")} onPress={close} />
-        </View>
+        // The last step's one button, pinned at the screen's foot.
+        <BottomBar bottom={insets.bottom}>
+          <View style={styles.foot}>
+            {makeWith ? (
+              <Button
+                variant="primary"
+                wide
+                label={t("connectAi.makeAgent")}
+                onPress={() => {
+                  // Criar agente takes the flow's place: its back lands where the flow was opened from.
+                  leave();
+                  router.push(`/new-agent?account=${encodeURIComponent(makeWith.id)}` as never);
+                }}
+              />
+            ) : null}
+            <Button variant={makeWith ? "secondary" : "primary"} wide label={t("connectAi.done")} onPress={leave} />
+          </View>
+        </BottomBar>
       ) : null}
     </View>
   );
@@ -352,7 +418,5 @@ export function ConnectAiSheet() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   body: { paddingHorizontal: 16, paddingTop: 4 },
-  head: { gap: 2, paddingHorizontal: 4, paddingTop: 10, paddingBottom: 16 },
-  loading: { marginTop: 24 },
-  foot: { gap: 8, paddingHorizontal: 16, paddingTop: 12 },
+  foot: { gap: 8 },
 });

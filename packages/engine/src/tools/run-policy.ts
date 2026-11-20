@@ -157,6 +157,8 @@ const HERE = new Set([
   "show_block",
   "start_poll",
   "ask_choices",
+  // One short line before slow work, in this conversation (ADR 0207).
+  "say_now",
   "share_artifact",
   "propose_mission",
   "browser_ask_person",
@@ -193,6 +195,7 @@ const READS = new Set([
   "get_context",
   "web_search",
   "web_fetch",
+  "image_search",
   "list_dashboards",
   "phone_screenshot",
   "phone_logs",
@@ -322,7 +325,8 @@ export function toolKind(tool: PolicyTool): ToolKind {
     tool.name === "withdraw_request" ||
     tool.name === "set_reply_style" ||
     tool.name === "commit_co_author" ||
-    tool.name === "wait_for_device"
+    tool.name === "wait_for_device" ||
+    tool.name === "ignore_usage_limit"
   )
     return { kind: "self" };
   // Long work (ADR 0121): the run's own work only; who may go to the background is the tool source's.
@@ -351,6 +355,8 @@ export const REFUSALS = {
   routineAskUser:
     "This is a routine's background work: nobody is here to answer. Decide with your best judgement; if a person must decide, say so in hand_off.",
   routineReact: "This is a routine's background work: there is no message to react to. Just finish, or use hand_off.",
+  routineSayNow:
+    "This is a routine's background work: nobody is in its room to tell. Just do the work; what people should hear goes in hand_off.",
   routineMedia:
     "This is a routine's background work: nobody is in its room to send a GIF or a sticker to. A GIF goes with the routine's message: give hand_off a `gif` (when it has one), never a link to a GIF site.",
   routineHere: "This is a routine's background work in a room nobody reads: put it in hand_off; the people decide.",
@@ -373,6 +379,7 @@ export const REFUSALS = {
 const ROUTINE_HERE_REFUSAL: Readonly<Record<string, string>> = {
   ask_user: REFUSALS.routineAskUser,
   react: REFUSALS.routineReact,
+  say_now: REFUSALS.routineSayNow,
   send_gif: REFUSALS.routineMedia,
   send_sticker: REFUSALS.routineMedia,
   share_artifact: REFUSALS.routineShare,

@@ -88,3 +88,24 @@ else's, perhaps only some of them, and whose own log should say which agent aske
   still says which tools it reaches.
 - Changing a secret means setting it on both sides and restarting this server; between the two, the other side
   refuses the calls.
+
+## Addendum (2026-11-16): what thinks for the run, and where it answers
+
+The statement gains four claims, so that a server can refuse to hand out what the caller could not keep to itself
+(ADR 0190):
+
+| Claim | What it is |
+| --- | --- |
+| `brain` | What thinks for the run: `model` for a model the server process calls through the Model Gateway, else the kind of the program on a computer (`claude_code`, `codex`, …). Absent for a call made outside any run |
+| `provider` | With `brain: "model"`, where that model is, as the model catalog names its provider (`anthropic`, `openai`, …); `custom` for a workspace's own endpoint. Absent for a program on a computer, which signs in by itself |
+| `channel` | The id of the conversation the run answers in; for a routine's own run, its room |
+| `thread` | The id of the root message of the run's thread: for a run asked in the main timeline, the message that asked it |
+
+`brain` and `provider` are set by whoever runs the run and never by a call's input: the executor, when it settles
+what the run thinks with (again when a run falls back to the model or returns to its own program), and the bridge a
+program on a computer calls back through, from the run's own row (`ToolContext.thinksWith`). `channel` and `thread`
+are the run's own, as the server process holds them.
+
+A server that hands out private text should check them like the rest: a missing `brain` is a caller it knows nothing
+about, a program on a computer keeps what it reads and has tools of its own that the instance never sees, and a
+provider is a company the text would be sent to. An instance from before this addendum sends none of the four.

@@ -11,6 +11,7 @@ import {
   setAgentRepositories,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
+import { OthersQuery } from "./connectors-custom";
 import { type AppDeps, body, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
 
 const tags = ["Agents"];
@@ -40,6 +41,10 @@ const AccessTree = z
         custom: z.boolean(),
         state: State,
         scopes: z.array(Scope),
+        ownerUserId: z.string().nullable().openapi({
+          description:
+            "A personal connection's person; null: the team's. Someone else's comes only with `others=1`, while the agent holds some of it, with no scopes or tools: who may change the agent turns it off with `connectors[id]: false`.",
+        }),
       }),
     ),
   })
@@ -64,12 +69,13 @@ export function accessRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Effective access as a tree: built-ins, then connectors, scopes and tools",
-      request: { params: AgentParams },
+      request: { params: AgentParams, query: OthersQuery },
       responses: { 200: json(AccessTree), ...errors },
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      return c.json(await getAgentAccess(db, c.get("user").id, orgId, agentId), 200);
+      const others = c.req.valid("query").others === "1";
+      return c.json(await getAgentAccess(db, c.get("user").id, orgId, agentId, { others }), 200);
     },
   );
 
@@ -80,8 +86,11 @@ export function accessRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Replace an agent's access (admins; its owner may only narrow it); every change is audited",
+      description:
+        "Someone else's personal connection keeps what the agent holds of it unless `connectors[id]` is `false` (taken off); only its person gives it. A person's own personal connection is theirs to give, on an agent they may change. The answer's tree has others' personal connections only with `others=1`.",
       request: {
         params: AgentParams,
+        query: OthersQuery,
         body: body(
           z.object({
             all: z.boolean(),
@@ -95,7 +104,9 @@ export function accessRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      const tree = await setAgentAccess(db, c.get("user").id, orgId, agentId, c.req.valid("json"));
+      const tree = await setAgentAccess(db, c.get("user").id, orgId, agentId, c.req.valid("json"), {
+        others: c.req.valid("query").others === "1",
+      });
       // The right hand's shared seat goes with its last computer grant: the workspace's computer hears it now.
       if (await isRightHandId(db, orgId, agentId)) await publishMachineAgentsChanged(deps.adapters.pubsub, orgId);
       return c.json(tree, 200);

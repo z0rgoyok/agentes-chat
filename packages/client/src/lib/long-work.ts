@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { AgentStatusLine, WorkView } from "../api/types";
 import { runErrorText } from "./errors";
-import { formatTime, lowerFirst } from "./format";
+import { formatTime, keepWhole, lowerFirst } from "./format";
 import { plainLines } from "./markdown";
 import { usageWhen } from "./plan-usage";
 
@@ -140,6 +140,44 @@ export function workLine(t: TFunction, w: WorkView, c: WorkLineContext): WorkLin
   return { ...base, tone: "working", text: parts.join(" · "), result: null };
 }
 
+/**
+ * A handed work's line, under the reply of the agent that handed it ("Handed to Atlas · working on it · step 3 of 5 ·
+ * 2 min"): `state` is the coloured word, `facts` what follows it. No task label (the chip above links it) and no last
+ * update (the delegate's updates are the messages right below).
+ */
+export interface HandedLineView extends Pick<WorkLineView, "tone" | "stop" | "result" | "question"> {
+  state: string;
+  facts: string[];
+}
+
+export function handedLine(t: TFunction, w: WorkView, c: WorkLineContext): HandedLineView {
+  const say = loose(t);
+  const base = workLine(t, w, c);
+  const now = c.now ?? new Date();
+  // Each fact stays on one line ("2 min", "step 3 of 5"): the line wraps between them.
+  const took = keepWhole(
+    workDuration(t, (w.finishedAt ? Date.parse(w.finishedAt) : now.getTime()) - Date.parse(w.startedAt)),
+  );
+  const out = { tone: base.tone, stop: base.stop, result: base.result, question: base.question };
+  if (w.status === "done") return { ...out, state: say("work.handed.done", { duration: took }), facts: [] };
+  if (w.status === "failed") return { ...out, state: say("work.handed.failed"), facts: [] };
+  if (w.status === "canceled") return { ...out, state: say("work.handed.stopped"), facts: [took] };
+  if (base.tone === "queued") return { ...out, state: say("work.handed.queued"), facts: [] };
+  const mine = Boolean(c.meId && w.requestedByUserId === c.meId);
+  const asked = w.state === "waiting_input" ? w.question : null;
+  const forMe = asked?.requestedForUserId ? asked.requestedForUserId === c.meId : mine;
+  const waits: Partial<Record<NonNullable<WorkView["state"]>, string>> = {
+    waiting_input: forMe ? "work.handed.waitingYou" : "work.handed.waiting",
+    waiting_approval: mine ? "work.handed.waitingApprovalYou" : "work.handed.waitingApproval",
+    waiting_computer: "work.handed.waitingComputer",
+    paused: "work.handed.paused",
+  };
+  const wait = w.state ? waits[w.state] : undefined;
+  if (wait) return { ...out, state: say(wait), facts: [took] };
+  const step = w.planStep ? [keepWhole(say("work.handed.step", w.planStep))] : [];
+  return { ...out, state: say("work.handed.working"), facts: [...step, took] };
+}
+
 /** Held on a person's answer or approval, whose card is in its thread: its line opens the thread, whatever else does. */
 export const workWaitsOnPerson = (w: Pick<WorkView, "state">) =>
   w.state === "waiting_input" || w.state === "waiting_approval";
@@ -219,9 +257,10 @@ export function autoUpdateText(t: TFunction, params: Record<string, unknown>): s
 }
 
 /**
- * The server's own status line for a working agent a person wrote to (ADR 0131 §2, `talker_status`): that it can't
- * answer yet, how long it has worked, when it reads them (its next step, or `reads: "turn"`: when its computer's turn
- * ends) and what it does now. Parked on its plan or budget (`wait`), it says that and when it is back (`until`).
+ * The status line the server posted, until ADR 0131's addendum of 2026-11-19, for a busy agent a person wrote to
+ * (`talker_status`): that it couldn't answer yet, how long it had worked, when it would read them (its next step, or
+ * `reads: "turn"`: when its computer's turn ended) and what it did; parked on its plan or budget (`wait`), that and when
+ * it would be back (`until`). Nothing posts it any more: kept so those messages still read right.
  */
 export function talkerStatusText(t: TFunction, params: Record<string, unknown>, locale?: string): string {
   const say = loose(t);

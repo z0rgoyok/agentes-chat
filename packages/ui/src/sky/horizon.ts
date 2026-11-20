@@ -1,4 +1,4 @@
-import { gradientOf, mixHex } from "../agent/engine.js";
+import { gradientOf, mixHex, type SkyPair } from "../agent/engine.js";
 import type { AgentColor } from "../components/AgentLook";
 
 /**
@@ -36,7 +36,7 @@ export function horizonHeight(room: number, minRoom = MIN_ROOM): number {
 }
 
 /** From the card's ground into the color's light tones only (lighter than the sidebar's horizon). */
-export function horizonTones(color: AgentColor, surface: string, dark: boolean): string[] {
+export function horizonTones(color: AgentColor | SkyPair, surface: string, dark: boolean): string[] {
   const [top] = gradientOf(color);
   return [surface, ...(dark ? STEPS_DARK : STEPS_LIGHT).map((k) => mixHex(surface, top, k))];
 }

@@ -192,7 +192,16 @@ test("outages: the workspace's own computer in standby is asleep by design, neve
     .where(eq(schema.machines.id, s.air));
   const { outages, targets } = await listMachineOutages(s.outageDeps, f.owner.id, f.org.id);
   expect(outages).toEqual([]);
-  expect(targets.find((t) => t.machineId === s.air)).toMatchObject({ managed: true, online: false });
+  // A place to move agents to, ready as people see it.
+  expect(targets.find((t) => t.machineId === s.air)).toMatchObject({ managed: true, online: true });
+  // A wake of it overdue: down, an outage.
+  await f.db
+    .update(schema.machines)
+    .set({ wakeWantedAt: new Date(Date.now() - 3 * 60_000) })
+    .where(eq(schema.machines.id, s.air));
+  const overdue = await listMachineOutages(s.outageDeps, f.owner.id, f.org.id);
+  expect(overdue.outages.map((o) => o.machineId)).toEqual([s.air]);
+  await f.db.update(schema.machines).set({ wakeWantedAt: null }).where(eq(schema.machines.id, s.air));
   // Out of standby and still away: an outage like any other.
   await f.db.update(schema.machines).set({ standbyAt: null }).where(eq(schema.machines.id, s.air));
   const after = await listMachineOutages(s.outageDeps, f.owner.id, f.org.id);

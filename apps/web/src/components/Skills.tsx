@@ -30,6 +30,7 @@ import {
   SKILL_ZIP_MB,
 } from "@agenteschat/client/lib/files";
 import { formatPercent, relativeTime } from "@agenteschat/client/lib/format";
+import { ownerTabOf } from "@agenteschat/client/lib/owner-split";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   changedByText,
@@ -57,7 +58,6 @@ import {
   skillWaitingChip,
   skippedSkillText,
 } from "@agenteschat/client/lib/skills";
-import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Alert,
   Avatar,
@@ -86,8 +86,6 @@ import {
   Menu,
   MenuItem,
   SearchField,
-  Segmented,
-  SettingNote,
   Switch,
   TabPanel,
   Tabs,
@@ -99,6 +97,7 @@ import { useTranslation } from "react-i18next";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
 import { ConnectorIcon } from "@/components/ConnectorCatalog";
 import { LoadingLine, LoadingList, useStepText } from "@/components/Loading";
+import { ForWhom, type OwnerTab, OwnerTabs } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useEdited } from "@/hooks/useEdited";
@@ -188,7 +187,7 @@ function ViaLine({ children }: { children: string }) {
   );
 }
 
-type SkillScope = "team" | "personal";
+type SkillScope = OwnerTab;
 
 /**
  * Configurações → Skills, for every member: the team's library (who manages agents changes it, everyone reads it) and,
@@ -231,7 +230,7 @@ export function SkillsSection({
   const everything = skills.data ?? [];
   const scopes = skillScopes(everything, me.user.id);
   const split = skillsSplit(dir.members.length, everything);
-  const scope: SkillScope = !split ? "team" : (picked ?? (admin ? "team" : "personal"));
+  const scope: SkillScope = ownerTabOf(split, picked, admin, { team: scopes.team.length, mine: scopes.mine.length });
   const list = scope === "team" ? scopes.team : scopes.mine;
   const usage = useSkillUsage(org.id, admin && everything.length > 0);
   const settings = useSkillSettings(org.id, admin);
@@ -255,15 +254,12 @@ export function SkillsSection({
       />
       {unavailable && <p className="small muted">{t("skills.unavailable")}</p>}
       {split && skills.isSuccess && (
-        <Segmented<SkillScope>
-          block
+        <OwnerTabs
           label={t("skills.title")}
           value={scope}
           onValueChange={setPicked}
-          options={[
-            { value: "team", label: t(modeKey(org, "vault.tab.team")), count: scopes.team.length },
-            { value: "personal", label: t("vault.tab.personal"), count: scopes.mine.length },
-          ]}
+          team={scopes.team.length}
+          personal={scopes.mine.length}
         />
       )}
       {scope === "personal" && list.length > 0 && (
@@ -973,23 +969,16 @@ export function InstallSkillDialog({
                 </TabPanel>
               </Tabs>
               {startScope !== undefined && (
-                <Field label={t("skills.personal.forWhom")} group>
-                  <Segmented<SkillScope>
-                    block
-                    label={t("skills.personal.forWhom")}
-                    value={scope}
-                    disabled={!admin}
-                    onValueChange={(next) => {
-                      setScope(next);
-                      setChoices(null);
-                    }}
-                    options={[
-                      { value: "personal", label: t("vault.tab.personal") },
-                      { value: "team", label: t(modeKey(org, "vault.tab.team")) },
-                    ]}
-                  />
-                  {!admin && <SettingNote icon="lock">{t("skills.personal.teamLocked")}</SettingNote>}
-                </Field>
+                <ForWhom
+                  label={t("skills.personal.forWhom")}
+                  value={scope}
+                  locked={!admin}
+                  note={t("skills.personal.teamLocked")}
+                  onValueChange={(next) => {
+                    setScope(next);
+                    setChoices(null);
+                  }}
+                />
               )}
               {error && <Alert>{error}</Alert>}
             </DialogBody>

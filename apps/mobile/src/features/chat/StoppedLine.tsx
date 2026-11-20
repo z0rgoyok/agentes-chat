@@ -1,8 +1,7 @@
 import { type Message, useAiAccounts, useStopReason } from "@agenteschat/client";
-import { seesDetails } from "@agenteschat/client/lib/audience";
+import { managesAgent, seesDetails } from "@agenteschat/client/lib/audience";
 import { mayPickModel } from "@agenteschat/client/lib/brain-picker";
 import { type StoppedNotice, stopLine, stopperOf } from "@agenteschat/client/lib/notices";
-import { can } from "@agenteschat/client/lib/permissions";
 import { modelStandInKey } from "@agenteschat/client/lib/plan-usage";
 import { planOf } from "@agenteschat/client/lib/plans";
 import { type ReactNode, useState } from "react";
@@ -12,9 +11,10 @@ import { useOrg } from "@/providers/org";
 import { Button, EventPill, EventPillAction, PixelStop, useToast } from "@/ui";
 import { openAgentAi } from "../ai/AgentAiScreen";
 import { openKeyForAll } from "../ai/KeyForAllScreen";
-import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
+import { useColors, useOrgId, useWhen } from "../shared/hooks";
 import { ReasonField } from "../task-manager/parts";
 import { useQuietInset } from "./look";
+import { useRowDirectory, useRowMeId } from "./row-data";
 import { useStoppedRun } from "./stopped-runs";
 
 /**
@@ -49,9 +49,9 @@ export function StopPill({
 }) {
   const { t } = useTranslation();
   const c = useColors();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const when = useWhen();
-  const meId = useMeId();
+  const meId = useRowMeId();
   const orgId = useOrgId();
   const toast = useToast();
   const say = useStopReason(orgId);
@@ -102,6 +102,9 @@ export function StopPill({
                 onChange={setWhy}
                 placeholder={t("taskManager.stopped.whyPlaceholder")}
                 autoFocus
+                onSubmit={() => {
+                  if (why.trim() && !say.isPending) send();
+                }}
               />
             </View>
             <Button
@@ -128,7 +131,7 @@ export function StopPill({
  */
 export function StoppedLine({ message, notice, gap }: { message: Message; notice: StoppedNotice; gap: number }) {
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const inset = useQuietInset();
   const inReply = useStoppedRun(notice.runId);
   if (inReply) return null;
@@ -143,7 +146,7 @@ export function StoppedLine({ message, notice, gap }: { message: Message; notice
 /** Under a reply that came at standard speed because Fast was refused (`meta.speedFallback`), with the way to the agent. */
 export function SpeedFallbackLine({ message }: { message: Message }) {
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const agent = dir.agentById.get(message.author.id ?? "");
   return (
     <EventPill
@@ -166,11 +169,11 @@ export function SpeedFallbackLine({ message }: { message: Message }) {
  */
 export function ModelStandInLine({ message, text }: { message: Message; text: string }) {
   const { t } = useTranslation();
-  const { org, orgId } = useOrg();
-  const dir = useDirectory();
-  const meId = useMeId();
+  const { orgId } = useOrg();
+  const dir = useRowDirectory();
+  const meId = useRowMeId();
   const agent = dir.agentById.get(message.author.id ?? "");
-  const may = mayPickModel(agent, meId, can(org, "manage_agents"));
+  const may = mayPickModel(agent, meId, managesAgent(agent));
   const key = may ? modelStandInKey(message.meta) : null;
   const ai = useAiAccounts(orgId, Boolean(key));
   const account = key

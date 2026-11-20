@@ -11,6 +11,7 @@ import { Icon } from "../icons/Icon";
 export function FoldRow({
   face,
   title,
+  body,
   end,
   children,
   defaultOpen = false,
@@ -18,6 +19,8 @@ export function FoldRow({
 }: {
   face?: ReactNode;
   title: ReactNode;
+  /** Under the name's line, at the row's full width (`.ac-mediarow__body`), above what ends that line once it wraps. */
+  body?: ReactNode;
   end?: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
@@ -36,6 +39,7 @@ export function FoldRow({
       >
         {face && <span className="ac-mediarow__face">{face}</span>}
         <span className="ac-mediarow__head">{title}</span>
+        {body && <span className="ac-mediarow__body">{body}</span>}
         {end && <span className="ac-mediarow__end ac-mediarow__end--wrap">{end}</span>}
         <Icon name="chevronRight" size={16} className="ac-foldrow__chevron" />
       </button>

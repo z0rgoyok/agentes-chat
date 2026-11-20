@@ -226,7 +226,7 @@ test("act with undo: the issue is a receipt on the reply while the merge waits f
     {
       chunks: [],
       toolUses: [
-        { name: "create_issue", input: { title: "Preço do plano anual", assignee: "me" } },
+        { name: "create_issue", input: { title: "Preço do plano anual", assignees: ["me"] } },
         { name: "github_merge_pull_request", input: { owner: "lumen", repo: "api", pullNumber: 70, why: MERGE_WHY } },
       ],
     },
@@ -344,13 +344,16 @@ test("agents working together: colleagues really run, one is held until a step l
   });
   expect(run.error).toBeUndefined();
   expect(run.handOffs).toEqual({ "chefe>rita": 1, "rita>diogo": 1 });
-  expect(run.agentRuns).toEqual({ all: 5, chefe: 3, rita: 1, diogo: 1 });
-  expect(run.personSaw).toEqual({ agentMessages: 3, noteLines: 0 });
+  // What came of it reaches Marina from Rita and Diogo themselves (their handed work): Chefe isn't woken to relay it.
+  expect(run.agentRuns).toEqual({ all: 4, chefe: 2, rita: 1, diogo: 1 });
+  expect(run.personSaw).toEqual({ agentMessages: 4, noteLines: 0 });
   // Asked while Rita was held, Chefe said who has it, and asked nobody again.
   expect(run.stepChecks?.find((k) => k.id === "step2:no_forbidden_call")).toMatchObject({ pass: true });
   expect(run.transcript).toContain("[Marina]: E aí, como ficou?");
   expect(run.transcript).toContain("A Rita ainda está nisso");
-  expect(run.transcript?.split("\n").at(-1)).toContain("Pronto: a Rita passou ao Diogo");
+  expect(run.transcript).toContain("[@rita]: Passei ao Diogo as notas dos 3 clientes");
+  expect(run.transcript).toContain("[@diogo]: Recebi as notas da Acme");
+  expect(run.transcript).not.toContain("Pronto: a Rita passou ao Diogo");
   // Only the agent under test's turns are its own.
   expect(run.turns.every((t) => !t.text.includes("Recebi as notas"))).toBe(true);
   expect(deterministicChecks(c.expect, run).filter((k) => !k.pass)).toEqual([]);

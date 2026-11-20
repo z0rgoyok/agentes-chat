@@ -94,7 +94,13 @@ export function createFakeMail(
       log("mail.providers", orgId);
       return clone(fake.providers);
     },
-    accounts: async () => clone(fake.accounts),
+    // As the backend: the viewer's own and any with no person; with `others`, everyone's without their address.
+    accounts: async (_orgId, options) =>
+      clone(
+        fake.accounts
+          .filter((a) => options?.others || !a.ownerUserId || a.ownerUserId === meId())
+          .map((a) => (!a.ownerUserId || a.ownerUserId === meId() ? a : { ...a, address: "", aliases: [] })),
+      ),
     connectImap: async (orgId, input) => {
       log("mail.connectImap", orgId, { ...input, password: "[redacted]" });
       failOnce();

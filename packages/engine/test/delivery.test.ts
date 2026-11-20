@@ -10,6 +10,7 @@ import {
   drainOutbox,
   holdsMessages,
   insertMessage,
+  operatorRunTrace,
   postPersonMessage,
   queueOnRun,
   recoverStaleRuns,
@@ -19,7 +20,7 @@ import {
   sweepEndedInboxes,
   type ToolSource,
 } from "../src";
-import { addMember, type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, SECRET, setup } from "./fixtures";
 
 let f: Fixture;
 afterEach(async () => {
@@ -116,6 +117,12 @@ describe("a run's inbox", () => {
   });
 });
 
+/** Each hand-on on a run's trail, as its trace tells it: why, and the run that took the messages. */
+const handedOn = async (runId: string) =>
+  ((await operatorRunTrace(f.db, runId, { limit: 200, secret: SECRET }))?.steps ?? [])
+    .filter((s) => s.toRunId)
+    .map((s) => [s.reason, s.toRunId]);
+
 describe("ending a run hands its unread messages on", () => {
   test("canceled while queued: the unread message gets a run of its own at once", async () => {
     f = await setup();
@@ -134,6 +141,8 @@ describe("ending a run hands its unread messages on", () => {
       newRunId: all[1]?.id,
       messageIds: [more.id],
     });
+    // Its trail says why it let them go and to which run: what an operator reads of it.
+    expect(await handedOn(first?.id ?? "")).toEqual([["canceled", all[1]?.id ?? null]]);
   });
 
   test("a stop (the judge) while it works: the other unread message is answered, the stop is not", async () => {
@@ -141,7 +150,7 @@ describe("ending a run hands its unread messages on", () => {
     let correction = "";
     const requests: string[] = [];
     f = await setup({
-      judge: (kind, _id, state) => (kind === "stop_request" && state.message === "para" ? 0.95 : 0),
+      judge: (kind, _id, state) => (kind === "steer_triage" ? (state.message === "para" ? "stop" : undefined) : 0),
       toolSources: [
         slowTool(async () => {
           correction = (await post("usa a branch dev", { threadId })).id;
@@ -446,6 +455,7 @@ describe("a run held by a decision takes nothing new: the agent stays responsive
       newRunId: all[1]?.id,
       messageIds: [more.id],
     });
+    expect(await handedOn(held.id)).toEqual([["held", all[1]?.id ?? null]]);
   });
 
   test("waiting on a person's answer: a message still goes to that run", async () => {

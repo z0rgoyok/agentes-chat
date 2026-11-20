@@ -1,5 +1,5 @@
 import type { AgentMailbox, Routine, RoutineHookOutcome, ScopeGrant } from "../api/types";
-import { clockHour } from "./format";
+import { clockHour, dateFormat } from "./format";
 
 /** A plain reminder the agent posted (`meta.reminder`): shown as the agent's message with a "Reminder" label. */
 export const isReminderMessage = (meta: Record<string, unknown> | undefined) => meta?.reminder === true;
@@ -210,7 +210,7 @@ export const timezoneName = (timeZone: string, locale?: string) =>
  */
 export function platformZoneName(timeZone: string, locale?: string): string | undefined {
   try {
-    const name = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: "longGeneric" })
+    const name = dateFormat(locale, { timeZone, timeZoneName: "longGeneric" })
       .formatToParts(new Date())
       .find((p) => p.type === "timeZoneName")?.value;
     return name && (timeZone.startsWith("Etc/") || !/^(GMT|UTC)/.test(name)) ? name : undefined;
@@ -223,7 +223,7 @@ export function platformZoneName(timeZone: string, locale?: string): string | un
 export function onceParts(locale: string, at: string, timeZone: string) {
   let parts: Intl.DateTimeFormatPart[];
   try {
-    parts = new Intl.DateTimeFormat(locale, {
+    parts = dateFormat(locale, {
       weekday: "short",
       day: "2-digit",
       month: "2-digit",
@@ -233,7 +233,7 @@ export function onceParts(locale: string, at: string, timeZone: string) {
       timeZone,
     }).formatToParts(new Date(at));
   } catch {
-    parts = new Intl.DateTimeFormat(locale, {
+    parts = dateFormat(locale, {
       weekday: "short",
       day: "2-digit",
       month: "2-digit",
@@ -246,9 +246,9 @@ export function onceParts(locale: string, at: string, timeZone: string) {
   // Day/month order and 12h/24h follow the locale.
   const fmt = (opts: Intl.DateTimeFormatOptions) => {
     try {
-      return new Intl.DateTimeFormat(locale, { ...opts, timeZone }).format(new Date(at));
+      return dateFormat(locale, { ...opts, timeZone }).format(new Date(at));
     } catch {
-      return new Intl.DateTimeFormat(locale, opts).format(new Date(at));
+      return dateFormat(locale, opts).format(new Date(at));
     }
   };
   return {

@@ -29,10 +29,25 @@ config.resolver.unstable_enablePackageExports = true;
 
 // Libraries with module-level state (contexts, instances): one copy for the app and the shared packages,
 // or a hook from one copy can't see the provider of the other ("No QueryClient set").
-const SINGLETONS = ["react", "react-native", "@tanstack/react-query", "react-i18next", "i18next"];
+// Yjs checks its own types with instanceof, so live files (ADR 0196) need one copy of it and of lib0 and y-protocols.
+const SINGLETONS = [
+  "react",
+  "react-native",
+  "@tanstack/react-query",
+  "react-i18next",
+  "i18next",
+  "yjs",
+  "lib0",
+  "y-protocols",
+];
 const fromApp = path.join(projectRoot, "package.json");
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // lib0's react-native build of its randomness imports a package it doesn't depend on, and the phone has no
+  // global `crypto`: Yjs gets `getRandomValues` from expo-crypto instead (ADR 0196 §2).
+  if (moduleName === "lib0/webcrypto") {
+    return { type: "sourceFile", filePath: path.join(projectRoot, "src/lib/webcrypto.ts") };
+  }
   const singleton = SINGLETONS.some((name) => moduleName === name || moduleName.startsWith(`${name}/`));
   if (singleton && context.originModulePath !== fromApp) {
     return context.resolveRequest({ ...context, originModulePath: fromApp }, moduleName, platform);

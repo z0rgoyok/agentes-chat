@@ -1,4 +1,10 @@
-import { type ComputerDevice, type PhoneDevice, useIphoneDevMode, useWifiIphones } from "@agenteschat/client";
+import {
+  type ComputerDevice,
+  type PhoneDevice,
+  useIphoneDevMode,
+  useIphoneRepair,
+  useWifiIphones,
+} from "@agenteschat/client";
 import { computerName } from "@agenteschat/client/lib/computer";
 import { iosMajor, iphoneOverWifi, tooOldVersion, useIphoneRestart, useStalled } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -79,7 +85,9 @@ export function IphoneSetupScreen({ machineId }: { machineId?: string }) {
               major: iosMajor(phone.osVersion),
               host: hostName,
             })
-          : reasonText(t, r);
+          : r === "ios_behind_xcode" && phone?.osVersion && host?.toolchains.xcodeSdk
+            ? t("devices.iphone.iosBehind", { ios: phone.osVersion, sdk: host.toolchains.xcodeSdk })
+            : reasonText(t, r);
   const state = (i: number) => (i < step ? "done" : i === step ? "now" : "later");
   const choose = async () => {
     const key = await pickOne({
@@ -180,7 +188,14 @@ export function IphoneSetupScreen({ machineId }: { machineId?: string }) {
                       <StepText>{t("mobile.devices.iphone.devMode.back")}</StepText>
                     ) : (
                       <>
-                        <SettingsPath />
+                        <SettingsPath
+                          label={t("mobile.devices.iphone.pathA11y")}
+                          steps={[
+                            t("mobile.devices.iphone.path.settings"),
+                            t("mobile.devices.iphone.path.privacy"),
+                            t("mobile.devices.iphone.path.devMode"),
+                          ]}
+                        />
                         <DevModeSwitch />
                         <StepText>{t("mobile.devices.iphone.step3Text")}</StepText>
                       </>
@@ -197,8 +212,16 @@ export function IphoneSetupScreen({ machineId }: { machineId?: string }) {
                 ) : null}
               </Step>
               <Step n={4} divider title={t("mobile.devices.iphone.step4")} state={state(3)}>
-                {step <= 3 ? <StepText>{t("mobile.devices.iphone.step4Text")}</StepText> : null}
-                {step === 3 && reason === "ui_not_authorized" ? <Note icon="info">{note(reason)}</Note> : null}
+                {step === 3 && phone && (reason === "ui_not_authorized" || reason === "ui_automation_off") ? (
+                  <UiAutomationHelp
+                    host={host}
+                    hostName={hostName}
+                    phone={phone}
+                    refused={reason === "ui_not_authorized"}
+                  />
+                ) : step <= 3 ? (
+                  <StepText>{t("mobile.devices.iphone.step4Text")}</StepText>
+                ) : null}
               </Step>
               <Step
                 n={5}
@@ -288,6 +311,76 @@ function DevModeHelp({ host, hostName, open }: { host: ComputerDevice; hostName:
   );
 }
 
+/**
+ * UI Automation refused or off: the person's steps on this iPhone (both switches, the passcode, unlocked), "check
+ * again" (the Mac asks the iPhone now) and, for who manages the Mac, a repair of the test helper there.
+ */
+function UiAutomationHelp({
+  host,
+  hostName,
+  phone,
+  refused,
+}: {
+  host: ComputerDevice;
+  hostName: string;
+  phone: PhoneDevice;
+  refused: boolean;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const orgId = useOrgId();
+  const { look } = useIphoneDevMode(orgId, host.id);
+  const repair = useIphoneRepair(orgId);
+  const fail = (err: unknown) => toast({ title: errorText(t, err), icon: "x" });
+  const path = (steps: string[]) => (
+    <SettingsPath label={[t("devices.onTheIphone"), ...steps].join(", ")} steps={steps} />
+  );
+  const pending = look.isPending || repair.isPending;
+  return (
+    <>
+      {refused ? <Note icon="info">{t("mobile.devices.iphone.uiRefused")}</Note> : null}
+      <StepText>{t("devices.iphone.uiTurnOn")}</StepText>
+      {path([
+        t("mobile.devices.iphone.path.settings"),
+        t("mobile.devices.iphone.path.privacy"),
+        t("mobile.devices.iphone.path.devMode"),
+      ])}
+      {path([
+        t("mobile.devices.iphone.path.settings"),
+        t("devices.iphone.path.developer"),
+        t("devices.iphone.path.uiAutomation"),
+      ])}
+      <StepText>{t("devices.iphone.uiPasscode")}</StepText>
+      <Button
+        size="sm"
+        variant="secondary"
+        label={t("devices.iphone.uiCheck")}
+        loading={look.isPending}
+        disabled={pending}
+        onPress={() => look.mutate(undefined, { onError: fail })}
+      />
+      {host.mayManage ? (
+        <Cause
+          text={
+            repair.data?.update
+              ? t("mobile.devices.iphone.devMode.outdated", { host: hostName })
+              : t("devices.iphone.repairHint")
+          }
+        >
+          <Button
+            size="sm"
+            variant="secondary"
+            label={t("devices.iphone.repair")}
+            loading={repair.isPending}
+            disabled={pending}
+            onPress={() => repair.mutate(phone.id, { onError: fail })}
+          />
+        </Cause>
+      ) : null}
+    </>
+  );
+}
+
 /** One reason with its action: beside the words while they fit on one line, else under them (`ACT_LINE`). */
 function Cause({ text, children }: { text: string; children?: ReactNode }) {
   return (
@@ -330,22 +423,11 @@ function WifiOffer({ host, hostName }: { host: ComputerDevice; hostName: string 
   );
 }
 
-/** Settings › Privacy & Security › Developer Mode, as the iPhone's own rows read, each step with its chevron. */
-function SettingsPath() {
-  const { t } = useTranslation();
+/** A path in the iPhone's Settings (Settings › Privacy & Security › Developer Mode), as its own rows read, each step with its chevron. */
+function SettingsPath({ steps, label }: { steps: string[]; label: string }) {
   const c = useTheme().colors;
-  const steps = [
-    t("mobile.devices.iphone.path.settings"),
-    t("mobile.devices.iphone.path.privacy"),
-    t("mobile.devices.iphone.path.devMode"),
-  ];
   return (
-    <View
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={t("mobile.devices.iphone.pathA11y")}
-      style={styles.path}
-    >
+    <View accessible accessibilityRole="image" accessibilityLabel={label} style={styles.path}>
       {steps.map((label, i) => (
         <Fragment key={label}>
           <View style={styles.crumbStep}>

@@ -260,7 +260,7 @@ describe("team_status for a supervisor", () => {
     const task = (title: string, assigneeId: string, userIds?: string[]) =>
       createIssue({ db: f.db, pubsub: f.pubsub }, { type: "person", userId: f.owner.id }, f.org.id, {
         title,
-        assignee: { type: "agent", id: assigneeId },
+        assignees: [{ type: "agent", id: assigneeId }],
         ...(userIds ? { audience: { mode: "people" as const, userIds } } : {}),
       });
     await task("Relatorio aberto", f.agent.id);

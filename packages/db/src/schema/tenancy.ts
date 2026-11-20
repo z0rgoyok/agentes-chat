@@ -40,6 +40,8 @@ export const organizations = pgTable("organizations", {
   context: text().notNull().default(""),
   /** The workspace logo (`/api/app/org-logos/{orgId}/{hash}.{ext}`), uploaded by an admin; null = the agent mark. */
   logo: text(),
+  /** The workspace's accent, a lower-case "#rrggbb" (ADR 0193): the agent colors its apps derive; null = the default. */
+  accent: text(),
   /**
    * Set by the people who run this server through the operator API (ADR 0056): `hold` stops its agents,
    * `suspended` the whole workspace. With the notice `silent` the workspace is told only that it is paused,
@@ -91,6 +93,12 @@ export const organizations = pgTable("organizations", {
   /** The operator's deletion hold (a legal hold): the deletion waits while it is set. Never shown to the workspace. */
   deletionHoldAt: timestamp({ withTimezone: true }),
   deletionHoldReason: text(),
+  /**
+   * Set while an owner's reset is under way (`org.reset` job): its content goes and it starts over as a new one. The
+   * job clears both in the transaction that erases it, so a retry after that erases nothing new.
+   */
+  resetRequestedAt: timestamp({ withTimezone: true }),
+  resetRequestedBy: text().references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -179,6 +187,11 @@ export const organizationMembers = pgTable(
      * default. Read through `lodiPrefsOf` and saved by merging (packages/engine/src/right-hand-prefs.ts).
      */
     teamWeek: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    /**
+     * Who the person works for, when they come from outside the workspace (ADR 0191): shown beside their name. Not
+     * null marks an outside collaborator, who never counts toward the workspace's limit of people (`limits.ts`).
+     */
+    outsideOf: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -367,6 +380,12 @@ export const organizationJoinRequests = pgTable(
     passwordHash: text(),
     /** sha256 of the key the asking page keeps, traded once for a sign-in after an approval (ADR 0090). */
     claimHash: text(),
+    /**
+     * Who the person works for, on a request the operator API filed for an outside collaborator (ADR 0191): an
+     * approval lets `userId` in with it, past the workspace's limit of people. Unlike other requests, one that ran out
+     * is stored as `closed` by the daily sweep, which tells the operator once.
+     */
+    outsideOf: text(),
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { accountCodeAad } from "@agenteschat/adapters/machine-protocol";
@@ -20,9 +20,11 @@ import {
 } from "../../runner/accounts";
 import {
   AGY_CHAT_AGENT,
+  AGY_KEYCHAIN,
   AGY_PLANTED,
   AGY_SIGN_IN_FILE,
   agyAuthOf,
+  agyKeychain,
   agyRuntimeDir,
   agySignInOf,
   dropAgySignIns,
@@ -119,6 +121,48 @@ test("the account's home: what a turn planted goes, our settings, our server alo
   expect(agent).toContain("tools: []");
   expect(agent).toContain("subagent: false");
 });
+
+test("macOS: each Gemini account signs in to a keychain of its own in its folder, made once and unlocked before every run", () => {
+  const home = tempDir("agy-keychain-");
+  dirs.push(home);
+  const runs: string[][] = [];
+  const fake = (args: string[]) => {
+    runs.push(args);
+    if (args[0] === "create-keychain") writeFileSync(args[3] as string, "");
+  };
+  const file = path.join(home, AGY_KEYCHAIN);
+  agyKeychain(home, fake);
+  agyKeychain(home, fake);
+  expect(runs).toEqual([
+    ["create-keychain", "-p", "", file],
+    ["set-keychain-settings", file],
+    ["unlock-keychain", "-p", "", file],
+  ]);
+  // A `security` that fails leaves the CLI its own secrets file: never a thrown turn.
+  expect(() =>
+    agyKeychain(path.join(home, "other"), () => {
+      throw new Error("security: failed");
+    }),
+  ).not.toThrow();
+});
+
+test.skipIf(process.platform !== "darwin")(
+  "macOS: the account's keychain is the default one under its HOME, apart from the computer user's",
+  () => {
+    const home = tempDir("agy-keychain-");
+    dirs.push(home);
+    agyKeychain(home);
+    agyKeychain(home);
+    const security = (...args: string[]) =>
+      spawnSync("/usr/bin/security", args, { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+    expect(security("default-keychain").stdout).toContain(path.join(home, AGY_KEYCHAIN));
+    expect(
+      security("add-generic-password", "-U", "-s", "Antigravity CLI", "-a", "test", "-w", "fake-token").status,
+    ).toBe(0);
+    expect(security("find-generic-password", "-s", "Antigravity CLI", "-wa", "test").stdout.trim()).toBe("fake-token");
+    expect(spawnSync("/usr/bin/security", ["default-keychain"], { encoding: "utf8" }).stdout).not.toContain(home);
+  },
+);
 
 test("a chat turn's guard: init with our server's tools alone; a tool of its own, a subagent or an answer first stop it", () => {
   const init = (tools: unknown) => ({ event: "init", conversation_id: FIRST, init: { tools } });
@@ -408,7 +452,7 @@ test.skipIf(!posix)(
     const limited = await run(ctx, turn({ runId: RUN.replace(/1$/, "6"), prompt: "LIMIT" }));
     expect(limited.find((e) => e.type === "limit")).toMatchObject({ resetsAt: expect.any(String) });
     expect(limited.at(-1)).toMatchObject({ type: "error", code: "plan_limit" });
-    expect(await final({}, { ...ctx, platform: "darwin" })).toMatchObject({ code: "unsupported" });
+    expect(await final({}, { ...ctx, platform: "win32" })).toMatchObject({ code: "unsupported" });
   },
   20_000,
 );
@@ -472,10 +516,10 @@ test.skipIf(!posix)(
       state: "done",
       account: { kind: "antigravity", loggedIn: true, provider: "enterprise" },
     });
-    // Elsewhere than Linux the CLI keeps every sign-in in one keychain: refused.
-    const mac = new AccountManager({ root: path.join(home, "mac"), orgId: () => ORG, platform: "darwin" });
-    managers.push(mac);
-    await expect(mac.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d3")).rejects.toMatchObject({
+    // Windows keeps every sign-in in the user's one Credential Manager: refused.
+    const win = new AccountManager({ root: path.join(home, "win"), orgId: () => ORG, platform: "win32" });
+    managers.push(win);
+    await expect(win.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d3")).rejects.toMatchObject({
       code: "bad_request",
     });
   },

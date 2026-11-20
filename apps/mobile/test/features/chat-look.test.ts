@@ -9,6 +9,7 @@ import {
 } from "@agenteschat/client/lib/chat-look";
 import { AGENT_GRADIENTS, type AgentColorName, contrastOf, gradientOf, mixHex } from "@agenteschat/ui/agent/engine";
 import {
+  BUBBLES_EDGE,
   BUBBLES_INSET,
   bubbleFill,
   CHAT_TEXT,
@@ -26,6 +27,7 @@ import {
 } from "../../src/features/chat/logic";
 import { appColors } from "../../src/ui/palette";
 import { typeScale } from "../../src/ui/type-scale";
+import { chatScreenSource } from "./chat-screen-source";
 
 const read = (rel: string) => Bun.file(new URL(`../../src/features/${rel}`, import.meta.url).pathname).text();
 
@@ -54,10 +56,23 @@ describe("the bubbles' colors", () => {
 });
 
 describe("the rows follow the same choice as the web", () => {
-  test("defaults: channels on the left, DMs in bubbles", () => {
+  test("defaults: on the web channels on the left, on the phone in bubbles as DMs; the person's choice wins", () => {
     expect(chatLookOf(undefined, false).style).toBe("left");
     expect(chatLookOf(undefined, true).style).toBe("bubbles");
+    expect(chatLookOf(undefined, false, false, "phone").style).toBe("bubbles");
+    expect(chatLookOf({ channelStyle: "compact" }, false, false, "phone").style).toBe("compact");
     expect(mineOnRight("left")).toBe(false);
+  });
+
+  test("compact holds no column of times: a pull shows them, its face at the rows' edge", async () => {
+    const row = await read("chat/MessageRow.tsx");
+    expect(row).not.toContain("compactClock");
+    expect(row).toContain("{inBubble || compact ? (");
+    expect(row).toContain("const slide = useSwipeSlide(compact);");
+    expect(await read("chat/look.ts")).toContain(
+      "compactRow: { paddingLeft: MSG_INSET, paddingRight: 12, gap: COMPACT_GAP },",
+    );
+    expect(await read("me/ChatLookPage.tsx")).not.toContain("compactClock");
   });
 
   test("a personal workspace opens every conversation in bubbles; the person's choice wins (ADR 0159)", async () => {
@@ -65,9 +80,9 @@ describe("the rows follow the same choice as the web", () => {
     expect(chatLookOf(undefined, true, true).style).toBe("bubbles");
     expect(chatLookOf({ channelStyle: "compact" }, false, true).style).toBe("compact");
     // Every conversation and the preview read the workspace's mode.
-    expect(await read("chat/look.ts")).toContain("chatLookOf(org?.chatPrefs, dm, isPersonal(org))");
+    expect(await read("chat/look.ts")).toContain('chatLookOf(org?.chatPrefs, dm, isPersonal(org), "phone")');
     const page = await read("me/ChatLookPage.tsx");
-    expect(page).toContain("chatLookOf(prefs, dm, isPersonal(org))");
+    expect(page).toContain('chatLookOf(prefs, dm, isPersonal(org), "phone")');
     // Its channels are its group conversations: the tab and the tone's header say so.
     expect(page).toContain('label: t(modeKey(org, "settings.account.chat.channels"))');
     expect(page).toContain('modeKey(org, "settings.account.chat.toneChannels")');
@@ -77,28 +92,55 @@ describe("the rows follow the same choice as the web", () => {
     const row = await read("chat/MessageRow.tsx");
     expect(row).toContain("const onRight = mine && mineOnRight(look.style);");
     expect(row).toContain("if (onRight) {");
-    const chat = await read("chat/ChatScreen.tsx");
+    const chat = chatScreenSource();
     expect(chat).toContain("<RowLookContext.Provider value={rowLook}>");
     expect(chat).toContain('Boolean(dm) || thread.data?.channelKind === "dm"');
   });
 
   test("a DM drops the name only where a bubble stands: a card alone keeps it ahead of its time", async () => {
     const row = await read("chat/MessageRow.tsx");
-    expect(row).toContain("{!inBubble || look.names ? (");
+    // Another agent helping in an agent's DM keeps its name: the DM names only its own agent.
+    expect(row).toContain("{!inBubble || look.names || helping ? (");
     expect(row).not.toContain("{!bubbled || look.names ? (");
   });
 
   test("opening at the last read message goes to the line, once, with no glide", async () => {
-    const chat = await read("chat/ChatScreen.tsx");
-    expect(chat).toContain("firstUnreadId(list, from.at, meId)");
-    expect(chat).toContain("holdAt(id ?? undefined, 0, false);");
+    const chat = chatScreenSource();
+    expect(chat).toContain("firstUnreadId(list, openFrom.at, meId)");
+    expect(chat).toContain("void openAtLine(key).then(() => {");
+    // The "Novas" line itself, at the top of the room under the bar: sent to the list's top as it was, it landed
+    // behind the bar, the line and the first new message hidden.
+    expect(chat).toContain("const line = list?.getState().indexByKey(DIVIDER_KEY);");
+    expect(chat).toContain("const viewOffset = band.current.top + BAND_GAP;");
+    expect(chat).toContain(
+      "void list.scrollToIndex({ index, animated: false, viewPosition: 0, viewOffset }).finally(landed);",
+    );
+    expect(chat).toContain("band.current = { top: hasPin ? 0 : headerHeight, lift };");
+    // The list shows once it is there, never its end first, and with the rows that load beside the messages (the
+    // threads' links, the agents' questions) already in: none grows under the person. Those two hold it at most
+    // `ROWS_WAIT_MS` once the messages are in; its fallback still shows it. Messages already on the phone show at once,
+    // never held behind those two reads.
+    expect(chat).toContain("onReady={onListReady}");
+    expect(chat).toMatch(
+      /if \(\s*listReady\.current &&\s*atReadDone\.current &&\s*!goingToLine\.current &&\s*\(rowsCompleteRef\.current \|\| rowsWaitOver\.current\)\s*\)\s*revealList\(\);/,
+    );
+    expect(chat).toContain("const ROWS_WAIT_MS = 200;");
+    expect(chat).toMatch(/rowsWaitOver\.current = true;\s*revealOpened\(\);\s*\}, ROWS_WAIT_MS\);/);
+    expect(chat).toMatch(
+      /const rowsComplete =\s*openedOnPhone \|\| \(\(isThread \|\| !readable \|\| channelThreads\.isFetched\) && consultations\.isFetched\);/,
+    );
+    expect(chat).toContain("const timer = setTimeout(revealList, SHOW_LIST_MS);");
+    // Never over a message the screen was asked to open at.
+    expect(chat).toContain("!isThread && !focusId && opensAtLastRead(");
   });
 
   test("a DM whose sides say who spoke has no face: its bodies and quiet rows start at the rows' own padding", () => {
     const dm = (style: "comfortable" | "bubbles") => ({ style, faces: facesShown(style, true) });
-    expect(rowBodyInset(dm("bubbles"))).toEqual({ left: BUBBLES_INSET, right: ROW_BODY_INSET.bubbles.right });
+    expect(rowBodyInset(dm("bubbles"))).toEqual({ left: BUBBLES_EDGE, right: ROW_BODY_INSET.bubbles.right });
     expect(rowBodyInset(dm("comfortable"))).toEqual({ left: MSG_INSET, right: ROW_BODY_INSET.comfortable.right });
-    expect(quietInset(dm("bubbles"))).toBe(BUBBLES_INSET);
+    expect(quietInset(dm("bubbles"))).toBe(BUBBLES_EDGE);
+    // With faces (a channel) the face keeps its own inset; with none the bubble stands where mine end on the other side.
+    expect(BUBBLES_INSET).toBeLessThan(BUBBLES_EDGE);
     expect(quietInset(dm("comfortable"))).toBe(MSG_INSET);
     // A channel, and a DM in a look with everyone on the left, keep the face and the words' column.
     for (const style of ["comfortable", "bubbles", "left", "compact"] as const) {
@@ -111,6 +153,8 @@ describe("the rows follow the same choice as the web", () => {
   test("the look says it, and every row with a face column and every quiet row reads it", async () => {
     expect(await read("chat/look.ts")).toContain("faces: facesShown(style, dm)");
     expect(await read("chat/look.ts")).toContain("paddingLeft: BUBBLES_INSET");
+    expect(await read("chat/look.ts")).toContain("bubblesBare: { paddingLeft: BUBBLES_EDGE },");
+    expect(await read("chat/MessageRow.tsx")).toContain("bubbled && !look.faces && lookRows.bubblesBare,");
     expect(await read("chat/MessageRow.tsx")).toContain("{look.faces ? (");
     const queue = await read("queue/parts.tsx");
     expect(queue).toContain("{faces ? (");
@@ -118,7 +162,7 @@ describe("the rows follow the same choice as the web", () => {
       "look.faces ? WORDS_START[look.style] : rowBodyInset(look).left",
     );
     expect(await read("chat/ConsultGroup.tsx")).toContain("const inset = rowBodyInset(useRowLook());");
-    expect(await read("chat/ChatScreen.tsx")).toContain("const quiet = quietInset(rowLook);");
+    expect(chatScreenSource()).toContain("const quiet = quietInset(rowLook);");
     for (const file of [
       "chat/EventLine.tsx",
       "chat/issue-work.tsx",
@@ -149,11 +193,11 @@ describe("the rows follow the same choice as the web", () => {
     expect(page).toContain("save(dm ? { dmStyle: s } : { channelStyle: s })");
   });
 
-  test("a conversation opens at the last read message until the person picks the newest, as on the web", async () => {
-    expect(openAtOf(undefined)).toBe("read");
-    expect(openAtOf({ openAt: "latest" })).toBe("latest");
+  test("a conversation opens at the newest message until the person picks the last read, as on the web", async () => {
+    expect(openAtOf(undefined)).toBe("latest");
+    expect(openAtOf({ openAt: "read" })).toBe("read");
     expect(await read("me/ChatLookPage.tsx")).toContain("const openAt = openAtOf(prefs);");
-    expect(await read("chat/ChatScreen.tsx")).toContain("opensAtLastRead(org?.chatPrefs");
+    expect(chatScreenSource()).toContain("opensAtLastRead(org?.chatPrefs");
   });
 });
 
@@ -204,7 +248,9 @@ describe("Tamanho do texto on the phone", () => {
     const page = await read("me/ChatLookPage.tsx");
     // A stepped slider (small A, five steps, big A) the preview follows while it moves; saved when it lands.
     expect(page).toContain("save({ textSize: v })");
-    expect(page).toContain("<ChatPreview style={style} tone={tone} size={shownSize} dm={dm} />");
+    expect(page).toContain(
+      "<ChatPreview style={style} tone={tone} size={shownSize} dm={dm} wallpaper={shownWallpaper} />",
+    );
     expect(page).toContain('accessibilityRole="adjustable"');
     expect(page).toContain("accessibilityValue={{ text: labels[value] }}");
     expect(page).toContain("{labels[DEFAULT_TEXT_SIZE]}");

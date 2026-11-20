@@ -44,6 +44,9 @@ describe("web addresses → the app's screens", () => {
     expect(to("/drive?artifact=a1&v=3")).toBe("/file/a1?v=3");
     expect(to("/drive?artifact=a1&v=x")).toBe("/file/a1");
     expect(to("/drive?artifact=..%2Fsettings")).toBe("/drive");
+    // A live file's own page (ADR 0196): the file, which opens on its kind's screen.
+    expect(to("/drive/f1")).toBe("/file/f1");
+    expect(to("/drive/f1?sheet=s1")).toBe("/file/f1");
   });
 
   test("a conversation with a thread in its panel opens that thread's screen, at its message", () => {

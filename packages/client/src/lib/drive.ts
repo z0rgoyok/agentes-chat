@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactKind, ArtifactSharing } from "../api/types";
+import type { Artifact, ArtifactKind, ArtifactSharing, DriveFolder } from "../api/types";
 import { ARTIFACT_KINDS } from "./artifacts";
 import { daysBetween } from "./format";
 import type { OpenTarget } from "./notifications";
@@ -63,16 +63,28 @@ export function groupArtifacts(list: Artifact[], group: DriveGroup, now = new Da
   return order.filter((k) => map.has(k)).map((key) => ({ key, items: map.get(key) ?? [] }));
 }
 
-/** The Drive's section of files only a DM's two sides or a private channel's members can see. */
+/** The Drive's section of files only some people see: a DM's sides, a private channel's members, a Drive file's maker. */
 export const PRIVATE_SECTION = "private";
 
-/** Not open to the whole workspace: from a DM or a private channel (ADR 0111), unless shared with everyone (ADR 0157). */
-export const isPrivateArtifact = (a: Pick<Artifact, "audience"> & Partial<Pick<Artifact, "sharing">>) =>
-  (a.audience.kind === "dm" || (a.audience.kind === "channel" && a.audience.private)) && a.sharing?.mode !== "everyone";
+/**
+ * Where a file lives isn't open to the whole workspace, so its sharing has something to add (ADR 0157): a DM, a
+ * private channel, or the Drive itself, where a file lives with its maker (amendment 2026-11-17).
+ */
+export const livesInPrivate = (audience: Artifact["audience"]) =>
+  audience.kind === "dm" || audience.kind === "workspace" || (audience.kind === "channel" && audience.private);
 
 /**
- * Only the private conversation it lives in sees it (ADR 0157): a link to it opens for nobody else, so copying one
- * goes through the share dialog, which says so.
+ * Not open to the whole workspace: from a DM or a private channel (ADR 0111), or a file of the Drive itself, unless
+ * shared with everyone (ADR 0157). A Drive file from a server that sends no sharing is the workspace's, as it was.
+ */
+export const isPrivateArtifact = (a: Pick<Artifact, "audience"> & Partial<Pick<Artifact, "sharing">>) =>
+  livesInPrivate(a.audience) &&
+  (a.audience.kind !== "workspace" || a.sharing !== undefined) &&
+  a.sharing?.mode !== "everyone";
+
+/**
+ * Only the private conversation it lives in sees it, or only its maker a file of the Drive itself (ADR 0157): a link
+ * to it opens for nobody else, so copying one goes through the share dialog, which says so.
  */
 export const onlyItsConversation = (a: Pick<Artifact, "audience" | "sharing">) =>
   isPrivateArtifact(a) && (a.sharing?.mode ?? "conversation") === "conversation";
@@ -133,3 +145,75 @@ export function rangeOf(ids: string[], anchor: string | null, target: string): s
 /** Whole days left before the trash purges it (0 once it's due). */
 export const daysLeft = (purgeAt: string, now = new Date()) =>
   Math.max(0, Math.ceil((new Date(purgeAt).getTime() - now.getTime()) / 86_400_000));
+
+/** The Drive's folders by parent ("" = the top level), each list by name. */
+export function folderChildren(folders: DriveFolder[]): Map<string, DriveFolder[]> {
+  const map = new Map<string, DriveFolder[]>();
+  for (const f of folders) {
+    const key = f.parentId ?? "";
+    const list = map.get(key);
+    if (list) list.push(f);
+    else map.set(key, [f]);
+  }
+  return map;
+}
+
+/** From the top level down to this folder (empty at the top level, or when it's gone). */
+export function folderTrail(folders: DriveFolder[], id: string | null): DriveFolder[] {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const trail: DriveFolder[] = [];
+  let at = id ? byId.get(id) : undefined;
+  // Bounded: a loop in bad data never hangs the page.
+  while (at && trail.length <= folders.length) {
+    trail.unshift(at);
+    at = at.parentId ? byId.get(at.parentId) : undefined;
+  }
+  return trail;
+}
+
+/** This folder and every folder inside it: where a folder can't be moved to. */
+export function folderAndInside(folders: DriveFolder[], id: string): Set<string> {
+  const children = folderChildren(folders);
+  const out = new Set<string>();
+  const walk = (at: string) => {
+    if (out.has(at)) return;
+    out.add(at);
+    for (const c of children.get(at) ?? []) walk(c.id);
+  };
+  walk(id);
+  return out;
+}
+
+/** Every folder as a flat tree for a picker: depth-first, each with its depth. */
+export function folderOutline(folders: DriveFolder[]): { folder: DriveFolder; depth: number }[] {
+  const children = folderChildren(folders);
+  const out: { folder: DriveFolder; depth: number }[] = [];
+  const walk = (parent: string, depth: number) => {
+    for (const f of children.get(parent) ?? []) {
+      out.push({ folder: f, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk("", 0);
+  return out;
+}
+
+/** The drag of Drive items between folders (web): its data type, and what it carries. */
+export const DRIVE_DRAG_TYPE = "application/x-agentes-drive";
+export interface DriveDrag {
+  files: string[];
+  folders: string[];
+}
+
+/** What a drag between folders carries, or null for anything else (files from the computer, text). */
+export function parseDriveDrag(raw: string | undefined | null): DriveDrag | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<DriveDrag>;
+    const ids = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+    const drag = { files: ids(v.files), folders: ids(v.folders) };
+    return drag.files.length + drag.folders.length > 0 ? drag : null;
+  } catch {
+    return null;
+  }
+}

@@ -12,6 +12,7 @@ import {
   listAgentScopes,
   listMailAccounts,
   markNeedsReconnect,
+  NotFoundError,
   OrgDeletingError,
   openMailProvider,
   revokeMailAccount,
@@ -81,10 +82,14 @@ test("an IMAP mailbox is tested before it's saved; the password is sealed and ne
   await expect(
     createImapAccount(deps, f.owner.id, f.org.id, { preset: "icloud", address: "support@example.com", password: "x" }),
   ).rejects.toBeInstanceOf(ConflictError);
+  // A mailbox is its person's: any member connects their own (ADR 0099 addendum).
   const member = await addMember(f.db, f.org.id, "member");
-  await expect(
-    createImapAccount(deps, member.id, f.org.id, { preset: "icloud", address: "b@example.com", password: "x" }),
-  ).rejects.toBeInstanceOf(ForbiddenError);
+  const theirs = await createImapAccount(deps, member.id, f.org.id, {
+    preset: "icloud",
+    address: "b@example.com",
+    password: "abcd-efgh-ijkl-mnop",
+  });
+  expect(theirs).toMatchObject({ ok: true, account: { ownerUserId: member.id } });
 });
 
 test("custom hosts can't point inside our network", async () => {
@@ -160,9 +165,10 @@ test("a mailbox's other addresses: normalised, a default among them, pinned agen
   expect(after).toMatchObject({ account: { aliases: ["support@acme.com"], defaultFrom: null } });
   expect((await getAgentMail(f.db, f.owner.id, f.org.id, f.agent.id))[0]?.policy.fromAddress).toBeNull();
 
+  // Someone else's mailbox reads as missing to a member who doesn't manage connectors.
   const member = await addMember(f.db, f.org.id, "member");
   await expect(updateMailAccount(deps, member.id, f.org.id, account.id, { aliases: [] })).rejects.toBeInstanceOf(
-    ForbiddenError,
+    NotFoundError,
   );
 });
 
@@ -475,9 +481,10 @@ test("only who connected a mailbox gives an agent access to it; admins and the a
   const account = await imapAccount(m);
   const { db, org, agent } = m.f;
   const as = (who: { id: string }) => ({ ...m, f: { ...m.f, owner: who } }) as MailFixture;
-  const level = async () => (await getAgentMail(db, m.f.owner.id, org.id, agent.id))[0]?.level;
   // A member's own mailbox: theirs to give, admin or not, to an agent they can talk to.
   const ana = await addMember(db, org.id, "member", "Ana Mock");
+  const mail = async () => (await getAgentMail(db, ana.id, org.id, agent.id))[0];
+  const level = async () => (await mail())?.level;
   await db.update(schema.mailAccounts).set({ createdByUserId: ana.id }).where(eq(schema.mailAccounts.id, account.id));
   await giveMail(as(ana), account.id, "read_write", { dailySendCap: 7 });
   expect(await level()).toBe("read_write");
@@ -490,7 +497,9 @@ test("only who connected a mailbox gives an agent access to it; admins and the a
   await expect(giveMail(m, account.id, "read_write", {}, true)).rejects.toBeInstanceOf(ForbiddenError);
   // Lowering it is allowed, and their looser rules are ignored (the owner's stay).
   const lowered = await giveMail(as(admin), account.id, "read", { dailySendCap: 1000 });
-  expect([lowered.level, lowered.policy.dailySendCap]).toEqual(["read", 7]);
+  // The admin is never shown her rules; they stay hers.
+  expect([lowered.level, lowered.policy.dailySendCap]).toEqual(["read", 25]);
+  expect((await mail())?.policy.dailySendCap).toBe(7);
   // A member who neither owns the mailbox nor the agent takes nothing away.
   const bia = await addMember(db, org.id, "member", "Bia Mock");
   await expect(giveMail(as(bia), account.id, "none")).rejects.toBeInstanceOf(ForbiddenError);
@@ -531,4 +540,33 @@ test("only who connected a mailbox loosens its actions or adds addresses; admins
   expect(r).toMatchObject({
     account: { offActions: ["delete", "organize"], askActions: [], aliases: [], label: "Vendas" },
   });
+});
+
+test("a mailbox is its person's on the list: others see it only when they manage connectors, without its address", async () => {
+  m = await mailSetup();
+  const { f, deps } = m;
+  const walter = await addMember(f.db, f.org.id, "member", "walter");
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  const mine = await createImapAccount(deps, walter.id, f.org.id, {
+    preset: "icloud",
+    address: "walter@example.com",
+    password: "abcd-efgh-ijkl-mnop",
+  });
+  if (!mine.ok) throw new Error("not connected");
+  const id = mine.account.id;
+  expect((await listMailAccounts(f.db, walter.id, f.org.id)).map((a) => a.id)).toEqual([id]);
+  expect((await listMailAccounts(f.db, bia.id, f.org.id, { others: true })).map((a) => a.id)).toEqual([]);
+  // Who manages connectors: only when the app asks for others' rows, and with no address.
+  expect((await listMailAccounts(f.db, f.owner.id, f.org.id)).map((a) => a.id)).toEqual([]);
+  const [row] = await listMailAccounts(f.db, f.owner.id, f.org.id, { others: true });
+  expect(row).toMatchObject({ id, ownerUserId: walter.id, address: "", aliases: [] });
+  // Tightening it answers with the same bare row, and its sent mail stays Walter's to read.
+  const tightened = await updateMailAccount(deps, f.owner.id, f.org.id, id, { offActions: ["delete"] });
+  expect(tightened).toMatchObject({ ok: true, account: { id, address: "", label: "", aliases: [] } });
+  await expect(suggestMailAddresses(deps, f.owner.id, f.org.id, id)).rejects.toBeInstanceOf(NotFoundError);
+  expect(Array.isArray(await suggestMailAddresses(deps, walter.id, f.org.id, id))).toBe(true);
+  // Bia can't remove it; who manages connectors can, and so can Walter his own.
+  await expect(revokeMailAccount(deps, bia.id, f.org.id, id)).rejects.toBeInstanceOf(NotFoundError);
+  await revokeMailAccount(deps, f.owner.id, f.org.id, id);
+  expect(await listMailAccounts(f.db, walter.id, f.org.id)).toEqual([]);
 });

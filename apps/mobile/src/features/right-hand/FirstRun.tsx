@@ -59,14 +59,15 @@ import { usePlanHold } from "../ai/parts";
 import { useFailed } from "../routines/hooks";
 import { useDirectory, useMeId } from "../shared/hooks";
 import { successHaptic, tapHaptic } from "../shared/parts";
-import { ChoiceChip, TeamTemplatesSheet, useSendAnswer } from "./TeamCard";
+import { ChoiceChip, useSendAnswer } from "./TeamCard";
+import { openTeamTemplates } from "./TeamTemplates";
 
 /*
  * The right hand's first run on the phone (ADR 0155 §6, ADR 0162), as on the web: one checklist card inside its
  * greeting for the workspace's owners, with what the onboarding didn't do (an AI, apps, people), each row Connect AI,
  * a pushed screen or the invite screen. A personal workspace (ADR 0159), which the onboarding opens at once, has four
  * in its words: what the person wants help with (areas of life, answered in place or on a pushed screen), their agents
- * (a sheet of templates), an AI, their apps. On a billing hold the rest wait for the plan: a workspace waiting for its
+ * (the templates, pushed screens), an AI, their apps. On a billing hold the rest wait for the plan: a workspace waiting for its
  * first plan leads with a plan row (ADR 0162, amended 2026-11-10) that says where the plan is chosen, in words only
  * and with no button (App Store 3.1.1); on any other hold the AI row says it.
  */
@@ -155,14 +156,13 @@ export function FirstRunCard({ agent, channelId }: { agent: Agent; channelId: st
   const models = useModels();
   // Through the API, the workspace's key it runs on names its maker, as on the web (Automático names none).
   const keyMaker = useAgentBrain(orgId, agent.id).data?.workspaceAi?.key?.provider;
-  const [templates, setTemplates] = useState<{ initial?: string } | null>(null);
   const { steps, done, held, team, facts } = run;
   // Once, while a personal workspace's row of agents is still open for this person.
   const teamOpen = useRef(false);
   teamOpen.current = steps.includes("team") && !done.has("team");
   useEffect(() => {
     templatesAfterAbout = (initial) => {
-      if (teamOpen.current) setTemplates(initial ? { initial } : {});
+      if (teamOpen.current) openTeamTemplates(initial);
     };
     return () => {
       templatesAfterAbout = null;
@@ -205,7 +205,7 @@ export function FirstRunCard({ agent, channelId }: { agent: Agent; channelId: st
     // No way to pay from the phone (App Store 3.1.1): the plan row has no button.
     plan: () => undefined,
     about: () => openSetupStep(agent.id, "about", run.typed),
-    team: () => (done.has("team") ? router.push("/team") : setTemplates({})),
+    team: () => (done.has("team") ? router.push("/team") : openTeamTemplates()),
     // For the whole team, as the web's row: with agents besides it, every agent of the person's is chosen.
     ai: () => openConnectAi(team.length > 0 ? {} : { agentId: agent.id }),
     apps: () => openSetupStep(agent.id, "apps"),
@@ -280,37 +280,29 @@ export function FirstRunCard({ agent, channelId }: { agent: Agent; channelId: st
   const shown = run.state === "complete" ? rows : rows.filter((r) => r.key === focus || r.saying);
 
   return (
-    <>
-      <SetupCardView
-        title={
-          run.state === "complete"
-            ? t("agentSetup.firstRun.complete")
-            : t(modeKey(org, "agentSetup.firstRun.title"), { org: org?.name ?? "" })
-        }
-        done={doneHere.length}
-        total={steps.length}
-        rows={shown.length > 0 ? shown : rows}
-        foot={
-          next === "about" && run.state !== "complete" ? (
-            <AboutYouAnswers
-              // The areas already tapped go along, so the screen opens with them picked.
-              onOther={(areas) => (areas ? openSetupStep(agent.id, "about", areas) : act.about())}
-              onSaved={(template) => {
-                if (teamOpen.current) setTemplates(template ? { initial: template } : {});
-              }}
-            />
-          ) : asks.length > 0 ? (
-            <SetupAsks lead={t("agentSetup.firstRun.asks.lead")} asks={asks} />
-          ) : null
-        }
-      />
-      <TeamTemplatesSheet
-        open={templates !== null}
-        initial={templates?.initial}
-        onClose={() => setTemplates(null)}
-        onNone={() => setTemplates(null)}
-      />
-    </>
+    <SetupCardView
+      title={
+        run.state === "complete"
+          ? t("agentSetup.firstRun.complete")
+          : t(modeKey(org, "agentSetup.firstRun.title"), { org: org?.name ?? "" })
+      }
+      done={doneHere.length}
+      total={steps.length}
+      rows={shown.length > 0 ? shown : rows}
+      foot={
+        next === "about" && run.state !== "complete" ? (
+          <AboutYouAnswers
+            // The areas already tapped go along, so the screen opens with them picked.
+            onOther={(areas) => (areas ? openSetupStep(agent.id, "about", areas) : act.about())}
+            onSaved={(template) => {
+              if (teamOpen.current) openTeamTemplates(template ?? undefined);
+            }}
+          />
+        ) : asks.length > 0 ? (
+          <SetupAsks lead={t("agentSetup.firstRun.asks.lead")} asks={asks} />
+        ) : null
+      }
+    />
   );
 }
 

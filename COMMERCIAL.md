@@ -6,7 +6,7 @@ agentes.chat comes under two licenses. You pick the one that fits.
 
 The code in this repository is licensed under the [GNU AGPL-3.0-only](LICENSE), with the terms in
 [NOTICE](NOTICE): a permission to distribute the phone and desktop apps through app stores, and the
-attribution "Based on agentes.chat by Codari Global, LLC" kept in the About screen. A few packages
+attribution "Based on agentes.chat by AGENTESCHAT, LLC" kept in the About screen. A few packages
 say they are MIT in their own LICENSE file.
 
 Under it you can, at no charge and without asking:
@@ -22,7 +22,7 @@ logo stay ours ([TRADEMARKS.md](TRADEMARKS.md)): a fork needs a name, a logo and
 
 ## The commercial license
 
-Codari Global, LLC also licenses agentes.chat on commercial terms, by contract, for those who:
+AGENTESCHAT, LLC also licenses agentes.chat on commercial terms, by contract, for those who:
 
 - change it and offer it to others without publishing their changes;
 - sell it under their own brand, without the attribution;

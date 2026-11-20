@@ -7,8 +7,8 @@ name: CLA
 # checked out or run here; the token can write only what the CLA bot needs. A contributor accepts by commenting
 # the sentence the bot asks for; the bot records it in signatures/version1/cla.json on the cla-signatures branch
 # (outside main, and unprotected so the bot can write it) and locks the pull request's conversation once it
-# merges, so the comment stays. A new version of CLA.md gets a new tag and a new signatures path, which asks
-# everyone again.
+# merges, so the comment stays. A new version of CLA.md gets a new tag; one that must be accepted again also gets a
+# new signatures path, which asks everyone again.
 #
 # Every pull request is checked, commit by commit: a maintainer's integration branch can carry an outside
 # author's commits, and a check that went by who opened the pull request would miss them. The maintainers are
@@ -73,13 +73,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-document: https://github.com/agentes-chat/agentes-chat/blob/cla-v1.0/CLA.md
+          path-to-document: https://github.com/agentes-chat/agentes-chat/blob/cla-v1.1/CLA.md
           path-to-signatures: signatures/version1/cla.json
           branch: cla-signatures
           allowlist: heliocosta-dev,wescld${{ steps.branch.outputs.bots }}
           custom-notsigned-prcomment: >-
             Thank you for your contribution! Before we can merge it, please read our
-            [Contributor License Agreement](https://github.com/agentes-chat/agentes-chat/blob/cla-v1.0/CLA.md)
+            [Contributor License Agreement](https://github.com/agentes-chat/agentes-chat/blob/cla-v1.1/CLA.md)
             and accept it by commenting on this pull request with the sentence below. You keep the copyright in
-            your work; the agreement lets Codari Global, LLC also license it outside the AGPL. You only do this
+            your work; the agreement lets AGENTESCHAT, LLC also license it outside the AGPL. You only do this
             once.

@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { orgTopic } from "@agenteschat/adapters";
 import { and, eq, schema, sql } from "@agenteschat/db";
 import {
   AREA_PERMISSIONS,
   acceptInvitation,
   CHANNEL_OVERRIDES_MAX,
+  caches,
   can,
   createAgent,
   createChannel,
@@ -18,9 +20,11 @@ import {
   PERMISSION_ROWS,
   reorderRoles,
   requirePermission,
+  setAgentEditors,
   setChannelOverride,
   setMemberRoles,
   setRowHolders,
+  updateAgent,
   updateRole,
 } from "../src";
 import { addMember, adminRoleId, everyoneWithout, type Fixture, makeAdmin, setup } from "./fixtures";
@@ -601,6 +605,69 @@ describe("Duplicar copies the role's reach", () => {
     for (const id of [base.id, crypto.randomUUID()])
       await expect(copy(id)).rejects.toMatchObject({ code: "role.unknown" });
     expect((await copy(helpers.id)).permissions).toEqual(["post"]);
+  });
+
+  /**
+   * Runs `fn` while a run reads `agentId` between each of its transactions' writes and their commit, caching its row
+   * from before; returns `fn`'s result and what the workspace's sockets heard, each commit in between.
+   */
+  async function readWhileOpen<T>(agentId: string, fn: () => Promise<T>) {
+    const heard: string[] = [];
+    const off = f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+      if (e.type === "org.broadcast") heard.push((e.event as { type: string }).type);
+    });
+    const transaction = f.db.transaction.bind(f.db);
+    f.db.transaction = (async (run: (tx: never) => Promise<unknown>) => {
+      const out = await transaction(async (tx) => {
+        const done = await run(tx as never);
+        caches.agents.set(`${f.org.id}:${agentId}`, "as it was");
+        return done;
+      });
+      heard.push("commit");
+      return out;
+    }) as typeof f.db.transaction;
+    try {
+      return { result: await fn(), heard };
+    } finally {
+      f.db.transaction = transaction;
+      off();
+    }
+  }
+
+  test("the copy joins every 'Who can edit' the source is on; the apps hear it once it commits", async () => {
+    const reviewers = await createRole(f.db, f.owner.id, f.org.id, { name: "Revisores" });
+    await setAgentEditors(f.db, f.owner.id, f.org.id, f.agent.id, { userIds: [], roleIds: [reviewers.id] });
+    const lia = await addMember(f.db, f.org.id, "member", "lia");
+    const { pubsub } = f;
+    const told = (heard: string[]) => {
+      // Once, after the commit, and nothing a run read meanwhile stays cached.
+      expect(heard.filter((t) => t === "agents.changed")).toHaveLength(1);
+      expect(heard.indexOf("agents.changed")).toBeGreaterThan(heard.indexOf("commit"));
+      expect(caches.agents.get(`${f.org.id}:${f.agent.id}`)).toBeUndefined();
+    };
+    const { result: copy, heard } = await readWhileOpen(f.agent.id, () =>
+      createRole(f.db, f.owner.id, f.org.id, { name: "Revisores 2", copyFrom: reviewers.id }, { pubsub }),
+    );
+    told(heard);
+    const [created] = await f.db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, "role.created"), eq(schema.auditLog.targetId, copy.id)));
+    expect(created?.details).toMatchObject({ agentIds: [], editorOf: [f.agent.id] });
+    // Whoever holds the copy edits the agent, as who holds the source does.
+    await expect(updateAgent(f.db, lia.id, f.org.id, f.agent.id, { role: "QA" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [copy.id]);
+    expect((await updateAgent(f.db, lia.id, f.org.id, f.agent.id, { role: "QA" })).role).toBe("QA");
+
+    // Deleting the source takes it off the list the same way.
+    const gone = await readWhileOpen(f.agent.id, () =>
+      deleteRole(f.db, f.owner.id, f.org.id, reviewers.id, { pubsub }),
+    );
+    told(gone.heard);
+    const [agent] = await f.db.select().from(schema.agents).where(eq(schema.agents.id, f.agent.id));
+    expect(agent?.editorRoleIds).toEqual([copy.id]);
   });
 });
 

@@ -449,6 +449,17 @@ describe("one workspace's day", () => {
     expect(day).toMatchObject({ promiseUnkept: 2, promiseIgnored: 1 });
   });
 
+  test("after the nudge, the line before slow work isn't doing it (ADR 0207); the work after it is", async () => {
+    const other = "2026-10-13";
+    const nudged: Step = ["context", { nudged: "promise" }];
+    const line: Step = ["tool_call", { name: "say_now" }];
+    const work: Step = ["tool_call", { name: "run_code" }];
+    await run({ at: at("10:00:00", other), steps: [posted, nudged, line, posted] });
+    await run({ at: at("11:00:00", other), steps: [posted, nudged, line, work, posted] });
+    const [day] = await autonomyRows(f.db, { from: other, days: 1 });
+    expect(day).toMatchObject({ promiseUnkept: 2, promiseIgnored: 1 });
+  });
+
   test("a mention the judge failed to read woke nobody; one it read as only a reference didn't count", async () => {
     const other = "2026-10-16";
     const dev = f.agent.id;
@@ -491,6 +502,23 @@ describe("one workspace's day", () => {
       await message({ at: at(`${time}:00`, other), channelId: ch.personDm, body: "como está a migração?" });
       await message({ at: at(`${time}:30`, other), by: dev, channelId: ch.personDm, body: "Ainda rodando.", meta });
     }
+    const [day] = await autonomyRows(f.db, { from: other, days: 1 });
+    expect(day?.personUnanswered).toBe(1);
+  });
+
+  test("the line an agent says before slow work answers nobody (ADR 0207): the reply after it does", async () => {
+    const other = "2026-10-12";
+    const dev = f.agent.id;
+    const sayNow = { sayNow: { runId: crypto.randomUUID() } };
+    const line = (time: string, body: string) =>
+      message({ at: at(time, other), by: dev, channelId: ch.personDm, body, meta: sayNow });
+    // Only the line within the 10 minutes: unanswered.
+    await message({ at: at("10:00:00", other), channelId: ch.personDm, body: "acha uns hotéis em Recife para março?" });
+    await line("10:00:05", "Bora! Vou abrir o navegador e já te mando.");
+    // The line, then the reply: answered.
+    await message({ at: at("11:00:00", other), channelId: ch.personDm, body: "e em Salvador?" });
+    await line("11:00:05", "Bora! Vou ver os hotéis em Salvador.");
+    await message({ at: at("11:04:00", other), by: dev, channelId: ch.personDm, body: "Achei 2 hotéis em Salvador." });
     const [day] = await autonomyRows(f.db, { from: other, days: 1 });
     expect(day?.personUnanswered).toBe(1);
   });

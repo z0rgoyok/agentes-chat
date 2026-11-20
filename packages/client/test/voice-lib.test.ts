@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
 import type { Message } from "../src/api/types";
+import { createHttpApi } from "../src/index";
 import { quoteText, textOrMedia } from "../src/lib/media";
 import { previewBody } from "../src/lib/message-body";
 import { localMeta } from "../src/lib/reply";
-import { voiceAudioGone, voiceClock, voiceExpired, voiceOf } from "../src/lib/voice";
+import {
+  listedText,
+  voiceAudioGone,
+  voiceClock,
+  voiceExpired,
+  voiceOf,
+  voiceParts,
+  voiceSpeedOf,
+} from "../src/lib/voice";
 
 const t = ((key: string, params?: { time?: string }) =>
   key === "voice.wordTime" ? `Voz · ${params?.time}` : key === "voice.word" ? "Voz" : key) as unknown as TFunction;
@@ -39,6 +48,63 @@ describe("voice messages' helpers (ADR 0100)", () => {
     const quote = { id: "m1", threadId: null, author: { type: "person", id: "u" }, body: "words", meta: { voice } };
     const meta = localMeta(quote as unknown as Message, "Ana", []);
     expect(meta.replyTo).toMatchObject({ excerpt: "", media: "voice" });
+  });
+
+  test("a kept speed counts only when it is one the player offers: anything else plays at 1x", () => {
+    expect([voiceSpeedOf("1"), voiceSpeedOf("1.5"), voiceSpeedOf("2")]).toEqual([1, 1.5, 2]);
+    for (const kept of [null, "", "3", "0.5", "1.50x", "fast", "NaN"]) expect(voiceSpeedOf(kept)).toBe(1);
+  });
+
+  test("voiceParts: the typed part above the player, the words alone in its transcript", () => {
+    const typed = "Veja a tela\n\nE responda:\n- sim\n- não";
+    const words = "e o deploy de ontem";
+    const message = { body: `${typed}\n\n${words}`, meta: { voice: { ...voice, text: typed } } };
+    expect(voiceParts(message)).toEqual({ typed, words });
+    // A message from before typed text could go with a take: all of its body is words.
+    expect(voiceParts({ body: words, meta: { voice } })).toEqual({ typed: "", words });
+    // Typed text and a take with nothing said in it.
+    expect(voiceParts({ body: typed, meta: { voice: { ...voice, text: typed } } })).toEqual({ typed, words: null });
+    // No engine made out the words: the placeholder after the typed text is never offered.
+    const noWords = { body: `${typed}\n\n(placeholder)`, meta: { voice: { ...voice, text: typed, noWords: true } } };
+    expect(voiceParts(noWords)).toEqual({ typed, words: null });
+    // The server marks it `unheard` when text was typed, so apps that predate `text` show the body whole.
+    const unheard = { ...noWords, meta: { voice: { ...voice, text: typed, unheard: true } } };
+    expect(voiceParts(unheard)).toEqual({ typed, words: null });
+    // A body that doesn't start with the typed text loses nothing: it all shows as words.
+    expect(voiceParts({ body: "other", meta: { voice: { ...voice, text: typed } } })).toEqual({
+      typed,
+      words: "other",
+    });
+  });
+
+  test("with typed text beside it, lines show that text, never the words", () => {
+    const meta = { voice: { ...voice, text: "Veja a tela" } };
+    const body = "Veja a tela\n\nthe secret words";
+    expect(listedText(body, meta)).toBe("Veja a tela");
+    expect(listedText(body, { voice })).toBe("");
+    expect(listedText("plain", {})).toBe("plain");
+    expect(textOrMedia(t, body, meta)).toBe("Veja a tela");
+    expect(previewBody(t, body, meta)).toBe("Veja a tela");
+    const quote = { id: "m1", threadId: null, author: { type: "person", id: "u" }, body, meta };
+    const reply = localMeta(quote as unknown as Message, "Ana", []).replyTo as Record<string, unknown>;
+    expect(reply.excerpt).toBe("Veja a tela");
+    expect(reply.media).toBeUndefined();
+  });
+
+  test("a take goes with its typed text and files in the same upload, and without them as before", async () => {
+    const forms: FormData[] = [];
+    const fetch = async (_url: string, init: RequestInit) => {
+      forms.push(init.body as FormData);
+      return Response.json({ clipId: "c1" }, { status: 202 });
+    };
+    const api = createHttpApi({ fetch });
+    const take = { blob: new Blob([new Uint8Array(4)], { type: "audio/mp4" }), durationMs: 1200, peaks: [0.1] };
+    await api.voice.send("o1", "ch1", { ...take, clientId: "k1", text: "Veja", attachments: ["a1", "a2"] });
+    await api.voice.send("o1", "ch1", { ...take, clientId: "k2", text: "  ", attachments: [] });
+    expect(forms[0]?.get("text")).toBe("Veja");
+    expect(JSON.parse(String(forms[0]?.get("attachments")))).toEqual(["a1", "a2"]);
+    expect(forms[1]?.has("text")).toBe(false);
+    expect(forms[1]?.has("attachments")).toBe(false);
   });
 
   test("the clock", () => {

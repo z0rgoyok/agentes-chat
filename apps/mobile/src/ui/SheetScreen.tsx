@@ -1,40 +1,35 @@
-import type { ReactNode } from "react";
-import { Platform, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { type ReactNode, useRef } from "react";
+import { ScrollView, type ScrollViewInstance, StyleSheet } from "react-native";
+import { useRouteSheetScrollable, useSheetBody } from "./Sheet";
 import { SheetSurface } from "./SheetSurface";
 
 export interface SheetScreenProps {
   children?: ReactNode;
-  /** For a sheet presented with `"fitToContents"`: no scroll view, the sheet takes the content's own height. */
+  /** For a sheet sized to its content (`"auto"`): the sheet ends where the content does on every screen size. */
   fit?: boolean;
 }
 
 /**
- * The content of a route presented as a native form sheet (`useFormSheetOptions`): the system draws the
- * sheet, the drag to dismiss and the dimmed, scaled screen behind (the grabber too on iOS; `SheetSurface`
- * draws it on Android, with the sheet's colors). This is only the scrolling body (the first scroll view, so
- * dragging at its top edge moves the sheet), keyboard-aware. With `fit` it is a plain column the sheet
- * measures, so a short sheet ends where its content does on every screen size, with no empty band under it.
+ * The content of a route sheet (`useRouteSheetOptions`): the system draws the sheet, its grabber, the drag to dismiss
+ * and the dimmed screen behind. This is the scrolling body, the sheet's own scroll view (dragging at its top edge moves
+ * the sheet, the keyboard insets it), filling a sheet of fixed heights, or sized to its rows with `fit`; its padding
+ * and the room between its blocks are every sheet's (`useSheetBody`).
  */
 export function SheetScreen({ children, fit }: SheetScreenProps) {
-  const insets = useSafeAreaInsets();
-  if (fit) {
-    // iOS already adds the bottom inset to a sheet that fits its content; Android doesn't.
-    const bottom = Platform.OS === "ios" ? 12 : 24 + insets.bottom;
-    return (
-      <SheetSurface>
-        <View style={[styles.in, { paddingBottom: bottom }]}>{children}</View>
-      </SheetSurface>
-    );
-  }
+  const body = useSheetBody();
+  const scroll = useRef<ScrollViewInstance>(null);
+  useRouteSheetScrollable(scroll);
   return (
-    <SheetSurface>
+    <SheetSurface fit={fit}>
       <ScrollView
-        style={styles.fill}
+        ref={scroll}
+        style={fit ? undefined : styles.fill}
         keyboardShouldPersistTaps="handled"
+        // A sheet with a field (Novo canal, Nova página): a drag down the content puts the keyboard away, as every
+        // screen's scroll does.
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={[styles.in, { paddingBottom: 24 + insets.bottom }]}
+        contentContainerStyle={body}
       >
         {children}
       </ScrollView>
@@ -44,5 +39,4 @@ export function SheetScreen({ children, fit }: SheetScreenProps) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  in: { paddingHorizontal: 18, paddingTop: 24, gap: 12 },
 });

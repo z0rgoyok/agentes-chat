@@ -13,7 +13,6 @@
     "channelCount_many": "{{count}} canales",
     "channelCount_other": "{{count}} canales",
     "none": "Todavía no hay categorías.",
-    "manageHelp": "Toca una categoría para cambiarle el nombre, moverla o eliminarla.",
     "manageHint": "Orden, nombres y eliminar",
     "deleteTitle": "¿Eliminar {{name}}?",
     "order": "Lugar en la lista",
@@ -21,8 +20,7 @@
     "down": "Bajar",
     "position": "{{at}} de {{count}}.",
     "channelPosition": "{{at}} de {{count}}.",
-    "itsChannels": "Canales",
-    "seeAll": "Ver todo"
+    "itsChannels": "Canales"
   },
   "blocks": {
     "send": "Enviar",
@@ -194,16 +192,9 @@
       "text": "Puede estar caído o fuera de tu red. Tus chats aparecen solos cuando vuelva.",
       "kept": "Mostrando lo que ya estaba en la app."
     },
-    "section": {
-      "agents": "Agentes",
-      "channels": "Canales",
-      "people": "Personas"
-    },
-    "seeAll": {
-      "agents": "Ver todos los agentes",
-      "channels": "Ver todos los canales",
-      "people": "Ver todas las personas"
-    },
+    "pinned": "Fijados",
+    "recent": "Recientes",
+    "seeAll": "Ver todos los chats",
     "wait": {
       "verb": {
         "approval": "necesita tu aprobación",
@@ -260,8 +251,6 @@
       "mute": "Silenciar",
       "unmute": "Reactivar"
     },
-    "firstRunLine": "{{name}} está preparando el equipo · {{done}} de {{total}}",
-    "firstRunLinePersonal": "{{name}} está preparando tus agentes · {{done}} de {{total}}",
     "first": {
       "title": "Empieza con tu primer agente",
       "subtitle": "Ponle un nombre y di qué hace. Aparece aquí, como un chat.",
@@ -366,6 +355,7 @@
     "repliesWord_one": "respuesta",
     "repliesWord_many": "respuestas",
     "repliesWord_other": "respuestas",
+    "dayAt": "{{day}} {{time}}",
     "thread": "Hilo",
     "closed": "cerrado",
     "options": "Opciones",
@@ -373,8 +363,16 @@
     "here_one": "{{count}} aquí",
     "here_many": "{{count}} aquí",
     "here_other": "{{count}} aquí",
+    "membersAdd": "Añadir",
+    "membersAdded_one": "{{count}} añadido a #{{channel}}",
+    "membersAdded_many": "{{count}} añadidos a #{{channel}}",
+    "membersAdded_other": "{{count}} añadidos a #{{channel}}",
+    "memberRemoved": "{{name}} ya no está en #{{channel}}",
+    "muted": "#{{channel}} silenciado",
+    "unmuted": "#{{channel}} reactivado",
     "headerAgent": "{{who}}. Abrir el perfil",
     "headerChannel": "{{who}}. Opciones",
+    "headerMembers": "{{who}}. Ver quién está aquí",
     "switchHint": "Mantén presionado para cambiar de conversación",
     "switchTitle": "Cambiar de conversación",
     "switchSearch": "Buscar conversaciones",
@@ -396,9 +394,7 @@
       "delivered": "{{name}} lo recibió",
       "held": "{{name}} lo lee después de tu decisión",
       "read": "{{name}} lo leyó",
-      "resolved": "{{name}} cerró el pedido de ayuda",
-      "well": "Leyó tu nota",
-      "wellNow": "Se detuvo para leer tu nota"
+      "resolved": "{{name}} cerró el pedido de ayuda"
     },
     "stopped": {
       "byYou": "Se detuvo aquí",
@@ -458,21 +454,15 @@
     "doubleTapHint": "Doble toque = 👍",
     "react": "Reaccionar",
     "attach": {
-      "more": "Agregar otra foto o archivo",
       "remove": "Quitar {{name}}",
       "waiting": "{{name}}, pendiente de envío",
       "sending": "{{name}}, enviando",
+      "failed": "{{name}}, no se envió: envía para intentarlo de nuevo",
+      "preparing": "Preparando los archivos…",
       "tooMany": "Hasta {{count}} archivos por mensaje."
     },
     "swipeReply": "Desliza a la derecha para responder",
     "intent": {
-      "suggest": {
-        "merge": "Adelante, haz el merge",
-        "review": "Pide a {{name}} que lo revise primero",
-        "seeChange": "Muéstrame qué cambió",
-        "summarize": "Resúmelo en 3 puntos",
-        "nextStep": "¿Cuál es el siguiente paso?"
-      },
       "arrived": "{{name}} se unió al equipo",
       "meet": "Tu primera conversación con {{name}}",
       "roleIntro": "{{role}} en tu equipo. Pide con tus palabras.",
@@ -588,8 +578,6 @@
     "file": "Archivo",
     "media": "GIFs",
     "noCamera": "Sin acceso a la cámara. Permítelo en la Configuración del teléfono.",
-    "mission": "Empezar una misión",
-    "missionHint": "Trabajo largo, con un plan, de principio a fin",
     "summary": "Resumir el chat",
     "summaryHint": "Lo que pasó mientras no estabas",
     "remind": "Recuérdamelo más tarde",
@@ -618,7 +606,6 @@
     "minuteLess": "{{n}} minutos antes",
     "minuteMore": "{{n}} minutos después",
     "submit": "Recordarme a esta hora",
-    "quick": "Ver horarios rápidos",
     "done": "Recordatorio listo",
     "error": {
       "noAgent": "Ningún agente de aquí puede recordártelo",
@@ -677,6 +664,7 @@
     "title": "Nueva misión",
     "intro": "El agente arma un plan y solo empieza cuando tú lo digas.",
     "placeholder": "¿Qué hay que hacer?",
+    "who": "Quién la hace",
     "submit": "Pedir un plan",
     "created": "{{name}} está armando el plan",
     "noAgents": "Todavía ningún agente puede hacer misiones. Conecta una computadora en el sitio web.",
@@ -834,30 +822,26 @@
   "agentEdit": {
     "missing": "Este agente ya no existe.",
     "saved": "Cambios guardados",
-    "adminsOnly": "Solo los admins cambian el nombre, el rol y las instrucciones.",
+    "adminsOnly": "Solo quien puede editar este agente cambia su rol y sus instrucciones. El nombre, solo los admins.",
     "discardTitle": "¿Descartar tus cambios?",
     "discardText": "Lo que cambiaste todavía no se guardó.",
     "discard": "Descartar",
     "keepEditing": "Seguir editando"
   },
   "newAgent": {
-    "leaveTitle": "¿Salir sin crear?",
-    "leaveText": "El agente que empezaste no se va a crear.",
-    "keepGoing": "Seguir creando",
     "identityQuestion": "¿Quién es el agente?",
     "identityLead": "Su nombre, cómo llamarlo en el chat y su cara.",
     "handleMention": "Menciona a @{{handle}} para llamarlo.",
     "handleFromName": "En el chat: @{{handle}}. Se crea a partir del nombre. Puedes cambiarlo.",
     "handleFromNameEmpty": "Su @ en el chat se crea a partir del nombre.",
-    "reviewLead": "Toca una línea para cambiarla.",
     "planHint": "O conecta tu plan de IA: así {{name}} piensa con él, sin gastar la clave.",
     "partly": "El agente se creó, pero parte de lo que trae su rol no se aplicó. Ajústalo en su perfil.",
     "import": {
       "where": {
         "openbotrun": "Elige openbot-import.json (de Migrator by OpenBot) u openbot-transfer.json (de la transferencia de instancia). Un .zip se abre primero en la app Archivos: un toque lo descomprime.",
         "openmausbot": "En OpenMausBot: clic derecho en el equipo › Compartir equipo… › Guardar archivo. Después elige ese archivo aquí.",
-        "hermes": "Hermes exporta desde una terminal (hermes profile export), como un .tar.gz que el teléfono no puede abrir. Impórtalo en la computadora o elige aquí los archivos .md y .yaml del perfil.",
-        "openclaw": "OpenClaw guarda los agentes en la carpeta ~/.openclaw de la computadora. Elige aquí los archivos .md de un espacio de trabajo o importa la carpeta completa en la computadora.",
+        "hermes": "Hermes exporta desde una terminal (`hermes profile export`), como un .tar.gz que el teléfono no puede abrir. Impórtalo en la computadora o elige aquí los archivos .md y .yaml del perfil.",
+        "openclaw": "OpenClaw guarda los agentes en la carpeta `~/.openclaw` de la computadora. Elige aquí los archivos .md de un espacio de trabajo o importa la carpeta completa en la computadora.",
         "paperclip": "Pega abajo el enlace de GitHub del paquete o elige su COMPANY.md y los demás archivos .md.",
         "agenteschat": "En el otro espacio de trabajo: Configuración › Importar y exportar › Descargar el archivo. Después elige el .json aquí."
       },
@@ -869,7 +853,6 @@
       "archive": "El teléfono no abre archivos .zip ni .tar.gz. En la app Archivos, toca el .zip para descomprimirlo y elige los archivos de adentro, o importa en la computadora.",
       "privacy": "Se lee en este teléfono. Los archivos de claves e inicio de sesión nunca se abren.",
       "also": "También viene",
-      "change": "Cambiar",
       "arrived_one": "Llegó {{name}}",
       "arrived_many": "Llegaron {{count}} agentes",
       "arrived_other": "Llegaron {{count}} agentes",
@@ -894,7 +877,11 @@
     "taskForM": "Tarea para {{name}}",
     "taskPlaceholder": "¿Qué hay que hacer?",
     "sendTask": "Enviar tarea",
-    "taskSent": "Tarea enviada"
+    "taskSent": "Tarea enviada",
+    "brakes": {
+      "forgetTitle": "¿Olvidar estas respuestas?",
+      "forgetText": "{{name}} vuelve a preguntar antes de este tipo de trabajo."
+    }
   },
   "activity": {
     "title": "Actividad",
@@ -1201,7 +1188,7 @@
     "agentStyle": "Cómo hablan los agentes",
     "workspaces": "Espacios de trabajo",
     "workspacesIn": "Estás en",
-    "workspacesFoot": "Sigues conectado en cada uno y recibes los avisos de todos. Toca un workspace para abrirlo.",
+    "workspacesFoot": "Sigues conectado en cada uno y recibes los avisos de todos.",
     "workspacesUnreachable": "Sin respuesta ahora",
     "addWorkspace": "Añadir workspace",
     "addWorkspaceCreate": "Crear un workspace nuevo",
@@ -1287,10 +1274,13 @@
       "diagram": "Diagrama",
       "page": "Página",
       "text": "Texto",
+      "spreadsheet": "Hoja de cálculo",
+      "slides": "Presentación",
+      "canvas": "Pizarra",
       "file": "Archivo"
     },
     "more": "Más opciones",
-    "send": "Enviar",
+    "sendCopy": "Enviar una copia",
     "savePhotos": "Guardar en Fotos",
     "drive": "Ver en Drive",
     "saved": "Guardada en Fotos",
@@ -1304,6 +1294,7 @@
     "place": "{{index}} de {{count}}",
     "previous": "Imagen anterior",
     "next": "Imagen siguiente",
+    "noPreviewTitle": "Sin vista previa",
     "noPreview": "Este archivo no se abre en la app. Envíalo a otra app para abrirlo.",
     "video": {
       "play": "Reproducir",
@@ -1313,7 +1304,8 @@
       "mute": "Silenciar",
       "unmute": "Activar sonido",
       "fullscreen": "Pantalla completa",
-      "open": "Abrir"
+      "open": "Abrir",
+      "cantPlay": "Este video no se puede reproducir en este teléfono."
     }
   },
   "issues": {
@@ -1407,10 +1399,12 @@
   "drive": {
     "title": "Drive",
     "search": "Buscar en el Drive",
-    "types": "Tipos de archivo",
     "type": {
       "all": "Todos",
       "documents": "Documentos",
+      "spreadsheets": "Hojas de cálculo",
+      "presentations": "Presentaciones",
+      "canvases": "Pizarras",
       "images": "Imágenes",
       "tables": "Tablas",
       "diffs": "Cambios de código"
@@ -1424,11 +1418,13 @@
       "table": "Tabla",
       "diff": "Cambio de código",
       "image": "Imagen",
+      "spreadsheet": "Hoja de cálculo",
+      "slides": "Presentación",
+      "canvas": "Pizarra",
       "file": "Archivo"
     },
     "by": "{{name}} · {{when}}",
     "noResults": "Nada con estos filtros.",
-    "loadFailed": "No se pudo cargar el Drive.",
     "more": "Mostrar más"
   },
   "constellation": {
@@ -1498,8 +1494,6 @@
     "openExisting": "Abrir la página"
   },
   "routines": {
-    "loadFailed": "No se pudieron cargar las rutinas.",
-    "anyAgent": "Todos los agentes",
     "create": "Crear",
     "when": {
       "custom": "A tu manera",
@@ -1769,18 +1763,9 @@
   },
   "browser": {
     "card": {
-      "needs": "{{name}} necesita ayuda",
-      "needsFor": "{{name}} necesita ayuda · {{time}}",
-      "inControlAt": "Tienes el control · {{host}}",
-      "doing": "{{name}} · {{doing}}",
-      "startingF": "Abriendo el navegador de {{name}}…",
-      "startingM": "Abriendo el navegador de {{name}}…",
       "stopAskF": "¿Cerrar el navegador de {{name}}?",
       "stopAskM": "¿Cerrar el navegador de {{name}}?",
-      "whereF": "En el navegador de {{name}}",
-      "whereM": "En el navegador de {{name}}",
       "open": "Abrir",
-      "expandHint": "Toca para expandir",
       "stop": "Detener",
       "giveUp": "Desistir"
     },
@@ -1788,7 +1773,6 @@
       "inControl": "Tienes el control",
       "helping": "{{name}} tiene el control",
       "watchOnly": "{{name}} tiene el control. Solo estás mirando.",
-      "takeOver": "Tomar el control",
       "done": "Listo",
       "handBack": "Devolver el control",
       "couldnt": "No pude hacerlo",
@@ -1809,7 +1793,6 @@
       "closedHelpM": "Los inicios de sesión quedan guardados para la próxima vez.",
       "stuckHelpF": "Reintentar reinicia el navegador. Los inicios de sesión quedan guardados.",
       "stuckHelpM": "Reintentar reinicia el navegador. Los inicios de sesión quedan guardados.",
-      "hidden": "{{name}} tiene el control · pantalla oculta",
       "key": {
         "Tab": "Tab",
         "Enter": "Enter",
@@ -1897,6 +1880,7 @@
       "ui_automation_off": "La automatización de la IU está desactivada",
       "xcode_missing": "La Mac necesita Xcode",
       "xcode_too_old": "Xcode es demasiado antiguo para este iPhone",
+      "ios_behind_xcode": "Actualiza el iOS de este iPhone",
       "device_support": "La Mac está preparando este iPhone",
       "helper_missing": "La app de pruebas aún no está configurada",
       "helper_expired": "Hay que renovar la app de pruebas",
@@ -2070,7 +2054,7 @@
       "tooOld": "Este iPhone usa iOS {{version}}, y los agentes necesitan iOS 17 o posterior. Actualízalo si se puede, o usa un iPhone más nuevo.",
       "xcodeOld": "Este iPhone usa iOS {{version}}, más nuevo de lo que conoce Xcode en {{host}}. Instala allí Xcode {{major}} y luego ejecuta xcrun devicectl manage ddis update en Terminal.",
       "teamMissing": "Xcode tiene la sesión iniciada pero aún no muestra un equipo. En Xcode, crea cualquier app de iOS, elige tu equipo en Signing & Capabilities y ejecútala una vez en este iPhone.",
-      "uiRefused": "Este iPhone rechazó los toques de la app de pruebas. Desbloquéalo y escribe tu código si lo pide. Si vuelve a pasar, desactiva y activa Configuración › Desarrollador › Activar automatización de la IU.",
+      "uiRefused": "Los agentes ven la pantalla de este iPhone, pero iOS rechaza sus toques.",
       "pluggedIn": "Ya está conectado",
       "wifi": {
         "also": "También en el Wi-Fi de {{host}}: {{name}}",
@@ -2122,7 +2106,9 @@
       "other": "Usar otro dispositivo",
       "stop": "Dejar de esperar",
       "useInstead": "Usa {{name}} en su lugar",
-      "none": "No hay otro dispositivo listo que puedas usar."
+      "none": "No hay otro dispositivo listo que puedas usar.",
+      "tried": "Intentando de nuevo con {{device}}.",
+      "stopped": "Ya no se espera a {{device}}."
     }
   },
   "connectors": {
@@ -2326,12 +2312,10 @@
     "planRowSub": "Inicia sesión en la computadora del agente, sin clave",
     "keyRow": "Una clave",
     "keyRowSub": "Pagas por uso, directo al proveedor",
-    "already": "Ya en {{org}}",
     "stepOf": "{{step}} de {{total}}"
   },
   "crash": {
     "title": "Algo salió mal en esta pantalla",
-    "subtitle": "La app tuvo un error al mostrar esto. Inténtalo de nuevo.",
     "retry": "Reintentar"
   },
   "notFound": {
@@ -2360,9 +2344,8 @@
     "deleteIntro": "{{name}} queda en solo lectura para todos de inmediato y se elimina para siempre en 7 días.",
     "holdDelete": "Mantén presionado para eliminar",
     "deleteFailed": "No se pudo eliminar el espacio de trabajo. Inténtalo de nuevo.",
-    "access": {
-      "how": "Toca una fila para cambiar su nivel: Sin acceso, Leer, Leer y escribir."
-    },
+    "holdReset": "Mantén pulsado para reiniciar",
+    "resetFailed": "No se pudo reiniciar el espacio de trabajo. Inténtalo de nuevo.",
     "logo": {
       "failed": "No se pudo subir el logo",
       "tooBig": "Esa imagen es demasiado grande. Prueba con otra."
@@ -2390,7 +2373,6 @@
     "noMatch": "Ningún rol coincide con “{{q}}”.",
     "tooMany": "Este espacio de trabajo ya tiene 100 roles. Elimina uno para crear otro.",
     "loadFailed": "No pude cargar los roles. {{cause}}",
-    "backToList": "Volver a los roles",
     "nobody": "Nadie",
     "reach": {
       "permissions_one": "{{count}} permiso",
@@ -2513,9 +2495,9 @@
       "everyone": "Todos hablan con él",
       "gate": "Quien solo tiene {{name}} no habla con agentes.",
       "gateOn": "Activar Hablar con agentes",
-      "locked": "Solo {{owner}}, responsable de {{name}}, o quien edita cualquier agente lo cambia.",
-      "locked_female": "Solo {{owner}}, responsable de {{name}}, o quien edita cualquier agente lo cambia.",
-      "lockedNoOwner": "Solo quien edita cualquier agente lo cambia.",
+      "locked": "Solo {{owner}}, responsable de {{name}}, o quien edita agentes lo cambia.",
+      "locked_female": "Solo {{owner}}, responsable de {{name}}, o quien edita agentes lo cambia.",
+      "lockedNoOwner": "Solo quien edita agentes lo cambia.",
       "none": "Todavía no hay agentes.",
       "some": "Solo algunos roles y personas",
       "addPerson": "Agregar persona",
@@ -2627,7 +2609,7 @@
       "sealedHelp": "Por seguridad, lo que se guardó aquí ya no se muestra. Para cambiarlo, escríbelo de nuevo.",
       "changePassword": "Cambiar contraseña",
       "changeValue": "Cambiar valor",
-      "changeHelp": "Toca Guardar para conservarlo. Desde entonces, los agentes usan el nuevo.",
+      "changeHelp": "Los agentes usan el nuevo después de que lo guardes.",
       "hidden": "Oculto",
       "saved": "Guardado",
       "delete": "Eliminar",
@@ -2646,7 +2628,7 @@
       "newPassword": "Nueva contraseña",
       "keyName": "Variable",
       "keyNamePlaceholder": "ACME_API_KEY",
-      "keyNameHelp": "Mayúsculas, dígitos y _, como ACME_API_KEY. Los agentes piden la clave por este nombre.",
+      "keyNameHelp": "Mayúsculas, dígitos y _, como `ACME_API_KEY`. Los agentes piden la clave por este nombre.",
       "value": "Valor",
       "newValue": "Nuevo valor",
       "description": "Descripción",
@@ -2772,8 +2754,7 @@
     "bySelfUntil": "Escrito por {{name}} · {{when}}"
   },
   "dashboards": {
-    "homeRow": "Solo tú · tus propios widgets",
-    "loadFailed": "No se pudieron cargar los paneles.",
+    "homeRow": "Solo tú",
     "create": "Crear",
     "routineTarget": "su widget",
     "pin": {
@@ -2858,11 +2839,11 @@
     },
     "drive": {
       "title": "Todo lo que crea el equipo, en un solo lugar",
-      "text": "Informes, tablas y archivos de agentes y personas quedan aquí, fáciles de encontrar.",
+      "text": "Informes, tablas y archivos de agentes y personas quedan aquí.",
       "viewerTitle": "Encuentra lo que crea el equipo",
       "viewerText": "Lo que agentes y personas crean en los chats aparece aquí.",
       "titlePersonal": "Todo lo que crean tus agentes, en un solo lugar",
-      "textPersonal": "Los informes, tablas y archivos de tus agentes quedan aquí, fáciles de encontrar.",
+      "textPersonal": "Los informes, tablas y archivos de tus agentes quedan aquí.",
       "viewerTitlePersonal": "Encuentra lo que crean tus agentes",
       "viewerTextPersonal": "Lo que los agentes crean en tus chats aparece aquí."
     },
@@ -2928,7 +2909,7 @@
       "viewerTextPersonal": "Cuando alguien se una, aparecerá aquí."
     },
     "chat": {
-      "title": "Todo empieza con un mensaje",
+      "title": "Empieza la conversación",
       "text": "Escribe aquí abajo y todos lo verán.",
       "viewerTitle": "Los mensajes aparecen aquí",
       "viewerText": "Cuando alguien escriba, lo lees aquí."
@@ -2969,8 +2950,8 @@
     "board": {
       "title": "Ve lo que importa en un solo panel",
       "text": "Agrega un widget, pide uno a un agente o fija un bloque del chat.",
-      "viewerTitle": "Este panel está tomando forma",
-      "viewerText": "Quien edita este panel agrega los widgets, y aparecen aquí."
+      "viewerTitle": "Los widgets aparecen aquí",
+      "viewerText": "Quien edita este panel los agrega."
     },
     "computers": {
       "title": "Lleva otro computador a tus agentes",
@@ -2979,7 +2960,7 @@
       "viewerText": "Quien conecta computadores los agrega, y aparecen aquí."
     },
     "connectors": {
-      "title": "Dales a tus agentes herramientas de verdad",
+      "title": "Dales herramientas a tus agentes",
       "text": "Conecta un servicio y empezarán a leer y actuar en él.",
       "viewerTitle": "Las herramientas de tus agentes aparecen aquí",
       "viewerText": "Quien gestiona los conectores conecta los servicios de abajo."
@@ -2988,5 +2969,239 @@
       "title": "Nada que revisar",
       "text": "Cuando un agente haga algo fuera de la conversación, aparecerá aquí."
     }
+  },
+  "live": {
+    "status": {
+      "opening": "Abriendo…",
+      "saved": "Guardado",
+      "saving": "Guardando…",
+      "offline": "Sin conexión",
+      "offlineKept": "Sin conexión · cambios guardados en este teléfono",
+      "readOnly": "Solo lectura"
+    },
+    "closed": {
+      "missing": "Este archivo no existe o no se compartió contigo",
+      "signedOut": "Vuelve a iniciar sesión para abrir este archivo",
+      "broken": "Este archivo no se puede abrir en la app",
+      "toDrive": "Volver al Drive"
+    },
+    "menu": {
+      "undo": "Deshacer",
+      "redo": "Rehacer"
+    },
+    "here": {
+      "title": "Quién está aquí",
+      "faces_one": "{{count}} más aquí. Ver quién",
+      "faces_many": "{{count}} más aquí. Ver quién",
+      "faces_other": "{{count}} más aquí. Ver quién",
+      "group": {
+        "editing": "Editando",
+        "viewing": "Mirando"
+      },
+      "editing": "editando",
+      "viewing": "viendo",
+      "editingAt": "editando {{where}}",
+      "viewingAt": "en {{where}}",
+      "editingSlide": "editando la diapositiva {{n}}",
+      "onSlide": "en la diapositiva {{n}}",
+      "editingShapes_one": "editando {{count}} elemento",
+      "editingShapes_many": "editando {{count}} elementos",
+      "editingShapes_other": "editando {{count}} elementos",
+      "followingName": "Siguiendo a {{name}}",
+      "stop": "Detener",
+      "alone": "Ahora solo estás tú aquí",
+      "aloneHint": "Quien abra este archivo aparece aquí, con lo que está haciendo."
+    },
+    "card": {
+      "sheets_one": "{{count}} hoja",
+      "sheets_many": "{{count}} hojas",
+      "sheets_other": "{{count}} hojas",
+      "slides_one": "{{count}} diapositiva",
+      "slides_many": "{{count}} diapositivas",
+      "slides_other": "{{count}} diapositivas",
+      "shapes_one": "{{count}} elemento",
+      "shapes_many": "{{count}} elementos",
+      "shapes_other": "{{count}} elementos"
+    },
+    "sheet": {
+      "edit": "Editar",
+      "editHint": "Escribir en esta celda",
+      "editing": "Editando {{cell}}",
+      "placeholder": "Escribe un valor o =",
+      "empty": "Vacía",
+      "cancel": "Dejarla como estaba",
+      "done": "Listo",
+      "typeKey": "Escribir {{key}}",
+      "stats": "Suma {{sum}} · Promedio {{average}} · Recuento {{count}}",
+      "countOnly": "Recuento {{count}}",
+      "cantDo": "Eso no se puede hacer aquí",
+      "copied": "Copiado",
+      "newSheet": "Nueva hoja",
+      "sheetWord": "Hoja",
+      "duplicateSheet": "Duplicar hoja",
+      "copyOf": "{{name}} (copia)",
+      "deleteSheet": "Eliminar hoja",
+      "deleteSheetTitle": "¿Eliminar {{name}}?",
+      "deleteSheetText": "Todo lo que hay en esta hoja desaparece para todos en el archivo. Deshacer lo trae de vuelta.",
+      "menu": {
+        "copy": "Copiar",
+        "paste": "Pegar",
+        "clear": "Borrar",
+        "rowsAbove_one": "Insertar una fila arriba",
+        "rowsAbove_many": "Insertar {{count}} filas arriba",
+        "rowsAbove_other": "Insertar {{count}} filas arriba",
+        "rowsBelow_one": "Insertar una fila abajo",
+        "rowsBelow_many": "Insertar {{count}} filas abajo",
+        "rowsBelow_other": "Insertar {{count}} filas abajo",
+        "colsLeft_one": "Insertar una columna a la izquierda",
+        "colsLeft_many": "Insertar {{count}} columnas a la izquierda",
+        "colsLeft_other": "Insertar {{count}} columnas a la izquierda",
+        "colsRight_one": "Insertar una columna a la derecha",
+        "colsRight_many": "Insertar {{count}} columnas a la derecha",
+        "colsRight_other": "Insertar {{count}} columnas a la derecha",
+        "sortUp": "Ordenar de A a Z",
+        "sortDown": "Ordenar de Z a A",
+        "deleteRows_one": "Eliminar la fila",
+        "deleteRows_many": "Eliminar {{count}} filas",
+        "deleteRows_other": "Eliminar {{count}} filas",
+        "deleteCols_one": "Eliminar la columna",
+        "deleteCols_many": "Eliminar {{count}} columnas",
+        "deleteCols_other": "Eliminar {{count}} columnas"
+      },
+      "problem": {
+        "empty": "Escribe algo después del =",
+        "unexpected": "Algo no está bien cerca de {{text}}",
+        "paren": "Falta cerrar un paréntesis",
+        "quote": "Faltan cerrar unas comillas",
+        "sheetQuote": "Faltan cerrar las comillas del nombre de una hoja",
+        "operand": "Falta un valor junto a un signo",
+        "array": "Esta lista de valores está incompleta",
+        "range": "Este rango no es válido",
+        "sheet": "No hay ninguna hoja llamada {{text}}",
+        "args": "{{fn}} tiene una cantidad equivocada de valores",
+        "tooLong": "Esto es demasiado largo para una celda",
+        "tooDeep": "Esta fórmula tiene demasiados niveles",
+        "tooFar": "Esta referencia pasa del límite de la hoja de cálculo",
+        "limit": "La hoja de cálculo llegó a su límite de tamaño",
+        "merged": "Hay celdas combinadas en el camino",
+        "failed": "No funcionó. Vuelve a intentarlo."
+      }
+    },
+    "slides": {
+      "placeholder": {
+        "title": "Toca para agregar un título",
+        "text": "Toca para agregar texto",
+        "image": "Toca para agregar una foto"
+      },
+      "part": {
+        "title": "Título",
+        "subtitle": "Subtítulo",
+        "body": "Texto",
+        "caption": "Leyenda",
+        "number": "Número grande",
+        "quote": "Cita",
+        "shape": "Texto de la forma",
+        "text": "Cuadro de texto",
+        "note": "Nota"
+      },
+      "openHint": "Abre la diapositiva",
+      "editHint": "Edita el texto",
+      "place": "Diapositiva {{n}} de {{count}}",
+      "placeHidden": "Diapositiva {{n}} de {{count}} · oculta al presentar",
+      "deleteTitle": "¿Eliminar la diapositiva {{n}}?",
+      "deleteText": "Desaparece para todos en el archivo. Deshacer la trae de vuelta.",
+      "notesPlaceholder": "Escribe qué decir en esta diapositiva",
+      "pickPhoto": "Elegir una foto",
+      "tools": {
+        "text": "Texto",
+        "photo": "Foto",
+        "sending": "Enviando…"
+      }
+    },
+    "text": {
+      "title": "Texto",
+      "noteTitle": "Nota",
+      "done": "Listo",
+      "placeholder": "Escribe el texto",
+      "titlePlaceholder": "Escribe el título",
+      "hint": "Cada línea es un párrafo."
+    },
+    "show": {
+      "nothing": "Todas las diapositivas están ocultas, así que no hay nada que mostrar.",
+      "upright": "Pon el teléfono en vertical",
+      "sideways": "Gira el teléfono de lado"
+    },
+    "canvas": {
+      "tools": {
+        "label": "Herramientas",
+        "select": "Seleccionar",
+        "pen": "Lápiz",
+        "shapes": "Formas",
+        "arrow": "Flecha",
+        "note": "Nota",
+        "text": "Texto",
+        "photo": "Foto",
+        "comment": "Comentar"
+      },
+      "shapes": {
+        "rect": "Rectángulo",
+        "ellipse": "Elipse",
+        "diamond": "Rombo",
+        "triangle": "Triángulo",
+        "star": "Estrella",
+        "line": "Línea"
+      },
+      "penHint": "Dibuja con el dedo. Con dos dedos mueves la pizarra.",
+      "arrowHint": "Arrastra de un lugar a otro",
+      "commentHint": "Toca donde quieras comentar",
+      "pin": "Comentario {{n}} de {{name}}",
+      "addToSelection": "Elegir esta también",
+      "emptyText": "Agrega una nota o una foto, o pídeselo a un agente en la conversación."
+    },
+    "talk": {
+      "start": "Hablar sobre {{what}}",
+      "openHint": "Abre la conversación",
+      "placeholder": {
+        "spreadsheet": "Escribe sobre la hoja de cálculo…",
+        "slides": "Escribe sobre la presentación…",
+        "canvas": "Escribe sobre la pizarra…",
+        "document": "Escribe sobre el documento…"
+      },
+      "aboutPoint": "Un comentario en un punto de la pizarra",
+      "comment": "Comentario",
+      "imported": "Importado de {{file}} por <0>{{name}}</0>",
+      "variationsText": "haz variaciones de esta imagen"
+    },
+    "doc": {
+      "styles": {
+        "paragraph": "Texto",
+        "h1": "Título 1",
+        "h2": "Título 2",
+        "h3": "Título 3",
+        "quote": "Cita",
+        "code": "Código"
+      },
+      "style": "Estilo del texto",
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "bullets": "Lista con viñetas",
+      "numbers": "Lista numerada",
+      "quote": "Cita",
+      "link": "Agregar un enlace",
+      "linkChoose": "Primero elige las palabras del enlace",
+      "linkBad": "Esa dirección no sirve como enlace",
+      "linkPlaceholder": "Dirección del enlace",
+      "linkApply": "Agregar el enlace",
+      "placeholder": "Escribe aquí",
+      "add": "Agregar un párrafo",
+      "editHint": "Edita esta parte",
+      "notHere": "Esta parte se edita en la computadora"
+    }
+  },
+  "surface": {
+    "on": "Activado",
+    "codeText": "Envía el mensaje que se abre allí y vuelve aquí.",
+    "openFailed": "No se pudo abrir {{surface}} en este teléfono. Envíale el código de abajo.",
+    "orType": "O envía este código allí"
   }
 }

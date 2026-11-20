@@ -1014,6 +1014,7 @@ describe.if(ROOT)("the agents' isolation on this computer, as root", () => {
         "tcp",
         "-s",
         "0",
+        "-nocursor",
       ];
       // Up once its file socket is in the agent's own /tmp; whether it holds the abstract name is what's looked at.
       await hold(A, xvnc(61), () => existsSync(path.join(agentTmp(A.uid), ".X11-unix", "X61")));

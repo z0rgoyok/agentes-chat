@@ -1,6 +1,6 @@
 # 0002. One codebase, two editions, modules and adapters
 
-- Status: Accepted. Revised by ADR 0180 (§5): outside contributions come in under a contributor license agreement, and Codari also licenses the code commercially; the rule that nothing private runs in the server process stays while code contributed before it remains
+- Status: Accepted. Revised by ADR 0180 (§5): outside contributions come in under a contributor license agreement, and AGENTESCHAT also licenses the code commercially; the rule that nothing private runs in the server process stays while code contributed before it remains
 - Date: 2026-10-14. Revised 2026-10-21: no contributor license agreement, so nothing private runs in the server process (§5)
 
 ## Context

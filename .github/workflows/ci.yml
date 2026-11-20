@@ -103,8 +103,10 @@ jobs:
             backend:
               - "apps/server/**"
               - "install.sh"
+            # The layout check runs in the web tests' job, so a change to its rules alone must run that job too.
             web:
               - "apps/web/**"
+              - "scripts/geometry/**"
             mobile:
               - "apps/mobile/**"
             desktop:
@@ -273,7 +275,7 @@ jobs:
       # The engine's own folder only: the suites in its subfolders are not part of this job.
       PATHS: >-
         packages/engine/test/*.test.ts packages/adapters packages/config packages/db packages/modules
-        packages/providers packages/client packages/i18n packages/tokens packages/setup apps/server
+        packages/providers packages/client packages/i18n packages/tokens packages/setup packages/live apps/server
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - *setup-bun
@@ -324,8 +326,9 @@ jobs:
       # About 3 minutes on a runner (2026-10-20).
       - name: Test (web and design system)
         if: env.SHARED == 'true' || env.WEB == 'true'
-        # The whole suite takes about 10 minutes on one runner now (3320 tests, 612 s on 2026-11-06).
-        timeout-minutes: 15
+        # The whole suite takes 10 to 14 minutes on one runner now (measured on main, 2026-11-18), by the runner it
+        # gets. The limit is there to end a hang, not to fail a slow runner.
+        timeout-minutes: 25
         # The preload saves every screen the tests reach, for the geometry check below. It costs a few percent.
         env:
           GEOMETRY_OUT: ${{ runner.temp }}/geometry
@@ -405,7 +408,7 @@ jobs:
             install -m 755 /dev/null "src-tauri/binaries/$bin-x86_64-unknown-linux-gnu"
           done
           bun scripts/icons.ts
-          bun run tauri icon app-icon.png
+          bun run tauri icon app-icon-tile.png
       - name: Rust tests
         working-directory: apps/desktop/src-tauri
         run: cargo test

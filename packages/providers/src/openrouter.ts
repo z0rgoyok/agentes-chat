@@ -9,6 +9,14 @@ import {
   type TokenPrices,
   usdToNanoUsd,
 } from "./catalog";
+import {
+  decodeImage,
+  type ImageRequest,
+  type ImageResult,
+  imageBlockedError,
+  MAX_IMAGES_PER_REQUEST,
+  type MadeImage,
+} from "./images";
 import { openAIError, saidIn } from "./openai";
 import {
   type ContentBlock,
@@ -24,6 +32,7 @@ import {
   ProviderError,
   promptChars,
   type StopReason,
+  shortSaid,
   stableToolsFirst,
   withoutImages,
 } from "./types";
@@ -657,5 +666,87 @@ export function createOpenRouterProvider(
         throw mapped;
       }
     },
+    // A workspace's own endpoint makes pictures through the Images API (`custom.ts`), never this route.
+    ...(compatible
+      ? {}
+      : {
+          generateImage: (request: ImageRequest, { apiKey }: { apiKey: string }) =>
+            openRouterImages(options.fetch ?? fetch, request, apiKey),
+        }),
   };
+}
+
+/** A prompt OpenRouter or the model's maker refused: its moderation, or the maker's safety words. */
+const IMAGE_REFUSED = /moderation|flagged|content policy|safety|prohibited|blocked/i;
+
+/**
+ * Pictures over OpenRouter's Images API (ADR 0197): `POST /api/v1/images` with the aspect, 1K, `n` pictures and the
+ * references as data URLs, answered in base64 with what it charged (`usage.cost`, its upstream's too on the person's
+ * own provider key). Called again for the rest when a model makes fewer than `n`. A refused prompt is
+ * `imageBlockedError`; a failure after some pictures came returns those, with the failure in `error`.
+ */
+async function openRouterImages(http: typeof fetch, request: ImageRequest, apiKey: string): Promise<ImageResult> {
+  const count = Math.max(1, Math.min(MAX_IMAGES_PER_REQUEST, Math.floor(request.count)));
+  const made: MadeImage[] = [];
+  let cost: number | undefined;
+  let model: string | undefined;
+  for (let call = 0; call < count && made.length < count; call++) {
+    try {
+      let res: Response;
+      try {
+        res = await http(`${OPENROUTER_API}/images`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}`, ...ATTRIBUTION },
+          body: JSON.stringify({
+            model: request.model,
+            prompt: request.prompt,
+            n: count - made.length,
+            aspect_ratio: request.aspect,
+            resolution: request.size ?? "1K",
+            ...(request.references?.length
+              ? {
+                  input_references: request.references.map((r) => ({
+                    type: "image_url",
+                    image_url: { url: `data:${r.mediaType};base64,${r.data}` },
+                  })),
+                }
+              : {}),
+          }),
+          signal: request.signal,
+        });
+      } catch {
+        throw request.signal?.aborted
+          ? new ProviderError("request aborted", false)
+          : new ProviderError("could not reach provider", true);
+      }
+      const body = (await res.json().catch(() => null)) as Raw | null;
+      if (!res.ok || !body || obj(body.error)) {
+        const error = obj(body?.error);
+        const said = typeof error?.message === "string" ? shortSaid(error.message) : "";
+        const status = res.ok ? Number(error?.code) || undefined : res.status;
+        if ((status === 400 || status === 403) && IMAGE_REFUSED.test(said)) throw imageBlockedError(said);
+        throw statusError(status, said);
+      }
+      if (typeof body.model === "string") model = body.model;
+      const spent = obj(body.usage) ? costOf(body.usage as Usage) : undefined;
+      if (spent !== undefined) cost = (cost ?? 0) + spent;
+      const before = made.length;
+      for (const item of Array.isArray(body.data) ? body.data : []) {
+        const data = obj(item)?.b64_json;
+        if (typeof data === "string" && data && made.length < count) made.push(decodeImage(data));
+      }
+      if (made.length === before) throw new ProviderError("the provider sent no picture", true);
+    } catch (error) {
+      const failure =
+        error instanceof ProviderError ? error : new ProviderError("could not read the provider's answer", true);
+      if (made.length === 0) throw failure;
+      return {
+        images: made,
+        ...(model ? { model } : {}),
+        ...(cost !== undefined ? { costNanoUsd: cost } : {}),
+        error: failure,
+      };
+    }
+  }
+  return { images: made, ...(model ? { model } : {}), ...(cost !== undefined ? { costNanoUsd: cost } : {}) };
 }

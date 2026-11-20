@@ -1,6 +1,6 @@
 {
   "name": "@agenteschat/server",
-  "version": "0.1.2",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -21,17 +21,21 @@
     "@agenteschat/db": "workspace:*",
     "@agenteschat/engine": "workspace:*",
     "@agenteschat/i18n": "workspace:*",
+    "@agenteschat/live": "workspace:*",
     "@agenteschat/modules": "workspace:*",
     "@agenteschat/providers": "workspace:*",
     "@agenteschat/setup": "workspace:*",
     "@agenteschat/tokens": "workspace:*",
+    "@agenteschat/ui": "workspace:*",
     "@better-auth/expo": "^1.7.7",
     "@hono/zod-openapi": "^1.6.3",
     "@scalar/hono-api-reference": "^0.12.9",
     "better-auth": "^1.7.7",
     "hono": "^4.13.13",
-    "zod": "^4.6.5",
-    "@agenteschat/ui": "workspace:*"
+    "lib0": "0.2.120",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

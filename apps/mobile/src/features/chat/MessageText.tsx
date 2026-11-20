@@ -7,7 +7,8 @@ import { useColors } from "../shared/hooks";
 import { tapHaptic } from "../shared/parts";
 import { ChartCard } from "./ChartCard";
 import { CodeCard } from "./CodeCard";
-import { CHAT_TEXT_MAX_SCALE, type Inline, parseBlocks } from "./logic";
+import { keepOpen, keptOpen } from "./kept-sizes";
+import { blocksOf, CHAT_TEXT_MAX_SCALE, type Inline } from "./logic";
 import { useRowLook } from "./look";
 import { Spans, Table } from "./MessageSpans";
 
@@ -45,7 +46,8 @@ export const MessageText = memo(function MessageText({
 }) {
   const c = useColors();
   const look = useRowLook();
-  const blocks = useMemo(() => parseBlocks(body), [body]);
+  // Kept for the texts read lately (`blocksOf`): a row scrolled back into view doesn't parse its text again.
+  const blocks = useMemo(() => blocksOf(body), [body]);
   const inked = ink ? { color: ink } : undefined;
   const variant = small ? "footnote" : "body";
   // In a conversation, the person's Tamanho do texto, which the system's text size grows up to its cap.
@@ -140,7 +142,9 @@ function Details({
 }) {
   const c = useColors();
   const sized = useRowLook().text;
-  const [open, setOpen] = useState(false);
+  // Opened, it comes back open when its row comes back into view (`keptOpen`), as the person left it.
+  const keep = `details:${body}`;
+  const [open, setOpen] = useState(() => keptOpen(keep));
   return (
     <View style={[styles.details, { borderColor: c.line }]}>
       <Pressable
@@ -148,7 +152,8 @@ function Details({
         accessibilityState={{ expanded: open }}
         onPress={() => {
           tapHaptic();
-          setOpen((v) => !v);
+          keepOpen(keep, !open);
+          setOpen(!open);
         }}
         style={({ pressed }) => [styles.summary, pressed && styles.pressed]}
       >

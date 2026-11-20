@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { keys } from "../src/api/keys";
-import { applyUnreadEvent, UNREAD_REFRESH_MS } from "../src/api/queries";
+import { applyUnreadEvent, UNREAD_REFRESH_MS, UNREAD_SPREAD_MS } from "../src/api/queries";
 import type { Channel, DirectMessage, ThreadInfo } from "../src/api/types";
 import { looksUnread, titledWithUnread, unreadTotal } from "../src/lib/unread";
 
@@ -57,6 +57,13 @@ describe("live unread on my own topic", () => {
     return qc;
   };
   const stale = (qc: QueryClient, key: readonly unknown[]) => qc.getQueryState(key)?.isInvalidated === true;
+  /** Past the longest wait of a burst's read. */
+  const pastBurst = () => jest.advanceTimersByTime(UNREAD_REFRESH_MS + UNREAD_SPREAD_MS);
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.runAllTimers();
+    jest.useRealTimers();
+  });
 
   test("a read on another device clears the conversation at once", () => {
     const qc = seeded();
@@ -74,22 +81,52 @@ describe("live unread on my own topic", () => {
     expect(qc.getQueryData<ThreadInfo>(keys.threadInfo(ORG, "t1"))?.unread).toBe(0);
   });
 
-  test("new messages have the lists read again once per burst", async () => {
+  test("a thread read has the channels and the DMs read again (its replies count in both)", () => {
+    const qc = seeded();
+    expect(stale(qc, keys.dms(ORG))).toBe(false);
+    applyUnreadEvent(qc, ORG, { type: "thread.read", threadId: "t1", channelId: "d1", lastReadAt: "" } as never);
+    expect(stale(qc, keys.dms(ORG))).toBe(true);
+    expect(stale(qc, keys.channels(ORG))).toBe(true);
+  });
+
+  test("a thread's reply in a DM reads the DMs again, as its other messages do", () => {
+    const qc = seeded();
+    applyUnreadEvent(qc, ORG, { type: "channel.activity", channelId: "d1", threadId: "t1", dm: true } as never);
+    pastBurst();
+    expect(stale(qc, keys.dms(ORG))).toBe(true);
+    expect(stale(qc, keys.channels(ORG))).toBe(false);
+  });
+
+  test("new messages have the lists read again once per burst", () => {
     const qc = seeded();
     for (let i = 0; i < 5; i++)
       applyUnreadEvent(qc, ORG, { type: "channel.activity", channelId: "c1", threadId: null } as never);
     expect(stale(qc, keys.channels(ORG))).toBe(false);
-    await Bun.sleep(UNREAD_REFRESH_MS + 50);
+    pastBurst();
     expect(stale(qc, keys.channels(ORG))).toBe(true);
     // Only the list that moved reads again.
     expect(stale(qc, keys.dms(ORG))).toBe(false);
   });
 
-  test("a DM's message reads only the DMs again", async () => {
+  test("a DM's message reads only the DMs again", () => {
     const qc = seeded();
     applyUnreadEvent(qc, ORG, { type: "channel.activity", channelId: "d1", threadId: null, dm: true } as never);
-    await Bun.sleep(UNREAD_REFRESH_MS + 50);
+    pastBurst();
     expect(stale(qc, keys.dms(ORG))).toBe(true);
     expect(stale(qc, keys.channels(ORG))).toBe(false);
+  });
+
+  test("each member's read waits a random part of the spread on top, so their reads don't land at once", () => {
+    const random = spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const qc = seeded();
+      applyUnreadEvent(qc, ORG, { type: "channel.activity", channelId: "c1", threadId: null } as never);
+      jest.advanceTimersByTime(UNREAD_REFRESH_MS + UNREAD_SPREAD_MS / 2 - 1);
+      expect(stale(qc, keys.channels(ORG))).toBe(false);
+      jest.advanceTimersByTime(1);
+      expect(stale(qc, keys.channels(ORG))).toBe(true);
+    } finally {
+      random.mockRestore();
+    }
   });
 });

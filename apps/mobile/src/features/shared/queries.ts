@@ -1,4 +1,5 @@
 import {
+  type Approval,
   useApprovals,
   useChannels,
   useDms,
@@ -9,13 +10,14 @@ import {
   useWorkingRuns,
 } from "@agenteschat/client";
 import * as Notifications from "expo-notifications";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useOrg } from "@/providers/org";
-import { busyChannels, workingNow } from "../agents/logic";
+import { busyChannels, type WorkItem, workingNow } from "../agents/logic";
 import { waitingApprovals } from "../approvals/logic";
 import {
   appBadgeCount,
   buildConversations,
+  type ConversationRow,
   hiddenAgentIds,
   unreadConversationCount,
   unreadThreadCount,
@@ -27,6 +29,40 @@ import { useDirectory, useNow, useOrgId } from "./hooks";
  * waits on you (and the tab badges).
  */
 
+/** One result per set of inputs, kept on them: each level holds the next by the input's identity. */
+interface Kept<R> {
+  next: WeakMap<object, Kept<R>>;
+  made?: { value: R };
+}
+
+/** Stands for an input not loaded yet (undefined or null), as a key. */
+const UNREAD = {};
+
+/**
+ * `make()`'s result for these inputs (the query cache's objects, new only when their contents change), made once and
+ * handed to every screen and row asking with the same ones; dropped with the inputs.
+ */
+function keptBy<R>(root: Kept<R>, inputs: readonly (object | null | undefined)[], make: () => R): R {
+  let node = root;
+  for (const input of inputs) {
+    const key = input ?? UNREAD;
+    let next = node.next.get(key);
+    if (!next) {
+      next = { next: new WeakMap() };
+      node.next.set(key, next);
+    }
+    node = next;
+  }
+  node.made ??= { value: make() };
+  return node.made.value;
+}
+
+const activeWork: Kept<WorkItem[]> = { next: new WeakMap() };
+const workingOnly: Kept<WorkItem[]> = { next: new WeakMap() };
+const hiddenAgents: Kept<Set<string>> = { next: new WeakMap() };
+const conversations: Kept<ConversationRow[]> = { next: new WeakMap() };
+const unreadThreads: Kept<number> = { next: new WeakMap() };
+
 /**
  * Everything agents are on: active missions, then agent runs in progress in the
  * conversations you are in (`GET …/active-runs`, for everyone), runs stopped on a person included.
@@ -35,27 +71,34 @@ export function useActiveWork() {
   const orgId = useOrgId();
   const runs = useWorkingRuns(orgId);
   const missions = useMissionList(orgId, { status: "active" });
-  return useMemo(() => workingNow(runs.data, missions.data?.missions), [runs.data, missions.data]);
+  const list = missions.data?.missions;
+  return keptBy(activeWork, [runs.data, list], () => workingNow(runs.data, list));
 }
 
 /** Who is working now: the active work without the runs waiting on a person (those say "espera seu ok"). */
 export function useWorkingNow() {
   const all = useActiveWork();
-  return useMemo(() => all.filter((w) => !w.waiting), [all]);
+  return keptBy(workingOnly, [all], () => all.filter((w) => !w.waiting));
 }
 
 /** My threads and missions, the latest 50 (Conversas' rows and the Threads tab). */
 const THREAD_LIST = { tab: "all", mine: true, limit: 50 } as const;
 
-/** The agents my lists leave out (`hiddenAgentIds`), and whether the directory that names them is still loading. */
+/**
+ * The agents whose DMs my conversation lists leave out (`hiddenAgentIds`: their DM wouldn't open for me), and whether
+ * the directory that names them is still loading.
+ */
 export function useHiddenAgents() {
   const org = useOrg().org;
   const dir = useDirectory();
-  const hidden = useMemo(() => hiddenAgentIds(org, dir.agents), [dir.agents, org]);
+  const hidden = keptBy(hiddenAgents, [dir.agents, org], () => hiddenAgentIds(org, dir.agents));
   return { hidden, loading: dir.loading };
 }
 
-/** Conversas: channels, DMs and my threads and missions, newest first (agent DMs say who is working). */
+/**
+ * Conversas: channels, DMs and my threads and missions, newest first (agent DMs say who is working). Built once per
+ * set of lists for every screen that shows them (the home, Recentes, Buscar, Novo…), not once per screen.
+ */
 export function useConversations() {
   const orgId = useOrgId();
   const channels = useChannels(orgId);
@@ -63,16 +106,14 @@ export function useConversations() {
   const threads = useThreadList(orgId, THREAD_LIST);
   const work = useWorkingNow();
   const { hidden, loading: agentsLoading } = useHiddenAgents();
-  const rows = useMemo(
-    () =>
-      buildConversations({
-        channels: channels.data ?? [],
-        dms: dms.data ?? [],
-        threads: threads.data?.pages.flatMap((p) => p.threads) ?? [],
-        workingChannels: busyChannels(work),
-        hiddenAgents: hidden,
-      }),
-    [channels.data, dms.data, threads.data, work, hidden],
+  const rows = keptBy(conversations, [channels.data, dms.data, threads.data, work, hidden], () =>
+    buildConversations({
+      channels: channels.data ?? [],
+      dms: dms.data ?? [],
+      threads: threads.data?.pages.flatMap((p) => p.threads) ?? [],
+      workingChannels: busyChannels(work),
+      hiddenAgents: hidden,
+    }),
   );
   const lists = [channels, dms];
   return {
@@ -86,7 +127,7 @@ export function useConversations() {
   };
 }
 
-/** The badge of Conversas: channels and DMs with something unread (the home's sections; threads have their tab). */
+/** The badge of Conversas: channels and DMs with something unread (the home's Recent list; threads have their tab). */
 export function useUnreadConversations() {
   const orgId = useOrgId();
   const channels = useChannels(orgId);
@@ -124,12 +165,10 @@ export function useUnreadThreads() {
   const orgId = useOrgId();
   // The same query as Conversas' list (shared cache); channels and DMs aren't needed for these rows.
   const threads = useThreadList(orgId, THREAD_LIST);
-  return useMemo(
-    () =>
-      unreadThreadCount(
-        buildConversations({ channels: [], dms: [], threads: threads.data?.pages.flatMap((p) => p.threads) ?? [] }),
-      ),
-    [threads.data],
+  return keptBy(unreadThreads, [threads.data], () =>
+    unreadThreadCount(
+      buildConversations({ channels: [], dms: [], threads: threads.data?.pages.flatMap((p) => p.threads) ?? [] }),
+    ),
   );
 }
 
@@ -138,12 +177,24 @@ export function useTasksUnreadMarks() {
   return useTasksUnread(useOrgId());
 }
 
-/** Requests you may decide now, the one closest to expiring first. */
+const NO_APPROVALS: Approval[] = [];
+
+/**
+ * Requests you may decide now, the one closest to expiring first. The same array while the same requests wait: the
+ * clock's tick re-reads it, and a list made anew each time redrew everything handed it.
+ */
 export function useWaitingApprovals() {
   const orgId = useOrgId();
   const approvals = useApprovals(orgId);
   const now = useNow();
-  return useMemo(() => waitingApprovals(approvals.data ?? [], now), [approvals.data, now]);
+  const before = useRef(NO_APPROVALS);
+  return useMemo(() => {
+    const next = waitingApprovals(approvals.data ?? [], now);
+    const kept = before.current;
+    if (next.length === kept.length && next.every((a, i) => a === kept[i])) return kept;
+    before.current = next;
+    return next;
+  }, [approvals.data, now]);
 }
 
 /** The badge of Atividade: what waits on you (the inbox's own count, live through `notification.counts`). */

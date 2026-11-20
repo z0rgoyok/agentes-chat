@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { DESKTOP_TEXT_PROTOCOL } from "@agenteschat/adapters";
-import { schema } from "@agenteschat/db";
+import { eq, schema } from "@agenteschat/db";
 import {
+  addRunStep,
+  CONFIDENTIAL_NOT_SHOWN,
+  CONFIDENTIAL_STUB,
   createSessionScreening,
   enableOperatorEvents,
   grantScopes,
+  markThreadConfidential,
   REVIEW_MAX_BYTES,
   SESSION_KEEP_MS,
   type Stream,
@@ -13,6 +17,7 @@ import {
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
 import { type Browser, browser, createTestServer, ORIGIN, seedOrg, signUp, type TestServer } from "./harness";
+import { SECRET_SHAPES, shownIn, UNOPENED } from "./secret-shapes";
 
 const TOKEN = "operator-test-token-".padEnd(48, "x");
 
@@ -64,6 +69,23 @@ beforeAll(async () => {
         return {
           chunks: [
             `Done: Friday. Key ${SECRETS.anthropic}\n-----BEGIN PRIVATE KEY-----\n${SECRETS.privateKey}\n-----END PRIVATE KEY-----`,
+          ],
+        };
+      }
+      if (last.includes("settings")) {
+        return {
+          chunks: [],
+          toolUses: [
+            {
+              name: "lookup",
+              input: {
+                q: "settings",
+                max_tokens: 4096,
+                usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 },
+                body: JSON.stringify({ model: "x", max_tokens: 8, access_token: SECRETS.bearer }),
+                request: { body: JSON.stringify({ password: SECRETS.password, completion_tokens: 3 }) },
+              },
+            },
           ],
         };
       }
@@ -212,6 +234,56 @@ test("a run's review: the request, its tool calls and the reply, credentials mas
   expect(JSON.stringify(viewed)).not.toContain("launch");
 });
 
+test("a run's review: a count of tokens reads as it is, and a credential written as JSON inside a string is masked", async () => {
+  const runId = await runFor("@dev look up the settings");
+  const { text } = await body<{ text: string }>(await review(`run/${runId}`));
+  for (const shown of [
+    "max_tokens: 4096",
+    // In the order the database keeps a record's fields.
+    'usage: {"input_tokens":12,"total_tokens":15,"output_tokens":3}',
+    'body: {"model":"x","max_tokens":8,"access_token":***}',
+    String.raw`request: {"body":"{\"password\":***,\"completion_tokens\":3}"}`,
+  ]) {
+    expect(text).toContain(shown);
+  }
+  expectNoSecret(text);
+});
+
+test("a run's review: a record's texts are read as they are, not as JSON writes them, in a call's input and in a result kept as a string", async () => {
+  const runId = await runFor("@dev look it up once more");
+  const wrong: unknown[] = [];
+  for (const [shape, record, stays] of SECRET_SHAPES) {
+    // Each shape alone in the run: the block cuts a call's input at 600 characters.
+    await t.db.delete(schema.agentRunSteps).where(eq(schema.agentRunSteps.runId, runId));
+    const run = { id: runId, orgId: org.orgId };
+    await addRunStep(t.db, run, "tool_call", { toolUseId: "s", name: "fetch", input: record });
+    await addRunStep(t.db, run, "tool_result", { toolUseId: "s", name: "fetch", content: JSON.stringify(record) });
+    const { text } = await body<{ text: string }>(await review(`run/${runId}`));
+    const [input = "", result = ""] =
+      text.split("Tool call 1: fetch")[1]?.split('<external_data source="tool result">') ?? [];
+    for (const [field, said] of Object.entries({ input, result })) {
+      const { shows, lacks } = shownIn(said, stays);
+      if (shows.length + lacks.length > 0) wrong.push({ shape, field, shows, lacks });
+    }
+  }
+  expect(wrong).toEqual([]);
+});
+
+test("a run's review: in a result that holds a record and can't be opened, a value ends at its string's closing quote and a record's three shapes are read", async () => {
+  const runId = await runFor("@dev look it up a third time");
+  const wrong: unknown[] = [];
+  for (const [shape, quoting, stays] of UNOPENED) {
+    await t.db.delete(schema.agentRunSteps).where(eq(schema.agentRunSteps.runId, runId));
+    const run = { id: runId, orgId: org.orgId };
+    await addRunStep(t.db, run, "tool_call", { toolUseId: "s", name: "fetch", input: {} });
+    await addRunStep(t.db, run, "tool_result", { toolUseId: "s", name: "fetch", content: quoting });
+    const { text } = await body<{ text: string }>(await review(`run/${runId}`));
+    const { shows, lacks } = shownIn(text.split('<external_data source="tool result">')[1] ?? "", stays);
+    if (shows.length + lacks.length > 0) wrong.push({ shape, shows, lacks });
+  }
+  expect(wrong).toEqual([]);
+});
+
 test("the review block holds at most 12 KB, keeps the request and the reply, and says what it left out", async () => {
   const runId = await runFor(`@dev look up everything ${"z".repeat(9000)}`);
   const { text } = await body<{ text: string }>(await review(`run/${runId}`));
@@ -264,6 +336,146 @@ test("a task's review: what it was asked and what it printed, credentials masked
   expectNoSecret(text);
   const viewed = (await feed()).events.filter((e) => e.type === "content.viewed");
   expect(viewed.at(-1)).toMatchObject({ data: { ref: `task:${task.id}`, reason: "report", operator: "ana" } });
+});
+
+test("a task's review: of one that a run of a confidential thread started, its facts and none of its texts", async () => {
+  const runId = await runFor("@dev canary-request: deploy the staging site");
+  const [run] = await t.db
+    .select({ rootId: schema.agentRuns.threadRootId })
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId));
+  const [machine] = await t.db.insert(schema.machines).values({ orgId: org.orgId, name: "Box" }).returning();
+  const [task] = await t.db
+    .insert(schema.machineTasks)
+    .values({
+      orgId: org.orgId,
+      agentId: org.agentId,
+      machineId: machine?.id ?? "",
+      channelId: org.channelId,
+      runId,
+      title: "canary-title",
+      executor: "claude",
+      prompt: "canary-prompt",
+      command: "canary-command",
+      result: "canary-result",
+      recentLines: ["canary-line"],
+      files: ["canary-file.txt"],
+      status: "done",
+      exitCode: 0,
+      seconds: 7,
+      endedAt: new Date(),
+    })
+    .returning();
+  const read = async () => (await body<{ text: string }>(await review(`task/${task?.id}`))).text;
+  const texts = ["request", "title", "prompt", "command", "result", "line", "file.txt"].map((word) => `canary-${word}`);
+  const open = await read();
+  for (const text of texts) expect(open).toContain(text);
+
+  await markThreadConfidential(t.db, { orgId: org.orgId, channelId: org.channelId, rootId: run?.rootId ?? "" });
+  const kept = await read();
+  expect(kept).not.toContain("canary");
+  expect(kept).toContain(`Task ${task?.id} of agent ${org.agentId}`);
+  expect(kept).toContain("Executor: claude · status: done · exit code 0 · 7 s");
+  expect(kept).toContain(CONFIDENTIAL_STUB);
+  for (const label of ["Title", "Prompt", "Command", "Result", "Last lines", "Files touched"]) {
+    expect(kept).toContain(`${label}:\n${CONFIDENTIAL_NOT_SHOWN}`);
+  }
+});
+
+test("a task's review: one the server started again by itself is its first task's run's, after any number of restarts", async () => {
+  const runId = await runFor("@dev canary-request: deploy the staging site again");
+  const [run] = await t.db
+    .select({ rootId: schema.agentRuns.threadRootId })
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId));
+  const [machine] = await t.db.insert(schema.machines).values({ orgId: org.orgId, name: "Box two" }).returning();
+  const start = async (over: Partial<typeof schema.machineTasks.$inferInsert>) => {
+    const [task] = await t.db
+      .insert(schema.machineTasks)
+      .values({
+        orgId: org.orgId,
+        agentId: org.agentId,
+        machineId: machine?.id ?? "",
+        channelId: org.channelId,
+        title: "canary-title",
+        executor: "claude",
+        prompt: "canary-prompt",
+        command: "canary-command",
+        result: "canary-result",
+        recentLines: ["canary-line"],
+        files: ["canary-file.txt"],
+        status: "done",
+        ...over,
+      })
+      .returning({ id: schema.machineTasks.id });
+    return task?.id ?? "";
+  };
+  // Started by the run, then twice by the server: each of those a row with no run, which names the task it resumes.
+  const once = await start({ resumedFromId: await start({ runId }), resumeCount: 1 });
+  const again = await start({ resumedFromId: once, resumeCount: 2 });
+  const read = async () => (await body<{ text: string }>(await review(`task/${again}`))).text;
+  const open = await read();
+  for (const word of ["title", "prompt", "command", "result", "line", "file.txt"]) {
+    expect(open).toContain(`canary-${word}`);
+  }
+  // The request is shown with the task its run started.
+  expect(open).not.toContain("canary-request");
+
+  await markThreadConfidential(t.db, { orgId: org.orgId, channelId: org.channelId, rootId: run?.rootId ?? "" });
+  const kept = await read();
+  expect(kept).not.toContain("canary");
+  expect(kept).toContain(`Task ${again} of agent ${org.agentId}`);
+  for (const label of ["Title", "Prompt", "Command", "Result", "Last lines", "Files touched"]) {
+    expect(kept).toContain(`${label}:\n${CONFIDENTIAL_NOT_SHOWN}`);
+  }
+});
+
+test("a review block reads a message of a confidential thread as the stub, whatever its stored body: a run's request and reply, a task's request", async () => {
+  const runId = await runFor("@dev canary-request: check the staging site");
+  const [run] = await t.db
+    .select({ rootId: schema.agentRuns.threadRootId, askedId: schema.agentRuns.triggerMessageId })
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId));
+  if (!run) throw new Error("no run");
+  const [machine] = await t.db.insert(schema.machines).values({ orgId: org.orgId, name: "Box three" }).returning();
+  const [task] = await t.db
+    .insert(schema.machineTasks)
+    .values({
+      orgId: org.orgId,
+      agentId: org.agentId,
+      machineId: machine?.id ?? "",
+      channelId: org.channelId,
+      runId,
+      title: "Check",
+      executor: "claude",
+      status: "done",
+    })
+    .returning({ id: schema.machineTasks.id });
+  await markThreadConfidential(t.db, { orgId: org.orgId, channelId: org.channelId, rootId: run.rootId });
+  // As a message written while the mark was being committed is stored: in the thread, with its words.
+  await t.db
+    .update(schema.messages)
+    .set({ body: "canary-unsealed-request", meta: {} })
+    .where(eq(schema.messages.id, run.askedId));
+  const [reply] = await t.db
+    .insert(schema.messages)
+    .values({
+      orgId: org.orgId,
+      channelId: org.channelId,
+      threadId: run.rootId,
+      authorType: "agent",
+      authorAgentId: org.agentId,
+      agentRunId: runId,
+      body: "canary-unsealed-reply",
+    })
+    .returning({ id: schema.messages.id });
+  await t.db.update(schema.agentRuns).set({ replyMessageId: reply?.id }).where(eq(schema.agentRuns.id, runId));
+
+  const read = async (path: string) => (await body<{ text: string }>(await review(path))).text;
+  const blocks = [await read(`run/${runId}`), await read(`task/${task?.id}`)];
+  expect(blocks.join("\n")).not.toContain("canary");
+  // The run's request and its reply; the task's request.
+  expect(blocks.map((text) => text.split(CONFIDENTIAL_STUB).length - 1)).toEqual([2, 1]);
 });
 
 test("a screened session's review: its first and latest screens, credentials masked, gone 10 minutes after it ends", async () => {

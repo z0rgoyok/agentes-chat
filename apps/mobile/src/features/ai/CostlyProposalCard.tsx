@@ -1,6 +1,6 @@
 import { type CostlyDecision, type Message, useApi } from "@agenteschat/client";
 import { costlyProposalOf, mayDecideCostly, mayRememberCostly } from "@agenteschat/client/lib/action-cards";
-import { can } from "@agenteschat/client/lib/permissions";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/providers/org";
@@ -18,7 +18,7 @@ import { useDirectory, useMeId } from "../shared/hooks";
 export function CostlyProposalCard({ message: m }: { message: Message }) {
   const { t } = useTranslation();
   const api = useApi();
-  const { orgId, org } = useOrg();
+  const { orgId } = useOrg();
   const dir = useDirectory();
   const { fonts } = useTheme();
   const meId = useMeId();
@@ -27,8 +27,10 @@ export function CostlyProposalCard({ message: m }: { message: Message }) {
   const card = costlyProposalOf(m.meta);
   if (!card || m.author.type !== "agent") return null;
   const ownerOf = (id: string) => dir.agentById.get(id)?.ownerUserId;
-  const may = mayDecideCostly(card, meId ?? "", ownerOf, can(org, "manage_agents"));
-  const remembers = mayRememberCostly(card, meId ?? "", ownerOf, can(org, "manage_agents"));
+  // Who manages the agent (the server's `canManage`) decides as its owner does: "Sempre" and "Nunca" change it.
+  const manages = managesAgent(dir.agentById.get(card.agentId));
+  const may = mayDecideCostly(card, meId ?? "", ownerOf, manages);
+  const remembers = mayRememberCostly(card, meId ?? "", ownerOf, manages);
   const decide = async (decision: CostlyDecision) => {
     setPending(decision);
     try {

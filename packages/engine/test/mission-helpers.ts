@@ -1,5 +1,12 @@
 import { MACHINE_PROTOCOL_VERSION, type ServerFrame } from "@agenteschat/adapters";
-import { grantScopes, insertMessageWithRuns, type MachineHub, setAgentComputerTarget } from "../src";
+import {
+  type Brain,
+  type BrainTurn,
+  grantScopes,
+  insertMessageWithRuns,
+  type MachineHub,
+  setAgentComputerTarget,
+} from "../src";
 import type { Fixture } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 
@@ -98,6 +105,22 @@ export function missionRunner(hub: MachineHub, hello: Record<string, unknown> = 
     done: (taskId: string, extra: Record<string, unknown> = {}) =>
       reply({ type: "task.done", taskId, exitCode: 0, seconds: 60, ...extra }),
   };
+}
+
+/**
+ * The mission's computer thinking for its main session (Claude Code there): every turn answers "ok" and is kept in
+ * `turns`, its system text with it. Without it, the main session's runs wait for that computer.
+ */
+export function missionComputerBrain() {
+  const turns: BrainTurn[] = [];
+  const brain: Brain = {
+    kind: "claude_code",
+    async *run(turn) {
+      turns.push(turn);
+      yield { type: "done", text: "ok" };
+    },
+  };
+  return { brains: { claude_code: () => brain }, turns };
 }
 
 export async function pairedMachine(f: Fixture) {

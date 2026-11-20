@@ -114,16 +114,18 @@ export interface BrowserPointer {
   width: number;
   height: number;
   act: (typeof BROWSER_POINTER_ACTS)[number];
+  /** The agent's last pointer, said before this view opened: the server sends it again as the view opens. */
+  replay?: true;
 }
 
 /** A pointer out of a message (the browser's, or a desktop's `agent.desktop.pointer` event), or null. */
 export function parseBrowserPointer(v: unknown): BrowserPointer | null {
   if (typeof v !== "object" || v === null) return null;
-  const { x, y, width, height, act } = v as Record<string, unknown>;
+  const { x, y, width, height, act, replay } = v as Record<string, unknown>;
   const known = BROWSER_POINTER_ACTS.find((a) => a === act);
   const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
   if (!known || !finite(x) || !finite(y) || !finite(width) || !finite(height) || width <= 0 || height <= 0) return null;
-  return { x, y, width, height, act: known };
+  return { x, y, width, height, act: known, ...(replay === true ? { replay } : {}) };
 }
 
 export type BrowserLiveMessage =
@@ -412,8 +414,8 @@ export function createBrowserLiveConnection(options: BrowserLiveOptions): Browse
           options.onFrame(m);
           return;
         case "browser.pointer": {
-          const { x, y, width, height, act } = m;
-          options.onPointer?.({ x, y, width, height, act });
+          const { type: _type, agentId: _agent, ...pointer } = m;
+          options.onPointer?.(pointer);
           return;
         }
         // A status answers every watch before the stream starts, so only a frame resets the backoff

@@ -489,7 +489,9 @@ export function approvalGroupWaitsFor(items: Pick<Approval, "approvers" | "statu
 
 /**
  * The keys that let someone decide any approval of its kind, as the server's `decidingKeys` (engine `approvals.ts`):
- * `approve_actions`; turning on access for good (`request_permission`), the keys that give it on the agent's page.
+ * `approve_actions`; turning on access for good (`request_permission`), the keys that give it on the agent's page,
+ * where `manage_agents` counts only on an agent the person manages (the agent's `canManage`, as the server's
+ * `decides`, ADR 0085 addendum of 2026-11-17): the keys alone don't decide a request of someone's private agent.
  */
 export function approvalDecidingKeys(a: Pick<Approval, "tool" | "params">): string[] {
   if (a.tool !== "request_permission") return ["approve_actions"];

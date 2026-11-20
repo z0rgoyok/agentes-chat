@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { PAINT_ATTRS } from "../theme";
 
 const BAR = 3;
 const GAP = 2;
@@ -99,7 +100,7 @@ export function useWaveRepaint(canvas: { current: HTMLCanvasElement | null }, pa
     const size = typeof ResizeObserver === "function" ? new ResizeObserver(paint) : null;
     size?.observe(el);
     const theme = typeof MutationObserver === "function" ? new MutationObserver(paint) : null;
-    theme?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    theme?.observe(document.documentElement, { attributes: true, attributeFilter: PAINT_ATTRS });
     return () => {
       size?.disconnect();
       theme?.disconnect();

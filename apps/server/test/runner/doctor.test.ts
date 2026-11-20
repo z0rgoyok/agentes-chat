@@ -4,6 +4,7 @@ import path from "node:path";
 import { createTerm } from "@agenteschat/setup/src/term";
 import { connections, cpuName, type DoctorPhone, type DoctorSources, runDoctor } from "../../runner/doctor";
 import { acquireLock } from "../../runner/lock";
+import { keepAfterLogout, lingerOn, systemdUnitPath, userUnitLinger } from "../../runner/service";
 import { removeDirs, tempDir } from "./helpers";
 
 const dirs: string[] = [];
@@ -238,3 +239,44 @@ test("agentes-runner doctor --json on a computer never connected: exit 1, and th
   expect(out.ok).toBe(false);
   expect(out.checks[0]).toMatchObject({ key: "computer", status: "needs" });
 }, 60_000);
+
+test("doctor: a runner that is this user's systemd unit with linger off says it stops at logout, with the command", async () => {
+  const linux = (linger: boolean | null) => mac({ platform: "linux", user: "sam", linger: () => linger }, [[]]);
+  const off = await doctor(linux(false));
+  expect(off.code).toBe(1);
+  expect(off.text).toContain("■  The runner stops when you log out\n   Keep it running after you log out:\n");
+  expect(off.text).toContain("sudo loginctl enable-linger sam");
+  for (const linger of [true, null]) {
+    const r = await doctor(linux(linger));
+    expect(r.text).not.toContain("log out");
+    expect(r.code).toBe(0);
+  }
+});
+
+test("linger: read from loginctl, turned on when off, unknown when loginctl can't say or there is no user unit", () => {
+  const calls: string[][] = [];
+  let state = "no";
+  const run = (file: string, args: string[]) => {
+    calls.push([file, ...args]);
+    if (args[0] === "enable-linger") state = "yes";
+    return { code: 0, output: `Linger=${state}` };
+  };
+  expect(lingerOn("sam", run)).toBe(false);
+  expect(keepAfterLogout("sam", run)).toBe(true);
+  expect(calls).toContainEqual(["loginctl", "enable-linger", "sam"]);
+  expect(keepAfterLogout("sam", run)).toBe(true);
+  expect(calls.filter((c) => c[1] === "enable-linger")).toHaveLength(1);
+
+  const refused = (_file: string, args: string[]) =>
+    args[0] === "enable-linger" ? { code: 1, output: "Access denied" } : { code: 0, output: "Linger=no" };
+  expect(keepAfterLogout("sam", refused)).toBe(false);
+  expect(lingerOn("sam", () => ({ code: 127, output: "spawnSync loginctl ENOENT" }))).toBeNull();
+
+  const home = tempDir();
+  dirs.push(home);
+  expect(userUnitLinger({ platform: "linux", home, user: "sam" }, run)).toBeNull();
+  mkdirSync(path.dirname(systemdUnitPath(home)), { recursive: true });
+  writeFileSync(systemdUnitPath(home), "[Unit]\n");
+  expect(userUnitLinger({ platform: "linux", home, user: "sam" }, run)).toBe(true);
+  expect(userUnitLinger({ platform: "darwin", home, user: "sam" }, run)).toBeNull();
+});

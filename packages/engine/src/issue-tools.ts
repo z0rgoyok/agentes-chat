@@ -66,8 +66,9 @@ const ONLY_IN_DM: ToolOutput = { content: "Tasks only in your private conversati
 /** Who each assignee is, as the agent can name them: "@ada (you)", "Walter (@walter)". */
 async function assigneeNames(deps: IssueDeps, ctx: ToolContext, list: IssueView[]) {
   const names = new Map<string, string>();
-  const agentIds = [...new Set(list.flatMap((i) => (i.assignee?.type === "agent" ? [i.assignee.id] : [])))];
-  const hasPeople = list.some((i) => i.assignee?.type === "person");
+  const all = list.flatMap((i) => i.assignees);
+  const agentIds = [...new Set(all.flatMap((a) => (a.type === "agent" ? [a.id] : [])))];
+  const hasPeople = all.some((a) => a.type === "person");
   const [agentRows, people] = await Promise.all([
     agentIds.length
       ? deps.db
@@ -84,7 +85,11 @@ async function assigneeNames(deps: IssueDeps, ctx: ToolContext, list: IssueView[
 
 const line = (i: IssueView, names: Map<string, string>) =>
   `#${i.number} [${i.status}] ${i.title}${i.project ? ` [project: ${i.project.name}]` : ""}${
-    i.assignee ? ` (assignee: ${names.get(i.assignee.id) ?? `${i.assignee.type} ${i.assignee.id}`})` : ""
+    i.assignees.length
+      ? ` (${i.assignees.length === 1 ? "assignee" : "assignees"}: ${i.assignees
+          .map((a) => names.get(a.id) ?? `${a.type} ${a.id}`)
+          .join(", ")})`
+      : ""
   }${i.dueDate ? ` due ${i.dueDate}` : ""} id=${i.id}`;
 
 const projectField = (unset: string) => ({
@@ -107,16 +112,19 @@ async function chosenProject(deps: IssueDeps, ctx: ToolContext, input: Record<st
   return (await projectByName(deps, ctx.orgId, name, input.new_project === true ? "new" : "task")).id;
 }
 
-/** One issue's line with its assignee's name. */
+/** One issue's line with its assignees' names. */
 const lineOf = async (deps: IssueDeps, ctx: ToolContext, i: IssueView) => line(i, await assigneeNames(deps, ctx, [i]));
 
 /**
- * An issue just given to another agent: the assignment wakes nobody (only `askAgentToImplement` starts the assignee's
- * work), so the agent reads how to hand the job over before it tells anyone the task is being worked on. "" otherwise.
+ * An issue just given to other agents (`added`): the assignment wakes nobody (only `askAgentToImplement` starts an
+ * assignee's work), so the agent reads how to hand the job over before it tells anyone the task is being worked on.
+ * "" otherwise.
  */
-async function handOverLine(deps: IssueDeps, ctx: ToolContext, i: IssueView) {
-  if (i.assignee?.type !== "agent" || i.assignee.id === ctx.agentId) return "";
-  const name = (await assigneeNames(deps, ctx, [i])).get(i.assignee.id) ?? "that agent";
+async function handOverLine(deps: IssueDeps, ctx: ToolContext, i: IssueView, added: readonly WorkActor[]) {
+  const others = added.filter((a) => a.type === "agent" && a.id !== ctx.agentId);
+  if (others.length === 0) return "";
+  const names = await assigneeNames(deps, ctx, [i]);
+  const name = others.map((a) => names.get(a.id) ?? "that agent").join(", ");
   return `\nAssigning doesn't tell ${name} or start its work: to have it work on #${i.number} now, hand it the job with tell_agent (say it's task #${i.number}); otherwise say the task waits in its list.`;
 }
 
@@ -147,14 +155,21 @@ async function find(deps: IssueDeps, ctx: ToolContext, ref: string) {
   return getIssue(deps.db, actorOf(ctx), ctx.orgId, issueKey(ref));
 }
 
+/** `assignees` as given: the whole list in its order, or undefined when left out. An empty list is nobody. */
+async function assigneesFrom(deps: IssueDeps, ctx: ToolContext, input: unknown): Promise<WorkActor[] | undefined> {
+  if (!Array.isArray(input)) return undefined;
+  const out: WorkActor[] = [];
+  for (const ref of input.map(String).filter((r) => r.trim())) out.push(await assigneeOf(deps, ctx, ref));
+  return out;
+}
+
 /**
- * Resolves `assignee`: "me" (the calling agent), "none" (nobody), an agent's or
- * a person's handle (`@ada`), or a person's name or email.
+ * Resolves one of `assignees`: "me" (the calling agent), an agent's or a person's handle (`@ada`), or a person's
+ * name or email.
  */
-async function assigneeOf(deps: IssueDeps, ctx: ToolContext, ref: string): Promise<WorkActor | null> {
+async function assigneeOf(deps: IssueDeps, ctx: ToolContext, ref: string): Promise<WorkActor> {
   const [value = ""] = await currentHandles(deps.db, ctx.orgId, [ref.trim().replace(/^@/, "").toLowerCase()]);
   if (value === "me") return { type: "agent", id: ctx.agentId };
-  if (value === "none" || value === "") return null;
   const [agent] = await deps.db
     .select({ id: schema.agents.id })
     .from(schema.agents)
@@ -173,11 +188,19 @@ async function assigneeOf(deps: IssueDeps, ctx: ToolContext, ref: string): Promi
   throw new Error(
     people.length > 1
       ? `"${ref}" matches more than one person; use their handle`
-      : `Nobody called "${ref}" in this organization (use "me", "none", or an agent's or person's handle)`,
+      : `Nobody called "${ref}" in this organization (use "me", or an agent's or person's handle)`,
   );
 }
 
-/** The receipt of an issue change: `issue.assigned` when only the assignee changed, else `issue.updated`. */
+/** Who a snapshot (`issueSnapshot`) says had the task. */
+const snapshotAssignees = (s: Record<string, unknown>) =>
+  Array.isArray(s.assignees) ? (s.assignees as WorkActor[]) : [];
+
+/** Those of `list` that `before` didn't have. */
+const newAssignees = (list: readonly WorkActor[], before: readonly WorkActor[]) =>
+  list.filter((a) => !before.some((b) => b.type === a.type && b.id === a.id));
+
+/** The receipt of an issue change: `issue.assigned` when only its assignees changed, else `issue.updated`. */
 async function issueChange(
   deps: IssueDeps,
   ctx: ToolContext,
@@ -186,8 +209,9 @@ async function issueChange(
 ): Promise<ActionRecord | null> {
   const diff = issueDiff(before, issueSnapshot(i));
   if (diff.fields.length === 0) return null;
-  const assignee = i.assignee;
-  const name = assignee ? (await assigneeNames(deps, ctx, [i])).get(assignee.id)?.replace(" (you)", "") : undefined;
+  const names = await assigneeNames(deps, ctx, [i]);
+  const nameOf = (a: WorkActor) => names.get(a.id)?.replace(" (you)", "") ?? "";
+  const added = newAssignees(i.assignees, snapshotAssignees(before));
   const title = (await nameableIn(deps.db, ctx.channelId, i)) ? i.title : "";
   const params: AgentActionParams = { number: i.number, title, fields: diff.fields };
   if (diff.fields.includes("status")) params.status = i.status;
@@ -202,18 +226,18 @@ async function issueChange(
       title !== "",
     );
   }
-  if (diff.fields.includes("assignee")) {
-    params.assigneeType = assignee?.type ?? null;
-    params.assigneeId = assignee?.id ?? null;
-    params.assigneeName = name ?? null;
-    params.assigneeIsSelf = assignee?.type === "agent" && assignee.id === ctx.agentId;
+  // Who was put on it, by name (`assigneeName`; null: people only left it), and everyone who has it now.
+  if (diff.fields.includes("assignees")) {
+    params.assigneeName = added.map(nameOf).filter(Boolean).join(", ") || null;
+    params.assigneeIsSelf = added.length === 1 && added[0]?.type === "agent" && added[0].id === ctx.agentId;
+    params.assigneeNames = i.assignees.map(nameOf).filter(Boolean);
   }
   return {
     // Assigning may move it to "in progress" on its own (the agent took it): still an assignment. Any other status
     // says so: "assigned" must not hide a task closed in the same call.
     kind:
-      diff.fields.includes("assignee") &&
-      diff.fields.every((f) => f === "assignee" || (f === "status" && i.status === "in_progress"))
+      diff.fields.includes("assignees") &&
+      diff.fields.every((f) => f === "assignees" || (f === "status" && i.status === "in_progress"))
         ? "issue.assigned"
         : "issue.updated",
     target: { type: "issue", id: i.id, number: i.number, title },
@@ -223,11 +247,11 @@ async function issueChange(
   };
 }
 
-const assigneeField = {
-  type: "string",
-  minLength: 1,
-  maxLength: 200,
-  description: 'Who owns the issue: "me", "none", or an agent\'s or person\'s handle (@ana).',
+const assigneesField = {
+  type: "array",
+  items: { type: "string", minLength: 1, maxLength: 200 },
+  maxItems: 20,
+  description: "Who has the issue, the whole list: \"me\", agents' or people's handles (@ana). [] for nobody.",
 };
 
 const STATUSES = ["todo", "in_progress", "in_review", "done", "canceled"];
@@ -235,41 +259,45 @@ const PRIORITIES = ["low", "normal", "high"];
 
 /**
  * Why the right hand can't make this task for `person` (ADR 0137 §13): it acts as them, so not what they couldn't, it
- * takes no task itself, and it reaches nobody else: who sees the task is theirs to widen, on the task.
+ * takes no task itself, and it reaches nobody else: who sees the task is theirs to widen, on the task. `assignees`:
+ * the ones it is putting on the task now.
  */
 async function rightHandTaskRefusal(
   deps: IssueDeps,
   ctx: ToolContext,
   person: string,
-  assignee: WorkActor | null | undefined,
+  assignees: readonly WorkActor[],
   visibleTo: unknown,
 ) {
   if (!can(await getMembership(deps.db, person, ctx.orgId), "post")) return "This person can't make tasks.";
   if (visibleTo === "everyone")
     return "A task you make stays with the person who asked: they open it to others on the task.";
-  if (assignee?.type !== "agent") return null;
-  const [agent] = await deps.db.select().from(schema.agents).where(eq(schema.agents.id, assignee.id));
-  if (!agent || isRightHand(agent)) return "A task isn't yours to take: assign it to the agent whose job it is.";
-  // It starts on it at once, in the task's conversation the person reads: only an agent they may talk to.
-  if (!canTalkTo(agent, person, await speakerFor(deps.db, ctx.orgId, person)))
-    return `@${agent.handle} only works with some people, and this person isn't one of them. Tell them; its owner or an admin can let them in.`;
-  if (!(await callableAgents(deps.db, ctx.orgId, ctx.agentId, [agent.id])).has(agent.id))
-    return notCallableText([`@${agent.handle}`]);
+  for (const assignee of assignees) {
+    if (assignee.type !== "agent") continue;
+    const [agent] = await deps.db.select().from(schema.agents).where(eq(schema.agents.id, assignee.id));
+    if (!agent || isRightHand(agent)) return "A task isn't yours to take: assign it to the agent whose job it is.";
+    // The first one starts on it at once, in the task's conversation the person reads: only agents they may talk to.
+    if (!canTalkTo(agent, person, await speakerFor(deps.db, ctx.orgId, person)))
+      return `@${agent.handle} only works with some people, and this person isn't one of them. Tell them; its owner or an admin can let them in.`;
+    if (!(await callableAgents(deps.db, ctx.orgId, ctx.agentId, [agent.id])).has(agent.id))
+      return notCallableText([`@${agent.handle}`]);
+  }
   return null;
 }
 
 /**
- * The right hand's task, assigned to an agent: that agent starts on it now in the task's conversation, the start
- * written as the right hand, and what comes of it goes back to this DM (`askAgentToImplement` with `by`). Its reply
+ * The right hand's task, assigned to an agent (the first, when several have it): that agent starts on it now in the
+ * task's conversation, the start written as the right hand, and what comes of it goes back to this DM (`askAgentToImplement` with `by`). Its reply
  * carries the task as a chip (`data.handedTask`).
  */
 async function handTask(deps: IssueDeps, ctx: ToolContext, person: string, i: IssueView) {
-  if (i.assignee?.type !== "agent" || !deps.pubsub) return null;
+  const agent = i.assignees.find((a) => a.type === "agent");
+  if (!agent || !deps.pubsub) return null;
   const [run] = await deps.db
     .select({ hop: schema.agentRuns.hop })
     .from(schema.agentRuns)
     .where(eq(schema.agentRuns.id, ctx.runId));
-  await askAgentToImplement(deps, person, ctx.orgId, i.id, i.assignee.id, {
+  await askAgentToImplement(deps, person, ctx.orgId, i.id, agent.id, {
     agentId: ctx.agentId,
     runId: ctx.runId,
     hop: run?.hop ?? 0,
@@ -279,7 +307,7 @@ async function handTask(deps: IssueDeps, ctx: ToolContext, person: string, i: Is
     issueId: i.id,
     number: i.number,
     title: i.title,
-    agentId: i.assignee.id,
+    agentId: agent.id,
     channelId: conversation.channelId,
     rootId: conversation.rootId,
   };
@@ -345,14 +373,15 @@ async function bringFiles(
 
 /**
  * Whether everyone `readers` names opens this file where it lives, and `shareArtifact` takes it into `channelId` as it
- * is: one in the Drive or a public channel, or for people who each read it, one already in `channelId`. True for no
- * such file: `shareArtifact` refuses it.
+ * is: one in the Drive shared with everyone (ADR 0157, amendment 2026-11-17) or a public channel, or for people who
+ * each read it, one already in `channelId`. True for no such file: `shareArtifact` refuses it.
  */
 async function readsAsIs(deps: ArtifactDeps, orgId: string, id: string, readers: Audience, channelId: string) {
   const [file] = UUID.test(id)
     ? await deps.db
         .select({
           channelId: schema.artifacts.channelId,
+          share: schema.artifacts.share,
           kind: schema.channels.kind,
           visibility: schema.channels.visibility,
         })
@@ -360,7 +389,8 @@ async function readsAsIs(deps: ArtifactDeps, orgId: string, id: string, readers:
         .leftJoin(schema.channels, eq(schema.channels.id, schema.artifacts.channelId))
         .where(and(eq(schema.artifacts.orgId, orgId), eq(schema.artifacts.id, id), isNull(schema.artifacts.deletedAt)))
     : [];
-  if (!file?.channelId || (file.kind === "channel" && file.visibility === "public")) return true;
+  if (!file || (!file.channelId && file.share === "everyone")) return true;
+  if (file.kind === "channel" && file.visibility === "public") return true;
   if (readers.mode === "everyone" || file.channelId !== channelId) return false;
   const read = await Promise.all(readers.userIds.map((userId) => fileRefOf(deps.db, userId, orgId, id)));
   return read.every(Boolean);
@@ -471,7 +501,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
     {
       name: "create_issue",
       description:
-        "Create a task on this workspace's board: task, tarefa or backlog mean this board, never GitHub or another tool unless the person names it (criar tarefa no backlog). It takes a title, a description and acceptance criteria (a checklist), and optionally a priority, labels, a project, an assignee and a due date. No permission needed: when work should be tracked, create it; the person sees it with Undo.",
+        "Create a task on this workspace's board: task, tarefa or backlog mean this board, never GitHub or another tool unless the person names it (criar tarefa no backlog). It takes a title, a description and acceptance criteria (a checklist), and optionally a priority, labels, a project, assignees and a due date. No permission needed: when work should be tracked, create it; the person sees it with Undo.",
       scope: "issues:write",
       inputSchema: {
         type: "object",
@@ -483,7 +513,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
           labels: { type: "array", items: { type: "string", maxLength: 40 }, maxItems: 10 },
           project: projectField("Left out: no project."),
           new_project: newProjectField,
-          assignee: assigneeField,
+          assignees: assigneesField,
           due_date: { type: "string", maxLength: 10, description: "Due date as YYYY-MM-DD" },
           github_url: GITHUB_URL_FIELD,
           visible_to: visibleToField,
@@ -497,20 +527,21 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
       async execute(input, ctx) {
         try {
           if (await rightHandAway(ctx)) return ONLY_IN_DM;
-          const assignee = str(input.assignee) ? await assigneeOf(deps, ctx, str(input.assignee)) : undefined;
+          const assignees = await assigneesFrom(deps, ctx, input.assignees);
+          const people = (assignees ?? []).filter((a) => a.type === "person").map((a) => a.id);
           const reader = await rightHandReader(ctx);
           if (reader) {
-            const refused = await rightHandTaskRefusal(deps, ctx, reader, assignee, input.visible_to);
+            const refused = await rightHandTaskRefusal(deps, ctx, reader, assignees ?? [], input.visible_to);
             if (refused) return { content: refused, isError: true };
           }
           const audience = await chosenAudience(ctx, input.visible_to);
           const projectId = await chosenProject(deps, ctx, input);
-          // Into this conversation, whose readers a task made here has. One whose audience was chosen (a person
-          // assigned sees it too) or made where no person reads (the workspace's) takes only files all its readers
+          // Into this conversation, whose readers a task made here has. One whose audience was chosen (the people
+          // assigned see it too) or made where no person reads (the workspace's) takes only files all its readers
           // open already, never a copy.
           const readers: Audience | null = audience
-            ? audience.mode === "people" && assignee?.type === "person"
-              ? { mode: "people", userIds: [...new Set([...audience.userIds, assignee.id])] }
+            ? audience.mode === "people" && people.length > 0
+              ? { mode: "people", userIds: [...new Set([...audience.userIds, ...people])] }
               : audience
             : (await nobodyReads(deps, ctx.channelId))
               ? { mode: "everyone" }
@@ -532,7 +563,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
                 priority: (input.priority as IssuePriority | undefined) ?? undefined,
                 labels: Array.isArray(input.labels) ? input.labels.map(String) : undefined,
                 ...(projectId ? { projectId } : {}),
-                ...(assignee !== undefined ? { assignee } : {}),
+                ...(assignees !== undefined ? { assignees } : {}),
                 ...(str(input.due_date) ? { dueDate: str(input.due_date) } : {}),
                 ...(str(input.github_url) ? { githubUrl: str(input.github_url) } : {}),
                 ...(audience ? { audience } : {}),
@@ -567,7 +598,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
                 ? `\nIts agent couldn't start on it: ${handed.message} Don't make it again: tell them why; they can start it from the task.`
                 : handed
                   ? "\nIts agent started on it in the task's own conversation, where the person follows it from the task's chip on your reply. What comes of it reaches you here by itself: tell them in a line who has it, without promising a time, and don't check on it."
-                  : await handOverLine(deps, ctx, i)
+                  : await handOverLine(deps, ctx, i, i.assignees)
             }`,
             data: {
               issue: { id: i.id, number: i.number },
@@ -582,7 +613,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
     {
       name: UPDATE_ISSUE_TOOL,
       description:
-        "Change an issue's status, priority, title, description, assignee, labels, project or due date, check acceptance criteria you met, attach files or link a pull request to it. Linking a PR moves the issue to review on its own. No permission needed: the person sees the change with Undo.",
+        "Change an issue's status, priority, title, description, assignees, labels, project or due date, check acceptance criteria you met, attach files or link a pull request to it. Linking a PR moves the issue to review on its own. No permission needed: the person sees the change with Undo.",
       scope: "issues:write",
       inputSchema: {
         type: "object",
@@ -592,7 +623,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
           priority: { enum: PRIORITIES },
           title: { type: "string", maxLength: 300 },
           description: { type: "string", maxLength: 20000 },
-          assignee: assigneeField,
+          assignees: assigneesField,
           labels: {
             type: "array",
             items: { type: "string", maxLength: 40 },
@@ -629,10 +660,18 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
           const number = typeof input.pull_request_number === "number" ? input.pull_request_number : undefined;
           const fromUrl = Number(/\/pull\/(\d+)/.exec(url)?.[1] ?? Number.NaN);
           const prNumber = number ?? (Number.isFinite(fromUrl) ? fromUrl : undefined);
-          const assignee = str(input.assignee) ? await assigneeOf(deps, ctx, str(input.assignee)) : undefined;
+          const assignees = await assigneesFrom(deps, ctx, input.assignees);
           if (reader) {
-            await getIssue(deps.db, { type: "person", userId: reader }, ctx.orgId, issueKey(str(input.issue)));
-            const refused = assignee !== undefined && (await rightHandTaskRefusal(deps, ctx, reader, assignee, null));
+            const seen = await getIssue(
+              deps.db,
+              { type: "person", userId: reader },
+              ctx.orgId,
+              issueKey(str(input.issue)),
+            );
+            // Whoever has the task already stays as they are: only the ones it adds are its to answer for.
+            const refused =
+              assignees !== undefined &&
+              (await rightHandTaskRefusal(deps, ctx, reader, newAssignees(assignees, seen.assignees), null));
             if (refused) return { content: refused, isError: true };
           }
           const due = typeof input.due_date === "string" ? input.due_date.trim() : undefined;
@@ -654,7 +693,7 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
                 priority: (input.priority as IssuePriority | undefined) ?? undefined,
                 title: str(input.title) || undefined,
                 description: typeof input.description === "string" ? input.description : undefined,
-                ...(assignee !== undefined ? { assignee } : {}),
+                ...(assignees !== undefined ? { assignees } : {}),
                 ...(Array.isArray(input.labels) ? { labels: input.labels.map(String) } : {}),
                 ...(projectId !== undefined ? { projectId } : {}),
                 ...(due !== undefined ? { dueDate: due || null } : {}),
@@ -671,9 +710,9 @@ export function createIssueToolSource(deps: ArtifactDeps): ToolSource {
             },
             (i, db) => issueChange({ ...deps, db }, ctx, before, i),
           );
-          const reassigned = (before.assignee as { id?: string } | null | undefined)?.id !== latest.assignee?.id;
+          const added = newAssignees(latest.assignees, snapshotAssignees(before));
           return {
-            content: `Updated ${await lineOf(deps, ctx, latest)}${filesNote(latest, files)}${reassigned ? await handOverLine(deps, ctx, latest) : ""}`,
+            content: `Updated ${await lineOf(deps, ctx, latest)}${filesNote(latest, files)}${await handOverLine(deps, ctx, latest, added)}`,
             data: { issue: { id: latest.id, number: latest.number } },
           };
         } catch (error) {

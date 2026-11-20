@@ -17,6 +17,7 @@ import {
   laneLimits,
   MissingCredentialError,
   memoryBudget,
+  type OutboxJob,
   PermanentJobError,
   POOL_SLOW_MS,
   processOutbox,
@@ -176,6 +177,42 @@ test("failures retry with backoff, then fail after max attempts", async () => {
   expect(await failJob(db, second as NonNullable<typeof second>, new Error("e2"), { retryable: true })).toBe("failed");
   [row] = await rows();
   expect([row?.status, row?.lastError]).toEqual(["failed", "e2"]);
+});
+
+test("a failure keeps the status its error carried, never one that isn't an HTTP status; success clears it", async () => {
+  const failedWith = async (kind: string, error: unknown) => {
+    await enqueue(db, job(kind));
+    const [claimed] = (await claimJobs(db, { workerId: "w" })).filter((j) => j.kind === kind);
+    await failJob(db, claimed as NonNullable<typeof claimed>, error, { retryable: false });
+    const [row] = (await rows()).filter((r) => r.kind === kind);
+    return [row?.status, row?.lastError, row?.lastErrorStatus];
+  };
+  const refused = Object.assign(new Error("the provider refused it"), { status: 422 });
+  expect(await failedWith("refused", refused)).toEqual(["failed", "the provider refused it", 422]);
+  expect(await failedWith("permanent", new PermanentJobError("refused for good", 403))).toEqual([
+    "failed",
+    "refused for good",
+    403,
+  ]);
+  expect(await failedWith("plain", new Error("no status"))).toEqual(["failed", "no status", null]);
+  for (const status of [0, 99, 600, 422.5, "422"]) {
+    const error = Object.assign(new Error("not a status"), { status });
+    expect(await failedWith(`odd-${status}`, error)).toEqual(["failed", "not a status", null]);
+  }
+
+  // A retry that then works leaves neither the error nor its status.
+  await enqueue(db, job("again"));
+  const pick = async (now?: Date) => (await claimJobs(db, { workerId: "w", now })).find((j) => j.kind === "again");
+  const busy = Object.assign(new Error("busy"), { status: 429 });
+  expect(await failJob(db, (await pick()) as OutboxJob, busy, { retryable: true })).toBe("retry");
+  const stored = async () => (await rows()).find((r) => r.kind === "again");
+  expect([(await stored())?.status, (await stored())?.lastErrorStatus]).toEqual(["pending", 429]);
+  expect(await completeJob(db, (await pick(at(retryDelayMs(1) + 1000))) as OutboxJob)).toBe(true);
+  expect([(await stored())?.status, (await stored())?.lastError, (await stored())?.lastErrorStatus]).toEqual([
+    "done",
+    null,
+    null,
+  ]);
 });
 
 test("a handback (its worker is shutting down) is due again at once and spends no attempt", async () => {

@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "disconnects" jsonb DEFAULT '[]'::jsonb NOT NULL;

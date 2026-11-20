@@ -27,7 +27,8 @@ const SIZE = ICON_BUTTON_SIZE;
 /**
  * A 40-point icon button (32 in a row, `small`): transparent, or a floating glass circle (`plate`), round like the
  * system's own sheet and bar buttons: Liquid Glass on iOS 26, the blur before it, an opaque plate on Android (with a
- * hairline and a short shadow, `usePlateEdge`, so it floats over the sky or the conversation as the glass does).
+ * hairline and a short shadow, `usePlateEdge`, so it floats over the sky or the conversation as the glass does). One
+ * press on every system: the kit's scale, never the glass's own answer on top of it.
  */
 export function IconButton({
   icon,
@@ -55,6 +56,7 @@ export function IconButton({
       {plate ? (
         <Glass
           liquid
+          interactive={false}
           intensity={40}
           style={[{ flexGrow: 1, borderRadius: side / 2, alignItems: "center", justifyContent: "center" }, edge]}
         >

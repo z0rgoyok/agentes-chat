@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -38,6 +39,7 @@ import {
   RUNNER_BUN_WINDOWS_SHA256,
   SYSTEM_BROWSER_DIR,
   shQuote,
+  withoutTrailingSlashes,
 } from "../../runner/install-script";
 import { launchdPlist, systemdUnit, windowsTaskCommand } from "../../runner/service";
 import { removeDirs, tempDir } from "./helpers";
@@ -130,6 +132,17 @@ mkdir -p "$dir/bun-linux-aarch64" && cp "$FAKE_BUN" "$dir/bun-linux-aarch64/bun"
 test("shQuote survives single quotes", () => {
   expect(shQuote("plain")).toBe("'plain'");
   expect(shQuote("it's")).toBe("'it'\\''s'");
+});
+
+test("the server's address loses the slashes it ends with, read once however long a run of them inside it", () => {
+  expect(withoutTrailingSlashes("https://a.example//")).toBe("https://a.example");
+  expect(withoutTrailingSlashes("https://a.example//x")).toBe("https://a.example//x");
+  expect(withoutTrailingSlashes("///")).toBe("");
+  const started = performance.now();
+  const run = `https://a.example${"/".repeat(200_000)}x`;
+  expect(installScript(` ${run}// `)).toContain(`SERVER='${run}'\n`);
+  expect(installScriptPowerShell(`${run}/`)).toContain(run);
+  expect(performance.now() - started).toBeLessThan(1000);
 });
 
 test("the install script quotes the server URL and is valid sh", () => {
@@ -887,14 +900,20 @@ test.skipIf(process.platform === "win32")(
       const real = Bun.which(tool);
       if (real && !existsSync(path.join(pc.sys, tool))) symlinkSync(real, path.join(pc.sys, tool));
     }
-    // Codex's release: a tar.gz with the binary named for this processor.
+    // Codex's release: its whole package for this processor (the CLI and the helpers it starts), and the sums.
     const release = path.join(pc.home, "codex-release");
-    mkdirSync(release);
-    writeFileSync(path.join(release, "codex-aarch64-unknown-linux-musl"), '#!/bin/sh\necho "codex-cli 0.167.0"\n', {
-      mode: 0o755,
-    });
+    mkdirSync(path.join(release, "bin"), { recursive: true });
+    writeFileSync(path.join(release, "bin/codex"), '#!/bin/sh\necho "codex-cli 0.167.0"\n', { mode: 0o755 });
+    writeFileSync(path.join(release, "bin/codex-code-mode-host"), "#!/bin/sh\n", { mode: 0o755 });
+    writeFileSync(path.join(release, "codex-package.json"), '{"layoutVersion":1,"entrypoint":"bin/codex"}\n');
     const tarball = path.join(pc.home, "codex.tar.gz");
-    spawnSync("tar", ["-czf", tarball, "-C", release, "codex-aarch64-unknown-linux-musl"]);
+    spawnSync("tar", ["-czf", tarball, "-C", release, "bin", "codex-package.json"]);
+    const sums = path.join(pc.home, "codex-sums");
+    const sha = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+    const goodSums =
+      `${"0".repeat(64)}  codex-package-x86_64-unknown-linux-musl.tar.gz\n` +
+      `${sha}  codex-package-aarch64-unknown-linux-musl.tar.gz\n`;
+    writeFileSync(sums, goodSums);
     fake(
       "curl",
       `#!/bin/sh
@@ -905,7 +924,8 @@ case "$url" in
     'printf "#!/bin/sh\\\\necho 2.1.319 \\\\(Claude Code\\\\)\\\\n" > "$HOME/.local/share/claude-2.1.319"' \\
     'chmod 755 "$HOME/.local/share/claude-2.1.319"' 'ln -s "$HOME/.local/share/claude-2.1.319" "$HOME/.local/bin/claude"' \\
     'echo "claude install as $CLAUDE_INSTALL_ALLOW_SUDO" >> "$LOG"' > "$out" ;;
-  *codex-aarch64-unknown-linux-musl.tar.gz) cp '${tarball}' "$out" ;;
+  *codex-package-aarch64-unknown-linux-musl.tar.gz) cp '${tarball}' "$out" ;;
+  *codex-package_SHA256SUMS) cp '${sums}' "$out" ;;
   *) printf '#!/usr/bin/env node\\n' > "$out" ;;
 esac
 `,
@@ -938,10 +958,17 @@ printf '#!/bin/sh\\necho "Chromium 157.0.8103.38 snap"\\n' > '${pc.at("snap/chro
     expect(r.log).toContain("claude install as 1\n");
     expect(lstatSync(pc.at("bin/claude")).isFile()).toBe(true);
     expect(r.out).toContain(`Claude Code 2.1.319, in ${pc.at("bin/claude")}`);
-    // Codex: the latest release's build for this processor.
+    // Codex: the latest release's whole package for this processor, checked against its sums, unpacked in lib/codex
+    // beside the agents' PATH and linked there; code mode's helper is in it, beside the CLI the link leads to.
     expect(r.log).toContain(
-      "curl https://github.com/openai/codex/releases/latest/download/codex-aarch64-unknown-linux-musl.tar.gz\n",
+      "curl https://github.com/openai/codex/releases/latest/download/codex-package-aarch64-unknown-linux-musl.tar.gz\n",
     );
+    expect(r.log).toContain("curl https://github.com/openai/codex/releases/latest/download/codex-package_SHA256SUMS\n");
+    expect(readlinkSync(pc.at("bin/codex"))).toBe(pc.at("lib/codex/bin/codex"));
+    expect(statSync(pc.at("lib/codex/bin/codex-code-mode-host")).mode & 0o777).toBe(0o755);
+    expect(existsSync(pc.at("lib/codex/codex-package.json"))).toBe(true);
+    expect(existsSync(pc.at("bin/codex-code-mode-host"))).toBe(false);
+    expect(readdirSync(pc.at("lib"))).toEqual(["codex"]);
     expect(r.out).toContain(`Codex 0.167.0, in ${pc.at("bin/codex")}`);
     // Nothing of the runner: it stops there.
     expect(r.log).not.toContain("agentes-runner.mjs");
@@ -950,8 +977,41 @@ printf '#!/bin/sh\\necho "Chromium 157.0.8103.38 snap"\\n' > '${pc.at("snap/chro
     const again = pc.install(script, ["--requirements", "browser,claude,codex"]);
     expect(again.status).toBe(0);
     expect(again.log.split("snap install").length).toBe(2);
+    expect(again.log.split("codex-package-aarch64").length).toBe(2);
     expect(again.out).toContain("Chromium 157.0.8103.38, updated by this computer's own updates");
     expect(again.out).toContain("Claude Code 2.1.319\n");
+    expect(again.out).toContain("Codex 0.167.0\n");
+
+    // A lone Codex binary, as this installed before, can't run code mode: installed again, whole.
+    const lone = () => {
+      rmSync(pc.at("bin/codex"));
+      rmSync(pc.at("lib/codex"), { recursive: true, force: true });
+      writeFileSync(pc.at("bin/codex"), '#!/bin/sh\necho "codex-cli 0.160.0"\n', { mode: 0o755 });
+    };
+    lone();
+    const repaired = pc.install(script, ["--requirements", "codex"]);
+    expect(repaired.status).toBe(0);
+    expect(repaired.out).toContain("Installing Codex again, whole: it lacked the helpers it starts");
+    expect(repaired.out).toContain(`Codex 0.167.0, in ${pc.at("bin/codex")}`);
+    expect(readlinkSync(pc.at("bin/codex"))).toBe(pc.at("lib/codex/bin/codex"));
+    expect(repaired.log.split("codex-package-aarch64").length).toBe(3);
+
+    // One with the helper beside it (put there by hand) is whole: kept.
+    lone();
+    writeFileSync(pc.at("bin/codex-code-mode-host"), "#!/bin/sh\n", { mode: 0o755 });
+    const byHand = pc.install(script, ["--requirements", "codex"]);
+    expect(byHand.out).toContain("Codex 0.160.0\n");
+    expect(lstatSync(pc.at("bin/codex")).isFile()).toBe(true);
+    expect(byHand.log.split("codex-package-aarch64").length).toBe(3);
+    rmSync(pc.at("bin/codex-code-mode-host"));
+
+    // A download that doesn't match the release's sums is never installed, and the lone binary stays as it was.
+    writeFileSync(sums, goodSums.replace(sha, "f".repeat(64)));
+    const tampered = pc.install(script, ["--requirements", "codex"]);
+    expect(tampered.status).toBe(0);
+    expect(tampered.out).toContain("Installing Codex failed: run this again, or install it yourself");
+    expect(lstatSync(pc.at("bin/codex")).isFile()).toBe(true);
+    expect(readdirSync(pc.at("lib"))).toEqual([]);
   },
   30_000,
 );

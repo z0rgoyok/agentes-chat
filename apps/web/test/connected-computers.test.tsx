@@ -739,7 +739,7 @@ describe("the computer page: pause, folders and tools (ADR 0036)", () => {
     // "Pausado", "até 16:24" (past midnight the date comes first: "até 10 nov 00:08").
     const sameDay = new Date(until).toDateString() === new Date().toDateString();
     const line = head.querySelector(".dv-statusline")?.textContent ?? "";
-    expect(line).toContain("Pausado");
+    expect(head.querySelector(".dv-headchips")?.textContent).toContain("Pausado");
     expect(line).toContain(sameDay ? `até ${time}` : "até ");
     expect(line).toContain(time);
     expect(head.textContent).toContain("Pausado no próprio computador por quem o conectou.");

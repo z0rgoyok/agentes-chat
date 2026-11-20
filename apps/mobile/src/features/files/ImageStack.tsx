@@ -13,13 +13,14 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { haptics, Icon, Text, useReducedMotion, useTheme } from "@/ui";
-import { router } from "@/ui/navigation";
+import { haptics, Icon, motion, Text, useReducedMotion, useTheme } from "@/ui";
+import { useMessageCardCorners } from "../chat/look";
 import { useColors, useOrgId } from "../shared/hooks";
 import { DECK_DRAG, DECK_RISE, deckCard, deckIndex, deckTarget, wrapPlace } from "./deck";
-import { encodeFileList } from "./logic";
+import type { FileRef } from "./logic";
 import type { MessageFile } from "./MessageFiles";
-import { useRemoteFile } from "./source";
+import { openFile } from "./open";
+import { pictureDrawn, pictureFade, useRemoteFile } from "./source";
 import { listenViewerPlace } from "./viewer-place";
 
 export interface StackImage {
@@ -31,13 +32,26 @@ export interface StackImage {
 const SIDE = 7;
 /** More pictures than this say "3 de 7" instead of dots. */
 const MAX_DOTS = 5;
-const SETTLE = { stiffness: 190, damping: 25, mass: 1 };
+/** A deck let go of: back into place keeping the finger's speed (the app's snap; a plain object the worklet reads). */
+const SETTLE = { ...motion.snap };
 
 /**
  * Two or more pictures in a message: a deck to swipe through, its dots under it. A tap opens the viewer at the
  * picture on top, and closing it brings the deck back on the one the person stopped at.
  */
-export function ImageStack({ images, width }: { images: StackImage[]; width: number }) {
+export function ImageStack({
+  images,
+  width,
+  openable = true,
+  siblings,
+}: {
+  images: StackImage[];
+  width: number;
+  /** False while the pictures are still on their way up: the deck swipes, a tap opens nothing yet. */
+  openable?: boolean;
+  /** The message's pictures and videos in the order they show, the deck's among them: the viewer pages through all. */
+  siblings?: readonly FileRef[];
+}) {
   const { t } = useTranslation();
   const c = useColors();
   const reduced = useReducedMotion();
@@ -56,27 +70,27 @@ export function ImageStack({ images, width }: { images: StackImage[]; width: num
     },
     [count],
   );
+  // The viewer says which file the person stopped at: one of the deck's comes on top, a video beside them changes nothing.
+  const ids = images.map((i) => i.file.id).join(",");
   useEffect(
     () =>
-      listenViewerPlace(key, (at) => {
+      listenViewerPlace(key, (id) => {
+        const at = ids.split(",").indexOf(id);
+        if (at < 0) return;
         place.value = at;
         setActive(at);
       }),
-    [key, place],
+    [key, place, ids],
   );
 
   // Opening the pictures is plain navigation: no haptic (a swipe through the stack has its own).
   const open = (at: number) => {
-    router.push({
-      pathname: "/images",
-      params: {
-        files: encodeFileList(
-          images.map(({ file, detail }) => ({ id: file.id, version: detail?.shownVersion ?? file.version })),
-        ),
-        at: String(at),
-        from: key,
-      },
-    });
+    if (!openable) return;
+    const deck = images.map(
+      ({ file, detail }): FileRef => ({ id: file.id, version: file.version, title: file.title, detail }),
+    );
+    const tapped = deck[at];
+    if (tapped) openFile(tapped, siblings ?? deck, { from: key });
   };
 
   const settle = (target: number, velocity: number) => {
@@ -170,7 +184,7 @@ export function ImageStack({ images, width }: { images: StackImage[]; width: num
 }
 
 function StackCard({
-  item: { file, detail },
+  item: { file },
   index,
   count,
   size,
@@ -184,10 +198,13 @@ function StackCard({
   place: SharedValue<number>;
   near: boolean;
 }) {
+  const cardCorners = useMessageCardCorners();
   const orgId = useOrgId();
   const c = useColors();
   const { shadows } = useTheme();
-  const version = detail?.shownVersion ?? file.version;
+  // The message's own version, from the first frame (see `MessageFiles`' `InlineImage`).
+  const version = file.version;
+  const key = `${file.id}@${version ?? "latest"}`;
   const link = useRemoteFile(orgId, near ? file.id : null, version);
   const [failed, setFailed] = useState(false);
   const placed = useAnimatedStyle(() => {
@@ -203,16 +220,19 @@ function StackCard({
       style={[
         styles.card,
         { width: size, height: size, backgroundColor: c.sunken, borderColor: c.line2, boxShadow: shadows.e2 },
+        cardCorners,
         placed,
       ]}
     >
-      <View style={styles.clip}>
+      <View style={[styles.clip, cardCorners]}>
         {link.data && !failed ? (
           <Image
-            source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: `${file.id}@${version ?? "latest"}` }}
-            recyclingKey={`${file.id}@${version ?? "latest"}`}
+            source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: key }}
+            recyclingKey={key}
+            cachePolicy="memory-disk"
             contentFit="cover"
-            transition={160}
+            transition={pictureFade(key)}
+            onLoad={() => pictureDrawn(key)}
             style={StyleSheet.absoluteFill}
             onError={() => setFailed(true)}
             accessible={false}

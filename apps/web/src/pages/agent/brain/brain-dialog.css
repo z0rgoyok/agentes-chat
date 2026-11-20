@@ -84,6 +84,16 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Under the account in use: it goes on with the next account of the order at a limit (ADR 0041 §6). */
+.bd-moves {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+.bd-moves > .ac-icon {
+  color: var(--faint);
+}
 /* Whom a switch is for, then the account it goes to: the body's own gap between them, no margin of the cards' own. */
 .bd .arrival-for {
   margin-bottom: 0;
@@ -139,6 +149,11 @@
 .bd-win__n {
   min-width: 34px;
   text-align: end;
+}
+/* Read too long ago: no bar, only how old the reading is, quiet, where the bar and the number were. */
+.bd-win[data-stale] .bd-win__n {
+  grid-column: span 2;
+  color: var(--ink-muted);
 }
 .bd-win[data-level="almost"] .bd-win__n,
 .bd-win[data-level="critical"] .bd-win__n {

@@ -187,8 +187,13 @@ html:not([data-pointer]) .vlt-list .vlt-row:focus-visible {
 .vlt-details__main > .ac-setnote {
   margin: 0;
 }
+/* Delete at the footer's start, the others at its end; wrapped under it, they start at its edge, never floating at
+   the end. */
 .vlt-foot__start {
   margin-right: auto;
+}
+.ac-dialog__foot:has(> .vlt-foot__start) {
+  justify-content: flex-start;
 }
 /* Its icon in the access lines' column (`.vlt-access__lead`), so the scope's words start where theirs do. */
 /* The icon on the name's line, at the top, not halfway down the two lines. */

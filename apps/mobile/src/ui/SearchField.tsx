@@ -13,7 +13,15 @@ import Animated, { FadeInRight, FadeOutRight, LinearTransition } from "react-nat
 import { Icon } from "./Icon";
 import { searchCancelVisible } from "./searchMode";
 import { systemText } from "./Text";
-import { useTheme } from "./theme";
+import { motion, useTheme } from "./theme";
+
+/**
+ * "Cancelar" comes in from the right as the field gives it room (the field's width moves on screen: ease-in-out) and
+ * leaves faster than it came. Built once: a builder made in render is a new animation on every render.
+ */
+const FIELD_MOVE = LinearTransition.duration(motion.panel).easing(motion.easeInOut);
+const CANCEL_IN = FadeInRight.duration(motion.panel).easing(motion.easeOut);
+const CANCEL_OUT = FadeOutRight.duration(motion.base).easing(motion.easeOut);
 
 export interface SearchFieldProps extends Omit<TextInputProps, "style"> {
   value: string;
@@ -62,7 +70,7 @@ export function SearchField({
   return (
     <View style={{ flexDirection: "row", alignItems: "center" }}>
       <Animated.View
-        layout={reducedMotion ? undefined : LinearTransition.duration(220)}
+        layout={reducedMotion ? undefined : FIELD_MOVE}
         style={{
           flex: 1,
           flexDirection: "row",
@@ -111,8 +119,8 @@ export function SearchField({
       </Animated.View>
       {cancelShown ? (
         <Animated.View
-          entering={reducedMotion ? undefined : FadeInRight.duration(220)}
-          exiting={reducedMotion ? undefined : FadeOutRight.duration(180)}
+          entering={reducedMotion ? undefined : CANCEL_IN}
+          exiting={reducedMotion ? undefined : CANCEL_OUT}
         >
           <Pressable
             onPress={cancel}

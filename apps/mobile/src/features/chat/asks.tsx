@@ -36,7 +36,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text as RNText, StyleSheet, useWindowDimensions, View } from "react-native";
-import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
+import Animated, { FadeIn, LayoutAnimationConfig } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
 import { Sky } from "@/sky/Sky";
 import {
@@ -54,6 +54,7 @@ import {
 } from "@/ui";
 import { SparkCheck } from "@/ui/SparkCheck";
 import { approvalTitleText } from "../approvals/parts";
+import { useBubbleHead, useBubblePart } from "../shared/bubble-part";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { agentLook, fuseRemaining } from "../shared/logic";
@@ -72,8 +73,10 @@ import {
 } from "./ask-store";
 import { LineStop } from "./LiveRows";
 import { approvalIdOf, lineStops, markedParts, markName, parseInline, questionOf, workingEntries } from "./logic";
-import { useCardTop, useOwnTop } from "./look";
+import { useCardTop, useMessageCardCorners, useOwnTop } from "./look";
 import { Spans } from "./MessageSpans";
+import { useRowDirectory } from "./row-data";
+import { withOpacity } from "./turn";
 import { WaitMark } from "./WaitMark";
 
 /**
@@ -92,6 +95,23 @@ export function AskStoreProvider({ store, children }: { store: AskStore; childre
 
 /** The conversation's requests (null outside a conversation: a card elsewhere reports nothing). */
 export const useAskStore = () => useContext(AskStoreContext);
+
+/**
+ * How a card or a pill comes in where it loads on its own (a mission's page, an agent's screen): it fades in. In a
+ * conversation it never does: the list mounts its rows again as they scroll back into view, and a new row already
+ * rises in once when it arrives (`ChatScreen`'s fresh rows), so a fade of its own replayed on every scroll.
+ */
+const CARD_IN = FadeIn.duration(300);
+const PILL_IN = FadeIn.duration(160);
+/** What a card or a pill shows later, on screen (its details opened, how it ended): it fades in where it stands. */
+const PART_IN = FadeIn.duration(220);
+
+/** The entrance of a card or a pill: none in a conversation (see `CARD_IN`) or with reduced motion. */
+function useEntrance(entering: typeof CARD_IN) {
+  const reduced = useReducedMotion();
+  const inConversation = useAskStore() !== null;
+  return reduced || inConversation ? undefined : entering;
+}
 
 /** The first request waiting out of view, redrawn only when that changes. */
 export function useAwayAsk(store: AskStore): AwayAsk | null {
@@ -420,8 +440,9 @@ export interface AskAnswer {
  * line above the composer.
  *
  * Decided (`answer`), it is the same card: the kind, the words and the name line stay where they were, and under a
- * hairline a check or an ×, how it ended, who did it and when stand where the decision was. Its height slides to
- * the new one when the same card is answered on screen.
+ * hairline a check or an ×, how it ended, who did it and when stand where the decision was. What changes on screen
+ * (answered, "Ver …" opened) fades in where it stands; the card's height never animates: in a conversation the list
+ * sizes the row, and a frame sliding inside a row it had already resized overlapped the rows under it.
  */
 export function AskCard({
   id,
@@ -429,6 +450,7 @@ export function AskCard({
   headless = false,
   kindNote,
   agentId,
+  asker,
   waitsFor,
   lead,
   well,
@@ -446,6 +468,8 @@ export function AskCard({
   /** Said after the kind on the top line ("sai da empresa" for a request that leaves the workspace). */
   kindNote?: string | undefined;
   agentId: string;
+  /** Another agent than the conversation's own asks here (work handed to it): "Atlas asks you". */
+  asker?: string;
   waitsFor: "you" | (string & {}) | null;
   lead: string;
   well?: AskWell | null;
@@ -463,10 +487,17 @@ export function AskCard({
   const ownTop = useCardTop(12);
   const { t } = useTranslation();
   const c = useColors();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const surface = useSurface();
+  // Under someone else's words in a conversation of bubbles: a bubble of that message (its fill, joined to it, no sky),
+  // and, when the message is only this request, its name line at the top and its time at the end, as a bubble's.
+  const part = useBubblePart();
+  const cardCorners = useMessageCardCorners();
+  const bubbleHead = useBubbleHead();
+  const fill = part?.fill ?? c.raised;
   const reduced = useReducedMotion();
   const store = useAskStore();
+  const entering = useEntrance(CARD_IN);
   // The asking agent's sky, faint across the card's top: the same card as Atividade's and the home's (`WaitingCard`).
   const sky = agentLook(dir.agentById.get(agentId)).color;
   const slot = useRef<ComponentRef<typeof View>>(null);
@@ -515,104 +546,118 @@ export function AskCard({
   const opened =
     open && more ? (
       <Animated.View
-        entering={reduced ? undefined : FadeIn.duration(220)}
+        entering={reduced ? undefined : PART_IN}
         // In the preview's place it keeps the preview's hairline; under the name line, that line's own is enough.
         style={[styles.edge, styles.exact, preview ? { borderTopColor: c.line } : styles.noTop]}
       >
         {more.content}
       </Animated.View>
     ) : null;
-  const kindWords = askKindWords(t, kind, waitsFor === "you" && !ended);
+  const kindWords =
+    asker && waitsFor === "you" && !ended
+      ? t("chat.request.asksYou", { name: asker })
+      : askKindWords(t, kind, waitsFor === "you" && !ended);
   return (
-    // A plain view the conversation measures (never flattened away), around the card that fades in.
+    // A plain view the conversation measures (never flattened away), around the card.
     <View ref={slot} collapsable={false} style={ownTop}>
-      <Animated.View
-        entering={reduced ? undefined : FadeIn.duration(300)}
-        layout={reduced ? undefined : LinearTransition.duration(220)}
-        style={[styles.card, surface]}
-      >
-        <View style={styles.clip}>
-          <Sky color={sky} depth={0.55} fade={0.15} surface="raised" style={styles.sky} />
-          {headless ? null : (
-            <View style={styles.head}>
-              <Icon name={ASK_ICON[kind]} size={13} color={c.muted} />
-              <Text variant="footnote" tone="muted" numberOfLines={1} style={[styles.medium, styles.grow]}>
-                {kindNote ? `${kindWords} · ${kindNote}` : kindWords}
-              </Text>
-              {waitsFor && waitsFor !== "you" && !ended ? (
-                <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.waits}>
-                  {waitsFor}
+      <Animated.View entering={entering} style={[styles.card, surface, cardCorners]}>
+        {/* What the card holds when it mounts just shows (a row scrolled back into view, its answer already there);
+            what comes later fades in. */}
+        <LayoutAnimationConfig skipEntering>
+          <View style={[styles.clip, cardCorners]}>
+            {part ? null : <Sky color={sky} depth={0.55} fade={0.15} surface="raised" style={styles.sky} />}
+            {bubbleHead ? <View style={styles.bubbleHead}>{bubbleHead.who}</View> : null}
+            {headless ? null : (
+              <View style={styles.head}>
+                <Icon name={ASK_ICON[kind]} size={13} color={c.muted} />
+                <Text variant="footnote" tone="muted" numberOfLines={1} style={[styles.medium, styles.grow]}>
+                  {kindNote ? `${kindWords} · ${kindNote}` : kindWords}
                 </Text>
-              ) : null}
-            </View>
-          )}
-          {lead ? (
-            <Text variant={well ? "body" : "title"} tone="ink" style={well ? styles.lead : undefined}>
-              <Spans inline={parseInline(lead)} />
-            </Text>
-          ) : null}
-          {/* With a preview, "Ver …" opens the whole in its place; without one, under the name line. */}
-          {preview && !open ? (
-            <View style={[styles.edge, styles.preview, { borderTopColor: c.line }]}>
-              {preview}
-              <LinearGradient pointerEvents="none" colors={[`${c.raised}00`, c.raised]} style={styles.fade} />
-            </View>
-          ) : null}
-          {preview ? opened : null}
-          {line ? (
-            more ? (
-              <Pressable
-                onPress={toggle}
-                accessibilityRole="button"
-                accessibilityHint={more.label}
-                accessibilityState={{ expanded: open }}
-                style={({ pressed }) => [styles.edge, styles.line, { borderColor: c.line }, pressed && styles.pressed]}
-              >
-                {line}
-              </Pressable>
-            ) : (
-              <View style={[styles.edge, styles.line, { borderColor: c.line }]}>{line}</View>
-            )
-          ) : null}
-          {preview ? null : opened}
-          {body ? <View style={styles.body}>{body}</View> : null}
-          {answer ? (
-            <Animated.View
-              entering={reduced ? undefined : FadeIn.duration(220)}
-              // Under the name line its hairline is enough: no second one.
-              style={[styles.edge, styles.answer, { borderTopColor: c.line }, line && !body ? styles.noTop : null]}
-            >
-              <View style={styles.answerRow}>
-                <View style={styles.answerMark}>
-                  {answer.done && answer.celebrate ? (
-                    <SparkCheck size={14} color={c.ok} tone={answer.celebrate} />
-                  ) : (
-                    <Icon name={answer.done ? "check" : "x"} size={14} color={answer.done ? c.ok : c.faint} />
-                  )}
-                </View>
-                <Text variant="footnote" style={[styles.grow, { color: c.ink2 }]}>
-                  {pillWords(answer.words, c.ink)}
-                </Text>
-                {answer.time ? (
-                  <Text variant="caption" tone="faint" numberOfLines={1} style={styles.answerTime}>
-                    {answer.time}
+                {waitsFor && waitsFor !== "you" && !ended ? (
+                  <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.waits}>
+                    {waitsFor}
                   </Text>
                 ) : null}
               </View>
-              {answer.note ? (
-                <Text variant="caption" tone="faint" style={styles.answerNote}>
-                  {answer.note}
-                </Text>
-              ) : null}
-              {answer.actions ? <View style={styles.answerActs}>{answer.actions}</View> : null}
-            </Animated.View>
-          ) : ended ? null : (
-            <>
-              {foot}
-              {waitsFor === "you" && expiry ? <View style={styles.expiryRow}>{expiry}</View> : null}
-            </>
-          )}
-        </View>
+            )}
+            {lead ? (
+              <Text variant={well ? "body" : "title"} tone="ink" style={well ? styles.lead : undefined}>
+                <Spans inline={parseInline(lead)} />
+              </Text>
+            ) : null}
+            {/* With a preview, "Ver …" opens the whole in its place; without one, under the name line. */}
+            {preview && !open ? (
+              <View style={[styles.edge, styles.preview, { borderTopColor: c.line }]}>
+                {preview}
+                <LinearGradient pointerEvents="none" colors={[withOpacity(fill, 0), fill]} style={styles.fade} />
+              </View>
+            ) : null}
+            {preview ? opened : null}
+            {line ? (
+              more ? (
+                <Pressable
+                  onPress={toggle}
+                  accessibilityRole="button"
+                  accessibilityHint={more.label}
+                  accessibilityState={{ expanded: open }}
+                  style={({ pressed }) => [
+                    styles.edge,
+                    styles.line,
+                    { borderColor: c.line },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {line}
+                </Pressable>
+              ) : (
+                <View style={[styles.edge, styles.line, { borderColor: c.line }]}>{line}</View>
+              )
+            ) : null}
+            {preview ? null : opened}
+            {body ? <View style={styles.body}>{body}</View> : null}
+            {answer ? (
+              <Animated.View
+                entering={reduced ? undefined : PART_IN}
+                // Under the name line its hairline is enough: no second one.
+                style={[styles.edge, styles.answer, { borderTopColor: c.line }, line && !body ? styles.noTop : null]}
+              >
+                <View style={styles.answerRow}>
+                  <View style={styles.answerMark}>
+                    {answer.done && answer.celebrate ? (
+                      <SparkCheck size={14} color={c.ok} tone={answer.celebrate} />
+                    ) : (
+                      <Icon name={answer.done ? "check" : "x"} size={14} color={answer.done ? c.ok : c.faint} />
+                    )}
+                  </View>
+                  <Text variant="footnote" style={[styles.grow, { color: c.ink2 }]}>
+                    {pillWords(answer.words, c.ink)}
+                  </Text>
+                  {answer.time ? (
+                    <Text variant="caption" tone="faint" numberOfLines={1} style={styles.answerTime}>
+                      {answer.time}
+                    </Text>
+                  ) : null}
+                </View>
+                {answer.note ? (
+                  <Text variant="caption" tone="faint" style={styles.answerNote}>
+                    {answer.note}
+                  </Text>
+                ) : null}
+                {answer.actions ? <View style={styles.answerActs}>{answer.actions}</View> : null}
+              </Animated.View>
+            ) : ended ? null : (
+              <>
+                {foot}
+                {waitsFor === "you" && expiry ? <View style={styles.expiryRow}>{expiry}</View> : null}
+              </>
+            )}
+            {bubbleHead ? (
+              <Text variant="caption" tone="muted" style={styles.bubbleTime}>
+                {bubbleHead.time}
+              </Text>
+            ) : null}
+          </View>
+        </LayoutAnimationConfig>
       </Animated.View>
     </View>
   );
@@ -640,9 +685,11 @@ export function AskNote({
 }) {
   const ownTop = useCardTop(12);
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const surface = useSurface();
-  const reduced = useReducedMotion();
+  const part = useBubblePart();
+  const cardCorners = useMessageCardCorners();
+  const entering = useEntrance(CARD_IN);
   const heading = (
     <Text variant="body" tone="ink" style={styles.semibold}>
       {title}
@@ -650,15 +697,17 @@ export function AskNote({
   );
   return (
     <View style={ownTop}>
-      <Animated.View entering={reduced ? undefined : FadeIn.duration(300)} style={[styles.card, surface]}>
-        <View style={styles.clip}>
-          <Sky
-            color={agentLook(dir.agentById.get(agentId)).color}
-            depth={0.55}
-            fade={0.15}
-            surface="raised"
-            style={styles.sky}
-          />
+      <Animated.View entering={entering} style={[styles.card, surface, cardCorners]}>
+        <View style={[styles.clip, cardCorners]}>
+          {part ? null : (
+            <Sky
+              color={agentLook(dir.agentById.get(agentId)).color}
+              depth={0.55}
+              fade={0.15}
+              surface="raised"
+              style={styles.sky}
+            />
+          )}
           {hint ? (
             <InfoHint name={t("common.about", { label: title })} text={hint} variant="body">
               {heading}
@@ -759,10 +808,10 @@ export function AskDone({
   const ownTop = useOwnTop(8);
   const c = useColors();
   const reduced = useReducedMotion();
+  const entering = useEntrance(PILL_IN);
   const [open, setOpen] = useState(false);
-  // A card turning into this pill fades into it (an old one fades as it scrolls in, as the cards do).
   return (
-    <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={[styles.done, ownTop]}>
+    <Animated.View entering={entering} style={[styles.done, ownTop]}>
       <EventPill
         mark={done && celebrate ? <SparkCheck size={14} color={c.ok} tone={celebrate} /> : done ? "check" : "x"}
         markColor={done ? c.ok : c.faint}
@@ -775,7 +824,7 @@ export function AskDone({
         ]}
         below={
           more && open ? (
-            <Animated.View entering={reduced ? undefined : FadeIn.duration(220)}>
+            <Animated.View entering={reduced ? undefined : PART_IN}>
               {more.card ? more.content : <EventPillText>{more.content}</EventPillText>}
             </Animated.View>
           ) : null
@@ -810,9 +859,9 @@ export function AskWaiting({
 }) {
   const ownTop = useOwnTop(8);
   const c = useColors();
-  const reduced = useReducedMotion();
+  const entering = useEntrance(PILL_IN);
   return (
-    <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={[styles.done, ownTop]}>
+    <Animated.View entering={entering} style={[styles.done, ownTop]}>
       <EventPill
         waiting
         mark={
@@ -850,10 +899,10 @@ function pillWords(words: string, color: string) {
 // ── The bar ──────────────────────────────────────────────────────────────────
 
 /**
- * The line above the composer while a request waits out of view (waiting beats working): the agent's face,
- * the breathing square, "Ada espera sua aprovação · Enviar e-mail", "+1" when more wait, and Ver, which
- * scrolls to it. While one agent works here with its live row out of view, the working line's "Parar" stays at its
- * end (a row on screen carries its own).
+ * The line above the composer while a request waits out of view: the agent's face, the breathing square, "Ada espera
+ * sua aprovação · Enviar e-mail", "+1" when more wait, and Ver, which scrolls to it. While one agent works here, the
+ * working line's "Parar" stays at its end: that line is the conversation's last, out of view with it (a row on screen
+ * carries its own).
  */
 export function AskBar({
   away,
@@ -873,12 +922,11 @@ export function AskBar({
 }) {
   const { t } = useTranslation();
   const dir = useDirectory();
-  const { colors: c, shadows } = useTheme();
+  const { colors: c } = useTheme();
   const reduced = useReducedMotion();
   const { ask, more } = away;
   const agent = dir.agentById.get(ask.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
-  const color = agentLook(agent).color;
   const what = ask.what.replace(/\s+/g, " ").trim();
   // The name is marked to draw in ink; the string's own tags only say where it goes.
   const sentence = t(`ask.bar.${ask.kind}`, {
@@ -897,12 +945,8 @@ export function AskBar({
   const see = onSee;
   return (
     <View style={styles.dock}>
-      <Animated.View
-        entering={reduced ? undefined : FadeIn.duration(160)}
-        style={[styles.pill, { backgroundColor: c.glassSolid, boxShadow: `${shadows.e1}, ${shadows.top}` }]}
-      >
-        <Sky color={color} surface="raised" depth={0.95} fade={0} style={[StyleSheet.absoluteFill, styles.band]} />
-        <View style={[styles.tok, { backgroundColor: c.glassSolid }]}>
+      <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={styles.pill}>
+        <View style={[styles.tok, { backgroundColor: c.bg }]}>
           <AgentFace agentId={ask.agentId} size={18} mode="idle" />
         </View>
         <WaitMark />
@@ -910,6 +954,8 @@ export function AskBar({
           onPress={see}
           accessibilityRole="button"
           accessibilityLabel={`${plain}. ${t("ask.bar.see")}`}
+          // The 28-point pill: the slop gives its words the 44 a finger needs.
+          hitSlop={BAR_SLOP}
           style={({ pressed }) => [styles.words, pressed && styles.pressed]}
         >
           {/* The name in ink, what it waits for in amber: the one state the app colors, "espera você". */}
@@ -970,35 +1016,24 @@ export function WaitingHereBar({
 }) {
   const { t } = useTranslation();
   const dir = useDirectory();
-  const { colors: c, shadows } = useTheme();
+  const { colors: c } = useTheme();
   const reduced = useReducedMotion();
   const agent = agentId ? dir.agentById.get(agentId) : undefined;
   const words = t("ask.bar.here", { count });
   return (
     <View style={styles.dock}>
-      <Animated.View
-        entering={reduced ? undefined : FadeIn.duration(160)}
-        style={[styles.pill, { backgroundColor: c.glassSolid, boxShadow: `${shadows.e1}, ${shadows.top}` }]}
-      >
+      <Animated.View entering={reduced ? undefined : FadeIn.duration(160)} style={styles.pill}>
         {agent ? (
-          <>
-            <Sky
-              color={agentLook(agent).color}
-              surface="raised"
-              depth={0.95}
-              fade={0}
-              style={[StyleSheet.absoluteFill, styles.band]}
-            />
-            <View style={[styles.tok, { backgroundColor: c.glassSolid }]}>
-              <AgentFace agentId={agent.id} size={18} mode="idle" />
-            </View>
-          </>
+          <View style={[styles.tok, { backgroundColor: c.bg }]}>
+            <AgentFace agentId={agent.id} size={18} mode="idle" />
+          </View>
         ) : null}
         <WaitMark />
         <Pressable
           onPress={onSee}
           accessibilityRole="button"
           accessibilityLabel={`${words}. ${t("ask.bar.see")}`}
+          hitSlop={BAR_SLOP}
           style={({ pressed }) => [styles.words, pressed && styles.pressed]}
         >
           <Text
@@ -1032,6 +1067,9 @@ export function WaitingHereBar({
   );
 }
 
+/** The bar's pill is 28 tall: 8 above and below reach the 44-point target. */
+const BAR_SLOP = { top: 8, bottom: 8 };
+
 const styles = StyleSheet.create({
   // The app's card (`useSurface`) with its cut corner at the bottom left, as the waiting cards.
   card: { borderRadius: 20, borderBottomLeftRadius: 6 },
@@ -1043,6 +1081,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 8,
   },
+  // A bubble's name line at the card's top, and its time at the end (`BubbleHeadContext`).
+  bubbleHead: { marginBottom: 2 },
+  bubbleTime: { alignSelf: "flex-end", fontVariant: ["tabular-nums"], marginTop: -2 },
   // Across the top, at half strength, under the kind line (as `WaitingCard`).
   sky: { position: "absolute", top: 0, left: 0, right: 0, height: 56, opacity: 0.5 },
   head: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
@@ -1066,8 +1107,8 @@ const styles = StyleSheet.create({
   lineMore: { flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginLeft: 30, height: 22 },
   // Under the title, on its column (the mark and its gap), to the card's edge.
   lineDetail: { marginLeft: 30, marginTop: 1 },
-  // The deadline at the foot's end, right-aligned under the decision.
-  expiryRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 10 },
+  // The deadline under the decision, from the card's edge as everything in it: never floating at the other end.
+  expiryRow: { flexDirection: "row", marginTop: 10 },
   pressed: { opacity: 0.7 },
   flip: { transform: [{ rotate: "180deg" }] },
   exact: { gap: 10, paddingVertical: 12 },
@@ -1092,8 +1133,8 @@ const styles = StyleSheet.create({
   done: { alignSelf: "stretch" },
   // The breathing square centered in the pill's 14-point mark.
   waitMark: { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
-  // The bar: the working line's shape and width (WorkingLine, the composer's edges), so one replaces the other
-  // without moving.
+  // The bar: the working line's shape and width (WorkingLine, the composer's edges), bare as it is, so one replaces
+  // the other without moving.
   dock: { paddingBottom: 6 },
   pill: {
     flexDirection: "row",
@@ -1104,7 +1145,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: "hidden",
   },
-  band: { opacity: 0.55 },
   tok: { padding: 1.5, borderRadius: 7 },
   words: { flex: 1, minWidth: 0 },
   sep: { width: StyleSheet.hairlineWidth * 2, height: 16, marginHorizontal: 2 },

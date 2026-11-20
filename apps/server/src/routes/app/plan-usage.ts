@@ -14,6 +14,9 @@ const PlanAccountInfo = z.object({
   kind: AccountKind,
   accountId: z.uuid().nullable().openapi({ description: "Null: the computer's own sign-in." }),
   label: z.string().nullable().openapi({ description: "Null for the computer's own sign-in." }),
+  named: z
+    .boolean()
+    .openapi({ description: "Its owner gave it its name; false: the automatic one, shown by its email." }),
   plan: z.string().nullable(),
   provider: z.string().nullable().openapi({ description: "A key account's coding plan (`zai`, `kimi`…)." }),
   ownerName: z.string().nullable().openapi({
@@ -42,6 +45,25 @@ const PlanAccountUsage = PlanAccountInfo.extend({
     .openapi({ description: "The plan's windows as last reported; null: not known yet." }),
   agents: z.array(z.object({ agentId: z.uuid(), name: z.string(), tokens: z.number(), now: z.boolean() })),
   monthTokens: z.number(),
+  kinds: z
+    .array(
+      z.object({
+        kind: z.enum(["handoffs", "people", "routines"]),
+        tokens: z.number(),
+        percent: z.number().nullable(),
+      }),
+    )
+    .openapi({
+      description:
+        "This month's tokens by what they were for: work one agent handed another, people's conversations, routines. `percent`: the kind's estimated part of the window the agents' list splits (the week, else the first with parts); null: none has parts.",
+    }),
+  hint: z
+    .object({ kind: z.literal("handoffs"), agentId: z.uuid() })
+    .nullable()
+    .openapi({
+      description:
+        "Handoffs between agents led the week with at least 30 points: the agent that took most of the handed work, which the caller may message.",
+    }),
   equivalentUsd: z
     .number()
     .nullable()

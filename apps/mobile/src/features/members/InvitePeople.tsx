@@ -96,7 +96,8 @@ const ADDRESS_PENDING = "…\n\u00a0\n\u00a0";
  * Convidar pessoas (ADR 0090 §5, 0184), the web's one-screen dialog as a pushed screen: E-mail or Link on top, then
  * the same fields under both, each label over its field: Para (by e-mail), Cargo, Canais and Agentes, the cargos
  * bringing their own channels and agents. A server that sends no email invites through links only. A personal
- * workspace first asks who they are (ADR 0159 §4, `WhoQuestion`) and says each cargo in its plain words.
+ * workspace first asks who they are (ADR 0159 §4, `WhoQuestion`) on a screen of its own: "Family or friends" pushes the
+ * form over it (`?family=1`, the same address with what opened it), so the system's back returns to the question.
  */
 export function InvitePeopleScreen() {
   const { t } = useTranslation();
@@ -104,8 +105,9 @@ export function InvitePeopleScreen() {
   const held = usePlanHold(orgId, org) !== null;
   const allowed = can(org, "invite_people");
   const personal = isPersonal(org);
-  // Family or friends, in a personal workspace: asked once each time this screen opens (ADR 0159 §4).
-  const [family, setFamily] = useState(false);
+  const params = useLocalSearchParams<{ emails?: string; channel?: string; role?: string; family?: string }>();
+  // Family or friends, in a personal workspace: the form's own step, pushed over the question (ADR 0159 §4).
+  const family = params.family === "1";
   if (!allowed)
     return (
       <Page title={t("members.inviteTitle")}>
@@ -123,11 +125,24 @@ export function InvitePeopleScreen() {
         </GroupedFooter>
       </Page>
     );
-  if (personal && !family) return <WhoQuestion onFamily={() => setFamily(true)} />;
-  return <InviteForm />;
+  if (personal && !family)
+    return (
+      <WhoQuestion
+        onFamily={() => router.push({ pathname: "/invite-people", params: { ...forwarded(params), family: "1" } })}
+      />
+    );
+  return <InviteForm family={family} />;
 }
 
-function InviteForm() {
+/** What opened the invitation (an agent's card's addresses, a channel, a cargo), carried on to the form's step. */
+const forwarded = (p: { emails?: string; channel?: string; role?: string }) => ({
+  ...(p.emails ? { emails: p.emails } : {}),
+  ...(p.channel ? { channel: p.channel } : {}),
+  ...(p.role ? { role: p.role } : {}),
+});
+
+/** `family`: pushed over the personal workspace's question, so sending leaves both screens. */
+function InviteForm({ family }: { family: boolean }) {
   const { t, i18n } = useTranslation();
   const { orgId } = useOrg();
   const c = useColors();
@@ -251,7 +266,9 @@ function InviteForm() {
       setTyped("");
       if (left.length === 0) {
         leaving.current = true;
-        goBack();
+        // Sent: the whole flow goes, the question under the form included (never back onto it).
+        if (family && router.canDismiss()) router.dismiss(2);
+        else goBack();
       }
     } catch (e) {
       // The form stays as it was, to send again.
@@ -505,7 +522,8 @@ function LinkMode({
                 onPress={() =>
                   shown
                     ? void copyText(shown.url).then((ok) => {
-                        if (!ok) return;
+                        // A copy the system refused says so, never a row that did nothing.
+                        if (!ok) return toast({ title: t("mobile.app.failed"), icon: "x" });
                         successHaptic();
                         setCopied(true);
                       })

@@ -6,6 +6,7 @@ import {
   can,
   decideProposal,
   editContextItem,
+  editorDecides,
   ForbiddenError,
   getAgent,
   isHowTo,
@@ -194,7 +195,10 @@ const Proposal = z
       .boolean()
       .openapi({ description: "What it was made against changed since (or its agent left); it can't be accepted." }),
     decider: z.union([
-      z.object({ type: z.literal("user"), userId: z.string(), name: z.string() }),
+      z.object({ type: z.literal("user"), userId: z.string(), name: z.string() }).openapi({
+        description:
+          "The agent's owner, besides who manages it: its instructions, role and skills (who edits it decides them, ADR 0085 addendum of 2026-11-17), or access it only loses.",
+      }),
       z.object({ type: z.literal("admins") }),
       z
         .object({ type: z.literal("account_owner") })
@@ -475,8 +479,10 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
             ? ("pending" as const)
             : ("refused" as const),
       stale: r.status === "stale",
+      // Its owner decides it beside who manages it (`ownerDecides`), or as who edits it (`editorDecides`, ADR 0085
+      // addendum of 2026-11-17): the apps name them.
       decider:
-        ownerDecides(r) && owner
+        (ownerDecides(r) || editorDecides(r)) && owner
           ? { type: "user" as const, userId: owner, name: users.get(owner) ?? "" }
           : r.target === "agent_settings" && settingsGroup(r) === "account"
             ? { type: "account_owner" as const }
@@ -614,10 +620,10 @@ export function memoryRoutes(deps: AppDeps) {
       await requirePermission(db, viewerId, orgId, "read");
       if (!(await getAgent(db, orgId, agentId))) throw new NotFoundError("Agent not found");
       // Only what the viewer may see: items learned in a DM or private channel they can't read stay out.
-      const { items: rows, visible } = await listAgentMemoryRows(db, viewerId, orgId, agentId);
-      const current = rows
-        .filter((r) => !r.supersededBy)
-        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.getTime() - a.updatedAt.getTime());
+      const { items: rows, visible } = await listAgentMemoryRows(db, viewerId, orgId, agentId, { current: true });
+      const current = rows.sort(
+        (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.getTime() - a.updatedAt.getTime(),
+      );
       if (c.req.valid("query").about !== "me") {
         const views = await memoryViews(db, current, visible);
         const rules = new Map(current.filter((i) => i.kind === "rule").map((i) => [i.id, i]));

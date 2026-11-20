@@ -6,7 +6,7 @@ import { Alert, AppState } from "react-native";
 import { lastCookie, readCookie } from "@/lib/auth";
 import { serverUrl } from "@/lib/server";
 import { createSocketFactory } from "@/lib/socket";
-import { useOrgMaybe } from "./org";
+import { useOrgIdMaybe } from "./org";
 
 export interface RealtimeState {
   /** The organization's WebSocket (null while signed out, without an organization, or in the background). */
@@ -22,8 +22,7 @@ const RealtimeContext = createContext<RealtimeState>({ connection: null, status:
  * after a reconnect the screens' data is refetched (realtime is best effort, the database is the truth).
  */
 export function RealtimeProvider({ children }: { children: ReactNode }) {
-  const org = useOrgMaybe();
-  const orgId = org?.orgId ?? null;
+  const orgId = useOrgIdMaybe();
   const queryClient = useQueryClient();
   const { i18n } = useTranslation();
   const [active, setActive] = useState(AppState.currentState === "active");

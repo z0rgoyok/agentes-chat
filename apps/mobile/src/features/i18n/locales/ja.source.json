@@ -29,9 +29,6 @@
   "categories.none": {
     "value": "No categories yet."
   },
-  "categories.manageHelp": {
-    "value": "Tap a category to rename it, move it or delete it."
-  },
   "categories.manageHint": {
     "value": "Order, names and delete"
   },
@@ -55,9 +52,6 @@
   },
   "categories.itsChannels": {
     "value": "Channels"
-  },
-  "categories.seeAll": {
-    "value": "See all"
   },
   "blocks.send": {
     "value": "Send"
@@ -455,23 +449,14 @@
   "chats.serverError.kept": {
     "value": "Showing what was already in the app."
   },
-  "chats.section.agents": {
-    "value": "Agents"
+  "chats.pinned": {
+    "value": "Pinned"
   },
-  "chats.section.channels": {
-    "value": "Channels"
+  "chats.recent": {
+    "value": "Recent"
   },
-  "chats.section.people": {
-    "value": "People"
-  },
-  "chats.seeAll.agents": {
-    "value": "See all agents"
-  },
-  "chats.seeAll.channels": {
-    "value": "See all channels"
-  },
-  "chats.seeAll.people": {
-    "value": "See all people"
+  "chats.seeAll": {
+    "value": "See all chats"
   },
   "chats.wait.verb.approval": {
     "value": "needs your ok"
@@ -601,12 +586,6 @@
   },
   "chats.swipe.unmute": {
     "value": "Unmute"
-  },
-  "chats.firstRunLine": {
-    "value": "{{name}} is setting up the team · {{done}} of {{total}}"
-  },
-  "chats.firstRunLinePersonal": {
-    "value": "{{name}} is setting up your agents · {{done}} of {{total}}"
   },
   "chats.first.title": {
     "value": "Start with your first agent"
@@ -842,6 +821,9 @@
       "other": "replies"
     }
   },
+  "chat.dayAt": {
+    "value": "{{day}} {{time}}"
+  },
   "chat.thread": {
     "value": "Thread"
   },
@@ -860,11 +842,32 @@
       "other": "{{count}} here"
     }
   },
+  "chat.membersAdd": {
+    "value": "Add"
+  },
+  "chat.membersAdded": {
+    "value": {
+      "one": "{{count}} added to #{{channel}}",
+      "other": "{{count}} added to #{{channel}}"
+    }
+  },
+  "chat.memberRemoved": {
+    "value": "{{name}} is out of #{{channel}}"
+  },
+  "chat.muted": {
+    "value": "#{{channel}} muted"
+  },
+  "chat.unmuted": {
+    "value": "#{{channel}} unmuted"
+  },
   "chat.headerAgent": {
     "value": "{{who}}. Open the profile"
   },
   "chat.headerChannel": {
     "value": "{{who}}. Options"
+  },
+  "chat.headerMembers": {
+    "value": "{{who}}. See who is here"
   },
   "chat.switchHint": {
     "value": "Hold to switch conversations"
@@ -928,12 +931,6 @@
   },
   "chat.steer.resolved": {
     "value": "{{name}} closed the help request"
-  },
-  "chat.steer.well": {
-    "value": "Read your note"
-  },
-  "chat.steer.wellNow": {
-    "value": "Stopped to read your note"
   },
   "chat.stopped.byYou": {
     "value": "Stopped here"
@@ -1073,9 +1070,6 @@
   "chat.react": {
     "value": "React"
   },
-  "chat.attach.more": {
-    "value": "Add another photo or file"
-  },
   "chat.attach.remove": {
     "value": "Remove {{name}}"
   },
@@ -1085,26 +1079,17 @@
   "chat.attach.sending": {
     "value": "{{name}}, sending"
   },
+  "chat.attach.failed": {
+    "value": "{{name}}, didn't go: send to try again"
+  },
+  "chat.attach.preparing": {
+    "value": "Getting the files ready…"
+  },
   "chat.attach.tooMany": {
     "value": "Up to {{count}} files per message."
   },
   "chat.swipeReply": {
     "value": "Swipe right to reply"
-  },
-  "chat.intent.suggest.merge": {
-    "value": "Go ahead and merge"
-  },
-  "chat.intent.suggest.review": {
-    "value": "Ask {{name}} to review first"
-  },
-  "chat.intent.suggest.seeChange": {
-    "value": "Show me what changed"
-  },
-  "chat.intent.suggest.summarize": {
-    "value": "Sum it up in 3 points"
-  },
-  "chat.intent.suggest.nextStep": {
-    "value": "What's the next step?"
   },
   "chat.intent.arrived": {
     "value": "{{name}} joined the team"
@@ -1322,12 +1307,6 @@
   "plus.noCamera": {
     "value": "No camera access. Allow it in the phone's Settings."
   },
-  "plus.mission": {
-    "value": "Start a mission"
-  },
-  "plus.missionHint": {
-    "value": "Long work, with a plan, from start to finish"
-  },
   "plus.summary": {
     "value": "Sum up the chat"
   },
@@ -1399,9 +1378,6 @@
   },
   "remind.submit": {
     "value": "Remind me at this time"
-  },
-  "remind.quick": {
-    "value": "See quick times"
   },
   "remind.done": {
     "value": "Reminder set"
@@ -1543,6 +1519,9 @@
   },
   "newMission.placeholder": {
     "value": "What needs to get done?"
+  },
+  "newMission.who": {
+    "value": "Who does it"
   },
   "newMission.submit": {
     "value": "Ask for a plan"
@@ -1917,7 +1896,7 @@
     "value": "Changes saved"
   },
   "agentEdit.adminsOnly": {
-    "value": "Only admins change the name, role and instructions."
+    "value": "Only whoever can edit this agent changes its role and instructions. Its name, only admins."
   },
   "agentEdit.discardTitle": {
     "value": "Discard your changes?"
@@ -1930,15 +1909,6 @@
   },
   "agentEdit.keepEditing": {
     "value": "Keep editing"
-  },
-  "newAgent.leaveTitle": {
-    "value": "Leave without creating?"
-  },
-  "newAgent.leaveText": {
-    "value": "The agent you started won't be created."
-  },
-  "newAgent.keepGoing": {
-    "value": "Keep creating"
   },
   "newAgent.identityQuestion": {
     "value": "Who is the agent?"
@@ -1955,9 +1925,6 @@
   "newAgent.handleFromNameEmpty": {
     "value": "Its @ in the chat comes from the name."
   },
-  "newAgent.reviewLead": {
-    "value": "Tap a line to change it."
-  },
   "newAgent.planHint": {
     "value": "Or connect your AI plan: {{name}} then thinks with it, without spending the key.",
     "female": "Or connect your AI plan: {{name}} then thinks with it, without spending the key."
@@ -1972,10 +1939,10 @@
     "value": "In OpenMausBot: right-click the team › Share team… › Save file. Then pick that file here."
   },
   "newAgent.import.where.hermes": {
-    "value": "Hermes exports from a terminal (hermes profile export), as a .tar.gz the phone can't open. Import it on the computer, or pick the profile's .md and .yaml files here."
+    "value": "Hermes exports from a terminal (`hermes profile export`), as a .tar.gz the phone can't open. Import it on the computer, or pick the profile's .md and .yaml files here."
   },
   "newAgent.import.where.openclaw": {
-    "value": "OpenClaw keeps agents in the ~/.openclaw folder on the computer. Pick a workspace's .md files here, or import the whole folder on the computer."
+    "value": "OpenClaw keeps agents in the `~/.openclaw` folder on the computer. Pick a workspace's .md files here, or import the whole folder on the computer."
   },
   "newAgent.import.where.paperclip": {
     "value": "Paste the package's GitHub link below, or pick its COMPANY.md and the other .md files."
@@ -2006,9 +1973,6 @@
   },
   "newAgent.import.also": {
     "value": "Also comes along"
-  },
-  "newAgent.import.change": {
-    "value": "Change"
   },
   "newAgent.import.arrived": {
     "value": {
@@ -2072,6 +2036,13 @@
   },
   "agent.taskSent": {
     "value": "Task sent"
+  },
+  "agent.brakes.forgetTitle": {
+    "value": "Forget these answers?"
+  },
+  "agent.brakes.forgetText": {
+    "value": "{{name}} asks again before this kind of work.",
+    "female": "{{name}} asks again before this kind of work."
   },
   "activity.title": {
     "value": "Activity"
@@ -2763,7 +2734,7 @@
     "value": "You're in"
   },
   "me.workspacesFoot": {
-    "value": "You stay signed in to each one and get notifications from all of them. Tap a workspace to open it."
+    "value": "You stay signed in to each one and get notifications from all of them."
   },
   "me.workspacesUnreachable": {
     "value": "No answer right now"
@@ -2987,14 +2958,23 @@
   "files.type.text": {
     "value": "Text"
   },
+  "files.type.spreadsheet": {
+    "value": "Spreadsheet"
+  },
+  "files.type.slides": {
+    "value": "Presentation"
+  },
+  "files.type.canvas": {
+    "value": "Canvas"
+  },
   "files.type.file": {
     "value": "File"
   },
   "files.more": {
     "value": "More options"
   },
-  "files.send": {
-    "value": "Send"
+  "files.sendCopy": {
+    "value": "Send a copy"
   },
   "files.savePhotos": {
     "value": "Save to Photos"
@@ -3035,6 +3015,9 @@
   "files.next": {
     "value": "Next picture"
   },
+  "files.noPreviewTitle": {
+    "value": "No preview"
+  },
   "files.noPreview": {
     "value": "This file doesn't open in the app. Send it to another app to open it."
   },
@@ -3061,6 +3044,9 @@
   },
   "files.video.open": {
     "value": "Open"
+  },
+  "files.video.cantPlay": {
+    "value": "This video can't play on this phone."
   },
   "issues.title": {
     "value": "Tasks"
@@ -3287,14 +3273,20 @@
   "drive.search": {
     "value": "Search the Drive"
   },
-  "drive.types": {
-    "value": "File types"
-  },
   "drive.type.all": {
     "value": "All"
   },
   "drive.type.documents": {
     "value": "Documents"
+  },
+  "drive.type.spreadsheets": {
+    "value": "Spreadsheets"
+  },
+  "drive.type.presentations": {
+    "value": "Presentations"
+  },
+  "drive.type.canvases": {
+    "value": "Canvases"
   },
   "drive.type.images": {
     "value": "Images"
@@ -3323,6 +3315,15 @@
   "drive.kind.image": {
     "value": "Image"
   },
+  "drive.kind.spreadsheet": {
+    "value": "Spreadsheet"
+  },
+  "drive.kind.slides": {
+    "value": "Presentation"
+  },
+  "drive.kind.canvas": {
+    "value": "Canvas"
+  },
   "drive.kind.file": {
     "value": "File"
   },
@@ -3331,9 +3332,6 @@
   },
   "drive.noResults": {
     "value": "Nothing with these filters."
-  },
-  "drive.loadFailed": {
-    "value": "Couldn't load the Drive."
   },
   "drive.more": {
     "value": "Show more"
@@ -3502,12 +3500,6 @@
   },
   "wiki.openExisting": {
     "value": "Open the page"
-  },
-  "routines.loadFailed": {
-    "value": "Couldn't load the routines."
-  },
-  "routines.anyAgent": {
-    "value": "All agents"
   },
   "routines.create": {
     "value": "Create"
@@ -4106,41 +4098,14 @@
   "outage.cloudSub": {
     "value": "We're on it"
   },
-  "browser.card.needs": {
-    "value": "{{name}} needs help"
-  },
-  "browser.card.needsFor": {
-    "value": "{{name}} needs help · {{time}}"
-  },
-  "browser.card.inControlAt": {
-    "value": "You're in control · {{host}}"
-  },
-  "browser.card.doing": {
-    "value": "{{name}} · {{doing}}"
-  },
-  "browser.card.startingF": {
-    "value": "Opening {{name}}'s browser…"
-  },
-  "browser.card.startingM": {
-    "value": "Opening {{name}}'s browser…"
-  },
   "browser.card.stopAskF": {
     "value": "Close {{name}}'s browser?"
   },
   "browser.card.stopAskM": {
     "value": "Close {{name}}'s browser?"
   },
-  "browser.card.whereF": {
-    "value": "In {{name}}'s browser"
-  },
-  "browser.card.whereM": {
-    "value": "In {{name}}'s browser"
-  },
   "browser.card.open": {
     "value": "Open"
-  },
-  "browser.card.expandHint": {
-    "value": "Tap to expand"
   },
   "browser.card.stop": {
     "value": "Stop"
@@ -4156,9 +4121,6 @@
   },
   "browser.live.watchOnly": {
     "value": "{{name}} is in control. You're only watching."
-  },
-  "browser.live.takeOver": {
-    "value": "Take over"
   },
   "browser.live.done": {
     "value": "Done"
@@ -4219,9 +4181,6 @@
   },
   "browser.live.stuckHelpM": {
     "value": "Try again restarts the browser. Logins stay saved."
-  },
-  "browser.live.hidden": {
-    "value": "{{name}} is in control · screen hidden"
   },
   "browser.live.key.Tab": {
     "value": "Tab"
@@ -4423,6 +4382,9 @@
   },
   "devices.reason.xcode_too_old": {
     "value": "Xcode is too old for this iPhone"
+  },
+  "devices.reason.ios_behind_xcode": {
+    "value": "Update this iPhone's iOS"
   },
   "devices.reason.device_support": {
     "value": "The Mac is preparing this iPhone"
@@ -4875,7 +4837,7 @@
     "value": "Xcode is signed in but shows no team yet. In Xcode, make any iOS app, pick your team under Signing & Capabilities and run it on this iPhone once."
   },
   "devices.iphone.uiRefused": {
-    "value": "This iPhone refused the test helper's taps. Unlock it and enter its passcode if it asks. If it keeps happening, turn Settings › Developer › Enable UI Automation off and on."
+    "value": "Agents see this iPhone's screen, but iOS refuses their taps."
   },
   "devices.iphone.pluggedIn": {
     "value": "It's plugged in"
@@ -5002,6 +4964,12 @@
   },
   "devices.wait.none": {
     "value": "No other device you can use is ready."
+  },
+  "devices.wait.tried": {
+    "value": "Trying {{device}} again."
+  },
+  "devices.wait.stopped": {
+    "value": "No longer waiting for {{device}}."
   },
   "connectors.title": {
     "value": "Connectors"
@@ -5495,17 +5463,11 @@
   "ai.keyRowSub": {
     "value": "You pay per use, straight to the maker"
   },
-  "ai.already": {
-    "value": "Already at {{org}}"
-  },
   "ai.stepOf": {
     "value": "{{step}} of {{total}}"
   },
   "crash.title": {
     "value": "Something went wrong on this screen"
-  },
-  "crash.subtitle": {
-    "value": "The app hit an error showing this. Try again."
   },
   "crash.retry": {
     "value": "Try again"
@@ -5567,8 +5529,11 @@
   "settings.deleteFailed": {
     "value": "Couldn't delete the workspace. Try again."
   },
-  "settings.access.how": {
-    "value": "Tap a row to change its level: No access, Read, Read and write."
+  "settings.holdReset": {
+    "value": "Hold to reset"
+  },
+  "settings.resetFailed": {
+    "value": "Couldn't reset the workspace. Try again."
   },
   "settings.logo.failed": {
     "value": "Couldn't upload the logo"
@@ -5626,9 +5591,6 @@
   },
   "roles.loadFailed": {
     "value": "Couldn't load the roles. {{cause}}"
-  },
-  "roles.backToList": {
-    "value": "Back to roles"
   },
   "roles.nobody": {
     "value": "Nobody"
@@ -5931,11 +5893,11 @@
     "value": "Turn on Talk to agents"
   },
   "roles.agents.locked": {
-    "value": "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it.",
-    "female": "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it."
+    "value": "Only {{owner}}, who looks after {{name}}, or someone who edits agents changes it.",
+    "female": "Only {{owner}}, who looks after {{name}}, or someone who edits agents changes it."
   },
   "roles.agents.lockedNoOwner": {
-    "value": "Only someone who edits any agent changes it."
+    "value": "Only someone who edits agents changes it."
   },
   "roles.agents.none": {
     "value": "No agents yet."
@@ -6196,7 +6158,7 @@
     "value": "Change value"
   },
   "vault.item.changeHelp": {
-    "value": "Tap Save to keep it. Agents use the new one from then on."
+    "value": "Agents use the new one after you save."
   },
   "vault.item.hidden": {
     "value": "Hidden"
@@ -6247,7 +6209,7 @@
     "value": "ACME_API_KEY"
   },
   "vault.field.keyNameHelp": {
-    "value": "Capital letters, digits and _, like ACME_API_KEY. Agents ask for the key by this name."
+    "value": "Capital letters, digits and _, like `ACME_API_KEY`. Agents ask for the key by this name."
   },
   "vault.field.value": {
     "value": "Value"
@@ -6550,10 +6512,7 @@
     "value": "Written by {{name}} · {{when}}"
   },
   "dashboards.homeRow": {
-    "value": "Only you · your own widgets"
-  },
-  "dashboards.loadFailed": {
-    "value": "Couldn't load the dashboards."
+    "value": "Only you"
   },
   "dashboards.create": {
     "value": "Create"
@@ -6724,7 +6683,7 @@
     "value": "Everything the team makes, in one place"
   },
   "empty.drive.text": {
-    "value": "Reports, tables and files from agents and people stay here, easy to find."
+    "value": "Reports, tables and files from agents and people stay here."
   },
   "empty.drive.viewerTitle": {
     "value": "Find what the team makes"
@@ -6736,7 +6695,7 @@
     "value": "Everything your agents make, in one place"
   },
   "empty.drive.textPersonal": {
-    "value": "Reports, tables and files from your agents stay here, easy to find."
+    "value": "Reports, tables and files from your agents stay here."
   },
   "empty.drive.viewerTitlePersonal": {
     "value": "Find what your agents make"
@@ -6880,7 +6839,7 @@
     "value": "When someone joins, they show up here."
   },
   "empty.chat.title": {
-    "value": "It all starts with a message"
+    "value": "Start the conversation"
   },
   "empty.chat.text": {
     "value": "Write below and everyone here sees it."
@@ -6961,10 +6920,10 @@
     "value": "Add a widget, ask an agent for one or pin a block from the chat."
   },
   "empty.board.viewerTitle": {
-    "value": "This board is taking shape"
+    "value": "Widgets show up here"
   },
   "empty.board.viewerText": {
-    "value": "Whoever edits this board adds the widgets, and they show up here."
+    "value": "Whoever edits this board adds them."
   },
   "empty.computers.title": {
     "value": "Bring another computer to your agents"
@@ -6979,7 +6938,7 @@
     "value": "Whoever connects computers adds them, and they show up here."
   },
   "empty.connectors.title": {
-    "value": "Give your agents real tools"
+    "value": "Give your agents tools"
   },
   "empty.connectors.text": {
     "value": "Connect a service and they start reading and acting in it."
@@ -6995,5 +6954,530 @@
   },
   "empty.audit.text": {
     "value": "When an agent does something outside the conversation, it shows up here."
+  },
+  "live.status.opening": {
+    "value": "Opening…"
+  },
+  "live.status.saved": {
+    "value": "Saved"
+  },
+  "live.status.saving": {
+    "value": "Saving…"
+  },
+  "live.status.offline": {
+    "value": "No connection"
+  },
+  "live.status.offlineKept": {
+    "value": "No connection · changes kept on this phone"
+  },
+  "live.status.readOnly": {
+    "value": "Read-only"
+  },
+  "live.closed.missing": {
+    "value": "This file doesn't exist or wasn't shared with you"
+  },
+  "live.closed.signedOut": {
+    "value": "Sign in again to open this file"
+  },
+  "live.closed.broken": {
+    "value": "This file can't be opened in the app"
+  },
+  "live.closed.toDrive": {
+    "value": "Back to the Drive"
+  },
+  "live.menu.undo": {
+    "value": "Undo"
+  },
+  "live.menu.redo": {
+    "value": "Redo"
+  },
+  "live.here.title": {
+    "value": "Who's here"
+  },
+  "live.here.faces": {
+    "value": {
+      "one": "{{count}} more here. See who",
+      "other": "{{count}} more here. See who"
+    }
+  },
+  "live.here.group.editing": {
+    "value": "Editing"
+  },
+  "live.here.group.viewing": {
+    "value": "Looking"
+  },
+  "live.here.editing": {
+    "value": "editing"
+  },
+  "live.here.viewing": {
+    "value": "viewing"
+  },
+  "live.here.editingAt": {
+    "value": "editing {{where}}"
+  },
+  "live.here.viewingAt": {
+    "value": "on {{where}}"
+  },
+  "live.here.editingSlide": {
+    "value": "editing slide {{n}}"
+  },
+  "live.here.onSlide": {
+    "value": "on slide {{n}}"
+  },
+  "live.here.editingShapes": {
+    "value": {
+      "one": "editing {{count}} item",
+      "other": "editing {{count}} items"
+    }
+  },
+  "live.here.followingName": {
+    "value": "Following {{name}}"
+  },
+  "live.here.stop": {
+    "value": "Stop"
+  },
+  "live.here.alone": {
+    "value": "Only you are here now"
+  },
+  "live.here.aloneHint": {
+    "value": "Whoever opens this file shows up here, with what they're doing."
+  },
+  "live.card.sheets": {
+    "value": {
+      "one": "{{count}} sheet",
+      "other": "{{count}} sheets"
+    }
+  },
+  "live.card.slides": {
+    "value": {
+      "one": "{{count}} slide",
+      "other": "{{count}} slides"
+    }
+  },
+  "live.card.shapes": {
+    "value": {
+      "one": "{{count}} item",
+      "other": "{{count}} items"
+    }
+  },
+  "live.sheet.edit": {
+    "value": "Edit"
+  },
+  "live.sheet.editHint": {
+    "value": "Type into this cell"
+  },
+  "live.sheet.editing": {
+    "value": "Editing {{cell}}"
+  },
+  "live.sheet.placeholder": {
+    "value": "Type a value or ="
+  },
+  "live.sheet.empty": {
+    "value": "Empty"
+  },
+  "live.sheet.cancel": {
+    "value": "Leave it as it was"
+  },
+  "live.sheet.done": {
+    "value": "Done"
+  },
+  "live.sheet.typeKey": {
+    "value": "Type {{key}}"
+  },
+  "live.sheet.stats": {
+    "value": "Sum {{sum}} · Average {{average}} · Count {{count}}"
+  },
+  "live.sheet.countOnly": {
+    "value": "Count {{count}}"
+  },
+  "live.sheet.cantDo": {
+    "value": "That can't be done here"
+  },
+  "live.sheet.copied": {
+    "value": "Copied"
+  },
+  "live.sheet.newSheet": {
+    "value": "New sheet"
+  },
+  "live.sheet.sheetWord": {
+    "value": "Sheet"
+  },
+  "live.sheet.duplicateSheet": {
+    "value": "Duplicate sheet"
+  },
+  "live.sheet.copyOf": {
+    "value": "{{name}} (copy)"
+  },
+  "live.sheet.deleteSheet": {
+    "value": "Delete sheet"
+  },
+  "live.sheet.deleteSheetTitle": {
+    "value": "Delete {{name}}?"
+  },
+  "live.sheet.deleteSheetText": {
+    "value": "Everything in this sheet goes for everyone in the file. Undo brings it back."
+  },
+  "live.sheet.menu.copy": {
+    "value": "Copy"
+  },
+  "live.sheet.menu.paste": {
+    "value": "Paste"
+  },
+  "live.sheet.menu.clear": {
+    "value": "Clear"
+  },
+  "live.sheet.menu.rowsAbove": {
+    "value": {
+      "one": "Insert a row above",
+      "other": "Insert {{count}} rows above"
+    }
+  },
+  "live.sheet.menu.rowsBelow": {
+    "value": {
+      "one": "Insert a row below",
+      "other": "Insert {{count}} rows below"
+    }
+  },
+  "live.sheet.menu.colsLeft": {
+    "value": {
+      "one": "Insert a column to the left",
+      "other": "Insert {{count}} columns to the left"
+    }
+  },
+  "live.sheet.menu.colsRight": {
+    "value": {
+      "one": "Insert a column to the right",
+      "other": "Insert {{count}} columns to the right"
+    }
+  },
+  "live.sheet.menu.sortUp": {
+    "value": "Sort A to Z"
+  },
+  "live.sheet.menu.sortDown": {
+    "value": "Sort Z to A"
+  },
+  "live.sheet.menu.deleteRows": {
+    "value": {
+      "one": "Delete the row",
+      "other": "Delete {{count}} rows"
+    }
+  },
+  "live.sheet.menu.deleteCols": {
+    "value": {
+      "one": "Delete the column",
+      "other": "Delete {{count}} columns"
+    }
+  },
+  "live.sheet.problem.empty": {
+    "value": "Type something after ="
+  },
+  "live.sheet.problem.unexpected": {
+    "value": "Something is off near {{text}}"
+  },
+  "live.sheet.problem.paren": {
+    "value": "A parenthesis isn't closed"
+  },
+  "live.sheet.problem.quote": {
+    "value": "A quote isn't closed"
+  },
+  "live.sheet.problem.sheetQuote": {
+    "value": "A sheet name's quote isn't closed"
+  },
+  "live.sheet.problem.operand": {
+    "value": "A value is missing beside a sign"
+  },
+  "live.sheet.problem.array": {
+    "value": "This list of values isn't complete"
+  },
+  "live.sheet.problem.range": {
+    "value": "This range isn't valid"
+  },
+  "live.sheet.problem.sheet": {
+    "value": "There's no sheet called {{text}}"
+  },
+  "live.sheet.problem.args": {
+    "value": "{{fn}} has the wrong number of values"
+  },
+  "live.sheet.problem.tooLong": {
+    "value": "This is too long for a cell"
+  },
+  "live.sheet.problem.tooDeep": {
+    "value": "This formula has too many levels"
+  },
+  "live.sheet.problem.tooFar": {
+    "value": "This reference goes past the spreadsheet's limit"
+  },
+  "live.sheet.problem.limit": {
+    "value": "The spreadsheet is at its size limit"
+  },
+  "live.sheet.problem.merged": {
+    "value": "Merged cells are in the way"
+  },
+  "live.sheet.problem.failed": {
+    "value": "That didn't work. Try again."
+  },
+  "live.slides.placeholder.title": {
+    "value": "Tap to add a title"
+  },
+  "live.slides.placeholder.text": {
+    "value": "Tap to add text"
+  },
+  "live.slides.placeholder.image": {
+    "value": "Tap to add a photo"
+  },
+  "live.slides.part.title": {
+    "value": "Title"
+  },
+  "live.slides.part.subtitle": {
+    "value": "Subtitle"
+  },
+  "live.slides.part.body": {
+    "value": "Text"
+  },
+  "live.slides.part.caption": {
+    "value": "Caption"
+  },
+  "live.slides.part.number": {
+    "value": "Big number"
+  },
+  "live.slides.part.quote": {
+    "value": "Quote"
+  },
+  "live.slides.part.shape": {
+    "value": "Text in the shape"
+  },
+  "live.slides.part.text": {
+    "value": "Text box"
+  },
+  "live.slides.part.note": {
+    "value": "Note"
+  },
+  "live.slides.openHint": {
+    "value": "Opens the slide"
+  },
+  "live.slides.editHint": {
+    "value": "Edits its words"
+  },
+  "live.slides.place": {
+    "value": "Slide {{n}} of {{count}}"
+  },
+  "live.slides.placeHidden": {
+    "value": "Slide {{n}} of {{count}} · hidden when presenting"
+  },
+  "live.slides.deleteTitle": {
+    "value": "Delete slide {{n}}?"
+  },
+  "live.slides.deleteText": {
+    "value": "It goes for everyone in the file. Undo brings it back."
+  },
+  "live.slides.notesPlaceholder": {
+    "value": "Write what to say on this slide"
+  },
+  "live.slides.pickPhoto": {
+    "value": "Choose a photo"
+  },
+  "live.slides.tools.text": {
+    "value": "Text"
+  },
+  "live.slides.tools.photo": {
+    "value": "Photo"
+  },
+  "live.slides.tools.sending": {
+    "value": "Sending…"
+  },
+  "live.text.title": {
+    "value": "Text"
+  },
+  "live.text.noteTitle": {
+    "value": "Note"
+  },
+  "live.text.done": {
+    "value": "Done"
+  },
+  "live.text.placeholder": {
+    "value": "Type the text"
+  },
+  "live.text.titlePlaceholder": {
+    "value": "Type the title"
+  },
+  "live.text.hint": {
+    "value": "Each line is a paragraph."
+  },
+  "live.show.nothing": {
+    "value": "Every slide is hidden, so there is nothing to show."
+  },
+  "live.show.upright": {
+    "value": "Stand the phone up"
+  },
+  "live.show.sideways": {
+    "value": "Turn the phone sideways"
+  },
+  "live.canvas.tools.label": {
+    "value": "Tools"
+  },
+  "live.canvas.tools.select": {
+    "value": "Select"
+  },
+  "live.canvas.tools.pen": {
+    "value": "Pen"
+  },
+  "live.canvas.tools.shapes": {
+    "value": "Shapes"
+  },
+  "live.canvas.tools.arrow": {
+    "value": "Arrow"
+  },
+  "live.canvas.tools.note": {
+    "value": "Note"
+  },
+  "live.canvas.tools.text": {
+    "value": "Text"
+  },
+  "live.canvas.tools.photo": {
+    "value": "Photo"
+  },
+  "live.canvas.tools.comment": {
+    "value": "Comment"
+  },
+  "live.canvas.shapes.rect": {
+    "value": "Rectangle"
+  },
+  "live.canvas.shapes.ellipse": {
+    "value": "Ellipse"
+  },
+  "live.canvas.shapes.diamond": {
+    "value": "Diamond"
+  },
+  "live.canvas.shapes.triangle": {
+    "value": "Triangle"
+  },
+  "live.canvas.shapes.star": {
+    "value": "Star"
+  },
+  "live.canvas.shapes.line": {
+    "value": "Line"
+  },
+  "live.canvas.penHint": {
+    "value": "Draw with your finger. Two fingers move the canvas."
+  },
+  "live.canvas.arrowHint": {
+    "value": "Drag from one place to another"
+  },
+  "live.canvas.commentHint": {
+    "value": "Tap where you want to comment"
+  },
+  "live.canvas.pin": {
+    "value": "Comment {{n}} by {{name}}"
+  },
+  "live.canvas.addToSelection": {
+    "value": "Choose this too"
+  },
+  "live.canvas.emptyText": {
+    "value": "Add a note or a photo, or ask an agent in the conversation."
+  },
+  "live.talk.start": {
+    "value": "Talk about {{what}}"
+  },
+  "live.talk.openHint": {
+    "value": "Opens the conversation"
+  },
+  "live.talk.placeholder.spreadsheet": {
+    "value": "Write on the spreadsheet…"
+  },
+  "live.talk.placeholder.slides": {
+    "value": "Write on the presentation…"
+  },
+  "live.talk.placeholder.canvas": {
+    "value": "Write on the canvas…"
+  },
+  "live.talk.placeholder.document": {
+    "value": "Write on the document…"
+  },
+  "live.talk.aboutPoint": {
+    "value": "A comment on a spot of the canvas"
+  },
+  "live.talk.comment": {
+    "value": "Comment"
+  },
+  "live.talk.imported": {
+    "value": "Imported from {{file}} by <0>{{name}}</0>"
+  },
+  "live.talk.variationsText": {
+    "value": "make variations of this image"
+  },
+  "live.doc.styles.paragraph": {
+    "value": "Text"
+  },
+  "live.doc.styles.h1": {
+    "value": "Heading 1"
+  },
+  "live.doc.styles.h2": {
+    "value": "Heading 2"
+  },
+  "live.doc.styles.h3": {
+    "value": "Heading 3"
+  },
+  "live.doc.styles.quote": {
+    "value": "Quote"
+  },
+  "live.doc.styles.code": {
+    "value": "Code"
+  },
+  "live.doc.style": {
+    "value": "Text style"
+  },
+  "live.doc.bold": {
+    "value": "Bold"
+  },
+  "live.doc.italic": {
+    "value": "Italic"
+  },
+  "live.doc.bullets": {
+    "value": "Bulleted list"
+  },
+  "live.doc.numbers": {
+    "value": "Numbered list"
+  },
+  "live.doc.quote": {
+    "value": "Quote"
+  },
+  "live.doc.link": {
+    "value": "Add a link"
+  },
+  "live.doc.linkChoose": {
+    "value": "Choose the words for the link first"
+  },
+  "live.doc.linkBad": {
+    "value": "That address can't be a link"
+  },
+  "live.doc.linkPlaceholder": {
+    "value": "Link address"
+  },
+  "live.doc.linkApply": {
+    "value": "Add the link"
+  },
+  "live.doc.placeholder": {
+    "value": "Write here"
+  },
+  "live.doc.add": {
+    "value": "Add a paragraph"
+  },
+  "live.doc.editHint": {
+    "value": "Edits this part"
+  },
+  "live.doc.notHere": {
+    "value": "This part is edited on the computer"
+  },
+  "surface.on": {
+    "value": "On"
+  },
+  "surface.codeText": {
+    "value": "Send the message that opens there, then come back here."
+  },
+  "surface.openFailed": {
+    "value": "Couldn't open {{surface}} on this phone. Send it the code below instead."
+  },
+  "surface.orType": {
+    "value": "Or send this code there"
   }
 }

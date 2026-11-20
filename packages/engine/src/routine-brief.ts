@@ -88,11 +88,14 @@ function widgetOf(raw: unknown): Pick<RoutineBrief, "widget"> {
   return { widget: { widgetId: w.widgetId, dashboardId: w.dashboardId } };
 }
 
+export const ROUTINE_ROOM_PREFIX = "routine|";
+
 /**
  * The routine room's key (`channels.dm_key`): an agent-only conversation of one, one per routine, never
  * a person's. A run reads only its own routine's room, never another routine's briefs or events.
  */
-export const routineRoomKey = (agentId: string, routineId: string) => `routine|a:${agentId}|r:${routineId}`;
+export const routineRoomKey = (agentId: string, routineId: string) =>
+  `${ROUTINE_ROOM_PREFIX}a:${agentId}|r:${routineId}`;
 
 /** Whether a channel's `dm_key` is a routine room (hidden from people and from agents' channel lists). */
-export const isRoutineRoomKey = (dmKey: string | null | undefined) => Boolean(dmKey?.startsWith("routine|"));
+export const isRoutineRoomKey = (dmKey: string | null | undefined) => Boolean(dmKey?.startsWith(ROUTINE_ROOM_PREFIX));

@@ -224,12 +224,11 @@ test("missions API: who programs: eligible agents list it, POST takes it, the ow
   await runner.hello(paired.token);
 
   const eligible = (await (await api("/missions/eligible-agents")).json()) as {
-    agents: { executors: string[]; defaultExecutor: string; codexTooOld: boolean }[];
+    agents: { executors: string[]; defaultExecutor: string }[];
   };
   expect(eligible.agents[0]).toMatchObject({
     executors: ["claude", "agent"],
     defaultExecutor: "claude",
-    codexTooOld: false,
   });
 
   const bad = await api("/missions", { json: { agentId, channelId, goal: "Build it", executor: "codex" } });

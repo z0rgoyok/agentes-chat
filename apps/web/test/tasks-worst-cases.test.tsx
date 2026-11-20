@@ -87,7 +87,7 @@ function worst(base: Issue): Issue[] {
     githubUrl: null,
     work: null,
     conversation: null,
-    assignee: null,
+    assignees: [],
     ...over,
   });
   return [
@@ -101,7 +101,7 @@ function worst(base: Issue): Issue[] {
       criteria: criteria(3, 12),
       pullRequests: [{ number: 10942, url: "https://github.com/agentes-chat/app/pull/10942", openedBy: null }],
       githubUrl: "https://github.com/agentes-chat/agentes-chat/issues/4521",
-      assignee: { type: "agent", id: ATLAS_ID },
+      assignees: [{ type: "agent", id: ATLAS_ID }],
       work: work(ATLAS_ID, "waiting_approval"),
       conversation: talk(1284),
     }),
@@ -109,7 +109,7 @@ function worst(base: Issue): Issue[] {
       number: 7,
       title: "Ok",
       status: "in_review",
-      assignee: { type: "agent", id: ADA_ID },
+      assignees: [{ type: "agent", id: ADA_ID }],
       work: work(ADA_ID, "running"),
     }),
     task({
@@ -119,7 +119,7 @@ function worst(base: Issue): Issue[] {
       labels: ["国際化"],
       priority: "low",
       dueDate: day(-4),
-      assignee: { type: "agent", id: ADA_ID },
+      assignees: [{ type: "agent", id: ADA_ID }],
       work: work(ADA_ID, "stalled"),
       conversation: talk(9),
     }),
@@ -129,7 +129,7 @@ function worst(base: Issue): Issue[] {
       status: "in_review",
       dueDate: day(40),
       criteria: criteria(2, 2),
-      assignee: { type: "person", id: "u-ale" },
+      assignees: [{ type: "person", id: "u-ale" }],
       conversation: talk(2),
     }),
     // Nobody on it yet, due today: no third part at all.
@@ -145,7 +145,7 @@ function worst(base: Issue): Issue[] {
       number: 135,
       title: "Gerar o relatório de faturas",
       status: "in_progress",
-      assignee: { type: "agent", id: ATLAS_ID },
+      assignees: [{ type: "agent", id: ATLAS_ID }],
       blocked: { reason: "failed", since: new Date().toISOString(), text: "run.brain_unavailable" },
     }),
     // Code an agent wrote between backticks: drawn as code, as in a message.
@@ -153,7 +153,7 @@ function worst(base: Issue): Issue[] {
       number: 136,
       title: CODE_TITLE,
       status: "todo",
-      assignee: { type: "agent", id: ADA_ID },
+      assignees: [{ type: "agent", id: ADA_ID }],
     }),
     // A link to a repository whose name is wider than the card: the fact wraps its own words, inside the padding.
     task({
@@ -161,7 +161,7 @@ function worst(base: Issue): Issue[] {
       title: "Revisar o webhook de cobrança",
       status: "in_review",
       githubUrl: `https://github.com/example-org/${LONGER_REPO}/issues/10942`,
-      assignee: { type: "agent", id: ATLAS_ID },
+      assignees: [{ type: "agent", id: ATLAS_ID }],
     }),
     // A person's long name, the same initials as another's: the face's letters and the name wrapping under it.
     task({
@@ -169,8 +169,31 @@ function worst(base: Issue): Issue[] {
       title: "Trocar o provedor de SMS",
       status: "in_progress",
       priority: "high",
-      assignee: { type: "person", id: "u-anas" },
+      assignees: [{ type: "person", id: "u-anas" }],
       conversation: talk(1),
+    }),
+    // Eleven have it and its background work stopped: three faces, "+8", then the longest state a card says.
+    task({
+      number: 138,
+      title: "Migrar os clientes para o plano novo",
+      status: "in_progress",
+      assignees: [
+        ...PEOPLE.map((p) => ({ type: "person" as const, id: p.userId })),
+        { type: "agent", id: ATLAS_ID },
+        { type: "agent", id: ADA_ID },
+      ],
+      blocked: { reason: "failed", since: new Date().toISOString(), text: "run.brain_unavailable" },
+    }),
+    // A person and the agent at work on it: the agent's face moves among the faces.
+    task({
+      number: 139,
+      title: "Ok",
+      status: "in_review",
+      assignees: [
+        { type: "person", id: "u-ale" },
+        { type: "agent", id: ADA_ID },
+      ],
+      work: work(ADA_ID, "running"),
     }),
   ];
 }
@@ -226,6 +249,15 @@ describe("Tarefas at their worst", () => {
     expect(cardOf(135).querySelector(".issue-card__state")?.textContent).toBe(
       "Bloqueado · não terminou: a IA do computador não conseguiu responder. Confira o computador e peça de novo",
     );
+    // Several have it: faces only, three and "+8", every name on them; the long state follows.
+    const many = cardOf(138).querySelector(".issue-card__who > .issue-faces") as HTMLElement;
+    expect(many.querySelectorAll(".ac-avatar")).toHaveLength(3);
+    expect(many.querySelector(".issue-faces__more")?.textContent).toBe("+8");
+    expect(many.getAttribute("aria-label")).toContain(`${LONG_PERSON}, ${LONG_ASSIGNEE}, Bea`);
+    expect(many.getAttribute("aria-label")).toContain("Atlas e Ada");
+    expect(many.nextElementSibling?.classList.contains("issue-card__state")).toBe(true);
+    expect(cardOf(139).querySelector(".issue-faces .ac-avatar--running")).toBeTruthy();
+    expect(cardOf(139).querySelector(".issue-card__state")?.textContent).toBe("Trabalhando");
   });
 
   test("stalled tasks are one line above the board; See stalled says when each stopped and its last step, and Continue asks its agent", async () => {
@@ -283,6 +315,8 @@ describe("Tarefas at their worst", () => {
     expect(kinds).toContain("label");
     expect((row.closest(".ac-groups") as HTMLElement).hasAttribute("data-fact-columns")).toBe(false);
     expect(cardOf(136).querySelector(".issue-list__title > code.ac-inlinecode")?.textContent).toBe("bun test");
+    // Several have it: the same faces in the row.
+    expect(cardOf(138).querySelector(".issue-card__who > .issue-faces > .issue-faces__more")?.textContent).toBe("+8");
   });
 
   test("the task's page draws its title's code as code too", async () => {
@@ -301,13 +335,19 @@ describe("Tarefas at their worst", () => {
     ]);
   });
 
-  test("the details' strip: a long name and column, nine people, three PRs, twelve labels, a long GitHub link, German", async () => {
+  test("the details' strip: five assignees with long names, a long column, nine people, three PRs, twelve labels, a long GitHub link, German", async () => {
     const { api } = await go("board", "issues");
     const task = await api.issues.get(ORG_ID, 131);
     await api.issues.addColumn(ORG_ID, { name: "Aguardando aprovação do jurídico", stage: "todo" });
     const column = (await api.issues.columns(ORG_ID)).find((c) => c.name === "Aguardando aprovação do jurídico");
     await api.issues.update(ORG_ID, task.id, {
-      assignee: { type: "person", id: "u-chris" },
+      assignees: [
+        { type: "person", id: "u-chris" },
+        { type: "person", id: "u-ale" },
+        { type: "agent", id: ADA_ID },
+        { type: "person", id: "u-anas" },
+        { type: "person", id: "u-palm" },
+      ],
       columnId: column?.id,
       githubUrl: LONG_GITHUB,
       labels: [LONG_LABEL, ...Array.from({ length: 11 }, (_, k) => `etiqueta-${k + 1}`)],
@@ -331,7 +371,12 @@ describe("Tarefas at their worst", () => {
     const { services } = await renderApp(`/org/${ORG_ID}/issues/131`, { api });
     await settle(8);
     const strip = screen().getByRole("group", { name: "Detalhes da tarefa" });
-    expect(within(strip).getByRole("combobox", { name: "Responsável" }).textContent).toContain(LONG_ASSIGNEE);
+    // Five have it, two of them with long names: four faces and "+1", the first two names and how many more.
+    const who = within(strip).getByRole("button", { name: /^Responsável: / });
+    expect(who.getAttribute("aria-label")).toContain(`${LONG_ASSIGNEE}, ${LONG_PERSON}, Ada`);
+    expect(who.querySelectorAll(".issue-faces .ac-avatar")).toHaveLength(4);
+    expect(who.querySelector(".issue-faces__more")?.textContent).toBe("+1");
+    expect(who.lastChild?.textContent).toBe(`${LONG_ASSIGNEE}, ${LONG_PERSON} e mais 3`);
     expect(within(strip).getByRole("combobox", { name: "Coluna" }).textContent).toBe(
       "Aguardando aprovação do jurídico",
     );

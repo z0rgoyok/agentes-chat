@@ -33,6 +33,7 @@ export function LinkPillText({ href, pill }: { href: string; pill: LinkPill }) {
       {uri ? (
         <Image
           source={{ uri }}
+          cachePolicy="memory-disk"
           tintColor={brandOf(pill.brandColor) ?? c.ink}
           contentFit="contain"
           style={styles.mark}

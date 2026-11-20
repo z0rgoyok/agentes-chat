@@ -2,6 +2,7 @@ import { type UsageQueueClosedRow, type UsageQueueRow, useCancelUsageQueue, useU
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
+  usageQueueChain,
   usageQueueResuming,
   usageQueueShared,
   usageQueueSkippedWhere,
@@ -13,15 +14,17 @@ import {
 } from "@agenteschat/client/lib/usage-queue";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { Button, EmptyState, PixelOrbit, Segmented, Text } from "@/ui";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Button, EmptyState, PixelOrbit, Segmented, SHEET_X, SkeletonList, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openAgentAi } from "../ai/AgentAiScreen";
 import { AnswerAnywayButton, DontRunButton } from "../ai/UsagePauseCard";
 import { chatHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
+import { confirmAction } from "../settings/parts";
 import { AgentFace, OpensAgent } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
+import { useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { SheetTitle } from "../shared/PromptForm";
 import { useSheetIfAny } from "../shared/SheetHost";
@@ -40,32 +43,35 @@ export function UsageQueueSheet({ agentId, tab: initialTab = "queued" }: { agent
   const { t, i18n } = useTranslation();
   const orgId = useOrgId();
   const dir = useDirectory();
-  const c = useColors();
   const now = useNow(60_000);
   const q = useUsageQueue(orgId, agentId);
   const [chosen, setChosen] = useState<UsageQueueTab>(initialTab);
   const agent = dir.anyAgent(agentId)?.name ?? t("channel.unknownAgent");
   if (!q.data)
     return q.isError ? (
-      <View style={styles.failed}>
-        <Text variant="small" tone="muted">
-          {t("mobile.app.failed")}
-        </Text>
-        <Button variant="secondary" size="sm" label={t("common.retry")} onPress={() => void q.refetch()} />
-      </View>
+      <LoadFailed onRetry={() => void q.refetch()} />
     ) : (
-      <ActivityIndicator color={c.muted} style={styles.loading} />
+      // Loading: rows of the line's shape at the sheet's edges, as a list's rows, never a spinner.
+      <View style={styles.bleed}>
+        <SkeletonList rows={3} />
+      </View>
     );
   const queue = q.data;
   const waiting = queue.rows.length + queue.hidden;
   const skipped = queue.closed.length;
   // The switch only when both lists have something: otherwise the one that does.
   const tab: UsageQueueTab = waiting === 0 ? "skipped" : skipped === 0 ? "queued" : chosen;
-  const shared = usageQueueShared(
-    t,
-    queue.plan,
-    queue.sharedWith.flatMap((id) => dir.anyAgent(id)?.name ?? []),
-  );
+  // Behind the ⓘ: every account of its order at its limit (the title's time is the first reset), then who shares the line.
+  const shared = [
+    usageQueueChain(t, queue),
+    usageQueueShared(
+      t,
+      queue.plan,
+      queue.sharedWith.flatMap((id) => dir.anyAgent(id)?.name ?? []),
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ");
   const resuming = usageQueueResuming(queue);
   const queuedList = (
     <>
@@ -245,39 +251,36 @@ function SkippedRow({ row, agentId, now }: { row: UsageQueueClosedRow; agentId: 
           {t("usageQueue.answeredAnyway")}
         </Text>
       ) : row.mayAnswer ? (
-        <View style={styles.ghostActs}>
-          <AnswerAnywayButton runId={row.runId} agentId={agentId} closed={row.closed} />
-        </View>
+        <AnswerAnywayButton runId={row.runId} agentId={agentId} closed={row.closed} />
       ) : null}
     </View>
   );
 }
 
-/** "Don't run any", asked once in place. */
+/**
+ * "Don't run any", asked once in the system's alert (as stopping all of an agent's tasks is), never a confirmation
+ * opened inside the sheet; the button waits while it goes.
+ */
 function StopAll({ agentId, count }: { agentId: string; count: number }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const failed = useFailed();
   const stop = useCancelUsageQueue(orgId, agentId);
-  const [asking, setAsking] = useState(false);
-  if (!asking)
-    return <Button variant="secondary" size="sm" label={t("usageQueue.dontRunAll")} onPress={() => setAsking(true)} />;
   return (
-    <View style={styles.confirm}>
-      <Text variant="small" tone="ink" style={styles.name}>
-        {t("usageQueue.confirmAll", { count })}
-      </Text>
-      <View style={styles.confirmActs}>
-        <Button variant="secondary" size="sm" label={t("usageQueue.keep")} onPress={() => setAsking(false)} />
-        <Button
-          variant="primary"
-          size="sm"
-          label={t("usageQueue.yesDontRun")}
-          loading={stop.isPending}
-          onPress={() => stop.mutate(undefined, { onSuccess: () => setAsking(false), onError: failed })}
-        />
-      </View>
-    </View>
+    <Button
+      variant="secondary"
+      size="sm"
+      label={t("usageQueue.dontRunAll")}
+      loading={stop.isPending}
+      onPress={() =>
+        confirmAction({
+          title: t("usageQueue.confirmAll", { count }),
+          action: t("usageQueue.yesDontRun"),
+          cancel: t("usageQueue.keep"),
+          onConfirm: () => stop.mutate(undefined, { onError: failed }),
+        })
+      }
+    />
   );
 }
 
@@ -286,8 +289,7 @@ const N_WIDTH = 16;
 const N_GAP = 10;
 
 const styles = StyleSheet.create({
-  loading: { marginVertical: 24 },
-  failed: { gap: 12, alignItems: "flex-start", marginVertical: 12 },
+  bleed: { marginHorizontal: -SHEET_X },
   // The row is the conversation's link, 44pt tall; "Não rodar" keeps its own target on the right.
   row: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   open: { flex: 1, minWidth: 0, flexDirection: "row", gap: N_GAP, paddingVertical: 12 },
@@ -305,8 +307,6 @@ const styles = StyleSheet.create({
   // Words-only actions: the ghost button's own side padding hangs outside, so its words line up with the text.
   ghostActs: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginLeft: -14 },
   owner: { gap: 4, marginTop: 4, alignItems: "flex-start" },
-  confirm: { gap: 8 },
-  confirmActs: { flexDirection: "row", gap: 8 },
   // The sheet's own gap between its rows (SheetHost).
   lists: { gap: 12 },
   unseen: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0 },

@@ -1,0 +1,1482 @@
+/* The canvas ("Quadro", ADR 0196 §2, ADR 0197, ADR 0199): the plane, its shapes, what is drawn over them in screen
+   pixels, the dock with its menus and the pen's bar, the zoom island, the bar over the selection with its size, the
+   layers, the crop, the comments' pins and the picture's details. Tokens only; motion only inside
+   `prefers-reduced-motion: no-preference`. */
+
+.cnv {
+  /* Notes' soft colors: the light theme's pale tones, the dark theme's deep ones (palette.ts keeps the same pairs). */
+  --note-yellow: #fdf0b0;
+  --note-pink: #fbd8e3;
+  --note-blue: #d5e7fb;
+  --note-green: #d4efd7;
+  --note-purple: #e5dbfa;
+  --note-gray: #ebebe8;
+  --cnv-dot: var(--line2);
+  /* Its own width decides the dock's look (the conversation beside the page takes part of the window). */
+  container: cnv / inline-size;
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+  overflow: hidden;
+}
+[data-theme="dark"] .cnv,
+[data-theme="dark"] .cnv-mini {
+  --note-yellow: #4a4020;
+  --note-pink: #4d2633;
+  --note-blue: #1e3449;
+  --note-green: #1f3d27;
+  --note-purple: #33294d;
+  --note-gray: #2e2e2c;
+}
+
+.cnv__main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── The plane ────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv__plane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background-color: var(--surface);
+  cursor: default;
+}
+/* Dots every 24 world units (spaced wider when zoomed far out), fading out under 40%. */
+.cnv__plane[data-bg="dots"] {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--cnv-dot) calc(var(--dot-fade, 1) * 100%), transparent) 0.75px,
+    transparent 1.25px
+  );
+  background-size: var(--dot) var(--dot);
+  background-position: var(--dot-x, 0) var(--dot-y, 0);
+}
+.cnv__plane[data-bg="grid"] {
+  --grid-line: color-mix(in srgb, var(--cnv-dot) calc(var(--dot-fade, 1) * 100%), transparent);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: var(--dot) var(--dot);
+  background-position: var(--dot-x, 0) var(--dot-y, 0);
+}
+html:not([data-pointer]) .cnv__plane:focus-visible {
+  box-shadow: var(--focus-ring-inset);
+}
+.cnv__plane[data-tool="hand"],
+.cnv__plane[data-space] {
+  cursor: grab;
+}
+.cnv__plane[data-panning] {
+  cursor: grabbing;
+}
+.cnv__plane:is(
+  [data-tool="note"],
+  [data-tool="text"],
+  [data-tool="shape"],
+  [data-tool="line"],
+  [data-tool="frame"],
+  [data-tool="arrow"],
+  [data-tool="draw"],
+  [data-tool="comment"]
+) {
+  cursor: crosshair;
+}
+
+.cnv__world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ── Shapes (world units) ─────────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv-shape {
+  position: absolute;
+  box-sizing: border-box;
+  transform-origin: 50% 50%;
+}
+.cnv-shape[data-editing] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.cnv-img {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--sunken);
+}
+.cnv-img[data-state="ready"] {
+  background: none;
+}
+.cnv-img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+/* Its icon and line keep the icon-line primitive's alignment; the line itself sits in the middle of the picture. */
+.cnv-img__failed {
+  display: flex;
+  height: 100%;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.cnv-note {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: var(--space-4);
+  border-radius: 6px;
+  background: var(--note-yellow);
+  box-shadow: var(--e1);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.4;
+}
+.cnv-note[data-color="pink"] {
+  background: var(--note-pink);
+}
+.cnv-note[data-color="blue"] {
+  background: var(--note-blue);
+}
+.cnv-note[data-color="green"] {
+  background: var(--note-green);
+}
+.cnv-note[data-color="purple"] {
+  background: var(--note-purple);
+}
+.cnv-note[data-color="gray"] {
+  background: var(--note-gray);
+}
+.cnv-note__text {
+  min-height: 100%;
+}
+
+.cnv-text {
+  width: 100%;
+  min-height: 100%;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* The placeholder words show only while typing, in the note's own muted ink. */
+.cnv-note__text[data-empty]:not(:focus-within),
+.cnv-text[data-empty]:not(:focus-within),
+.cnv-geo__text[data-empty]:not(:focus-within) {
+  color: var(--muted);
+}
+
+.cnv-frame {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sunken) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.cnv-frame[style*="--fill-light"] {
+  background: color-mix(in srgb, var(--fill-light) 60%, transparent);
+}
+[data-theme="dark"] .cnv-frame[style*="--fill-light"] {
+  background: color-mix(in srgb, var(--fill-dark) 60%, transparent);
+}
+
+.cnv-geo {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.35;
+  text-align: center;
+}
+.cnv-geo__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.cnv-geo__svg :is(rect, ellipse, polygon) {
+  fill: var(--raised);
+  stroke: var(--line-strong);
+  stroke-width: 2;
+}
+.cnv-geo[data-fill="custom"] {
+  color: var(--fill-ink-light);
+}
+.cnv-geo[data-fill="custom"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  fill: var(--fill-light);
+  stroke: color-mix(in srgb, var(--fill-ink-light) 35%, var(--fill-light));
+}
+[data-theme="dark"] .cnv-geo[data-fill="custom"] {
+  color: var(--fill-ink-dark);
+}
+[data-theme="dark"] .cnv-geo[data-fill="custom"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  fill: var(--fill-dark);
+  stroke: color-mix(in srgb, var(--fill-ink-dark) 35%, var(--fill-dark));
+}
+.cnv-geo[data-fill="none"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  fill: none;
+}
+.cnv-geo__text {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.cnv-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: var(--e1);
+}
+.cnv-page iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+.cnv-page[data-live] iframe {
+  pointer-events: auto;
+}
+.cnv-page[data-live] {
+  box-shadow:
+    0 0 0 2px var(--ink),
+    var(--e2);
+}
+.cnv-page__status {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+.cnv-page__foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(to top, var(--raised) 60%, transparent);
+}
+.cnv-page__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.cnv-file {
+  width: 100%;
+}
+/* The card is the file's look; a double click opens it, its own buttons stay quiet on the plane. */
+.cnv-file > * {
+  pointer-events: none;
+}
+.cnv-file__plain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--e1);
+}
+
+/* A picture on its way: the sky forming (ImageMaking's look), who asked and the prompt at the bottom. */
+.cnv-pending {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.cnv-pending .ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.cnv-pending__body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.cnv-pending[data-status="failed"] .cnv-pending__body {
+  top: 0;
+  justify-content: center;
+}
+.cnv-pending__state {
+  display: inline-flex;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+.cnv-pending__why {
+  color: var(--danger);
+  font-weight: 600;
+}
+.cnv-pending__prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: var(--ink);
+}
+/* Who asked: their face on the words' capitals (`.ac-iconline`), the line as a length the face's own type can't
+   change. */
+.cnv-pending__who {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* Arrows: their own drawing, under nothing but what stacks above them. */
+.cnv-arrow {
+  position: absolute;
+  pointer-events: none;
+}
+.cnv-arrow__svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.cnv-arrow__line {
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.cnv-arrow__head {
+  fill: var(--ink);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.cnv-arrow__label {
+  position: absolute;
+  max-width: 280px;
+  padding: 2px var(--space-2);
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: var(--e1);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Borders, lines and pen strokes in a color of their own (`strokeStyle`): the ink is drawn light on the dark canvas,
+ * any other color as it is; their width in world units.
+ */
+.cnv-arrow .cnv-arrow__line {
+  fill: none;
+  stroke-width: var(--stroke-width, 2);
+  stroke-linejoin: round;
+}
+.cnv-arrow[data-stroke] .cnv-arrow__line {
+  stroke: var(--stroke-light);
+}
+.cnv-arrow[data-stroke] .cnv-arrow__head {
+  fill: var(--stroke-light);
+  stroke: var(--stroke-light);
+}
+[data-theme="dark"] .cnv-arrow[data-stroke] .cnv-arrow__line {
+  stroke: var(--stroke-dark);
+}
+[data-theme="dark"] .cnv-arrow[data-stroke] .cnv-arrow__head {
+  fill: var(--stroke-dark);
+  stroke: var(--stroke-dark);
+}
+.cnv-geo[data-stroke="custom"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  stroke: var(--stroke-light);
+}
+[data-theme="dark"] .cnv-geo[data-stroke="custom"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  stroke: var(--stroke-dark);
+}
+.cnv-geo[data-stroke="none"] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  stroke: none;
+}
+.cnv-geo[data-stroke-width] .cnv-geo__svg :is(rect, ellipse, polygon) {
+  stroke-width: var(--stroke-width);
+}
+.cnv-draw {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.cnv-draw path {
+  fill: none;
+  stroke: var(--stroke-light, var(--ink));
+  stroke-width: var(--stroke-width, 4);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-theme="dark"] .cnv-draw path {
+  stroke: var(--stroke-dark, var(--ink));
+}
+.cnv-draw[data-tool="marker"] path {
+  stroke-width: var(--stroke-width, 16);
+  opacity: 0.4;
+}
+/* The stroke being drawn: in world units at the world's corner, its points where they are. */
+.cnv-draw--ink {
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+/* A cropped picture: the part shown fills the box (its picture placed by `ImageShape`). */
+.cnv-img[data-crop] {
+  position: relative;
+}
+.cnv-img[data-crop] img {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+}
+
+/* A picture being uploaded, where it will land. */
+.cnv-upload {
+  position: absolute;
+  border-radius: 8px;
+  background: var(--sunken);
+  box-shadow: 0 0 0 1px var(--line);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cnv-upload {
+    animation: cnv-breathe 1.4s var(--out) infinite alternate;
+  }
+  .cnv-img img[data-fresh] {
+    animation: cnv-fade-in 200ms var(--out) both;
+  }
+}
+@keyframes cnv-breathe {
+  to {
+    opacity: 0.55;
+  }
+}
+@keyframes cnv-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Over the shapes (screen pixels) ──────────────────────────────────────────────────────────────────────────── */
+
+.cnv-over {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cnv-over > * {
+  position: absolute;
+}
+.cnv-over__name {
+  max-width: 320px;
+  overflow: hidden;
+  padding: 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+  cursor: default;
+}
+.cnv-over__name[data-selected] {
+  color: var(--ink);
+}
+.cnv-over__hover,
+.cnv-over__sel,
+.cnv-over__psel {
+  box-sizing: border-box;
+  transform-origin: 50% 50%;
+}
+.cnv-over__hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: 2px;
+}
+.cnv-over__sel {
+  box-shadow: 0 0 0 1.5px var(--ink);
+  border-radius: 2px;
+}
+.cnv-over__sel[data-frame],
+.cnv-over__hover[data-frame] {
+  border-radius: 12px;
+}
+.cnv-over__line {
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  transform-origin: 0 50%;
+}
+.cnv-over__frame,
+.cnv-over__group {
+  box-sizing: border-box;
+  transform-origin: 50% 50%;
+}
+.cnv-over__group {
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.cnv-over__handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: #fff;
+  pointer-events: auto;
+}
+/* A bigger target than it looks, for a finger and a quick mouse. */
+.cnv-over__handle::after,
+.cnv-over__end::after,
+.cnv-over__rotate::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.cnv-over__handle[data-pos="nw"] {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.cnv-over__handle[data-pos="n"] {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.cnv-over__handle[data-pos="ne"] {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.cnv-over__handle[data-pos="e"] {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.cnv-over__handle[data-pos="se"] {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.cnv-over__handle[data-pos="s"] {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.cnv-over__handle[data-pos="sw"] {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.cnv-over__handle[data-pos="w"] {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+.cnv-over__rotate {
+  position: absolute;
+  left: 50%;
+  top: -24px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: auto;
+  cursor: grab;
+}
+.cnv-over__end {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: auto;
+  cursor: move;
+}
+.cnv-over__marquee {
+  box-shadow: inset 0 0 0 1px var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+[data-theme="dark"] .cnv-over__marquee {
+  background: rgba(255, 255, 255, 0.08);
+}
+.cnv-over__draft {
+  border: 1px dashed var(--ink);
+  border-radius: 4px;
+}
+.cnv-over__arrow {
+  height: 2px;
+  margin-top: -1px;
+  background: var(--ink);
+  transform-origin: 0 50%;
+}
+.cnv-over__guide {
+  background: var(--ink);
+  opacity: 0.6;
+}
+.cnv-over__guide[data-axis="x"] {
+  width: 1px;
+}
+.cnv-over__guide[data-axis="y"] {
+  height: 1px;
+}
+.cnv-over__peer {
+  inset: 0;
+}
+.cnv-over__peer > * {
+  position: absolute;
+}
+.cnv-over__psel {
+  box-shadow: 0 0 0 2px var(--peer);
+  border-radius: 2px;
+}
+.cnv-over__peer .cnv-over__line {
+  background: color-mix(in srgb, var(--peer) 35%, transparent);
+}
+/* A curved or elbowed arrow's outline, along its route. */
+.cnv-over__route {
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  box-shadow: none;
+}
+.cnv-over__route polyline {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ink) 18%, transparent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cnv-over__hover.cnv-over__route polyline {
+  stroke: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.cnv-over__psel.cnv-over__route polyline {
+  stroke: color-mix(in srgb, var(--peer) 35%, transparent);
+}
+.cnv-over__ptag-at {
+  transform: translate(-100%, calc(-100% - 4px));
+  white-space: nowrap;
+}
+.cnv-over__name-input,
+.cnv-over__label-input {
+  height: 28px;
+  padding: 0 var(--space-2);
+  font-size: 13px;
+  pointer-events: auto;
+}
+.cnv-over__name-input {
+  margin-top: -6px;
+}
+.cnv-over__label-input {
+  width: 200px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+.cnv-over .lf-cursors {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Empty, dropping ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) var(--space-4) 96px;
+  pointer-events: none;
+}
+.cnv__empty > * {
+  pointer-events: auto;
+}
+.cnv__drop {
+  position: absolute;
+  inset: var(--space-2);
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--radius-section);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  pointer-events: none;
+}
+.cnv__drop-words {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ── Dock, zoom, the shape bar ────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv__bottom {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  z-index: var(--z-raised);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: center;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-4));
+  transform: translateX(-50%);
+}
+.cnv-dock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  height: 48px;
+  padding: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cnv-dock::-webkit-scrollbar {
+  display: none;
+}
+.cnv-dock > * {
+  flex: none;
+}
+/* More tools past an edge: that edge fades (the editors' toolbars do the same). */
+.cnv-dock[data-sides="end"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+.cnv-dock[data-sides="start"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40px);
+  mask-image: linear-gradient(to right, transparent, #000 40px);
+}
+.cnv-dock[data-sides="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+}
+.cnv-dock__tool[data-active] {
+  background: var(--action);
+  color: var(--on-action);
+}
+/* A tool with a menu of its kinds: a small ▾ in its corner. */
+.cnv-dock__tool--menu {
+  position: relative;
+}
+.cnv-dock__caret {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: inline-flex;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.cnv-dock__caret .ac-icon {
+  width: 10px;
+  height: 10px;
+}
+.cnv-dock__menu {
+  min-width: 220px;
+}
+/* "Pedir ao Atlas": the file's agent's face and the words. */
+.cnv-dock__agent {
+  gap: var(--space-2);
+  padding-inline: var(--space-2) var(--space-3);
+  font-weight: 600;
+}
+.cnv-dock__agent .ac-avatar {
+  flex: none;
+}
+/* A narrow plane: "Pedir ao Atlas" keeps the agent's face (its name in the tooltip), so the dock's tools fit. */
+@container cnv (max-width: 680px) {
+  .ac-btn.cnv-dock__agent {
+    width: var(--control-h-md);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .cnv-dock__agent .ac-btn__label {
+    display: none;
+  }
+}
+.cnv-dock__divider,
+.cnv-bar__divider {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  margin: 0 var(--space-1);
+  background: var(--line2);
+}
+.cnv-dock--skeleton {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  width: 360px;
+  max-width: calc(100% - 2 * var(--space-4));
+  height: 48px;
+  border-radius: 16px;
+  transform: translateX(-50%);
+}
+.cnv-zoom {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: var(--z-raised);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: var(--space-1);
+  border-radius: 14px;
+}
+.cnv-zoom__level {
+  min-width: 56px;
+}
+.cnv-zoom [aria-pressed="true"] {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+}
+
+/* A bar over the selection is placed by its spot (`BarSpot`), kept inside the plane. */
+.cnv-barspot {
+  position: absolute;
+  z-index: var(--z-raised);
+}
+.cnv-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: var(--space-1);
+  border-radius: 14px;
+  white-space: nowrap;
+}
+/* A bar with a plated action (the crop's Aplicar) keeps it a full step from the bar's edge. */
+.cnv-bar:has(> .ac-btn:not(.ac-btn--ghost)) {
+  height: auto;
+  padding: var(--space-2);
+}
+.cnv-bar__swatches,
+.cnv-bar__sizes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.cnv-bar__swatch {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-item);
+  background: none;
+  cursor: pointer;
+}
+.cnv-bar__swatch::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+[data-theme="dark"] .cnv-bar__swatch::before {
+  background: var(--swatch-dark);
+}
+.cnv-bar__swatch:hover,
+.cnv-bar__size:hover {
+  background: var(--plate);
+}
+.cnv-bar__swatch[aria-checked="true"]::before {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3.5px var(--ink);
+}
+.cnv-bar__size {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cnv-bar__size[aria-checked="true"] {
+  background: var(--action);
+  color: var(--on-action);
+}
+html:not([data-pointer]) :is(.cnv-bar__swatch, .cnv-bar__size):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cnv-bar [aria-pressed="true"] {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+}
+/* Fill and border: a dot of the color (a ring for a border), its width, and ▾. */
+.cnv-bar__pick {
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
+}
+.cnv-bar__pick .ac-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.cnv-bar__num {
+  min-width: 12px;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cnv-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--dot, var(--raised));
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+[data-theme="dark"] .cnv-dot {
+  background: var(--dot-dark, var(--dot, var(--raised)));
+}
+.cnv-dot[data-ring] {
+  background: none;
+  box-shadow: inset 0 0 0 2.5px var(--dot, var(--line-strong));
+}
+[data-theme="dark"] .cnv-dot[data-ring] {
+  background: none;
+  box-shadow: inset 0 0 0 2.5px var(--dot-dark, var(--dot, var(--line-strong)));
+}
+/* None: crossed out. */
+.cnv-dot[data-none],
+.cnv-colors__swatch[data-none]::before {
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    var(--danger) calc(50% - 1px),
+    var(--danger) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+
+/* The pen's bar: above the dock, in the bottom's column. */
+.cnv-penbar {
+  max-width: 100%;
+}
+
+/* Fill and border popovers: their swatches and widths. */
+.cnv-colors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+.cnv-colors__grid {
+  display: grid;
+  grid-template-columns: repeat(6, 32px);
+  gap: 2px;
+}
+.cnv-colors__swatch {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-item);
+  background: none;
+  cursor: pointer;
+}
+.cnv-colors__swatch::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+[data-theme="dark"] .cnv-colors__swatch::before {
+  background: var(--swatch-dark, var(--swatch));
+}
+[data-theme="dark"] .cnv-colors__swatch[data-none]::before {
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    var(--danger) calc(50% - 1px),
+    var(--danger) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+}
+.cnv-colors__swatch:hover {
+  background: var(--plate);
+}
+.cnv-colors__swatch[aria-checked="true"]::before {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3.5px var(--ink);
+}
+html:not([data-pointer]) .cnv-colors__swatch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cnv-colors__numbers {
+  display: flex;
+  gap: 2px;
+}
+
+/* The selection's size, under it: "1024 × 1024". */
+.cnv-sizetag {
+  position: absolute;
+  z-index: var(--z-raised);
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--action);
+  color: var(--on-action);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* ── Comments' pins: a face and a number where a message points (screen pixels) ───────────────────────────────── */
+
+.cnv-pins {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cnv-pin {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 14px 14px 14px 3px;
+  background: var(--raised);
+  box-shadow:
+    var(--e2),
+    0 0 0 1px var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  transform: translate(0, -100%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* A bigger target than it looks, for a finger. */
+.cnv-pin::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.cnv-pin:hover {
+  box-shadow:
+    var(--e2),
+    0 0 0 1.5px var(--ink);
+}
+html:not([data-pointer]) .cnv-pin:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cnv-pin__n {
+  padding: 0 2px;
+}
+
+/* ── Layers: the canvas as a list, on the plane's left ────────────────────────────────────────────────────────── */
+
+.cnv-layers {
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-4);
+  bottom: 84px;
+  z-index: var(--z-raised);
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  max-width: calc(100% - 2 * var(--space-4));
+  padding: var(--space-1);
+  border-radius: 16px;
+}
+.cnv-layers__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+}
+.cnv-layers__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.cnv-layers__empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+}
+.cnv-layers__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 2px var(--space-1);
+  overflow: auto;
+  list-style: none;
+}
+.cnv-layer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding-right: var(--space-1);
+  border-radius: var(--radius-item);
+  color: var(--ink2);
+  font-size: 13.5px;
+}
+.cnv-layer:hover {
+  background: var(--plate);
+}
+.cnv-layer.is-on {
+  background: var(--plate);
+  color: var(--ink);
+  font-weight: 600;
+}
+.cnv-layer[data-hidden] .cnv-layer__pick {
+  color: var(--muted);
+}
+.cnv-layer__pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 var(--space-1) 0 calc(var(--space-2) + var(--depth, 0) * 18px);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cnv-layer__pick .ac-icon {
+  flex: none;
+  color: var(--muted);
+}
+html:not([data-pointer]) .cnv-layer__pick:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cnv-layer__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cnv-layer__who {
+  display: inline-flex;
+  flex: none;
+}
+/* The eye shows on the row under the pointer, on a hidden one always, and to the keys. */
+.cnv-layer__eye {
+  flex: none;
+  opacity: 0;
+}
+.cnv-layer:hover .cnv-layer__eye,
+.cnv-layer[data-hidden] .cnv-layer__eye,
+.cnv-layer__eye:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .cnv-layer__eye {
+    opacity: 1;
+  }
+}
+
+/* ── Crop: the whole picture faint, the window kept at full strength with its handles ─────────────────────────── */
+
+.cnv-crop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cnv-crop__ghost {
+  position: absolute;
+  max-width: none;
+  opacity: 0.35;
+  object-fit: fill;
+  pointer-events: none;
+}
+.cnv-crop__window {
+  position: absolute;
+  box-shadow: 0 0 0 1.5px var(--ink);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+/* Only what the window covers of the whole picture shows at full strength; its handles sit on its edges, uncut. */
+.cnv-crop__view {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cnv-crop__picture {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+}
+.cnv-crop__handle {
+  touch-action: none;
+}
+
+/* ── The picture's side column ────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv-insp {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 320px;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--raised);
+}
+.cnv-insp__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.cnv-insp__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.cnv-insp__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+.cnv-insp__picture {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--sunken);
+  cursor: zoom-in;
+}
+.cnv-insp__picture img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cnv-insp__facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+.cnv-insp__facts dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cnv-insp__facts dt:not(:first-child) {
+  margin-top: var(--space-2);
+}
+.cnv-insp__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cnv-insp__prompt {
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cnv-insp__who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cnv-insp__refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.cnv-insp__refs img {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.cnv-insp__ai,
+.cnv-insp__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.cnv-insp__note,
+.cnv-insp__size {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .cnv-insp {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-lifted);
+    width: min(320px, 100%);
+    box-shadow: var(--e3);
+  }
+}
+.cnv-zoomed__title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* ── The small map on cards ───────────────────────────────────────────────────────────────────────────────────── */
+
+.cnv-mini {
+  --cnv-dot: var(--line2);
+  width: 100%;
+  height: 100%;
+  background-color: var(--surface);
+  background-image: radial-gradient(circle at 1px 1px, var(--cnv-dot) 0.75px, transparent 1.25px);
+  background-size: 12px 12px;
+}
+.cnv-mini[data-bg="plain"] {
+  background-image: none;
+}
+.cnv-mini__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cnv-mini__frame {
+  fill: color-mix(in srgb, var(--sunken) 70%, transparent);
+  stroke: var(--line2);
+  stroke-width: 1;
+}
+.cnv-mini__picture {
+  fill: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.cnv-mini__pending {
+  fill: var(--agent-soft);
+}
+.cnv-mini__words {
+  fill: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+.cnv-mini__arrow {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.cnv-mini__shape {
+  fill: var(--raised);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+.cnv-mini__card {
+  fill: var(--raised);
+  stroke: var(--line2);
+  stroke-width: 1;
+}
+.cnv-mini__arrow,
+.cnv-mini__draw {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cnv-mini__draw {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.cnv-mini__draw[data-tool="marker"] {
+  stroke-width: 4;
+  opacity: 0.4;
+}

@@ -68,7 +68,7 @@ test("nothing in a message wears the hover plate's own gray: cards a step up, we
       ["--surface-raised", "var(--raised-2)"],
       ["--sunken", "var(--msg-well)"],
       ["--surface-sunken", "var(--msg-well)"],
-      // The pressed-in well too ("Leu seu recado" under the tools).
+      // The pressed-in wells too (a request's choices).
       ["--card-well", "var(--msg-well)"],
     ]),
   );

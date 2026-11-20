@@ -16,7 +16,7 @@ import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, type TextInputInstance, View } from "react-native";
 import { STORED } from "@/lib/storage";
-import { SearchField } from "@/ui";
+import { SearchField, SHEET_X } from "@/ui";
 import { useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { useRecentSearches, useSearchDirectory } from "./hooks";
@@ -25,8 +25,9 @@ import { FilterChips, FilteredResults, OperatorPicker, SearchOptions } from "./S
 
 /**
  * "Buscar nesta conversa", the sheet the conversation's search button opens: the web's header search on the phone
- * (ADR 0123). The field focused, the filters offered here (a DM none of who or where), the recent searches of this
- * conversation on this phone; the results as the search tab's, a tap goes to the message (`onPick`).
+ * (ADR 0123). The field waits for the person's tap (a sheet never opens with the keyboard up over what it offers), the
+ * filters offered here (a DM none of who or where), the recent searches of this conversation on this phone; the
+ * results as the search tab's, a tap goes to the message (`onPick`).
  */
 export function ConversationSearch({ place, onPick }: { place: SearchPlace; onPick: (hit: SearchHit) => void }) {
   const { t } = useTranslation();
@@ -72,12 +73,11 @@ export function ConversationSearch({ place, onPick }: { place: SearchPlace; onPi
         onChangeText={change}
         onSubmitEditing={remember}
         placeholder={t("searchPage.searchHere")}
-        autoFocus
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"
       />
-      {/* Edge to edge as in the search tab: these pad themselves, the sheet's own padding (18) is undone. */}
+      {/* Edge to edge as in the search tab: these pad themselves, the sheet's own side padding is undone. */}
       <View style={styles.bleed}>
         {scope.shown.length > 0 ? (
           <FilterChips
@@ -125,5 +125,5 @@ export function ConversationSearch({ place, onPick }: { place: SearchPlace; onPi
 }
 
 const styles = StyleSheet.create({
-  bleed: { marginHorizontal: -18, marginTop: 10 },
+  bleed: { marginHorizontal: -SHEET_X, marginTop: 10 },
 });

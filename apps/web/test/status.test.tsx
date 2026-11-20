@@ -270,7 +270,8 @@ describe("where a status shows", () => {
     expect(card.querySelector(".profile-card__status")?.textContent).toBe(
       "💬Respondendo no #engO que está fazendo agora",
     );
-    expect(card.textContent).toContain("Trabalhando");
+    // The face's badge and the line say it: no "Presença" fact repeating them.
+    expect(card.textContent).not.toContain("Presença");
     expect(card.textContent).not.toContain("Ocupado");
     expect(badgeOf(card)).toBe("working");
     cleanup();
@@ -298,7 +299,8 @@ describe("where a status shows", () => {
     expect(badgeOf(ada)).toBe("offline");
     await click(screen().getAllByRole("button", { name: "Perfil de Ada" })[0] as HTMLElement);
     await settle(6);
-    expect(screen().getByRole("dialog", { name: "Perfil" }).textContent).toContain("Offline · Sem IA conectada");
+    // An unusual state keeps its why; the face's badge says offline.
+    expect(screen().getByRole("dialog", { name: "Perfil" }).textContent).toContain("PresençaSem IA conectada");
   });
 
   test("an agent at work reads working, whatever its AI reads for this person: the list says so, or its run first", async () => {

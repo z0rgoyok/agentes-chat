@@ -1,10 +1,11 @@
 import { useAuthConfig, useChannels, useWikiTree } from "@agenteschat/client";
 import { AGENT_SECTIONS, AGENT_TABS, PERSONAL_AGENT_TABS } from "@agenteschat/client/lib/agent-edit";
-import { canTalk, listsAgent } from "@agenteschat/client/lib/audience";
+import { canTalk, listsAgent, managesAgent, opensDm } from "@agenteschat/client/lib/audience";
 import { joinable } from "@agenteschat/client/lib/channel-access";
 import { setDraftFor } from "@agenteschat/client/lib/drafts";
 import { can, makesAgents } from "@agenteschat/client/lib/permissions";
 import { settingsSectionNameKey } from "@agenteschat/client/lib/personal-view";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { Avatar, CommandPalette, Icon, type PaletteItem } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
@@ -79,8 +80,10 @@ export function CommandMenu() {
         onSelect: () => void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: c.id } }),
       });
     }
+    // An agent goes to its DM: only one whose DM opens for me (`opensDm`, ADR 0085 addendum of 2026-11-17). One I only
+    // edit is among its own options below, on its page.
     for (const a of dir.agents) {
-      if (!listsAgent(org, a)) continue;
+      if (!opensDm(a)) continue;
       list.push({
         key: `a:${a.id}`,
         group: goTo,
@@ -152,7 +155,6 @@ export function CommandMenu() {
       });
     // Each agent's own options, only for a typed query ("ada model", "instructions").
     const agentsGroup = t("palette.agents");
-    const manages = can(org, "manage_agents");
     // A personal workspace's bar has fewer tabs (ADR 0159); "advanced" is where its sections land, not a place to name.
     const tabs = AGENT_TABS.filter(
       (tab) => tab !== "advanced" && (!isPersonal(org) || (PERSONAL_AGENT_TABS as readonly string[]).includes(tab)),
@@ -162,7 +164,9 @@ export function CommandMenu() {
       const mark = <AgentAvatar agentId={a.id} size="sm" name={a.name} />;
       const keywords = [a.handle, t("palette.agentKeywords")].join(" ");
       const params = { orgId, agentId: a.id };
-      // Who manages agents changes everything; its owner who thinks, its look, audience and computer (the server's rules).
+      // Who manages the agent changes everything; its owner who thinks, its look, audience and computer (the server's
+      // rules, per agent: ADR 0085 addendum of 2026-11-17).
+      const manages = managesAgent(a);
       const edits = manages || a.ownerUserId === me.user.id;
       if (edits)
         list.push({
@@ -195,8 +199,9 @@ export function CommandMenu() {
         });
       if (!edits) continue;
       for (const sec of AGENT_SECTIONS) {
-        // "Quem pensa" is the model item above; archiving is for who manages agents.
-        if (sec === "brain" || (sec === "danger" && !manages)) continue;
+        // "Quem pensa" is the model item above; archiving is for who manages the agent; the right hand's page has no
+        // "Quem pode editar" (its workings are the product's, ADR 0137).
+        if (sec === "brain" || (sec === "danger" && !manages) || (sec === "editors" && isRightHand(a))) continue;
         list.push({
           key: `as:${a.id}:${sec}`,
           group: agentsGroup,

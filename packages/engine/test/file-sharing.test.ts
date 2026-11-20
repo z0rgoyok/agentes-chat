@@ -121,8 +121,8 @@ describe("a file's sharing (ADR 0157)", () => {
     await expect(
       setFileSharing(f.artifactDeps, duda.id, f.org.id, file.id, { mode: "everyone" }),
     ).rejects.toBeInstanceOf(NotFoundError);
-    // A file the whole workspace sees already has nothing to widen.
-    const open = await createArtifact(f.artifactDeps, person(bia.id), f.org.id, doc("Manual"));
+    // A public channel's file, which the whole workspace sees already, has nothing to widen.
+    const open = await createArtifact(f.artifactDeps, person(bia.id), f.org.id, doc("Manual", f.general.id));
     const widened = await setFileSharing(f.artifactDeps, bia.id, f.org.id, open.id, { mode: "everyone" }).catch(
       (e: unknown) => e,
     );

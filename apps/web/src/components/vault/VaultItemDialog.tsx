@@ -17,6 +17,7 @@ import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Button,
   Chip,
+  codeAndBold,
   DetailsDialog,
   DetailsSection,
   Dialog,
@@ -269,7 +270,7 @@ export function ItemFields({
       <div className="vlt-fields">
         <Field
           label={t("vault.field.keyName")}
-          error={errors.keyName}
+          error={errors.keyName && codeAndBold(errors.keyName)}
           hint={{
             name: t("common.about", { label: t("vault.field.keyName") }),
             text: errors.keyName || readOnly ? undefined : t("vault.field.keyNameHelp"),

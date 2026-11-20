@@ -155,7 +155,9 @@ test("Connect for it, with a ChatGPT plan another agent already thinks with: tha
   const dialog = screen().getByRole("dialog", { name: "Conectar uma IA para o Lodi" });
   expect(dialog.querySelector(".arrival-hero")).not.toBeNull();
   expect(dialog.querySelector(".ai-picker")).toBeNull();
-  expect(dialog.textContent).toContain("ChatGPT · Plus");
+  // Its plan's account by its title (no email came with it: unnamed), the plan and who uses it on the line under it.
+  expect(dialog.textContent).toContain("Conta sem nome");
+  expect(dialog.textContent).toContain("Plus · Também usada por Ada");
   // Another AI's steps can be pressed now, never a button loading for good; Back returns to the plan it has.
   await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Conectar outra IA" })));
   await settle(4);
@@ -167,7 +169,7 @@ test("Connect for it, with a ChatGPT plan another agent already thinks with: tha
     await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Voltar" })));
     await settle(4);
   }
-  await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: /^Usar ChatGPT · Plus/ })));
+  await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: /^Usar ChatGPT/ })));
   await settle(6);
   expect(state.calls.find((c) => c.method === "agents.setBrain")?.args.slice(1)).toEqual([
     LODI_ID,

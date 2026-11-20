@@ -34,6 +34,7 @@ export * from "./mail-fake";
 export * from "./mail-presets";
 export * from "./outbound-url";
 export * from "./presence";
+export * from "./problem-report";
 export * from "./pubsub";
 export * from "./push";
 export * from "./push-apns";

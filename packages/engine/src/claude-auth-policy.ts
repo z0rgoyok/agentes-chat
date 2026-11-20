@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type AuthMethod,
   CLAUDE_AUTH_PROTOCOL,
@@ -11,7 +12,7 @@ import { ValidationError } from "./errors";
 /**
  * How NEW Claude sign-ins for all agents are made on computers where each agent is its own OS user (ADR 0150),
  * set through the operator API: `claude setup-token` everywhere (no row: what runners always did), or Claude's own
- * login for the listed workspaces or for all. Anywhere else such a sign-in is always Claude's own login. A
+ * login for the listed workspaces, for those plus a share of all of them (`percent`), or for all. Anywhere else such a sign-in is always Claude's own login. A
  * connection keeps the method it started with (`machine_accounts.auth_method`), so a change here only reaches
  * sign-ins started after it.
  */
@@ -26,7 +27,7 @@ const { claudeAuthSettings, machineAccounts, machines, organizations } = schema;
 export const onLiveMachine = sql`exists (select 1 from ${machines} where ${machines.orgId} = ${machineAccounts.orgId}
   and ${machines.id} = ${machineAccounts.machineId} and ${machines.deletedAt} is null)`;
 
-export const CLAUDE_AUTH_ROLLOUTS = ["selected", "all"] as const;
+export const CLAUDE_AUTH_ROLLOUTS = ["selected", "percent", "all"] as const;
 export type ClaudeAuthRollout = (typeof CLAUDE_AUTH_ROLLOUTS)[number];
 /** Workspaces one policy may list. */
 export const CLAUDE_AUTH_ORGS_MAX = 500;
@@ -35,6 +36,8 @@ export interface ClaudeAuthPolicy {
   method: ClaudeLoginMethod;
   rollout: ClaudeAuthRollout;
   orgIds: string[];
+  /** With `percent`: the share of workspaces (0–100) on top of `orgIds`; 0 otherwise. */
+  percent: number;
   changedAt: Date | null;
 }
 
@@ -42,6 +45,7 @@ const ClaudeAuthPolicyInput = z.object({
   method: z.enum(["cli_login", "setup_token"]),
   rollout: z.enum(CLAUDE_AUTH_ROLLOUTS),
   orgIds: z.array(z.uuid()).max(CLAUDE_AUTH_ORGS_MAX),
+  percent: z.number().int().min(0).max(100).optional(),
 });
 
 /** The live policy; no row reads as `setup_token`, `selected`, no workspaces. */
@@ -51,10 +55,11 @@ export async function claudeAuthPolicy(db: Executor): Promise<ClaudeAuthPolicy> 
       method: claudeAuthSettings.method,
       rollout: claudeAuthSettings.rollout,
       orgIds: claudeAuthSettings.orgIds,
+      percent: claudeAuthSettings.percent,
       changedAt: claudeAuthSettings.changedAt,
     })
     .from(claudeAuthSettings);
-  return row ?? { method: "setup_token", rollout: "selected", orgIds: [], changedAt: null };
+  return row ?? { method: "setup_token", rollout: "selected", orgIds: [], percent: 0, changedAt: null };
 }
 
 /**
@@ -65,11 +70,13 @@ export async function setClaudeAuthPolicy(db: Database, input: unknown, now = ne
   const parsed = ClaudeAuthPolicyInput.safeParse(input);
   if (!parsed.success) {
     throw new ValidationError(
-      `Choose a method, a rollout and at most ${CLAUDE_AUTH_ORGS_MAX} workspaces`,
+      `Choose a method, a rollout, a percent from 0 to 100 and at most ${CLAUDE_AUTH_ORGS_MAX} workspaces`,
       "claude_auth.invalid",
     );
   }
   const { method, rollout } = parsed.data;
+  // Kept only where it counts, so switching away from `percent` and back starts from what the operator says again.
+  const percent = rollout === "percent" ? (parsed.data.percent ?? 0) : 0;
   const current = await claudeAuthPolicy(db);
   const asked = [...new Set(parsed.data.orgIds.map((id) => id.toLowerCase()))];
   const found = new Set(
@@ -87,15 +94,38 @@ export async function setClaudeAuthPolicy(db: Database, input: unknown, now = ne
   const same =
     current.method === method &&
     current.rollout === rollout &&
+    current.percent === percent &&
     current.orgIds.length === orgIds.length &&
     [...current.orgIds].sort().every((id, i) => id === orgIds[i]);
   if (!same) {
     await db
       .insert(claudeAuthSettings)
-      .values({ method, rollout, orgIds, changedAt: now })
-      .onConflictDoUpdate({ target: claudeAuthSettings.id, set: { method, rollout, orgIds, changedAt: now } });
+      .values({ method, rollout, orgIds, percent, changedAt: now })
+      .onConflictDoUpdate({
+        target: claudeAuthSettings.id,
+        set: { method, rollout, orgIds, percent, changedAt: now },
+      });
   }
   return claudeAuthPolicy(db);
+}
+
+/**
+ * A workspace's place in a percent rollout, 0–99: the first 4 bytes of the SHA-256 of its lowercase id, modulo 100.
+ * Stable, so raising the percent only adds workspaces. Part of the operator contract: a service outside core that
+ * acts on the policy (a computer's sign-in route) must compute it the same way.
+ */
+export function claudeAuthBucket(orgId: string): number {
+  return createHash("sha256").update(orgId.toLowerCase()).digest().readUInt32BE(0) % 100;
+}
+
+/** The policy gives `orgId` Claude's own login (where each agent is its own OS user). */
+export function claudeAuthCovers(
+  policy: Pick<ClaudeAuthPolicy, "method" | "rollout" | "orgIds" | "percent">,
+  orgId: string,
+): boolean {
+  if (policy.method !== "cli_login") return false;
+  if (policy.rollout === "all" || policy.orgIds.includes(orgId)) return true;
+  return policy.rollout === "percent" && claudeAuthBucket(orgId) < policy.percent;
 }
 
 /**
@@ -103,14 +133,12 @@ export async function setClaudeAuthPolicy(db: Database, input: unknown, now = ne
  * unless each agent is its own OS user there (`system`), where the policy says.
  */
 export function claudeAuthMethodFor(
-  policy: Pick<ClaudeAuthPolicy, "method" | "rollout" | "orgIds">,
+  policy: Pick<ClaudeAuthPolicy, "method" | "rollout" | "orgIds" | "percent">,
   orgId: string,
   system: boolean,
 ): ClaudeLoginMethod {
   if (!system) return "cli_login";
-  return policy.method === "cli_login" && (policy.rollout === "all" || policy.orgIds.includes(orgId))
-    ? "cli_login"
-    : "setup_token";
+  return claudeAuthCovers(policy, orgId) ? "cli_login" : "setup_token";
 }
 
 // ── The operator's reads ─────────────────────────────────────────────────────

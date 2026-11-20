@@ -1,4 +1,5 @@
 import { and, arrayContained, asc, type Database, desc, eq, inArray, isNull, ne, or, schema } from "@agenteschat/db";
+import { managesAgent } from "./audience";
 import { type BundleRoutine, type BundleRule, IMPORT_LIMITS, type MigrationBundle, NOTE_KINDS } from "./imports";
 import { requirePermission } from "./organizations";
 import type { RoutineTarget } from "./routines";
@@ -40,7 +41,10 @@ function bundleRoutine(r: RoutineRow, channelIds: Set<string>): BundleRoutine | 
 /**
  * This workspace as a migration bundle (ADR 0055; `GET …/export`, admins),
  * importable into another one (self-host ↔ Cloud) through `applyImport`.
- * Keys are our ids. Agents with their look and the skills they have on;
+ * Keys are our ids. Agents with their look and the skills they have on,
+ * only the ones the person manages (`managesAgent`: owners and administrators
+ * every one, ADR 0085 addendum of 2026-11-17), so a private agent's
+ * instructions never leave with who merely holds "Editar qualquer agente";
  * skills as `SKILL.md` (their other files are listed as left out); public
  * channels with their agents; scheduled routines;
  * memory everyone here can see, up to the import limit, most relevant
@@ -48,9 +52,9 @@ function bundleRoutine(r: RoutineRow, channelIds: Set<string>): BundleRoutine | 
  * usage, audit or messages.
  */
 export async function exportBundle(db: Database, actorId: string, orgId: string): Promise<MigrationBundle> {
-  await requirePermission(db, actorId, orgId, "manage_agents");
+  const membership = await requirePermission(db, actorId, orgId, "manage_agents");
   const [org] = await db.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, orgId));
-  const [agentRows, skillRows, channelRows] = await Promise.all([
+  const [allAgents, skillRows, channelRows] = await Promise.all([
     db
       .select()
       .from(agents)
@@ -77,6 +81,7 @@ export async function exportBundle(db: Database, actorId: string, orgId: string)
       )
       .orderBy(asc(channels.createdAt)),
   ]);
+  const agentRows = allAgents.filter((a) => managesAgent(a, actorId, membership));
   const agentIds = agentRows.map((a) => a.id);
   const skillIds = skillRows.map((s) => s.id);
   const channelIds = new Set(channelRows.map((c) => c.id));

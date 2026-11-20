@@ -58,6 +58,7 @@ export async function backfillMemoryTrust(db: Database): Promise<TrustBackfill> 
             eq(messages.authorType, "person"),
             isNull(messages.deletedAt),
             sql`coalesce(${messages.meta}->>'readOutside', '') <> 'true'`,
+            sql`coalesce(${messages.meta}->>'confidential', '') <> 'true'`,
           ),
         )
     : [];

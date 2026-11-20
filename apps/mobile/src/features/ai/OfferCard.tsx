@@ -20,7 +20,7 @@ import {
 } from "@agenteschat/client/lib/action-cards";
 import { APP_PAGES, appPagePath } from "@agenteschat/client/lib/app-pages";
 import { slotText } from "@agenteschat/client/lib/calendar";
-import { connectedItems } from "@agenteschat/client/lib/connected";
+import { connectedItems, personalAllowed } from "@agenteschat/client/lib/connected";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { hostOf } from "@agenteschat/client/lib/import/shared";
@@ -89,7 +89,8 @@ function ConnectApp({ card }: { card: Extract<Card, { kind: "connect_app" }> }) 
       why={card.why}
       detail={card.url}
       done={done ? `${t("actionCard.connected")}: ${title}` : null}
-      action={can(org, "manage_connectors") ? t("actionCard.connect") : null}
+      // Every member connects it, as their own when they may not add the team's; GitHub only for the team.
+      action={can(org, "manage_connectors") || personalAllowed(card.connector) ? t("actionCard.connect") : null}
       onAction={() => router.push(`/connectors?${query}` as never)}
       blocked={t("actionCard.connect_app.adminOnly")}
     />

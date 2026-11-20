@@ -5,11 +5,11 @@ import {
   ASK_IN_CHAT,
   approvalMessage,
   approvalNeeded,
+  badActorRefusal,
   commandKind,
   DELETE_BRANCHES_POINTER,
   deniedInMissions,
   deniedMessage,
-  forbiddenHint,
   forbiddenReason,
   type GitPush,
   githubRepo,
@@ -393,7 +393,7 @@ describe("secrets are refused to every read tool", () => {
       expect(readOnlyCall(tool, input, scope)).toBe(false);
       expect(forbiddenReason(tool, input, scope)).toBe("it touches secrets");
     }
-    expect(forbiddenHint("it touches secrets")).toBe(SECRET_MESSAGE);
+    expect(badActorRefusal("it touches secrets").message).toContain(SECRET_MESSAGE);
   });
 
   test("Claude Code's read rules cover what the server refuses, in the home folder and in a project", () => {

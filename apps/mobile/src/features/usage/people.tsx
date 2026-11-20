@@ -14,12 +14,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, EventPillAction, EventPillText, InfoHint, Text, useToast } from "@/ui";
+import { Button, EventPillAction, EventPillText, InfoHint, SkeletonList, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AskDone, AskWaiting } from "../chat/asks";
 import { Face } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useMeId } from "../shared/hooks";
 import { peopleMonthLine } from "./logic";
 import { Meter, UsageCard } from "./parts";
@@ -52,13 +53,8 @@ export function PeopleList() {
   const c = useColors();
   const dir = useDirectory();
   const usage = usePeopleUsage(orgId);
-  if (usage.isLoading) return <ActivityIndicator color={c.muted} />;
-  if (!usage.data)
-    return (
-      <Text variant="small" tone="muted">
-        {t("common.loadFailed")}
-      </Text>
-    );
+  if (usage.isLoading) return <SkeletonList rows={4} />;
+  if (!usage.data) return <LoadFailed onRetry={() => void usage.refetch()} />;
   const data = usage.data;
   const agentName = (id: string) => dir.nameOf({ type: "agent", id });
   const tone = (p: PersonRow) => (p.state === "at" ? c.danger : p.state === "near" ? c.warn : undefined);
@@ -118,7 +114,7 @@ export function MyUsageCard() {
   const dir = useDirectory();
   const usage = usePersonUsage(orgId, useMeId());
   const data = usage.data;
-  if (!data) return usage.isLoading ? <ActivityIndicator color={c.muted} /> : null;
+  if (!data) return usage.isLoading ? <SkeletonList rows={2} /> : <LoadFailed onRetry={() => void usage.refetch()} />;
   const l = data.limit;
   const tone = l.state === "at" ? c.danger : l.state === "near" ? c.warn : undefined;
   return (
@@ -210,7 +206,8 @@ export function PersonLimitNote({ card }: { card: PersonLimitCard }) {
               <EventPillAction
                 key="see"
                 label={t("peopleUsage.card.see")}
-                onPress={() => router.push("/usage" as never)}
+                // Their own month, where the label says: Uso opened on its people's view.
+                onPress={() => router.push({ pathname: "/usage", params: { view: "people" } })}
               />,
             ]
           : null

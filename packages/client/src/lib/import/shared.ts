@@ -67,6 +67,76 @@ export interface ParseOptions {
   root?: string | null;
   /** System files the reader dropped (`.DS_Store`, `__MACOSX`…), relative to the root like the files. */
   junk?: string[];
+  /**
+   * The words of what an import writes for the person to read and edit (a workflow's request), in their language:
+   * `onboarding.import.say.<key>` with these values. Without it, only the values are written.
+   */
+  say?: (key: SayKey, values: SayValues) => string;
+}
+
+/** The values the request's words take (`onboarding.import.say`). */
+export interface SayValues {
+  title?: string;
+  app?: string;
+  repos?: string;
+  text?: string;
+  handle?: string;
+  task?: string;
+  prompt?: string;
+  rule?: string;
+  question?: string;
+  channel?: string;
+  action?: string;
+  instruction?: string;
+}
+
+/** What `ParseOptions.say` is asked for (`onboarding.import.say`). */
+export type SayKey =
+  | "intro"
+  | "skillAbout"
+  | "asked"
+  | "webhook"
+  | "pr"
+  | "prIn"
+  | "text"
+  | "keep"
+  | "ask"
+  | "image"
+  | "video"
+  | "if"
+  | "otherwise"
+  | "stop"
+  | "approval"
+  | "approvalPlain"
+  | "channel"
+  | "notify"
+  | "file"
+  | "githubComment"
+  | "githubDo"
+  | "pass"
+  | "passPlain";
+
+/**
+ * A workflow's step as it arrives (ADR 0055, addendum 2026-11-16): what the sheet lists, and what the request says.
+ * `do`: an agent's work (`by`: the routine's agent, who asks another one for it). `lost`: a step with no match here.
+ */
+export type FlowStep =
+  | { kind: "text"; text: string }
+  | { kind: "do"; agent: string; task: string; by?: string }
+  | { kind: "media"; media: "image" | "video"; prompt: string }
+  | { kind: "if"; rule: string; otherwise: FlowStep[] }
+  | { kind: "approval"; question: string }
+  | { kind: "post"; to: "channel" | "notify" | "file" | "github"; channel?: string; action?: string }
+  | { kind: "lost"; what: "file" | "slack" | "discord" | "telegram" | "messaging" };
+
+/** A workflow as it arrives: a routine of its first agent, or a skill of that agent when nothing here starts it. */
+export interface ImportWorkflow {
+  item: { kind: "routine" | "skill"; key: string };
+  title: string;
+  agent: string;
+  /** How it started there when that has no match here (a skill runs when someone asks), else null. */
+  was: string | null;
+  steps: FlowStep[];
 }
 
 /** OpenMausBot's limit for a package (PACKAGE_MAX_BYTES): the cap for one file, except a whole-team export. */
@@ -587,6 +657,10 @@ export class Draft {
   readonly fileDirs: { agent: string; dir: string; skip: string[] }[] = [];
   /** Single files of an agent, and where they go in its folder. */
   readonly agentFiles: { agent: string; from: string; to: string }[] = [];
+  /** What the workflows became, for the sheet (never sent). */
+  readonly workflows: ImportWorkflow[] = [];
+  /** The agents a routine hands its answer to, by the routine's key (never sent: the request says it). */
+  readonly passes = new Map<string, string[]>();
   name = "";
   ref = "";
 
@@ -611,6 +685,11 @@ export class Draft {
 
   left(kind: LeftOutKind, label: string) {
     if (label.trim()) this.leftOut.push({ kind, label: label.trim() });
+  }
+
+  /** Words for the person, in their language (`ParseOptions.say`); without them, the values alone. */
+  say(key: SayKey, values: SayValues = {}): string {
+    return this.options.say ? this.options.say(key, values) : Object.values(values).filter(Boolean).join(": ");
   }
 
   /** What is under `dir` and nothing else reads is the agent's own (`finish` decides, once every file is read). */
@@ -723,7 +802,7 @@ export class Draft {
     this.channels.push({ key: c.key, name, topic: (c.topic ?? "").trim(), agents: c.agents });
   }
 
-  /** A routine; one without a schedule we can say, a prompt or an agent is listed under `label`. */
+  /** A routine; one without a schedule we can say, a prompt or an agent is listed under `label`. Its key, or null. */
   routine(r: {
     key: string;
     name: string;
@@ -732,10 +811,12 @@ export class Draft {
     channel?: string | null;
     trigger: Trigger | null;
     label?: string;
-  }) {
+    /** Off in the source: it arrives off. */
+    paused?: boolean;
+  }): string | null {
     if (!r.trigger || !r.prompt.trim() || !r.agent) {
       this.left("routine", r.label ?? r.name);
-      return;
+      return null;
     }
     const base = r.key || slug(r.name) || "routine";
     let key = base;
@@ -747,7 +828,9 @@ export class Draft {
       prompt: r.prompt.trim(),
       channel: r.channel ?? null,
       trigger: r.trigger,
+      ...(r.paused ? { paused: true } : {}),
     });
+    return key;
   }
 
   note(n: DraftNote) {

@@ -38,7 +38,7 @@ import {
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note, OpenPage, Step, StepsCard, StepText } from "../ai/parts";
-import { Gap, SettingsPage } from "../settings/parts";
+import { Gap, NEXT_FIELD, SettingsPage } from "../settings/parts";
 import { useMeId, useNow } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
 import { goBack } from "../shared/parts";
@@ -114,8 +114,6 @@ export function AndroidSetupScreen({ machineId }: { machineId?: string }) {
   const waiting = Boolean(host) && !wifi && !hostDown && cable.kind === "looking" && steps.now === "plug";
   const [since, setSince] = useState<number | null>(null);
   if (waiting !== (since !== null)) setSince(waiting ? Date.now() : null);
-  const now = useNow(waiting ? 1000 : 60_000);
-  const slow = since !== null && Math.max(now, Date.now()) - since >= ANDROID_SLOW_MS;
   useLookForPhones(org?.id ?? "", host?.id ?? null, Boolean(org) && !wifi && !hostDown && stage !== "done");
   if (host && phone && stage === "done") return <AndroidDone phone={phone} hostName={hostName} />;
 
@@ -178,6 +176,8 @@ export function AndroidSetupScreen({ machineId }: { machineId?: string }) {
     <SettingsPage
       title={t("mobile.devices.android.title")}
       subtitle={host ? t("mobile.devices.android.connecting", { host: hostName }) : undefined}
+      // The address and the code: the bar over the keyboard walks them, and closes the code's number pad.
+      toolbar={wifi && byCode}
     >
       {hosts.length > 1 ? (
         <>
@@ -258,8 +258,9 @@ export function AndroidSetupScreen({ machineId }: { machineId?: string }) {
               ) : steps.states.plug === "done" ? null : (
                 <>
                   {liveLine}
-                  {slow ? (
-                    <NotShowing
+                  {since !== null ? (
+                    <SlowHelp
+                      since={since}
                       os={host.os}
                       onUsbDebugging={() => setAsked({ step: "usbDebugging", at: cable.kind })}
                     />
@@ -352,6 +353,16 @@ function DriverLinks() {
   );
 }
 
+/**
+ * `NotShowing` once the cable step has waited `ANDROID_SLOW_MS` with no phone seen. Its own clock, so only this part
+ * repaints each second while it waits, never the whole guide.
+ */
+function SlowHelp({ since, os, onUsbDebugging }: { since: number; os: string; onUsbDebugging: () => void }) {
+  const now = useNow(1000);
+  if (Math.max(now, Date.now()) - since < ANDROID_SLOW_MS) return null;
+  return <NotShowing os={os} onUsbDebugging={onUsbDebugging} />;
+}
+
 /** Why a plugged phone may not show up, under the cable step after 30 s: the driver only on a Windows computer. */
 function NotShowing({ os, onUsbDebugging }: { os: string; onUsbDebugging: () => void }) {
   const { t } = useTranslation();
@@ -407,6 +418,7 @@ function PairByCode({
           <GroupedHeader>{t("mobile.devices.android.codeHead")}</GroupedHeader>
           <GroupedList>
             <GroupedField label={t("devices.wifiPair.address")}>
+              {/* Return hands the keyboard to the code under it (the next field on screen), never closing it. */}
               <TextInput
                 value={address}
                 onChangeText={setAddress}
@@ -419,6 +431,7 @@ function PairByCode({
                 maxLength={80}
                 accessibilityLabel={t("devices.wifiPair.address")}
                 style={[fieldText("callout"), styles.input, { color: c.ink }]}
+                {...NEXT_FIELD}
               />
             </GroupedField>
           </GroupedList>

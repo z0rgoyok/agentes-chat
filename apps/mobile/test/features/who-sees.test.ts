@@ -3,12 +3,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { audienceKind, audienceOfKind, pickedOf, wikiAudienceOf } from "@agenteschat/client/lib/who-sees";
 import { buildConversations } from "../../src/features/chats/logic";
+import { chatScreenSource } from "./chat-screen-source";
 
 const src = (path: string) => readFileSync(join(import.meta.dir, "../../src", path), "utf8");
 
 describe("Quem vê on the phone", () => {
   test("a new task and the task's sheet reach the same options; the task shows when it's limited", () => {
-    expect(src("features/issues/NewIssueForm.tsx")).toContain("audience: sees.choice");
+    // The new task's choice is made on the pushed picker, written back as each option is tapped.
+    const form = src("features/issues/NewIssueForm.tsx");
+    expect(form).toContain("useState<AudienceChoice>(EVERYONE)");
+    expect(form).toContain('pickOn({ what: "sees", value: audience, apply: setAudience })');
+    expect(src("features/issues/TaskPickScreen.tsx")).toContain("<WhoSeesRows draft={draft} />");
     const screen = src("features/issues/IssueScreen.tsx");
     expect(screen).toContain('pathname: "/who-sees"');
     expect(screen).toContain('i.audience?.mode === "people"');
@@ -35,7 +40,7 @@ describe("an administrator's channels on the phone", () => {
   });
 
   test("they read it before joining, and Entrar stays where the composer goes", () => {
-    const chat = src("features/chat/ChatScreen.tsx");
+    const chat = chatScreenSource();
     expect(chat).toContain("const readable = member || admin;");
     expect(chat).toContain('t("channel.adminReading")');
   });

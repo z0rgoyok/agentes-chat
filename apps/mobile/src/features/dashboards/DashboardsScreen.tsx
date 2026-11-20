@@ -5,11 +5,11 @@ import { rightHandOf } from "@agenteschat/client/lib/right-hand";
 import { useTranslation } from "react-i18next";
 import { RefreshControl, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, EmptyState, GroupedHeader, GroupedList, IconButton, SkeletonList, Text } from "@/ui";
+import { Button, EmptyState, GroupedHeader, GroupedList, SkeletonList } from "@/ui";
 import { router } from "@/ui/navigation";
 import { boardHref } from "../links/logic";
 import { useOpenDm } from "../new/useOpenDm";
-import { useEmptyLook } from "../shared/FirstUse";
+import { LoadFailed, useEmptyLook } from "../shared/FirstUse";
 import { useDirectory, useOrgId, usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { HOME } from "./logic";
@@ -21,7 +21,8 @@ export const openNewBoard = () => router.push("/board-new");
 /**
  * Dashboards, pushed from "See all" over the home's widgets (ADR 0135; the tab bar stays as it is): My Home on top (the
  * person's own widgets), then the boards of the whole workspace, of the person's roles and only theirs, each with a
- * thumbnail of its widgets (the one on Início says "On Home"). A row pushes the board; "+" in the bar makes a new one.
+ * thumbnail of its widgets (the one on Início says "On Home"). A row pushes the board; "+" in the bar (the system's
+ * own bar button) makes a new one.
  * With only My Home, the right hand under it says what a dashboard is, with Novo painel and an ask to it, as the
  * web's: the bar's "+" steps aside, one way in.
  */
@@ -60,7 +61,7 @@ export function DashboardsScreen() {
   return (
     <PushedLargeTitle
       title={t("dashboards.title")}
-      right={first ? undefined : <IconButton icon="plus" label={t("dashboards.new")} onPress={openNewBoard} />}
+      {...(first ? {} : { actions: [{ icon: "plus", sf: "plus", label: t("dashboards.new"), onPress: openNewBoard }] })}
       grouped
       refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
     >
@@ -78,17 +79,7 @@ export function DashboardsScreen() {
           // Loading: the rows' own shape, never a spinner.
           <SkeletonList rows={4} />
         ) : list.isError && !list.data ? (
-          <View style={styles.center}>
-            <Text tone="muted" style={styles.centerText}>
-              {t("mobile.dashboards.loadFailed")}
-            </Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t("mobile.common.retry")}
-              onPress={() => void list.refetch()}
-            />
-          </View>
+          <LoadFailed onRetry={() => void list.refetch()} />
         ) : any ? (
           <>
             {group(t("dashboards.groups.workspace"), groups.workspace)}
@@ -123,8 +114,6 @@ export function DashboardsScreen() {
 
 const styles = StyleSheet.create({
   in: { paddingHorizontal: 16, paddingTop: 4 },
-  center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
-  centerText: { textAlign: "center" },
   // Two buttons that wrap to a second line before they leave the screen.
   firstActs: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, flexShrink: 1 },
 });

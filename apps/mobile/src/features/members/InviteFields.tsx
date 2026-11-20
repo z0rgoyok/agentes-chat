@@ -1,6 +1,5 @@
 import { useChannels, useRoles } from "@agenteschat/client";
 import type { InviteLists, RefusedPick } from "@agenteschat/client/lib/invite-start";
-import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { everyoneOf, sortRoles } from "@agenteschat/client/lib/roles";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
@@ -58,7 +57,8 @@ export function useStartFields(
   const start = startOf(roles, d);
   const general = channels.find((ch) => ch.name === "general");
   const right = dir.agents.find(isRightHand);
-  const viewer = { userId: meId ?? "", managesAgents: can(org, "manage_agents") };
+  // Who may open an agent to them: its owner, or who manages that agent (`inviteAgentCase` reads it from the agent).
+  const viewer = { userId: meId ?? "" };
   const agentIds = start.agentIds.filter((id) => id !== right?.id);
   const talk = agentLines(t, { roles, roleIds: d.roleIds, agents: dir.agents, agentIds, viewer });
   const picked = sortRoles(roles.filter((r) => d.roleIds.includes(r.id)));

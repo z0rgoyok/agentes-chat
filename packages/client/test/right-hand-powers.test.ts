@@ -4,6 +4,9 @@ import { RIGHT_HAND_POWERS, rightHandNoComputer } from "../src/lib/right-hand";
 
 test("why it has no computer for anyone is told by its own line, and any other state by none", () => {
   expect(rightHandNoComputer("no_home")).toBe("rightHand.computerNoHome");
+  // A self-hosted server's own computer is the way to one: its line says so.
+  expect(rightHandNoComputer("no_home", true)).toBe("rightHand.computerNoHomeServer");
+  expect(rightHandNoComputer("not_system", true)).toBe("rightHand.computerOneUser");
   expect(rightHandNoComputer("not_system")).toBe("rightHand.computerOneUser");
   for (const reason of [null, undefined, "offline", "no_desktop", "not_allowed"]) {
     expect(rightHandNoComputer(reason)).toBeNull();

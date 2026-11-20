@@ -6,15 +6,14 @@ import {
   type RoutineTemplateOption,
   routineTemplateOptions,
 } from "@agenteschat/client/lib/routine-templates";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
-import { Button, GroupedHeader, GroupedList, GroupedRow, type IconName, Sheet, Text } from "@/ui";
+import { Button, GroupedHeader, GroupedList, GroupedRow, type IconName, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
+import { openOptionPick } from "../dashboards/option-pick";
 import { useOrgId } from "../shared/hooks";
-import { PickList } from "../shared/PickList";
-import { SheetTitle } from "../shared/PromptForm";
 
 const AREA_ICON: Record<RoutineTemplateArea, IconName> = {
   team: "members",
@@ -28,8 +27,9 @@ const AREA_ICON: Record<RoutineTemplateArea, IconName> = {
 };
 
 /**
- * The web's "Começar de um modelo": a row that opens a search over the templates, by area. One that needs an app says
- * which, in the list and, once picked, under the row, where one not connected yet has its way there.
+ * The web's "Começar de um modelo": a row that pushes the app's picker over the form, a search over the templates by
+ * area (screens, never a sheet). One that needs an app says which, in the list and, once picked, under the row, where
+ * one not connected yet has its way there. The form ends the pick when it closes.
  */
 export function TemplatePicker({
   value,
@@ -40,23 +40,40 @@ export function TemplatePicker({
 }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
-  const [open, setOpen] = useState(false);
   const catalog = useCatalog().data?.connectors;
-  const options = useMemo(
-    () =>
-      routineTemplateOptions(t, catalog).map((o) => {
+  const options = useMemo(() => routineTemplateOptions(t, catalog), [t, catalog]);
+  // The picker's choice reaches the form's latest `onPick` (the form may have changed since it was pushed).
+  const latest = useRef(onPick);
+  useLayoutEffect(() => {
+    latest.current = onPick;
+  });
+  const open = () => {
+    openOptionPick({
+      title: t("routines.presets.title"),
+      value: value ?? null,
+      search: true,
+      searchLabel: t("routines.presets.searchPlaceholder"),
+      options: options.map((o) => {
         const app = o.apps[0];
         return {
-          ...o,
-          description: o.needs ? `${o.text}\n${o.needs}` : o.text,
+          key: o.value,
+          label: o.label,
+          sub: o.needs ? `${o.text}\n${o.needs}` : o.text,
           subLines: 4,
+          group: o.group,
+          keywords: o.keywords,
           ...(app
             ? { leading: <ConnectorIcon def={app} label={app.label} size={30} /> }
             : { icon: o.template.kind === "email" ? ("mail" as const) : AREA_ICON[o.template.area] }),
         };
       }),
-    [t, catalog],
-  );
+      apply: (key) => {
+        const picked = options.find((o) => o.value === key);
+        if (picked) latest.current(picked);
+      },
+    });
+    router.push("/option-pick");
+  };
   const chosen = options.find((o) => o.value === value);
   const needsApps = Boolean(chosen?.apps.length);
   const connections = useConnections(orgId, needsApps);
@@ -70,12 +87,7 @@ export function TemplatePicker({
     <>
       <GroupedHeader>{t("routines.presets.title")}</GroupedHeader>
       <GroupedList>
-        <GroupedRow
-          icon="sparkle"
-          label={chosen?.label ?? t("routines.presets.placeholder")}
-          chevron
-          onPress={() => setOpen(true)}
-        />
+        <GroupedRow icon="sparkle" label={chosen?.label ?? t("routines.presets.placeholder")} chevron onPress={open} />
       </GroupedList>
       {chosen && needsApps ? (
         <View style={styles.needs}>
@@ -103,20 +115,6 @@ export function TemplatePicker({
           ) : null}
         </View>
       ) : null}
-      <Sheet open={open} onClose={() => setOpen(false)}>
-        <SheetTitle title={t("routines.presets.title")} />
-        <PickList
-          options={options}
-          value={value}
-          onPick={(o) => {
-            setOpen(false);
-            onPick(o);
-          }}
-          placeholder={t("routines.presets.searchPlaceholder")}
-          searchLabel={t("routines.presets.search")}
-          noResults={t("routines.presets.noResults")}
-        />
-      </Sheet>
     </>
   );
 }

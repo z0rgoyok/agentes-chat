@@ -2,6 +2,7 @@ import { ApiError, type SignInOptions, type SignInProvider } from "@agenteschat/
 import {
   EARLY_ACCESS_OTHER_EMAIL,
   knownErrorText,
+  passwordTriesText,
   providerRefusalText,
   type RestrictionFacts,
   restrictionLine,
@@ -139,9 +140,11 @@ export class CheckCancelled extends Error {}
  */
 export function refusalText(
   t: TFunction,
-  refusal: { status: number; code?: string | null } & Pick<RestrictionFacts, "kind" | "cloud">,
+  refusal: { status: number; code?: string | null; retryIn?: number } & Pick<RestrictionFacts, "kind" | "cloud">,
 ): string {
   if (refusal.code === HUMAN_CHECK_BLOCKED) return t("mobile.humanCheck.blocked");
+  const tries = passwordTriesText(t, refusal);
+  if (tries) return tries;
   // Better Auth's own limit, in the words the web's sign-in uses. The API's limits are `knownErrorText`'s.
   if (refusal.status === 429 && !(refusal instanceof ApiError)) return t("auth.tooManyTries");
   const { kind, cloud } = refusal;
@@ -159,8 +162,20 @@ export const lookUpFailureText = (t: TFunction, error: unknown) =>
   error instanceof ApiError && error.status === 429 ? t("auth.tooManyTries") : failureText(t, error);
 
 /** Better Auth's answer as a refusal `withHumanCheck` reads (its status and code on top), or null when it passed. */
-export const refusalOf = ({ error }: { error: ({ status: number; code?: string } & RestrictionFacts) | null }) =>
-  error ? { status: error.status, code: error.code, kind: error.kind, cloud: error.cloud } : null;
+export const refusalOf = ({
+  error,
+}: {
+  error: ({ status: number; code?: string; retryIn?: unknown } & RestrictionFacts) | null;
+}) =>
+  error
+    ? {
+        status: error.status,
+        code: error.code,
+        kind: error.kind,
+        cloud: error.cloud,
+        ...(typeof error.retryIn === "number" ? { retryIn: error.retryIn } : {}),
+      }
+    : null;
 
 /**
  * A social sign-in Better Auth refused, as Apple's native sign-in gets the server's answer itself: a blocked account's

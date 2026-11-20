@@ -1,4 +1,4 @@
-import { and, type Database, eq, inArray, isNotNull, isNull, schema } from "@agenteschat/db";
+import { and, type Database, eq, inArray, isNotNull, isNull, or, schema } from "@agenteschat/db";
 import { type AiStatusDeps, agentAiStates, orgHasAi } from "./ai-status";
 import { seesAgentDetails } from "./audience";
 import { listChannels } from "./channels";
@@ -54,7 +54,7 @@ const POWERS: [RolePermission, string][] = [
   ["create_agents", "create agents"],
   [
     "manage_agents",
-    "change any agent's settings (model, AI account, budget, owner, who may use it), archive and delete agents",
+    "change the settings (model, AI account, budget, owner, who may use it) of the agents they talk to and the ones with no owner (owners and administrators: every agent), archive and delete them",
   ],
   ["manage_channels", "manage channels (which agents are in them, how they reply)"],
   ["manage_connectors", "connect apps and MCP servers"],
@@ -62,7 +62,7 @@ const POWERS: [RolePermission, string][] = [
   ["invite_people", "invite people"],
   ["manage_members", "change people's roles and remove people"],
   ["manage_billing", "manage billing"],
-  ["manage_routines", "manage any agent's routines"],
+  ["manage_routines", "manage the routines of the agents they talk to"],
 ];
 
 /** At most this many agents, people and channels in the snapshot, like the team roster. */
@@ -145,7 +145,14 @@ export async function rightHandPrompt(
     db
       .select({ label: connectorConnections.label })
       .from(connectorConnections)
-      .where(and(eq(connectorConnections.orgId, orgId), isNull(connectorConnections.revokedAt))),
+      .where(
+        and(
+          eq(connectorConnections.orgId, orgId),
+          isNull(connectorConnections.revokedAt),
+          // The team's and the person's own: someone else's personal connection isn't theirs to know of.
+          or(isNull(connectorConnections.ownerUserId), eq(connectorConnections.ownerUserId, personId)),
+        ),
+      ),
     db.select({ context: organizations.context }).from(organizations).where(eq(organizations.id, orgId)),
     // A deleted computer keeps its row without a token.
     db

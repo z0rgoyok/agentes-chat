@@ -84,7 +84,7 @@ describe("chooseAutoModel", () => {
 
   test("acting for the person with tools is never the small tier: it only answers", async () => {
     const judge = createFakeJudge(() => "medium");
-    await chooseAutoModel(judge, { ...input, message: "me manda um print do dinzo.com.br" });
+    await chooseAutoModel(judge, { ...input, message: "abre example.com e tira uma captura da tela" });
     const tier = judge.calls[0]?.questions.tier as { criteria: Record<string, string> } | undefined;
     const acting =
       "acting for the person with tools (opening a site, taking a screenshot, clicking or filling in a page, running a command, changing files, sending something)";
@@ -122,7 +122,7 @@ describe("one decision, mapped per brain", () => {
     expect(modelForTier("anthropic", "medium")).toBe("claude-sonnet-5-5");
     expect(modelForTier("anthropic", "large")).toBe("claude-opus-5-5");
     expect(modelForTier("openai", "small")).toBe("gpt-6-luna");
-    expect(modelForTier("openai", "large")).toBe("gpt-6.1-sol");
+    expect(modelForTier("openai", "large")).toBe("gpt-6.2-sol");
     expect(modelForTier("nobody", "large")).toBeNull();
   });
 
@@ -131,7 +131,7 @@ describe("one decision, mapped per brain", () => {
     expect(brainModelForTier("claude_code", "medium")).toBe("sonnet");
     expect(brainModelForTier("claude_code", "large")).toBe("opus");
     expect(brainModelForTier("codex", "small")).toBe("gpt-6-luna");
-    expect(brainModelForTier("codex", "large")).toBe("gpt-6.1-sol");
+    expect(brainModelForTier("codex", "large")).toBe("gpt-6.2-sol");
     expect(brainModelForTier("model", "large")).toBeUndefined();
   });
 
@@ -151,7 +151,7 @@ describe("one decision, mapped per brain", () => {
     const applied = autoApplied(agent, plan, choice, "anthropic");
     expect(applied).toEqual({ apiModel: "claude-haiku-5-5", effort: "low" });
     expect(autoApplied(agent, plan, { tier: "large", effort: "high" }, "openai")).toEqual({
-      apiModel: "gpt-6.1-sol",
+      apiModel: "gpt-6.2-sol",
       effort: "high",
     });
     const run = withAuto({ ...agent, id: "a" }, plan, applied);
@@ -289,6 +289,39 @@ describe("the maker beside an agent on Automático", () => {
       .set({ revokedAt: new Date() })
       .where(eq(schema.providerCredentials.id, key.id));
     expect((await line())?.maker).toBe("anthropic");
+  });
+
+  test("an endpoint key with no model to call names no maker, as its runs find no AI", async () => {
+    f = await setup();
+    const key = await createCredential(
+      f.db,
+      f.keyWrapper,
+      f.owner.id,
+      f.org.id,
+      {
+        provider: "custom",
+        label: "GW",
+        apiKey: "gw-key-1234567",
+        endpoint: { style: "openai", baseURL: "https://gw.example/v1", models: [{ id: "llama-4" }] },
+      },
+      { net: { allowPrivate: true } },
+    );
+    // Written as the row keeps it: saving Automático on an endpoint key pins one of its models instead.
+    await f.db
+      .update(schema.agents)
+      .set({ model: AUTO_MODEL, credentialId: key.id })
+      .where(eq(schema.agents.id, f.agent.id));
+    const line = async () => {
+      const agent = await getAgent(f.db, f.org.id, f.agent.id);
+      return agent ? (await agentBrainLines(f.db, f.owner.id, f.org.id, [agent])).get(agent.id) : undefined;
+    };
+    expect((await line())?.maker).toBe("custom");
+    await f.db
+      .update(schema.providerCredentials)
+      .set({ options: { endpoint: { style: "openai", baseURL: "https://gw.example/v1", models: [] } } })
+      .where(eq(schema.providerCredentials.id, key.id));
+    expect(await line()).toMatchObject({ kind: "model" });
+    expect((await line())?.maker).toBeUndefined();
   });
 });
 

@@ -38,7 +38,7 @@ import { AskAgentButton } from "@/components/AskAgentButton";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { colorOf } from "@/components/Sky";
-import { groupByDay, isRoutineRun, type RunFilter, runMatches } from "@/lib/agent-edit";
+import { groupByDay, isRoutineRun, ownsOrManages, type RunFilter, runMatches } from "@/lib/agent-edit";
 import { lookOf } from "@/lib/look";
 import { usageShown } from "@/lib/plan-usage";
 import { BrainDialog } from "./brain/BrainDialog";
@@ -170,7 +170,7 @@ export function ActivityTab() {
   const locale = i18n.language;
   const { org } = useOrg();
   const { agent, g, viewer, ownerFirst, saved, can, pickRepos } = useAgentEdit();
-  const allowed = viewer !== "member";
+  const allowed = ownsOrManages(viewer);
   const runs = useRuns(org.id, agent.id, allowed);
   const detail = useAgentDetail(org.id, agent.id);
   const channels = useChannels(org.id);

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { type Database, eq, rowsOf, schema, sql, tracingLogger } from "@agenteschat/db";
+import { and, type Database, eq, ne, rowsOf, schema, sql, tracingLogger } from "@agenteschat/db";
 import {
   addRunStep,
   countComposio,
@@ -10,6 +10,7 @@ import {
 } from "@agenteschat/engine";
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
+import { poison } from "./canary";
 import { type Browser, browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 /**
@@ -25,8 +26,10 @@ import { type Browser, browser, createTestServer, joinByInvitation, seedOrg, sig
 
 const TOKEN = "operator-test-token-".padEnd(48, "x");
 const READ = "operator-read-token-".padEnd(48, "x");
+const REVEAL = "operator-reveal-token-".padEnd(48, "x");
 const UNKNOWN = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
 const WHY = "canary-why: the person asked for it and nothing else answers this.";
+const CONFIDENTIAL_JOB_ERROR = "canary-confidential-job: what the run was writing";
 
 /**
  * Stored text the reads return by design, as `table: columns` (`column.path` inside a JSON column): who and what
@@ -45,12 +48,13 @@ const KEPT: Record<string, string[]> = {
     "payer_user_id",
     "deletion_hold_reason",
   ],
-  // `role` never comes back as stored: the reads work a member's role out from it.
-  organization_members: ["handle", "role"],
+  // `role` never comes back as stored: the reads work a member's role out from it. `outside_of`, here and on a join
+  // request, is who an outside collaborator works for: only this API writes it, never the workspace (ADR 0191).
+  organization_members: ["handle", "role", "outside_of"],
   // Not returned either: the database holds both to three words, which decide who may talk to an agent.
   channel_permission_overrides: ["allow", "deny"],
   organization_invitations: ["email"],
-  organization_join_requests: ["email", "name", "status"],
+  organization_join_requests: ["email", "name", "status", "outside_of"],
   channels: ["name"],
   agents: [
     "name",
@@ -83,7 +87,7 @@ const KEPT: Record<string, string[]> = {
     "transcript.waitingForBrain.code",
     "transcript.waitingForBrain.source",
     // The stages of a run's profile: named by the code that times them, counted by the work analytics.
-    "transcript.profiles.stages.stage",
+    "profiles.stages.stage",
   ],
   agent_run_steps: [
     "data.name",
@@ -127,6 +131,8 @@ const KEPT: Record<string, string[]> = {
   connector_connections: ["connector", "label", "auth_type", "status", "last_error"],
   mail_accounts: ["provider", "via", "preset", "label", "status", "last_error"],
   db_connections: ["label", "status", "last_error"],
+  // A registered host and its look: only this API writes them, never a workspace (ADR 0194).
+  hosts: ["host", "name", "accent"],
 };
 
 /** The places the proof is about: each holds a canary before any read, and after every column got one. */
@@ -148,70 +154,19 @@ const PLACES: [what: string, table: string, value: string, where?: string][] = [
   ["a verification code", "verifications", "value"],
   ["a push token", "push_devices", "token"],
   ["a notification's words", "notifications", "latest::text"],
+  ["what a member wrote to ask for help", "support_requests", "text"],
+  ["what the thing they reported says", "support_requests", "about"],
+  [
+    "the operator's reply to them, in the job of its email",
+    "outbox",
+    "payload->'template'->>'text'",
+    "payload->'template'->>'kind' = 'support_reply'",
+  ],
 ];
-
-// Every column that holds text (a string, an array of them or JSON), but the ids a foreign key ties at either end.
-const TEXT_COLUMNS = `
-  select c.relname as "table", a.attname as "column",
-    case when t.typname = 'jsonb' then 'json' when t.typcategory = 'A' then 'array' else 'text' end as "type"
-  from pg_class c
-  join pg_namespace n on n.oid = c.relnamespace
-  join pg_attribute a on a.attrelid = c.oid
-  join pg_type t on t.oid = a.atttypid
-  left join pg_type e on e.oid = t.typelem and t.typcategory = 'A'
-  where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relispartition
-    and a.attnum > 0 and not a.attisdropped and a.attgenerated = ''
-    and (t.typcategory = 'S' or t.typname = 'jsonb' or e.typcategory = 'S')
-    and not exists (select 1 from pg_constraint k where k.contype = 'f'
-      and ((k.conrelid = c.oid and a.attnum = any(k.conkey)) or (k.confrelid = c.oid and a.attnum = any(k.confkey))))
-  order by 1, 2`;
 
 const TABLES = `
   select c.relname as "name" from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relispartition order by 1`;
-
-// A JSON value with every string in it replaced by the path that leads to it, but ids, times and what `keep` names.
-const CANARY_JSON = `
-  create function canary_json(j jsonb, path text, keep text[]) returns jsonb language plpgsql as $$
-  begin
-    if path = any(keep) then return j; end if;
-    case jsonb_typeof(j)
-      when 'string' then
-        if (j #>> '{}') ~ '^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z)$'
-        then return j; end if;
-        return to_jsonb(path);
-      when 'object' then
-        return coalesce((select jsonb_object_agg(e.key, canary_json(e.value, path || '.' || e.key, keep))
-          from jsonb_each(j) e), '{}'::jsonb);
-      when 'array' then
-        return coalesce((select jsonb_agg(canary_json(e.value, path, keep) order by e.n)
-          from jsonb_array_elements(j) with ordinality e(value, n)), '[]'::jsonb);
-      else return j;
-    end case;
-  end $$`;
-
-/** Gives every text column outside `KEPT` a canary that names it, in every row; returns how many columns. */
-async function poison(db: Database) {
-  const columns = rowsOf<{ table: string; column: string; type: "text" | "array" | "json" }>(
-    await db.execute(sql.raw(TEXT_COLUMNS)),
-  );
-  const kept = Object.entries(KEPT).flatMap(([table, names]) => names.map((name) => `${table}.${name}`));
-  const keep = `array[${kept.map((k) => `'canary.${k}'`).join(", ")}]::text[]`;
-  await db.execute(sql.raw("create sequence canary_n"));
-  await db.execute(sql.raw(CANARY_JSON));
-  let poisoned = 0;
-  for (const { table, column, type } of columns) {
-    if (kept.includes(`${table}.${column}`)) continue;
-    const name = `canary.${table}.${column}`;
-    // Numbered: some of these columns are unique.
-    const mark = `'${name}.r' || nextval('canary_n')`;
-    const value =
-      type === "text" ? mark : type === "array" ? `array[${mark}]` : `canary_json("${column}", '${name}', ${keep})`;
-    await db.execute(sql.raw(`update "${table}" set "${column}" = ${value}`));
-    poisoned += 1;
-  }
-  return poisoned;
-}
 
 const tools: ToolSource = {
   name: "test-tools",
@@ -247,6 +202,10 @@ let owner: Browser;
 let org: { orgId: string; channelId: string; agentId: string };
 /** A GET with the read-only token. */
 let get: (path: string) => Promise<Response>;
+/** A call with another token: the full one's review blocks, the reveal token's door. */
+let as: (token: string) => (path: string, json?: unknown) => Promise<Response>;
+/** A failed run of a confidential thread (ADR 0190), the task it started, and a member's request for help. */
+const confidential = { runId: "", taskId: "", requestId: "" };
 /** Every GET of the committed contract, as its path's template. */
 let contract: string[];
 let calls: Call[];
@@ -285,9 +244,17 @@ beforeAll(async () => {
   });
   // A server that provisions computers lists the workspaces waiting for one: the only read its setting changes.
   const config = { ...t.config, MACHINE_PROVISIONING: "external" as const };
-  const app = createOperatorApp({ db: t.db, config, version: "test", log: createLogger("error") }, TOKEN, READ);
-  const as = (token: string) => async (path: string) =>
-    app.request(`/api/operator/v1${path}`, { headers: { authorization: `Bearer ${token}` } });
+  const app = createOperatorApp(
+    { db: t.db, config, version: "test", log: createLogger("error"), emails: true },
+    TOKEN,
+    READ,
+    REVEAL,
+  );
+  as = (token) => async (path, json) =>
+    app.request(`/api/operator/v1${path}`, {
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      ...(json ? { method: "POST", body: JSON.stringify(json) } : {}),
+    });
   get = as(READ);
   const db = t.db;
   enableOperatorEvents();
@@ -344,6 +311,28 @@ beforeAll(async () => {
     code: "run.provider_rate_limit",
     message: "canary-error message",
   });
+  // What the reads work facts out of: a failed result with a status, a pause's reading, a hand-on. Each holds words
+  // where a number, a listed word or an id belongs.
+  await addRunStep(db, run, "tool_call", { toolUseId: "call-3", name: "get_issue", input: "canary-input words" });
+  await addRunStep(db, run, "tool_result", {
+    toolUseId: "call-3",
+    name: "get_issue",
+    isError: true,
+    content: "Tool failed: canary-failure words",
+    data: { code: "tool.failed", status: "canary-status" },
+  });
+  await addRunStep(db, run, "error", {
+    reason: "usage_wait",
+    code: "usage_pause",
+    message: "canary-pause words",
+    pause: { source: "plan", used: "canary-used", window: "canary-window" },
+  });
+  await addRunStep(db, run, "error", { reason: "no_ai", code: "canary_reason" });
+  await addRunStep(db, run, "context", {
+    redispatchedMessageIds: [look],
+    reason: "canary_reason",
+    toRunId: "canary-run",
+  });
   // A run parked on its plan's limit. An error's first characters are returned by design: a credential in them never.
   const failed = "connect failed: postgres://app:canary-pass@db.example.com/main";
   await db.update(schema.routingDecisions).set({ error: failed });
@@ -364,11 +353,54 @@ beforeAll(async () => {
         machineId: "",
         code: "usage_pause",
         source: "plan",
+        waitKey: "plan:canary-computer:claude_code:canary-account",
         resetsAt: new Date(Date.now() + 3600_000).toISOString(),
         plan: "canary-plan words",
         model: "canary-model",
       },
     },
+  });
+  // A run of a confidential thread (ADR 0190) that failed on what it read: its error's words are not returned, nor
+  // what its steps hold, nor its job's error.
+  const confidentialRoot = crypto.randomUUID();
+  await db.insert(schema.confidentialThreads).values({ orgId, channelId, rootMessageId: confidentialRoot });
+  const [confidentialRun] = await db
+    .insert(schema.agentRuns)
+    .values({
+      orgId,
+      agentId,
+      channelId,
+      threadRootId: confidentialRoot,
+      triggerMessageId: confidentialRoot,
+      trigger: "mention",
+      hop: 1,
+      status: "failed",
+      error: "canary-confidential: what the run read",
+    })
+    .returning({ id: schema.agentRuns.id, orgId: schema.agentRuns.orgId });
+  if (!confidentialRun) throw new Error("no confidential run");
+  confidential.runId = confidentialRun.id;
+  await addRunStep(db, confidentialRun, "tool_call", {
+    toolUseId: "call-4",
+    name: "get_issue",
+    input: { q: "canary-confidential-input" },
+  });
+  await addRunStep(db, confidentialRun, "tool_result", {
+    toolUseId: "call-4",
+    name: "get_issue",
+    isError: true,
+    content: "canary-confidential-result",
+  });
+  await addRunStep(db, confidentialRun, "model_call", { narration: "canary-confidential-narration" });
+  await addRunStep(db, confidentialRun, "error", { reason: "transient", message: "canary-confidential-message" });
+  // Its job failed on a write: what a database answers then names the values the run was writing.
+  await db.insert(schema.outbox).values({
+    orgId,
+    kind: "agent_run.execute",
+    payload: { runId: confidentialRun.id },
+    status: "failed",
+    dedupeKey: `agent_run.execute:${confidentialRun.id}`,
+    lastError: CONFIDENTIAL_JOB_ERROR,
   });
 
   // What the conversation didn't write, each with its canary.
@@ -387,6 +419,7 @@ beforeAll(async () => {
     title: "canary memory title",
     content: "canary memory",
   });
+  await db.insert(schema.hosts).values({ host: "app.northwind.example", name: "Northwind Studio", accent: "#7c3aed" });
   await db.insert(schema.auditLog).values({
     orgId,
     actorType: "agent",
@@ -396,6 +429,33 @@ beforeAll(async () => {
     targetId: "lookup",
     details: { input: { q: "canary audit details" } },
   });
+  // The three actions whose details the audit read looks into: words in every place it reads, and beside them.
+  const changed = { orgId, actorType: "system" as const, targetType: "agent", targetId: agentId };
+  await db.insert(schema.auditLog).values([
+    {
+      ...changed,
+      action: "agent.audience_changed",
+      details: {
+        from: { mode: "canary-mode", userIds: ["canary-person"], roleIds: [] },
+        to: { mode: "people", userIds: ["canary-other-person"], roleIds: ["canary-role"] },
+        planOwner: "canary-owner",
+        via: "canary-via",
+      },
+    },
+    {
+      ...changed,
+      action: "connector.tool_definitions_changed",
+      details: {
+        connection: "canary-connection",
+        tools: [{ tool: "canary_tool", descriptionBefore: "canary-before", descriptionAfter: "canary-after" }],
+      },
+    },
+    {
+      ...changed,
+      action: "run.canceled",
+      details: { agentId: "canary-agent", from: "canary-status", reason: "canary-reason words" },
+    },
+  ]);
   const sealed = { secretCiphertext: "canary-ciphertext", wrappedDataKey: "canary-wrapped", kekId: "local:v1" };
   await db
     .insert(schema.providerCredentials)
@@ -489,6 +549,20 @@ beforeAll(async () => {
     claimHash: "canary-claim-hash",
     expiresAt: soon,
   });
+  // Outside collaborators (ADR 0191): one waiting for an answer, one in.
+  await db.insert(schema.organizationJoinRequests).values({
+    orgId,
+    userId: ownerId,
+    email: "outside@example.com",
+    name: "Outsider",
+    note: "canary outside note",
+    outsideOf: "Example Consulting",
+    expiresAt: soon,
+  });
+  await db
+    .update(schema.organizationMembers)
+    .set({ outsideOf: "Example Consulting" })
+    .where(and(eq(schema.organizationMembers.orgId, orgId), ne(schema.organizationMembers.userId, ownerId)));
   await db
     .insert(schema.waitlistEntries)
     .values({ email: "waiting@example.com", confirmedAt: new Date(), confirmTokenHash: "canary-confirm-hash" });
@@ -563,6 +637,26 @@ beforeAll(async () => {
     lastLine: "canary line",
     status: "running",
   });
+  const [confidentialTask] = await db
+    .insert(schema.machineTasks)
+    .values({
+      orgId,
+      agentId,
+      machineId,
+      channelId,
+      runId: confidential.runId,
+      title: "canary confidential task",
+      executor: "claude",
+      command: "canary confidential command",
+      prompt: "canary confidential prompt",
+      result: "canary confidential result",
+      lastLine: "canary confidential line",
+      recentLines: ["canary confidential lines"],
+      files: ["canary/confidential.txt"],
+      status: "done",
+    })
+    .returning({ id: schema.machineTasks.id });
+  confidential.taskId = confidentialTask?.id ?? "";
   await db
     .insert(schema.machineHolds)
     .values({ orgId, agentId, machineId, what: "canary hold", why: "canary hold reason" });
@@ -676,6 +770,29 @@ beforeAll(async () => {
     authorType: "person",
     authorId: ownerId,
   });
+  // A live file's document and a picture in it (ADR 0196): its meters read their sizes, never what they hold.
+  await db.insert(schema.liveDocs).values({
+    orgId,
+    artifactId: file?.id ?? "",
+    kind: "document",
+    state: "canary-live-state",
+    stateBytes: 17,
+    editedByType: "person",
+    editedById: ownerId,
+  });
+  await db.insert(schema.liveAssets).values({
+    id: crypto.randomUUID(),
+    orgId,
+    artifactId: file?.id ?? "",
+    blobKey: "canary-live-blob",
+    contentType: "image/png",
+    size: 12,
+    sha256: "canary-live-digest",
+    source: "upload",
+    origin: { url: "https://example.com/canary-live-picture.png", credit: "canary credit" },
+    createdByType: "person",
+    createdById: ownerId,
+  });
   await db.insert(schema.skillFiles).values({
     orgId,
     skillId: skill?.id ?? "",
@@ -733,6 +850,21 @@ beforeAll(async () => {
     reason: "canary device reason",
     expiresAt: soon,
   });
+  // A member's request for help, with its words kept as on a server that lets its operator read them.
+  const [asked] = await db
+    .insert(schema.supportRequests)
+    .values({
+      orgId,
+      userId: ownerId,
+      source: "form",
+      ref: "canary-ref",
+      aboutKind: "message",
+      messageId: look,
+      text: "canary request words",
+      about: "canary reported words",
+    })
+    .returning({ id: schema.supportRequests.id });
+  confidential.requestId = asked?.id ?? "";
   await db
     .insert(schema.githubAppInstallations)
     .values({ orgId, installationId: 1, accountLogin: "canary-login", accountType: "Organization" });
@@ -760,6 +892,15 @@ beforeAll(async () => {
     .insert(schema.machineProvisioning)
     .values({ orgId: waiting?.id ?? "", state: "preparing", step: "installing", stage: "apps", since: new Date() });
 
+  // The operator answered that request in its own words: until the email goes out, its job holds them.
+  const replied = await as(REVEAL)(`/reveal/orgs/${orgId}/replies`, {
+    requestId: confidential.requestId,
+    text: "canary reply words",
+    operator: "someone",
+    assistedByAi: true,
+  });
+  expect(replied.status).toBe(200);
+
   // The secrets the server made itself, as it stored them.
   for (const s of await db.select({ token: schema.sessions.token }).from(schema.sessions)) hidden.push(s.token);
   for (const a of await db.select({ password: schema.accounts.password }).from(schema.accounts)) {
@@ -781,6 +922,7 @@ beforeAll(async () => {
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const days = `from=${today}&to=${today}`;
+  const hours = `from=${new Date(Date.now() - 3600_000).toISOString()}&to=${new Date(Date.now() + 3600_000).toISOString()}`;
   const ref = (text: string, inOrg = true) =>
     `/resolve?ref=${encodeURIComponent(text)}${inOrg ? `&orgId=${orgId}` : ""}`;
   const review = "reason=a%20report&operator=someone";
@@ -799,9 +941,12 @@ beforeAll(async () => {
     `/analytics/connectors/github?${days}`,
     `/analytics/connectors/gmail?${days}`,
     `/analytics/work?${days}`,
+    ...["brain", "model"].map((by) => `/analytics/run-timings?${hours}&by=${by}`),
+    `/analytics/run-timings?${hours}&orgId=${orgId}&agentId=${agentId}`,
     `/analytics/ai-accounts?${days}`,
     "/ai-accounts?limit=200",
     "/claude-auth",
+    "/hosts",
     "/users?q=acme&limit=200",
     "/users?email=owner%40acme.test",
     "/jobs?limit=200",
@@ -817,6 +962,7 @@ beforeAll(async () => {
     ...orgs.flatMap((id) => [
       `/orgs/${id}`,
       `/orgs/${id}/members?limit=200`,
+      `/orgs/${id}/outside-access`,
       `/orgs/${id}/channels?limit=200`,
       `/orgs/${id}/agents?limit=200`,
       `/orgs/${id}/machines`,
@@ -825,7 +971,9 @@ beforeAll(async () => {
       `/orgs/${id}/runs?groupBy=error`,
       `/orgs/${id}/tool-calls?limit=200`,
       ...["tool", "agent", "outcome"].map((by) => `/orgs/${id}/tool-calls?groupBy=${by}`),
-      ...["connections", "audit", "asks", "routines", "unanswered"].map((list) => `/orgs/${id}/${list}?limit=200`),
+      ...["connections", "audit", "asks", "routines", "unanswered", "support-requests"].map(
+        (list) => `/orgs/${id}/${list}?limit=200`,
+      ),
       `/orgs/${id}/unanswered?summary=true`,
       `/analytics/work/orgs/${id}?${days}`,
     ]),
@@ -881,7 +1029,10 @@ beforeAll(async () => {
     [`/orgs/${orgId}/timeline`, 400],
     [`/orgs/${orgId}/tool-calls?runId=${UNKNOWN}`, 404],
     [`/orgs/${orgId}/tool-calls?outcome=maybe`, 400],
-    ...["connections", "audit", "asks", "routines"].map((list): Call => [`/orgs/${UNKNOWN}/${list}`, 404]),
+    ...["connections", "audit", "asks", "routines", "support-requests", "outside-access"].map(
+      (list): Call => [`/orgs/${UNKNOWN}/${list}`, 404],
+    ),
+    [`/orgs/${orgId}/support-requests?cursor=nope`, 400],
     [`/orgs/${orgId}/connections?cursor=nope`, 400],
     [`/orgs/${orgId}/audit?from=yesterday`, 400],
     [`/orgs/${orgId}/asks?kind=wish`, 400],
@@ -901,6 +1052,7 @@ beforeAll(async () => {
     ["/jobs?stuck=maybe", 400],
     ["/events?after=nope", 400],
     ["/analytics", 400],
+    [`/analytics/run-timings?${days}`, 400],
     ["/nope", 404],
   ];
 });
@@ -985,8 +1137,54 @@ test("no GET says what anyone wrote or a secret, as the history was written", as
   expect(await readEverything()).toEqual(NOTHING);
 });
 
+test("a confidential thread's run: what its steps and the task it started hold is in no review block and behind no proof of the reveal door", async () => {
+  const review = "reason=a%20report&operator=someone";
+  const blocks = [`/review/run/${confidential.runId}?${review}`, `/review/task/${confidential.taskId}?${review}`];
+  const asking = { reason: "Check what the run was doing when it failed", operator: "someone", assistedByAi: true };
+  const records = [
+    ...["input", "result", "narration", "error"].map((field, n) => ({
+      kind: "run_step",
+      id: confidential.runId,
+      seq: n + 1,
+      field,
+    })),
+    ...["command", "prompt", "result"].map((field) => ({ kind: "task", id: confidential.taskId, field })),
+  ];
+  const proofs = [
+    { purpose: "fault", runId: confidential.runId },
+    { purpose: "member_request", requestId: confidential.requestId },
+  ];
+  const said = (text: string) => text.match(/canary[^"\\\s]*/gi) ?? [];
+  const answers: Record<string, unknown> = {};
+  for (const path of blocks) {
+    const res = await as(TOKEN)(path);
+    answers[path] = [res.status, said(await res.text())];
+  }
+  for (const proof of proofs) {
+    for (const record of records) {
+      const res = await as(REVEAL)(`/reveal/orgs/${org.orgId}`, { ...asking, ...record, ...proof });
+      const text = await res.text();
+      const code = (JSON.parse(text) as { error?: { code?: string } }).error?.code;
+      answers[`${proof.purpose} ${record.kind}.${record.field}`] = [res.status, code, said(text)];
+    }
+  }
+  expect(answers).toEqual({
+    ...Object.fromEntries(blocks.map((path) => [path, [200, []]])),
+    ...Object.fromEntries(
+      proofs.flatMap((proof) =>
+        records.map((record) => [`${proof.purpose} ${record.kind}.${record.field}`, [403, "reveal.confidential", []]]),
+      ),
+    ),
+  });
+});
+
 test("no GET says anything else the database holds: a canary in every other text column, and none comes back", async () => {
-  expect(await poison(t.db)).toBeGreaterThan(500);
+  expect(await poison(t.db, KEPT)).toBeGreaterThan(500);
+  // A run's job is its run's by its name alone, and its name is text: the confidential run's job gets its own back.
+  await t.db
+    .update(schema.outbox)
+    .set({ dedupeKey: `agent_run.execute:${confidential.runId}` })
+    .where(eq(schema.outbox.lastError, CONFIDENTIAL_JOB_ERROR));
   expect(await unmarked()).toEqual([]);
   expect(await readEverything()).toEqual(NOTHING);
 });

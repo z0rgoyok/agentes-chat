@@ -2,7 +2,7 @@ import type { ArtifactRef, Message, ReplyRef } from "../api/types";
 import { artifactRefs } from "./artifacts";
 import { plainLine } from "./markdown";
 import { mediaKindOf, messageMediaOf } from "./media";
-import { voiceOf } from "./voice";
+import { listedText, voiceOf } from "./voice";
 
 /** Same rule as the server (`replyExcerpt`): one line of plain words, ~200 characters. */
 export function quoteExcerpt(body: string, max = 200): string {
@@ -38,15 +38,19 @@ export function localMeta(quote: Message | null, authorName: string, files: Arti
   const meta: Record<string, unknown> = {};
   if (quote) {
     // Quoting a GIF or a sticker: the quote names it until the server's copy comes (ADR 0091).
+    // A voice message with typed text is quoted by that text, as the server does.
     const voice = voiceOf(quote.meta);
-    const media = voice ? ("voice" as const) : messageMediaOf(quote.meta)?.kind;
+    const bare = voice !== null && !voice.text;
+    const media = voice ? (bare ? ("voice" as const) : undefined) : messageMediaOf(quote.meta)?.kind;
     meta.replyTo = {
       messageId: quote.id,
       threadId: quote.threadId,
       author: quote.author,
       authorName,
       // A quote of a voice message names it: its words never travel.
-      excerpt: voice ? "" : quoteExcerpt(quote.body || (artifactRefs(quote.meta)[0]?.title ?? "")),
+      excerpt: bare
+        ? ""
+        : quoteExcerpt(listedText(quote.body, quote.meta) || (artifactRefs(quote.meta)[0]?.title ?? "")),
       ...(media ? { media } : {}),
     } satisfies ReplyRef;
   }

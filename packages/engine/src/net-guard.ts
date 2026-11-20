@@ -115,6 +115,18 @@ const HOST_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])
 const LOCAL_SUFFIXES = [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".test", ".example", ".invalid"];
 
 /**
+ * A `Host` header, or a host an operator typed, as one comparable hostname: lower case, one trailing dot dropped.
+ * Null for anything else: a port, an IP address (bracketed or not), a single label, a scheme, path or user, a label
+ * past 63 characters or a name past 253. The one place every check of a registered host (ADR 0194) reads it.
+ */
+export function normalizeHost(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const h = value.toLowerCase().replace(/\.$/, "");
+  if (h.length > 253 || isIP(h) || !HOST_NAME.test(h)) return null;
+  return h.split(".").every((label) => label.length <= 63) ? h : null;
+}
+
+/**
  * Whether a host is a public DNS name, from the name alone (nothing is resolved): dotted, not an IP
  * address, not `localhost` and under no local-only suffix. For a name others read as this server's own
  * (a Web Push contact), never as a check before connecting (`publicHostAddress` resolves).

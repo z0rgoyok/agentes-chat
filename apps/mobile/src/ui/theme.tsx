@@ -1,8 +1,19 @@
 import { durations, motion as motionCurves, radius as radii, type ShadowLayer } from "@agenteschat/tokens";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { isAccentHex } from "@agenteschat/tokens/accent";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import { AccessibilityInfo, Platform, useColorScheme } from "react-native";
+import { Easing } from "react-native-reanimated";
 import { readValue, STORED, writeValue } from "@/lib/storage";
-import { type AppColors, appColors, appShadows, type Scheme } from "./palette";
+import { type AppColors, appColors, appShadows, paintSky, type Scheme, skyAccent, withAccent } from "./palette";
 
 /**
  * The theme for React Native, from `@agenteschat/tokens` (tokens.css is the source of truth), with the light
@@ -35,17 +46,26 @@ const bezier = (c: readonly number[]) => c as unknown as [number, number, number
 
 /**
  * Motion: the token curves and durations (ms: `fast` presses, menus and exits, `base` dialogs, toasts and arrivals,
- * `panel` a sheet's slide), plus spring settings for Reanimated (the tokens' springy curve).
+ * `panel` a sheet's slide), the easings for Reanimated (built once, here) and its springs in Apple's two parameters
+ * (`withSpring(to, { ...motion.snap, velocity })`): a spring for whatever a finger lets go of, an easing for the rest.
  */
 export const motion = {
   spring: bezier(motionCurves.spring),
   out: bezier(motionCurves.out),
   ios: bezier(motionCurves.ios),
   ...durations,
-  /** `withSpring` config close to cubic-bezier(.34, 1.4, .5, 1): a small overshoot. */
-  press: { damping: 15, stiffness: 420, mass: 0.6 },
+  /** Strong ease-out: what enters, leaves or answers a press (it starts fast, so the change is seen at once). */
+  easeOut: Easing.bezier(0.23, 1, 0.32, 1),
+  /** Strong ease-in-out: what moves or morphs while it stays on screen. */
+  easeInOut: Easing.bezier(0.77, 0, 0.175, 1),
+  /** Settles where it goes, no overshoot. */
+  settle: { duration: 400, dampingRatio: 1 },
+  /** Back into place after a drag, keeping a little of the finger's momentum. */
+  snap: { duration: 400, dampingRatio: 0.8 },
+  /** A sheet or a drawer let go of. */
+  sheet: { duration: 300, dampingRatio: 0.8 },
+  /** A small overshoot (the notice island's shape). */
   pop: { damping: 13, stiffness: 260, mass: 0.7 },
-  sheet: { damping: 26, stiffness: 260, mass: 0.9 },
 } as const;
 
 export interface Theme {
@@ -109,6 +129,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function ThemeColorsOverride({ colors, children }: { colors: AppColors; children: ReactNode }) {
   const theme = useTheme();
   const value = useMemo(() => ({ ...theme, colors }), [theme, colors]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+/**
+ * The active workspace's accent (ADR 0193) on the agent colors of everything under it, and as the engine's `sky`: the
+ * color of every agent with none of its own and of the sky art. None: the theme's own.
+ */
+export function AccentProvider({ accent, children }: { accent: string | null | undefined; children: ReactNode }) {
+  const theme = useTheme();
+  const color = isAccentHex(accent) ? accent.toLowerCase() : null;
+  // Before the screens under it render (its effects run after theirs). Idempotent; the effect keeps it and clears it.
+  if (skyAccent() !== color) paintSky(color);
+  useLayoutEffect(() => {
+    paintSky(color);
+    return () => paintSky(null);
+  }, [color]);
+  const value = useMemo(() => ({ ...theme, colors: withAccent(theme.colors, theme.scheme, color) }), [theme, color]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

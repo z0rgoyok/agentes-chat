@@ -28,7 +28,16 @@ import {
 import { recordAgentActions, UNDO_WINDOW_MS } from "../agent-actions";
 import { type AgentDeletionDeps, deleteAgent } from "../agent-deletion";
 import { type Agent, getAgent, updateAgent } from "../agents";
-import { audienceNotice, canTalkTo, seesAgentDetails, speakerFor } from "../audience";
+import {
+  agentEditorIds,
+  agentManagerIds,
+  audienceNotice,
+  canTalkTo,
+  editsAgent,
+  managesAgent,
+  seesAgentDetails,
+  speakerFor,
+} from "../audience";
 import { recordAudit } from "../audit";
 import { caches, invalidateOrg } from "../cache";
 import { sha256 } from "../crypto";
@@ -54,6 +63,7 @@ import {
   type SettingLine,
   settingLines,
   settingsDeciders,
+  settingsGroup,
   settingsRows,
   type WantedLine,
 } from "../settings-proposals";
@@ -103,8 +113,9 @@ export const idleAgentSql = (since: Date) => sql`(
     and r.created_at >= ${since.toISOString()}::timestamptz)
   and not exists (select 1 from routines ro where ro.org_id = a.org_id and ro.agent_id = a.id
     and ro.active and ro.deleted_at is null)
-  and not exists (select 1 from issues i where i.org_id = a.org_id and i.assignee_type = 'agent'
-    and i.assignee_id = a.id::text and i.status not in ('done', 'canceled')))`;
+  and not exists (select 1 from issues i join issue_assignees ia on ia.issue_id = i.id
+    where ia.org_id = a.org_id and ia.assignee_type = 'agent' and ia.assignee_id = a.id::text
+      and i.status not in ('done', 'canceled')))`;
 export const LIGHT_WORK_REASON = "Its work is light enough for a smaller model.";
 /** The reasons the server writes itself: the agent reads them as they are, people through `whyCode`, in their language. */
 export const SERVER_REASONS: Record<string, "asked" | "budget" | "no_channel" | "idle" | "light_work"> = {
@@ -288,7 +299,10 @@ export async function proposalsWaitingFor(db: Database, actorId: string, orgId: 
   return (await listProposals(db, actorId, orgId, { status: "pending" })).filter((p) => p.canDecide).length;
 }
 
-/** Role and access are decided as on the agent's page: by who manages agents (its owner only takes access away). */
+/**
+ * Role and access are decided as on the agent's page (ADR 0085 addendum of 2026-11-17): its role by who edits it, its
+ * access by who manages it (its owner only takes access away); a team skill by who manages the team's skills.
+ */
 const isAgentSetting = (p: Pick<Proposal, "target">) =>
   p.target === "agent_role" || p.target === "agent_access" || p.target === "skill" || p.target === "agent_settings";
 
@@ -297,18 +311,35 @@ export const ownerDecides = (p: Pick<Proposal, "target" | "access">) =>
   p.target === "agent_instructions" || (p.target === "agent_access" && !p.access?.some((l) => l.on));
 
 /**
- * Who decides: who reviews memory (instructions), configures the workspace (org context) or manages agents
- * (role, access), plus the agent's owner when `ownerDecides`.
+ * Who edits the agent decides it (`editsAgent`, ADR 0085 addendum of 2026-11-17): its role, and a settings row of the
+ * `editor` group (which skills it has). Its owner always edits it, so they decide it too, as for `ownerDecides`.
+ */
+export const editorDecides = (p: Pick<Proposal, "target" | "settings">) =>
+  p.target === "agent_role" || (p.target === "agent_settings" && settingsGroup(p) === "editor");
+
+/**
+ * Who decides: who reviews memory (instructions), configures the workspace (org context) or manages the team's
+ * skills; for an agent's role who edits it (`agentEditorIds`), for its access who manages it (`agentManagerIds`), never
+ * who merely holds "Editar qualquer agente" over a private agent (ADR 0085 addendum of 2026-11-17). Plus who edits the
+ * agent for its instructions, and its owner when `ownerDecides`.
  */
 async function deciders(db: Database, p: Proposal) {
   if (p.target === "agent_settings") return settingsDeciders(db, p);
-  const key = isAgentSetting(p) ? "manage_agents" : p.target === "org_context" ? "configure" : "review_memory";
-  const admins = await db
-    .select({ userId: organizationMembers.userId })
-    .from(organizationMembers)
-    .where(and(eq(organizationMembers.orgId, p.orgId), maySql(p.orgId, organizationMembers.userId, key)));
-  const ids = new Set(admins.map((a) => a.userId));
-  if (p.agentId && ownerDecides(p)) {
+  const ids = new Set<string>();
+  if (p.agentId && (p.target === "agent_role" || p.target === "agent_access")) {
+    const who = p.target === "agent_role" ? agentEditorIds : agentManagerIds;
+    for (const id of await who(db, p.orgId, p.agentId)) ids.add(id);
+  } else {
+    const key = isAgentSetting(p) ? "manage_agents" : p.target === "org_context" ? "configure" : "review_memory";
+    const admins = await db
+      .select({ userId: organizationMembers.userId })
+      .from(organizationMembers)
+      .where(and(eq(organizationMembers.orgId, p.orgId), maySql(p.orgId, organizationMembers.userId, key)));
+    for (const a of admins) ids.add(a.userId);
+  }
+  if (p.agentId && p.target === "agent_instructions") {
+    for (const id of await agentEditorIds(db, p.orgId, p.agentId)) ids.add(id);
+  } else if (p.agentId && ownerDecides(p)) {
     const [agent] = await db.select({ owner: agents.ownerUserId }).from(agents).where(eq(agents.id, p.agentId));
     if (agent?.owner) ids.add(agent.owner);
   }
@@ -375,17 +406,27 @@ async function mayDecide(db: Database, actorId: string, p: Proposal, known?: Mem
   const membership = known ?? (await requirePermission(db, actorId, p.orgId, "read"));
   if (p.target === "agent_settings") return !(await unsentHidden(db, actorId, p)) && maySettle(db, actorId, p);
   if (isAgentSetting(p)) {
-    if (can(membership, "manage_agents")) return true;
-    return ownerDecides(p) && !!p.agentId && (await getAgent(db, p.orgId, p.agentId))?.ownerUserId === actorId;
+    // A team skill: who manages the team's skills. An agent's role: who edits it; its access: who manages it, its
+    // owner only taking access away (ADR 0085 addendum of 2026-11-17). With the agent gone, the workspace's key.
+    const agent = p.target !== "skill" && p.agentId ? await getAgent(db, p.orgId, p.agentId) : null;
+    if (!agent) return can(membership, "manage_agents");
+    if (managesAgent(agent, actorId, membership)) return true;
+    if (p.target === "agent_role") return editsAgent(agent, actorId, membership);
+    return ownerDecides(p) && agent.ownerUserId === actorId;
   }
   if (p.target === "org_context") return can(membership, "configure");
   // A file that runs on agents' computers is a skill change of its own: who manages skills, as an update from its
   // link that changes one (`approveSkillUpdate`).
   if (p.target === "skill" && p.skillPath && runsCode(p.skillPath)) return can(membership, "manage_agents");
   if (can(membership, "review_memory")) return true;
+  // Its instructions are how it works: who edits it (`editsAgent`), as on its page.
   if (p.target === "agent_instructions" && p.agentId) {
     const agent = await getAgent(db, p.orgId, p.agentId);
-    return agent?.ownerUserId === actorId && (await proposalsVisible(db, actorId, p.orgId, [p])).length > 0;
+    return (
+      !!agent &&
+      editsAgent(agent, actorId, membership) &&
+      (await proposalsVisible(db, actorId, p.orgId, [p])).length > 0
+    );
   }
   return false;
 }

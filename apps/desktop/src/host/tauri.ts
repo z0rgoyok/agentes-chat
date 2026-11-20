@@ -21,6 +21,7 @@ import type { TrayState } from "../control/tray";
 import {
   type AppInfo,
   type BadgeCounts,
+  type CompatMode,
   type Host,
   type MenuAction,
   type NotchInfo,
@@ -89,6 +90,9 @@ export function createTauriHost(): Host {
     hideWindow: (w) => invoke<void>("hide_window", { name: w }),
     quit: () => invoke<void>("quit_app"),
     appInfo: () => invoke<AppInfo>("app_info"),
+    compatMode: () => invoke<CompatMode>("compat_get"),
+    setCompatMode: (on) => invoke<void>("compat_set", { on }),
+    reopen: () => invoke<void>("app_reopen"),
     autostart: () => invoke<boolean>("autostart_get"),
     setAutostart: (on) => invoke<void>("autostart_set", { on }),
     notify: (title, body) => invoke<void>("notify", { title, body }),

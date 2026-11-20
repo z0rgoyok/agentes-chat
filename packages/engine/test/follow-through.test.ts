@@ -15,6 +15,7 @@ import {
   createIssue,
   createJobHandlers,
   createPassToolSource,
+  createRole,
   drainOutbox,
   FOLLOW_UP_JOB,
   FOLLOW_UP_TOOL,
@@ -34,6 +35,7 @@ import {
   STRETCH_JOB,
   STRETCH_REFUSAL,
   saveAgentStyle,
+  setMemberRoles,
   type ToolSource,
   taskManager,
   toolPolicy,
@@ -490,7 +492,7 @@ test("in a task's conversation, read by people who are never its members, a foll
   const asBia = { type: "person" as const, userId: bia.id };
   const issue = await createIssue({ db: f.db, pubsub: f.pubsub }, asBia, f.org.id, {
     title: "Migrate the build cache",
-    assignee: { type: "agent", id: f.agent.id },
+    assignees: [{ type: "agent", id: f.agent.id }],
   });
   const at = await openTaskConversation(f.db, asBia, f.org.id, issue.id);
   await postPersonMessage({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, at.channelId, {
@@ -835,8 +837,8 @@ describe("returns, as the apps list them (ADR 0037, amended 2026-11-13)", () => 
     await expect(cancelFollowUp(deps, caio.id, f.org.id, first)).rejects.toMatchObject({ code: "follow_up.not_yours" });
     expect(await lineState(f, first)).toBe("pending");
     // The lists say the same, per person: Caio sees them without the control.
-    const mine = async (userId: string, managesAgents = false) =>
-      (await pendingReturns(f.db, userId, f.org.id, { managesAgents })).map((r) => [r.messageId, r.canCancel]);
+    const mine = async (userId: string) =>
+      (await pendingReturns(f.db, userId, f.org.id)).map((r) => [r.messageId, r.canCancel]);
     expect(await mine(caio.id)).toEqual([
       [first, false],
       [second, false],
@@ -845,10 +847,27 @@ describe("returns, as the apps list them (ADR 0037, amended 2026-11-13)", () => 
       [first, true],
       [second, true],
     ]);
-    expect(await mine(f.owner.id, true)).toEqual([
+    expect(await mine(f.owner.id)).toEqual([
       [first, true],
       [second, true],
     ]);
+    // "Edit agents" cancels for an agent whose audience takes them (ADR 0085 addendum of 2026-11-17), never for
+    // someone's private agent.
+    const leads = await createRole(f.db, f.owner.id, f.org.id, { name: "Leads", permissions: ["manage_agents"] });
+    const dani = await addMember(f.db, f.org.id, "member", "dani");
+    await joinChannel(f.db, dani.id, f.org.id, f.general.id);
+    await setMemberRoles(f.db, f.owner.id, f.org.id, dani.id, [leads.id]);
+    expect(await mine(dani.id)).toEqual([
+      [first, true],
+      [second, true],
+    ]);
+    await f.db.update(schema.agents).set({ audienceMode: "owner" }).where(eq(schema.agents.id, f.agent.id));
+    expect(await mine(dani.id)).toEqual([
+      [first, false],
+      [second, false],
+    ]);
+    await expect(cancelFollowUp(deps, dani.id, f.org.id, first)).rejects.toMatchObject({ code: "follow_up.not_yours" });
+    await f.db.update(schema.agents).set({ audienceMode: "everyone" }).where(eq(schema.agents.id, f.agent.id));
     // The agent's owner.
     await f.db.update(schema.agents).set({ ownerUserId: caio.id }).where(eq(schema.agents.id, f.agent.id));
     expect(await mine(caio.id)).toEqual([
@@ -1455,5 +1474,89 @@ describe("a reply that names its own tools to a person", () => {
     await drainOutbox(f.db, f.handlers);
     expect(f.provider.calls.length).toBe(2);
     expect((await agentMessages(f)).map((m) => m.body)).toEqual([answer, answer]);
+  });
+});
+
+describe("a turn end's reads and judgment", () => {
+  const WAIT = 120;
+  const slowly = <T>(value: T) => Bun.sleep(WAIT).then(() => value);
+  const turn = (over: Partial<TurnEnd> = {}): TurnEnd => ({
+    state: { count: 0 },
+    kind: "conversation",
+    executed: 0,
+    bound: null,
+    quiet: false,
+    decided: null,
+    unanswered: false,
+    unreached: "",
+    judged: "Vou checar o deploy e já volto.",
+    mission: false,
+    wakesLater: () => slowly(false),
+    comesBack: () => slowly(false),
+    verdict: () => slowly("continue" as const),
+    ...over,
+  });
+  const timed = async (t: TurnEnd) => {
+    const started = performance.now();
+    const d = await decideTurnEnd(t);
+    return { d, ms: performance.now() - started };
+  };
+
+  test("overlap: what the judgment reads starts beside `wakes_later`; `comes_back` is read only after a continue", async () => {
+    let prepared = 0;
+    let judgedAt = 0;
+    const started = performance.now();
+    const { d, ms } = await timed(
+      turn({
+        prepare: () => {
+          prepared++;
+        },
+        verdict: () => {
+          judgedAt = performance.now() - started;
+          return slowly("continue" as const);
+        },
+      }),
+    );
+    expect(d).toMatchObject({ outcome: "continue", rule: "promise" });
+    expect(prepared).toBe(1);
+    expect(judgedAt).toBeGreaterThanOrEqual(WAIT - 5);
+    // wakes_later, the judgment, then comes_back: a read most turn ends (a done) never pay for.
+    expect(ms).toBeGreaterThanOrEqual(3 * WAIT - 5);
+    expect(ms).toBeLessThan(4 * WAIT);
+  });
+
+  test("the rules keep their order, and something that brings it back still spares the judgment", async () => {
+    let judged = 0;
+    const counted = () => {
+      judged++;
+      return slowly("continue" as const);
+    };
+    expect((await timed(turn({ wakesLater: () => slowly(true), verdict: counted }))).d).toMatchObject({
+      outcome: "waiting",
+      rule: "wakes_later",
+    });
+    expect(judged).toBe(0);
+    // A promise something keeps here rests on it.
+    expect((await timed(turn({ comesBack: () => slowly(true) }))).d).toMatchObject({
+      outcome: "waiting",
+      rule: "comes_back",
+    });
+    // Read only for a promise in a person's conversation.
+    expect(
+      (await timed(turn({ comesBack: () => slowly(true), verdict: () => slowly("done" as const) }))).d,
+    ).toMatchObject({ outcome: "done", rule: "judged" });
+    expect((await timed(turn({ kind: "agents_dm", comesBack: () => slowly(true) }))).d).toMatchObject({
+      outcome: "continue",
+      rule: "promise",
+    });
+    // A failed judgment, or a failed read, is what it always was.
+    expect((await timed(turn({ verdict: () => Promise.reject(new Error("down")) }))).d).toMatchObject({
+      outcome: "done",
+      rule: "judge_error",
+    });
+    expect((await timed(turn({ wakesLater: () => Promise.reject(new Error("db")) }))).d).toMatchObject({
+      outcome: "continue",
+      rule: "promise",
+    });
   });
 });

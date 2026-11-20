@@ -1,12 +1,15 @@
 import type { AiAccounts as AiAccountsView } from "@agenteschat/client";
 import { keys, useAiAccounts, useAiStatus, useApi, useMachines } from "@agenteschat/client";
 import {
+  accountTitle,
+  againLogin,
   agentsToGive,
   endsOnClaude,
   groupPlans,
   identityUnknown,
   offersSignInAgain,
   type PlanAccount,
+  signInNote,
   unusedCopies,
 } from "@agenteschat/client/lib/ai-accounts";
 import { computerNameOf } from "@agenteschat/client/lib/computer";
@@ -64,7 +67,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
   );
   const a = account?.logins.find((l) => l.shared === true) ?? account?.logins[0];
   if (!account || !a) return null;
-  const { logins, signedOut, unknown } = account;
+  const { logins } = account;
   const names = (list: string[]) => joinNames(list, t);
   const refetch = () => {
     for (const key of [keys.aiAccounts(org.id), keys.planUsage(org.id)]) void qc.invalidateQueries({ queryKey: key });
@@ -77,7 +80,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
     setBusy(true);
     try {
       await api.agents.setBrain(org.id, agent.id, { brain: a.kind, account: a.id });
-      toast.show(t("aiAccounts.done.savedAgent", { agent: agent.name, label: a.label }));
+      toast.show(t("aiAccounts.done.savedAgent", { agent: agent.name, label: accountTitle(t, a) }));
       refetch();
       for (const key of [keys.agents(org.id), keys.aiStatus(org.id), keys.agentBrain(org.id, agent.id)])
         void qc.invalidateQueries({ queryKey: key });
@@ -113,9 +116,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
 
   const copies = unusedCopies(account);
   const plan = planOf(a.provider);
-  const allOut = signedOut.length === logins.length;
-  // Of an account with a login per agent, the agents whose login is out.
-  const outFor = allOut ? [] : signedOut.flatMap((l) => l.usedBy);
+  const note = signInNote(t, account, Boolean(plan));
   // The email is the account's own line: here only what stands for it.
   const identity = a.email
     ? null
@@ -127,18 +128,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
   return (
     <div className="ai-accounts__own">
       {identity && <span className="small muted">{identity}</span>}
-      {signedOut.length > 0 && (
-        <SettingNote icon="alert">
-          {outFor.length > 0
-            ? t("aiAccounts.page.signedOutFor", { count: outFor.length, agents: names(outFor) })
-            : plan
-              ? t("aiAccounts.page.keyRefused")
-              : t("aiAccounts.page.signedOut")}
-        </SettingNote>
-      )}
-      {signedOut.length === 0 && unknown.length > 0 && (
-        <SettingNote icon="info">{t("aiAccounts.page.statusUnknown")}</SettingNote>
-      )}
+      {note && <SettingNote icon={note.state === "out" ? "alert" : "info"}>{note.text}</SettingNote>}
       {copies.length > 0 && (
         <SettingNote icon="repeat">{t("aiAccounts.page.copies", { count: copies.length })}</SettingNote>
       )}
@@ -224,7 +214,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
         <Dialog
           open
           onOpenChange={(o) => !o && !busy && setOpen(null)}
-          title={t("aiAccounts.page.disconnectTitle", { label: a.label })}
+          title={t("aiAccounts.page.disconnectTitle", { label: accountTitle(t, a) })}
           description={[
             account.usedBy.length > 0
               ? t("aiAccounts.page.disconnectAgents", {
@@ -253,7 +243,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
               variant="danger"
               loading={busy}
               disabled={busy}
-              onClick={() => void remove(logins, t("aiAccounts.page.disconnected", { label: a.label }))}
+              onClick={() => void remove(logins, t("aiAccounts.page.disconnected", { label: accountTitle(t, a) }))}
             >
               {t("aiAccounts.page.disconnect")}
             </Button>
@@ -282,12 +272,18 @@ function AgainDialog({
   const { t } = useTranslation();
   const hold = usePlanHold();
   const added = useRef(new Set<string>());
-  const a = account.signedOut[0] ?? account.unknown[0] ?? account.logins[0];
+  const a = againLogin(account);
   if (!a) return null;
   const key = isPlanId(a.provider);
   const fanOut = key ? account.logins.map((l) => ({ id: l.id, again: l.id })) : undefined;
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title={a.label} closeLabel={t("common.close")} width={520}>
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={accountTitle(t, a)}
+      closeLabel={t("common.close")}
+      width={520}
+    >
       <DialogBody>
         {hold ? (
           <PlanHold hold={hold} />
@@ -326,14 +322,16 @@ function RenameDialog({
   const { org } = useOrg();
   const api = useApi();
   const toast = useToast();
-  const [label, setLabel] = useState(account.label);
+  // The automatic name ("Claude 2") is no name of theirs: the field starts empty, showing the email.
+  const given = account.named === true ? account.label : "";
+  const [label, setLabel] = useState(given);
   const [busy, setBusy] = useState(false);
   const name = label.trim();
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={t("aiAccounts.page.renameTitle", { label: account.label })}
+      title={t("aiAccounts.page.renameTitle", { label: accountTitle(t, account) })}
       closeLabel={t("common.close")}
       width={420}
     >
@@ -361,13 +359,18 @@ function RenameDialog({
                 text: t("aiAccounts.done.name"),
               }}
             >
-              <Input value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
+              <Input
+                value={label}
+                maxLength={40}
+                placeholder={account.email ?? t("aiAccounts.rename.placeholder")}
+                onChange={(e) => setLabel(e.target.value)}
+              />
             </Field>
           </DialogBody>
         </Locked>
         <DialogFooter>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={!name || name === account.label}>
+          <Button type="submit" variant="primary" loading={busy} disabled={!name || name === given}>
             {t("common.save")}
           </Button>
         </DialogFooter>

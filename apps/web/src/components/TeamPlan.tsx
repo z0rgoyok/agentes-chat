@@ -1,5 +1,12 @@
 import type { Message, TeamAgentDraft, TeamPlan, TeamProposalCard } from "@agenteschat/client";
-import { useAiStatus, useApplyTeamTemplate, useMessages, useTeamCard, useTeamTemplates } from "@agenteschat/client";
+import {
+  useAiStatus,
+  useApplyTeamTemplate,
+  useFormerAgents,
+  useMessages,
+  useTeamCard,
+  useTeamTemplates,
+} from "@agenteschat/client";
 import { setDraftFor } from "@agenteschat/client/lib/drafts";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames, whenAt } from "@agenteschat/client/lib/format";
@@ -10,6 +17,7 @@ import {
   answerPicks,
   answerText,
   firstTasks,
+  managesTeamAgents,
   replyChipsOf,
   teamColumns,
   teamCounts,
@@ -269,6 +277,8 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
   const connect = useConnectAi();
   const held = usePlanHold() !== null;
   const team = useTeamCard(org.id, { channelId: message.channelId, messageId: message.id });
+  // The agents no longer in the team, each archived one saying whether I manage it: Undo archives them all.
+  const former = useFormerAgents(org.id).data;
   // Made here and now, on a hold: the new agents wave, once.
   const [wave, setWave] = useState(false);
   const [adjusting, setAdjusting] = useState<TeamAgentDraft | null>(null);
@@ -302,6 +312,10 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
   // Desfazer where its buttons were.
   const open = status === "open";
   const by = card.decidedByUserId === me.user.id ? null : dir.memberById.get(card.decidedByUserId ?? "")?.name;
+  // Undoing archives its agents: anyone but who created it needs to manage every one it made, archived ones too (the
+  // server's `undoTeam`, ADR 0085 addendum of 2026-11-17), so a private agent stays out of reach of who only holds
+  // "Edit agents".
+  const managesTeam = managesTeamAgents(org, card.created?.agentIds ?? [], dir.agents, former);
   const answer: RequestAnswer | undefined = open
     ? undefined
     : status === "created"
@@ -311,7 +325,7 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
             ? t(modeKey(org, "teamPlan.card.created"), { name: by })
             : t(modeKey(org, "teamPlan.card.createdYou")),
           time: card.decidedAt ? whenAt(t, i18n.language, card.decidedAt) : undefined,
-          action: teamUndoable(card, { userId: me.user.id, admin: can(org, "manage_agents") }) ? (
+          action: teamUndoable(card, { userId: me.user.id, admin: managesTeam }) ? (
             <Button
               size="sm"
               variant="ghost"

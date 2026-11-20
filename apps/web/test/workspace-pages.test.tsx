@@ -590,12 +590,12 @@ describe("Equipe (ADR 0148)", () => {
   });
 
   test("without Ver todos os agentes, a member's Equipe and its counts name only the agents that answer them", async () => {
-    const member = (keyOn: boolean) => {
+    const member = (keyOn: boolean, personal = false) => {
       const state = seedState();
       const org = state.me?.organizations[0];
       if (org) org.role = "member";
       const ada = state.agents.find((a) => a.id === ADA_ID);
-      if (ada) ada.audience = { mode: "owner", userIds: [] };
+      if (ada) ada.audience = personal ? { mode: "owner", userIds: [] } : { mode: "people", userIds: ["u-someone"] };
       state.agentGroups = [
         { id: "g-team", name: "Time", agentIds: [ATLAS_ID] },
         { id: "g-private", name: "Privado", agentIds: [ADA_ID] },
@@ -608,7 +608,12 @@ describe("Equipe (ADR 0148)", () => {
       return state;
     };
     const count = () => document.querySelector(".ac-pagehead__titleline > .ac-pagehead__count")?.textContent;
-    // On for Todos by default: every agent, as before.
+    // Someone else's private agent (it answers only its owner) stays unlisted even with the key.
+    await go("team", member(true, true));
+    expect(count()).toBe("2 pessoas · 1 agente · 1 setor");
+    expect(rows()).toEqual(["Atlas"]);
+    cleanup();
+    // On for Todos by default: every other agent, as before.
     await go("team", member(true));
     expect(count()).toBe("2 pessoas · 2 agentes · 2 setores");
     expect(rows()).toEqual(["Atlas", "Ada"]);

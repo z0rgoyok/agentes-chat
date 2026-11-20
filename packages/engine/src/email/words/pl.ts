@@ -261,6 +261,11 @@ export const words: EmailWords = {
       { b: org },
       " i prosi o dołączenie.",
     ],
+    outside: (by) => [
+      "Ta osoba pracuje dla ",
+      { b: by },
+      " i prosi o dołączenie jako współpracownik zewnętrzny. Nie zajmuje miejsca w twoim planie i możesz ją usunąć w każdej chwili.",
+    ],
     note: "Zatwierdzaj tylko osoby, których się spodziewasz. Ta osoba dołączy jako członek, chyba że wybierzesz na stronie inną rolę.",
     approve: "Zatwierdź",
     deny: "Odrzuć",
@@ -333,6 +338,14 @@ export const words: EmailWords = {
   deletionCode: {
     subjectWorkspace: (code) => `${code} to twój kod do usunięcia przestrzeni roboczej`,
     subjectAccount: (code) => `${code} to twój kod do usunięcia całego konta`,
+    subjectReset: (code) => `${code} to twój kod do zresetowania przestrzeni roboczej`,
+    reset: (org) => [
+      "Wpisz ten kod, żeby zresetować przestrzeń roboczą ",
+      { b: org },
+      ". Jej agenci, rozmowy, pliki i pamięć zostaną od razu usunięte na dobre, a ona zacznie od nowa jak nowa przestrzeń.",
+    ],
+    whyReset: (org) =>
+      `Otrzymujesz tę wiadomość, ponieważ z twojego konta poproszono o zresetowanie ${org} w agentes.chat.`,
     preheader: "Wpisz go w agentes.chat, żeby potwierdzić. Działa przez 10 minut.",
     headline: "Twój kod",
     workspace: (org) => [
@@ -615,5 +628,50 @@ export const words: EmailWords = {
       why: () =>
         "Ten e-mail przyszedł, bo ta przestrzeń robocza w agentes.chat należy do ciebie. Wysyłamy tylko dwa takie powiadomienia.",
     },
+  },
+  surface: {
+    linked: {
+      subject: (surface) => `${surface} połączono z Twoim kontem agentes.chat`,
+      preheader: "Twój asystent odpowiada Ci teraz tam. Jeśli to nie Ty, odłącz to.",
+      headline: (surface) => `${surface} połączono`,
+      body: (surface, display, org) => [
+        { b: display },
+        ` w ${surface} rozmawia teraz z Twoim asystentem w `,
+        { b: org },
+        ".",
+      ],
+      notYou: "To nie Ty? Odłącz to. Wiadomości stamtąd od razu przestaną trafiać na Twoje konto.",
+      button: "Odłącz",
+      small: "Jeśli to Ty, nic nie musisz robić. Możesz to odłączyć w każdej chwili w Ustawieniach.",
+      why: (surface) => `Otrzymujesz tego e-maila, bo ${surface} połączono z Twoim kontem agentes.chat.`,
+      picture: "Twój asystent, teraz także w telefonie",
+    },
+    unlinked: {
+      subject: (surface) => `${surface} odłączono od Twojego konta agentes.chat`,
+      preheader: "Tożsamość się zmieniła. Połącz ponownie w Ustawieniach, jeśli to Ty.",
+      headline: (surface) => `${surface} odłączono`,
+      body: (surface, display) => [{ b: display }, ` w ${surface} odłączono, bo zmieniła się tożsamość.`],
+      small: "Połącz ponownie w Ustawieniach, jeśli to Ty.",
+      why: (surface) => `Otrzymujesz tego e-maila, bo ${surface} było połączone z Twoim kontem agentes.chat.`,
+      picture: "Twój asystent, już nie w telefonie",
+    },
+  },
+  supportReply: {
+    subject: "Odpowiedź na twoją prośbę o pomoc",
+    preheader: "W sprawie twojej prośby o pomoc w agentes.chat.",
+    headline: "Odpowiedź na twoją prośbę o pomoc",
+    answers: {
+      received: "Dostaliśmy twoją prośbę i już się nią zajmujemy.",
+      need_more: "Żeby pomóc, musimy wiedzieć więcej: jakie były twoje kroki, jaki miał być wynik i co się stało.",
+      resolved: "Zgłoszony problem został naprawiony.",
+      handed_over: "Twoją prośbą zajmuje się teraz człowiek, który ci odpowie.",
+    },
+    from: (host) =>
+      host
+        ? atHost("Odpowiedź od osób, które prowadzą serwer agentes.chat pod", "adresem", host)
+        : "Odpowiedź od agentes.chat.",
+    ai: "Tę odpowiedź napisał asystent AI.",
+    reply: (address) => ["Aby odpowiedzieć, napisz na ", { mail: address }, "."],
+    why: "Otrzymujesz tę wiadomość w odpowiedzi na twoją prośbę o pomoc w agentes.chat.",
   },
 };

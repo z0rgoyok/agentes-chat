@@ -49,10 +49,13 @@
     "overflow-x",
   ];
 
-  const sig = (el) => {
+  /** A kit button's words sit in its label: whatever a rule finds in them, it names and places as the button. */
+  const worded = (el) => (el.matches(".ac-btn > .ac-btn__label") ? el.parentElement : el);
+  const sig = (labelOrEl) => {
+    const el = worded(labelOrEl);
     const classes = (typeof el.className === "string" ? el.className : (el.className?.baseVal ?? ""))
       .split(/\s+/)
-      .filter((c) => c && !/^(ac-captop|ac-iconline|ac-actrow|is-|has-)/.test(c))
+      .filter((c) => c && !/^(ac-captop|ac-iconline|ac-actrow|ac-tail|is-|has-)/.test(c))
       .slice(0, 3);
     return el.tagName.toLowerCase() + classes.map((c) => `.${c}`).join("");
   };
@@ -63,7 +66,7 @@
   const UTILITY = /^(ac-|row$|stack|small$|muted$|grow$|is-|has-)/;
   const kitOnly = (signature) => !(signature?.match(/\.[\w-]+/g) ?? []).some((c) => !UTILITY.test(c.slice(1)));
   const placeOf = (el) => {
-    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    for (let p = worded(el).parentElement; p && p !== document.body; p = p.parentElement) {
       const classes = typeof p.className === "string" ? p.className.split(/\s+/) : [];
       if (classes.some((c) => c && !UTILITY.test(c))) return sig(p);
     }
@@ -617,8 +620,11 @@
      * apart from its box (a `::before` set in from its sides, as `.ac-btn--glyph` does).
      */
     square(out) {
-      // A select's trigger and a segmented control's part are sized by the control they belong to.
-      const parts = "[role=combobox],[aria-haspopup=listbox],.ac-select__trigger,.ac-seg__item,[role=tab],[role=radio]";
+      // A select's trigger and a segmented control's part are sized by the control they belong to, and so is a canvas
+      // bar's picker, which shows its value and ▾ like a select, and the ▾ half of a slides toolbar's pair ("New
+      // slide" | ▾ for its layout), one control split in two (ADR 0196).
+      const parts =
+        "[role=combobox],[aria-haspopup=listbox],.ac-select__trigger,.ac-seg__item,[role=tab],[role=radio],.cnv-bar__pick,.sl-tools__pair > .sl-tools__open";
       for (const el of document.querySelectorAll("button,a.ac-btn,[role=button]")) {
         if (!seen(el) || el.matches(parts) || hasWords(el)) continue;
         // One glyph: two side by side (a face and a +) are a pill of their own.
@@ -874,8 +880,9 @@
     floating(out) {
       if (innerWidth < DESKTOP_MIN) return;
       const GAP = 10;
-      // An inline position is a test's own stand-in for a narrow window, not the app's layout.
-      for (const pane of document.querySelectorAll(".thread-panel:not([style])")) {
+      // An inline position is a test's own stand-in for a narrow window, not the app's layout. A live file's docked
+      // conversation is a column of the work area beside the file's page, with no scrim, never over it (ADR 0199).
+      for (const pane of document.querySelectorAll(".thread-panel:not([style], .lf-talk)")) {
         if (!seen(pane)) continue;
         const a = pane.getBoundingClientRect();
         const gaps = { Top: a.top - GAP, Right: innerWidth - a.right - GAP, Bottom: innerHeight - a.bottom - GAP };
@@ -956,15 +963,21 @@
         }
       }
     },
-    /** A quiet line across the conversation sitting on a bubble above or under it, with no gap between them. */
+    /**
+     * A quiet line across the conversation sitting on a bubble above or under it, with no gap between them. Within one
+     * layer only: a dialog's line lies over the bubbles of the page behind it and touches none of them.
+     */
     quiet(out) {
+      const layer = (el) => el.closest("[role=dialog],[role=alertdialog]");
       const bubbles = [...document.querySelectorAll(".ac-msg__text")].filter(
         (b) => seen(b) && painted(style(b).backgroundColor),
       );
       for (const line of document.querySelectorAll(".consult-pair,.ac-divider,.channel__unread")) {
         if (!seen(line)) continue;
         const l = line.getBoundingClientRect();
+        const own = layer(line);
         for (const b of bubbles) {
+          if (layer(b) !== own) continue;
           const r = b.getBoundingClientRect();
           if (Math.min(l.right, r.right) - Math.max(l.left, r.left) <= 0) continue;
           const gap = Math.max(r.top - l.bottom, l.top - r.bottom);
@@ -1498,7 +1511,9 @@
      */
     clip(out) {
       for (const el of document.body.querySelectorAll("*")) {
-        if (!seen(el) || el.closest("svg")) continue;
+        // Inside a row `content-visibility` skips (a conversation's rows before their first frame), the row keeps its
+        // placeholder height while its content is measured whole, spilling over the rows below: nothing a person sees.
+        if (!seen(el) || el.closest("svg") || !el.checkVisibility({ contentVisibilityAuto: true })) continue;
         const s = style(el);
         const reach = { top: 0, bottom: 0, left: 0, right: 0 };
         for (const l of outerShadows(s.boxShadow)) {
@@ -2156,8 +2171,10 @@
         const air = parseFloat(getComputedStyle(el, "::before").left) || 0;
         return { left: r.left + air, right: r.right - air, top: r.top + air, bottom: r.bottom - air };
       };
+      // The canvas's tool strips and the spreadsheet's, the document's and the slides' toolbars (ADR 0196) are drawn
+      // as one too, like the format bars.
       const ONE =
-        ".ac-split,.ac-seg,.ac-token,.ac-eventpill,.ac-msg__actions,.ac-formatbar,.wiki-bar,[role=menu],[role=menubar],svg";
+        ".ac-split,.ac-seg,.ac-token,.ac-eventpill,.ac-msg__actions,.ac-formatbar,.wiki-bar,.cnv-bar,.cnv-dock,.cnv-zoom,.sheet-tools,.sl-tools,[role=menu],[role=menubar],svg";
       for (const row of document.body.querySelectorAll("*")) {
         if (!seen(row) || row.closest(ONE) || !isRow(style(row))) continue;
         const kids = flow(row);
@@ -2427,6 +2444,158 @@
           side: sides.join(" "),
           px: +px.toFixed(1),
         });
+      }
+    },
+    /**
+     * The glyphs on a list's row tiles (`.settings-row__icon` with a surface of its own: a face or a maker's mark brings
+     * its own tile) are one size, within 1px: a brand's logo drawn on that tile takes the box of the kit's glyphs beside
+     * it, never a tile of its own inside the tile. A glyph is the tile's one svg, or its one masked mark.
+     */
+    tileglyph(out) {
+      const lists = new Map();
+      for (const tile of document.body.querySelectorAll(".settings-row__icon")) {
+        if (!seen(tile) || !hasSurface(style(tile))) continue;
+        const ink = [...tile.querySelectorAll("*")].filter(
+          (el) =>
+            seen(el) &&
+            (el.tagName.toLowerCase() === "svg"
+              ? !el.parentElement.closest("svg")
+              : !el.closest("svg") && (style(el).maskImage || style(el).webkitMaskImage || "none") !== "none"),
+        );
+        if (ink.length !== 1) continue;
+        const list = tile.closest(".settings-row, li")?.parentElement ?? tile.parentElement;
+        lists.set(list, [...(lists.get(list) ?? []), ink[0]]);
+      }
+      for (const [list, glyphs] of lists) {
+        const sizes = glyphs.map((g) => g.getBoundingClientRect()).map((r) => [r.width, r.height]);
+        const count = (a) => sizes.filter((b) => Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[1] - b[1]) <= 1).length;
+        const usual = sizes.reduce((best, a) => (count(a) > count(best) ? a : best), sizes[0]);
+        glyphs.forEach((g, i) => {
+          const [w, h] = sizes[i];
+          const px = Math.max(Math.abs(w - usual[0]), Math.abs(h - usual[1]));
+          if (px > 1) out.push({ rule: "tileglyph", node: g, el: sig(g), box: sig(list), px: +px.toFixed(1) });
+        });
+      }
+    },
+    /**
+     * A settings row's one button (its end's last element) sits on the row's name's line, its middle within that line's
+     * box, and ends at the row's end, within 1px. Under the name only when the name's longest word, the gap and the
+     * end can't share the line, and then still at the row's end. In a button row (`.settings-row--button`), the state
+     * line under the name starts where the name's words do, within 1px, never under the row's icon.
+     */
+    endline(out) {
+      const firstLine = (el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].find((r) => r.width > 0);
+      };
+      for (const row of document.body.querySelectorAll(".settings-row:not(.settings-row--acts)")) {
+        const label = row.querySelector(".settings-row__label");
+        if (!label || !seen(row)) continue;
+        const line = firstLine(label);
+        if (!line) continue;
+        const status = row.matches(".settings-row--button")
+          ? row.querySelector(":scope > .settings-row__text > .settings-row__status")
+          : null;
+        const from = status && seen(status) ? firstLine(status) : null;
+        if (from && Math.abs(from.left - line.left) > 1)
+          out.push({
+            rule: "endline",
+            node: status,
+            el: sig(status),
+            box: sig(row),
+            text: words(label),
+            side: "status",
+            px: +(from.left - line.left).toFixed(1),
+          });
+        const end = [...row.children].find((c) => c.matches(".settings-row__end"));
+        const btn = end?.lastElementChild;
+        if (!btn?.matches(".ac-btn") || !seen(btn)) continue;
+        const s = style(row);
+        const r = row.getBoundingClientRect();
+        const right = r.right - parseFloat(s.borderRightWidth) - parseFloat(s.paddingRight);
+        const b = btn.getBoundingClientRect();
+        // What ends the row: from the end's first element (a value before the button) to the button.
+        const group = b.right - end.firstElementChild.getBoundingClientRect().left;
+        const mid = (b.top + b.bottom) / 2;
+        const base = { rule: "endline", node: btn, el: sig(btn), box: sig(row), text: words(label) };
+        const short = right - parseFloat(style(end).paddingRight) - b.right;
+        if (Math.abs(short) > 1) {
+          out.push({ ...base, side: "end", px: +short.toFixed(1) });
+          continue;
+        }
+        if (mid >= line.top - 1 && mid <= line.bottom + 1) continue;
+        // The name's narrowest: its longest word, and the room its ⓘ keeps after it.
+        const name = label.closest(".ac-hintline") ?? label;
+        let word = 0;
+        const walk = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+        for (let node = walk.nextNode(); node; node = walk.nextNode())
+          for (const m of node.data.matchAll(/\S+/g)) {
+            const w = document.createRange();
+            w.setStart(node, m.index);
+            w.setEnd(node, m.index + m[0].length);
+            word = Math.max(word, w.getBoundingClientRect().width);
+          }
+        const need = word + parseFloat(style(name).paddingRight) + parseFloat(s.columnGap) + group;
+        if (right - name.getBoundingClientRect().left >= need + 1)
+          out.push({ ...base, side: "under", px: +(mid - line.bottom).toFixed(1) });
+      }
+    },
+    /**
+     * A wrapping row keeps one start edge: when one of its lines starts at the row's start with room to spare, no other
+     * line is pushed away from it, by an auto margin (a time left, a status floating at the end under buttons) or by
+     * the row ending its lines at the end (buttons under "Mudar quando perguntar"). A line set in by a fixed margin (an
+     * outcome on its item's words) and rows that end or centre every line are left alone, and so is a control under
+     * words alone: a row's own control at its end (a settings row's switch, a member's role), as `endline` places it.
+     */
+    strayend(out) {
+      // The computed value keeps "auto" where the resolved one is already in pixels.
+      const auto = (el) => {
+        try {
+          return String(el.computedStyleMap().get("margin-left")) === "auto";
+        } catch {
+          return false;
+        }
+      };
+      const control = (el) => el.matches(CONTROL) || !!el.querySelector(CONTROL);
+      for (const row of document.body.querySelectorAll("*")) {
+        // A settings row's end (its value, its control) is `endline`'s: at the row's end, under the name or not.
+        if (!seen(row) || row.matches(".settings-row")) continue;
+        const s = style(row);
+        if (!s.display.includes("flex") || s.flexDirection !== "row" || s.flexWrap !== "wrap" || s.direction === "rtl")
+          continue;
+        const toEnd = ["flex-end", "end", "right"].includes(s.justifyContent);
+        if (!toEnd && !["normal", "flex-start", "start", "left"].includes(s.justifyContent)) continue;
+        const kids = flow(row);
+        if (kids.length < 2) continue;
+        const r = row.getBoundingClientRect();
+        const start = r.left + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft);
+        const end = r.right - parseFloat(s.borderRightWidth) - parseFloat(s.paddingRight);
+        const lines = [];
+        for (const kid of kids) {
+          const k = kid.getBoundingClientRect();
+          const line = lines.find((l) => sameLine(l.box, k));
+          if (line) line.kids.push([kid, k]);
+          else lines.push({ box: k, kids: [[kid, k]] });
+        }
+        if (lines.length < 2) continue;
+        const firstOf = (line) => line.kids[0];
+        const lastOf = (line) => line.kids[line.kids.length - 1];
+        const anchored = lines.filter((l) => firstOf(l)[1].left <= start + 2 && lastOf(l)[1].right < end - 2);
+        if (!anchored.length) continue;
+        const acts = anchored.some((l) => l.kids.some(([kid]) => control(kid)));
+        for (const line of lines) {
+          const [kid, k] = firstOf(line);
+          if (k.left > start + 2 && (toEnd || auto(kid)) && (acts || !control(kid)))
+            out.push({
+              rule: "strayend",
+              node: kid,
+              el: sig(kid),
+              box: sig(row),
+              px: +(k.left - start).toFixed(1),
+              text: words(kid),
+            });
+        }
       }
     },
   };

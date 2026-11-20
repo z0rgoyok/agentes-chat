@@ -110,6 +110,8 @@ const routedOf = (events: RealtimeEvent[], messageId: string) =>
  */
 async function plansOnly(hub = fakeHub(), publicUrl = "http://localhost:3000") {
   f = await setup({ reply: () => ({ chunks: ["Feito."] }) });
+  // An installation from before people's plans left routing (migration 0300).
+  await f.db.insert(schema.instanceTelemetry).values({ routerPlanFallback: true });
   await f.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
   const bruna = await addMember(f.db, f.org.id, "member", "Bruna");
   await f.db.insert(schema.channelMembers).values({ orgId: f.org.id, channelId: f.general.id, userId: bruna.id });

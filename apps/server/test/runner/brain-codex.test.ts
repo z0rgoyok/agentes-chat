@@ -15,11 +15,11 @@ import {
   codexContextOverride,
   codexEffort,
   codexProfileOf,
+  codexRefusal,
   codexRulesNear,
   codexThreadKey,
   codexThreadsFile,
   codexTurnArgs,
-  codexVersionOk,
   handleCodexBrainTurn,
   runCodexTurn,
   shellScript,
@@ -59,11 +59,16 @@ const TURN2 = [
   '{"type":"turn.completed","usage":{"input_tokens":200,"cached_input_tokens":0,"output_tokens":30,"reasoning_output_tokens":4}}',
 ];
 
-test("version gate: 0.163.0 and newer", () => {
-  expect(codexVersionOk("codex-cli 0.163.0")).toBe(true);
-  expect(codexVersionOk("codex-cli 0.170.1")).toBe(true);
-  expect(codexVersionOk("codex-cli 0.99.0")).toBe(false);
-  expect(codexVersionOk(undefined)).toBe(false);
+test("a Codex that refuses its command line: its own line; any other failure isn't one", () => {
+  const clap =
+    "error: unexpected argument '--ignore-rules' found\n\n  tip: to pass it as a value, use '-- --ignore-rules'\n\nUsage: codex exec [OPTIONS] [PROMPT]\n";
+  expect(codexRefusal(clap)).toBe("error: unexpected argument '--ignore-rules' found");
+  expect(codexRefusal("warning: x\nerror: unrecognized subcommand 'resume'\n")).toBe(
+    "error: unrecognized subcommand 'resume'",
+  );
+  expect(codexRefusal("stream disconnected before completion")).toBeNull();
+  // Codex's own runtime errors (a model it doesn't know, a config value) aren't its command line.
+  expect(codexRefusal("Error: unknown model 'gpt-x'\n")).toBeNull();
 });
 
 test("command line: first turn with instructions, resume by id without them, options before resume", () => {
@@ -446,48 +451,60 @@ test.skipIf(!posix)(
   15_000,
 );
 
-test.skipIf(!posix)("refuses an old or missing Codex without starting it; bad requests fail", async () => {
-  const root = tempDir("brain-codex-");
-  dirs.push(root);
-  const bin = path.join(root, "codex");
-  writeFileSync(bin, `#!/bin/sh\ntouch "${root}/started"\n`);
-  chmodSync(bin, 0o755);
-  const events: CodexBrainEvent[] = [];
-  const opts = {
-    threads: new CodexThreads(path.join(root, "threads.json")),
-    workDir: path.join(root, "turn"),
-    emit: (e: CodexBrainEvent) => events.push(e),
-    signal: new AbortController().signal,
-    bin,
-  };
-  const input = { runId: RUN, sessionId: SESSION, cwd: root, system: "", prompt: "hi", mcp: { token: "t" } };
-  await runCodexTurn(input, { ...opts, codexVersion: () => "codex-cli 0.162.0" });
-  expect(events).toMatchObject([{ type: "error", code: "codex_too_old" }]);
-  expect((events[0] as { message: string }).message).toContain("0.163.0");
-  await runCodexTurn(input, { ...opts, codexVersion: () => undefined });
-  expect(events[1]).toMatchObject({ type: "error", code: "codex_missing" });
-  expect(existsSync(path.join(root, "started"))).toBe(false);
-  // A codex that exits without a turn is an error, not an empty answer.
-  await runCodexTurn(input, { ...opts, codexVersion: () => "codex-cli 0.163.0" });
-  expect(existsSync(path.join(root, "started"))).toBe(true);
-  expect(events[2]).toMatchObject({ type: "error", code: "codex_failed" });
+test.skipIf(!posix)(
+  "runs any Codex version, refuses a missing one without starting it; bad requests fail",
+  async () => {
+    const root = tempDir("brain-codex-");
+    dirs.push(root);
+    const bin = path.join(root, "codex");
+    // An old Codex without a flag the turn passes: clap's error, exit 2.
+    writeFileSync(
+      bin,
+      `#!/bin/sh\ntouch "${root}/started"\necho "error: unexpected argument '--ignore-rules' found" >&2\necho "Usage: codex exec [OPTIONS]" >&2\nexit 2\n`,
+    );
+    chmodSync(bin, 0o755);
+    const events: CodexBrainEvent[] = [];
+    const opts = {
+      threads: new CodexThreads(path.join(root, "threads.json")),
+      workDir: path.join(root, "turn"),
+      emit: (e: CodexBrainEvent) => events.push(e),
+      signal: new AbortController().signal,
+      bin,
+    };
+    const input = { runId: RUN, sessionId: SESSION, cwd: root, system: "", prompt: "hi", mcp: { token: "t" } };
+    await runCodexTurn(input, { ...opts, codexVersion: () => undefined });
+    expect(events[0]).toMatchObject({ type: "error", code: "codex_missing" });
+    expect(existsSync(path.join(root, "started"))).toBe(false);
+    // No version is too old: it runs, and what it lacks is said in its own words, with where it is and the way out.
+    await runCodexTurn(input, { ...opts, codexVersion: () => "codex-cli 0.100.0" });
+    expect(existsSync(path.join(root, "started"))).toBe(true);
+    expect(events[1]).toEqual({
+      type: "error",
+      code: "codex_failed",
+      message: `Codex at ${bin} (codex-cli 0.100.0) said: error: unexpected argument '--ignore-rules' found. Update the Codex at that path.`,
+    });
+    // A codex that exits without a turn is an error, not an empty answer.
+    writeFileSync(bin, `#!/bin/sh\ntouch "${root}/started"\n`);
+    await runCodexTurn(input, { ...opts, codexVersion: () => "codex-cli 0.163.0" });
+    expect(events[2]).toMatchObject({ type: "error", code: "codex_failed" });
 
-  const ctx = { folder: root, exec: true, runnerHome: root, codexVersion: () => "codex-cli 0.163.0", bin };
-  const req = {
-    runId: RUN,
-    kind: "codex" as const,
-    session: { id: SESSION, resume: false },
-    system: "",
-    prompt: "hi",
-    mcp: { token: "t" },
-    agent: AGENT,
-  };
-  const scope = { signal: new AbortController().signal, emit: () => {} };
-  expect(await errorCode(() => handleCodexBrainTurn({ ...ctx, exec: false }, req, scope))).toBe("exec_disabled");
-  expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, agent: undefined }, scope))).toBe("bad_request");
-  expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, mcp: { token: "" } }, scope))).toBe("bad_request");
-  expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, cwd: "nope" }, scope))).toBe("not_found");
-});
+    const ctx = { folder: root, exec: true, runnerHome: root, codexVersion: () => "codex-cli 0.163.0", bin };
+    const req = {
+      runId: RUN,
+      kind: "codex" as const,
+      session: { id: SESSION, resume: false },
+      system: "",
+      prompt: "hi",
+      mcp: { token: "t" },
+      agent: AGENT,
+    };
+    const scope = { signal: new AbortController().signal, emit: () => {} };
+    expect(await errorCode(() => handleCodexBrainTurn({ ...ctx, exec: false }, req, scope))).toBe("exec_disabled");
+    expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, agent: undefined }, scope))).toBe("bad_request");
+    expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, mcp: { token: "" } }, scope))).toBe("bad_request");
+    expect(await errorCode(() => handleCodexBrainTurn(ctx, { ...req, cwd: "nope" }, scope))).toBe("not_found");
+  },
+);
 
 // ── Accounts and effort (protocol 13, ADR 0041) ──────────────────────────────
 

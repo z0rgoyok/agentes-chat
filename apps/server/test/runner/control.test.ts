@@ -2,7 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { MACHINE_PROTOCOL_VERSION, type ServerFrame } from "@agenteschat/adapters/machine-protocol";
+import {
+  MACHINE_PROTOCOL_VERSION,
+  type RunnerReportParts,
+  type ServerFrame,
+} from "@agenteschat/adapters/machine-protocol";
 import { CONTROL_PROTOCOL_VERSION, type ControlEvent, type ControlOut } from "@agenteschat/adapters/runner-control";
 import { configPath, readStoredConfig, type StoredConfig, writeConfig } from "../../runner/config";
 import type { Dial, Socket, SocketHandlers } from "../../runner/connection";
@@ -738,6 +742,37 @@ test("folders, tools and settings from the app: system folders refused, everythi
   const diag = await c.data<{ text: string }>({ type: "diagnostics" });
   expect(diag.text).toContain(`agentes runner ${RUNNER_VERSION}`);
   expect(diag.text).not.toContain(TOKEN);
+});
+
+test("report: facts and the end of the log, with no paths, names, addresses or token", async () => {
+  const { home } = pairedHome();
+  const logFile = path.join(home, "logs", "runner.log");
+  mkdirSync(path.dirname(logFile), { recursive: true });
+  writeFileSync(
+    logFile,
+    [
+      `started in ${home} for Acme`,
+      `connected to https://agentes.test/api/machines/connect as box with ${TOKEN}`,
+      "C:\\Users\\someone\\.agentes-runner\\runner.log from someone@example.com",
+    ].join("\n"),
+  );
+  const c = control(home, { logFile });
+  const parts = await c.data<RunnerReportParts>({ type: "report" });
+  expect(parts).toMatchObject({
+    runner: RUNNER_VERSION,
+    protocol: MACHINE_PROTOCOL_VERSION,
+    managedBy: "desktop",
+    compiled: true,
+    tools: { claude: false, codex: false, commands: false },
+  });
+  const text = JSON.stringify(parts);
+  for (const secret of [home, "Acme", "agentes.test", TOKEN, "someone"]) {
+    expect(text).not.toContain(secret);
+  }
+  expect(parts.logTail).toHaveLength(3);
+  expect(parts.logTail[0]).toContain("[computer]");
+  expect(parts.logTail[1]).toContain("https://[server]/…");
+  expect(parts.logTail[2]).toStartWith("~\\.agentes-runner");
 });
 
 test("device pairing from the app: code, confirmation, a desktop home with safe defaults; unpair forgets the token", async () => {

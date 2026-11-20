@@ -1,4 +1,13 @@
 import { MODEL_CATALOG } from "./catalog";
+import {
+  decodeImage,
+  type ImageRequest,
+  type ImageResult,
+  type ImageUsage,
+  imageBlockedError,
+  MAX_IMAGES_PER_REQUEST,
+  type MadeImage,
+} from "./images";
 import { sseData } from "./sse";
 import {
   type ContentBlock,
@@ -226,7 +235,107 @@ export function createGeminiProvider(
         throw mapped;
       }
     },
+    generateImage: (request, { apiKey }) => geminiImages(http, request, apiKey),
   };
+}
+
+/** An interaction's pictures (its `model_output` steps' image items, or older shapes' fields) and its words. */
+function imagesOf(body: Record<string, unknown>): { images: string[]; text: string } {
+  const images: string[] = [];
+  let text = "";
+  const take = (item: unknown) => {
+    if (!item || typeof item !== "object") return;
+    const o = item as Record<string, unknown>;
+    if ((o.type === "image" || o.type === "output_image") && typeof o.data === "string") images.push(o.data);
+    else if (o.type === "text" && typeof o.text === "string") text += o.text;
+    const output = o.output_image as Record<string, unknown> | undefined;
+    if (output && typeof output.data === "string") images.push(output.data);
+  };
+  const steps = Array.isArray(body.steps) ? body.steps : [];
+  for (const step of steps) {
+    if (!step || typeof step !== "object" || (step as Step).type !== "model_output") continue;
+    const content = (step as Step).content;
+    if (Array.isArray(content)) for (const item of content) take(item);
+    else take(content);
+  }
+  // Earlier shapes of the API answered with `outputs`, and a bare `output_image`.
+  if (images.length === 0) {
+    for (const item of Array.isArray(body.outputs) ? body.outputs : []) take(item);
+    take(body);
+  }
+  return { images, text: text.trim() };
+}
+
+/**
+ * Pictures over the Interactions API (ADR 0197): an image `response_format` (aspect and size), the prompt and the
+ * references as the input's items, one picture per call, so `count` calls one after another. A prompt Google blocks
+ * (its safety codes, or an answer in words with no picture) is `imageBlockedError`; a failure after some pictures came
+ * returns those, with the failure in `error`.
+ */
+async function geminiImages(http: typeof fetch, request: ImageRequest, apiKey: string): Promise<ImageResult> {
+  const made: MadeImage[] = [];
+  const usage: ImageUsage = { textInputTokens: 0, imageInputTokens: 0, outputTokens: 0 };
+  let model: string | undefined;
+  const count = Math.max(1, Math.min(MAX_IMAGES_PER_REQUEST, Math.floor(request.count)));
+  const body = {
+    model: request.model,
+    input: [
+      { type: "text", text: request.prompt },
+      ...(request.references ?? []).map((r) => ({ type: "image", mime_type: r.mediaType, data: r.data })),
+    ],
+    response_format: { type: "image", aspect_ratio: request.aspect, image_size: request.size ?? "1K" },
+    store: false,
+  };
+  for (let i = 0; i < count; i++) {
+    try {
+      let res: Response;
+      try {
+        res = await http("https://generativelanguage.googleapis.com/v1beta/interactions", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify(body),
+          signal: request.signal,
+        });
+      } catch {
+        throw request.signal?.aborted
+          ? new ProviderError("request aborted", false)
+          : new ProviderError("could not reach provider", true);
+      }
+      const answer = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!res.ok || !answer) {
+        const error = (answer?.error ?? {}) as { code?: string; message?: string };
+        if (error.code && BLOCKED.has(error.code)) throw imageBlockedError(error.message);
+        throw errorOf(res.status, error.code, error.message);
+      }
+      if (typeof answer.model === "string") model = answer.model;
+      const status = typeof answer.status === "string" ? answer.status : undefined;
+      const first = (Array.isArray(answer.errors) ? answer.errors[0] : undefined) as
+        | { code?: string; message?: string }
+        | undefined;
+      if (first?.code && BLOCKED.has(first.code)) throw imageBlockedError(first.message);
+      if (status === "failed" || status === "cancelled")
+        throw errorOf(undefined, first?.code ?? "api_error", first?.message);
+      const u = answer.usage as Usage | undefined;
+      if (u) {
+        usage.textInputTokens += u.total_input_tokens ?? 0;
+        usage.outputTokens += (u.total_output_tokens ?? 0) + (u.total_thought_tokens ?? 0);
+      }
+      const { images, text } = imagesOf(answer);
+      if (images.length === 0) {
+        // An answer in words and no picture is the model declining the prompt.
+        if (text) throw imageBlockedError(text);
+        throw new ProviderError("the provider sent no picture", true);
+      }
+      for (const data of images.slice(0, count - made.length)) made.push(decodeImage(data));
+      if (made.length >= count) break;
+    } catch (error) {
+      const failure =
+        error instanceof ProviderError ? error : new ProviderError("could not read the provider's answer", true);
+      if (made.length === 0) throw failure;
+      return { images: made, ...(model ? { model } : {}), usage, error: failure };
+    }
+  }
+  return { images: made, ...(model ? { model } : {}), usage };
 }
 
 function toBody(request: ModelRequest) {

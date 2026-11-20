@@ -293,7 +293,8 @@ export function ChannelWelcome({
                   variant="ghost"
                   wide
                   label={t("members.arrival.talkTo", { name: dir.agentById.get(host)?.name ?? "" })}
-                  onPress={() => void openDm({ agentId: host }, { compose: true })}
+                  // Opens the conversation and nothing more: it comes in with the keyboard down, as from New.
+                  onPress={() => void openDm({ agentId: host })}
                 />
               ) : null}
               <Button variant="ghost" wide label={t("members.arrival.team")} onPress={() => router.push("/team")} />

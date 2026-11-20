@@ -1,6 +1,6 @@
 import type { AccountLoginStart, MachineAccount, MachineAccountKind } from "@agenteschat/client";
 import { keys, useAccountLogin, useAiAccounts, useApi } from "@agenteschat/client";
-import { accountTitle, reusableAccount, signInOf } from "@agenteschat/client/lib/ai-accounts";
+import { accountInLine, reusableAccount, signInOf } from "@agenteschat/client/lib/ai-accounts";
 import { knownErrorText } from "@agenteschat/client/lib/errors";
 import {
   beginLogin,
@@ -16,12 +16,12 @@ import {
 import { GEMINI_ENTERPRISE_PROVIDER, planKeyFits, signInKey } from "@agenteschat/client/lib/plans";
 import { accountCodeAad } from "@agenteschat/client/lib/secret-box";
 import { useQueryClient } from "@tanstack/react-query";
-import * as Clipboard from "expo-clipboard";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, Platform, StyleSheet, View } from "react-native";
 import { sealSecret } from "@/lib/secret-box";
-import { Button, fonts, InkOrbit, Text, useTheme } from "@/ui";
+import { Button, fonts, InkOrbit, SkeletonList, Text, useTheme } from "@/ui";
+import { copyText, successHaptic } from "../shared/parts";
 import { useAiOrg } from "./org";
 import { Note, OpenPage, openPage, PasteField, Step, StepsCard, StepText, Waiting } from "./parts";
 
@@ -40,6 +40,8 @@ import { Note, OpenPage, openPage, PasteField, Step, StepsCard, StepText, Waitin
 
 /** Where ChatGPT allows signing in with a code (Settings › Security): Codex's device sign-in needs it. */
 const CHATGPT_SECURITY = "https://chatgpt.com/#settings/Security";
+/** How long "Copied" stays beside a device code before it says "Copy" again (as the invitation screens). */
+const COPIED_MS = 1800;
 
 export interface AddAccountProps {
   machineId: string;
@@ -81,7 +83,6 @@ export interface AddAccountProps {
 export function AddAccount(props: AddAccountProps) {
   const { t } = useTranslation();
   const { orgId } = useAiOrg();
-  const { colors: c } = useTheme();
   // "Tentar de novo" starts over with a new sign-in.
   const [attempt, setAttempt] = useState(0);
   // A new sign-in where the person already has that plan's account on that computer, as on the web: Entrar de novo
@@ -98,9 +99,10 @@ export function AddAccount(props: AddAccountProps) {
       : undefined;
     setReuse(found ?? null);
   }, [reuse, offers, ai.isPending, ai.data, props.machineId, props.kind, props.provider]);
-  if (reuse === undefined) return <ActivityIndicator color={c.muted} />;
+  // Whether there is an account to sign in again first: the steps' shape until it's known.
+  if (reuse === undefined) return <SkeletonList rows={2} />;
   const chosen = reuse ? (pick ?? (signInOf(reuse) === "signed_out" ? "again" : undefined)) : "new";
-  const label = reuse ? accountTitle(reuse) : "";
+  const label = reuse ? accountInLine(t, reuse) : "";
   const another = (
     <Button size="sm" variant="secondary" label={t("connectAi.another")} onPress={() => setPick("new")} />
   );
@@ -299,10 +301,16 @@ function AddAccountFlow({
   };
 
   const copy = async () => {
-    if (!login?.userCode) return;
-    await Clipboard.setStringAsync(login.userCode).catch(() => undefined);
+    if (!login?.userCode || !(await copyText(login.userCode))) return;
+    successHaptic();
     setCopied(true);
   };
+  // "Copied" for a moment, then "Copy" again, as the invitation's link says it.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   const waiting = (
     <Waiting
@@ -338,7 +346,8 @@ function AddAccountFlow({
             variant="primary"
             wide
             label={t("agentPage.work.brain.add.send", { computer })}
-            disabled={!valid || !ready || loading}
+            loading={loading}
+            disabled={!valid || !ready}
             onPress={() => void send()}
           />
         </View>
@@ -372,7 +381,7 @@ function AddAccountFlow({
           ? plan
             ? t("aiAccounts.add.duplicateKey", { account: result.duplicate.label })
             : t(`agentPage.work.brain.add.duplicate.${kind}`, {
-                account: result.duplicate.account?.email ?? result.duplicate.label,
+                account: result.duplicate.account ? accountInLine(t, result.duplicate.account) : result.duplicate.label,
               })
           : notShared
             ? t("agentPage.work.brain.add.geminiNotShared", { computer })
@@ -395,13 +404,15 @@ function AddAccountFlow({
   const openAgain = (url: string) => (
     <OpenPage href={url} label={t("agentPage.work.brain.add.openAgain")} onOpened={() => setOpened(true)} />
   );
+  // The computer starting the sign-in, or the page still asking about it: the button's own spinner.
   const startButton = (label: string, disabled: boolean) => (
     <Button
       size="sm"
       variant="primary"
       icon="out"
       label={label}
-      disabled={disabled || starting || loading}
+      loading={starting || loading}
+      disabled={disabled}
       onPress={() => void start()}
     />
   );
@@ -659,7 +670,6 @@ function AddAccountFlow({
       ) : (
         <StepsCard>{steps}</StepsCard>
       )}
-      {(starting || loading) && !busy ? <ActivityIndicator color={c.muted} style={styles.spinner} /> : null}
     </View>
   );
 }
@@ -675,7 +685,6 @@ const styles = StyleSheet.create({
   code: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginVertical: 4 },
   // 22, tabular, spaced: read off one screen and typed on another, character by character.
   codeText: { fontWeight: "700", letterSpacing: 2, fontVariant: ["tabular-nums"] },
-  spinner: { alignSelf: "flex-start" },
   // The provider's own words, whole: mono in a well, never cut.
   said: { alignSelf: "stretch", fontFamily: fonts.mono, padding: 10, borderRadius: 8, overflow: "hidden" },
 });

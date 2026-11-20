@@ -1,5 +1,7 @@
 import {
   ACCESS_PROTOCOL,
+  badActorCode,
+  badActorRefusal,
   type ExecRequest,
   type ExecResult,
   isReservedSecretName,
@@ -19,9 +21,9 @@ import {
   vaultAad,
   workspacePath,
 } from "@agenteschat/adapters";
-import { and, eq, schema } from "@agenteschat/db";
+import { and, eq, isNull, schema } from "@agenteschat/db";
 import { getAgentCached } from "./agents";
-import { fileLanded, SHARED_DRIVE_INPUT } from "./artifact-tools";
+import { FOLDER_INPUT, fileLanded, SHARED_DRIVE_INPUT } from "./artifact-tools";
 import {
   ARTIFACT_LIMITS,
   type ArtifactActor,
@@ -91,7 +93,7 @@ import { missionOfRun, type RunMission, runActsForMission } from "./mission-cont
 import { recordTaskFinished } from "./operator-events";
 import { isRightHandId } from "./right-hand";
 import { machineScope, runSeatId, seatIdOf } from "./right-hand-seats";
-import { routineKeysAllowed } from "./routine-keys";
+import { routineKeysAllowed, routineKeysLent } from "./routine-keys";
 import { runnerUpdateWay } from "./runner-update";
 import { replyThreadOf } from "./runs";
 import {
@@ -225,11 +227,19 @@ async function missionGate(name: string, input: Record<string, unknown>, ctx: To
 export const MAX_RUN_KEYS = 10;
 
 /**
- * Why a run that what a routine read woke gets no Vault key in a command (ADR 0144 §2, ADR 0053 §3): that text may
- * come from outside. A saved login it may still type in the browser: that value never reaches the model or a command.
+ * Why a run that what a routine read woke gets no Vault key in a command when its routine is no longer known (ADR 0144
+ * §2, ADR 0053 §3): that text may come from outside. A saved login it may still type in the browser: that value never
+ * reaches the model or a command.
  */
 export const ROUTINE_KEYS_REFUSAL =
   "A run started by what a routine read can't use Vault keys in commands. Ask for it in the routine's conversation, where a person can run it.";
+
+/**
+ * A run a routine's work or report woke whose keys that routine doesn't list (ADR 0144 §2, amended 2026-11-16). It
+ * says what a person sets up, once, so the agent stops retrying and stops asking for a go-ahead no message can give.
+ */
+export const ROUTINE_KEYS_NOT_LENT =
+  "A routine's work started this run, so its commands get only the Vault keys that routine's creator listed for the routine. A go-ahead in the chat doesn't change it, and retrying won't either. Tell the person once what to set up: the routine's creator adds the key to the routine's Vault keys (they can ask the routine's agent to add it), and shares the key with you in Settings, Vault.";
 
 /** A routine's own run whose keys nobody allowed (the gateway asks first, so this is the last line). */
 export const ROUTINE_KEYS_UNLISTED =
@@ -690,7 +700,8 @@ export function createSandboxToolSource(
    * Vault keys for one command (ADR 0144): released for the person behind the run, then sealed, each bound to its
    * variable, to a one-use key the computer just made. The values are in this process only while they are sealed;
    * the runner opens them into that one command's environment and redacts them from what it prints. A run a routine
-   * feeds gets none (ADR 0053 §3: it never sends a credential, and a command holding a key could send it anywhere).
+   * feeds gets only the keys that routine's creator listed for it (ADR 0144 §2; ADR 0053 §3: a command holding a key
+   * could send it anywhere, so no other key goes where what woke the run may come from outside).
    */
   const vaultKeysFor = async (ctx: ToolContext, computer: ComputerHandle, names: string[]) => {
     const vault = deps.vault;
@@ -698,11 +709,18 @@ export function createSandboxToolSource(
     if (!vault || !hub) throw new Error("The Vault isn't available on this server.");
     const authority = await runAuthorityById(ctx.db, ctx.orgId, ctx.runId);
     if (fedByRoutine(authority)) {
-      // A routine's own run: the keys its creator allowed, or this one command a person just approved.
-      if (authority.kind !== "routine" || !authority.brief) throw new VaultRefusal("not_allowed", ROUTINE_KEYS_REFUSAL);
-      const at = { orgId: ctx.orgId, agentId: ctx.agentId, routineId: authority.brief.routineId };
-      if (!ctx.approved && !(await routineKeysAllowed(ctx.db, at, names))) {
-        throw new VaultRefusal("not_allowed", ROUTINE_KEYS_UNLISTED);
+      const brief = authority.kind === "person" ? null : authority.brief;
+      if (!brief) throw new VaultRefusal("not_allowed", ROUTINE_KEYS_REFUSAL);
+      const at = { orgId: ctx.orgId, agentId: ctx.agentId, routineId: brief.routineId };
+      if (authority.kind === "routine") {
+        // A routine's own run: the keys its creator allowed, or this one command a person just approved.
+        if (!ctx.approved && !(await routineKeysAllowed(ctx.db, at, names))) {
+          throw new VaultRefusal("not_allowed", ROUTINE_KEYS_UNLISTED);
+        }
+      } else if (!ctx.approved && !(await routineKeysLent(ctx.db, at, names))) {
+        // A run that routine's work or report woke, this agent's or a teammate's: only the keys listed for it, or
+        // this one command a person just approved (an agent that always asks).
+        throw new VaultRefusal("not_allowed", ROUTINE_KEYS_NOT_LENT);
       }
     }
     const granted = await grantedScopeKeys(ctx.db, ctx.orgId, ctx.agentId);
@@ -890,6 +908,12 @@ export function createSandboxToolSource(
           const timeout = timeoutOf(input, execTimeout, maxTimeout);
           const names = runKeysOf(input.keys);
           if (typeof names === "string") return { content: names, isError: true };
+          // The same obvious harm a brain's own command is refused for (ADR 0053 §3), unless a person approved this call.
+          const bad = ctx.approved ? null : badActorCode(str(input.code), lang);
+          if (bad) {
+            const refusal = badActorRefusal(bad);
+            return { content: `Not run: ${refusal.message}`, isError: true, data: { refusal: refusal.code } };
+          }
           const file = `.agentes/run-${Date.now()}.${runner.ext}`;
           const started = Date.now();
           const result = await run(
@@ -1095,6 +1119,7 @@ export function createSandboxToolSource(
           artifact_id: { type: "string", minLength: 36, maxLength: 36 },
           note: { type: "string", maxLength: 500 },
           shared_drive: SHARED_DRIVE_INPUT,
+          folder: FOLDER_INPUT,
         },
         required: ["path"],
         additionalProperties: false,
@@ -1134,7 +1159,7 @@ export function createSandboxToolSource(
                 content,
               });
           return {
-            content: `Saved ${path} as "${a.title}" (${a.kind}), artifact ${a.id}, version ${a.version}. ${await fileLanded(deps.artifacts, ctx, a.id, input.shared_drive)}`,
+            content: `Saved ${path} as "${a.title}" (${a.kind}), artifact ${a.id}, version ${a.version}. ${await fileLanded(deps.artifacts, ctx, a.id, input.shared_drive, input.folder)}`,
             data: { artifact: { id: a.id, version: a.version, title: a.title } },
           };
         } catch (error) {
@@ -1154,6 +1179,7 @@ export function createSandboxToolSource(
           artifact_id: { type: "string", minLength: 36, maxLength: 36 },
           note: { type: "string", maxLength: 500 },
           shared_drive: SHARED_DRIVE_INPUT,
+          folder: FOLDER_INPUT,
           ...computerProp(devices),
         },
         required: ["path"],
@@ -1195,7 +1221,7 @@ export function createSandboxToolSource(
           const done = await uploadedFile(deps.db, row);
           if (!done) return { content: `Failed: ${row.error ?? "the upload did not finish"}`, isError: true };
           return {
-            content: `Uploaded ${path} as "${done.title}" (file, ${formatBytes(done.size)}), artifact ${done.id}, version ${done.version}. ${await fileLanded(deps.artifacts, ctx, done.id, input.shared_drive)}`,
+            content: `Uploaded ${path} as "${done.title}" (file, ${formatBytes(done.size)}), artifact ${done.id}, version ${done.version}. ${await fileLanded(deps.artifacts, ctx, done.id, input.shared_drive, input.folder)}`,
             data: { artifact: { id: done.id, version: done.version, title: done.title } },
           };
         } catch (error) {
@@ -1635,7 +1661,14 @@ export function createSandboxToolSource(
           const [ended] = await ctx.db
             .update(schema.machineTasks)
             .set({ status: "canceled", endedAt: new Date(), updatedAt: new Date() })
-            .where(and(eq(schema.machineTasks.id, row.id), eq(schema.machineTasks.canceledBy, by)))
+            // Not one that ended meanwhile (the runner "no longer has it" because it finished): its ending stands.
+            .where(
+              and(
+                eq(schema.machineTasks.id, row.id),
+                eq(schema.machineTasks.canceledBy, by),
+                isNull(schema.machineTasks.endedAt),
+              ),
+            )
             .returning();
           if (ended) {
             await recordTaskFinished(ctx.db, ended);

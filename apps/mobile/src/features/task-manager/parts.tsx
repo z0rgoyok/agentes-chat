@@ -1,7 +1,6 @@
 import { type ManagedTask, useContinueTasks } from "@agenteschat/client";
 import { type TaskWaitGroup, taskTime, taskWaitGroups, taskWaitGroupText } from "@agenteschat/client/lib/task-manager";
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
@@ -10,8 +9,6 @@ import {
   fieldText,
   Icon,
   LineIcon,
-  MEDIA_ROW,
-  MediaRow,
   PixelOrbit,
   PixelStop,
   PixelStopped,
@@ -20,14 +17,13 @@ import {
   weights,
 } from "@/ui";
 import { useFailed } from "../routines/hooks";
-import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { isHeld, type RowState, taskStateWords } from "./logic";
 
 /**
  * The pieces the task manager's list, a task's screen and an agent's tasks share (ADR 0128): a task's mark and state,
- * its "Parar", and the confirmation that stopping several asks for.
+ * its "Parar" and the reason field a stop can carry.
  */
 
 /** A reason's length at most: the server's (ADR 0128). */
@@ -187,11 +183,14 @@ export function ReasonField({
   onChange,
   placeholder,
   autoFocus = false,
+  onSubmit,
 }: {
   value: string;
   onChange: (text: string) => void;
   placeholder: string;
   autoFocus?: boolean;
+  /** The return key sends the reason (labelled "send"); without it the key only closes the keyboard. */
+  onSubmit?: () => void;
 }) {
   const c = useColors();
   return (
@@ -205,62 +204,9 @@ export function ReasonField({
         style={[fieldText("subhead"), styles.input, { color: c.ink }]}
         maxLength={REASON_MAX}
         autoFocus={autoFocus}
-        returnKeyType="done"
+        returnKeyType={onSubmit ? "send" : "done"}
+        {...(onSubmit ? { onSubmitEditing: onSubmit, submitBehavior: "blurAndSubmit" as const } : {})}
       />
-    </View>
-  );
-}
-
-/**
- * Stopping several of an agent's tasks asks first, in place (never a floating card): how many and whose, that the
- * agent is told, an optional reason it reads, Cancelar and "Parar N".
- */
-export function StopConfirm({
-  agentId,
-  count,
-  helpers = 0,
-  onCancel,
-  onStop,
-}: {
-  agentId: string;
-  count: number;
-  /** One task and the agents it asked, stopped together. */
-  helpers?: number;
-  onCancel: () => void;
-  onStop: (reason: string) => void;
-}) {
-  const { t } = useTranslation();
-  const dir = useDirectory();
-  const [why, setWhy] = useState("");
-  const name = dir.nameOf({ type: "agent", id: agentId }) || t("channel.unknownAgent");
-  return (
-    <View style={styles.confirm} accessibilityRole="alert">
-      <MediaRow
-        size="row"
-        face={<AgentFace agentId={agentId} size={MEDIA_ROW.row.face} live={false} />}
-        name={
-          helpers
-            ? t("taskManager.confirm.chainTitle", { count: helpers, name })
-            : t("taskManager.confirm.title", { count, name })
-        }
-      >
-        <Text variant="footnote" tone="muted">
-          {helpers ? t("taskManager.confirm.chainBody") : t("taskManager.confirm.short", { name })}
-        </Text>
-      </MediaRow>
-      <View style={styles.confirmRow}>
-        <View style={styles.grow}>
-          <ReasonField value={why} onChange={setWhy} placeholder={t("taskManager.confirm.reason")} />
-        </View>
-        <Button variant="ghost" size="sm" label={t("mobile.common.cancel")} onPress={onCancel} />
-        <Button
-          variant="primary"
-          size="sm"
-          label={t("taskManager.confirm.stop", { count: count + helpers })}
-          leading={(color) => <PixelStop size={10} color={color} moving={false} />}
-          onPress={() => onStop(why)}
-        />
-      </View>
     </View>
   );
 }
@@ -272,7 +218,6 @@ const styles = StyleSheet.create({
   semibold: { fontWeight: weights.semibold },
   regular: { fontWeight: weights.regular },
   shrink: { flexShrink: 1 },
-  grow: { flex: 1, minWidth: 0 },
   num: { fontVariant: ["tabular-nums"], flexShrink: 0 },
   stack: { gap: 2, minWidth: 0 },
   // Under the state's words: past its mark's box and the row's gap.
@@ -286,6 +231,4 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.6 },
   field: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, minHeight: 36 },
   input: { paddingVertical: 8 },
-  confirm: { gap: 10 },
-  confirmRow: { flexDirection: "row", alignItems: "center", gap: 8 },
 });

@@ -45,6 +45,8 @@
 .members-row__state {
   flex: 0 1 auto;
   min-width: 0;
+  /* What it says may hold typed text with no place to break (who an outside collaborator works for). */
+  overflow-wrap: anywhere;
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -104,6 +106,11 @@
   align-items: center;
   gap: var(--space-1) var(--space-2);
   min-width: 0;
+}
+/* Who an outside collaborator works for, after their chip: up to 80 characters, any of them a place to wrap. */
+.members-roles__of {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* A person, a face line (`.ac-faceline`): the face at the row's top, the name's capitals on its top edge
    (`.ac-captop`), when they were last here and the row's menu on the name's line (`.ac-captail`) however the @handle

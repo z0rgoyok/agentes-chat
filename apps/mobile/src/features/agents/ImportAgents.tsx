@@ -1,5 +1,4 @@
 import { useApps, useMe } from "@agenteschat/client";
-import type { GuideIcon } from "@agenteschat/client/lib/app-clients";
 import { aiAppImport } from "@agenteschat/client/lib/apps";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { stripCodeTags } from "@agenteschat/client/lib/format";
@@ -26,24 +25,28 @@ import { File } from "expo-file-system";
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   ACT_LINE,
   AgentAvatar,
   Button,
   CARD_PAD,
   Card,
+  Disclosure,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
   Icon,
-  LineIcon,
   Locked,
   LogoMark,
+  RowPressable,
   Segmented,
   Text,
-  Toggle,
   useTheme,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { openPage } from "../ai/parts";
+import { Note, openPage } from "../ai/parts";
 import { copyText, MONO, tapHaptic } from "../shared/parts";
 import { TextArea } from "../shared/TextArea";
 import { fullLook } from "./edit";
@@ -60,16 +63,8 @@ import {
 import { IMPORT_LOGO } from "./import-logos";
 import type { AgentImport } from "./useAgentImport";
 
-/**
- * "Trazer agentes de outro app" as a step of Criar agente: pick the app (its short how-to under it), then choose its
- * files or paste its reply; the plan shows the agents found and what comes with them. The footer's button imports.
- */
-export function ImportAgents({ imp, orgId }: { imp: AgentImport; orgId: string }) {
-  return imp.planned ? <Preview imp={imp} orgId={orgId} /> : <Picker imp={imp} orgId={orgId} />;
-}
-
-/** A source's mark in its row. */
-const MARK = 34;
+/** A source's mark in its row: a list row's tile. */
+const MARK = 32;
 
 /** A source's logo on a neutral tile: our own mark for our export, an icon for any other app. */
 function SourceMark({ card, size = MARK }: { card: ImportCard; size?: number }) {
@@ -96,7 +91,12 @@ function SourceMark({ card, size = MARK }: { card: ImportCard; size?: number }) 
   );
 }
 
-function Picker({ imp, orgId }: { imp: AgentImport; orgId: string }) {
+/**
+ * "Trazer agentes de outro app", its first screen, on the grouped gray as Criar agente's steps: pick the app (its short
+ * how-to under the list), then choose its files or paste its reply. What the read finds opens on a screen of its own
+ * (`ImportPreview`).
+ */
+export function ImportPicker({ imp, orgId }: { imp: AgentImport; orgId: string }) {
   const { t, i18n } = useTranslation();
   const { colors: c } = useTheme();
   const apps = useApps(orgId);
@@ -148,42 +148,28 @@ function Picker({ imp, orgId }: { imp: AgentImport; orgId: string }) {
   return (
     <>
       <Locked when={busy}>
-        <Card>
-          {IMPORT_CARDS.map((card, i) => {
+        <GroupedList>
+          {IMPORT_CARDS.map((card) => {
             const on = imp.card === card;
-            const name = cardName(t, card);
             return (
-              <View key={card}>
-                <Pressable
-                  onPress={() => {
-                    tapHaptic();
-                    imp.setCard(on ? null : card);
-                  }}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={name}
-                  style={({ pressed }) => [
-                    styles.source,
-                    i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
-                    pressed && { backgroundColor: c.sunken },
-                  ]}
-                >
-                  <SourceMark card={card} />
-                  <Text variant="body" style={styles.fill}>
-                    {name}
-                  </Text>
-                  {on ? <Icon name="checkc" size={24} color={c.ink} /> : null}
-                </Pressable>
-                {on && !isRequestCard(card) && method === "prompt" ? (
-                  <View style={styles.where}>
-                    <Note icon="info">{t(`mobile.newAgent.import.where.${card}`)}</Note>
-                  </View>
-                ) : null}
-              </View>
+              <GroupedRow
+                key={card}
+                leading={<SourceMark card={card} />}
+                label={cardName(t, card)}
+                checked={on}
+                onPress={() => {
+                  tapHaptic();
+                  imp.setCard(on ? null : card);
+                }}
+              />
             );
           })}
-        </Card>
+        </GroupedList>
       </Locked>
+      {/* Where the chosen app keeps its agents, said once under the list. */}
+      {imp.card && !isRequestCard(imp.card) && method === "prompt" ? (
+        <GroupedFooter>{t(`mobile.newAgent.import.where.${imp.card}`)}</GroupedFooter>
+      ) : null}
 
       {imp.card ? <SourceSteps key={imp.card} card={imp.card} imp={imp} mcp={mcp} method={method} /> : null}
 
@@ -198,19 +184,14 @@ function Picker({ imp, orgId }: { imp: AgentImport; orgId: string }) {
           </View>
         </View>
       ) : takesFiles(imp.card) && method === "prompt" ? (
-        <Button
-          variant="secondary"
-          icon="file"
-          label={t("mobile.newAgent.import.pick")}
-          onPress={() => void pickFiles()}
-        />
+        <GroupedList>
+          <GroupedRow icon="file" label={t("mobile.newAgent.import.pick")} chevron onPress={() => void pickFiles()} />
+        </GroupedList>
       ) : null}
 
       {method === "prompt" ? (
         <>
-          <Text variant="footnote" tone="faint" style={styles.gapTop}>
-            {t("mobile.newAgent.import.pasteTitle")}
-          </Text>
+          <GroupedFooter>{t("mobile.newAgent.import.pasteTitle")}</GroupedFooter>
           <Locked when={busy}>
             <TextArea
               value={text}
@@ -448,19 +429,21 @@ function Arrivals({ imp }: { imp: AgentImport }) {
         {t("onboarding.import.aiApp.arrived", { count: arrived.length })}
       </Text>
       {arrived.map((a) => (
-        <Pressable
+        <RowPressable
+          radius={8}
+          hold
           key={a.id}
           onPress={() => router.push(`/agent/${a.id}`)}
           accessibilityRole="link"
           accessibilityLabel={a.name}
-          style={({ pressed }) => [styles.arrived, pressed && { backgroundColor: c.sunken }]}
+          style={styles.arrived}
         >
           <AgentAvatar agent={fullLook(a.appearance)} size={32} name={a.name} live={false} />
           <Text variant="body" style={styles.fill}>
             {a.name}
           </Text>
-          <Icon name="right" size={16} color={c.faint} />
-        </Pressable>
+          <Disclosure />
+        </RowPressable>
       ))}
     </View>
   );
@@ -508,10 +491,12 @@ function RequestSteps({ card }: { card: "grok-bot" | "chatgpt-dots" | "other" })
   );
 }
 
-/** The plan: the agents found, each to check or uncheck, then what comes with them and what stays behind. */
-function Preview({ imp, orgId }: { imp: AgentImport; orgId: string }) {
+/**
+ * The plan, pushed over the picker: the agents found, each to check or uncheck, then what comes with them and what
+ * stays behind, as the lists' own rows. Another file or reply is the system's back away; the bar's button imports.
+ */
+export function ImportPreview({ imp, orgId }: { imp: AgentImport; orgId: string }) {
   const { t } = useTranslation();
-  const { colors: c } = useTheme();
   const planned = imp.planned;
   if (!planned) return null;
   const { bundle, items } = planned;
@@ -525,21 +510,12 @@ function Preview({ imp, orgId }: { imp: AgentImport; orgId: string }) {
 
   return (
     <>
-      {/* The name whole, Trocar arquivo beside it while it fits its line, under it from its edge otherwise. */}
+      {/* The name whole, on as many lines as it takes beside the source's mark. */}
       <View style={styles.previewHead}>
         <SourceMark card={origin.card} size={44} />
-        <View style={[ACT_LINE.row, styles.line]}>
-          <Text variant="title" accessibilityRole="header" style={ACT_LINE.text}>
-            {bundle.source.name}
-          </Text>
-          <Button
-            variant="secondary"
-            size="sm"
-            label={planned.from === "files" ? t("onboarding.import.change") : t("mobile.newAgent.import.change")}
-            disabled={applying}
-            onPress={imp.reset}
-          />
-        </View>
+        <Text variant="title" accessibilityRole="header" style={styles.fill}>
+          {bundle.source.name}
+        </Text>
       </View>
       <Text variant="footnote" tone="muted">
         {[origin.app ? t("onboarding.import.from", { app: origin.app }) : t("onboarding.import.fromOther"), summary]
@@ -550,109 +526,79 @@ function Preview({ imp, orgId }: { imp: AgentImport; orgId: string }) {
         <Note icon="info">{t("onboarding.import.sameWorkspace")}</Note>
       ) : null}
 
-      <Text variant="footnote" tone="faint" style={styles.gapTop}>
-        {t("onboarding.import.groups.agent")}
-      </Text>
-      <Card>
-        {agents.map((a, i) => {
+      <GroupedHeader>{t("onboarding.import.groups.agent")}</GroupedHeader>
+      <GroupedList>
+        {agents.map((a) => {
           // A new agent says nothing: it's what every row would say.
           const status = a.status === "create" ? "" : t(`onboarding.import.status.${a.status}`);
           const why = a.reason ? t(`onboarding.import.why.${a.reason}`) : "";
           const renamed = a.wanted ? t("onboarding.import.renamed", { handle: a.handle, wanted: a.wanted }) : "";
           const note = [status, why, renamed].filter(Boolean).join(" · ");
+          const sub = [a.role, !a.wanted && a.handle && `@${a.handle}`].filter(Boolean).join(" · ");
           return (
-            <Pressable
+            <GroupedRow
               key={a.id}
+              leading={<AgentAvatar agent={fullLook(a.appearance)} size={36} name={a.name} live={false} />}
+              label={a.name}
+              {...(sub ? { sub, subLines: 2 } : {})}
+              {...(note ? { belowText: note } : {})}
+              checked={a.free && a.on}
+              faint={!a.free}
               disabled={!a.free || applying}
               onPress={() => {
                 tapHaptic();
                 imp.toggle([a.id], !a.on);
               }}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: a.on, disabled: !a.free || applying }}
-              accessibilityLabel={[
-                t("onboarding.import.bring", { name: a.name }),
-                a.role,
-                a.handle && `@${a.handle}`,
-                status,
-                why,
-                renamed,
-              ]
-                .filter(Boolean)
-                .join(". ")}
-              style={({ pressed }) => [
-                styles.agent,
-                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
-                pressed && { backgroundColor: c.sunken },
-              ]}
-            >
-              <AgentAvatar agent={fullLook(a.appearance)} size={40} name={a.name} live={false} />
-              <View style={styles.fill}>
-                <Text variant="body" style={styles.bold} numberOfLines={1}>
-                  {a.name}
-                </Text>
-                <Text variant="footnote" tone="muted" numberOfLines={2}>
-                  {[a.role, !a.wanted && a.handle && `@${a.handle}`].filter(Boolean).join(" · ")}
-                </Text>
-                {note ? (
-                  <Text variant="footnote" tone="faint">
-                    {note}
-                  </Text>
-                ) : null}
-              </View>
-              {a.free ? <Icon name={a.on ? "checkc" : "circle"} size={24} color={a.on ? c.ink : c.faint} /> : null}
-            </Pressable>
+            />
           );
         })}
-      </Card>
+      </GroupedList>
 
       {groups.length > 0 ? (
         <>
-          <Text variant="footnote" tone="faint" style={styles.gapTop}>
-            {t("mobile.newAgent.import.also")}
-          </Text>
-          <Card>
+          <GroupedHeader>{t("mobile.newAgent.import.also")}</GroupedHeader>
+          <GroupedList>
             {groups.map((g) => {
               const label = t(`onboarding.import.report.kinds.${g.kind}`, { count: g.total });
               return g.free.length > 0 ? (
-                <Toggle key={g.kind} label={label} value={g.on} onChange={(on) => imp.toggle(g.free, on)} />
+                <GroupedRow key={g.kind} label={label} toggle={g.on} onPress={() => imp.toggle(g.free, !g.on)} />
               ) : (
-                <View key={g.kind} style={styles.kindRow}>
-                  <Text variant="body" style={styles.fill}>
-                    {label}
-                  </Text>
-                  <Text variant="footnote" tone="muted">
-                    {t(`onboarding.import.status.${g.coming > 0 ? "unchanged" : "skip"}`)}
-                  </Text>
-                </View>
+                <GroupedRow
+                  key={g.kind}
+                  label={label}
+                  value={t(`onboarding.import.status.${g.coming > 0 ? "unchanged" : "skip"}`)}
+                />
               );
             })}
-          </Card>
+          </GroupedList>
         </>
       ) : null}
 
       {bundle.todo.length > 0 ? (
-        <View style={styles.todos}>
-          {bundle.todo.map((todo) => {
-            const href = todoHref(todo.kind);
-            return (
-              <View key={`${todo.kind}:${todo.label}`} style={[ACT_LINE.row, styles.todo]}>
-                <Text variant="footnote" tone="ink2" style={ACT_LINE.text}>
-                  {todoLine(t, todo, nameOf)}
-                </Text>
-                {href ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    label={t(`onboarding.import.needDo.${todo.kind as "connection" | "app" | "file"}`)}
-                    disabled={applying}
-                    onPress={() => router.push(href)}
-                  />
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
+        // What stays to do by hand, each a row; where the phone can do it, the row goes there.
+        <>
+          <View style={styles.gap} />
+          <GroupedList>
+            {bundle.todo.map((todo) => {
+              const href = todoHref(todo.kind);
+              return (
+                <GroupedRow
+                  key={`${todo.kind}:${todo.label}`}
+                  label={todoLine(t, todo, nameOf)}
+                  labelLines={0}
+                  {...(href
+                    ? {
+                        value: t(`onboarding.import.needDo.${todo.kind as "connection" | "app" | "file"}`),
+                        chevron: true,
+                        disabled: applying,
+                        onPress: () => router.push(href),
+                      }
+                    : {})}
+                />
+              );
+            })}
+          </GroupedList>
+        </>
       ) : null}
 
       <Note icon="lock">{t("onboarding.import.never")}</Note>
@@ -674,20 +620,6 @@ function Preview({ imp, orgId }: { imp: AgentImport; orgId: string }) {
   );
 }
 
-type NoteIcon = "info" | "lock" | "check" | GuideIcon;
-
-function Note({ icon, children }: { icon: NoteIcon; children: string }) {
-  const { colors: c } = useTheme();
-  return (
-    <View style={styles.note}>
-      <LineIcon name={icon} size={16} color={c.faint} variant="footnote" />
-      <Text variant="footnote" tone="muted" style={styles.fill}>
-        {children}
-      </Text>
-    </View>
-  );
-}
-
 function ErrorText({ text }: { text: string }) {
   const { colors: c } = useTheme();
   return (
@@ -701,9 +633,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   paste: { maxHeight: 320 },
   bold: { fontWeight: "600" },
-  gapTop: { marginTop: 14 },
   tile: { borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
-  source: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 14 },
   reading: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   failure: { gap: 8, alignItems: "flex-start" },
@@ -723,12 +653,5 @@ const styles = StyleSheet.create({
   previewHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   // Words and their button past the lead: the button under the words once they take more than their line.
   line: { flex: 1, minWidth: 0, alignItems: "center", columnGap: 16, rowGap: 8 },
-  agent: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12, paddingHorizontal: 14 },
-  kindRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
-  // Under the source's name: the row's side, its mark and the gap.
-  where: { paddingLeft: 14 + MARK + 12, paddingRight: 14, paddingBottom: 12 },
-  note: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 6 },
-  todos: { gap: 10, marginTop: 14 },
-  // The action beside the words while they fit on one line, under them once they wrap (`ACT_LINE`).
-  todo: { alignItems: "center", columnGap: 12, rowGap: 8 },
+  gap: { height: 14 },
 });

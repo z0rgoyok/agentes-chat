@@ -1,0 +1,1 @@
+ALTER TABLE "confidential_threads" ADD COLUMN "thinks_with" text;

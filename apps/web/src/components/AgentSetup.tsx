@@ -24,7 +24,14 @@ import {
   resourcesOf,
 } from "@agenteschat/client/lib/access-levels";
 import { channelsAfter, sameAudience } from "@agenteschat/client/lib/agent-edit";
-import { audienceModeKey, audienceModeTextKey, audienceOf, audiencePatch } from "@agenteschat/client/lib/audience";
+import {
+  audienceModeKey,
+  audienceModeTextKey,
+  audienceOf,
+  audiencePatch,
+  editsAgent,
+  managesAgent,
+} from "@agenteschat/client/lib/audience";
 import { setDraftFor } from "@agenteschat/client/lib/drafts";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { formatTime, joinNames } from "@agenteschat/client/lib/format";
@@ -90,6 +97,7 @@ import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
 import { ConnectorIcon } from "@/components/ConnectorCatalog";
 import { useChannelActions } from "@/components/channel-actions";
 import { SetupBand } from "@/components/new-agent/SetupBand";
+import { PersonalChip } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
 import { useWidenAsk } from "@/components/ReachLines";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -101,8 +109,8 @@ import "./agent-setup.css";
 /*
  * A new agent's setup checklist (ADR 0155 §2): the top of its chat, drawn by the app and never stored, in its voice.
  * Five steps (think, apps, channels, who talks to it, how it works); each button opens a small dialog with the
- * suggestion marked, nothing changes without confirming. Only who may set the agent up sees it: who manages agents
- * all the steps, its owner the ones they may change. Its profile shows the same card while something is left.
+ * suggestion marked, nothing changes without confirming. Only who may set the agent up sees it (`setupSteps`): who
+ * manages it all the steps, its owner the ones they may change. Its profile shows the same card while one is left.
  */
 
 const STEP_ICON: Record<AgentSetupStep, IconName> = {
@@ -118,9 +126,11 @@ const STEP_ICON: Record<AgentSetupStep, IconName> = {
  * personal workspace there is nobody else to talk to it: "who" waits until someone joins (ADR 0159), read live.
  */
 export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
-  const { org, me } = useOrg();
+  const { me } = useOrg();
   const { solo } = usePersonalView();
-  const steps = agent ? setupSteps(agent, { meId: me.user.id, admin: can(org, "manage_agents") }) : [];
+  const steps = agent
+    ? setupSteps(agent, { meId: me.user.id, admin: managesAgent(agent), edits: editsAgent(agent) })
+    : [];
   // Alone in a personal workspace there are no group conversations in sight either: no "where" (ADR 0164).
   return solo ? steps.filter((s) => s !== "who" && s !== "where") : steps;
 }
@@ -132,7 +142,7 @@ export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
 function useSetupProgress(agent: Agent) {
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const admin = can(org, "manage_agents");
+  const admin = managesAgent(agent);
   const steps = useSetupSteps(agent);
   const status = useAiStatus(org.id);
   const access = useAgentAccess(org.id, agent.id, admin && steps.includes("apps"));
@@ -785,16 +795,24 @@ function AppsDialog({
           <ul className="level-list setup-dlg__apps" aria-label={t("access.kind.connectors")}>
             {ordered.map((r) => {
               const name = resourceName(t, r, items);
+              const personal = Boolean(r.connectionId && items.get(r.connectionId)?.ownerUserId);
               return (
                 <LevelRow
                   key={r.id}
                   icon={<ResourceIcon resource={r} items={items} name={name} />}
                   name={name}
+                  {...(personal ? { hint: t("connectors.personal.worksWhenAsked") } : {})}
                   asks={asksAt(r, level(r)).map((x) => toolLabel(t, r, x))}
                   levels={r.levels}
                   value={level(r)}
                   onChange={(l) => setLevelsDraft((d) => ({ ...d, [r.id]: l }))}
-                  tag={suggestionOf(r) ? <span className="setup-tag">{t("agentSetup.suggested")}</span> : undefined}
+                  tag={
+                    personal ? (
+                      <PersonalChip />
+                    ) : suggestionOf(r) ? (
+                      <span className="setup-tag">{t("agentSetup.suggested")}</span>
+                    ) : undefined
+                  }
                 />
               );
             })}
@@ -910,7 +928,7 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
   const widen = useWidenAudience(org.id, agent.id);
   const asks = useWidenAsk(agent);
   const confirm = useConfirmSetup(org.id, agent.id);
-  const admin = can(org, "manage_agents");
+  const admin = managesAgent(agent);
   const g = agentGrammar(agent.name);
   const planKind = agent.brain && agent.brain.kind !== "model" ? agent.brain.kind : null;
   const brain = useAgentBrain(org.id, agent.id, planKind !== null).data;
@@ -1101,7 +1119,7 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
 /** "Como o Leo trabalha": its instructions, its monthly limit when it pays per use, its model under "Mais opções". */
 function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => void; onSaved: () => void }) {
   const { t, i18n } = useTranslation();
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const update = useUpdateAgent(org.id, agent.id);
   const models = useModels();
   const credentials = useCredentials(org.id, can(org, "manage_credentials"));
@@ -1109,8 +1127,12 @@ function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
   const detail = useAgentDetail(org.id, agent.id);
   const g = agentGrammar(agent.name);
   const onApi = !agent.brain || agent.brain.kind === "model";
-  // Money is for who sees it (admins): the agent's own limit, else the workspace's.
-  const seesBudget = onApi && agent.monthlyBudgetUsd !== undefined;
+  // Whoever edits it saves its instructions; its budget and model as the server's `updateAgent` takes them (ADR 0085
+  // addendum of 2026-11-17): money only from who manages it (its own limit, else the workspace's), its API model also
+  // from its owner. A save with a field the person may not change would be refused whole.
+  const manages = managesAgent(agent);
+  const seesBudget = onApi && manages && agent.monthlyBudgetUsd !== undefined;
+  const picksModel = onApi && (manages || agent.ownerUserId === me.user.id);
   const [instructions, setInstructions] = useState(agent.instructions);
   const [budget, setBudget] = useState(agent.monthlyBudgetUsd == null ? "" : String(agent.monthlyBudgetUsd));
   const [model, setModel] = useState(agent.model);
@@ -1128,7 +1150,7 @@ function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
       const patch: Parameters<typeof update.mutateAsync>[0] = {};
       if (instructions !== agent.instructions) patch.instructions = instructions;
       if (seesBudget && amount !== (agent.monthlyBudgetUsd ?? null)) patch.monthlyBudgetUsd = amount;
-      if (onApi && model !== agent.model) patch.model = model;
+      if (picksModel && model !== agent.model) patch.model = model;
       if (Object.keys(patch).length > 0) await update.mutateAsync(patch);
     });
   const fallback = detail.data?.defaultBudgetUsd;
@@ -1169,7 +1191,7 @@ function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
           />
         </Field>
       )}
-      {onApi && (
+      {picksModel && (
         <details className="setup-dlg__more">
           <summary>
             <Icon name="chevronDown" size={16} />

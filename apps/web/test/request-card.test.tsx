@@ -17,12 +17,12 @@ const last = (sheet: string, selector: string, property: string) =>
     .at(-1)?.[1];
 
 describe("a request card on the compact rhythm", () => {
-  test("its parts 12 apart, a 48px foot whose buttons stand 32 tall and 8 apart, their targets 44 on touch", () => {
+  test("its parts 12 apart, a foot 12 above and below as the card's top, its buttons 32 tall and 8 apart, their targets 44 on touch", () => {
     expect(last(top, ".rq", "padding")).toBe("12px 16px 0");
     expect(last(top, ".rq__lead", "margin")).toBe("6px 0 0");
     expect(last(top, ".rq__foot", "margin")).toBe("12px -16px 0");
-    expect(last(top, ".rq__foot", "padding")).toBe("8px 16px");
-    expect(last(top, ".rq__foot", "min-height")).toBe("48px");
+    expect(last(top, ".rq__foot", "padding")).toBe("var(--space-3) var(--space-4)");
+    expect(last(top, ".rq__foot", "min-height")).toBe("calc(var(--control-h-sm) + 2 * var(--space-3))");
     expect(last(top, ".rq__foot > .ac-btn", "height")).toBe("32px");
     expect(last(top, ".rq__foot", "column-gap")).toBe("var(--space-2)");
     expect(last(top, ".rq__item-acts", "column-gap")).toBe("var(--space-2)");
@@ -82,5 +82,26 @@ describe("a request card on the compact rhythm", () => {
       "main",
     ]);
     expect(well.querySelector(".rq__wt small > code.ac-inlinecode")?.textContent).toBe("apps/web");
+  });
+
+  test("the time left ends the buttons' line, or wraps to start its own at their edge, never floating at the end", () => {
+    const { container } = render(
+      <RequestCard
+        id="r2"
+        kind="approval"
+        agent={undefined}
+        label="Pedido de aprovação"
+        mine
+        actions={<button type="button">Aprovar</button>}
+        end="24 h para decidir"
+        under={<button type="button">Mudar quando perguntar</button>}
+        what="Rodar comando"
+      />,
+    );
+    const foot = container.querySelector(".rq__foot") as HTMLElement;
+    expect(foot.classList.contains("ac-tailrow")).toBe(true);
+    expect(foot.querySelector(":scope > .rq__end")?.classList.contains("ac-tail")).toBe(true);
+    // No auto margin pushes it: the kit's spring before it takes the first line's room.
+    expect(declarations(top, ".rq__end").map(([p]) => p)).not.toContain("margin-left");
   });
 });

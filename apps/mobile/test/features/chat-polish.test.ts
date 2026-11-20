@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { applyReceiptEvent, receiptTicks } from "@agenteschat/client";
 import { dayInView } from "../../src/features/chat/logic";
-import { appColors, toastGlow, toastToneOf, toneColor, withAlpha } from "../../src/ui/palette";
+import { appColors, toastToneOf, toneColor } from "../../src/ui/palette";
+import { chatScreenSource } from "./chat-screen-source";
 import { message } from "./fixtures";
 
 const src = (file: string) => readFileSync(join(import.meta.dir, "../../src", file), "utf8");
@@ -47,17 +48,28 @@ describe("the floating date while the conversation scrolls", () => {
   });
 
   test("it shows while the person drags or flings the list and fades a moment after it stops", () => {
-    const screen = src("features/chat/ChatScreen.tsx");
-    expect(screen).toMatch(/onScrollBeginDrag=\{\(\) => \{\s*dragging\.current = true;\s*showDay\(\);/);
-    expect(screen).toContain("onMomentumScrollBegin={showDay}");
-    expect(screen).toMatch(/onMomentumScrollEnd=\{\(\) => \{\s*releaseAtEnd\(\);\s*hideDay\(\);/);
-    expect(screen).toContain("setTopDay((prev) => dayInView(viewableItems, prev))");
+    const screen = chatScreenSource();
+    // The faces hold still while it moves (`useStillWhileScrolling`): a drag or a glide holds them, the end lets go.
+    // (A drag also takes the list's reach to a screen's height at once: `setReachStep`.)
+    expect(screen).toMatch(
+      /const onDragStart = useCallback\(\(\) => \{\s*dragging\.current = true;\s*setReachStep\(REACH_LAST\);\s*still\.hold\(\);\s*showDay\(\);/,
+    );
+    expect(screen).toContain("onScrollBeginDrag={onDragStart}");
+    expect(screen).toMatch(/const onGlide = useCallback\(\(\) => \{\s*still\.hold\(\);\s*showDay\(\);/);
+    expect(screen).toContain("onMomentumScrollBegin={onGlide}");
+    expect(screen).toMatch(
+      /const onScrollSettled = useCallback\(\(\) => \{\s*still\.settle\(\);\s*releaseAtEnd\(\);\s*hideDay\(\);/,
+    );
+    expect(screen).toContain("onMomentumScrollEnd={onScrollSettled}");
+    // Kept outside the screen's state: the pill alone redraws as a day reaches the top.
+    expect(screen).toContain("topDay.set(dayInView(viewableItems, topDay.get()));");
+    expect(screen).toContain("<DayPill day={topDay} shown={dayShown} top={hasPin ? 8 : headerHeight + 8} />");
     // The person's locale: the shared day words ("Hoje", "Ontem", a weekday this week, else a date).
     expect(src("features/chat/DatePill.tsx")).toContain('dayLabel(t, i18n.language || "en", day)');
   });
 });
 
-describe("toasts glow in their tone, as the web's", () => {
+describe("toasts carry their tone in the icon", () => {
   test("a failure is danger, a done check success, any other icon neutral; a tone given wins", () => {
     expect(toastToneOf("x")).toBe("danger");
     expect(toastToneOf("alert")).toBe("danger");
@@ -67,28 +79,14 @@ describe("toasts glow in their tone, as the web's", () => {
     expect(src("ui/Toast.tsx")).toContain("item.tone ?? toastToneOf(item.icon)");
   });
 
-  test("the glow is the tone's color from the right, 24% in light and 30% in dark, clear over the left 55%", () => {
-    for (const scheme of ["light", "dark"] as const) {
-      const colors = appColors(scheme);
-      const end = scheme === "dark" ? "4d" : "3d";
-      expect(toastGlow(colors, "success", scheme).colors).toEqual([
-        withAlpha(colors.ok, 0),
-        withAlpha(colors.ok, 0),
-        `${colors.ok.slice(0, 7)}${end}`,
-      ]);
-      expect(toastGlow(colors, "info", scheme).colors[2]).toBe(withAlpha(colors.agent, scheme === "dark" ? 0.3 : 0.24));
-      expect(toastGlow(colors, "warning", scheme).colors[2]).toBe(
-        withAlpha(colors.warn, scheme === "dark" ? 0.3 : 0.24),
-      );
-      expect(toastGlow(colors, "danger", scheme).colors[2]).toBe(
-        withAlpha(colors.danger, scheme === "dark" ? 0.3 : 0.24),
-      );
-      expect(toastGlow(colors, "neutral", scheme).colors[2]).toBe(
-        withAlpha(colors.faint, scheme === "dark" ? 0.3 : 0.24),
-      );
-      expect(toastGlow(colors, "info", scheme).locations).toEqual([0, 0.55, 1]);
-      expect(toneColor(colors, "danger")).toBe(colors.danger);
-    }
+  test("the toast is a calm capsule: the tone is its icon's color alone, no plate and no tint", () => {
+    const toast = src("ui/Toast.tsx");
+    expect(toast).toContain('<Icon name={item.icon ?? "check"} size={18} color={toneColor(colors, tone)} />');
+    expect(toast).not.toContain("LinearGradient");
+    expect(toast).not.toContain("styles.tile");
+    expect(toast).toContain('box: { borderRadius: TOAST_R, maxWidth: "100%" },');
+    for (const scheme of ["light", "dark"] as const)
+      expect(toneColor(appColors(scheme), "danger")).toBe(appColors(scheme).danger);
   });
 });
 
@@ -96,7 +94,7 @@ describe("nobody will answer: the receipt's sheet, never a line", () => {
   test("the sheet says it and offers each agent it reached to call, with its @handle put in the box", () => {
     const receipts = src("features/chat/AgentReceipts.tsx");
     expect(receipts).toContain('t(mentionNeeded ? "receipts.mentionNeeded" : "receipts.nobody")');
-    expect(receipts).toContain('<SectionHeader title={t("channel.callAgent")} />');
+    expect(receipts).toContain('<GroupedHeader>{t("channel.callAgent")}</GroupedHeader>');
     expect(receipts).toMatch(/requestComposerText\(m\.channelId, `@\$\{c\.handle\} `\)/);
     // The marks are the clock, one tick and two.
     expect(receipts).toMatch(/if \(mark === "none"\) return null;\s*return <Icon name=\{mark\}/);
@@ -118,10 +116,16 @@ describe("a reply in a task's conversation", () => {
 
 describe("my message's clock from the moment it is sent", () => {
   test("sent into a channel with agents, it wears the clock before the server says anything, as the web's", () => {
-    const screen = src("features/chat/ChatScreen.tsx");
-    expect(screen).toContain(
-      "if (channel && channelAgents.length > 0 && !isMediaAlone(message)) live.picking(message.id);",
+    const screen = chatScreenSource();
+    // At the optimistic write, as the web's: the clock is on my message's copy from its first frame (a GIF or a
+    // sticker alone routes to nobody), and moves to its server id with it.
+    const optimistic = screen.slice(
+      screen.indexOf("onOptimistic: (local) => {"),
+      screen.indexOf("onSent: (message, local) => {"),
     );
+    expect(optimistic).toContain("if (isMediaAlone(local)) return;");
+    expect(optimistic).toContain("if (channel && channelAgents.length > 0) live.picking(local.id);");
+    expect(screen).toContain("live.retarget(local.id, message.id);");
     expect(src("features/chat/live.ts").replace(/\s+/g, " ")).toContain(
       'dispatch({ type: "event", event: { type: "message.routing", channelId, messageId, step: "plan" }, at: Date.now(), })',
     );
@@ -141,29 +145,29 @@ describe("my message's clock from the moment it is sent", () => {
 
 describe("a conversation with a pinned message", () => {
   test("no header fade over the first messages: the list starts below the pinned bar, whose hairline is the edge", () => {
-    const screen = src("features/chat/ChatScreen.tsx");
+    const screen = chatScreenSource();
     const fade = screen.indexOf("styles.topFade, { height: headerHeight + 28 }");
     expect(fade).toBeGreaterThan(0);
-    expect(screen.lastIndexOf("{!hasPin ? (", fade)).toBeGreaterThan(screen.lastIndexOf("<KeyboardGestureArea", fade));
+    // Inside the keyboard's gesture area (`DockGestureArea`), only without a pinned bar or card.
+    expect(screen.lastIndexOf("<DockGestureArea", fade)).toBeGreaterThan(0);
+    expect(screen.lastIndexOf("{!hasPin ? (", fade)).toBeGreaterThan(screen.lastIndexOf("<DockGestureArea", fade));
     expect(src("features/chat/PinsSheet.tsx")).not.toMatch(/boxShadow|shadowOpacity|elevation/);
   });
 });
 
 describe("going to a message", () => {
-  test("out of pages, it waits for a cached page refreshing before saying the message can't be reached", () => {
-    const screen = src("features/chat/ChatScreen.tsx");
-    const missing = screen.indexOf('toast({ title: t("channel.jumpMissing")');
-    expect(missing).toBeGreaterThan(0);
-    expect(screen.lastIndexOf("if (seekRefreshing) return;", missing)).toBeGreaterThan(
-      screen.lastIndexOf("seekPages.current >= SEEK_MAX_PAGES", missing),
-    );
+  test("not shown after its page was read, it waits for a cached page refreshing before saying it's gone", () => {
+    const screen = chatScreenSource();
+    const refresh = screen.indexOf("if (!seekRefreshing) missing();");
+    expect(refresh).toBeGreaterThan(0);
+    expect(screen.lastIndexOf("if (isThread || (around?.id === seek && around.done)) {", refresh)).toBeGreaterThan(0);
     expect(screen).toContain("const seekRefreshing = isThread ? threadMessages.isFetching : top.isFetching;");
   });
 });
 
 describe("back to the latest messages", () => {
   test("the round button sits at the bottom right, above the composer, riding the keyboard with it", () => {
-    const screen = src("features/chat/ChatScreen.tsx");
+    const screen = chatScreenSource();
     // In the composer's own dock, before the box: one view rides the keyboard and both move in the same frame.
     const dock = screen.indexOf("style={styles.composerDock}");
     expect(dock).toBeGreaterThan(0);
@@ -173,7 +177,7 @@ describe("back to the latest messages", () => {
     const button = screen.indexOf("<ToLatest unseen={unseen} onPress={toEnd} />", dock);
     expect(button).toBeGreaterThan(dock);
     expect(screen.indexOf("ref={composerRef}", dock)).toBeGreaterThan(button);
-    expect(screen).toContain('jumpAt: { alignSelf: "flex-end", marginRight: 14, marginBottom: 10 },');
+    expect(screen).toContain('jumpAt: { alignSelf: "flex-end", marginRight: DOCK_SIDE + 4, marginBottom: 10 },');
     expect(screen).not.toContain("bottom: composerHeight + 10");
   });
 });

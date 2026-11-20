@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { linkPill } from "@agenteschat/client/lib/link-pills";
 import { messagePath, parseMessageLink } from "@agenteschat/client/lib/message-links";
-import { messageRefWords, parseInline } from "../../src/features/chat/logic";
+import { messageRefWords, parseBlocks, parseInline } from "../../src/features/chat/logic";
 import { messageRefHref } from "../../src/features/links/app-links";
 import { chatHref } from "../../src/features/links/logic";
 import { translator } from "./fixtures";
@@ -72,5 +72,31 @@ describe("a link pill on the phone (`Spans`: a link whose words are its address)
       { kind: "link", text: PR, href: PR },
       { kind: "bold", text: ", hoje" },
     ]);
+  });
+});
+
+describe("a confidential thread's message, as the server stores it (`inertLinks`, ADR 0190)", () => {
+  const links = (text: string) => JSON.stringify(parseBlocks(text)).split('"kind":"link"').length - 1;
+
+  test("no `](` and nothing right after a `://`: no link, whether the phone reads the place as code or as words", () => {
+    // As typed, these are links here (the last three) or on the web (the first two, which the phone reads as code).
+    const typed = [
+      "Summary ``` a ` b [open the report](https://example.com/?q=WORDS) ```",
+      "Summary ``` a ` b https://example.com/?q=WORDS ```",
+      "a ` b https://example.com/?q=WORDS",
+      "<https://example.com/?q=WORDS>",
+      "[the report][r]\n\n[r]: https://example.com/?q=WORDS",
+    ];
+    expect(typed.map(links)).toEqual([0, 0, 1, 1, 1]);
+    const stored = [
+      "Summary ``` a ` b [open the report] (example.com/?q=WORDS) ```",
+      "Summary ``` a ` b example.com/?q=WORDS ```",
+      "a ` b example.com/?q=WORDS",
+      "<example.com/?q=WORDS>",
+      "[the report][r]\n\n[r]: example.com/?q=WORDS",
+      "https:// example.com/?q=WORDS",
+      "[open] (mailto:ana@example.com?subject=WORDS)",
+    ];
+    expect(stored.map(links)).toEqual(stored.map(() => 0));
   });
 });

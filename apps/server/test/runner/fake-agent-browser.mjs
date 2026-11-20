@@ -10,8 +10,11 @@
 // `get box <sel>` answers `boxes[sel]`; a script sees `viewport` as `window.innerWidth`/`innerHeight` and
 // `hit` (`{ tag, type, box: [left, top, right, bottom], ref }`) at any `document.elementFromPoint`; a
 // `mouse down` focuses that `ref`; `frames` (`[[width, height]]`) are the page's iframes.
-// `hang`: `{ command, ms }` makes that command take that long.
+// `hang`: `{ command, ms }` makes that command take that long; `orphan`: `{ command, ms }` leaves a process holding
+// the output open that long, and never answers.
 // `typingMs`: a batch that presses keys or moves the pointer takes that long (a person can step in meanwhile).
+// `onScreen`: what an `eval` reading `screenX` answers, `[width, height, cornerX, cornerY]` (a headed window's page on
+// its desktop); without it, the page's size alone.
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -133,6 +136,19 @@ const markedField = (selector) => {
 if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
 // `hang`: `{ command, ms }`: that command takes that long (an element the daemon waits for).
 if (state.hang && rest[0] === state.hang.command) await new Promise((resolve) => setTimeout(resolve, state.hang.ms));
+// `orphan`: `{ command, ms }`: that command starts a process that holds this one's output open that long (its pid in
+// `orphanPid`), then never answers.
+if (state.orphan && rest[0] === state.orphan.command) {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, ["-e", `setTimeout(() => {}, ${state.orphan.ms})`], {
+    stdio: ["ignore", "inherit", "inherit"],
+    detached: true,
+  });
+  state.orphanPid = child.pid;
+  save();
+  setInterval(() => {}, 60_000);
+  await new Promise(() => {});
+}
 
 const [command, ...args] = rest;
 switch (command) {
@@ -256,13 +272,15 @@ switch (command) {
     out({
       success: true,
       data: {
-        result: args.join(" ").includes("innerWidth")
-          ? [1280, 800]
-          : args.at(-1) === "document.visibilityState"
-            ? state.hidden
-              ? "hidden"
-              : "visible"
-            : true,
+        result: args.join(" ").includes("screenX")
+          ? (state.onScreen ?? [1280, 800])
+          : args.join(" ").includes("innerWidth")
+            ? [1280, 800]
+            : args.at(-1) === "document.visibilityState"
+              ? state.hidden
+                ? "hidden"
+                : "visible"
+              : true,
         origin: state.url,
       },
     });

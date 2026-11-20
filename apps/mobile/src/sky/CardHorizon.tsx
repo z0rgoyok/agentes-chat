@@ -1,4 +1,4 @@
-import type { AgentColorName } from "@agenteschat/ui/agent/engine";
+import { type AgentColorName, gradientOf } from "@agenteschat/ui/agent/engine";
 import {
   HORIZON_CELL as CELL,
   horizonCrest,
@@ -43,9 +43,11 @@ export function CardHorizon({
   const dark = scheme === "dark";
   const cols = Math.ceil(Math.max(0, width) / CELL);
   const rows = Math.ceil(horizonHeight(room, minRoom) / CELL);
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const [top, bottom] = gradientOf(color);
   const layers = useMemo(() => {
     if (cols === 0 || rows === 0) return [];
-    const tones = horizonTones(color, surface, dark);
+    const tones = horizonTones([top, bottom], surface, dark);
     const last = tones.length - 1;
     const rects: number[][] = tones.map(() => []);
     for (let cx = 0; cx < cols; cx++) {
@@ -63,7 +65,7 @@ export function CardHorizon({
       const path = r.length > 0 ? Skia.Path.MakeFromSVGString(rectsToSvg(r)) : null;
       return path ? [{ tone, color: tones[tone] ?? surface, path }] : [];
     });
-  }, [cols, rows, x, color, surface, dark]);
+  }, [cols, rows, x, top, bottom, surface, dark]);
   if (layers.length === 0) return null;
   return (
     <View pointerEvents="none" style={[styles.foot, { width: cols * CELL, height: rows * CELL }, style]}>

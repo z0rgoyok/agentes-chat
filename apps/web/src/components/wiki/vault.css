@@ -206,8 +206,12 @@ html:not([data-pointer]) .vault-drop__area:focus-visible {
   color: var(--faint);
   font-size: 12px;
 }
+/* The hint at the footer's start, its buttons at the end; wrapped under it, they start at its edge. */
 .vault-foot-hint {
   margin-right: auto;
+}
+.ac-dialog__foot:has(> .vault-foot-hint) {
+  justify-content: flex-start;
 }
 .vault-done {
   position: relative;

@@ -1,4 +1,11 @@
-import { type BlockChange, useArtifact, useBlockReply, useKeepBlock, useSharedBlock } from "@agenteschat/client";
+import {
+  type BlockChange,
+  newClientId,
+  useArtifact,
+  useBlockReply,
+  useKeepBlock,
+  useSharedBlock,
+} from "@agenteschat/client";
 import {
   type BlockEvent,
   type BlockHost,
@@ -231,7 +238,7 @@ export function LiveBlock({
 
   const say = (text: string, then?: () => void) =>
     reply.mutate(
-      { text, clientId: crypto.randomUUID() },
+      { text, clientId: newClientId() },
       { onSuccess: then, onError: () => toast.show(t("blocks.sendFailed"), "error") },
     );
 

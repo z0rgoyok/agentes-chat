@@ -107,20 +107,21 @@ const isAck = (column: string, need: string) => {
 
 /**
  * SQL: a run step that did something: an approval, a command the computer ran itself, any tool call but those that
- * never are the work (reacting, passing, its own status line, a tool directory's search, loading a skill). A look-up
- * counts: it is often what was promised or asked ("I'll check the logs").
+ * never are the work (reacting, passing, its own status line, the line before slow work, a tool directory's search,
+ * loading a skill). A look-up counts: it is often what was promised or asked ("I'll check the logs").
  */
 const ACTED = sql.raw(`((s.kind = 'tool_call' and coalesce(s.data->>'name', '') not in
-    ('react', 'pass', 'set_status', 'load_skill', 'read_skill_file')
+    ('react', 'pass', 'set_status', 'say_now', 'load_skill', 'read_skill_file')
     and coalesce(s.data->>'name', '') not like '%find_tools')
   or s.kind = 'approval' or (s.kind = 'model_call' and coalesce((s.data->>'executed')::int, 0) > 0))`);
 
 /**
  * SQL: an agent message `a` that is a word from the agent, not a server line (a notice, a no-AI card, a pause card).
- * The talker's quick reply while a task works is a notice too, and an answer.
+ * The talker's quick reply while a task works is a notice too, and an answer. The line before slow work (`say_now`,
+ * ADR 0207) is no answer: the reply it announces is.
  */
 const SPOKE = sql.raw(`(a.author_type = 'agent' and a.deleted_at is null
-  and not ((a.meta ? 'notice' and not a.meta ? 'talker') or a.meta ? 'noAi')
+  and not ((a.meta ? 'notice' and not a.meta ? 'talker') or a.meta ? 'noAi' or a.meta ? 'sayNow')
   and coalesce(a.meta->'actionCard'->>'kind', '') <> 'stretch_paused')`);
 
 /**

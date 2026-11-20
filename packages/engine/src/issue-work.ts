@@ -35,7 +35,7 @@ export function issueWorkOf(
  * The task block of a run in a task's conversation (ADR 0145), or in an older work thread of a DM, read from the
  * issue now (description, criteria and their state, PRs, files), so each turn sees what the team changed since
  * the last one. The conversation itself is the thread the run reads. `asked`: the agent was asked to implement it
- * (the assignee working on it); else it was called into the task's conversation.
+ * (an assignee working on it); else it was called into the task's conversation.
  */
 export async function issueWorkBrief(
   db: Executor,

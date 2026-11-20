@@ -313,6 +313,9 @@ export const SELF_TESTED = [
   "stampout",
   "stampover",
   "msgaside",
+  "tileglyph",
+  "endline",
+  "strayend",
 ];
 
 /** Rules about a desktop layout only (panes floating beside the conversation, a toolbar's one row): a phone has none. */

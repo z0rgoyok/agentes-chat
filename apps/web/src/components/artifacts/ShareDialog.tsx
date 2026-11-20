@@ -1,11 +1,6 @@
 import type { Artifact, ArtifactSharing } from "@agenteschat/client";
 import { keys, useRoles, useSetArtifactSharing } from "@agenteschat/client";
-import {
-  CONVERSATION_ONLY,
-  isPrivateArtifact,
-  onlyItsConversation,
-  toggledSharing,
-} from "@agenteschat/client/lib/drive";
+import { CONVERSATION_ONLY, livesInPrivate, onlyItsConversation, toggledSharing } from "@agenteschat/client/lib/drive";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { rolePicksInSight } from "@agenteschat/client/lib/personal-view";
@@ -74,7 +69,9 @@ export function useFileShare() {
 /**
  * The share dialog, Google Drive style: the file's name, who sees it with who has access, changed in place (with
  * Desfazer), and Copiar link at the bottom, an address of the app. While only a private conversation sees it, the
- * dialog says plainly that people outside won't open the link, with the way to choose them right there.
+ * dialog says plainly that people outside won't open the link, with the way to choose them right there. A file of the
+ * Drive itself lives with its maker (ADR 0157, amendment 2026-11-17): its first choice is "Só você" (to its maker),
+ * and its maker and administrators change it.
  */
 export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   const { t, i18n } = useTranslation();
@@ -91,9 +88,16 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
   // "people" is chosen before anyone is added: it's saved with the first one.
   const [mode, setMode] = useState<Mode>(sharing.mode);
   const add = useRef<HTMLDivElement>(null);
-  const closed = isPrivateArtifact({ audience: file.audience });
+  const closed = livesInPrivate(file.audience);
   const canShare = closed && Boolean(file.canShare);
   const busy = save.isPending;
+  // A file of the Drive itself: where it lives is its maker.
+  const drive = file.audience.kind === "workspace";
+  const maker = file.createdBy;
+  const mine = maker.type === "person" && maker.id === me.user.id;
+  const makerName = authorName(maker);
+  const onlyText = mine ? t("share.onlyYou") : t("share.onlyMaker", { name: makerName });
+  const onlyLink = mine ? t("share.onlyYouLink") : t("share.onlyMakerLink", { name: makerName });
 
   const apply = (next: ArtifactSharing) => {
     const before = sharing;
@@ -105,7 +109,13 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
           setFile(saved);
           setMode(saved.sharing?.mode ?? "conversation");
           const savedMode = saved.sharing?.mode ?? "conversation";
-          toast.show(t(savedMode === "everyone" ? modeKey(org, SAVED.everyone) : SAVED[savedMode]), "success", {
+          const words =
+            drive && savedMode === "conversation"
+              ? mine
+                ? t("share.savedOnlyYou")
+                : t("share.savedOnlyMaker", { name: makerName })
+              : t(savedMode === "everyone" ? modeKey(org, SAVED.everyone) : SAVED[savedMode]);
+          toast.show(words, "success", {
             label: t("share.undo"),
             // Through the API itself: the dialog may be closed by then (and shows it if it's still open).
             run: () =>
@@ -149,13 +159,16 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
       ? everyoneText
       : m === "people"
         ? t(offersRoles ? "share.people" : "share.peoplePersonal")
-        : t("share.conversation");
+        : drive
+          ? onlyText
+          : t("share.conversation");
   const addText = t(offersRoles ? "share.add" : "share.addPersonal");
   const addSearchText = t(offersRoles ? "share.addSearch" : "share.addSearchPersonal");
-  // Who sees it where it lives (I do, to be here) has nothing to gain from the list.
+  // Who sees it where it lives (I do, to be here; a Drive file's maker) has nothing to gain from the list.
+  const seesThere = (userId: string) => userId === me.user.id || (drive && userId === maker.id);
   const addable = [
     ...dir.members
-      .filter((m) => m.userId !== me.user.id && !listed.userIds.includes(m.userId))
+      .filter((m) => !seesThere(m.userId) && !listed.userIds.includes(m.userId))
       .map((m) => ({
         value: `u:${m.userId}`,
         label: m.name,
@@ -183,7 +196,9 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
           : t("share.whereDmGone")
       : aud.kind === "channel"
         ? t("share.whereChannel", { name: aud.name })
-        : everyoneText;
+        : mine
+          ? t("share.you", { name: makerName })
+          : makerName;
 
   return (
     <Dialog
@@ -219,7 +234,9 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
                   </OptionCard>
                 ))}
               </div>
-              {!canShare && <p className="small muted share__note">{t("share.readOnly")}</p>}
+              {!canShare && (
+                <p className="small muted share__note">{t(drive ? "share.readOnlyDrive" : "share.readOnly")}</p>
+              )}
               {canShare && mode === "people" && (
                 <div ref={add}>
                   <SearchSelect
@@ -256,6 +273,8 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
                     lead={
                       aud.kind === "dm" && aud.with ? (
                         <ActorAvatar size="sm" actor={aud.with} name={authorName(aud.with)} />
+                      ) : drive ? (
+                        <ActorAvatar size="sm" actor={maker} name={makerName} />
                       ) : (
                         <Icon name={aud.kind === "dm" ? "message" : "channel"} size={16} />
                       )
@@ -291,7 +310,7 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
                   );
                 })}
               </ul>
-              {sharing.mode === "people" && !solo && (
+              {(sharing.mode === "people" || (drive && sharing.mode === "conversation")) && !solo && (
                 <p className="small muted share__note">{t(modeKey(org, "share.admins"))}</p>
               )}
             </section>
@@ -305,7 +324,7 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
             <span className="share__warn ac-iconline">
               <Icon name="lock" size={16} />
               <span>
-                {t("share.onlyHere")}{" "}
+                {drive ? onlyLink : t("share.onlyHere")}{" "}
                 {canShare && mode !== "people" && (
                   <button type="button" className="ac-link" onClick={() => choose("people")}>
                     {t("share.choosePeople")}

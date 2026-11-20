@@ -15,10 +15,10 @@ import {
 } from "@agenteschat/client/lib/computer";
 import { modeKey, workspaceModeOf } from "@agenteschat/client/lib/workspace-mode";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { ComputerIcon, ComputerPortrait } from "@/computer/ComputerPortrait";
 import { useOrg, useOrgMaybe } from "@/providers/org";
-import { Button, type IconName, InfoHint, LineIcon, SheetScreen, Text } from "@/ui";
+import { Button, type IconName, InfoHint, LineIcon, PressScale, SheetScreen, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useColors, useOrgId } from "../shared/hooks";
 import { useSurface } from "../shared/parts";
@@ -185,11 +185,14 @@ export function SetupNotice() {
   return (
     <View style={styles.list}>
       {/* It opens a screen: the press shows, with no haptic (plain navigation). */}
-      <Pressable
+      <PressScale
+        haptic={false}
+        fill={false}
         onPress={() => router.push("/computer-setup")}
         accessibilityRole="button"
         accessibilityLabel={line ? `${title}. ${line}` : title}
-        style={({ pressed }) => [styles.card, surface, pressed && styles.pressed]}
+        style={[styles.card, surface]}
+        contentStyle={styles.cardIn}
       >
         <LineIcon variant="callout" size={22}>
           <ComputerIcon kind={WORKSPACE_COMPUTER_KIND} size={22} color={c.muted} />
@@ -206,7 +209,7 @@ export function SetupNotice() {
         </View>
         {/* On the title's line, as the icon on the left: in the card's middle it floated between the lines. */}
         <LineIcon variant="callout" name="right" size={16} color={c.faint} />
-      </Pressable>
+      </PressScale>
     </View>
   );
 }
@@ -221,13 +224,6 @@ const styles = StyleSheet.create({
   line: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   grow: { flex: 1, minWidth: 0 },
   list: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
-  card: {
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  pressed: { opacity: 0.85 },
+  card: { borderRadius: 20 },
+  cardIn: { paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "flex-start", gap: 10 },
 });

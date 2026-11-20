@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "wake_wanted_at" timestamp with time zone;

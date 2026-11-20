@@ -52,6 +52,14 @@ describe("outboundUrlProblem", () => {
     );
   });
 
+  test("urlsIn drops an address's trailing punctuation, however long the run, and keeps a run inside it", () => {
+    const run = "!".repeat(200_000);
+    expect(urlsIn(`see https://example.com/a${run}b${run} and https://example.com/c?).`)).toEqual([
+      `https://example.com/a${run}b`,
+      "https://example.com/c",
+    ]);
+  });
+
   test("normalizeUrl: https, lowercase host, no fragment, no trailing slash", () => {
     expect(normalizeUrl("http://Example.COM/a/?b=1#frag")).toBe("https://example.com/a/?b=1");
     expect(normalizeUrl("https://example.com/")).toBe("https://example.com");
