@@ -82,6 +82,7 @@ jobs:
     env:
       APP_VARIANT: production
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'app.tich.rooms' }}
+      EXPO_PUBLIC_API_URL: https://rooms.tich.app
       APP_PLATFORM: ios
     steps:
       # Fails in seconds, before anything is installed, when the key isn't there.
