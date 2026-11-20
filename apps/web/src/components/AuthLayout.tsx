@@ -4,6 +4,7 @@ import { Logo } from "@agenteschat/ui";
 import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthHorizon } from "@/components/Sky";
+import { WEB_PRODUCT_NAME } from "@/lib/product-name";
 import { useWorkspaceAccent } from "@/lib/theme";
 import { LanguageSelect } from "./LanguageSelect";
 import "./auth.css";
@@ -40,7 +41,9 @@ export function AuthFrame({
       {/* Signed out only: a `languages={false}` screen shows inside a workspace, whose shell paints its own accent. */}
       {host && languages && <HostAccent accent={host.accent} />}
       <AuthHorizon clear={() => [col.current]} />
-      <span className="auth__logo">{host ? <HostLockup host={host} /> : <Logo size={24} />}</span>
+      <span className="auth__logo">
+        {host ? <HostLockup host={host} /> : <span className="auth__host-name">{WEB_PRODUCT_NAME}</span>}
+      </span>
       {languages && (
         <span className="auth__lang">
           <LanguageSelect signedIn={false} align="end" />

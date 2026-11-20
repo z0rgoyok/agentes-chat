@@ -39,6 +39,7 @@ import { tolerateForeignDomEdits } from "./lib/dom-guard";
 import { announceConfirmation, emailConfirmedToast } from "./lib/email-confirmation";
 import { catchEarlyErrors, reportError, setErrorScope, startErrorReports } from "./lib/error-reports";
 import { pageScrollReset } from "./lib/page-scroll";
+import { WEB_PRODUCT_NAME } from "./lib/product-name";
 import { showReturnNotices } from "./lib/return-notices";
 import { snapshotStore } from "./lib/snapshot-store";
 import { installSounds } from "./lib/sounds";
@@ -72,6 +73,7 @@ const i18n = await loadI18n(savedLocale()).catch((error: unknown) => {
   throw error;
 });
 document.documentElement.lang = i18n.language;
+if (!document.documentElement.hasAttribute("data-host")) brandTabTitle(WEB_PRODUCT_NAME);
 translateTabTitle(i18n);
 // A registered host (ADR 0194): its name in the tabs' titles and its logo as their icon, on every page of it.
 void authConfig.then(
