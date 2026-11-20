@@ -1,8 +1,8 @@
 import type { CostlyDecision, Message } from "@agenteschat/client";
 import { useApi } from "@agenteschat/client";
 import { type CostlyProposalCard, mayDecideCostly, mayRememberCostly } from "@agenteschat/client/lib/action-cards";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { can } from "@agenteschat/client/lib/permissions";
 import { EventPillAction, Locked } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,7 +14,7 @@ import { useToast } from "@/lib/toast";
 /**
  * An agent asks before costly work nobody asked for directly (ADR 0131 §3), as a waiting pill: its question, what it
  * wants to run under it, and "Go ahead" (primary), "Always", "Not now" or "Never" for this kind, for the person it is
- * for, the agent's owner or who manages agents (anyone else reads who it waits for). Then a decided pill says who
+ * for, the agent's owner or who manages it (anyone else reads who it waits for). Then a decided pill says who
  * decided what, the command behind "See details".
  */
 export function CostlyProposalCardView({ card }: { message: Message; card: CostlyProposalCard }) {
@@ -25,8 +25,10 @@ export function CostlyProposalCardView({ card }: { message: Message; card: Costl
   const toast = useToast();
   const [pending, setPending] = useState<CostlyDecision | null>(null);
   const ownerOf = (id: string) => dir.agentById.get(id)?.ownerUserId;
-  const may = mayDecideCostly(card, me.user.id, ownerOf, can(org, "manage_agents"));
-  const remembers = mayRememberCostly(card, me.user.id, ownerOf, can(org, "manage_agents"));
+  // Who manages this agent (ADR 0085 addendum of 2026-11-17), as its owner does.
+  const manages = managesAgent(dir.agentById.get(card.agentId));
+  const may = mayDecideCostly(card, me.user.id, ownerOf, manages);
+  const remembers = mayRememberCostly(card, me.user.id, ownerOf, manages);
   const decide = async (decision: CostlyDecision) => {
     setPending(decision);
     try {

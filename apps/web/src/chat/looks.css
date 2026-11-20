@@ -66,6 +66,17 @@
 .ac-msg[data-look="bubbles"]:has(.ac-msg__stamp .ac-msg__aside) {
   --stamp-room: 38px;
 }
+/* A source glyph before the time (`.ac-msg__mark`) adds its 14px and the stamp's 4px gap. */
+.ac-msg[data-look="bubbles"]:has(.ac-msg__stamp > .ac-msg__mark) {
+  --stamp-room: 38px;
+}
+.ac-msg--own[data-look="bubbles"]:has(.ac-msg__stamp > .ac-msg__mark),
+.ac-msg[data-look="bubbles"]:has(.ac-msg__stamp > .ac-msg__mark):has(.ac-msg__stamp .ac-msg__aside) {
+  --stamp-room: 56px;
+}
+.ac-msg__stamp > .ac-msg__mark {
+  color: inherit;
+}
 /* The bubble is the plate: it lights on hover, the row doesn't. */
 .ac-msg[data-look="bubbles"]:is(:hover, [data-menu-open="true"]) {
   background: none;
@@ -325,6 +336,25 @@
 .ac-msg[data-look="bubbles"] .ac-msg__body > .ac-msg__text + .ac-eventpill {
   width: auto;
   max-width: var(--bubble-w, 76%);
+}
+/*
+ * The cards under someone else's words are bubbles of the same message (as on the phone): the bubble's fill instead of
+ * the raised face and its hairline or shadow, the bubbles' 18px with the run's joined corner at the top left and the cut
+ * one at the bottom left, 3px under the bubble. A request that stands as a line (`.rq-open`, `.rq-done`) keeps its line,
+ * and the agents' line (`.ag-rc--talk`) its own.
+ */
+.ac-msg[data-look="bubbles"]:not(.ac-msg--own)
+  .ac-msg__body
+  :is(.ag-rc:not(.ag-rc--talk), .ag-rcg, .ac-workline.handed-line, .rq) {
+  background: var(--msg-bubble);
+  box-shadow: none;
+  border-radius: 6px 18px 18px 6px;
+}
+.ac-msg[data-look="bubbles"]:not(.ac-msg--own) .rq > .ac-approval__sky {
+  display: none;
+}
+.ac-msg.ac-msg[data-look="bubbles"]:not(.ac-msg--own) .ac-msg__body > .ac-msg__text ~ :is(.ag-rcs, .handed-line, .rq) {
+  margin-top: 3px;
 }
 /* The body's rule in this look: a tab stands on its bubble, not a part's gap off it. */
 .ac-msg.ac-msg[data-look="bubbles"] .ac-msg__body > .ac-msg__text + .ac-eventpill {

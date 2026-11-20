@@ -17,6 +17,7 @@ import {
   WORK_IN_BACKGROUND_TOOL,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
+import { pairMachine } from "./machine-fixtures";
 
 /**
  * "Continue no canal, fora dessa thread": `post_message` with `move_here` moves the run's replies to a channel's top
@@ -254,15 +255,23 @@ test("a brain that moves inside its turn: its first words after the move don't b
 });
 
 test("in a mission's thread: told once it stays, never sent back and forth between `move_here` and not", async () => {
+  // The mission's main session thinks on its computer: it posts here, then answers once told it stays.
+  const mainSession: Brain = {
+    kind: "claude_code",
+    async *run(_turn, io) {
+      const input = { channel: "general", text: "Oi." };
+      const executed = await io.executeTool({ id: "p1", name: "post_message", input });
+      yield { type: "tool_call", id: "p1", name: "post_message", input, executed };
+      yield { type: "done", text: "Sigo aqui." };
+    },
+  };
   f = await setup({
     chatTools: true,
-    reply: (req) => {
-      if (!asked(req, "fora dessa thread")) return { chunks: ["Conferi."] };
-      if (called(req, "post_message")) return { chunks: ["Sigo aqui."] };
-      return { chunks: [], toolUses: [{ name: "post_message", input: { channel: "general", text: "Oi." } }] };
-    },
+    reply: () => ({ chunks: ["Conferi."] }),
+    brains: { claude_code: () => mainSession },
   });
   const root = await thread();
+  const computer = await pairMachine(deps(), f.owner.id, f.org.id, { name: "MacBook", exec: true });
   await f.db.insert(schema.missions).values({
     orgId: f.org.id,
     agentId: f.agent.id,
@@ -272,6 +281,7 @@ test("in a mission's thread: told once it stays, never sent back and forth betwe
     title: "Lojas",
     goal: "Conferir as lojas",
     mainSessionId: crypto.randomUUID(),
+    machineId: computer.machineId,
   });
   await say("@dev continue fora dessa thread", root.id);
   await drainOutbox(f.db, f.handlers);

@@ -1,5 +1,6 @@
-import { ApiError } from "@agenteschat/client";
+import { ApiError, useUndoSurfaceLink } from "@agenteschat/client";
 import { errorCode, errorText } from "@agenteschat/client/lib/errors";
+import { formatPhone } from "@agenteschat/i18n/format";
 import { Button, Icon, Locked } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -73,6 +74,68 @@ export function EmailUndoPage({ token }: { token?: string }) {
               )}
               <Button type="submit" variant="primary" size="lg" block kbd={["↵"]} loading={undo.isPending}>
                 {t("emailUndo.button")}
+              </Button>
+            </Locked>
+          )}
+        </div>
+      </form>
+    </AuthShell>
+  );
+}
+
+/**
+ * The undo in the email that says a chat app was linked (ADR 0187 §2): only its button unlinks (mail scanners open
+ * every link). It works signed out, so the app's name comes with the answer. A link already ended says so.
+ */
+export function SurfaceUndoPage({ token }: { token?: string }) {
+  const { t } = useTranslation();
+  const undo = useUndoSurfaceLink();
+  const done = undo.data;
+  const gone = !token || errorCode(undo.error) === "surface.undo_gone";
+  const display = done?.display ? formatPhone(done.display) : t("surface.undo.sender");
+  const [title, lead]: [string, string] = done
+    ? done.unlinked
+      ? [t("surface.undo.done", { surface: done.surface }), t("surface.undo.doneLead", { display })]
+      : [t("surface.undo.ended"), t("surface.undo.endedLead", { display, surface: done.surface })]
+    : gone
+      ? [t("surface.undo.gone"), t("errors.surface.undoGone")]
+      : [t("surface.undo.title"), t("surface.undo.lead")];
+  const ended = Boolean(done) || gone;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!ended && !undo.isPending && token) undo.mutate(token);
+  };
+
+  return (
+    <AuthShell>
+      <form className="auth__form" onSubmit={submit} noValidate>
+        <header className="auth__ask">
+          <AgentAvatar
+            name="agentes.chat"
+            size="lg"
+            state={undo.isPending ? "writing" : undefined}
+            expression={done ? "happy" : undefined}
+          />
+          <div className="auth__bubble" key={title} aria-live="polite">
+            <h1 className="auth__title">{title}</h1>
+            <p className="auth__lead">{lead}</p>
+          </div>
+        </header>
+        <div className="auth__step">
+          {ended ? (
+            <Button asChild variant="primary" size="lg" block>
+              <Link to="/login">{t("auth.signIn")}</Link>
+            </Button>
+          ) : (
+            <Locked when={undo.isPending}>
+              {undo.isError && (
+                <p className="auth__error ac-iconline" role="alert">
+                  <Icon name="alert" size={14} />
+                  {errorText(t, undo.error)}
+                </p>
+              )}
+              <Button type="submit" variant="primary" size="lg" block kbd={["↵"]} loading={undo.isPending}>
+                {t("surface.undo.button")}
               </Button>
             </Locked>
           )}

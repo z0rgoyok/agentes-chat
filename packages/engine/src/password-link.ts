@@ -4,6 +4,7 @@ import { recordAudit } from "./audit";
 import { randomToken } from "./crypto";
 import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
 import { getMembership, pinnedOwner, requireActiveMembership } from "./organizations";
+import { withoutTrailingSlashes } from "./url-text";
 
 const { organizationMembers, users, verifications } = schema;
 
@@ -49,7 +50,7 @@ export async function issuePasswordLink(
     value: userId,
     expiresAt,
   });
-  return { url: `${publicUrl.replace(/\/+$/, "")}/reset-password?token=${encodeURIComponent(token)}`, expiresAt };
+  return { url: `${withoutTrailingSlashes(publicUrl)}/reset-password?token=${encodeURIComponent(token)}`, expiresAt };
 }
 
 /**

@@ -3,7 +3,6 @@ import { greetingSuggestions } from "@agenteschat/client/lib/chat";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, {
   Easing,
   type SharedValue,
@@ -17,6 +16,7 @@ import { Button, Text, useReducedMotion } from "@/ui";
 import { AgentFace, Face } from "../shared/Face";
 import { useMeId } from "../shared/hooks";
 import { tapHaptic } from "../shared/parts";
+import { useKeyboardRoom } from "./keyboard-room";
 
 /** The channels whose greeting already played while the app runs: the crew rises once, then just stands there. */
 const GREETED = new Set<string>();
@@ -74,6 +74,7 @@ export function ChannelHello({
   topic,
   agents,
   members,
+  topInset,
   bottomInset,
   keyboardLift,
   onAsk,
@@ -86,6 +87,8 @@ export function ChannelHello({
   agents: Agent[];
   /** Everyone in it (the roster): agents and people. */
   members: RosterMember[];
+  /** Room for the clear bar over the top: a greeting taller than the room above the keys scrolls out from under it. */
+  topInset: number;
   /** Room for the composer floating over the bottom. */
   bottomInset: number;
   /** How much of the composer's bottom padding hides behind the open keyboard. */
@@ -161,17 +164,18 @@ export function ChannelHello({
   const wordsIn = useRise(words, 6, moves);
   const startIn = [useRise(s0, 5, moves), useRise(s1, 4, moves), useRise(s2, 4, moves)];
 
-  // The composer rides the keyboard; the greeting gives way with it instead of staying under the keys.
-  const keyboard = useReanimatedKeyboardAnimation();
-  const above = useAnimatedStyle(() => ({ paddingBottom: Math.max(0, -keyboard.height.get() - keyboardLift) }));
+  // The composer rides the keyboard; the greeting gives way with it instead of staying under the keys
+  // (`useKeyboardRoom`: a translate while it moves, its room once it settles).
+  const above = useKeyboardRoom(keyboardLift);
 
   const line = topic?.trim() ? topic.trim() : t("chat.sayHiText");
 
   return (
-    <Animated.View style={[styles.grow, above]}>
+    <Animated.View style={[styles.grow, ...above]}>
       <ScrollView
         style={styles.grow}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 16 }]}
+        contentContainerStyle={[styles.content, { paddingTop: topInset + 8, paddingBottom: bottomInset + 16 }]}
+        scrollIndicatorInsets={{ top: topInset, bottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
@@ -240,7 +244,7 @@ const styles = StyleSheet.create({
   grow: { flex: 1 },
   fill: { flex: 1 },
   // The greeting sits at the bottom, over the composer, where a conversation's latest message is.
-  content: { flexGrow: 1, justifyContent: "flex-end", paddingTop: 8 },
+  content: { flexGrow: 1, justifyContent: "flex-end" },
   band: { height: BAND, marginBottom: 16, justifyContent: "flex-end" },
   // The crew centered on the horizon, 8 apart, standing 16 above the band's foot.
   crew: { flexDirection: "row", justifyContent: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 16 },

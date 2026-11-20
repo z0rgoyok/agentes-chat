@@ -190,7 +190,7 @@ export const autoWanted = (agent: AutoAgent) =>
   isAutoModel(agent.model) ||
   (brainOf(agent.brain) !== "model" && (isAutoModel(agent.brainModel) || isAutoModel(agent.brainEffort)));
 
-/** This run needs a choice: its API model (also what a fallback to the API uses), its brain's model or effort. */
+/** This run needs a choice: its API model, its brain's model or effort. */
 export const needsAutoChoice = (agent: AutoAgent, plan: Pick<BrainPlan, "kind" | "model">) =>
   isAutoModel(agent.model) || isAutoModel(plan.model) || autoEffortFor(agent, plan.kind);
 
@@ -206,7 +206,7 @@ export function brainModelForTier(kind: BrainKind, tier: ModelTier): string | un
 
 /** What auto sets for a run with this plan. */
 export interface AutoApplied {
-  /** The API model, when the agent's model is `auto` (the model brain, and a fallback to it). */
+  /** The API model, when the agent's model is `auto`. */
   apiModel?: string;
   /** The computer brain's model, when it is `auto` (undefined with `auto` set: the CLI's default). */
   brainModel?: string;
@@ -383,7 +383,11 @@ export async function agentBrainLines(
   const out = await agentBrainSummaries(db, viewerId, orgId, agents);
   for (const a of agents) {
     const line = out.get(a.id);
-    if (line?.kind === "model" && isAutoModel(a.model)) out.set(a.id, { ...line, maker: await autoProvider(db, a) });
+    if (line?.kind !== "model" || !isAutoModel(a.model)) continue;
+    const { provider, endpoint } = await autoLine(db, a);
+    // An endpoint key with no model to call fails every run as no AI (`modelReady`): it names no maker.
+    if (provider === "custom" && !autoModelFor(provider, "medium", undefined, endpoint)) continue;
+    out.set(a.id, { ...line, maker: provider });
   }
   return out;
 }

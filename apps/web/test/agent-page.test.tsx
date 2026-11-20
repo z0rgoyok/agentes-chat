@@ -482,23 +482,29 @@ describe("agent page: who edits what", () => {
     expect(saveBar()).toBeNull();
   });
 
-  test("the owner changes the look, audience and computer, not access; the save sends only what they may", async () => {
+  test("the owner changes the instructions, look, audience and computer, not access; the save sends only what they may", async () => {
     const { state } = await go("?tab=settings", asOwner());
     expect(screen().queryByLabelText("Nome")).toBeNull();
     expect(document.body.textContent).toContain("Você é responsável da Ada");
     // The look is right on the page: colors, then the eyes and what it wears as sliding rows.
     await click(within(screen().getByRole("group", { name: "Cor" })).getByRole("button", { name: "Rosa" }));
     expect(saveBar()?.textContent).toContain("1 alteração");
+    // Its owner edits how it works (ADR 0085 addendum of 2026-11-17): the instructions are theirs to change.
     await openTab(/^Instruções/);
-    expect(screen().queryByRole("textbox", { name: "Instruções" })).toBeNull();
-    expect(document.body.textContent).toContain("Só admins editam as instruções.");
+    await type(screen().getByRole("textbox", { name: "Instruções" }), "Instruções de Ada.\nAbre PRs pequenos.");
+    expect(saveBar()?.textContent).toContain("2 alterações");
     // Access is an admin's call, like the agent's scopes: the owner reads it.
     await openTab(/^Ferramentas/);
     expect(screen().queryByRole("radiogroup", { name: "Nível em GitHub" })).toBeNull();
     expect(document.body.textContent).toContain("Só admins dão ou tiram acessos e repositórios.");
     await click(within(saveBar() as HTMLElement).getByRole("button", { name: /^Salvar/ }));
     await settle(6);
-    expect(updates(state)).toEqual([{ appearance: { color: "rose", eyes: "round", accessory: "none" } }]);
+    expect(updates(state)).toEqual([
+      {
+        instructions: "Instruções de Ada.\nAbre PRs pequenos.",
+        appearance: { color: "rose", eyes: "round", accessory: "none" },
+      },
+    ]);
   });
 
   test("the owner puts it in and takes it out of the channels they're in; the others show as they are", async () => {
@@ -999,6 +1005,7 @@ describe("agent page rules", () => {
     model: "m",
     owner: "u1",
     audience: { mode: "everyone", userIds: [] },
+    editors: { mode: "owner", userIds: [], roleIds: [] },
     levels: { "connector:gh": "none", "area:skills": "read" },
     budget: null,
     channels: ["c1"],
@@ -1011,6 +1018,13 @@ describe("agent page rules", () => {
     expect(changedKeys(saved, edits).map((c) => c.key)).toEqual(["name", "handle", "levels:connector:gh"]);
     expect(changedKeys(saved, revertKey(edits, "levels:connector:gh")).map((c) => c.key)).toEqual(["name", "handle"]);
     expect(changedKeys(saved, { budget: "40" }).map((c) => c.key)).toEqual(["budget"]);
+    // "Who can edit": whom it names counts; the second choice with nobody picked names nobody, as the first.
+    const someone = { editors: { mode: "people" as const, userIds: ["u2"], roleIds: [] } };
+    expect(changedKeys(saved, someone).map((c) => c.key)).toEqual(["editors"]);
+    expect(changedKeys(saved, revertKey(someone, "editors"))).toEqual([]);
+    expect(changedKeys(saved, { editors: { mode: "people", userIds: [], roleIds: [] } })).toEqual([]);
+    // Nothing saved to compare with (the page still loading it): no change.
+    expect(changedKeys({ ...saved, editors: undefined }, someone)).toEqual([]);
     expect(changedKeys(saved, { audience: { mode: "people", userIds: [] } }).map((c) => c.key)).toEqual(["audience"]);
   });
 

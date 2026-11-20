@@ -179,6 +179,17 @@ test("the e-mail's lookup answers with a pass that stands for the check at that 
   expect(await outcome(await signIn("owner@example.com", passing))).toBe(200);
 });
 
+test("a password try the bot check refuses spends none of the account's tries", async () => {
+  await start(turnstile(fakeCloudflare().fetch));
+  const signIn = (headers: Record<string, string>) =>
+    browser(t)("/api/auth/sign-in/email", {
+      json: { email: "owner@example.com", password: "correct horse battery" },
+      headers,
+    });
+  for (let i = 0; i < 12; i++) expect(await codeOf(await signIn({}))).toBe("human_check");
+  expect((await signIn(passing)).status).toBe(200);
+});
+
 test("a pass counts for ten minutes, from the network it was given to", () => {
   let now = 1_000_000;
   const passes = createHumanPasses("a-secret", () => now);

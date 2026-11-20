@@ -8,14 +8,18 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { BUTTON_SIZES, type ButtonSize, primaryLook, slopOf } from "./Button";
 import { haptics } from "./haptics";
+import { PRESS_IN, PRESS_OUT } from "./PressScale";
 import { systemText } from "./Text";
-import { useTheme } from "./theme";
+import { motion, useTheme } from "./theme";
 import { CHROME_MAX_SCALE, weights } from "./type-scale";
+
+/** Let go early, the fill snaps back fast; once confirmed it drains a little slower, the decision made. */
+const LET_GO = { duration: motion.base, easing: motion.easeOut };
+const DRAIN = { duration: motion.panel, easing: motion.easeOut };
 
 export interface HoldButtonProps {
   /** "Segure para aprovar". One label: a shorter one while held would shrink the button under the finger. */
@@ -55,11 +59,11 @@ export function HoldButton({ label, onConfirm, durationMs = 700, disabled = fals
   const start = () => {
     haptics.light();
     fill.value = withTiming(1, { duration: durationMs, easing: Easing.linear });
-    press.value = theme.reducedMotion ? 1 : withSpring(1, theme.motion.press);
+    press.value = theme.reducedMotion ? 1 : withTiming(1, PRESS_IN);
     timer.current = setTimeout(() => {
       timer.current = null;
-      press.value = withTiming(0, { duration: 120 });
-      fill.value = withTiming(0, { duration: 250 });
+      press.value = theme.reducedMotion ? 0 : withTiming(0, PRESS_OUT);
+      fill.value = withTiming(0, DRAIN);
       haptics.success();
       confirmRef.current();
     }, durationMs);
@@ -69,8 +73,8 @@ export function HoldButton({ label, onConfirm, durationMs = 700, disabled = fals
     clearTimeout(timer.current);
     timer.current = null;
     cancelAnimation(fill);
-    fill.value = withTiming(0, { duration: 180, easing: Easing.bezier(0.23, 1, 0.32, 1) });
-    press.value = theme.reducedMotion ? 0 : withSpring(0, theme.motion.press);
+    fill.value = withTiming(0, LET_GO);
+    press.value = theme.reducedMotion ? 0 : withTiming(0, PRESS_OUT);
   };
 
   const fillStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: fill.value }] }));

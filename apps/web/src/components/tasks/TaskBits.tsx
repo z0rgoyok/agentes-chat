@@ -140,7 +140,7 @@ export function SayWhy({
 }
 
 /**
- * A wait: what holds the task and what comes next, in as many lines as they take ("Pausada: plano a 95% da semana",
+ * A wait: what holds the task and what comes next, in as many lines as they take ("Pausada: plano a 99% da semana",
  * "Volta sáb às 18:00"). Amber only for what waits on a person; a computer, a plan or a budget stay grey. `line`: only
  * what holds it, on one line (a table's row, whose tip says what comes next).
  */
@@ -185,7 +185,7 @@ export function TaskStateChip({
 
 /**
  * A task's state and what it uses now, in words and whole: what a table's one-line row leaves to its tip ("Pausada:
- * plano a 95% da semana · Volta sáb às 18:00", "Claude Code · Terminal · bun test").
+ * plano a 99% da semana · Volta sáb às 18:00", "Claude Code · Terminal · bun test").
  */
 export function useTaskStatus() {
   const { t, i18n } = useTranslation();
@@ -429,7 +429,7 @@ export function useOpenTask() {
   const navigate = useNavigate();
   return (
     task: Pick<ManagedTask, "agentId" | "channelId" | "threadId"> & {
-      channelKind: ManagedTask["channelKind"] | "task";
+      channelKind: ManagedTask["channelKind"] | "task" | "file";
       background?: boolean;
       routine?: ManagedTask["routine"];
       delegation?: ManagedTask["delegation"];

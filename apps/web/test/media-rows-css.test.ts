@@ -43,8 +43,11 @@ test("the task list on a phone: stacked as a card, the title, its facts with the
   // The number leaves its column and leads the facts, as on a card.
   expect(last(phone, ".issue-list__num", "display")).toBe("none");
   expect(last(phone, ".issue-list__row>.issue-card__facts>:first-child", "display")).toBe("inline-flex");
-  // The list clips its rows at its rounded corners: the first and last rows take them, so a ring is drawn whole.
+  // There each group's list is a card that clips its rows at its rounded corners: the first and last rows take them,
+  // so a ring is drawn whole. Wider, the list is a flat table: no card at any width outside the phone's block.
+  expect(last(phone, ".issue-list", "border-radius")).toBe("var(--radius-section)");
+  expect(last(phone, ".issue-list>li:first-child>.issue-list__row", "border-top-left-radius")).toBe("inherit");
+  expect(last(phone, ".issue-list>li:last-child>.issue-list__row", "border-bottom-right-radius")).toBe("inherit");
   const top = topLevel(css);
-  expect(last(top, ".issue-list>li:first-child>.issue-list__row", "border-top-left-radius")).toBe("inherit");
-  expect(last(top, ".issue-list>li:last-child>.issue-list__row", "border-bottom-right-radius")).toBe("inherit");
+  for (const p of ["border-radius", "box-shadow", "background"]) expect(last(top, ".issue-list", p)).toBeUndefined();
 });

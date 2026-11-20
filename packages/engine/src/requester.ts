@@ -7,6 +7,7 @@ import {
   type RunAuthority,
   runAuthority,
   runAuthorityById,
+  transcriptKeys,
 } from "./authority";
 import type { Audience } from "./task-access";
 import type { ToolContext } from "./tools/types";
@@ -30,7 +31,7 @@ export async function personBehindCall(
           orgId: agentRuns.orgId,
           triggerMessageId: agentRuns.triggerMessageId,
           background: agentRuns.background,
-          transcript: agentRuns.transcript,
+          transcript: transcriptKeys("steeredBy"),
         })
         .from(agentRuns)
         .where(and(eq(agentRuns.orgId, ctx.orgId), eq(agentRuns.id, ctx.runId)))

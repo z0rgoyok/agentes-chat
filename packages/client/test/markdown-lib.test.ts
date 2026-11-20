@@ -147,6 +147,21 @@ test("a title's `code` and **bold**, the rest as typed: no link or mention, noth
   expect(codeAndBoldParts("")).toEqual([]);
 });
 
+test("a typed name in a line stays as typed: its backticks neither mark it nor pair with the line's own", () => {
+  expect(codeAndBoldParts("a`b is down. Run `doctor`.", ["a`b"])).toEqual([
+    { text: "a`b" },
+    { text: " is down. Run " },
+    { text: "doctor", mark: "code" },
+    { text: "." },
+  ]);
+  expect(codeAndBoldParts("`x` **y** and `x` again", ["`x` **y**", null, ""])).toEqual([
+    { text: "`x` **y**" },
+    { text: " and " },
+    { text: "x", mark: "code" },
+    { text: " again" },
+  ]);
+});
+
 describe("lines that look like a block's start but open none", () => {
   test("are read as prose instead of stopping the parser for good", () => {
     for (const [text, types] of [

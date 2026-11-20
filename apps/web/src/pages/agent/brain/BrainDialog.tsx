@@ -2,7 +2,7 @@ import type { AgentBrain, AgentBrainInput, AgentSetup, BrainKind, MachineAccount
 import { keys, useAgents, useApi, useSetComputerTarget, useUpdateAgent } from "@agenteschat/client";
 import type { BrainScreen } from "@agenteschat/client/lib/agent-edit";
 import { autonomyWords, setupOutcome } from "@agenteschat/client/lib/agent-setup";
-import { signInPlan } from "@agenteschat/client/lib/ai-accounts";
+import { accountInLine, signInPlan } from "@agenteschat/client/lib/ai-accounts";
 import { EVERYONE_AUDIENCE, setupPlanQuestion } from "@agenteschat/client/lib/audience";
 import { thinksWith } from "@agenteschat/client/lib/brain";
 import {
@@ -37,7 +37,6 @@ import {
   planState,
   SettingNote,
 } from "@agenteschat/ui";
-import { extraUsageOn } from "@agenteschat/ui/plan-state";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
@@ -67,9 +66,9 @@ import {
   Fold,
   PickList,
   type PickOption,
+  PinAccount,
   PlanWindows,
   SpeedField,
-  SwitchLine,
   useGlide,
 } from "./pieces";
 import { SetupCopyDialog } from "./SetupCopyDialog";
@@ -111,10 +110,6 @@ interface Switched {
   onlyOwnerAfter: boolean;
 }
 
-interface MoreDraft extends Advanced {
-  extraUsage: boolean;
-}
-
 /**
  * `at`: a screen to open on, past the first one, which "back" leads to (a link's, e.g. the notification "Escolher
  * outro modelo" opens the model). One this person can't change opens the first screen.
@@ -152,7 +147,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   // unless a link asked for a screen of its own.
   const [trail, setTrail] = useState<Screen[]>(() => {
     const asked = at === "model" ? mayModel : at === "switch" ? can("brain") : at === "more";
-    return at && asked ? ["glance", at] : [s.limitedNow ? "limit" : "glance"];
+    return at && asked ? ["glance", at] : [s.waitsAtLimit ? "limit" : "glance"];
   });
   const screen: Screen = trail[trail.length - 1] ?? "glance";
   const [dir, setDir] = useState<"fwd" | "back">("fwd");
@@ -175,7 +170,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   const [adding, setAdding] = useState<{ row: BrainRow; again?: MachineAccount; also?: MachineAccount }>();
   const [arrived, setArrived] = useState<MachineAccount | null>(null);
   const [modelPick, setModelPick] = useState<string>();
-  const [more, setMore] = useState<MoreDraft | null>(null);
+  const [more, setMore] = useState<Advanced | null>(null);
   const [fold, setFold] = useState<"effort" | "speed" | "context" | null>(null);
   const [machinePick, setMachinePick] = useState<string>();
   const [copying, setCopying] = useState(false);
@@ -312,9 +307,11 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           : null;
       const movedTo = row.moves ? s.nameOf(row.moves.name) : null;
       const names = [agent.name, ...others.map((o) => o.name)];
+      // In the sentence an unnamed account goes by its maker ("Claude"), never "Unnamed account".
+      const said = row.account ? accountInLine(t, row.account) : row.title;
       const line =
         names.length > 1
-          ? t("connectAi.doneAll", { names: namesText(t, names, 2), label: row.title })
+          ? t("connectAi.doneAll", { names: namesText(t, names, 2), label: said })
           : t(
               owner
                 ? movedTo
@@ -323,7 +320,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
                 : movedTo
                   ? "agentPage.work.saved.brainMoved"
                   : "agentPage.work.saved.brain",
-              { ...g, brain: row.title, computer: movedTo ?? "", owner: owner ?? "" },
+              { ...g, brain: said, computer: movedTo ?? "", owner: owner ?? "" },
             );
       setSwitched({ row, before, others, line, missed, onlyOwnerAfter: result?.onlyOwner ?? view.onlyOwner });
       setPicked(undefined);
@@ -479,13 +476,14 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   };
 
   // ── how it thinks ──
-  const moreNow: MoreDraft = {
+  // "Só esta conta" where its account could move on, or where it is on: a right hand's own plan never moves.
+  const pinShown = !view.scope && (s.moves || view.accountPinned === true);
+  const moreNow: Advanced = {
     effort: s.effort,
     speed: s.speedOn ? view.speed : "standard",
     contextTokens: s.savedContext,
     onlyOwner: view.onlyOwner,
-    fallback: view.fallback,
-    extraUsage: view.extraUsage,
+    ...(pinShown ? { accountPinned: view.accountPinned === true } : {}),
   };
   const m = more ?? moreNow;
   const openMore = () => {
@@ -501,9 +499,9 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     if ((!isAuto(s.modelNow) || m.effort === null) && m.effort !== was) input.effort = m.effort ?? AUTO;
     if (s.kind !== "model") {
       if (s.speedOn && m.speed !== view.speed) input.speed = m.speed;
-      if (m.fallback !== view.fallback) input.fallback = m.fallback;
       if (m.onlyOwner !== view.onlyOwner) input.onlyOwner = m.onlyOwner;
-      if (m.extraUsage !== view.extraUsage) input.extraUsage = m.extraUsage;
+      if (m.accountPinned !== undefined && m.accountPinned !== (view.accountPinned === true))
+        input.accountPinned = m.accountPinned;
     }
     if (m.contextTokens !== s.savedContext) input.contextTokens = m.contextTokens;
     if (Object.keys(input).length === 0) return home();
@@ -575,7 +573,6 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
             effort: isAuto(view.effectiveModel) ? AUTO : s.effort,
             ...(s.speedOn ? { speed: view.speed } : {}),
             contextTokens: s.shownContext,
-            fallback: view.fallback,
             onlyOwner: view.onlyOwner,
             ...autonomy,
           }
@@ -585,14 +582,12 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     ...advancedParts(t, i18n.language, {
       kind: s.kind,
       autoModel: isAuto(s.modelNow),
-      apiKey: s.apiKey,
       now: {
         // The workspace's setup for a key carries no effort yet (ADR 0041, amended 2026-11-12): its line names none.
         effort: s.kind === "model" ? null : s.effort,
         speed: s.speedOn ? view.speed : "standard",
         contextTokens: s.shownContext,
         onlyOwner: view.onlyOwner,
-        fallback: view.fallback,
       },
     }),
     ...(carried ? [autonomyWords(t, carried)] : []),
@@ -669,8 +664,8 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     (screen === "team" && teamToo) || (screen === "done" && (switched?.others.length ?? 0) > 0)
       ? sceneTeam(team, agent)
       : [agent];
-  // While the account in use is at its limit the agent sleeps under the night; another account brings the day.
-  const asleep = s.limitedNow && screen !== "done";
+  // While it waits on its limit the agent sleeps under the night; another account brings the day.
+  const asleep = s.waitsAtLimit && screen !== "done";
   const day = useDawn(!asleep);
   const markOf: AiChoice | undefined =
     screen === "switch" || screen === "all"
@@ -717,6 +712,12 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           <div className="bd-use">
             <p className="arrival-opts__label">{t("agentPage.work.brain.account")}</p>
             {s.currentRow && <HaveRow item={s.currentRow} checked still />}
+            {s.moves && !s.waitsAtLimit && (
+              <p className="bd-moves ac-iconline">
+                <Icon name="layers" size={16} />
+                <span>{t("agentPage.work.brain.movesOn")}</span>
+              </p>
+            )}
             {s.usage ? (
               <PlanWindows usage={s.usage} provider={s.currentAccount?.provider ?? null} />
             ) : (
@@ -725,7 +726,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           </div>
           {arrived && (
             <SettingNote icon="check" live>
-              {t("agentPage.work.brain.add.done", { account: arrived.label, computer: s.computerName })}
+              {t("agentPage.work.brain.add.done", { account: accountInLine(t, arrived), computer: s.computerName })}
             </SettingNote>
           )}
           {s.kind !== "model" && !view.canUsePlans && ownerFirst && (
@@ -854,7 +855,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     }
     if (screen === "limit") {
       const until = s.usage ? planState(s.usage).until : null;
-      const account = s.currentRow?.title ?? "";
+      const account = s.currentAccount ? accountInLine(t, s.currentAccount) : (s.currentRow?.title ?? "");
       return (
         <>
           <div className="bd-step">
@@ -981,14 +982,6 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
               onChange={(n) => setMore({ ...m, contextTokens: n })}
             />,
           )}
-          {s.kind !== "model" && s.apiKey && (
-            <SwitchLine
-              label={t("agentPage.work.brain.v2.fallback")}
-              hint={t("agentPage.work.brain.fallbackHint", g)}
-              checked={m.fallback}
-              onChange={(on) => setMore({ ...m, fallback: on })}
-            />
-          )}
           {s.kind !== "model" && agent.ownerUserId && (
             <div className="bd-row">
               <PlanReplies
@@ -1002,15 +995,10 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
               />
             </div>
           )}
-          {s.kind !== "model" && s.usage && extraUsageOn(s.usage) && (
-            <SwitchLine
-              label={t("usageCard.extraTitle")}
-              hint={t("usageCard.extraHint")}
-              checked={m.extraUsage}
-              // Paid extra usage bills the plan's owner: someone else's plan given to this agent is theirs to turn on.
-              disabled={!(s.currentAccount ? s.currentAccount.mine : view.canUsePlans)}
-              onChange={(on) => setMore({ ...m, extraUsage: on })}
-            />
+          {m.accountPinned !== undefined && (
+            <div className="bd-row">
+              <PinAccount on={m.accountPinned} onChange={(on) => setMore({ ...m, accountPinned: on })} />
+            </div>
           )}
           {s.runsOn.length > 1 && can("machine") && (
             <BrainLine
@@ -1098,6 +1086,8 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     return null;
   };
 
+  /** A row in a button or a sentence: an unnamed account by its maker ("Trocar para Claude"), else its title. */
+  const rowSaid = (r: BrainRow) => (r.account ? accountInLine(t, r.account) : r.title);
   /** The footer, always the same: a quiet note at its start, the second action, the main one at its end. */
   const footer = (o: { note?: ReactNode; second?: ReactNode; main?: ReactNode }) => (
     <DialogFooter
@@ -1178,7 +1168,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
                 ? t(isPlanId(row.choice) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")
                 : row.act === "also"
                   ? t("connectAi.signInFor", g)
-                  : t("agentPage.work.brain.v2.switchTo", { label: row.title })}
+                  : t("agentPage.work.brain.v2.switchTo", { label: rowSaid(row) })}
           </Button>
         ),
       });
@@ -1196,7 +1186,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           >
             {teamToo
               ? t("agentPage.work.brain.v2.switchMany", { count: team.length })
-              : t("agentPage.work.brain.v2.switchTo", { label: aim?.title ?? "" })}
+              : t("agentPage.work.brain.v2.switchTo", { label: aim ? rowSaid(aim) : "" })}
           </Button>
         ),
       });
@@ -1206,7 +1196,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
         second: <Button onClick={onClose}>{t("agentPage.work.brain.v2.wait")}</Button>,
         main: limitSel && can("brain") && (
           <Button variant="primary" disabled={busy} loading={busy} onClick={() => confirm(limitSel)}>
-            {t("connectAi.use", { label: limitSel.title })}
+            {t("connectAi.use", { label: rowSaid(limitSel) })}
           </Button>
         ),
       });
@@ -1230,7 +1220,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
         speed: m.speed,
         contextTokens: m.contextTokens,
         onlyOwner: m.onlyOwner,
-        fallback: m.fallback,
+        ...(m.accountPinned !== undefined ? { accountPinned: m.accountPinned } : {}),
       };
       return footer({
         second: (

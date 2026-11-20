@@ -1,4 +1,13 @@
-import type { Actor, Issue, IssueColumn, IssuePriority, IssueStatus, IssuesView } from "@agenteschat/client";
+import type {
+  Actor,
+  Issue,
+  IssueCardField,
+  IssueColumn,
+  IssueListColumn,
+  IssuePriority,
+  IssueStatus,
+  IssuesView,
+} from "@agenteschat/client";
 import {
   keys,
   useIssue,
@@ -10,15 +19,19 @@ import {
   useSetIssuesView,
   useTaskUnread,
 } from "@agenteschat/client";
-import { dueLabel, dueTone, namesText, stoppedLine } from "@agenteschat/client/lib/format";
+import { dueLabel, dueTone, joinNames, namesText, stoppedLine } from "@agenteschat/client/lib/format";
 import { githubLinkLabel } from "@agenteschat/client/lib/github-link";
 import { NO_PROJECT, projectOfFilter } from "@agenteschat/client/lib/issue-projects";
 import {
+  clampColumnWidth,
+  ISSUE_COLUMN_WIDTHS,
   ISSUES_VIEW_DEFAULT,
   type IssuesViewChange,
+  issueAssigneeKeys,
   issueInView,
   PRIORITY_ORDER,
   sortIssues,
+  withColumnWidth,
 } from "@agenteschat/client/lib/issues-view";
 import { can } from "@agenteschat/client/lib/permissions";
 import { shownSteps } from "@agenteschat/client/lib/work";
@@ -27,6 +40,7 @@ import {
   Button,
   Chip,
   ColorDot,
+  codeAndBold,
   cx,
   Dialog,
   DialogFooter,
@@ -47,8 +61,19 @@ import {
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useDeferredValue, useEffect, useId, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { ActorAvatar, ActorWho, AgentAvatar } from "@/components/AgentAvatar";
 import { AskAgentButton } from "@/components/AskAgentButton";
@@ -69,22 +94,24 @@ import {
   cardStateText,
   cardWaits,
   groupByColumn,
+  isAssignee,
   isCustomBoard,
   isOpen,
   isStalled,
   rankAt,
   STATUS_ICON,
   type CardState as TaskState,
+  taskAgentId,
   useAssigneeColor,
   useColumnTitle,
   useStageName,
   useStepText,
 } from "@/lib/issues";
 import { lookOf } from "@/lib/look";
-import { codeAndBold } from "@/lib/markdown";
 import { inPlaceClick } from "@/lib/navigate";
 import { useOpenParam } from "@/lib/open-param";
 import { type ToastText, useToast } from "@/lib/toast";
+import { AssigneeFaces } from "./IssueAssignees";
 import { AddColumnDialog, Board, type CardState, type IssueGroup, useMoveIssue, usePatchIssue } from "./IssueBoard";
 import { IssueDeleteProvider, useIssueDeleting } from "./IssueDelete";
 import { IssueDialog } from "./IssuePage";
@@ -163,7 +190,7 @@ export function IssuesPage() {
   const columnsQuery = useIssueColumns(org.id);
   const columns = columnsQuery.data;
   const all = issues.data ?? [];
-  const filtered = all.filter((i) => issueInView(i, actorKey(i.assignee), view));
+  const filtered = all.filter((i) => issueInView(i, issueAssigneeKeys(i), view));
   const noIssues = issues.isSuccess && all.length === 0 && !search && !projectParam;
   const emptyProject = issues.isSuccess && all.length === 0 && !search && Boolean(projectParam);
   // A new task on a project's board starts in it. An archived project takes none, so its board offers none.
@@ -222,11 +249,14 @@ export function IssuesPage() {
                 <span>
                   {t("issues.summary", {
                     open: open.length,
-                    agents: open.filter((i) => i.assignee?.type === "agent").length,
+                    agents: open.filter((i) => i.assignees.some((a) => a.type === "agent")).length,
                   })}
                 </span>
-                {open.some((i) => !i.assignee) && (
-                  <span> · {t("issues.unassigned", { count: open.filter((i) => !i.assignee).length })}</span>
+                {open.some((i) => i.assignees.length === 0) && (
+                  <span>
+                    {" "}
+                    · {t("issues.unassigned", { count: open.filter((i) => i.assignees.length === 0).length })}
+                  </span>
                 )}
                 {project?.archived && <span> · {t("issues.projects.archivedMark")}</span>}
               </>
@@ -432,6 +462,8 @@ export function IssuesPage() {
  * The tasks in the view's groups, as a board or a list, and what a drop means in each grouping: by stage the card
  * goes to that column at that place (`useMoveIssue`); by assignee it changes hands, through the same update the
  * task's own assignee field makes; by priority it takes that priority. Each says what happened, with Desfazer.
+ * By assignee a task shows under each of who has it, so a card dragged from one of them to another swaps that one for
+ * the other and keeps the rest; to "No assignee" it takes the one it came from off, from there it adds.
  */
 function IssuesBody({
   view,
@@ -447,7 +479,7 @@ function IssuesBody({
   columns: IssueColumn[];
   /** The tasks on screen: filtered, canceled and finished ones as the view asks. */
   issues: Issue[];
-  /** Folding a group, and the order a column's head asks for. */
+  /** Folding a group, the order a column's head asks for, and a column's new width. */
   onChange: (change: IssuesViewChange) => void;
   /** Every task loaded: who has one gets a column when grouped by assignee. */
   all: Issue[];
@@ -489,7 +521,7 @@ function IssuesBody({
   } else if (view.group === "assignee") {
     // Everyone with a task here (and anyone the filter names), by name; "Sem responsável" last.
     const keys = new Set([
-      ...all.filter((i) => view.showCanceled || i.status !== "canceled").map((i) => actorKey(i.assignee)),
+      ...all.filter((i) => view.showCanceled || i.status !== "canceled").flatMap(issueAssigneeKeys),
       ...view.assignees,
     ]);
     keys.delete(NO_ACTOR);
@@ -502,7 +534,7 @@ function IssuesBody({
       groups.push({
         id: actorKey(actor),
         name,
-        items: inOrder(issues.filter((i) => actorKey(i.assignee) === actorKey(actor))),
+        items: inOrder(issues.filter((i) => isAssignee(i, actor.type, actor.id))),
         lead: <ActorAvatar actor={actor} name={name} size="xs" />,
         dropText: t("issues.drop.assignee", { name }),
       });
@@ -510,7 +542,7 @@ function IssuesBody({
     groups.push({
       id: NO_ACTOR,
       name: t("issues.noAssignee"),
-      items: inOrder(issues.filter((i) => !i.assignee)),
+      items: inOrder(issues.filter((i) => i.assignees.length === 0)),
       lead: <Icon name="person" size={16} />,
       dropText: t("issues.drop.unassign"),
     });
@@ -528,16 +560,30 @@ function IssuesBody({
 
   const undo = (run: () => void) => ({ label: t("issues.undo"), run });
   // An agent named in the toast shows its face before its name.
-  const assignedText = (issue: Issue, to: Actor | null): ToastText => {
-    if (!to) return t("issues.drag.unassigned", { number: issue.number });
+  const assignedText = (issue: Issue, from: Actor | null, to: Actor | null, left: number): ToastText => {
+    if (!to) {
+      // Others still have it: it only left the one it was dragged from.
+      if (left > 0 && from) return t("issues.drag.removed", { number: issue.number, name: actors.name(from) });
+      return t("issues.drag.unassigned", { number: issue.number });
+    }
     const name = actors.name(to);
     const text = t("issues.drag.assigned", { number: issue.number, name });
     return to.type === "agent" ? { text, who: { name, appearance: lookOf(actors.dir.agentById.get(to.id)) } } : text;
   };
-  const reassign = (issue: Issue, to: Actor | null) => {
-    const was = issue.assignee;
-    const back = () => patch({ ...issue, assignee: to }, { assignee: was }, { assignee: was });
-    patch(issue, { assignee: to }, { assignee: to }, () => toast.show(assignedText(issue, to), "info", undo(back)));
+  const reassign = (issue: Issue, from: Actor | null, to: Actor | null) => {
+    const was = issue.assignees;
+    // The one it came from gives its place to the one it went to; who already had it is named once.
+    const others = was.filter((a) => actorKey(a) !== actorKey(to));
+    const at = from ? others.findIndex((a) => actorKey(a) === actorKey(from)) : -1;
+    const assignees = !to
+      ? others.filter((_, k) => k !== at)
+      : at < 0
+        ? [...others, to]
+        : others.map((a, k) => (k === at ? to : a));
+    const back = () => patch({ ...issue, assignees }, { assignees: was }, { assignees: was });
+    patch(issue, { assignees }, { assignees }, () =>
+      toast.show(assignedText(issue, from, to, assignees.length), "info", undo(back)),
+    );
   };
   const prioritize = (issue: Issue, priority: IssuePriority) => {
     const was = issue.priority;
@@ -561,7 +607,7 @@ function IssuesBody({
       return done ? { changed: true, burst: color(issue) } : { changed: true };
     }
     if (from === to) return { changed: false };
-    if (view.group === "assignee") reassign(issue, actorFromKey(to));
+    if (view.group === "assignee") reassign(issue, actorFromKey(from), actorFromKey(to));
     else prioritize(issue, to as IssuePriority);
     return { changed: true };
   };
@@ -570,6 +616,7 @@ function IssuesBody({
     groups,
     layout: view.layout,
     onDrop,
+    repeats: view.group === "assignee",
     words: {
       picked: (i) => t("issues.drag.picked", { number: i.number }),
       moved: (i, group, position, total) =>
@@ -622,6 +669,8 @@ function IssuesBody({
           helpId={helpId}
           sort={view.sort}
           onSort={(sort) => onChange({ sort })}
+          widths={view.widths}
+          onWidths={(widths) => onChange({ widths })}
           collapsed={view.collapsed}
           onFold={onFold}
         />
@@ -636,7 +685,7 @@ function IssuesBody({
  */
 function StalledNow({ issues, onOpen }: { issues: Issue[]; onOpen: (n: number) => void }) {
   const { t } = useTranslation();
-  const stalled = issues.filter((i) => isOpen(i) && isStalled(i) && i.work && i.assignee?.type === "agent");
+  const stalled = issues.filter((i) => isOpen(i) && isStalled(i) && i.work);
   if (stalled.length === 0) return null;
   return (
     <section className="issues-now" aria-label={t("issues.now.stalledTitle")}>
@@ -662,10 +711,12 @@ function useTaskStep() {
 function stalledByAgent(issues: Issue[], name: (a: Actor) => string) {
   const groups = new Map<string, { agent: Actor; name: string; issues: Issue[] }>();
   for (const i of issues) {
-    if (!i.assignee) continue;
-    const g = groups.get(i.assignee.id);
+    // Under the agent whose run stopped, whoever else has the task.
+    if (!i.work) continue;
+    const agent: Actor = { type: "agent", id: i.work.agentId };
+    const g = groups.get(agent.id);
     if (g) g.issues.push(i);
-    else groups.set(i.assignee.id, { agent: i.assignee, name: name(i.assignee), issues: [i] });
+    else groups.set(agent.id, { agent, name: name(agent), issues: [i] });
   }
   return [...groups.values()].sort((a, b) => b.issues.length - a.issues.length || a.name.localeCompare(b.name));
 }
@@ -695,7 +746,7 @@ function useResumeStalled() {
       const ids = list.map((i) => i.id);
       mark(ids, true);
       const results = await Promise.allSettled(
-        list.map((i) => api.issues.askAgent(org.id, i.id, i.assignee?.id ?? "")),
+        list.map((i) => api.issues.askAgent(org.id, i.id, i.work?.agentId ?? "")),
       );
       mark(ids, false);
       setAsked((prev) => {
@@ -907,17 +958,32 @@ function StateWords({ state }: { state: TaskState }) {
 
 /**
  * Who has it and the one thing it needs or does now, as one block of words: the face (moving while its agent works),
- * the name, the state. A long name wraps under the face at the card's full width. Nobody and nothing going on: none.
- * With Responsável off in Exibição, the state still shows: it is what the card asks of the person.
+ * the name, the state. A long name wraps under the face at the card's full width. Several have it: their faces alone,
+ * overlapping (`AssigneeFaces`), the working agent's one moving. Nobody and nothing going on: none.
+ * With "Assignee" off in the view's options, the state still shows: it is what the card asks of the person.
  */
 function CardWho({ issue: i, state, assignee }: { issue: Issue; state: TaskState | null; assignee: boolean }) {
   const actors = useActors();
-  const who = assignee ? i.assignee : null;
+  const all = assignee ? i.assignees : [];
+  const [who] = all;
   if (!who && !state) return null;
   const work = state?.kind === "running" ? "running" : state?.kind === "stalled" ? "stalled" : undefined;
+  // The agent whose run it is: the only one whose face moves.
+  const agentId = work ? taskAgentId(i) : null;
   return (
     <span className="issue-card__who">
-      {who && <ActorWho actor={who} name={actors.name(who)} size="sm" work={work} />}
+      {all.length > 1 ? (
+        <AssigneeFaces all={all} working={work && agentId ? { agentId, work } : undefined} />
+      ) : (
+        who && (
+          <ActorWho
+            actor={who}
+            name={actors.name(who)}
+            size="sm"
+            work={who.type === "agent" && who.id === agentId ? work : undefined}
+          />
+        )
+      )}
       {state && (
         <>
           {who && " "}
@@ -934,11 +1000,21 @@ function CardWho({ issue: i, state, assignee }: { issue: Issue; state: TaskState
  * the priority, the due date (in the attention tone today, tomorrow and once late), the criteria, GitHub, and the
  * conversation's count (bold while unread, with the red count of mentions of me).
  */
-function CardFacts({ issue: i, fields }: { issue: Issue; fields: IssuesView["fields"] }) {
+function CardFacts({
+  issue: i,
+  fields,
+  handed = true,
+}: {
+  issue: Issue;
+  fields: IssuesView["fields"];
+  /** "handed by Lodi" among the facts (the list says it after the title instead). */
+  handed?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const { unread, mentions } = useTaskUnread(org.id, i.id);
   const facts: LineFact[] = [{ key: "number", text: `#${i.number}` }];
+  const handedBy = handed ? i.backgroundWork?.handedBy : null;
   if (fields.project && i.project)
     facts.push({
       key: "project",
@@ -951,6 +1027,7 @@ function CardFacts({ issue: i, fields }: { issue: Issue; fields: IssuesView["fie
     facts.push({ key: "label", text: label, tone: "label" });
     if (labels.length > 0) facts.push({ key: "labels", text: `+${labels.length}`, title: labels.join(", ") });
   }
+  if (handedBy) facts.push({ key: "handed", text: <HandedBy agentId={handedBy.agentId} /> });
   if (fields.priority && i.priority !== "normal")
     facts.push({
       key: "priority",
@@ -1000,53 +1077,223 @@ function CardFacts({ issue: i, fields }: { issue: Issue; fields: IssuesView["fie
   return <FactLine className="issue-card__facts" facts={facts} />;
 }
 
+/** "handed by [face] Lodi": the agent that handed a task's work over. */
+function HandedBy({ agentId }: { agentId: string }) {
+  const actors = useActors();
+  const name = actors.name({ type: "agent", id: agentId });
+  return (
+    <Trans
+      i18nKey="issues.handedBy"
+      values={{ name }}
+      components={[<AgentAvatar key="face" agentId={agentId} name={name} state="idle" size="xs" />]}
+    />
+  );
+}
+
+/** What came of a finished handed task: its report's first line. */
+function CardResult({ issue: i }: { issue: Issue }) {
+  const result = i.status === "done" ? i.backgroundWork?.result : null;
+  if (!result) return null;
+  return (
+    <span className="issue-card__result">
+      <Icon name="check" size={14} inline />
+      <span>{result.text}</span>
+    </span>
+  );
+}
+
 /** The list's columns after the number and the title, in the row's order (issues.css names a grid line for each). */
-type ListColumn = "project" | "label" | "priority" | "due" | "criteria" | "github" | "who";
+const LIST_COLUMNS: readonly IssueCardField[] = [
+  "project",
+  "label",
+  "priority",
+  "due",
+  "criteria",
+  "pullRequest",
+  "assignee",
+];
 
 /**
- * The columns the list stands as a table: one for each thing some task shown has (and its view toggle allows), so no
- * column is a blank strip under its name. Labels are one column (the first label and "+2"), GitHub another (the pull
- * request and the link).
+ * The columns the list stands as a table: every one turned on in "Display", whether or not a task shown has it, so
+ * the table keeps its shape while tasks come and go.
  */
-function listColumns(issues: Issue[], fields: IssuesView["fields"]): ListColumn[] {
-  const any = (has: (i: Issue) => unknown) => issues.some((i) => Boolean(has(i)));
-  return (
-    [
-      ["project", fields.project && any((i) => i.project)],
-      ["label", fields.label && any((i) => i.labels.length > 0)],
-      ["priority", fields.priority && any((i) => i.priority !== "normal")],
-      ["due", fields.due && any((i) => i.dueDate && isOpen(i))],
-      ["criteria", fields.criteria && any((i) => i.criteria.length > 0)],
-      ["github", fields.pullRequest && any((i) => i.pullRequests.length > 0 || i.githubUrl)],
-      ["who", fields.assignee && any((i) => i.assignee)],
-    ] as const
-  )
-    .filter(([, shown]) => shown)
-    .map(([name]) => name);
+const listColumns = (fields: IssuesView["fields"]) => LIST_COLUMNS.filter((c) => fields[c]);
+
+/** The grid line a column ends at: the next column's, shown or not (one turned off is 0 wide), or the room left over. */
+const columnEnd = (column: IssueListColumn) =>
+  column === "title" ? LIST_COLUMNS[0] : (LIST_COLUMNS[LIST_COLUMNS.indexOf(column) + 1] ?? "fill");
+
+/**
+ * The table's columns as issues.css reads them (`--col-<name>`): a column at the width the person gave it, or at its
+ * own; one turned off takes no room. The title takes the room left over until it is given a width; from then on that
+ * room stays empty after the last column.
+ */
+function columnTracks(shown: readonly IssueCardField[], widths: IssuesView["widths"]): Record<string, string> {
+  const tracks: Record<string, string> = {
+    "--col-title": widths.title ? `${widths.title}px` : `minmax(${ISSUE_COLUMN_WIDTHS.title.base}px, 1fr)`,
+    "--col-fill": widths.title ? "minmax(0, 1fr)" : "0px",
+  };
+  for (const c of LIST_COLUMNS)
+    tracks[`--col-${c}`] = shown.includes(c) ? `${widths[c] ?? ISSUE_COLUMN_WIDTHS[c].base}px` : "0px";
+  return tracks;
 }
 
 /** The columns a click on their name orders the list by, and that order. */
-const COLUMN_SORT: Partial<Record<ListColumn, IssuesView["sort"]>> = { priority: "priority", due: "due" };
+const COLUMN_SORT: Partial<Record<IssueCardField, IssuesView["sort"]>> = { priority: "priority", due: "due" };
+
+/** How far an arrow key moves a column's edge. */
+const WIDTH_STEP = 16;
 
 /**
- * The table's line of column names, over every group. "Priority" and "Due date" order the list: a click takes that
- * order, another gives the board's own back (the same choice as "Sort by" in "Display").
+ * A column's width while its edge moves: `show` draws it on the table without saving (`null` puts the saved one back),
+ * `save` keeps it in the view (`null`: the column's own width again).
+ */
+interface ColumnSizing {
+  show: (column: IssueListColumn, width: number | null) => void;
+  save: (column: IssueListColumn, width: number | null) => void;
+}
+
+/**
+ * The handle at the end of a column's name: dragged (mouse, pen or finger), it changes that column's width, the table
+ * following as it moves and the view keeping the width once it is let go; a double click gives the column its own
+ * width back. With the keyboard: the arrows move it a step, Home and End take it to its least and most, Enter gives
+ * the column its own width back.
+ */
+function ColumnGrip({
+  column,
+  name,
+  width,
+  measure,
+  sizing,
+}: {
+  column: IssueListColumn;
+  name: string;
+  /** The column's width now. */
+  width: number;
+  /** Its width read off the screen, where the window decides it (the title, while it takes the room left over). */
+  measure?: () => number;
+  sizing: ColumnSizing;
+}) {
+  const { t } = useTranslation();
+  const { min, max } = ISSUE_COLUMN_WIDTHS[column];
+  const drag = useRef<{ pointer: number; x: number; from: number; to: number; rtl: boolean } | null>(null);
+  const now = () => clampColumnWidth(column, measure?.() ?? width);
+  const rtl = (el: Element) => getComputedStyle(el).direction === "rtl";
+  const onPointerDown = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // The press is the handle's alone: it selects no text and starts nothing under it.
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const from = now();
+    drag.current = { pointer: e.pointerId, x: e.clientX, from, to: from, rtl: rtl(e.currentTarget) };
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    const d = drag.current;
+    if (!d || d.pointer !== e.pointerId) return;
+    const to = clampColumnWidth(column, d.from + (e.clientX - d.x) * (d.rtl ? -1 : 1));
+    if (to === d.to) return;
+    d.to = to;
+    e.currentTarget.setAttribute("aria-valuenow", String(to));
+    sizing.show(column, to);
+  };
+  const end = (e: ReactPointerEvent<HTMLSpanElement>, keep: boolean) => {
+    const d = drag.current;
+    if (!d || d.pointer !== e.pointerId) return;
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    sizing.show(column, null);
+    if (keep && d.to !== d.from) sizing.save(column, d.to);
+    else e.currentTarget.setAttribute("aria-valuenow", String(d.from));
+  };
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLSpanElement>) => {
+    const grow = rtl(e.currentTarget) ? "ArrowLeft" : "ArrowRight";
+    const next =
+      e.key === "ArrowLeft" || e.key === "ArrowRight"
+        ? now() + (e.key === grow ? WIDTH_STEP : -WIDTH_STEP)
+        : e.key === "Home"
+          ? min
+          : e.key === "End"
+            ? max
+            : e.key === "Enter"
+              ? null
+              : undefined;
+    if (next === undefined) return;
+    e.preventDefault();
+    sizing.save(column, next);
+  };
+  const label = t("issues.table.resize", { column: name });
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a separator that moves is a control with a value, which `hr` is not.
+    <span
+      className="issue-table__grip"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={clampColumnWidth(column, width)}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      title={label}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={(e) => end(e, true)}
+      onPointerCancel={(e) => end(e, false)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={() => sizing.save(column, null)}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
+/**
+ * The table's line of column names, over every group, each with the handle that sizes its column. "Priority" and
+ * "Due date" order the list: a click takes that order, another gives the board's own back (the same choice as
+ * "Sort by" in "Display").
  */
 function ListHead({
   columns,
   sort,
   onSort,
+  widths,
+  sizing,
 }: {
-  columns: ListColumn[];
+  columns: readonly IssueCardField[];
   sort: IssuesView["sort"];
   onSort: (sort: IssuesView["sort"]) => void;
+  widths: IssuesView["widths"];
+  sizing: ColumnSizing;
 }) {
   const { t } = useTranslation();
-  const name = (c: ListColumn) =>
-    c === "github" ? t("issues.table.github") : t(`issues.display.field.${c === "who" ? "assignee" : c}`);
+  const titleCell = useRef<HTMLSpanElement>(null);
+  // The title's width while it takes the room left over is whatever the window gives it: measured, for the handle's
+  // value and for where a drag starts.
+  const [titleNow, setTitleNow] = useState<number>(ISSUE_COLUMN_WIDTHS.title.base);
+  const measureTitle = () =>
+    Math.round(titleCell.current?.getBoundingClientRect().width ?? 0) || ISSUE_COLUMN_WIDTHS.title.base;
+  useLayoutEffect(() => {
+    const cell = titleCell.current;
+    if (!cell || widths.title) return;
+    const read = () => setTitleNow(Math.round(cell.getBoundingClientRect().width) || ISSUE_COLUMN_WIDTHS.title.base);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(read);
+    watch.observe(cell);
+    return () => watch.disconnect();
+  }, [widths.title]);
+  const name = (c: IssueCardField) => (c === "pullRequest" ? t("issues.table.github") : t(`issues.display.field.${c}`));
   return (
     <div className="issue-table__head">
-      <span data-column="title">{t("issues.table.task")}</span>
+      <span ref={titleCell} data-column="title">
+        <span className="issue-table__name">{t("issues.table.task")}</span>
+        <ColumnGrip
+          column="title"
+          name={t("issues.table.task")}
+          width={widths.title ?? titleNow}
+          measure={widths.title ? undefined : measureTitle}
+          sizing={sizing}
+        />
+      </span>
       {columns.map((c) => {
         const by = COLUMN_SORT[c];
         return (
@@ -1059,12 +1306,13 @@ function ListHead({
                 title={t("issues.table.sortBy", { column: name(c) })}
                 onClick={() => onSort(sort === by ? "manual" : by)}
               >
-                {name(c)}
+                <span className="issue-table__name">{name(c)}</span>
                 <Icon name="arrowDown" size={14} />
               </button>
             ) : (
-              name(c)
+              <span className="issue-table__name">{name(c)}</span>
             )}
+            <ColumnGrip column={c} name={name(c)} width={widths[c] ?? ISSUE_COLUMN_WIDTHS[c].base} sizing={sizing} />
           </span>
         );
       })}
@@ -1082,9 +1330,9 @@ function useTaskCard(i: Issue) {
   const whoId = useId();
   const state = cardState(i, useTaskLive(i));
   const name = t("issues.open", { number: i.number, title: i.title });
-  const who = i.assignee && (
+  const who = i.assignees.length > 0 && (
     <span id={whoId} hidden>
-      {`${t("issues.form.assignee")}: ${actors.name(i.assignee)}`}
+      {`${t("issues.form.assignee")}: ${joinNames(i.assignees.map(actors.name), t)}`}
     </span>
   );
   return {
@@ -1197,6 +1445,7 @@ function IssueCard({
       {cardWaits(state) && <CardSky color={color(i) ?? "sky"} />}
       <span className="issue-card__title">{codeAndBold(i.title)}</span>
       <CardFacts issue={i} fields={fields} />
+      <CardResult issue={i} />
       <CardWho issue={i} state={state} assignee={fields.assignee} />
       {state?.kind === "running" && <WorkSweep color={color(i) ?? "sky"} />}
       {who}
@@ -1205,10 +1454,10 @@ function IssueCard({
 }
 
 /**
- * The list, a table: one line of column names, then the groups, every row's facts in the same columns. Grouped by
- * stage: each stage, then its columns when the board is customized. Otherwise one group per assignee or priority. A
- * group with nothing in it shows only while a card moves, so there is somewhere to drop it; a folded one shows its
- * name and count.
+ * The list, a table: one line of column names, then the groups as bands across it, every row's facts in the same
+ * columns, whose widths the person sets by dragging a column name's end. Grouped by stage: each stage, then its
+ * columns when the board is customized. Otherwise one group per assignee or priority. A group with nothing in it
+ * shows only while a card moves, so there is somewhere to drop it; a folded one shows its name and count.
  */
 function IssueList({
   groups,
@@ -1221,6 +1470,8 @@ function IssueList({
   helpId,
   sort,
   onSort,
+  widths,
+  onWidths,
   collapsed,
   onFold,
 }: {
@@ -1234,6 +1485,9 @@ function IssueList({
   helpId: string;
   sort: IssuesView["sort"];
   onSort: (sort: IssuesView["sort"]) => void;
+  /** The widths the person gave the columns, and a change to them. */
+  widths: IssuesView["widths"];
+  onWidths: (widths: IssuesView["widths"]) => void;
   collapsed: string[];
   onFold: (group: string, folded: boolean) => void;
 }) {
@@ -1242,15 +1496,43 @@ function IssueList({
   const title = useColumnTitle();
   const custom = isCustomBoard(columns);
   const byId = new Map(groups.map((g) => [g.id, g]));
-  const head = (
-    <ListHead
-      columns={listColumns(
-        groups.flatMap((g) => g.items),
-        fields,
-      )}
-      sort={sort}
-      onSort={onSort}
-    />
+  const shown = listColumns(fields);
+  const table = useRef<HTMLDivElement>(null);
+  const guide = useRef<HTMLSpanElement>(null);
+  const tracks = columnTracks(shown, widths);
+  const sizing: ColumnSizing = {
+    // Straight on the table, so a drag redraws no row; the saved widths go back before a change is saved, so what
+    // the table shows is always what was last rendered.
+    show: (column, width) => {
+      const next = width === null ? tracks : columnTracks(shown, { ...widths, [column]: width });
+      for (const [track, value] of Object.entries(next)) table.current?.style.setProperty(track, value);
+      if (!guide.current) return;
+      guide.current.hidden = width === null;
+      guide.current.style.gridColumn = `${column} / ${columnEnd(column)}`;
+    },
+    save: (column, width) => {
+      const next = withColumnWidth(widths, column, width);
+      const same = Object.keys(next).length === Object.keys(widths).length && widths[column] === next[column];
+      if (!same) onWidths(next);
+    },
+  };
+  /** The table: its column names, the hairline between two columns down its whole height, then the groups. */
+  const frame = (body: ReactNode) => (
+    <div className="issue-tableframe page-split">
+      <div className="issue-tablewrap" data-scroll-restoration-id="issues-list">
+        <div ref={table} className="ac-groups issue-table" style={tracks as CSSProperties}>
+          <ListHead columns={shown} sort={sort} onSort={onSort} widths={widths} sizing={sizing} />
+          {shown.map((c) => (
+            <span key={c} className="issue-table__rule" data-column={c} style={{ gridColumn: c }} aria-hidden="true" />
+          ))}
+          {widths.title !== undefined && (
+            <span className="issue-table__rule" data-column="fill" style={{ gridColumn: "fill" }} aria-hidden="true" />
+          )}
+          <span ref={guide} className="issue-table__guide" aria-hidden="true" hidden />
+          {body}
+        </div>
+      </div>
+    </div>
   );
   /** A group's name as the button that folds and opens it. */
   const fold = (id: string, name: string, lead: ReactNode) => {
@@ -1285,77 +1567,71 @@ function IssueList({
     </div>
   );
   if (stages)
-    return (
-      <div className="ac-groups issue-table">
-        {head}
-        {stages.map(({ stage, columns: cols }) => {
-          const count = cols.reduce((n, c) => n + dnd.count(c.id), 0);
-          if (count === 0 && !dnd.active) return null;
-          const only = custom ? undefined : cols[0];
-          const lead = <Icon name={STATUS_ICON[stage]} size={16} />;
-          return (
-            <section key={stage} className="issues-group" aria-label={stageName(stage)}>
-              <GroupHeading
-                title={
-                  only ? (
-                    fold(only.id, stageName(stage), lead)
-                  ) : (
-                    <>
-                      {lead}
-                      {stageName(stage)}
-                    </>
-                  )
-                }
-                count={
-                  <span className="tabular" data-count={only?.id}>
-                    {count}
-                  </span>
-                }
-              />
-              {cols.map((c) => {
-                const g = byId.get(c.id);
-                if (!g || (dnd.count(c.id) === 0 && !dnd.active)) return null;
-                return zone(
-                  g,
-                  custom && stage !== "canceled" && (
-                    <GroupHeading
-                      level={3}
-                      title={fold(c.id, title(c), null)}
-                      count={
-                        <span className="tabular" data-count={c.id}>
-                          {dnd.count(c.id)}
-                        </span>
-                      }
-                    />
-                  ),
-                );
-              })}
-            </section>
-          );
-        })}
-      </div>
-    );
-  return (
-    <div className="ac-groups issue-table">
-      {head}
-      {groups.map((g) => {
-        const count = dnd.count(g.id);
+    return frame(
+      stages.map(({ stage, columns: cols }) => {
+        const count = cols.reduce((n, c) => n + dnd.count(c.id), 0);
         if (count === 0 && !dnd.active) return null;
+        const only = custom ? undefined : cols[0];
+        const lead = <Icon name={STATUS_ICON[stage]} size={16} />;
         return (
-          <section key={g.id} className="issues-group" aria-label={g.name}>
+          <section key={stage} className="issues-group" aria-label={stageName(stage)}>
             <GroupHeading
-              title={fold(g.id, g.name, g.lead)}
+              title={
+                only ? (
+                  fold(only.id, stageName(stage), lead)
+                ) : (
+                  <>
+                    {lead}
+                    {stageName(stage)}
+                  </>
+                )
+              }
               count={
-                <span className="tabular" data-count={g.id}>
+                <span className="tabular" data-count={only?.id}>
                   {count}
                 </span>
               }
             />
-            {zone(g)}
+            {cols.map((c) => {
+              const g = byId.get(c.id);
+              if (!g || (dnd.count(c.id) === 0 && !dnd.active)) return null;
+              return zone(
+                g,
+                custom && stage !== "canceled" && (
+                  <GroupHeading
+                    level={3}
+                    title={fold(c.id, title(c), null)}
+                    count={
+                      <span className="tabular" data-count={c.id}>
+                        {dnd.count(c.id)}
+                      </span>
+                    }
+                  />
+                ),
+              );
+            })}
           </section>
         );
-      })}
-    </div>
+      }),
+    );
+  return frame(
+    groups.map((g) => {
+      const count = dnd.count(g.id);
+      if (count === 0 && !dnd.active) return null;
+      return (
+        <section key={g.id} className="issues-group" aria-label={g.name}>
+          <GroupHeading
+            title={fold(g.id, g.name, g.lead)}
+            count={
+              <span className="tabular" data-count={g.id}>
+                {count}
+              </span>
+            }
+          />
+          {zone(g)}
+        </section>
+      );
+    }),
   );
 }
 
@@ -1390,7 +1666,7 @@ function IssueRows({
         return (
           <li
             key={i.id}
-            data-slot={i.id}
+            data-slot={dnd.slot(i, g.id)}
             hidden={e.state === "hidden" || undefined}
             data-landing={e.state === "landing" || undefined}
           >
@@ -1416,8 +1692,8 @@ function IssueRows({
 }
 
 /**
- * A task in the list, from the card's parts: wide, a table's row (its number, its title on two lines at most, each
- * fact in its column, who has it); narrow, stacked as a card, the number among the facts.
+ * A task in the list, from the card's parts: wide, a table's row (its number, its title on one line, each fact in its
+ * column, who has it); narrow, stacked as a card, the number among the facts.
  */
 function IssueRow({
   issue: i,
@@ -1461,8 +1737,13 @@ function IssueRow({
       </span>
       <span className="issue-list__title" title={i.title}>
         {codeAndBold(i.title)}
+        {i.backgroundWork?.handedBy && (
+          <span className="issue-list__from">
+            <HandedBy agentId={i.backgroundWork.handedBy.agentId} />
+          </span>
+        )}
       </span>
-      <CardFacts issue={i} fields={fields} />
+      <CardFacts issue={i} fields={fields} handed={false} />
       <CardWho issue={i} state={state} assignee={fields.assignee} />
       <span className="issue-sr">{t(`issues.status.${i.status}`)}</span>
       {state?.kind === "running" && <WorkSweep color={color(i) ?? "sky"} />}

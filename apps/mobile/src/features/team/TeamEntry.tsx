@@ -7,15 +7,17 @@ import { Tile } from "../shared/parts";
 
 /**
  * Agentes' way into Equipe (ADR 0148): a row of the list itself (its 52 pt face column, its name and line, a chevron
- * since it opens a screen), saying how many setores the team has, never a row of its own insets and sizes.
+ * since it opens a screen), saying how many setores the team has, never a row of its own insets and sizes. `divider`:
+ * the hairline above it, under the task manager's row.
  */
-export function TeamEntry() {
+export function TeamEntry({ divider = false }: { divider?: boolean }) {
   const { t } = useTranslation();
   const groups = useAgentGroups(useOrgId()).data ?? [];
   const line = groups.length > 0 ? t("team.sectorsCount", { count: groups.length }) : t("mobile.team.entry");
   return (
     <ListRow
       onPress={() => router.push("/team")}
+      divider={divider}
       accessibilityRole="button"
       accessibilityLabel={[t("team.title"), line].join(", ")}
       leading={<Tile icon="members" size={52} />}

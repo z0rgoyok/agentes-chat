@@ -10,6 +10,7 @@
     "./catalog": "./src/catalog.ts",
     "./plans": "./src/plans.ts",
     "./context-limits": "./src/context-limits.ts",
+    "./images": "./src/images.ts",
     "./testing": "./src/fake.ts"
   },
   "scripts": {

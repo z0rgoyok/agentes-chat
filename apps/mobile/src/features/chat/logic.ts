@@ -54,15 +54,29 @@ export const MSG_AVATAR = 34;
 export const MSG_GAP = 12;
 /** Where a message's words start: event lines, receipts and what hangs under a message line up there. */
 export const MSG_TEXT = MSG_INSET + MSG_AVATAR + MSG_GAP;
-/** A `bubbles` row's own padding at its start (`lookRows.bubblesRow`). */
+/** A `bubbles` row's own padding at its start (`lookRows.bubblesRow`), where its face stands. */
 export const BUBBLES_INSET = 10;
+/**
+ * A bubble with no face beside it (a DM) stands as far from the screen's edge as mine do on the other side
+ * (`lookRows.bubblesBare`, MessageRow's `styles.me`).
+ */
+export const BUBBLES_EDGE = 16;
+/** Where someone else's bubbles stop at the right: air beside them, and room for the times a pull shows. */
+export const BUBBLES_END = 60;
+
+/**
+ * A `compact` row's face, at the rows' edge (`MSG_INSET`) beside the name on its first line, and the gap to the
+ * words. No column of times: a pull to the left shows them, as in bubbles (`timesOnPull`).
+ */
+export const COMPACT_FACE = 18;
+export const COMPACT_GAP = 6;
 
 /** How far a row's body stands in from the conversation's edges, at each end. */
 export const ROW_BODY_INSET: Record<ChatStyle, { left: number; right: number }> = {
   left: { left: MSG_TEXT, right: 16 },
   comfortable: { left: MSG_TEXT, right: 16 },
-  bubbles: { left: 48, right: 44 },
-  compact: { left: 74, right: 12 },
+  bubbles: { left: 48, right: BUBBLES_END },
+  compact: { left: MSG_INSET + COMPACT_FACE + COMPACT_GAP, right: 12 },
 };
 
 interface InsetLook {
@@ -74,7 +88,7 @@ interface InsetLook {
 /** `ROW_BODY_INSET` in a look: a row with no face starts its body at its own padding. */
 export function rowBodyInset({ style, faces }: InsetLook) {
   const inset = ROW_BODY_INSET[style];
-  return faces ? inset : { ...inset, left: style === "bubbles" ? BUBBLES_INSET : MSG_INSET };
+  return faces ? inset : { ...inset, left: style === "bubbles" ? BUBBLES_EDGE : MSG_INSET };
 }
 
 /**
@@ -145,6 +159,23 @@ const byTime = (a: Pick<Message, "createdAt" | "id">, b: Pick<Message, "createdA
   a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt < b.createdAt ? -1 : 1;
 
 /** Top-level messages plus loaded thread replies (agents answer inside the thread of the message that called them). */
+/**
+ * The messages of older pages with their pin as the pins list says (`pins`, once loaded). Those pages live in the
+ * screen's own state, which no cache update reaches: pinned from its menu, an older message kept "Fixar" there and no
+ * mark. Rows whose pin is right stay the same objects, and so does the list when none changes.
+ */
+export function pinnedAsListed(older: Message[], pins: readonly { messageId: string }[] | undefined): Message[] {
+  if (!pins) return older;
+  const ids = new Set(pins.map((p) => p.messageId));
+  let changed = false;
+  const next = older.map((m) => {
+    if (ids.has(m.id) === Boolean(m.pinned)) return m;
+    changed = true;
+    return { ...m, pinned: ids.has(m.id) };
+  });
+  return changed ? next : older;
+}
+
 export function mergeTimeline(topLevel: Message[], threads: (Message[] | undefined)[]): Message[] {
   const seen = new Map<string, Message>();
   for (const m of topLevel) seen.set(m.id, m);
@@ -166,8 +197,16 @@ const dayKey = (iso: string) => {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
 
+/**
+ * In a conversation of bubbles (no time on the messages, a pull shows them), how long a pause is before the next
+ * message gets a line saying when ("Today 15:35"): long enough that an agent's usual task doesn't split a question
+ * from its answer.
+ */
+export const PAUSE_MS = 15 * 60_000;
+
 export type ChatRow =
-  | { kind: "day"; key: string; iso: string }
+  /** A day's line; `at`: with the time too (each day's first message and each after a pause, in bubbles). */
+  | { kind: "day"; key: string; iso: string; at?: true }
   | {
       kind: "message";
       key: string;
@@ -209,10 +248,17 @@ export function standsAlone(m: Message) {
  * found, told by its agent, stands alone with its own header; the report it answers folds into it, and a
  * routine's call written as its creator is left out, like the web's `buildTimeline`. The sticker or GIF an agent
  * adds right after its own reply (ADR 0091) always groups under that reply, whatever the reply carries.
+ * `times` (bubbles, whose messages show no time): each day's line says the time too, and a message after a pause
+ * (`PAUSE_MS`) gets a line of its own ("Today 15:35").
  */
-export function buildRows(messages: Message[], hidden: (m: Message) => boolean = () => false): ChatRow[] {
+export function buildRows(
+  messages: Message[],
+  hidden: (m: Message) => boolean = () => false,
+  times = false,
+): ChatRow[] {
   const rows: ChatRow[] = [];
   let lastDay = "";
+  let lastAt = 0;
   let prev: Message | null = null;
   const answered = answeredNotices(messages);
   // A return's line (the dock holds it), a mention its message's own line explains.
@@ -227,11 +273,16 @@ export function buildRows(messages: Message[], hidden: (m: Message) => boolean =
     )
       continue;
     const day = dayKey(m.createdAt);
+    const at = new Date(m.createdAt).getTime();
     if (day !== lastDay) {
-      rows.push({ kind: "day", key: `day-${day}`, iso: m.createdAt });
+      rows.push({ kind: "day", key: `day-${day}`, iso: m.createdAt, ...(times && { at: true as const }) });
       lastDay = day;
       prev = null;
+    } else if (times && at - lastAt >= PAUSE_MS) {
+      rows.push({ kind: "day", key: `at-${messageKey(m)}`, iso: m.createdAt, at: true });
+      prev = null;
     }
+    lastAt = at;
     // A fast reply while its task works keeps its header ("enquanto trabalha"), and a reply to a message starts its
     // own block under its quote, as on the web.
     const grouped =
@@ -245,6 +296,36 @@ export function buildRows(messages: Message[], hidden: (m: Message) => boolean =
     prev = m;
   }
   return rows;
+}
+
+/** The same fields holding the same values (each by reference). */
+function shallowSame(a: object, b: object): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k]);
+}
+
+/**
+ * `next` with each row that holds the same as the row under its key in `prev` swapped for that very row, and `prev`
+ * itself when every row is: a list that compares its items by reference (Legend List) redraws only the rows that
+ * changed, not every row each time the conversation's rows are rebuilt (a message arriving, an agent's run event).
+ */
+export function keepSameRows<T extends { key: string }>(prev: readonly T[], next: readonly T[]): readonly T[] {
+  if (prev.length === 0) return next;
+  const byKey = new Map(prev.map((r) => [r.key, r]));
+  let changed = prev.length !== next.length;
+  const out = next.map((r, i) => {
+    const was = byKey.get(r.key);
+    const kept = was !== undefined && shallowSame(was, r) ? was : r;
+    if (kept !== prev[i]) changed = true;
+    return kept;
+  });
+  return changed ? out : prev;
+}
+
+/** `prev` when `next` holds the same items in the same order (each by reference), else `next`: memos over it keep. */
+export function sameItems<T>(prev: readonly T[], next: readonly T[]): readonly T[] {
+  return prev.length === next.length && next.every((x, i) => x === prev[i]) ? prev : next;
 }
 
 // ── Automatic lines ──────────────────────────────────────────────────────────
@@ -393,7 +474,8 @@ export const hidesBody = (m: Message) =>
       m.meta?.issueWork ||
       m.meta?.browserHandoff ||
       m.meta?.missionSetup ||
-      voiceOf(m.meta) ||
+      // A voice message shows only what was typed beside it as text; its words are the player's.
+      (voiceOf(m.meta) && !voiceOf(m.meta)?.text) ||
       questionOf(m.meta)?.text.trim() === m.body.trim(),
   );
 
@@ -728,6 +810,55 @@ export function tableColumnWidths(
   });
 }
 
+/**
+ * A table's key for its measured columns (`kept-sizes.ts`): what its cells say and how (FNV-1a over each span's kind
+ * and words, a mark between cells), so the same table finds its columns again when its row comes back.
+ */
+export function tableKey(header: Inline[][], rows: Inline[][][]): string {
+  let hash = 0x811c9dc5;
+  const mix = (code: number) => {
+    hash = Math.imul(hash ^ code, 0x01000193);
+  };
+  const cell = (spans: Inline[]) => {
+    for (const span of spans) {
+      for (const ch of `${span.kind}:${span.text}`) mix(ch.codePointAt(0) ?? 0);
+      mix(0x1e);
+    }
+    mix(0x1f);
+  };
+  for (const h of header) cell(h);
+  for (const r of rows) for (const c of r) cell(c);
+  return `${header.length}x${rows.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * Whether a table's cells hold spans drawn wider once something loads after they mount: a file, message or id pill (an
+ * icon until its query answers, then its title), a channel's name, a mention. Measured once at the icon, their column
+ * stayed narrow and the title wrapped in it for the rest of the session; such a table keeps measuring.
+ */
+export function tableResolvesLate(header: Inline[][], rows: Inline[][][]): boolean {
+  return [header, ...rows].some((r) =>
+    r.some((cell) =>
+      cell.some((s) => s.kind === "link" || s.kind === "id" || s.kind === "channel" || s.kind === "mention"),
+    ),
+  );
+}
+
+/**
+ * Whether a run is in the conversation a message is sent to (`threadId`: the thread, null for the timeline), as the
+ * server steers a message into a run under way: a thread's reply into that thread's runs (or the one answering its root
+ * in the timeline, whose own thread is its root), a message in the timeline into the timeline's. A run in another
+ * thread of the same DM (a mission's) never takes it, so it doesn't stand for the reply that will come.
+ */
+export function runInConversation(
+  run: Pick<LiveRun, "threadId" | "triggerMessageId">,
+  threadId: string | null,
+): boolean {
+  // Typed as always a thread, but null for a run in the timeline.
+  const own = (run.threadId as string | null) ?? null;
+  return threadId ? own === threadId || (own === null && run.triggerMessageId === threadId) : own === null;
+}
+
 /** Which sides of a table scrolled sideways hide columns (`x`: the scroll, `frame`: the box, `total`: the table). */
 export function tableHidden(x: number, frame: number, total: number): { left: boolean; right: boolean } {
   return { left: x > 1, right: frame > 0 && x + frame < total - 1 };
@@ -852,6 +983,33 @@ export function parseBlocks(body: string): Block[] {
   if (from === 0) return plainBlocks(body);
   out.push(...plainBlocks(lines.slice(from).join("\n")));
   return out;
+}
+
+/** Texts whose blocks are kept, and the longest one kept (a longer one is parsed each time, never held). */
+export const BLOCKS_KEPT = 400;
+const BLOCKS_KEPT_CHARS = 20_000;
+const blocksKept = new Map<string, Block[]>();
+
+/**
+ * `parseBlocks`, kept for the texts read lately (read only: nothing changes them). The conversation's list mounts a row
+ * again each time it comes back into view, and each mount parsed its text again. Bounded: past `BLOCKS_KEPT` the text
+ * read longest ago goes first.
+ */
+export function blocksOf(body: string): Block[] {
+  const hit = blocksKept.get(body);
+  if (hit) {
+    blocksKept.delete(body);
+    blocksKept.set(body, hit);
+    return hit;
+  }
+  const blocks = parseBlocks(body);
+  if (body.length > BLOCKS_KEPT_CHARS) return blocks;
+  blocksKept.set(body, blocks);
+  if (blocksKept.size > BLOCKS_KEPT) {
+    const oldest = blocksKept.keys().next();
+    if (!oldest.done) blocksKept.delete(oldest.value);
+  }
+  return blocks;
 }
 
 function plainBlocks(body: string): Block[] {

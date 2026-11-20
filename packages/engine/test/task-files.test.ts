@@ -201,7 +201,7 @@ describe("a task an agent makes or changes takes the files it's about", () => {
     const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
     const print = await upload(dm.id);
     const ctx = await askWith(dm.id, "cria uma tarefa só para mim com esse print, para a Bia fazer", [print.id]);
-    const out = await call(ctx, "create_issue", { title: "Para a Bia", visible_to: "requester", assignee: "Bia" });
+    const out = await call(ctx, "create_issue", { title: "Para a Bia", visible_to: "requester", assignees: ["Bia"] });
     expect(out.isError).toBeFalsy();
     expect(out.content).toContain("Not attached");
     const made = await task(1);
@@ -270,9 +270,10 @@ describe("a task an agent makes or changes takes the files it's about", () => {
       f.org.id,
       { title: "relatorio.pdf", name: "relatorio.pdf", bytes: PNG, contentType: "application/pdf" },
     );
+    // Moved to the shared Drive: a file of the Drive itself is the whole workspace's when shared with everyone (ADR 0157).
     await f.db
       .update(schema.artifacts)
-      .set({ channelId: null, threadId: null })
+      .set({ channelId: null, threadId: null, share: "everyone", shareUserIds: [], shareRoleIds: [] })
       .where(eq(schema.artifacts.id, report.id));
     const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
     const ctx = await askWith(dm.id, "cria uma tarefa só para mim com o relatório", []);

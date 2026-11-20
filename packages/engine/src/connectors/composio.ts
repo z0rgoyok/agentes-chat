@@ -13,7 +13,7 @@ import { and, type Database, eq, isNotNull, isNull, schema, sql } from "@agentes
 import { caches } from "../cache";
 import { randomToken, sha256 } from "../crypto";
 import { ConflictError, ValidationError } from "../errors";
-import { composioUserId } from "../mail/accounts";
+import { composioUserId, orgOfComposioUser } from "../mail/accounts";
 import { notifyComposioLimit } from "../notification-producers";
 import { requirePermission } from "../organizations";
 import { actionLevel, POSTING_ACTIONS } from "./classify";
@@ -145,23 +145,24 @@ export function withComposio(connect: McpConnect, composio: ComposioConnectors |
       throw new ComposioOffError("Not connected through Composio");
     return composioSession(composio.client, service, {
       connectedAccountId: connection.composioAccountId,
-      userId: composioUserId(connection.orgId),
+      userId: composioUserId(connection.orgId, connection.ownerUserId),
       toolkit: service.way.toolkit,
     });
   };
 }
 
 /**
- * Starts connecting a service through Composio (ADR 0107 §4): a Connect Link for the workspace's Composio user, back
- * to our OAuth callback with our state, and the state kept with the link's account, the only one its return may
- * complete. Admins only (the caller checked).
+ * Starts connecting a service through Composio (ADR 0107 §4): a Connect Link for the workspace's Composio user (a
+ * personal connection: the person's own Composio user), back to our OAuth callback with our state, and the state kept
+ * with the link's account, the only one its return may complete. The caller checked who may connect.
  */
 export async function beginComposioConnect(
   deps: ConnectorDeps,
   actorId: string,
   orgId: string,
-  input: { serverUrl: string; label?: string; returnTo?: string; connectionId?: string },
+  input: { serverUrl: string; label?: string; returnTo?: string; connectionId?: string; personal?: boolean },
 ): Promise<{ status: "oauth"; authorizeUrl: string }> {
+  const owner = input.personal ? actorId : null;
   const service = composioServiceOf(input.serverUrl);
   const composio = deps.composio;
   if (!service || !composio) {
@@ -171,11 +172,11 @@ export async function beginComposioConnect(
     );
   }
   const serverUrl = composioToolkitUrl(service.way.toolkit);
-  if (input.connectionId) await reconnectTarget(deps.db, orgId, input.connectionId, serverUrl);
+  if (input.connectionId) await reconnectTarget(deps.db, orgId, input.connectionId, serverUrl, owner);
   const state = randomToken(32);
   const link = await composio.client.createConnectLink({
     toolkit: service.way.toolkit,
-    userId: composioUserId(orgId),
+    userId: composioUserId(orgId, owner),
     callbackUrl: `${oauthRedirectUri(deps.publicUrl)}?state=${state}`,
   });
   await deps.db.insert(oauthStates).values({
@@ -188,6 +189,7 @@ export async function beginComposioConnect(
     label: input.label?.trim() || service.preset.label,
     connectionId: input.connectionId ?? null,
     composioAccountId: link.connectedAccountId,
+    personal: owner !== null,
     expiresAt: new Date((deps.now?.() ?? new Date()).getTime() + OAUTH_STATE_TTL_MS),
   });
   // The phone app recognizes its return by the state on the link it opened.
@@ -215,7 +217,8 @@ export async function completeComposioOAuth(
   if (!row.composioAccountId || code !== row.composioAccountId) {
     throw new ConflictError("This authorization link is invalid or expired");
   }
-  const userId = composioUserId(row.orgId);
+  const owner = row.personal ? user.id : null;
+  const userId = composioUserId(row.orgId, owner);
   let remote: Awaited<ReturnType<ComposioClient["getConnectedAccount"]>> = { status: "pending", address: null };
   for (let read = 1; read <= RETURN_READS; read++) {
     remote = await composio.client.getConnectedAccount(code, userId, { readAddress: false }).catch((error: unknown) => {
@@ -243,6 +246,7 @@ export async function completeComposioOAuth(
       secret: null,
       connectionId: row.connectionId,
       composio: { accountId: code, name: remote.displayName ?? null },
+      owner,
     });
     return { ...stored, returnTo: row.returnTo };
   } catch (error) {
@@ -302,9 +306,13 @@ export async function reconcileComposioConnectors(db: Database, client: Composio
   let healed = 0;
   for (const row of rows) {
     try {
-      const remote = await client.getConnectedAccount(row.composioAccountId ?? "", composioUserId(row.orgId), {
-        readAddress: false,
-      });
+      const remote = await client.getConnectedAccount(
+        row.composioAccountId ?? "",
+        composioUserId(row.orgId, row.ownerUserId),
+        {
+          readAddress: false,
+        },
+      );
       if (remote.status !== "active") continue;
       await db
         .update(connectorConnections)
@@ -379,8 +387,9 @@ export function meterComposio(deps: {
   now?: () => Date;
 }): (call: { slug: string; userId: string }) => Promise<void> {
   return async ({ userId }) => {
-    if (!userId.startsWith("org_")) return;
-    const orgId = userId.slice("org_".length);
+    // A person's own account counts for their workspace too (`composioUserId` with a person).
+    const orgId = orgOfComposioUser(userId);
+    if (!orgId) return;
     const now = deps.now?.() ?? new Date();
     const month = monthOf(now);
     const [counted] = await deps.db

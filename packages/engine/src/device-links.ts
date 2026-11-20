@@ -21,6 +21,7 @@ import {
 import { sha256Hex } from "./machines";
 import { notifyDeviceJoinRequest, resolveDeviceJoinRequest } from "./notification-producers";
 import { can, requireActiveMembership } from "./organizations";
+import { withoutTrailingSlashes } from "./url-text";
 
 const { machineConnectLinks, machineDeviceCodes, organizations, users } = schema;
 
@@ -63,7 +64,7 @@ function generateConnectCode() {
 
 /** The install lines for a code. */
 export function connectCommands(publicUrl: string, code: string) {
-  const base = publicUrl.replace(/\/+$/, "");
+  const base = withoutTrailingSlashes(publicUrl);
   return { unix: `curl -fsSL ${base}/i/${code} | sh`, windows: `irm ${base}/i/${code}/ps | iex` };
 }
 

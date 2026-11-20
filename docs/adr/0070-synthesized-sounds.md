@@ -25,3 +25,10 @@ Sounds could be recorded or generated as files, or computed. Generated sound eff
 - `expo-audio` is a native module, so the phone app needs a new build before the sounds play there.
 - Rendering costs a few milliseconds per sound on the web (once) and more on the phone (once per style, one sound per tick).
 - Push notifications on the phone keep the system sound. A custom push sound would need the files bundled into the app, which is left for later.
+
+## Addendum (2026-11-17): `discard`, a voice that goes, and the session given back
+
+- A ninth sound, `discard`: a recording thrown away on the phone (slid off, or the take's trash). It is something the person did, never an error, so it is quieter and shorter than `error`, and it falls where `send` rises. It exists in the three styles.
+- A voice message that goes plays `send`, the same sound as a message of words.
+- On the phone, a voice that plays or records takes over the audio session: it is heard in silent mode, and the person's music pauses. The session was never given back, so after one voice message every sound of the app rang in silent mode and stopped the music. `apps/mobile/src/lib/audio-mode.ts` now has one owner at a time. `appAudio` sets the app's sounds (mixed with the music, silent in silent mode). `voiceAudio` is for a voice. `releaseVoiceAudio` gives the session back 600 ms after a voice stops, unless another voice takes it first.
+- The voice's sounds play only once the recorder has stopped and the session is back. While it records, a sound would be recorded into the take and would ring in silent mode, so starting and locking a take have a haptic but no sound.

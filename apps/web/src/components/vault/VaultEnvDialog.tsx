@@ -13,6 +13,7 @@ import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Button,
   Checkbox,
+  codeAndBold,
   Dialog,
   DialogBody,
   DialogFooter,
@@ -58,7 +59,7 @@ function EnvRow({
     <li className="vlt-env__row" data-state={row.state}>
       <span className="vlt-env__head">
         <code className="vlt-code vlt-env__name">{row.name}</code>
-        {row.problem && <span className="vlt-env__problem">{t(`vault.env.problem.${row.problem}`)}</span>}
+        {row.problem && <span className="vlt-env__problem">{codeAndBold(t(`vault.env.problem.${row.problem}`))}</span>}
         {row.state === "new" && <span className="vlt-env__state">{t("vault.env.new")}</span>}
         {row.state === "exists" && (
           <span className="vlt-env__choice">

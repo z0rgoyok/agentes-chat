@@ -1,4 +1,5 @@
 import { type Message, useAiStatus, useApi, useMessages, useThreadMessages } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import type { BillingHold } from "@agenteschat/client/lib/billing";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
@@ -12,7 +13,9 @@ import {
   planLineKey,
   planLinePasses,
   planOfKind,
+  type StandIn,
   signInAgainPlan,
+  standInKey,
 } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
@@ -21,10 +24,11 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { paysHere } from "@/lib/store";
 import { useOrg } from "@/providers/org";
-import { Button, EventPillAction, EventPillText, Text } from "@/ui";
+import { Button, EventPill, EventPillAction, EventPillText, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AskButtons, AskDone, AskFoot, AskNote, AskWaiting } from "../chat/asks";
-import { TeamTemplatesSheet } from "../right-hand/TeamCard";
+import { openTeamTemplates } from "../right-hand/TeamTemplates";
+import { useFailed } from "../routines/hooks";
 import { useDirectory, useMeId } from "../shared/hooks";
 import { usePlanHold } from "./parts";
 
@@ -34,7 +38,8 @@ type Answer = "pending" | "answering" | "still_missing";
  * Opens "Conectar uma IA" (the web's `connect.open`): `from`, the message answered once the agent has an AI;
  * `intent`, the step it asked for; `provider`, the key's maker it named; `agentId`, the agent to connect; `plan`, the
  * plan's page it opens on (Sign in again: the agent's own); `email`, one more login of the account with this email
- * (one other agents use), Claude's hint.
+ * (one other agents use), Claude's hint; `again`, with `plan`, one of the person's logins signed in again on that
+ * plan's page (a new key for a coding plan's), `email` then its own.
  */
 export const openConnectAi = (
   request: {
@@ -46,6 +51,7 @@ export const openConnectAi = (
     email?: string;
     /** "1": from the create-agent step, for the agent being made (a plan signs in for the agents I create). */
     forNew?: string;
+    again?: string;
   } = {},
 ) => {
   const query = Object.entries(request)
@@ -54,6 +60,27 @@ export const openConnectAi = (
     .join("&");
   router.push((query ? `/connect-ai?${query}` : "/connect-ai") as never);
 };
+
+/**
+ * The right hand answered with another AI than its plan (ADR 0137 §7, amended 2026-11-15), as the web's: a quiet pill
+ * saying with what and why, and "Change", which opens its settings (each person's own AI, and the workspace's).
+ */
+function StandInLine({ standIn }: { standIn: StandIn }) {
+  const { t } = useTranslation();
+  return (
+    <EventPill
+      mark="info"
+      actions={
+        <EventPillAction
+          label={t("chat.standIn.change")}
+          onPress={() => router.push("/settings/right-hand" as never)}
+        />
+      }
+    >
+      {t(standInKey(standIn.why), { via: standIn.via, plan: standIn.plan })}
+    </EventPill>
+  );
+}
 
 /**
  * The web's no-AI request under an agent's "I have no AI" reply (`meta.noAi`), as a waiting pill: Connect (tinted, for
@@ -69,8 +96,10 @@ export function NoAiCard({ message: m }: { message: Message }) {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const meId = useMeId();
   const hold = usePlanHold(orgId, org);
+  const failed = useFailed();
   const card = noAiCardOf(m.meta);
   if (!card || m.author.type !== "agent") return null;
+  if (card.standIn) return <StandInLine standIn={card.standIn} />;
   // Any card on a billing hold is the wall: a Connect or a key from before it leads nowhere until the plan.
   if (card.held || hold) return <KeptCard message={m} card={card} hold={hold} />;
   const agent = dir.agentById.get(card.agentId);
@@ -80,8 +109,7 @@ export function NoAiCard({ message: m }: { message: Message }) {
   const plan = card.own ? planOfKind(card.own) : again;
   const state = aiStateOf(status.data, card.agentId);
   const ready = state !== undefined && state !== "no_ai" && answer !== "still_missing";
-  const mayAnswer =
-    card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || can(org, "manage_agents");
+  const mayAnswer = card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || managesAgent(agent);
   const answering = answer === "answering";
   // The team's right hand on a plan that can't think now (ADR 0137 §7): one plain line, and the way to an API key.
   const planLine = card.planLine && !(planLinePasses(card.planLine) && state === "ready") ? card.planLine : null;
@@ -117,6 +145,8 @@ export function NoAiCard({ message: m }: { message: Message }) {
       setAnswer("answering");
     } catch (error) {
       const code = (error as { code?: string }).code;
+      // Still no AI: the pill says so. Anything else failed: the toast says why, and "Answer now" is back.
+      if (code !== "ai.still_missing") failed(error);
       setAnswer(code === "ai.still_missing" ? "still_missing" : null);
     }
   };
@@ -191,29 +221,32 @@ function KeptCard({ message: m, card, hold }: { message: Message; card: NoAiCard
   const thread = useThreadMessages(orgId, m.threadId ? m.channelId : undefined, m.threadId ?? "");
   const messages = m.threadId ? thread.data : channel;
   const started = useRef(false);
+  const failed = useFailed();
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [templates, setTemplates] = useState(false);
   const agent = dir.agentById.get(card.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
   const ai = aiStateOf(status.data, card.agentId);
   const state = keptCardState({ hold, paid: false, ready: ai !== undefined && ai !== "no_ai" });
-  const mayAnswer =
-    card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || can(org, "manage_agents");
+  const mayAnswer = card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || managesAgent(agent);
   const replied = messages?.some(
     (x) => x.author.id === card.agentId && x.createdAt > m.createdAt && !noAiCardOf(x.meta),
   );
-  const start = () => {
+  /** `tapped`: the person pressed "Answer now", so a refusal says why; the start on opening fails quietly. */
+  const start = (tapped: boolean) => {
     setAnswer("pending");
     api.chat.answerNow(orgId, m.id).then(
       () => setAnswer("answering"),
-      () => setAnswer(null),
+      (error: unknown) => {
+        if (tapped) failed(error);
+        setAnswer(null);
+      },
     );
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per card here
   useEffect(() => {
     if (state !== "answer" || !mayAnswer || replied !== false || started.current) return;
     started.current = true;
-    start();
+    start(false);
   }, [state, mayAnswer, replied]);
   const answering = !replied && answer !== null;
   // Not known yet: no moment of "Plano ativo" on a card an AI has long answered.
@@ -230,7 +263,7 @@ function KeptCard({ message: m, card, hold }: { message: Message; card: NoAiCard
         actions={
           // The start refused: never a promise with nothing behind it.
           !answering && !replied && mayAnswer ? (
-            <EventPillAction key="answer" label={t("noAi.card.answerNow")} onPress={start} />
+            <EventPillAction key="answer" label={t("noAi.card.answerNow")} onPress={() => start(true)} />
           ) : null
         }
       />
@@ -265,37 +298,32 @@ function KeptCard({ message: m, card, hold }: { message: Message; card: NoAiCard
   }
   // Paying has no button here: the sentence says where, or who can.
   return (
-    <>
-      <AskNote
-        agentId={card.agentId}
-        title={t("noAi.kept.title")}
-        hint={t(code === "payment" ? "noAi.kept.plan" : "standing.billing.sub")}
-        text={
-          paysHere(can(org, "manage_billing"))
-            ? t("common.joinSentences", { a: t(`noAi.kept.wait.${code}`), b: t("connectAi.billingWeb") })
-            : t("noAi.kept.askAdmin")
-        }
-        foot={
-          state === "held" && noTeam ? (
-            <AskFoot>
-              <AskButtons
-                primary={
-                  <Button
-                    variant="primary"
-                    size="card"
-                    wide
-                    label={t(modeKey(org, "teamPlan.start.templates"))}
-                    onPress={() => setTemplates(true)}
-                  />
-                }
-              />
-            </AskFoot>
-          ) : null
-        }
-      />
-      {state === "held" && noTeam ? (
-        <TeamTemplatesSheet open={templates} onClose={() => setTemplates(false)} onNone={() => setTemplates(false)} />
-      ) : null}
-    </>
+    <AskNote
+      agentId={card.agentId}
+      title={t("noAi.kept.title")}
+      hint={t(code === "payment" ? "noAi.kept.plan" : "standing.billing.sub")}
+      text={
+        paysHere(can(org, "manage_billing"))
+          ? t("common.joinSentences", { a: t(`noAi.kept.wait.${code}`), b: t("connectAi.billingWeb") })
+          : t("noAi.kept.askAdmin")
+      }
+      foot={
+        state === "held" && noTeam ? (
+          <AskFoot>
+            <AskButtons
+              primary={
+                <Button
+                  variant="primary"
+                  size="card"
+                  wide
+                  label={t(modeKey(org, "teamPlan.start.templates"))}
+                  onPress={() => openTeamTemplates()}
+                />
+              }
+            />
+          </AskFoot>
+        ) : null
+      }
+    />
   );
 }

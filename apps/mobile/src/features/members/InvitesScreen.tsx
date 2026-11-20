@@ -21,20 +21,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Share, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import {
-  GroupedFooter,
-  GroupedHeader,
-  GroupedList,
-  GroupedRow,
-  IconButton,
-  Locked,
-  PersonAvatar,
-  Text,
-  useToast,
-} from "@/ui";
+import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Locked, PersonAvatar, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { CargoMark, RowBones } from "../roles/parts";
 import { Gap, SettingsPage } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { useDirectory, useMeId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { type ActionItem, ActionList, copyText, Loaded, successHaptic } from "../shared/parts";
@@ -108,7 +99,7 @@ function Invites() {
   const copyWorkspaceLink = async () => {
     try {
       const link = await make.mutateAsync();
-      if (!(await copyText(link.url))) return;
+      if (!(await copyText(link.url))) return toast({ title: t("mobile.app.failed"), icon: "x" });
       successHaptic();
       toast({ title: t("common.copied") });
     } catch (e) {
@@ -126,7 +117,6 @@ function Invites() {
         resent={Boolean(resent[inv.id])}
         onResent={(id, until) => setResent((all) => ({ ...all, [id]: until }))}
       />,
-      { solid: true },
     );
   // How it came on one line, what its link gives on the next: each wraps whole, nothing cut.
   const request = (r: JoinRequest) => {
@@ -148,21 +138,16 @@ function Invites() {
   };
 
   return (
-    <SettingsPage title={title} right={<IconButton icon="plus" label={t("members.inviteTitle")} onPress={invite} />}>
+    <SettingsPage
+      title={title}
+      actions={[{ icon: "plus", sf: "plus", label: t("members.inviteTitle"), onPress: invite }]}
+      // A pull reads who waits, the links and the invitations sent again.
+      onRefresh={() => Promise.allSettled([requests.refetch(), links.refetch(), invitations.refetch()])}
+    >
       <MembersFullNote />
       {failedToLoad ? (
-        <>
-          <GroupedFooter>
-            {t("common.joinSentences", {
-              a: t("common.loadFailed"),
-              b: errorText(t, requests.error ?? links.error ?? invitations.error, i18n.language),
-            })}
-          </GroupedFooter>
-          <Gap />
-          <GroupedList>
-            <GroupedRow icon="replay" label={t("common.retry")} onPress={retry} />
-          </GroupedList>
-        </>
+        // A list that didn't load is not an empty one: what happened, and the way to ask again.
+        <LoadFailed onRetry={retry} />
       ) : !loaded ? (
         // The rows' shape while they load: nothing jumps when they come.
         <>
@@ -201,7 +186,7 @@ function Invites() {
                 <GroupedHeader>{`${t("invites.links")} · ${formatInt(i18n.language, linkList.length)}`}</GroupedHeader>
                 <GroupedList>
                   {linkList.map((l) => (
-                    <LinkRow key={l.id} link={l} onPress={() => sheet.open(<LinkSheet link={l} />, { solid: true })} />
+                    <LinkRow key={l.id} link={l} onPress={() => sheet.open(<LinkSheet link={l} />)} />
                   ))}
                 </GroupedList>
               </>
@@ -296,10 +281,11 @@ function LinkSheet({ link }: { link: InviteLink }) {
           key: "copy",
           icon: "copy",
           label: t("members.copyLink"),
+          // A copy the system refused says so, as any button that did nothing would leave the person guessing.
           onPress: () =>
             void copyText(url).then((ok) => {
-              if (!ok) return;
               sheet.close();
+              if (!ok) return toast({ title: t("mobile.app.failed"), icon: "x" });
               successHaptic();
               toast({ title: t("common.copied") });
             }),

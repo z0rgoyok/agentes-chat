@@ -1,6 +1,7 @@
 # Built by CI, never committed.
 dist/
 app-icon.png
+app-icon-tile.png
 src-tauri/target/
 src-tauri/gen/
 src-tauri/binaries/

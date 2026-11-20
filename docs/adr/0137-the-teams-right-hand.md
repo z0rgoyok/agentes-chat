@@ -472,7 +472,7 @@ threw its rows away. The owner decided it has every tool an agent can have, by d
   - **The Vault** (`vaultPersonOfRun`): a personal item for its owner, a team item for its audience, only in that DM.
     Called in a channel, or by a routine that reports anywhere else, it reaches only team items open to everyone and
     shared with it.
-  - **A mailbox** (`mailboxUserCheck`): only for the person who connected it, in that DM. Being in its audience opens
+  - **A mailbox** (`personalUseCheck`; a person's own connection too, which no one else's run gets anywhere): only for the person who connected it, in that DM. Being in its audience opens
     no one else's mailbox, since its audience is everyone. Its routine watches a mailbox only when the routine's
     creator connected it (`watchesFor`, checked when the routine is saved and again as mail arrives, so a routine
     taken over by someone else gets none), and `create_routine` names only that person's mailboxes. The mailbox's
@@ -549,3 +549,51 @@ seat (a stored id the computer takes for an agent's), with its own Linux user, h
 - This replaces §11's "A run with no person behind it thinks with the workspace's" for runs a routine feeds. `plan_unattended` is left for work no person set up, or whose people are all gone.
 - A person's plan now pays for builds nobody is watching, on the schedule they chose, and for readers of a shared board. It stops when they leave the workspace, lose sight of the board, or someone else rewrites the instructions.
 - §11's consequence "a person's plan on a computer that is away doesn't fall to the workspace's" still holds in a DM. Unattended work does fall over, since nobody is there to read why it waits.
+
+## Amendment (2026-11-15): it always has a runnable AI when the workspace has one (§7)
+
+### Context
+
+§7 (amended 2026-11-04) made the right hand the one agent that never falls back: whenever its plan couldn't think, its run failed with `no_ai`, and its routines too. A workspace could have a working AI next to it (an API key, or another plan on a computer that was online) and still read "Lodi has no AI". Two cases made that common. A plan the workspace's Claude was signed in with on a computer only (the CLI's own sign-in, which names no account, while the right hand thinks only with an account) gave its brain no computer at all. And `servingPlanFor` picked a plan by "mine, then most room", ignoring whether its computer was online or was the workspace's own, so a laptop that slept at night failed the night's routine.
+
+`agents.machine_id` is null for the right hand by design (ADR 0175), so a readout of its row shows no computer whether it works or not. Its seats (ADR 0175) are for its tools only and are made on first use: neither was the cause.
+
+### Decision
+
+- **The plan it picks by itself.** `servingPlans` ranks the plans that may think for a person: on the workspace's own computer first (`workspaceHomeId`; in Cloud the always-on one), then on a computer online now, then their own, then the most room. `servingPlanFor` takes the first, for a person and now also for work nobody is behind (only plans that serve everyone), and also when the workspace's brain is a plan with no account. A plan signed in on Cloud's computer therefore thinks for the right hand without anyone choosing it.
+- **The stand-in.** When its plan can't think now, `rightHandStandIn` (`right-hand.ts`) is the one place the order lives: another plan that serves the person on a computer online now (checked through the live status), else the workspace's API key (`modelReady`, the check the AI status uses). `agentAiState` returns `ready` with `standIn`, so the DM shows it available and routines run. `resolveBrain` returns the stand-in's plan (`BrainPlan.standIn`). Mid-turn (its computer dropped, its CLI failed) the executor hands the turn to the key as any agent's fallback does. Its CLI stopped for tools of its own (`tools_not_locked`) and a turn whose tools already ran there are never handed over.
+- **One line, never silent.** A run that thought through a stand-in posts one quiet line under its reply, at most once per conversation every 6 hours (`postStandInLine`, `bodyCode: right_hand_stand_in`): "Answered with Acme OpenAI: Claude Max needs a computer.", with "Change", which opens its settings. The reply carries no fallback note of its own.
+- **Nothing at all.** With no other plan online and no key, the run fails `no_ai` with its card as before. Its way out is the workspace's: on a billing hold the plan (`plan_hold`), otherwise Connect. There is no button of the right hand's own to give it a computer.
+- **What can't think, shown.** The dialog that picks its AI lists, dimmed under the others, the plans it can't think with now, each with why: a computer's own sign-in, and an account on a computer that is away. On self-host, who may connect computers also gets "Connect a computer".
+
+### Consequences
+
+- This replaces "It never stands in on an API key" in §7's 2026-11-04 amendment, and §11's "a person's plan on a computer that is away doesn't fall to the workspace's": a person whose own plan can't think is answered by what can, with the line saying so.
+- An API key may now be spent for the right hand without anyone choosing it, only while its plan can't think, and the line says so each time it starts. Its budget stops it as any agent's does.
+- `mayFallBack` still excludes it: other agents' fallback rules are unchanged.
+
+## Amendment (2026-11-18): the same AI choices and computer as any agent (§4, §11)
+
+### Context
+
+Its own AI could only be a plan signed in as an account. A person whose computer was already signed in to their plan
+(the usual self-hosted setup, where people pair their own Mac or PC) could give any agent of theirs that sign-in, but
+not their own DM with the right hand, so the only way left was an API key. Its DM also showed no computer, though it
+has one since ADR 0175.
+
+### Decision
+
+- A person's own AI for the right hand may be the plan their own computer is signed in to (`account: null` with a
+  plan's brain on `PUT …/brain`, scope `mine`), on a computer they paired, as for any agent they own.
+  `right_hand_brains` keeps the computer (`machine_id`) when there is no account. It serves that person alone.
+  `account: null` on its own, or `brain: "model"`, still goes back to the workspace's AI.
+- The workspace's AI (scope `workspace`) still takes only a plan signed in as an account: it serves everyone, and a
+  computer's own sign-in is one person's.
+- Its DM shows its computer as any agent's: the header's computer button and the side panel's Computador, Rotinas
+  and Tarefas, on web and phone. Its side panel's Como pensa stays the person's own AI. Its computer is never chosen:
+  where the workspace has none, the panel says why and gives the way to one.
+
+### Consequences
+
+Self-hosted people connect their right hand's AI the way they connect any agent's. Its plan turns stay locked down
+(§4): the same `chat` turn and runner check, now also on a computer's own sign-in.

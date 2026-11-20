@@ -49,12 +49,13 @@ export interface Look {
 
 /**
  * A picture at the card's top: the agents standing on one floor, half on each side of the workspace's computer
- * (`computer`: its alt text, our words), or in a row without it. The words never depend on it, so the faces have no
- * alt text.
+ * (`computer`: its alt text, our words) or of a phone (`phone`: its alt text, its screen on or off), or in a row
+ * without either. The words never depend on it, so the faces have no alt text.
  */
 export interface Scene {
   crew: readonly Look[];
   computer?: string;
+  phone?: { alt: string; on: boolean };
 }
 
 export interface EmailDoc {
@@ -90,6 +91,11 @@ const AGENT_FACES = Object.keys(AGENT_GRADIENTS);
  */
 export const COMPUTER = { file: "computer.png", kind: "linux", cell: 2, t: 0.75, margin: 3 } as const;
 /**
+ * A phone as the app draws one (`PHONE_KINDS`), at the computer's cell, margin and `t`: `on` with its agent on the
+ * screen, `off` switched off. The android, not the iphone: no maker's island, any messenger's phone.
+ */
+export const HANDSET = { on: "phone.png", off: "phone-off.png", kind: "android" } as const;
+/**
  * The onboarding's own agents, Theo, Ada, Lia and Atlas (`PRESET_LOOK` in packages/client/src/lib/onboarding.ts and
  * apps/mobile/src/features/onboarding/logic.ts), each drawn whole by `packages/engine/scripts/email-art.ts`. Any other
  * look is its colour's face.
@@ -100,6 +106,14 @@ export const ONBOARDING_CREW = [
   { color: "rose", eyes: "dots", accessory: "flower" },
   { color: "amber", eyes: "round", accessory: "antenna" },
 ] as const satisfies readonly { color: AgentColorName; eyes: EyeStyle; accessory: AccessoryName }[];
+/** The workspace assistant's own look (`RIGHT_HAND_DEFAULTS` in packages/engine/src/right-hand.ts), drawn whole too. */
+export const ASSISTANT_LOOK = { color: "teal", eyes: "happy", accessory: "headset" } as const satisfies {
+  color: AgentColorName;
+  eyes: EyeStyle;
+  accessory: AccessoryName;
+};
+/** Every look drawn whole by `packages/engine/scripts/email-art.ts`. */
+export const WHOLE_LOOKS = [...ONBOARDING_CREW, ASSISTANT_LOOK];
 /**
  * A look drawn whole, in px as shown: the colour face's body (`body` wide, at `x` and `y`, as far from the left and the
  * bottom as `agent-<colour>.png` has it) in a box with room above and to the right for any accessory (ACCESSORY_REACH
@@ -121,15 +135,18 @@ export const EMAIL_PICTURES = [
   "sky-band.png",
   ...AGENT_FACES.map((c) => `agent-${c}.png`),
   ...ONBOARDING_CREW.map(wholeFile),
+  HANDSET.on,
+  HANDSET.off,
+  wholeFile(ASSISTANT_LOOK),
 ];
 const FONT = "source-sans-3-latin.woff2";
 const LOGO = { width: 173, height: 36, alt: "agentes.chat" } as const;
 const SKY = { width: 552, height: 27 } as const;
 /** An agent's face for its colour: a custom "#rrggbb" is the closest preset's, an unknown one is sky, as the app draws it. */
 const faceOf = (color: string) => `agent-${nearestPreset(color)}.png`;
-/** A look's picture: drawn whole when it is one of the onboarding's, else its colour's face. */
+/** A look's picture: drawn whole when it is one of `WHOLE_LOOKS`, else its colour's face. */
 function pictureOf({ color = "sky", eyes = "round", accessory = "none" }: Look) {
-  const whole = ONBOARDING_CREW.find((o) => o.color === color && o.eyes === eyes && o.accessory === accessory);
+  const whole = WHOLE_LOOKS.find((o) => o.color === color && o.eyes === eyes && o.accessory === accessory);
   return whole
     ? { file: wholeFile(whole), width: WHOLE.width, height: WHOLE.height }
     : { file: faceOf(color), width: 32, height: 32 };
@@ -366,10 +383,10 @@ function block(b: Block, src: (file: string) => string, last: boolean): string {
 }
 
 /**
- * The scene at the card's top. With the computer, a stage in a well, as the app's onboarding scene: the computer in
- * the middle whatever the crew's size (two cells split the rest), the faces standing 2 px up so their bodies end where
- * the tower's does, above its shadow. Without it, the faces in a row over the headline, the first at the text's edge.
- * With the pictures off, the computer's alt says what is missing, set as a caption.
+ * The scene at the card's top. With the computer or a phone, a stage in a well, as the app's onboarding scene: the
+ * object in the middle whatever the crew's size (two cells split the rest), the faces standing 2 px up so their bodies
+ * end where the object's does, above its shadow. Without one, the faces in a row over the headline, the first at the
+ * text's edge. With the pictures off, the object's alt says what is missing, set as a caption.
  */
 function scene(s: Scene, src: (file: string) => string): string {
   const img = (file: string, width: number, height: number, alt: string) =>
@@ -382,16 +399,21 @@ function scene(s: Scene, src: (file: string) => string): string {
         return `<td valign="bottom" style="padding:0 ${right - (p.width - 32)}px ${bottom}px ${left}px">${img(p.file, p.width, p.height, "")}</td>`;
       })
       .join("");
-  if (s.computer === undefined) return `<table ${T("margin:0 0 20px")}><tr>${faces(s.crew, 0, 8, 0)}</tr></table>`;
+  const centre = s.phone
+    ? { file: s.phone.on ? HANDSET.on : HANDSET.off, kind: HANDSET.kind, alt: s.phone.alt }
+    : s.computer === undefined
+      ? null
+      : { file: COMPUTER.file, kind: COMPUTER.kind, alt: s.computer };
+  if (!centre) return `<table ${T("margin:0 0 20px")}><tr>${faces(s.crew, 0, 8, 0)}</tr></table>`;
   const side = (crew: readonly Look[]) =>
     crew.length ? `<table ${T("")}><tr>${faces(crew, 4, 4, 2)}</tr></table>` : "";
   const half = Math.ceil(s.crew.length / 2);
-  const width = (COMPUTER_ART[COMPUTER.kind][1] + 2 * COMPUTER.margin) * COMPUTER.cell;
-  const height = COMPUTER_ROWS[COMPUTER.kind][1] * COMPUTER.cell;
+  const width = (COMPUTER_ART[centre.kind][1] + 2 * COMPUTER.margin) * COMPUTER.cell;
+  const height = COMPUTER_ROWS[centre.kind][1] * COMPUTER.cell;
   return `<table width="100%" class="well" ${T(`background:${L.well};border-radius:14px 14px 14px 3px;margin:0 0 24px`)}><tr><td style="padding:20px 8px 16px">
 <table width="100%" ${T("")}><tr>
 <td width="50%" align="right" valign="bottom">${side(s.crew.slice(0, half))}</td>
-<td valign="bottom" style="padding:0 2px">${img(COMPUTER.file, width, height, s.computer)}</td>
+<td valign="bottom" style="padding:0 2px">${img(centre.file, width, height, centre.alt)}</td>
 <td width="50%" align="left" valign="bottom">${side(s.crew.slice(half))}</td>
 </tr></table></td></tr></table>`;
 }

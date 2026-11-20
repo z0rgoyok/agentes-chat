@@ -1,4 +1,4 @@
-agentes.chat — Copyright (C) 2026 Codari Global, LLC and contributors
+agentes.chat — Copyright (C) 2026 AGENTESCHAT, LLC and contributors
 
 Unless a file or package says otherwise, this repository is licensed under the
 GNU Affero General Public License version 3 only (SPDX: AGPL-3.0-only), in
@@ -21,7 +21,7 @@ an interactive user interface must keep this attribution in its Appropriate
 Legal Notices (section 0), where everyone who uses it, including remotely over a
 network, can find it from its settings or menus (such as an About screen):
 
-    Based on agentes.chat by Codari Global, LLC (https://agentes.chat)
+    Based on agentes.chat by AGENTESCHAT, LLC (https://agentes.chat)
 
 You may show your own name, product name and branding next to it, and translate
 it, but you may not remove it, hide it, change its meaning or present the work as
@@ -33,7 +33,7 @@ logos (section 7(e)). See TRADEMARKS.md.
 
 --------------------------------------------------------------------------------
 
-"agentes", "agentes.chat" and the agentes logo are trademarks of Codari Global, LLC (TRADEMARKS.md).
+"agentes", "agentes.chat" and the agentes logo are trademarks of AGENTESCHAT, LLC (TRADEMARKS.md).
 Source: https://github.com/agentes-chat/agentes-chat. Release images and desktop app releases
 are built from the tag of their version.
 

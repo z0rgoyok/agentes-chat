@@ -529,7 +529,11 @@ function WikiNav({
         </nav>
       )}
       {selecting && (
-        <div className="wiki-pickbar" role="toolbar" aria-label={t("wiki.bulk.selected", { count: selected.size })}>
+        <div
+          className="wiki-pickbar ac-tailrow"
+          role="toolbar"
+          aria-label={t("wiki.bulk.selected", { count: selected.size })}
+        >
           <label className="wiki-pickbar__all" htmlFor={`${uid}-all`}>
             <Checkbox
               id={`${uid}-all`}
@@ -544,7 +548,7 @@ function WikiNav({
             />
             <span>{selected.size ? t("wiki.bulk.selected", { count: selected.size }) : t("wiki.bulk.selectAll")}</span>
           </label>
-          <span className="wiki-pickbar__acts">
+          <span className="wiki-pickbar__acts ac-tail">
             {choosesAudience && (
               <Button size="sm" icon="agent" disabled={selected.size === 0} onClick={() => setBulk("agents")}>
                 {t("wiki.bulk.agents")}

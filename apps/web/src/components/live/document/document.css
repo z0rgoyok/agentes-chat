@@ -1,0 +1,429 @@
+/*
+ * A document's page (ADR 0200): the toolbar in the spreadsheet's look, then the Wiki's page (its title, its meta line,
+ * its prose at the Wiki's reading width) that everyone edits at once, with others' carets, an agent's face where it
+ * writes, and "Ask Atlas" over a selection. Lists use the rich text's model (`data-list`, `data-level` on a
+ * paragraph, the numbers in `data-n`). People's colors come in as `--peer` (`--peer-on` for words on them); the
+ * person's own selection stays ink.
+ */
+
+.lf-doc {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pane);
+}
+/* The toolbar's band, a hairline over and under it (the header's row sits right above). */
+.sheet-tools.lf-doc__tools {
+  border-top: 1px solid var(--line);
+}
+/* "Text ▾": the block's style in words, its chevron at the end. */
+.sheet-tools__menu.lf-doc__style {
+  gap: var(--space-1);
+  min-width: 96px;
+  justify-content: space-between;
+  padding: 0 var(--space-2);
+  font-size: var(--control-fs-sm);
+  font-weight: 500;
+}
+.lf-doc__style-name {
+  white-space: nowrap;
+}
+/* Each style in the menu looks like itself, quietly. */
+.lf-doc__style-item[data-style="h1"],
+.lf-doc__style-item[data-style="h2"],
+.lf-doc__style-item[data-style="h3"] {
+  font-weight: 650;
+}
+.lf-doc__style-item[data-style="quote"] {
+  color: var(--ink-muted);
+}
+.lf-doc__style-item[data-style="code"] {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.lf-doc__busy {
+  margin-left: var(--space-2);
+  color: var(--faint);
+  font-size: var(--control-fs-sm);
+  white-space: nowrap;
+}
+/* Read-only: no toolbar; the page starts under a hairline. */
+.lf-doc[data-readonly] .lf-doc__scroll {
+  border-top: 1px solid var(--line);
+}
+
+/* ── The page ───────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+.lf-doc__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.lf-doc__page {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: calc(var(--space-8) + var(--space-1)) var(--space-8) calc(var(--space-8) * 2.5);
+  box-sizing: border-box;
+}
+.lf-doc__page .lf-meta.wiki-meta {
+  margin: var(--space-3) 0 calc(var(--space-6) + var(--space-1));
+}
+
+/* The title: reads as the page's title, turns into its field under the pointer and the keys, wraps as it does. */
+.wiki-title.lf-doc__title {
+  display: grid;
+  margin-top: 0;
+}
+.lf-doc__title-mirror,
+.lf-doc__title-field {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lf-doc__title-mirror {
+  visibility: hidden;
+}
+.lf-doc__title-field {
+  display: block;
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+}
+.lf-doc__title-field::placeholder {
+  color: var(--faint);
+}
+.lf-doc__title--still {
+  display: block;
+}
+
+/* ── The text: the Wiki's prose, edited ─────────────────────────────────────────────────────────────────────────── */
+
+.lf-doc__host {
+  min-width: 0;
+}
+.wiki-prose .md.lf-doc__body {
+  display: block;
+  min-height: 40vh;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-variant-ligatures: none;
+  caret-color: var(--ink);
+}
+/* ProseMirror's own hack around a browser's caret: never drawn as a picture of the page. */
+.lf-doc__body img.ProseMirror-separator {
+  display: inline;
+  margin: 0;
+  border: none;
+}
+.lf-doc__body .ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+/* The person's own selection: neutral ink, never an agent's blue. */
+.lf-doc__body ::selection {
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.lf-doc__body :is(p, h2, h3, h4) {
+  position: relative;
+}
+/* Headings: 1 is the Wiki's section (26, display), 2 and 3 its smaller ones. */
+.wiki-prose .md.lf-doc__body h3 {
+  font-size: 20px;
+  line-height: 1.3;
+}
+.wiki-prose .md.lf-doc__body h4 {
+  margin: 20px 0 6px;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.wiki-prose .md.lf-doc__body > :is(h2, h3, h4):first-child {
+  margin-top: 0;
+}
+.lf-doc__body a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.16em;
+}
+.lf-doc__body :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: 0.88em;
+}
+.lf-doc__body pre.lf-doc__code {
+  white-space: pre;
+  overflow-x: auto;
+}
+.lf-doc__body pre.lf-doc__code code {
+  white-space: pre;
+}
+.lf-doc__body blockquote > * {
+  margin: 0 0 8px;
+}
+.lf-doc__body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Lists (the rich text's model): a paragraph's marker hangs in the gutter of its level; items sit close together. */
+.lf-doc__body p {
+  --lv: 0;
+  padding-inline-start: calc(var(--lv) * 1.5em);
+}
+.lf-doc__body p[data-level="1"] {
+  --lv: 1;
+}
+.lf-doc__body p[data-level="2"] {
+  --lv: 2;
+}
+.lf-doc__body p[data-level="3"] {
+  --lv: 3;
+}
+.lf-doc__body p[data-level="4"] {
+  --lv: 4;
+}
+.lf-doc__body p[data-list] {
+  padding-inline-start: calc((var(--lv) + 1) * 1.5em);
+}
+.wiki-prose .md.lf-doc__body > p[data-list]:has(+ p[data-list]),
+.lf-doc__body :is(blockquote, td) > p[data-list]:has(+ p[data-list]) {
+  margin-bottom: 4px;
+}
+.lf-doc__body p[data-list]::before {
+  position: absolute;
+  inset-inline-start: calc(var(--lv) * 1.5em);
+  width: 1.5em;
+  text-align: start;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+.lf-doc__body p[data-list="bullet"]::before {
+  content: "•";
+}
+.lf-doc__body p[data-list="bullet"]:is([data-level="1"], [data-level="3"])::before {
+  content: "◦";
+}
+.lf-doc__body p[data-list="bullet"]:is([data-level="2"], [data-level="4"])::before {
+  content: "▪";
+}
+.lf-doc__body p[data-list="ordered"]::before {
+  content: attr(data-n) ".";
+}
+
+/* Tables: the Wiki's box; the first row a header when the table says so; cells hold paragraphs. */
+.lf-doc__body .lf-doc__table {
+  margin: 0 0 14px;
+}
+.lf-doc__body .lf-doc__table table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+.lf-doc__body .lf-doc__table td {
+  min-width: 8ch;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  vertical-align: top;
+}
+.lf-doc__body .lf-doc__table td:last-child {
+  border-right: 0;
+}
+.lf-doc__body .lf-doc__table tr:last-child td {
+  border-bottom: 0;
+}
+.lf-doc__body .lf-doc__table table[data-header] tr:first-child td {
+  background: var(--plate);
+  color: var(--ink);
+  font-weight: 600;
+}
+.lf-doc__body .lf-doc__table td > p {
+  margin: 0;
+}
+.lf-doc__body .lf-doc__table td > p + p {
+  margin-top: 4px;
+}
+
+/* Pictures: the file's own, up to the page's width; chosen, an ink ring; one that won't load keeps its place. */
+.lf-doc__img {
+  margin: 0 0 14px;
+  max-width: 100%;
+}
+.lf-doc__img img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+.lf-doc__img.is-selected img {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.lf-doc__img.is-missing img {
+  display: none;
+}
+.lf-doc__img.is-missing::before {
+  content: attr(data-missing);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.lf-doc__body hr.ProseMirror-selectednode {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+/* An empty document's hint, where the caret will be. */
+.lf-doc__empty::after {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  padding-inline-start: inherit;
+  color: var(--faint);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* A part a message pointed at, lit a moment. */
+.lf-doc__reveal {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lf-doc__reveal {
+    animation: lf-doc-reveal 2.4s var(--out) both;
+  }
+}
+@keyframes lf-doc-reveal {
+  0%,
+  60% {
+    background: color-mix(in srgb, var(--ink) 14%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ── Others writing ─────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* Someone's caret: a bar in their color, their name on a flag over it. */
+.lf-doc-caret {
+  position: relative;
+  margin-inline: -1px;
+  border-inline-start: 2px solid var(--peer);
+  pointer-events: none;
+}
+.lf-doc-caret__tag {
+  position: absolute;
+  inset-block-end: 100%;
+  inset-inline-start: -2px;
+  padding: 1px 6px;
+  border-radius: 4px 4px 4px 0;
+  background: var(--peer);
+  color: var(--peer-on);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  user-select: none;
+}
+/* An agent's: its face and name on the tag of its pointer elsewhere, over the caret. */
+.lf-doc-caret--agent {
+  display: inline;
+}
+.lf-cur__who.lf-doc-caret__who {
+  top: auto;
+  bottom: calc(100% + 2px);
+  left: -2px;
+  border-radius: 9px 9px 9px 3px;
+  font-family: var(--font-sans);
+  font-style: normal;
+  user-select: none;
+}
+.lf-doc-peer-sel {
+  background-color: color-mix(in srgb, var(--peer) 22%, transparent);
+}
+/* The blocks an agent is writing: a breath of its color around them. */
+.lf-doc-agent-block {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--peer) 7%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--peer) 7%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lf-doc-agent-block {
+    transition:
+      background-color var(--dur-fast) var(--out),
+      box-shadow var(--dur-fast) var(--out);
+  }
+}
+
+/* "Ask Atlas" over a selection: a small glass bar above its first line. */
+.lf-doc__ask {
+  position: absolute;
+  z-index: var(--z-lifted);
+  display: flex;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  transform: translateY(calc(-100% - var(--space-2)));
+}
+.ac-btn.lf-doc__ask-btn {
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  font-weight: 600;
+}
+.lf-doc__ask-btn .ac-avatar {
+  flex: none;
+}
+
+/* ── Narrow ─────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  .lf-doc__page {
+    padding: var(--space-6) var(--space-4) var(--space-8);
+  }
+  .lf-doc__page .lf-meta.wiki-meta {
+    margin-bottom: var(--space-6);
+  }
+}
+
+/* Loading: the page's own shape (its title, its meta line, its first lines), under the toolbar's band. */
+.lf-skel__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: calc(var(--space-8) + var(--space-1)) var(--space-8);
+  box-sizing: border-box;
+}
+.lf-skel__page > :nth-child(2) {
+  margin-bottom: var(--space-6);
+}

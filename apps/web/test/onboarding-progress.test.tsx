@@ -56,6 +56,16 @@ async function progressBar(progress: number, reduced: boolean) {
 }
 
 describe("the setup's progress bar", () => {
+  test("no step done yet: a bare track, with no sky and no lit first column", async () => {
+    const bar = await progressBar(0, false);
+    try {
+      bar.frames(200);
+      expect(bar.fill()).toBe(0);
+    } finally {
+      bar.close();
+    }
+  });
+
   test("reduced motion turned off with the page open (a browser's emulated media switched): the next steps still fill it", async () => {
     const bar = await progressBar(4 / 6, true);
     try {

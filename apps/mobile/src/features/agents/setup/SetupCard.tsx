@@ -1,7 +1,7 @@
 import type { Agent, AgentSetupStep } from "@agenteschat/client";
 import { useAgentAccess, useAgentDetail, useAiStatus, useMe } from "@agenteschat/client";
 import { levelOf, resourcesOf } from "@agenteschat/client/lib/access-levels";
-import { audienceOf } from "@agenteschat/client/lib/audience";
+import { audienceOf, editsAgent, managesAgent } from "@agenteschat/client/lib/audience";
 import { firstName, joinNames } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { aiStateOf, planHoldPhoneLine } from "@agenteschat/client/lib/no-ai";
@@ -21,15 +21,25 @@ import {
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, StyleSheet, View } from "react-native";
 import Animated, { Easing, FadeIn } from "react-native-reanimated";
 import { paysHere } from "@/lib/store";
 import { useOrg } from "@/providers/org";
-import { Button, Card, Icon, type IconName, MEDIA_ROW, MediaRow, Text, useReducedMotion } from "@/ui";
+import {
+  CARD_PAD,
+  Card,
+  Disclosure,
+  GROUPED_ROW,
+  GroupedRow,
+  Icon,
+  type IconName,
+  PressScale,
+  Text,
+  useReducedMotion,
+} from "@/ui";
 import { openConnectAi } from "../../ai/NoAiCard";
 import { usePlanHold } from "../../ai/parts";
 import { requestComposerText } from "../../chat/composer-request";
-import { useOpenDm } from "../../new/useOpenDm";
 import { resourceName, useConnectedById, usePersonalView } from "../../settings/hooks";
 import { AgentFace } from "../../shared/Face";
 import { useColors, useDirectory, useMeId } from "../../shared/hooks";
@@ -42,9 +52,10 @@ import { useAgentChannels } from "./useAgentChannels";
  * A new agent's setup checklist on the phone (ADR 0155 §2), as on the web: the top of its DM, drawn by the app and
  * never stored, in its voice. Five steps (think, apps, channels, who talks to it, how it works); each button opens a
  * screen of its own with the suggestion marked (managing is a pushed screen), think opens Connect AI. Only who may set
- * the agent up sees it: who manages agents all the steps, its owner the ones they may change. Its screen shows the
- * same card while something is left. Alone in a personal workspace (ADR 0159), "who talks to it" isn't asked while it
- * holds its default (`setupStepsInSight`), and the rows read the workspace's own words.
+ * the agent up sees it (`setupSteps`): who manages it all the steps, its owner the ones they may change. DM only: on
+ * the agent's page it read as a to-do list about the page's subject, between its head and what it is on. Alone in a
+ * personal workspace (ADR 0159), "who talks to it" isn't asked while it holds its default (`setupStepsInSight`), and
+ * the rows read the workspace's own words.
  */
 
 const STEP_ICON: Record<AgentSetupStep, IconName> = {
@@ -60,12 +71,12 @@ const ARRIVED = new Set<string>();
 
 /** The steps this person sees for this agent (none: the checklist isn't theirs, or the agent has none). */
 export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
-  const { org } = useOrg();
   const meId = useMeId();
   const { solo } = usePersonalView();
-  return agent && meId
-    ? setupStepsInSight(setupSteps(agent, { meId, admin: can(org, "manage_agents") }), audienceOf(agent), solo)
-    : [];
+  if (!agent || !meId) return [];
+  // Who manages it (the server's `canManage`) sees every step; its owner, theirs, how it works as who edits it.
+  const steps = setupSteps(agent, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });
+  return setupStepsInSight(steps, audienceOf(agent), solo);
 }
 
 /**
@@ -75,7 +86,7 @@ export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
 function useSetupProgress(agent: Agent) {
   const { orgId, org } = useOrg();
   const dir = useDirectory();
-  const admin = can(org, "manage_agents");
+  const admin = managesAgent(agent);
   const steps = useSetupSteps(agent);
   const status = useAiStatus(orgId);
   const access = useAgentAccess(orgId, agent.id, admin && steps.includes("apps"));
@@ -152,7 +163,7 @@ export function AgentSetupIntro({ agent, channelId }: { agent: Agent; channelId:
             .filter(Boolean)
             .join(" ")}
         </Text>
-        <AgentSetupCard agent={agent} place="dm" channelId={channelId} />
+        <AgentSetupCard agent={agent} channelId={channelId} />
       </View>
     </View>
   );
@@ -163,24 +174,14 @@ const roleWord = (name: string, locale: string) =>
   name.length <= 3 && name === name.toUpperCase() ? name : name.toLocaleLowerCase(locale);
 
 /**
- * The checklist card. `dm`: under the agent's greeting, in its voice ("To get started"), its first tasks filling the
- * composer of `channelId`; `profile`: on its screen ("For Leo to get started"), gone once everything is done, its
- * first tasks opening its DM with the text written.
+ * The checklist card under the agent's greeting, in its voice ("To get started"; "Ready" once everything is done), its
+ * first tasks filling the composer of `channelId`.
  */
-export function AgentSetupCard({
-  agent,
-  place,
-  channelId,
-}: {
-  agent: Agent;
-  place: "dm" | "profile";
-  channelId?: string;
-}) {
+export function AgentSetupCard({ agent, channelId }: { agent: Agent; channelId: string }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory();
   const meId = useMeId();
-  const openDm = useOpenDm();
   const { steps, done, doneHere, all, ready, held, connectors, granted, inChannels, visible } = useSetupProgress(agent);
   const items = useConnectedById();
   const g = agentGrammar(agent.name);
@@ -190,11 +191,11 @@ export function AgentSetupCard({
 
   // In the new agent's conversation its first card's steps arrive one after another, once per agent while the app
   // runs: a first-time moment, never replayed when the conversation's list recycles the row or it opens again.
-  const [arrives] = useState(() => place === "dm" && !ARRIVED.has(agent.id));
+  const [arrives] = useState(() => !ARRIVED.has(agent.id));
   useEffect(() => {
     if (arrives) ARRIVED.add(agent.id);
   }, [arrives, agent.id]);
-  if (steps.length === 0 || (place === "profile" && all)) return null;
+  if (steps.length === 0) return null;
 
   const names = (list: typeof connectors) =>
     joinNames(
@@ -238,17 +239,9 @@ export function AgentSetupCard({
   const tasks = setupTaskKeys(role)
     .filter((key) => i18n.exists(key))
     .map((key) => anyKey(key));
-  const ask = (text: string) => {
-    tapHaptic();
-    if (place === "dm" && channelId) requestComposerText(channelId, text);
-    else void openDm({ agentId: agent.id }, { compose: true, text });
-  };
-
-  const title =
-    place === "dm" ? (all ? t("agentSetup.ready", g) : t("agentSetup.title")) : t("agentSetup.titleProfile", g);
   return (
     <SetupCardView
-      title={title}
+      title={all ? t("agentSetup.ready", g) : t("agentSetup.title")}
       arrives={arrives}
       done={doneHere.length}
       total={steps.length}
@@ -277,7 +270,7 @@ export function AgentSetupCard({
         done.has("ai") && tasks.length > 0 ? (
           <SetupAsks
             lead={all ? t("agentSetup.tasksAllDone") : t("agentSetup.tasksLead")}
-            asks={tasks.map((task) => ({ label: task, onPress: () => ask(task) }))}
+            asks={tasks.map((task) => ({ label: task, onPress: () => requestComposerText(channelId, task) }))}
           />
         ) : null
       }
@@ -285,7 +278,10 @@ export function AgentSetupCard({
   );
 }
 
-/** One row of a checklist card, as drawn: its button (a text button once done), "Agora não", or words alone. */
+/**
+ * One row of a checklist card: the step's icon (a check once done), what it says, and what a tap does. A row with an
+ * `action` opens it; done, its verb ("Change") ends the row, since its words then say what is, not what to do.
+ */
 export interface SetupCardRow {
   key: string;
   icon: IconName;
@@ -293,15 +289,23 @@ export interface SetupCardRow {
   title: string;
   desc?: string | undefined;
   saying?: string | null;
+  /** `primary`: the step to take next, its words in semibold. */
   action?: { label: string; primary?: boolean; onPress: () => void };
+  /** "Not now": the row's ×, gone while that save is on its way. */
   skip?: { label: string; onPress: () => void; busy?: boolean };
-  /** It waits for something else (the plan): quieter, with no button. */
+  /** It waits for something else (the plan): quieter, with nothing to press. */
   dim?: boolean;
 }
 
+/** Where a row's words start (the rows' 16, their 36 lead column, 12 to the text): the hairline over it starts there. */
+const ROW_TEXT_X = GROUPED_ROW.padX + GROUPED_ROW.lead + 12;
+/** The done check, centered in the lead column where an undone step's tile sits. */
+const DONE = 24;
+
 /**
  * A checklist card's drawing on the phone, a new agent's (ADR 0155 §2) and the right hand's first run (§6): the head
- * and its count, the segmented bar, the rows, a foot of asks.
+ * and its count, the segmented bar, the steps as the app's own rows (each one pressable, a chevron at its end, never a
+ * word or a button alone on a line under it), a foot of asks.
  */
 export function SetupCardView({
   title,
@@ -323,7 +327,7 @@ export function SetupCardView({
   const c = useColors();
   const reduced = useReducedMotion();
   // Opacity only, 50 ms apart, 220 ms each with a strong ease-out: the whole card is in by about 400 ms, every
-  // button pressable from the first frame. Reduced motion: no stagger at all.
+  // row pressable from the first frame. Reduced motion: no stagger at all.
   const enter = (i: number) =>
     arrives && !reduced
       ? FadeIn.duration(220)
@@ -332,7 +336,7 @@ export function SetupCardView({
       : undefined;
   return (
     <Card style={styles.card}>
-      <View style={styles.inner} accessibilityLabel={title}>
+      <View style={styles.cardTop} accessibilityLabel={title}>
         <View style={styles.cardHead}>
           <Text variant="subhead" style={[styles.bold, styles.fill]} accessibilityRole="header">
             {title}
@@ -346,77 +350,53 @@ export function SetupCardView({
             <View key={r.key} style={[styles.seg, { backgroundColor: i < done ? c.ink : c.line2 }]} />
           ))}
         </View>
-        <View accessibilityLiveRegion="polite">
-          {rows.map((r, i) => (
-            // A MediaRow: the step's icon (a check once done) in the face's place, its name on that line, what it says
-            // and its buttons under them at the card's width, as on the web.
-            <Animated.View
-              key={r.key}
-              entering={enter(i)}
-              style={[styles.row, i > 0 && { borderTopColor: c.line, borderTopWidth: StyleSheet.hairlineWidth }]}
-            >
-              <MediaRow
-                size="row"
-                name={r.title}
-                quiet={r.done ? "ink2" : r.dim ? "muted" : undefined}
-                face={
-                  r.done ? (
-                    <View style={[styles.check, { backgroundColor: c.ink }]}>
-                      <Icon name="check" size={12} color={c.bg} />
-                    </View>
-                  ) : (
-                    <View style={styles.lead}>
-                      <Icon name={r.icon} size={18} color={r.dim ? c.faint : c.ink2} />
-                    </View>
-                  )
-                }
-              >
-                {r.saying ? (
-                  <Text variant="caption" tone="ok">
-                    {r.saying}
-                  </Text>
-                ) : !r.done && r.desc ? (
-                  <Text variant="caption" tone="muted">
-                    {r.desc}
-                  </Text>
-                ) : null}
-                {(!r.done && r.skip) || r.action ? (
-                  <View style={styles.acts}>
-                    {!r.done && r.skip ? (
-                      <Button
-                        variant="text"
-                        size="sm"
-                        label={r.skip.label}
-                        disabled={r.skip.busy}
-                        onPress={r.skip.onPress}
-                      />
-                    ) : null}
-                    {r.action ? (
-                      r.done ? (
-                        <Button variant="text" size="sm" label={r.action.label} onPress={r.action.onPress} />
-                      ) : (
-                        <Button
-                          variant={r.action.primary ? "primary" : "secondary"}
-                          size="sm"
-                          label={r.action.label}
-                          disabled={r.skip?.busy}
-                          onPress={r.action.onPress}
-                        />
-                      )
-                    ) : null}
-                  </View>
-                ) : null}
-              </MediaRow>
-            </Animated.View>
-          ))}
-        </View>
-        {foot}
       </View>
+      <View accessibilityLiveRegion="polite">
+        {rows.map((r, i) => (
+          <Animated.View key={r.key} entering={enter(i)}>
+            {i > 0 ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
+            <GroupedRow
+              label={r.title}
+              labelLines={3}
+              {...(r.action?.primary && !r.done ? { labelParts: [{ text: r.title, mark: true }] } : {})}
+              {...(r.done
+                ? {
+                    leading: (
+                      <View style={[styles.check, { backgroundColor: c.ink }]}>
+                        <Icon name="check" size={13} color={c.bg} />
+                      </View>
+                    ),
+                  }
+                : { icon: r.icon })}
+              faint={r.dim === true}
+              // A step just done says so for a moment, in its own green, where what it asks for was.
+              {...(r.saying
+                ? {
+                    below: (
+                      <Text variant="footnote" tone="ok">
+                        {r.saying}
+                      </Text>
+                    ),
+                  }
+                : !r.done && r.desc
+                  ? { sub: r.desc, subLines: 3 }
+                  : {})}
+              {...(r.action
+                ? { chevron: true, onPress: r.action.onPress, ...(r.done ? { value: r.action.label } : {}) }
+                : {})}
+              {...(!r.done && r.skip && !r.skip.busy
+                ? { remove: { label: r.skip.label, onPress: r.skip.onPress } }
+                : {})}
+            />
+          </Animated.View>
+        ))}
+      </View>
+      {foot ? <View style={styles.footRoom}>{foot}</View> : null}
     </Card>
   );
 }
 
-/** The card's foot: a lead, then asks to press. */
+/** The card's foot: a lead, then asks to press, each with the kit's press (a light haptic as it lands). */
 export function SetupAsks({ lead, asks }: { lead: string; asks: { label: string; onPress: () => void }[] }) {
   const c = useColors();
   return (
@@ -425,19 +405,20 @@ export function SetupAsks({ lead, asks }: { lead: string; asks: { label: string;
         {lead}
       </Text>
       {asks.map((a) => (
-        <Pressable
+        <PressScale
           key={a.label}
           onPress={a.onPress}
           accessibilityRole="button"
           accessibilityLabel={a.label}
-          style={({ pressed }) => [styles.task, { borderColor: c.line2 }, pressed && { backgroundColor: c.sunken }]}
+          style={[styles.task, { borderColor: c.line2 }]}
+          contentStyle={styles.taskIn}
         >
           <Icon name="chat" size={16} color={c.ink2} />
           <Text variant="small" style={styles.fill}>
             {a.label}
           </Text>
-          <Icon name="right" size={16} color={c.faint} />
-        </Pressable>
+          <Disclosure />
+        </PressScale>
       ))}
     </View>
   );
@@ -463,6 +444,8 @@ export function useDoneSay<S extends string>(ready: boolean, doneNow: readonly S
     const text = fresh ? say.current(fresh) : "";
     if (!fresh || !text) return;
     successHaptic();
+    // VoiceOver reads a row as one element without its green line: the line is said aloud as it shows.
+    AccessibilityInfo.announceForAccessibility(text);
     setSaid({ step: fresh, text });
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setSaid(null), 2600);
@@ -478,28 +461,16 @@ const styles = StyleSheet.create({
   bold: { fontWeight: "600" },
   fill: { flex: 1, minWidth: 0 },
   card: { marginTop: 2 },
-  inner: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
+  // The head at the card's padding; the rows bring their own 16 at the sides, so their words line up under it.
+  cardTop: { paddingHorizontal: CARD_PAD, paddingTop: 14, paddingBottom: 6 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 10 },
-  meter: { flexDirection: "row", gap: 4, marginTop: 10, marginBottom: 4 },
+  meter: { flexDirection: "row", gap: 4, marginTop: 10 },
   seg: { flex: 1, height: 4, borderRadius: 2 },
-  row: { paddingVertical: 12 },
-  lead: { flex: 1, alignItems: "center", justifyContent: "center" },
-  check: {
-    width: MEDIA_ROW.row.face,
-    height: MEDIA_ROW.row.face,
-    borderRadius: MEDIA_ROW.row.face / 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  acts: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: ROW_TEXT_X },
+  check: { width: DONE, height: DONE, borderRadius: DONE / 2, alignItems: "center", justifyContent: "center" },
+  // What goes under the rows (asks, a first run's answers) keeps the card's padding.
+  footRoom: { paddingHorizontal: CARD_PAD, paddingBottom: 8 },
   foot: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, paddingBottom: 8, gap: 8 },
-  task: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  task: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12 },
+  taskIn: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
 });

@@ -375,6 +375,24 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     expect(box.value).toContain("@ada");
   });
 
+  test("a long asker's name: 'Falar com …' is the foot's whole name, its words in the label a narrow dialog cuts", async () => {
+    const c = consultation({});
+    const state = withTalk(withAsk([c]), c);
+    const ada = state.agents.find((a) => a.id === ADA_ID);
+    if (!ada) throw new Error("no Ada");
+    ada.name = "Assistente de Atendimento ao Cliente Sênior";
+    await open(state);
+    await act(async () => fireEvent.click(rowButton()));
+    await settle(3);
+    const talk = within(panel() as HTMLElement).getByRole("button", {
+      name: "Falar com o Assistente de Atendimento ao Cliente Sênior",
+    });
+    expect(talk.closest(".ac-dialog__foot")).not.toBeNull();
+    expect(talk.querySelector(":scope > .ac-btn__label")?.textContent).toBe(
+      "Falar com o Assistente de Atendimento ao Cliente Sênior",
+    );
+  });
+
   test("a question card in the dialog answers in place: 'Responder' opens its field there", async () => {
     const c = consultation({ waiting: "input" });
     const asks: Message = {

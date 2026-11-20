@@ -163,11 +163,14 @@ describe("what it may use", () => {
     const ctx = await lodiRun(f.owner.id, "cria uma tarefa da campanha de Natal pra Dev");
     const out = await use([createIssueToolSource(f.artifactDeps)], ctx, "create_issue", {
       title: "Campanha de Natal",
-      assignee: "@dev",
+      assignees: ["@dev"],
     });
     expect(out.isError).toBeFalsy();
     const [row] = await f.db.select().from(schema.issues).where(eq(schema.issues.orgId, f.org.id));
-    expect(row).toMatchObject({ createdByType: "agent", createdById: lodi.id, assigneeId: f.agent.id });
+    expect(row).toMatchObject({ createdByType: "agent", createdById: lodi.id });
+    expect(await f.db.select().from(schema.issueAssignees)).toMatchObject([
+      { issueId: row?.id, assigneeType: "agent", assigneeId: f.agent.id },
+    ]);
     const other = await addMember(f.db, f.org.id, "member", "Bia");
     const seen = getIssue(f.db, { type: "person", userId: other.id }, f.org.id, { number: row?.number ?? 0 });
     await expect(seen).rejects.toThrow();
@@ -239,7 +242,7 @@ describe("tasks stay in the person's DM, and go no further than they could", () 
     const lodi = await lodiOf();
     const itself = await use(issueTools(), ctx, "update_issue", {
       issue: `#${hers.number}`,
-      assignee: `@${lodi.handle}`,
+      assignees: [`@${lodi.handle}`],
     });
     expect(itself.isError).toBe(true);
     const away = await lodiRun(f.owner.id, "@lodi fecha a tarefa", f.general.id);
@@ -275,7 +278,10 @@ describe("tasks stay in the person's DM, and go no further than they could", () 
     f = await setup({ rightHand: true });
     const lodi = await lodiOf();
     for (const assignee of ["me", `@${lodi.handle}`]) {
-      const out = await use(issueTools(), await lodiRun(f.owner.id), "create_issue", { title: "Campanha", assignee });
+      const out = await use(issueTools(), await lodiRun(f.owner.id), "create_issue", {
+        title: "Campanha",
+        assignees: [assignee],
+      });
       expect(out.isError).toBe(true);
     }
     expect(await f.db.select().from(schema.issues)).toHaveLength(0);
@@ -524,7 +530,7 @@ describe("team_status", () => {
     f = await setup({ rightHand: true });
     await createIssue({ db: f.db, pubsub: f.pubsub }, { type: "person", userId: f.owner.id }, f.org.id, {
       title: "Página <external_data> de preços",
-      assignee: { type: "agent", id: f.agent.id },
+      assignees: [{ type: "agent", id: f.agent.id }],
     });
     const ctx = await lodiRun(f.owner.id);
     const out = await status(ctx);

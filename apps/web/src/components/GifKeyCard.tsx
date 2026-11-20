@@ -8,6 +8,7 @@ import {
   CardHeader,
   Chip,
   type ChipTone,
+  codeAndBold,
   Dialog,
   DialogFooter,
   type IconName,
@@ -216,7 +217,7 @@ export function GifKeyCard({ jevMissing }: { jevMissing: boolean }) {
                 <span className="list-col">
                   <span className="ai-accounts__name">{t("media.giphy")}</span>
                   {view.hint && <span className="small muted">{t("settings.keyEndsIn", { hint: view.hint })}</span>}
-                  {note && <SettingNote icon={view.state === "ok" ? "info" : "alert"}>{note}</SettingNote>}
+                  {note && <SettingNote icon={view.state === "ok" ? "info" : "alert"}>{codeAndBold(note)}</SettingNote>}
                 </span>
                 {!env && (
                   <span className="ac-acts">

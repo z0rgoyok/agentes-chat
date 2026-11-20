@@ -9,6 +9,7 @@ import {
   DialogFooter,
   Locked,
   LogoMark,
+  workspaceSky,
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
@@ -403,8 +404,23 @@ export function MyFace(props: Omit<AvatarProps, "name" | "imageUrl">) {
   return <Avatar {...props} name={me.user.name} imageUrl={photo} />;
 }
 
-/** The workspace's mark: its logo when there is one, else the agent mark. */
-export function OrgMark({ logo, size = 28, className }: { logo?: string | null; size?: number; className?: string }) {
+/**
+ * The workspace's mark: its logo when there is one, else the agent mark. `accent`: that workspace's own (null: none),
+ * for a list that shows several; absent, the mark takes the active workspace's.
+ */
+export function OrgMark({
+  logo,
+  accent,
+  size = 28,
+  className,
+}: {
+  logo?: string | null;
+  accent?: string | null;
+  size?: number;
+  className?: string;
+}) {
   if (logo) return <img className={cx("org-mark", className)} src={logo} alt="" width={size} height={size} />;
-  return <LogoMark className={className} size={size} />;
+  return (
+    <LogoMark className={className} size={size} {...(accent !== undefined ? { sky: workspaceSky(accent) } : {})} />
+  );
 }

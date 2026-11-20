@@ -10,13 +10,22 @@ import {
 import { vaultConnectRefusal } from "@agenteschat/client/lib/errors";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Button, GroupedField, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Text, useToast } from "@/ui";
+import { StyleSheet, View } from "react-native";
+import {
+  GroupedField,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  SkeletonList,
+  Text,
+  useToast,
+} from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note, openPage } from "../ai/parts";
-import { ConnectedNote } from "../connectors/ConnectSheet";
-import { SettingsPage } from "../settings/parts";
-import { useColors, useOrgId } from "../shared/hooks";
+import { NEXT_FIELD, SettingsPage } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useOrgId } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
 import { goBack, successHaptic, Tile } from "../shared/parts";
 import {
@@ -33,12 +42,12 @@ import { InputField, ScopeRows, useVaultNames } from "./parts";
 /**
  * Connecting a password manager (ADR 0144 §3), drawn from what the source describes: a warning when it has one
  * (Bitwarden's master password opens the whole account), its numbered steps, its fields, personal or the team's,
- * then Connect, which checks with the password manager before anything is kept. With `connection`, the same fields
- * replace a connection's sign-in details (Reconnect).
+ * then Connect, which checks with the password manager before anything is kept; connected, the connection's own page
+ * takes this one's place (who uses it and how to change that are there). With `connection`, the same fields replace a
+ * connection's sign-in details (Reconnect).
  */
 export function VaultConnectScreen({ kind, connectionId }: { kind: string; connectionId?: string }) {
   const { t } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const vault = useVault(orgId);
   const source = vault.data?.sources.find((s) => s.kind === kind);
@@ -46,12 +55,14 @@ export function VaultConnectScreen({ kind, connectionId }: { kind: string; conne
   if (!source || (connectionId && !connection)) {
     return (
       <SettingsPage title={t("settings.section.vault")}>
-        {vault.isError || vault.isSuccess ? (
+        {vault.isError ? (
+          <LoadFailed onRetry={() => void vault.refetch()} />
+        ) : vault.isSuccess ? (
           <View style={styles.note}>
-            <Note icon="x">{vault.isError ? t("common.loadFailed") : t("mobile.vault.connect.unknown")}</Note>
+            <Note icon="x">{t("mobile.vault.connect.unknown")}</Note>
           </View>
         ) : (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={4} />
         )}
       </SettingsPage>
     );
@@ -83,11 +94,12 @@ function ConnectForm({
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(source));
   const [chosen, setChosen] = useState<VaultScope>(canTeam ? "team" : "personal");
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [made, setMade] = useState<VaultConnection | null>(null);
   const names = useVaultNames();
   const scope: VaultScope = chosen === "team" && canTeam ? "team" : "personal";
   const missing = connectMissing(source, values);
   const busy = connect.isPending || update.isPending;
+  const fields = shownFields(source, values);
+  const lastTyped = fields.filter((f) => f.kind !== "choice").at(-1)?.id;
   const k = source.kind;
   // A source's words: their translation when the app has one, the source's own English otherwise (a module's).
   const say = (path: string, fallback: string): string => t(`vault.source.${k}.${path}`, { defaultValue: fallback });
@@ -118,9 +130,15 @@ function ConnectForm({
     connect.mutate(
       { kind: k, scope, input },
       {
+        // Connected: its page in this one's place, never a "done" step drawn here; the toast says who can use it.
         onSuccess: (connected) => {
           successHaptic();
-          setMade(connected);
+          toast({
+            title: t("mobile.vault.connect.connected", { name: source.name }),
+            subtitle: accessSentence(t, connected.scope, connected.access, names),
+            icon: "check",
+          });
+          router.replace(vaultHref.connection(connected.id) as never);
         },
         onError: failed,
       },
@@ -140,24 +158,6 @@ function ConnectForm({
       if (key !== null) set(f.id, key);
     });
 
-  // The end of connecting, as a tool's: who can use it, then "Pronto" or "Ajustar" (its access).
-  if (made) {
-    return (
-      <SettingsPage title={t("mobile.vault.connect.title", { name: source.name })}>
-        <View style={styles.done}>
-          <ConnectedNote name={source.name} text={accessSentence(t, made.scope, made.access, names)} />
-          <Button variant="primary" wide label={t("connectFlow.done.ok")} onPress={goBack} />
-          <Button
-            variant="secondary"
-            wide
-            label={t("connectFlow.done.adjust")}
-            onPress={() => router.replace(vaultHref.connectionAccess(made.id) as never)}
-          />
-        </View>
-      </SettingsPage>
-    );
-  }
-
   return (
     <SettingsPage
       title={
@@ -171,6 +171,7 @@ function ConnectForm({
         disabled: missing.length > 0 || busy,
       }}
       locked={busy}
+      toolbar
     >
       <GroupedFooter>{t("mobile.vault.connect.text", { name: source.name })}</GroupedFooter>
       {source.warning ? (
@@ -207,7 +208,7 @@ function ConnectForm({
 
       <GroupedHeader>{t("mobile.vault.connect.fields")}</GroupedHeader>
       <GroupedList>
-        {shownFields(source, values).map((f) => {
+        {fields.map((f) => {
           const label = say(`field.${f.id}`, f.label);
           if (f.kind === "choice") {
             const value = values[f.id] ?? "";
@@ -222,6 +223,7 @@ function ConnectForm({
           }
           const keyboard = fieldKeyboard(f);
           return (
+            // Return walks the typed fields (a choice in between is skipped); the last one closes the keyboard.
             <InputField
               key={f.id}
               label={label}
@@ -233,6 +235,7 @@ function ConnectForm({
               textContentType="none"
               autoComplete="off"
               {...(f.placeholder ? { placeholder: say(`placeholder.${f.id}`, f.placeholder) } : {})}
+              {...(f.id === lastTyped ? { returnKeyType: "done" as const } : NEXT_FIELD)}
             />
           );
         })}
@@ -268,7 +271,5 @@ function ConnectForm({
 
 const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
-  done: { gap: 12, paddingTop: 16 },
-  loading: { marginVertical: 16 },
   number: { fontWeight: "600" },
 });

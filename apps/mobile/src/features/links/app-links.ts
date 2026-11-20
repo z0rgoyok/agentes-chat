@@ -2,6 +2,7 @@ import type { ApiClient, MessageCard } from "@agenteschat/client";
 import { messagePath } from "@agenteschat/client/lib/message-links";
 import { isSafeId } from "../shared/logic";
 import { chatHref, notificationHref } from "./logic";
+import { workspaceOnScreen } from "./on-screen";
 
 /**
  * The web's addresses as the app's screens (iOS universal links, Android App Links): a link to the website that
@@ -129,6 +130,9 @@ function workspaceScreen(rest: string[], q: Record<string, string>): Record<stri
       // A file's link (`filePath`): the file itself, at its version when named.
       if (isSafeId(q.artifact))
         return /^\d{1,9}$/.test(q.v ?? "") ? `/file/${q.artifact}?v=${q.v}` : `/file/${q.artifact}`;
+      // A live file's own page on the web (ADR 0196 §9): the file here, which goes on to its kind's screen; with `m`,
+      // its conversation at that message (ADR 0199).
+      if (id !== undefined) return isSafeId(id) ? (m ? `/file/${id}?m=${m}` : `/file/${id}`) : null;
       return "/drive";
     case "wiki":
       if (id === undefined) return "/wiki";
@@ -156,9 +160,11 @@ function workspaceScreen(rest: string[], q: Record<string, string>): Record<stri
 
 /**
  * A URL the app was opened with → where it goes. Only the web's addresses (`https://<host>/…`) change: the app's own
- * scheme (`agenteschat://chat/…`) and paths stay as they are (null).
+ * scheme (`agenteschat://chat/…`) and paths stay as they are (null). A screen of `current` (the workspace on screen)
+ * that needs nothing looked up opens straight away; anything else goes through `/link`, which switches workspace or
+ * asks the server first.
  */
-export function appLinkFromUrl(url: string): AppLink {
+export function appLinkFromUrl(url: string, current: string | null = null): AppLink {
   const match = /^https?:\/\/[^/?#]+(\/[^?#]*)?(?:\?([^#]*))?/i.exec(url.trim());
   if (!match) return null;
   const path = match[1] || "/";
@@ -169,20 +175,24 @@ export function appLinkFromUrl(url: string): AppLink {
   if (parts[0] !== "org" || !isSafeId(parts[1])) return web;
   const screen = workspaceScreen(parts.slice(2), queryOf(query));
   if (screen === null) return web;
+  // The app's own path for it, when it needs nothing looked up first (`/link` opens `to` as it came).
+  const to = typeof screen === "string" ? screen : (screen.to ?? null);
+  if (to !== null && current !== null && parts[1] === current) return { href: to };
   // `web`: the address itself, opened in the browser when the person isn't in that workspace.
   const at = { org: parts[1], web: web.web };
   return { href: linkHref(typeof screen === "string" ? { ...at, to: screen } : { ...at, ...screen }) };
 }
 
 /**
- * A link in a message to a page of this server (`server`): the app's screen for it, through `/link`; null for any other
- * site, or a page the app has no screen for (it opens as a web page).
+ * A link in a message to a page of this server (`server`): the app's screen for it, straight away in `current` (the
+ * workspace on screen), else through `/link`; null for any other site, or a page the app has no screen for (it opens
+ * as a web page).
  */
-export function ownLinkHref(url: string, server: string): string | null {
+export function ownLinkHref(url: string, server: string, current: string | null = workspaceOnScreen()): string | null {
   const origin = (u: string) => /^https?:\/\/[^/?#]+/i.exec(u.trim())?.[0].toLowerCase() ?? null;
   const here = origin(server);
   if (!here || origin(url) !== here) return null;
-  const link = appLinkFromUrl(url);
+  const link = appLinkFromUrl(url, current);
   return link && "href" in link ? link.href : null;
 }
 

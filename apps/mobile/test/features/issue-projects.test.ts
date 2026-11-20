@@ -27,15 +27,19 @@ const projects = [
 ];
 
 describe("Tarefas' projects on the phone", () => {
-  test("the filter's sheet: every task, the nineteen in use, the tasks with none, the archived one last", () => {
+  test("the filter's pushed picker: every task, the nineteen in use, the tasks with none, the archived one last", () => {
     const rows = projectFilterRows(projects);
     expect(rows).toHaveLength(21);
     expect(rows.at(-2)).toBeNull();
     expect(rows.at(-1)?.name).toBe("Acme 2025");
+    // The chip pushes the task picker (screens, never a list opened in place), which lists them in that order.
     const screen = src("IssuesScreen.tsx");
-    expect(screen).toContain('row("", t("issues.projects.all")');
-    expect(screen).toContain("...projectFilterRows(projects).map(");
-    expect(screen).toContain('p.archived ? t("issues.projects.archivedMark") : undefined');
+    expect(screen).toContain('openTaskPick({ what: "projectFilter", value: shown, apply: setFilter });');
+    expect(screen).toContain('router.push("/issues/pick");');
+    const pick = src("TaskPickScreen.tsx");
+    expect(pick).toContain('{ key: "", label: t("issues.projects.all")');
+    expect(pick).toContain("...projectFilterRows(projects).map(");
+    expect(pick).toContain('...(p.archived ? { sub: t("issues.projects.archivedMark") } : {}),');
     // No project in the workspace: no chip, the screen as it was.
     expect(screen).toContain("{projects.length > 0 ? (");
   });
@@ -49,10 +53,10 @@ describe("Tarefas' projects on the phone", () => {
 
   test("both views ask the server for the project's tasks, and say each task's project only among every task", () => {
     const screen = src("IssuesScreen.tsx");
-    expect(screen.match(/useIssues\(orgId, "", project\)/g)).toHaveLength(2);
-    expect(screen).toContain('<BoardCard issue={i} live={card <= LIVE_CARDS} project={project === ""} />');
-    expect(screen).toContain('project={project === ""} />');
-    expect(screen).toContain("{project && i.project ? <ProjectName project={i.project} /> : null}");
+    // Asked once for both views, so the header and its pull to refresh are one.
+    expect(screen.match(/useIssues\(orgId, "", shown\)/g)).toHaveLength(1);
+    expect(screen).toMatch(/<BoardCard\s+issue=\{i\}\s+live=\{card <= LIVE_CARDS\}\s+project=\{project === ""\}/);
+    expect(screen).toContain('{project && i.project ? <ProjectName project={i.project} variant="small" /> : null}');
     expect(src("parts.tsx")).toContain("{project && i.project ? <ProjectName project={i.project} /> : null}");
     // A long name wraps inside the card's line, its dot on the first line: never cut.
     const name = src("parts.tsx").split("export function ProjectName")[1]?.split("\n}\n")[0] ?? "";
@@ -69,13 +73,15 @@ describe("Tarefas' projects on the phone", () => {
     const form = src("NewIssueForm.tsx");
     expect(form).toContain("useState<string | null>(fromProject ?? null)");
     expect(form).toContain("...(project ? { projectId: project.id } : {}),");
-    // The form offers the ones in use, then none. With no project in the workspace the row isn't there.
+    // The form offers the ones in use, then none, on the pushed picker. With no project in the workspace the row isn't
+    // there.
     expect(pickableProjects(projects)).toHaveLength(19);
     expect(form).toContain("{projects.length > 0 ? (");
-    expect(form).toContain("[...projects, null]");
+    expect(form).toContain('pickOn({ what: "project", value: project, apply: setProjectId })');
+    expect(src("TaskPickScreen.tsx")).toContain("key: NO_PROJECT,");
   });
 
-  test("the task's strip starts with Projeto, and its sheet still names the task's own archived project", () => {
+  test("the task's strip starts with Projeto, and its picker still names the task's own archived project", () => {
     const task = src("IssueScreen.tsx");
     const strip = task.split("<View style={styles.chips}>")[1] ?? "";
     expect(strip.indexOf('label={t("issues.projects.label")}')).toBeGreaterThan(-1);
@@ -85,7 +91,8 @@ describe("Tarefas' projects on the phone", () => {
     expect(task).toContain('value={i.project?.name ?? t("issues.projects.none")}');
     expect(task).toContain("patch: { projectId } }");
     expect(pickableProjects(projects, projects[19]).at(-1)?.name).toBe("Acme 2025");
-    expect(src("parts.tsx")).toContain("...pickableProjects(projects, current).map((p) => ({");
+    expect(task).toContain('what: "project",');
+    expect(src("TaskPickScreen.tsx")).toContain("...pickableProjects(projects, pick.value).map((p) => ({");
   });
 
   test("a project's dot is its colour's middle tone, as on the web, and a hollow ring for none", () => {

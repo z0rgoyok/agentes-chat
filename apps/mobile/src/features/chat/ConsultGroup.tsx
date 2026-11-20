@@ -4,17 +4,14 @@ import {
   type MessageConsultation,
   type RunConsultation,
   useConsultationConversation,
-  useConsultations,
 } from "@agenteschat/client";
 import { handoffAsk } from "@agenteschat/client/lib/agent-work";
 import {
-  asExchanges,
   type ConsultLineState,
   type ConsultPairItem,
   consultLineKey,
   consultPair,
   firstOfRun,
-  groupsByRun,
   openableConsultation,
   pairItemOf,
 } from "@agenteschat/client/lib/consult-group";
@@ -23,17 +20,18 @@ import { namesText } from "@agenteschat/client/lib/format";
 import type { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import { consultationHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useOrgId } from "../shared/hooks";
+import { useColors, useNow, useOrgId } from "../shared/hooks";
 import { usePresenceOf } from "../status/hooks";
 import { rowBodyInset } from "./logic";
 import { useRhythm, useRowLook } from "./look";
+import { useRowConsults, useRowDirectory } from "./row-data";
 import { WaitMark } from "./WaitMark";
 
 /** A question's state in words, on the conversation's screen ("A Iris espera uma aprovação"). */
@@ -44,17 +42,9 @@ export const consultLineLabel = (
   to: ReturnType<typeof agentGrammar>,
 ) => t(consultLineKey(state, c), { name: to.name, context: to.context });
 
-/** A clock for the open questions' times; still once none is out. */
-function useTick(active: boolean) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [active]);
-  return now;
-}
+/** The open questions' times count by the second; with none out the row's clock barely moves (`useNow`). */
+const OPEN_TICK_MS = 1000;
+const STILL_TICK_MS = 3_600_000;
 
 const NO_ITEMS: ConsultPairItem[] = [];
 const NO_CONSULTED: MessageConsultation[] = [];
@@ -76,12 +66,10 @@ export function useRunConsults(
 ): ConsultPairItem[] {
   const orgId = useOrgId();
   const qc = useQueryClient();
-  const list = useConsultations(orgId, where.channelId, Boolean(runId));
-  const group = useMemo(
-    () => (runId ? groupsByRun(asExchanges(list.data ?? [])).get(runId) : undefined),
-    [list.data, runId],
-  );
-  const listed = useMemo(() => new Set((list.data ?? []).map((c) => c.id)), [list.data]);
+  // Grouped once for the conversation (`RowConsults.byRun`, `groupsByRun(asExchanges(…))`), not again in every row.
+  const list = useRowConsults(where.channelId);
+  const group = runId ? list.byRun.get(runId) : undefined;
+  const listed = list.byId;
   const loaded =
     group && runId
       ? [
@@ -106,9 +94,9 @@ export function useRunConsults(
  */
 export function useConsultById(channelId: string, id: string | undefined): RunConsultation | null {
   const orgId = useOrgId();
-  const list = useConsultations(orgId, channelId, Boolean(id));
-  const listed = useMemo(() => (id && list.data?.find((c) => c.id === id)) || null, [list.data, id]);
-  const alone = useConsultationConversation(orgId, channelId, id && list.isSuccess && !listed ? id : null);
+  const list = useRowConsults(channelId);
+  const listed = (id && list.byId.get(id)) || null;
+  const alone = useConsultationConversation(orgId, channelId, id && list.loaded && !listed ? id : null);
   return listed ?? alone.data?.consultation ?? null;
 }
 
@@ -138,10 +126,10 @@ export function ConsultPairRow({
   const { t, i18n } = useTranslation();
   const rhythm = useRhythm();
   const inset = rowBodyInset(useRowLook());
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const c = useColors();
   const live = items.some((x) => x.status === "open");
-  const now = useTick(live);
+  const now = useNow(live ? OPEN_TICK_MS : STILL_TICK_MS);
   // The hand-off's run waits on me (its agent's work for me, ADR 0084 addendum): the row says so in amber, as on
   // the web.
   const presence = usePresenceOf();

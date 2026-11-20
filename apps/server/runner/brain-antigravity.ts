@@ -241,9 +241,9 @@ export interface AntigravityTurnOptions {
 export async function runAntigravityTurn(input: AntigravityTurnInput, opts: AntigravityTurnOptions): Promise<void> {
   const fail = (code: string, message: string, retryable?: boolean) =>
     opts.emit({ type: "error", code, message, ...(retryable ? { retryable } : {}) });
-  // Elsewhere the CLI keeps its sign-in in the one keychain of the computer's user (ADR 0143).
-  if ((opts.platform ?? process.platform) !== "linux") {
-    return fail("unsupported", "Gemini plans think on Linux computers only, for now.");
+  // On Windows the CLI keeps its sign-in in the one Credential Manager of the computer's user (ADR 0143).
+  if ((opts.platform ?? process.platform) === "win32") {
+    return fail("unsupported", "Gemini plans don't think on Windows computers yet.");
   }
   try {
     prepareAgyHome(input.account.home, opts.mcpCommand);

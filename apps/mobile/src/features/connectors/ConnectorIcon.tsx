@@ -70,6 +70,7 @@ export function ConnectorIcon({
       {uri ? (
         <Image
           source={{ uri }}
+          cachePolicy="memory-disk"
           tintColor={tint}
           contentFit="contain"
           style={{ width: Math.round(size * (markScale ?? 0.5)), height: Math.round(size * (markScale ?? 0.5)) }}
@@ -77,6 +78,7 @@ export function ConnectorIcon({
       ) : own && own.uri !== failed ? (
         <Image
           source={own}
+          cachePolicy="memory-disk"
           onError={() => setFailed(own.uri)}
           contentFit="contain"
           style={{ width: Math.round(size * (markScale ?? 0.58)), height: Math.round(size * (markScale ?? 0.58)) }}

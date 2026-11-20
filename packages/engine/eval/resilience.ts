@@ -38,6 +38,11 @@ type ResilienceCase = BehaviorCase & {
   onlyKey?: boolean;
   /** Really ambiguous: a good run asks one question (a question card that went through). */
   oneQuestion?: boolean;
+  /**
+   * Asked for information or advice (ADR 0097 addendum of 2026-11-16): a good run answers it and asks for no key, no
+   * connection and no approval to start a step it only offers.
+   */
+  noAsk?: boolean;
 };
 
 const arg = (name: string) => {
@@ -81,6 +86,9 @@ interface Outcome {
   why: string;
 }
 
+/** What starts a step the person didn't ask for: a key, a connection, an approval. */
+const ASK_TOOLS = new Set(["request_secret", "request_permission", "request_approval"]);
+
 /** The tool calls a grade reads: an `ask_user` held by its check answers "Not asked". */
 type Call = { name: string; executed?: boolean; result?: string };
 
@@ -105,6 +113,9 @@ function grade(
     c.onlyKey && asked > 0 ? `${asked} question(s) in the chat` : "",
     c.onlyKey && ASKS_KEY_IN_CHAT.test(reply) ? "asks for the key in the chat" : "",
     c.oneQuestion && asked !== 1 ? `${asked} questions (one expected)` : "",
+    c.noAsk && made.some((x) => ASK_TOOLS.has(x.name))
+      ? `asked for ${[...new Set(made.filter((x) => ASK_TOOLS.has(x.name)).map((x) => x.name))].join(", ")}`
+      : "",
   ].filter(Boolean);
   return { pass: why.length === 0, gaveUp, why: why.join("; ") };
 }

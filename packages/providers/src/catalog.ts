@@ -151,6 +151,15 @@ const DEEPSEEK_PEAK = [
 ] as const;
 
 export const MODEL_CATALOG: Record<string, ModelInfo> = {
+  // Claude Fable 5.2, Fable 5.1's successor at a lower price: $8 / $0.20 / $10 / $40 across its whole 1M-token
+  // window (2026-11-17). Like 5.1, no tier and no pick for routing or system tasks: people choose it.
+  "claude-fable-5-2": {
+    provider: "anthropic",
+    label: "Claude Fable 5.2",
+    prices: { input: 8000, output: 40000, cacheRead: 200, cacheWrite: 10000 },
+    contextWindow: 1_000_000,
+    serverSideFallback: true,
+  },
   // Its 1M-token window from platform.claude.com/docs/en/about-claude/models/overview, all of it at these prices
   // (2026-11-09). No tier and no pick for routing or system tasks: "Automático" never chooses it, people do.
   "claude-fable-5-1": {
@@ -190,11 +199,41 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     tier: "small",
   },
   // OpenAI, Standard tier, checked on developers.openai.com/api/docs/pricing (2026-10-20, GPT-6.1 Terra
-  // 2026-10-31, GPT-6 Astra 2026-11-09); cache writes at the 30-minute rate. Above 272K prompt tokens, input,
-  // cached input and cache writes cost 2×, output 1.5×. Context windows from each model's page (2026-10-26,
-  // Terra's 2026-10-31, Astra's 2026-11-09).
-  // OpenAI's flagship, 5× GPT-6.1 Sol's prices: no tier and no pick for routing or system tasks, so "Automático"
-  // never chooses it, people do.
+  // 2026-10-31, GPT-6 Astra 2026-11-09, GPT-6.2 Sol and Astra 2026-11-17); cache writes at the 30-minute rate.
+  // Above 272K prompt tokens, input, cached input and cache writes cost 2×, output 1.5×. Context windows from each
+  // model's page (2026-10-26, Terra's 2026-10-31, Astra's 2026-11-09, 6.2's 2026-11-17).
+  // GPT-6.2 Astra, OpenAI's flagship ("our most capable model"), 4× GPT-6.2 Sol's prices: like GPT-6 Astra, no tier
+  // and no pick for routing or system tasks, so Automatic never chooses it, people do.
+  "gpt-6.2-astra": {
+    provider: "openai",
+    label: "GPT-6.2 Astra",
+    prices: { input: 8000, output: 40000, cacheRead: 400, cacheWrite: 10000 },
+    longContext: {
+      aboveInputTokens: 272_000,
+      prices: { input: 16000, output: 60000, cacheRead: 800, cacheWrite: 20000 },
+    },
+    contextWindow: 1_050_000,
+    serverSideFallback: false,
+    reasoning: true,
+  },
+  // GPT-6.2 Sol, OpenAI's everyday model at GPT-6.1 Sol's prices, takes its tier and its place as the suggested
+  // model (and Codex's default). It refuses reasoning effort `none`, which goes as `low` (no `leastThinking`).
+  "gpt-6.2-sol": {
+    provider: "openai",
+    label: "GPT-6.2 Sol",
+    prices: { input: 2000, output: 10000, cacheRead: 100, cacheWrite: 2500 },
+    longContext: {
+      aboveInputTokens: 272_000,
+      prices: { input: 4000, output: 15000, cacheRead: 200, cacheWrite: 5000 },
+    },
+    contextWindow: 1_050_000,
+    serverSideFallback: false,
+    reasoning: true,
+    recommended: true,
+    tier: "medium",
+  },
+  // OpenAI's previous flagship, 5× GPT-6.1 Sol's prices: no tier and no pick for routing or system tasks, so
+  // Automatic never chooses it, people do.
   "gpt-6-astra": {
     provider: "openai",
     label: "GPT-6 Astra",
@@ -218,8 +257,6 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     contextWindow: 1_050_000,
     serverSideFallback: false,
     reasoning: true,
-    recommended: true,
-    tier: "medium",
   },
   // No tier and no pick for routing or system tasks: "Automático" never chooses it, people do.
   "gpt-6.1-terra": {
@@ -259,9 +296,19 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     leastThinking: "off",
     tier: "small",
   },
-  // Gemini (Interactions API), Standard tier, from ai.google.dev/gemini-api/docs/pricing (2026-10-27). Thinking is
-  // billed as output. Caching is implicit, with no write charge, so a cache write costs the input rate (none is ever
-  // reported). Argon and 3.8 Flash cost half until the day in `intro`.
+  // Gemini (Interactions API), Standard tier, from ai.google.dev/gemini-api/docs/pricing (2026-10-27; Gemini 4 Carbon
+  // and Hydrogen 2026-11-17). Thinking is billed as output. Caching is implicit, with no write charge, so a cache
+  // write costs the input rate (none is ever reported). Carbon, Argon and 3.8 Flash cost half until the day in `intro`.
+  // Gemini 4 Carbon, Google's strongest reasoning model, thinks more per turn than Argon at Argon's prices: no tier
+  // and no pick for routing or system tasks, so Automatic never chooses it (Argon stays the large one), people do.
+  "gemini-4-carbon": {
+    provider: "gemini",
+    label: "Gemini 4 Carbon",
+    prices: { input: 4000, output: 20000, cacheRead: 200, cacheWrite: 4000 },
+    intro: { until: "2026-12-01", prices: { input: 2000, output: 10000, cacheRead: 100, cacheWrite: 2000 } },
+    contextWindow: 1_048_576,
+    serverSideFallback: false,
+  },
   "gemini-4-argon": {
     provider: "gemini",
     label: "Gemini 4 Argon",
@@ -271,6 +318,17 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     serverSideFallback: false,
     tier: "large",
   },
+  // Gemini 4 Hydrogen, Google's "recommended upgrade from Gemini 3.8 Flash", one price across its whole window: it
+  // takes 3.8 Flash's tier and its place as the suggested model.
+  "gemini-4-hydrogen": {
+    provider: "gemini",
+    label: "Gemini 4 Hydrogen",
+    prices: { input: 1500, output: 7500, cacheRead: 75, cacheWrite: 1500 },
+    contextWindow: 1_048_576,
+    serverSideFallback: false,
+    recommended: true,
+    tier: "medium",
+  },
   "gemini-3.8-flash": {
     provider: "gemini",
     label: "Gemini 3.8 Flash",
@@ -278,8 +336,6 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     intro: { until: "2027-01-01", prices: { input: 750, output: 3750, cacheRead: 75, cacheWrite: 750 } },
     contextWindow: 1_048_576,
     serverSideFallback: false,
-    recommended: true,
-    tier: "medium",
   },
   // It can't stop thinking: `minimal` is the least.
   "gemini-3.5-flash-lite": {

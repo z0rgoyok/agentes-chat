@@ -192,7 +192,7 @@ describe("the header search (Discord's)", () => {
   });
 
   // Many renders/tool calls in one test: over 5 s on a loaded CI runner, well under alone.
-  test("a message older than what's loaded: the conversation pages back to it, the buttons waiting meanwhile, then they close", async () => {
+  test("a message older than what's loaded: the page around it is read, the buttons waiting meanwhile, then they close", async () => {
     const state = seedState();
     const at = Date.now() - 3_600_000;
     for (let i = 0; i < 400; i++)
@@ -226,7 +226,7 @@ describe("the header search (Discord's)", () => {
     expect((jump as HTMLButtonElement).disabled).toBe(true);
     release();
     await waitFor(() => expect(row("h-3")?.classList.contains("ac-msg--focus")).toBe(true), { timeout: 10_000 });
-    expect(pages.mock.calls.at(-1)?.[2]?.limit).toBe(200);
+    expect(pages.mock.calls.at(-1)?.[2]).toEqual({ around: "h-3", limit: 200 });
     expect(results()).toBeNull();
   }, 15_000);
 
@@ -243,7 +243,7 @@ describe("the header search (Discord's)", () => {
     const panel = results() as HTMLElement;
     await act(async () => fireEvent.click(within(panel).getByRole("button", { name: "Ir para a mensagem de Ada" })));
     await settle(8);
-    expect(document.body.textContent).toContain("Não deu para chegar a essa mensagem aqui.");
+    expect(document.body.textContent).toContain("Essa mensagem não está disponível.");
     expect(results()).toBeTruthy();
   });
 
@@ -398,7 +398,7 @@ describe("the header search (Discord's)", () => {
     await settle(6);
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${GENERAL_ID}`);
     expect(row("m-new").classList.contains("ac-msg--focus")).toBe(true);
-    expect(document.body.textContent).not.toContain("Não deu para chegar a essa mensagem aqui.");
+    expect(document.body.textContent).not.toContain("Essa mensagem não está disponível.");
   });
 
   test("back from a hit's thread: the focus returns to its Ir para", async () => {

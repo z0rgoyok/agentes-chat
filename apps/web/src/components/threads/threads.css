@@ -335,6 +335,10 @@ html:not([data-pointer]) .pins-pop__item:has(> .thread-pop__row:focus-visible) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A box of its own: a phone's title is a block, where words left inline run past the panel's edge with no "…". */
+.thread-title__text {
+  display: block;
+}
 /* Capped at the title's width: a phone's title is a block, where the button wouldn't shrink and its "…" wouldn't show. */
 .thread-title__button {
   max-width: 100%;

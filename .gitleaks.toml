@@ -66,3 +66,12 @@ regexes = ['''^abcdef0123456789$''']
 description = "Keyboard shortcut lists"
 targetRules = ["generic-api-key"]
 regexes = ['''^Alt\+Shift\+Arrow(Up|Down)( Alt\+Shift\+Arrow(Up|Down))*$''']
+
+# The command-rule test's ordinary curl posts to a URL that carries a made-up token: its parts read
+# {"alg":"HS256"}, {"sub":"reply"} and "signature-here". Only that exact token in that file is allowed.
+[[allowlists]]
+description = "Made-up JWT in a URL of the command-rule test"
+targetRules = ["jwt"]
+condition = "AND"
+paths = ['''^packages/adapters/test/bad-actor\.test\.ts$''']
+regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJyZXBseSJ9\.c2lnbmF0dXJlLWhlcmU$''']

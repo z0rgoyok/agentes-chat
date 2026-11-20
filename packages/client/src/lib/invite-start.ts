@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 import { ApiError } from "../api/http";
 import type { Agent, Channel, InviteLink, InviteLinkTtl, OrgRole } from "../api/types";
 import { sameList } from "./agent-edit";
-import { answersOthers, audienceOf, modeOf } from "./audience";
+import { answersOthers, audienceOf, managesAgent, modeOf } from "./audience";
 import { engineOfBrain } from "./brain";
 import { agentGrammar } from "./grammar";
 import { grants, isEveryone, sortRoles } from "./roles";
@@ -50,7 +50,7 @@ export type InviteAgentCase = "everyone" | "cargo" | "opens" | "locked" | "plan"
 
 export function inviteAgentCase(
   agent: Agent,
-  viewer: { userId: string; managesAgents: boolean },
+  viewer: { userId: string },
   /** The picked cargos' agents (`inviteStart`'s, before the ones taken out). */
   cargoAgentIds: readonly string[],
   /** Whose mailboxes opening it would take (`agents.audienceMailLoss`), for one the viewer may open. */
@@ -58,7 +58,9 @@ export function inviteAgentCase(
 ): InviteAgentCase {
   if (modeOf(agent) === "everyone") return "everyone";
   if (cargoAgentIds.includes(agent.id)) return "cargo";
-  if (!viewer.managesAgents && agent.ownerUserId !== viewer.userId) return "locked";
+  // Only its owner or who manages this agent opens it (`managesAgent`, ADR 0085 addendum of 2026-11-17): the "Edit
+  // agents" key alone doesn't reach someone's private agent.
+  if (!managesAgent(agent) && agent.ownerUserId !== viewer.userId) return "locked";
   const onPlan = engineOfBrain(agent.brain?.kind) !== "agent";
   if (onPlan && !answersOthers({ ...audienceOf(agent), consultable: false }, agent.ownerUserId)) return "plan";
   return mailboxOwners.length > 0 ? "mailbox" : "opens";

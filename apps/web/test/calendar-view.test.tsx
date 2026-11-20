@@ -7,8 +7,11 @@ import type { CalendarReminder } from "@agenteschat/client";
 import { HOUR_PX, mondayOf } from "@agenteschat/client/lib/calendar";
 import { toYmd } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { pinFileClock } from "./clock";
+import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
+
+pinFileClock();
 
 afterEach(() => cleanup());
 
@@ -292,6 +295,51 @@ describe("Calendário: views, moves and series", () => {
     expect(due.getAttribute("title")).toBe(due.getAttribute("aria-label"));
     // Where a column has room only for a face, its kind's glyph stands in (the CSS shows it there).
     expect(due.querySelector(".cal-chip__title > svg.cal-chip__glyph")).not.toBeNull();
+  });
+
+  test("a task several have opens with the first one's face and counts for each of them in Agents and people", async () => {
+    const monday = mondayOf(today);
+    const count = (name: string) => {
+      const row = [...document.querySelectorAll(".cal-owner")].find(
+        (r) => r.querySelector(".ac-who b")?.textContent === name,
+      );
+      return Number(row?.querySelector(".cal-owner__count")?.textContent ?? 0);
+    };
+    const open = async () => {
+      const filters = screen().queryByRole("button", { name: "Filtros" });
+      if (filters) await click(filters);
+      await settle(2);
+    };
+    await go();
+    await open();
+    const before = { joao: count("João"), atlas: count("Atlas") };
+    cleanup();
+    await go((api) =>
+      api.issues.create(ORG_ID, {
+        title: "Fechar a release",
+        dueDate: toYmd(monday),
+        assignees: [
+          { type: "person", id: "u-joao" },
+          { type: "agent", id: ATLAS_ID },
+        ],
+      }),
+    );
+    const due = screen().getByRole("button", { name: /^#\d+ Fechar a release, dia todo$/ });
+    expect(due.querySelector(".ac-who .ac-avatar")?.getAttribute("data-kind")).toBe("person");
+    await open();
+    expect({ joao: count("João"), atlas: count("Atlas") }).toEqual({ joao: before.joao + 1, atlas: before.atlas + 1 });
+    // It stays while one of them shows, and goes once both are hidden.
+    const owners = screen().getByRole("region", { name: "Agentes e pessoas" });
+    await click(within(owners).getByRole("checkbox", { name: "Mostrar João" }));
+    await settle(2);
+    expect(screen().queryByRole("button", { name: /^#\d+ Fechar a release, dia todo$/ })).not.toBeNull();
+    await click(
+      within(screen().getByRole("region", { name: "Agentes e pessoas" })).getByRole("checkbox", {
+        name: "Mostrar Atlas",
+      }),
+    );
+    await settle(2);
+    expect(screen().queryByRole("button", { name: /^#\d+ Fechar a release, dia todo$/ })).toBeNull();
   });
 
   test("what's over is drawn lighter: a run whose time came, an event that ended", async () => {

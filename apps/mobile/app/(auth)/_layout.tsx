@@ -1,22 +1,19 @@
-import { Stack } from "expo-router";
-import { useFormSheetOptions } from "@/ui/navigation";
-import { useTheme } from "@/ui/theme";
+import { Sheet } from "@lodev09/react-native-true-sheet/navigation/expo-router";
+import { useRouteSheetOptions } from "@/ui";
+
+/** A link straight to the sheet still has the sign-in under it. */
+export const unstable_settings = { anchor: "(pages)" };
 
 /**
- * Sign in and sign up (forgot password in place), your server and the QR scanner: the platform's push between them.
- * "Onde fica o seu workspace?" is a sheet over the sign-in.
+ * Signed out: the sign-in's screens (`(pages)`), and "Onde fica o seu workspace?" as a sheet over them, the system's
+ * own as every sheet of the app (`useRouteSheetOptions`), sized to its rows.
  */
 export default function AuthLayout() {
-  const { colors } = useTheme();
-  const sheet = useFormSheetOptions("fitToContents");
+  const sheet = useRouteSheetOptions();
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="where" options={sheet} />
-    </Stack>
+    <Sheet>
+      <Sheet.Screen name="(pages)" />
+      <Sheet.Screen name="where" options={sheet(["auto"])} />
+    </Sheet>
   );
 }

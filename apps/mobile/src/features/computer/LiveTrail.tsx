@@ -6,10 +6,10 @@ import {
   type ScreenKind,
   type ScreenStep,
 } from "@agenteschat/client";
+import { screenT } from "@agenteschat/client/lib/browser-card";
 import { lowerFirst } from "@agenteschat/client/lib/format";
 import { formatDuration } from "@agenteschat/client/lib/work";
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
-import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { Icon, PixelOrbit, Text } from "@/ui";
@@ -29,13 +29,6 @@ const asTrail = (s: ScreenStep, now: number): BrowserTrailStep => ({
   at: new Date(s.since ?? now).toISOString(),
   failed: false,
 });
-
-/** The desktop's words where it has them, the browser's otherwise (as the trail card says them). */
-function screenT(t: TFunction, screen: ScreenKind) {
-  const loose = t as unknown as (keys: string[], options?: Record<string, unknown>) => string;
-  return (key: string, options?: Record<string, unknown>) =>
-    screen === "browser" ? loose([`browser.${key}`], options) : loose([`${screen}.${key}`, `browser.${key}`], options);
-}
 
 /**
  * Under the agent's screen while watching, "Agora": its work as the browser's trail card lists it after the run

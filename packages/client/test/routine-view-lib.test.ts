@@ -6,6 +6,7 @@ import { approvalOriginWords, approvalWhy, approvalWords } from "../src/lib/appr
 import { openTarget } from "../src/lib/notifications";
 import {
   busyOnComputer,
+  cronRule,
   healthWords,
   isStoppable,
   pausedFix,
@@ -456,4 +457,19 @@ test("a routine that couldn't call an agent opens the agent's page, where who ta
       source: { routineId: "r1", agentId: "a1", userId: "u1", channelId: "c1", messageId: "m1" },
     } as AppNotification),
   ).toEqual({ to: "/org/$orgId/agents/$agentId", params: { agentId: "a1" } });
+});
+
+test("a simple cron reads as the rule the server would keep, to say it in words; another one doesn't", () => {
+  expect(cronRule("15 8 * * 1,2,3,4,5", "UTC")).toEqual({
+    freq: "weekly",
+    byWeekday: ["MO", "TU", "WE", "TH", "FR"],
+    times: ["08:15"],
+    timezone: "UTC",
+  });
+  expect(cronRule("0 9 * * *", "")).toEqual({ freq: "daily", times: ["09:00"], timezone: "" });
+  expect(cronRule("0 9 1,15 * *", "UTC")).toMatchObject({ freq: "monthly", byMonthDay: [1, 15], times: ["09:00"] });
+  expect(cronRule("30 */2 * * 1-5", "UTC")).toMatchObject({ freq: "hourly", interval: 2, times: ["00:30"] });
+  expect(cronRule("0 10 30 12 *", "UTC")).toMatchObject({ freq: "yearly", byMonth: [12], byMonthDay: [30] });
+  expect(cronRule("*/15 * * * *", "UTC")).toBeNull();
+  expect(cronRule("0 9 1 * 1", "UTC")).toBeNull();
 });

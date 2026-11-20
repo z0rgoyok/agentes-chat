@@ -453,6 +453,19 @@ export function secretEntries(content: string | null): Record<string, string> {
   };
 }
 
+/** Compose's limit for the app's container when `AGENTES_MEMORY` is unset (docker-compose.yml), in bytes. */
+const APP_MEMORY_DEFAULT = 8 * 1024 ** 3;
+
+/**
+ * `AGENTES_MEMORY` for a machine without room for Compose's default: a limit above the machine's memory never fires, so
+ * the kernel's OOM killer picks among every process instead of Docker restarting the app alone. Three quarters of the
+ * memory, the rest left to Postgres and the system. Nothing when the .env sets it or the default fits.
+ */
+export function memoryEntries(content: string | null, memory: number): Record<string, string> {
+  if (envValue(content, "AGENTES_MEMORY") || memory >= APP_MEMORY_DEFAULT * 1.25) return {};
+  return { AGENTES_MEMORY: `${Math.max(1024, Math.floor((memory * 0.75) / 1024 ** 2))}m` };
+}
+
 /**
  * The .env lines for a pasted key. An OAuth client secret registers a tagged device that stays (not
  * ephemeral) and needs no approval; the tag must be one the OAuth client was created with.

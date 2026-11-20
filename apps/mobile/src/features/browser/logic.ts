@@ -10,6 +10,7 @@ import {
 } from "@agenteschat/client";
 import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import type { TFunction } from "i18next";
+import type { IconName } from "@/ui";
 
 /**
  * The agent's browser on the phone (ADR 0040): what only the app decides. The
@@ -44,31 +45,33 @@ export function stepText(
   return text === key ? t(`${words}.other`) : text;
 }
 
-/** "dashboard.stripe.com" from a frame's URL (or nothing). */
-export function hostOf(url: string | undefined | null): string {
-  if (!url) return "";
-  const m = /^[a-z][a-z0-9+.-]*:\/\/([^/?#:]+)/i.exec(url.trim());
-  return m?.[1]?.toLowerCase() ?? "";
-}
+/** Each browser step's icon in the card's history, as the web's (`STEP_ICON`), in the phone's own icons. */
+const STEP_ICON: Record<string, IconName> = {
+  browser_do: "bolt",
+  browser_open: "globe",
+  browser_back: "left",
+  browser_tabs: "swap",
+  browser_read: "doc",
+  browser_click: "right",
+  browser_fill: "pen",
+  browser_select: "list",
+  browser_check: "check",
+  browser_press: "right",
+  browser_scroll: "down",
+  browser_upload: "up",
+  browser_type_secret: "key",
+  browser_make_password: "key",
+  browser_wait: "clock",
+  browser_screenshot: "image",
+  browser_ask_person: "person",
+  browser_close: "x",
+};
 
-/** The site the card names: the live page's host, else the last page the agent opened ("loja.exemplo"). */
-export function siteOf(frameUrl: string | null | undefined, steps: { tool: string; detail: string | null }[]): string {
-  const live = hostOf(frameUrl);
-  if (live) return live;
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const s = steps[i];
-    const tool = s?.tool.replace(/^mcp__agentes__/, "");
-    if ((tool !== "browser_open" && tool !== "browser_tabs") || !s?.detail) continue;
-    return hostOf(s.detail) || s.detail.trim().toLowerCase();
-  }
-  return "";
-}
-
-/** The site's letter tile ("L" for loja.exemplo, without "www."), or nothing. */
-export function siteLetter(host: string): string {
-  const name = host.replace(/^www\./, "");
-  return name ? name.charAt(0).toUpperCase() : "";
-}
+/** A step's icon in the card's history; one the list doesn't know is the browser's. */
+export const stepIcon = (tool: string): IconName => {
+  const plain = tool.replace(/^mcp__agentes__/, "");
+  return Object.hasOwn(STEP_ICON, plain) ? (STEP_ICON[plain] ?? "globe") : "globe";
+};
 
 /**
  * Where a finger on the page's box lands on the page (`createTouchInput`'s `toPage`): the picture is

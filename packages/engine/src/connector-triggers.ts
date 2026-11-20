@@ -6,6 +6,7 @@ import { connectOverHttp, type McpConnect, type McpSession } from "./connectors/
 import { presetForServer } from "./connectors/presets";
 import { ValidationError } from "./errors";
 import { isEmailAddress, matchesAddressRules, normalizeAddressRule } from "./mail/text";
+import { creatorMayUse } from "./personal-use";
 import { hasScope } from "./tools/scopes";
 
 const { connectorConnections, routineHooks } = schema;
@@ -163,13 +164,14 @@ export function connectorCallPasses(source: ConnectorTriggerSource, body: Uint8A
 /**
  * The connection a routine's agent may take this event from: active in the workspace, made from the event's
  * service, and one whose tools its owner let the agent read (ADR 0016 §2), so the agent never learns of mail it
- * couldn't read itself.
+ * couldn't read itself. A person's own connection only for a routine its owner set up (`creatorMayUse`).
  */
 export async function checkConnectorTrigger(
   db: Database,
   orgId: string,
   agentId: string,
   input: { connectionId: string; event: ConnectorEventId },
+  creatorId: string | null,
 ) {
   const [connection] = await db
     .select()
@@ -184,6 +186,8 @@ export async function checkConnectorTrigger(
   if (!connection || presetForServer(connection.serverUrl)?.id !== EVENTS[input.event].preset) {
     throw new ValidationError("Pick a connected service", "routine.connector_not_found");
   }
+  const notYours = await connectorNotYours(db, orgId, connection, creatorId);
+  if (notYours) throw notYours;
   if (!(await hasScope(db, orgId, agentId, connection.id, customScope(connection.id, "read")))) {
     throw new ValidationError(
       "Let the agent read this connection before a routine can wait on it",
@@ -191,6 +195,23 @@ export async function checkConnectorTrigger(
     );
   }
   return connection;
+}
+
+/**
+ * Why a routine made by `creatorId` may not wait on a person's own connection, or do anything in its account such as
+ * registering a webhook (ADR 0099 addendum): only that person's own routine, while they are a member. Null: it may.
+ */
+export async function connectorNotYours(
+  db: Database,
+  orgId: string,
+  connection: { ownerUserId: string | null },
+  creatorId: string | null,
+) {
+  if (!connection.ownerUserId || (await creatorMayUse(db, orgId, connection.ownerUserId, creatorId))) return null;
+  return new ValidationError(
+    "This connection is another person's own: only a routine of theirs can wait on its events",
+    "routine.connector_not_yours",
+  );
 }
 
 /**
@@ -204,11 +225,11 @@ export async function connectorTriggerAllowed(
   source: ConnectorTriggerSource,
 ) {
   const [routine] = await db
-    .select({ agentId: schema.routines.agentId })
+    .select({ agentId: schema.routines.agentId, createdByUserId: schema.routines.createdByUserId })
     .from(schema.routines)
     .where(and(eq(schema.routines.id, routineId), eq(schema.routines.orgId, orgId)));
   if (!routine?.agentId) return false;
-  return checkConnectorTrigger(db, orgId, routine.agentId, source).then(
+  return checkConnectorTrigger(db, orgId, routine.agentId, source, routine.createdByUserId).then(
     () => true,
     () => false,
   );

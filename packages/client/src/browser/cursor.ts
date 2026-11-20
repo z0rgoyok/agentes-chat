@@ -22,31 +22,51 @@ export const AGENT_ARROW = [
   "....XX..",
 ] as const;
 
-/** After this long with no gesture the cursor fades; the next one brings it back where it was. */
+/** After this long with no gesture the cursor rests where it was, dimmed; the next one brings it back to full strength. */
 export const CURSOR_IDLE_MS = 4000;
+/** The resting cursor's opacity: seen over the page, quiet enough to read through (web: `.brw-cur.is-idle`). */
+export const CURSOR_REST_OPACITY = 0.45;
 /** Past this share of the width the name opens to the arrow's left, so the picture's edge never cuts it. */
 export const CURSOR_FLIP_AT = 0.74;
+/** Points from the tip to the bottom of the name's tag hung below the arrow (its offset, height and shadow). */
+export const CURSOR_TAG_BELOW = 48;
+
+/** Whether the name opens above the arrow: the tip `tipY` points down a box `boxHeight` tall leaves no room below. */
+export const cursorTagLifts = (tipY: number, boxHeight: number) => boxHeight > 0 && tipY > boxHeight - CURSOR_TAG_BELOW;
 
 export type CursorSpot = { x: number; y: number };
 
 /**
  * A pointer and how many gestures came before it: `n` changes with every one, also two clicks on one point. `at` is
- * when it came (ms), so a view that shows it later can tell a gesture long over from one under way.
+ * when it came (ms), so a view that shows it later can tell a gesture long over from one under way; 0 for the last
+ * one the server sent again as the view opened.
  */
-export type CountedPointer = BrowserPointer & { n: number; at: number };
+export type CountedPointer = Omit<BrowserPointer, "replay"> & { n: number; at: number };
 
-export const nextPointer = (was: CountedPointer | null, to: BrowserPointer, at = Date.now()): CountedPointer => ({
-  ...to,
-  n: (was?.n ?? 0) + 1,
-  at,
-});
+const samePoint = (a: Omit<BrowserPointer, "replay">, b: BrowserPointer) =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.act === b.act;
 
-/** The pointer in a desktop's `agent.desktop.pointer` user event (ADR 0062), for that agent only. */
+export function nextPointer(was: CountedPointer | null, to: BrowserPointer, at = Date.now()): CountedPointer {
+  const { replay, ...point } = to;
+  // Sent again to every view as one opens: those already showing it keep it as it is.
+  if (replay && was && samePoint(was, to)) return was;
+  return { ...point, n: (was?.n ?? 0) + 1, at: replay ? 0 : at };
+}
+
+/** A gesture over by `now`: shown later (a view opened, control handed back) it is placed at rest, never replayed. */
+export const pointerAtRest = (p: CountedPointer, now: number) => now - p.at > CURSOR_IDLE_MS;
+
+/**
+ * The pointer in a desktop's `agent.desktop.pointer` user event (ADR 0062), for that agent only, and for the right
+ * hand on the seat the view shows (`shared`: its shared one, ADR 0175), as a person may have both open.
+ */
 export function desktopPointerOf(
-  event: { type: string; agentId?: unknown; pointer?: unknown },
+  event: { type: string; agentId?: unknown; shared?: unknown; pointer?: unknown },
   agentId: string,
+  shared = false,
 ): BrowserPointer | null {
   if (event.type !== "agent.desktop.pointer" || event.agentId !== agentId) return null;
+  if ((event.shared === true) !== shared) return null;
   return parseBrowserPointer(event.pointer);
 }
 

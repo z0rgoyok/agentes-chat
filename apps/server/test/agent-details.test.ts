@@ -11,6 +11,7 @@ type ListedAgent = {
   instructions: string;
   seesDetails: boolean;
   canTalk: boolean;
+  listed?: boolean;
   budgetUsedPercent?: number;
 };
 
@@ -75,12 +76,16 @@ test("someone an agent doesn't answer sees only its public card, on every route 
   expect(detail.instructions).toBe("");
   expect(Array.isArray(detail.channels)).toBe(true);
 
-  // The Team page's card: no capabilities.
-  const team = (await (await bia(`${org}/team`)).json()) as {
-    agents: { id: string; capabilities: string[]; seesDetails: boolean }[];
-  };
-  expect(team.agents.find((a) => a.id === rex.id)?.seesDetails).toBe(false);
-  expect(team.agents.find((a) => a.id === rex.id)?.capabilities).toEqual([]);
+  // Rex answers only its owner: private, so unlisted to her. Team leaves it out and the list flags it, while its page
+  // above still answers with the public card (its messages need its name and face).
+  const team = (await (await bia(`${org}/team`)).json()) as { agents: { id: string }[] };
+  expect(team.agents.map((a) => a.id)).toContain(ana.id);
+  expect(team.agents.map((a) => a.id)).not.toContain(rex.id);
+  expect(rexListed?.listed).toBe(false);
+  expect(listed.find((a) => a.id === ana.id)?.listed).toBe(true);
+  const overview = async (who: typeof bia) =>
+    ((await (await who(`${org}/overview`)).json()) as { agents: number }).agents;
+  expect(await overview(bia)).toBe((await overview(owner)) - 1);
 
   for (const part of DETAIL_READS) {
     const res = await bia(`${org}/agents/${rex.id}/${part}`);
@@ -125,7 +130,13 @@ test("an admin who isn't in the audience still sees every detail", async () => {
     })
   ).json()) as { id: string };
   const listed = ((await (await admin(`${org}/agents`)).json()) as { agents: ListedAgent[] }).agents;
-  expect(listed.find((a) => a.id === rex.id)).toMatchObject({ seesDetails: true, instructions: "Private notes." });
+  expect(listed.find((a) => a.id === rex.id)).toMatchObject({
+    seesDetails: true,
+    instructions: "Private notes.",
+    listed: true,
+  });
+  const team = (await (await admin(`${org}/team`)).json()) as { agents: { id: string }[] };
+  expect(team.agents.map((a) => a.id)).toContain(rex.id);
   expect((await admin(`${org}/agents/${rex.id}/access`)).status).toBe(200);
 });
 

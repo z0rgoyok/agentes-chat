@@ -20,13 +20,15 @@ import {
 } from "@agenteschat/client/lib/wiki";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { Locked, RoleMark, Row, SCREEN_X, Text, useToast } from "@/ui";
+import { StyleSheet, View } from "react-native";
+import { GroupedFooter, GroupedList, GroupedRow, RoleMark, SkeletonList, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
+import { Gap, SettingsPage } from "../settings/parts";
 import { AccessList, type AccessListRow } from "../shared/AccessList";
-import { useColors, useDirectory, useOrgId } from "../shared/hooks";
-import { PushedHeader, successHaptic, Tile } from "../shared/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useDirectory, useOrgId } from "../shared/hooks";
+import { successHaptic } from "../shared/parts";
 
 /**
  * "Acesso" to a wiki page or folder (ADR 0023 addenda), the web's dialog as a screen on the shared `AccessList`: a level
@@ -40,11 +42,11 @@ export function WikiAudienceScreen({ slug, folder }: { slug?: string; folder?: s
   const info = useWikiFolderAudience(orgId, folder ?? "", folder !== undefined);
   const p = slug ? page.data : undefined;
   if (folder !== undefined) {
-    if (!info.data) return null;
+    if (!info.data) return <Waiting folder={folder} failed={info.isError} retry={() => void info.refetch()} />;
     const { own, above } = info.data;
     return <Form key={folder} folder={folder} initial={own ?? above ?? OPEN_WIKI_ACCESS} above={above} />;
   }
-  if (!p) return null;
+  if (!p) return <Waiting failed={page.isError} retry={() => void page.refetch()} />;
   return (
     <Form
       key={p.id}
@@ -58,6 +60,19 @@ export function WikiAudienceScreen({ slug, folder }: { slug?: string; folder?: s
       }}
       above={p.folderAudience ?? null}
     />
+  );
+}
+
+/**
+ * The screen while what it edits loads: its bar and title from the first frame, the rows' shape under them, or what
+ * went wrong and the way to ask again.
+ */
+function Waiting({ folder, failed, retry }: { folder?: string; failed: boolean; retry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <SettingsPage title={folder === "" ? t("wiki.audienceRootTitle") : t("wiki.audience")}>
+      {failed ? <LoadFailed onRetry={retry} /> : <SkeletonList rows={4} />}
+    </SettingsPage>
   );
 }
 
@@ -79,7 +94,6 @@ function Form({
   above: WikiFolderAudience | null;
 }) {
   const { t } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const toast = useToast();
   const failed = useFailed();
@@ -171,76 +185,73 @@ function Form({
     (r) => wikiRowCap(cap.people, cap.roles[r.id]) !== "none",
   );
   const agents = dir.agents.filter((a) => wikiRowCap(cap.agents, cap.agentRows[a.id]) !== "none");
+  const pending = action.isPending || saveFolder.isPending;
   return (
-    // Who sees and edits, as every access screen: groups on the grouped gray.
-    <View style={[styles.fill, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={folder === "" ? t("wiki.audienceRootTitle") : t("wiki.audience")}
-        solid={false}
-        action={{ label: t("common.save"), onPress: save, disabled: action.isPending || saveFolder.isPending }}
-      />
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
-        <Locked when={action.isPending || saveFolder.isPending}>
-          <Text variant="footnote" tone="faint" style={styles.lead}>
-            {folder
-              ? t("wiki.audienceFolderText")
-              : folder === ""
-                ? t("wiki.audienceRootText")
-                : t("wiki.audienceText")}
-          </Text>
-          {above ? (
-            <Text variant="footnote" tone="faint" style={styles.lead}>
-              {above.folder ? t("wiki.audienceInFolder", { folder: above.folder }) : t("wiki.audienceInRoot")}
-            </Text>
-          ) : null}
-          <AccessList
-            levelName={levelName}
-            rows={[
-              base("people", t("wiki.audienceEveryone"), t("wiki.audienceEveryoneText"), "person"),
-              base("agents", t("wiki.audienceAgentsAll"), t("wiki.audienceAgentsAllText"), "person"),
-            ]}
-          />
-          <AccessList
-            title={t("wiki.audienceRoles")}
-            levelName={levelName}
-            rows={roleList.map((r) => ({
-              ...row("roles", draft.people, wikiRowCap(cap.people, cap.roles[r.id]), r.id, "shield", r.name),
-              leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
-            }))}
-          />
-          <AccessList
-            title={t("wiki.audiencePeople")}
-            levelName={levelName}
-            rows={[...dir.memberById.values()].map((m) =>
-              row("users", draft.people, "edit", m.userId, "person", m.name, m.email),
-            )}
-          />
-          <AccessList
-            title={t("wiki.audienceAgents")}
-            levelName={levelName}
-            rows={agents.map((a) =>
-              row("agentRows", draft.agents, wikiRowCap(cap.agents, cap.agentRows[a.id]), a.id, "person", a.name),
-            )}
-          />
-          <Text variant="footnote" tone="faint" style={styles.lead}>
-            {t("wiki.audienceEditNote")}
-          </Text>
-          {inFolder ? (
-            <Row
-              leading={<Tile icon="archive" />}
-              title={t("wiki.audienceUseFolder", { folder: inFolder })}
+    // Who sees and edits, as every access screen: groups on the grouped gray, Salvar in the bar.
+    <SettingsPage
+      title={folder === "" ? t("wiki.audienceRootTitle") : t("wiki.audience")}
+      action={{ label: t("common.save"), onPress: save, disabled: pending }}
+      busy={pending}
+    >
+      <GroupedFooter>
+        {folder ? t("wiki.audienceFolderText") : folder === "" ? t("wiki.audienceRootText") : t("wiki.audienceText")}
+      </GroupedFooter>
+      {above ? (
+        <GroupedFooter>
+          {above.folder ? t("wiki.audienceInFolder", { folder: above.folder }) : t("wiki.audienceInRoot")}
+        </GroupedFooter>
+      ) : null}
+      <Gap />
+      {/* The access lists keep their own 16 at the sides, as on Vault's access: out of the page's padding. */}
+      <View style={styles.bleed}>
+        <AccessList
+          levelName={levelName}
+          rows={[
+            base("people", t("wiki.audienceEveryone"), t("wiki.audienceEveryoneText"), "person"),
+            base("agents", t("wiki.audienceAgentsAll"), t("wiki.audienceAgentsAllText"), "person"),
+          ]}
+        />
+        <AccessList
+          title={t("wiki.audienceRoles")}
+          levelName={levelName}
+          rows={roleList.map((r) => ({
+            ...row("roles", draft.people, wikiRowCap(cap.people, cap.roles[r.id]), r.id, "shield", r.name),
+            leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
+          }))}
+        />
+        <AccessList
+          title={t("wiki.audiencePeople")}
+          levelName={levelName}
+          rows={[...dir.memberById.values()].map((m) =>
+            row("users", draft.people, "edit", m.userId, "person", m.name, m.email),
+          )}
+        />
+        <AccessList
+          title={t("wiki.audienceAgents")}
+          levelName={levelName}
+          rows={agents.map((a) =>
+            row("agentRows", draft.agents, wikiRowCap(cap.agents, cap.agentRows[a.id]), a.id, "person", a.name),
+          )}
+        />
+      </View>
+      <GroupedFooter>{t("wiki.audienceEditNote")}</GroupedFooter>
+      {inFolder ? (
+        <>
+          <Gap />
+          <GroupedList>
+            <GroupedRow
+              icon="archive"
+              label={t("wiki.audienceUseFolder", { folder: inFolder })}
               chevron
               onPress={() => router.push({ pathname: "/wiki-audience", params: { folder: inFolder } })}
             />
-          ) : null}
-        </Locked>
-      </ScrollView>
-    </View>
+          </GroupedList>
+        </>
+      ) : null}
+    </SettingsPage>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  content: { paddingBottom: 40 },
-  lead: { paddingHorizontal: SCREEN_X, paddingVertical: 12 },
+  bleed: { marginHorizontal: -16 },
 });

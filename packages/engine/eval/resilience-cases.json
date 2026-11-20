@@ -667,6 +667,82 @@
     "never": ["qual é o endereço", "o que \"jev\""]
   },
   {
+    "id": "ada-external-api-key-as-question",
+    "title": "O mesmo pedido em forma de pergunta (\"consegue…?\"): é trabalho, pede só a chave",
+    "source": "synthetic (ADR 0097 addendum of 2026-11-16)",
+    "agent": {
+      "name": "Ada",
+      "handle": "ada",
+      "role": "Assistente de operações",
+      "instructions": "Ajuda o time com dados, contas e integrações."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. O time fala português. Usamos serviços de IA de vários fornecedores."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "operacoes",
+      "trigger": {
+        "author": "Marina",
+        "body": "@ada consegue puxar meus gastos de jev na api do typesafe?"
+      }
+    },
+    "web": {
+      "search": [
+        {
+          "when": ["typesafe", "api"],
+          "results": [
+            {
+              "title": "TypeSafe API reference",
+              "url": "https://docs.typesafe.example/api",
+              "snippet": "Base URL, authentication with an API key, and the usage endpoint for every product."
+            }
+          ]
+        },
+        {
+          "when": ["typesafe", "jev"],
+          "results": [
+            {
+              "title": "Jev: TypeSafe's judge model",
+              "url": "https://docs.typesafe.example/jev",
+              "snippet": "Jev is TypeSafe's fast judge model. Its spend shows in the usage endpoint as product=jev."
+            }
+          ]
+        },
+        {
+          "when": ["typesafe"],
+          "results": [
+            {
+              "title": "TypeSafe API reference",
+              "url": "https://docs.typesafe.example/api",
+              "snippet": "Base URL, authentication with an API key, and the usage endpoint for every product."
+            }
+          ]
+        }
+      ],
+      "pages": {
+        "https://docs.typesafe.example/api": {
+          "body": "<h1>TypeSafe API</h1><p>Base URL: https://api.typesafe.example/v1</p><p>Authentication: send your API key as <code>Authorization: Bearer YOUR_KEY</code>. Create keys in the dashboard.</p><h2>Usage</h2><p>GET /usage?product=jev&amp;from=2026-10-01 returns spend in USD by day for one product (jev, guard, scan).</p>"
+        },
+        "https://docs.typesafe.example/jev": {
+          "body": "<h1>Jev</h1><p>Jev is TypeSafe's fast judge model. Its spend is reported by GET /usage?product=jev.</p>"
+        },
+        "https://api.typesafe.example/v1/usage?product=jev": {
+          "status": 401,
+          "body": "{\"error\":\"missing API key\"}"
+        }
+      }
+    },
+    "secretRequest": true,
+    "facts": [],
+    "onlyKey": true,
+    "expect": {
+      "behavior": "Finds TypeSafe's API docs on the web (base URL, the usage endpoint, what jev is), tries the call, and asks the person only for the API key, through request_secret; never asks the API's address or what jev is, and never asks for the key in the chat."
+    },
+    "never": ["qual é o endereço", "o que \"jev\""]
+  },
+  {
     "id": "ambiguous-one-question",
     "title": "Pedido ambíguo de verdade: uma pergunta só",
     "source": "synthetic (ADR 0109 addendum)",
@@ -745,6 +821,83 @@
     "onlyKey": true,
     "expect": {
       "behavior": "Reads the docs, tries the call, and asks for the Ledgerly API key only through request_secret, never in the chat."
+    }
+  },
+  {
+    "id": "options-question-no-key",
+    "title": "Pergunta de opções e preço: responde com as opções, sem pedir chave, conexão nem aprovação",
+    "source": "production, anonymized (ADR 0097 addendum of 2026-11-16)",
+    "agent": {
+      "name": "Lia",
+      "handle": "lia",
+      "role": "Produção de vídeo",
+      "instructions": "Cuida dos vídeos curtos do perfil da empresa: roteiro, narração, edição e publicação."
+    },
+    "org": {
+      "name": "Vela",
+      "context": "Vela é uma fintech de pagamentos para pequenos lojistas. O time fala português. Publicamos Reels de uns 70 segundos toda semana."
+    },
+    "conversation": {
+      "where": "dm",
+      "trigger": {
+        "author": "Marina",
+        "body": "a gente queria fazer o próximo Reel com vários cortes animados, no formato desenho, talvez passando referência. qual a melhor forma de gerar um vídeo assim? onde sai mais barato?"
+      }
+    },
+    "web": {
+      "search": [
+        {
+          "when": ["vídeo"],
+          "results": [
+            {
+              "title": "Quadro API: vídeo por IA cobrado por segundo",
+              "url": "https://quadro.example.com/precos",
+              "snippet": "Gere clipes de 5 a 10 s a partir de uma imagem. US$ 0,04 por segundo em 768p, crédito pré-pago e chave de API criada no painel."
+            },
+            {
+              "title": "Traço Studio: planos mensais",
+              "url": "https://traco.example.com/planos",
+              "snippet": "Planos de US$ 29 a US$ 129 por mês com créditos de vídeo; conecte pelo nosso app ou servidor MCP."
+            },
+            {
+              "title": "Animo: vídeo animado a partir de referência",
+              "url": "https://animo.example.com/precos",
+              "snippet": "US$ 0,13 por segundo, aceita uma folha de referência do personagem."
+            }
+          ]
+        },
+        {
+          "when": ["video"],
+          "results": [
+            {
+              "title": "Quadro API: video by AI, billed per second",
+              "url": "https://quadro.example.com/precos",
+              "snippet": "5 to 10 s clips from an image. US$ 0.04 per second at 768p, prepaid credit and an API key from the dashboard."
+            },
+            {
+              "title": "Traço Studio: monthly plans",
+              "url": "https://traco.example.com/planos",
+              "snippet": "Plans from US$ 29 to US$ 129 a month with video credits; connect through our app or MCP server."
+            }
+          ]
+        }
+      ],
+      "pages": {
+        "https://quadro.example.com/precos": {
+          "body": "<h1>Preços</h1><p>US$ 0,04 por segundo em 768p, US$ 0,07 em 1080p. Crédito pré-pago a partir de US$ 10. Crie uma chave de API no painel para usar.</p>"
+        },
+        "https://traco.example.com/planos": {
+          "body": "<h1>Planos</h1><p>Básico US$ 29/mês (60 s de vídeo), Pro US$ 129/mês (400 s). Conecte pelo app ou pelo servidor MCP em mcp.traco.example.</p>"
+        },
+        "https://animo.example.com/precos": {
+          "body": "<h1>Preços</h1><p>US$ 0,13 por segundo. Aceita folha de referência do personagem.</p>"
+        }
+      }
+    },
+    "facts": ["Quadro"],
+    "noAsk": true,
+    "expect": {
+      "behavior": "Answers with the options and what each costs, says which comes out cheapest for this volume, and may offer to start a pilot. Opens no secret request, no connection and no approval: the person asked a question."
     }
   }
 ]

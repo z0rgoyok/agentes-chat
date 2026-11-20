@@ -1,0 +1,30 @@
+/*
+ * A live file's conversation in the chat (ADR 0199): the line over a message about part of a file (`.msg-quote`, as
+ * "Respondendo a"), the quote over the composer (`.composer-quote`) and where the file was made, on the
+ * conversation's top. Every conversation may draw them, so they sit apart from the file's page.
+ */
+
+/* The kind's glyph where a reply shows the face: quiet, its size, never squeezed. */
+.lf-about > .ac-icon,
+.lf-quote > .ac-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+/* "Atlas criou este quadro a partir da conversa com Ana": the task's origin line, a step stronger. Its icon on the
+   first line's capitals (`.ac-iconline`), never in the middle of two lines. */
+.lf-origin {
+  gap: 6px;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: 0 var(--pane-x, var(--space-4));
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.lf-origin b {
+  color: var(--ink2);
+  font-weight: 600;
+}
+.lf-origin .ac-link {
+  font-weight: 600;
+}

@@ -12,8 +12,10 @@ import {
   createSetupToolSource,
   createToolGateway,
   drainOutbox,
+  enqueue,
   grantScopes,
   insertMessage,
+  type JobHandlers,
   NEW_AGENT_DEFAULTS,
   postPersonMessage,
   REFUSALS,
@@ -166,7 +168,7 @@ describe("work that comes back goes on for the person behind it", () => {
         };
       },
     });
-    await createAgent(
+    const infra = await createAgent(
       f.db,
       f.owner.id,
       f.org.id,
@@ -179,9 +181,27 @@ describe("work that comes back goes on for the person behind it", () => {
       },
       { model: "claude-sonnet-5-5" },
     );
+    // Infra's run waits until its note is no handed work (as one that never reached the person): only then does what
+    // came of it wake @dev (`reportHandOffs`).
+    const held: JobHandlers = {
+      ...f.handlers,
+      "agent_run.execute": async (job, ctx) => {
+        const [run] = await f.db
+          .select({ agentId: schema.agentRuns.agentId })
+          .from(schema.agentRuns)
+          .where(eq(schema.agentRuns.id, String(job.payload.runId)));
+        if (run?.agentId === infra.id) return;
+        await f.handlers["agent_run.execute"]?.(job, ctx);
+      },
+    };
     await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
       body: "@dev avisa o infra que o deploy terminou",
     });
+    await drainOutbox(f.db, held);
+    await f.db.update(schema.agentRuns).set({ workId: null }).where(eq(schema.agentRuns.agentId, infra.id));
+    await f.db.delete(schema.agentWorks).where(eq(schema.agentWorks.agentId, infra.id));
+    for (const run of await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, infra.id)))
+      await enqueue(f.db, { orgId: f.org.id, kind: "agent_run.execute", payload: { runId: run.id } });
     await drainOutbox(f.db, f.handlers);
     // What came of the note, back in @dev's conversation (a note's reply, or the answer kind a note may come back as).
     const reply = (await f.db.select().from(schema.messages)).find((m) =>

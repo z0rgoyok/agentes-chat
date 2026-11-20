@@ -1,7 +1,9 @@
 import {
+  type Agent,
   type AgentGroup,
   useAgentGroups,
   useAgentStatuses,
+  useAgents,
   useAiStatus,
   useApprovals,
   useDms,
@@ -9,7 +11,7 @@ import {
   useUnarchiveAgent,
   useWorkingRuns,
 } from "@agenteschat/client";
-import { workLineText } from "@agenteschat/client/lib/agent-work";
+import { type WorkLine, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
 import { listsAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -20,9 +22,9 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { isOutOfOffice } from "@agenteschat/client/lib/presence";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { useIsFocused } from "expo-router";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshControl, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -44,6 +46,7 @@ import {
   ListRow,
   PixelOrbit,
   SectionHeader,
+  SkeletonList,
   SwipeRow,
   Text,
   useReducedMotion,
@@ -58,14 +61,13 @@ import { mayCreate } from "../new/logic";
 import { useMachineOutages } from "../outages/queries";
 import { chooseAction } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { FirstUse } from "../shared/FirstUse";
+import { FirstUse, LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useNow, useOrgId, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { successHaptic, Tile } from "../shared/parts";
 import { useWaitingApprovals, useWorkingNow } from "../shared/queries";
-import { SheetHostProvider } from "../shared/SheetHost";
 import { useTabHeader } from "../shared/tabHeader";
-import { useAgentWorkLine, usePresenceOf } from "../status/hooks";
+import { channelNameIn, useChannelNames, usePresenceOf } from "../status/hooks";
 import { useTasksToday } from "../task-manager/hooks";
 import { useSectorMenu } from "../team/SectorScreen";
 import { TeamEntry } from "../team/TeamEntry";
@@ -78,8 +80,11 @@ import { agoShort, workTitle } from "./work";
 const LIVE_ROWS = 8;
 /** While Agentes is on screen, how often it asks whether the task manager is there (the manager itself: seconds). */
 const TASKS_POLL_MS = 15_000;
-/** A row's state line changes in place (a run starts, a request lands): it crosses over, never pops. */
-const STATE_IN = FadeIn.duration(160);
+/**
+ * A row's state line changes in place (a run starts, a request lands): it crosses over, never pops; under 150 ms, as
+ * something seen many times a day (animate-expo's gate).
+ */
+const STATE_IN = FadeIn.duration(140);
 /** Back from a routine: the body comes back into its sky's frame. */
 const FACE_IN = FadeIn.duration(280).easing(Easing.bezier(0.23, 1, 0.32, 1));
 
@@ -93,19 +98,15 @@ const FACE_IN = FadeIn.duration(280).easing(Easing.bezier(0.23, 1, 0.32, 1));
  * bar's "+" creates one; an archived agent restores with a swipe.
  */
 export function AgentsScreen() {
-  return (
-    <SheetHostProvider>
-      <Agents />
-    </SheetHostProvider>
-  );
-}
-
-function Agents() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dir = useDirectory();
   const header = useTabHeader();
   const orgId = useOrgId();
   const org = useOrg().org;
+  // The directory's own read: a list that didn't load says so and asks again, never "create your first agent".
+  const directory = useAgents(orgId);
+  // One clock for every row's "4 min ago", read once here: a timer in each row woke the list row by row.
+  const now = useNow();
   const runs = useWorkingRuns(orgId);
   const dms = useDms(orgId);
   const approvals = useApprovals(orgId);
@@ -125,8 +126,12 @@ function Agents() {
       ),
     [statuses],
   );
-  const agents = dir.agents.filter((a) => listsAgent(org, a));
-  const { waiting, working, free } = teamLines(agents, work, dms.data ?? [], asking, offline, atWork);
+  const agents = useMemo(() => dir.agents.filter((a) => listsAgent(org, a)), [dir.agents, org]);
+  // The same lines while nothing they come from changes: the rows below are memoized on what each line holds.
+  const { waiting, working, free } = useMemo(
+    () => teamLines(agents, work, dms.data ?? [], asking, offline, atWork),
+    [agents, work, dms.data, asking, offline, atWork],
+  );
   const busy = waiting.length + working.length;
   // A routine's run works in the background, in no conversation (never "Trabalhando"): the agent is out on it.
   const onRoutine = useMemo(() => {
@@ -154,13 +159,59 @@ function Agents() {
     if (!greeting || id === greeting) return undefined;
     return order.indexOf(id) < order.indexOf(greeting) ? "down" : "up";
   };
+  // Each agent's presence, AI and work for me, read once here for every row and handed down as plain values: a row
+  // draws again only when its own change.
+  const presence = usePresenceOf();
+  const ai = useAiStatus(orgId).data;
+  // On a billing hold an AI comes after the plan: no "Sem IA" on a team just made.
+  const held = usePlanHold(orgId, org) !== null;
+  const channelNames = useChannelNames();
+  const keptWork = useRef(new Map<string, WorkLine>());
+  const rowOf = (l: TeamLine): RowProps => {
+    const id = l.agent.id;
+    const shown = presence.agent(id);
+    // Its work for me, workspace-wide (ADR 0084 addendum): whom it helps or where, in the web lists' words; the line
+    // of before while its words stay, so the row isn't drawn again for the clock alone.
+    const line = workLine(
+      t,
+      i18n.language,
+      shown?.work ?? null,
+      { agentName: (x) => dir.agentById.get(x)?.name, channelName: (x) => channelNameIn(channelNames, x) },
+      now,
+    );
+    const before = keptWork.current.get(id);
+    const kept = line && before && sameWorkLine(before, line) ? before : line;
+    if (kept) keptWork.current.set(id, kept);
+    else keptWork.current.delete(id);
+    const worksForMe = shown?.work?.state === "working" && !shown.work.routine;
+    const routine = onRoutine.get(id);
+    // Only a row that says how long (it asks, works or is out on a routine) follows the clock; the rest stay drawn.
+    const ticks = l.approval !== null || l.work !== null || worksForMe || routine !== undefined;
+    return {
+      ...lineProps(l),
+      atWork: worksForMe,
+      aiMissing: !held && aiStateOf(ai, id) === "no_ai",
+      outOfOffice: isOutOfOffice(shown?.status?.status),
+      statusText: shown?.line?.text ?? null,
+      workLine: kept,
+      routine,
+      now: ticks ? now : 0,
+    };
+  };
   const pull = usePullRefresh(() =>
-    Promise.allSettled([runs.refetch(), dms.refetch(), approvals.refetch(), outages.refetch(), groups.refetch()]),
+    Promise.allSettled([
+      directory.refetch(),
+      runs.refetch(),
+      dms.refetch(),
+      approvals.refetch(),
+      outages.refetch(),
+      groups.refetch(),
+    ]),
   );
   const total = agents.length;
-  // Archived agents have no profile: admins bring them back, or delete them for good (ADR 0082), from here.
-  const admin = can(org, "manage_agents");
-  const archived = (useFormerAgents(orgId).data ?? []).filter((a) => admin && !a.deleted);
+  // Archived agents have no profile: who manages each one brings it back, or deletes it for good (ADR 0082), from here;
+  // the server's `canManage` on it (ADR 0085 addendum of 2026-11-17), so someone's private agent stays out of reach.
+  const archived = (useFormerAgents(orgId).data ?? []).filter((a) => a.canManage === true && !a.deleted);
   const restore = useUnarchiveAgent(orgId);
   const toast = useToast();
   const c = useColors();
@@ -176,8 +227,13 @@ function Agents() {
     chooseAction(
       a.name,
       [
-        { label: t("team.restore"), onPress: () => restoreOne(a) },
-        { label: t("agentPage.delete.button"), destructive: true, onPress: () => openAgentDelete(a.id) },
+        { icon: "undo", label: t("team.restore"), onPress: () => restoreOne(a) },
+        {
+          icon: "trash",
+          label: t("agentPage.delete.button"),
+          destructive: true,
+          onPress: () => openAgentDelete(a.id),
+        },
       ],
       t("common.cancel"),
     );
@@ -190,13 +246,13 @@ function Agents() {
     ? [{ icon: "plus", sf: "plus", label: t("mobile.agents.create"), onPress: () => router.push("/new-agent") }]
     : header.actions;
   return (
-    <LargeTitleScreen
-      title={t("mobile.agents.title")}
-      left={header.left}
-      actions={actions}
-      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
-    >
-      {dir.loading ? null : dir.agents.length === 0 ? (
+    <LargeTitleScreen title={t("mobile.agents.title")} left={header.left} actions={actions} pull={pull}>
+      {/* The rows' shape while the team loads; a team that didn't load is not an empty one. */}
+      {dir.loading ? (
+        <SkeletonList rows={4} />
+      ) : directory.isError && !directory.data ? (
+        <LoadFailed onRetry={() => void directory.refetch()} />
+      ) : dir.agents.length === 0 ? (
         <FirstUse
           place="agents"
           acts={mayCreate(org, "agent")}
@@ -211,20 +267,13 @@ function Agents() {
       ) : null}
       {/* Equipe's org chart and channels (ADR 0148). A personal workspace (ADR 0159) keeps it as the last row of You ›
           Work: one person's agents rarely need an org chart in sight. */}
-      {total > 0 && !isPersonal(org) ? <TeamEntry /> : null}
+      {total > 0 && !isPersonal(org) ? <TeamEntry divider={showsManager} /> : null}
       <LayoutAnimationConfig skipEntering>
         {waiting.length > 0 ? (
           <>
             <SectionHeader title={t("mobile.intentAgents.waitingSection")} count={waiting.length} />
             {waiting.map((l, i) => (
-              <AgentRow
-                key={l.agent.id}
-                line={l}
-                divider={i > 0}
-                live={i < LIVE_ROWS}
-                gaze={gazeOf(l.agent.id)}
-                routine={onRoutine.get(l.agent.id)}
-              />
+              <AgentRow key={l.agent.id} {...rowOf(l)} divider={i > 0} live={i < LIVE_ROWS} gaze={gazeOf(l.agent.id)} />
             ))}
           </>
         ) : null}
@@ -234,11 +283,10 @@ function Agents() {
             {working.map((l, i) => (
               <AgentRow
                 key={l.agent.id}
-                line={l}
+                {...rowOf(l)}
                 divider={i > 0}
                 live={waiting.length + i < LIVE_ROWS}
                 gaze={gazeOf(l.agent.id)}
-                routine={onRoutine.get(l.agent.id)}
               />
             ))}
           </>
@@ -247,10 +295,11 @@ function Agents() {
           <FreeSections
             free={free}
             groups={groups.data ?? []}
+            pinned={pins.pins.agents}
             before={busy}
             greeting={greeting}
             gazeOf={gazeOf}
-            onRoutine={onRoutine}
+            rowOf={rowOf}
           />
         ) : null}
         {archived.length > 0 ? (
@@ -316,7 +365,7 @@ function ManagerRow({ working, waiting, onPress }: { working: number; waiting: n
       leading={<Tile icon="list" size={52} />}
       title={t("taskManager.title")}
       sub={
-        <Text variant="subhead" style={{ color: waiting > 0 ? c.amber : c.muted }} numberOfLines={1}>
+        <Text variant="small" style={[LIST_PREVIEW, { color: waiting > 0 ? c.amber : c.muted }]} numberOfLines={1}>
           {line}
         </Text>
       }
@@ -334,42 +383,44 @@ function ManagerRow({ working, waiting, onPress }: { working: number; waiting: n
 function FreeSections({
   free,
   groups,
+  pinned,
   before,
   greeting,
   gazeOf,
-  onRoutine,
+  rowOf,
 }: {
   free: TeamLine[];
   groups: AgentGroup[];
+  /** The agents pinned on top ("Fixar no topo"), the screen's `usePins`. */
+  pinned: string[];
   before: number;
   greeting: string | null;
   gazeOf: (id: string) => Gaze | undefined;
-  onRoutine: ReadonlyMap<string, string>;
+  /** A row's props from its line, as the screen reads them for every row. */
+  rowOf: (l: TeamLine) => RowProps;
 }) {
   const { t } = useTranslation();
   // A personal workspace's free agents are its person's, not a team (ADR 0159).
   const { org } = useOrg();
   const { collapsed, toggle } = useCollapsedSections<string>(STORED.agentGroupsCollapsed, null);
-  const pins = usePins();
   const sectorMenu = useSectorMenu();
   const manages = can(org, "manage_agents");
   let shown = before;
   return (
     <>
-      {freeSections(free, groups, pins.pins.agents).map(({ group, lines, pinnedCount }) => {
+      {freeSections(free, groups, pinned).map(({ group, lines, pinnedCount }) => {
         const first = shown;
         shown += lines.length;
         const rows = lines.map((l, i) => (
           <AgentRow
             key={l.agent.id}
-            line={l}
+            {...rowOf(l)}
             divider={i > 0}
             // The newcomer and the ones looking at it move while it arrives, wherever they sit in the list.
             live={first + i < LIVE_ROWS || greeting !== null}
             pinned={i < pinnedCount}
             arriving={greeting === l.agent.id}
             gaze={gazeOf(l.agent.id)}
-            routine={onRoutine.get(l.agent.id)}
           />
         ));
         return group ? (
@@ -405,21 +456,89 @@ function FreeSections({
 type RowState = "asks" | "works" | "routine" | "away" | "noAi" | "out" | "waits" | "free";
 
 /**
+ * What a row shows of its line (`TeamLine`), as values a memoized row compares one by one: the agent, its work and a
+ * preview's meta are the queries' own objects, the same until they change; the rest are plain values. A line built
+ * again with the same contents re-renders no row.
+ */
+interface RowLine {
+  agent: Agent;
+  work: TeamLine["work"];
+  /** The request it asks you first, when it waits on you. */
+  approvalTitle: string | null;
+  waitingCount: number;
+  at: string | null;
+  preview: string | null;
+  previewMeta: TeamLine["previewMeta"];
+  previewMedia: TeamLine["previewMedia"];
+  computer: string | undefined;
+}
+
+const lineProps = (l: TeamLine): RowLine => ({
+  agent: l.agent,
+  work: l.work,
+  approvalTitle: l.approval ? l.approval.title : null,
+  waitingCount: l.waitingCount,
+  at: l.at,
+  preview: l.preview,
+  previewMeta: l.previewMeta,
+  previewMedia: l.previewMedia,
+  computer: l.computer,
+});
+
+/** What a row shows of its agent's presence (`usePresenceOf`) and its work for me, as the screen reads them. */
+interface RowPresence {
+  /** At work for me, also where I don't read: its face is at work, so is its row. */
+  atWork: boolean;
+  /** No AI to think with (never on a billing hold: an AI comes after the plan). */
+  aiMissing: boolean;
+  /** Out of office (its plan or budget ran out, ADR 0084): its line says when it is back. */
+  outOfOffice: boolean;
+  /** Its line in words; null: none. */
+  statusText: string | null;
+  /** Its work for me, workspace-wide, in the web lists' words (`workLine`); null: none. */
+  workLine: WorkLine | null;
+}
+
+/** A row's props from its line, as the screen reads them for every row (`rowOf`). */
+interface RowProps extends RowLine, RowPresence {
+  /** Since when it is out on a routine (its background run), when it is. */
+  routine: string | undefined;
+  /** The screen's clock, one for every row; 0 for a row that says no time (it isn't drawn again for it). */
+  now: number;
+}
+
+const sameWorkLine = (a: WorkLine, b: WorkLine) =>
+  a.text === b.text && a.short === b.short && a.time === b.time && a.tone === b.tone;
+
+/**
  * One agent: its living body at 52 (running at work, asleep when it can't work), its name, the time at the right
  * (how long since it asked or started; when you last talked, free), then its state as text: what waits on you in
  * amber, what it is on with the orbit, its computer away or no AI in the quiet color, what its work waits on (the
  * clock, or amber for your answer) with how long, else its role in plain words. Pinned ones come first, with no mark.
  */
-function AgentRow({
-  line: l,
+const AgentRow = memo(function AgentRow({
+  agent: a,
+  work: w,
+  approvalTitle,
+  waitingCount,
+  at,
+  preview,
+  previewMeta,
+  previewMedia,
+  computer,
+  atWork,
+  aiMissing,
+  outOfOffice,
+  statusText,
+  workLine: work,
+  now,
   divider,
   live,
   pinned = false,
   arriving = false,
   gaze,
   routine,
-}: {
-  line: TeamLine;
+}: RowProps & {
   divider: boolean;
   live: boolean;
   /** On top of the free ones ("Fixar no topo"): said to screen readers; the order shows it. */
@@ -428,32 +547,20 @@ function AgentRow({
   arriving?: boolean;
   /** Where its face looks while a newcomer arrives (up or down at the newcomer's row). */
   gaze?: Gaze | undefined;
-  /** Since when it is out on a routine (its background run), when it is. */
-  routine?: string | undefined;
 }) {
   const { t } = useTranslation();
   const c = useColors();
-  const now = useNow();
   const reduced = useReducedMotion();
-  const { agent: a, work: w, approval, computer } = l;
-  const { orgId, org } = useOrg();
-  const ai = useAiStatus(orgId);
-  // On a billing hold an AI comes after the plan: no "Sem IA" on a team just made.
-  const held = usePlanHold(orgId, org) !== null;
-  const shown = usePresenceOf().agent(a.id);
-  // Its work for me, workspace-wide (ADR 0084 addendum): whom it helps or where, in the web lists' words.
-  const work = useAgentWorkLine(a.id);
+  const approval = approvalTitle !== null;
   // At work also where I don't read: its face is at work, so is its row.
-  const works = Boolean(w) || (shown?.work?.state === "working" && !shown.work.routine);
+  const works = Boolean(w) || atWork;
   const onRoutineNow = !approval && !works && routine !== undefined;
-  const noAi =
-    !held && !approval && !works && !onRoutineNow && computer === undefined && aiStateOf(ai.data, a.id) === "no_ai";
+  const noAi = !approval && !works && !onRoutineNow && computer === undefined && aiMissing;
   // Out of office (its plan or budget ran out, ADR 0084): the server's line says when it is back.
-  const out =
-    !approval && !works && !onRoutineNow && computer === undefined && !noAi && isOutOfOffice(shown?.status?.status);
+  const out = !approval && !works && !onRoutineNow && computer === undefined && !noAi && outOfOffice;
   // Its work waits (on someone's approval or answer, its computer, in line) or asks me: said in its role's place.
   const waits = work && work.tone !== "working" ? work : null;
-  const busy = Boolean(approval) || works;
+  const busy = approval || works;
   const state: RowState = approval
     ? "asks"
     : works
@@ -470,17 +577,18 @@ function AgentRow({
                 ? "waits"
                 : "free";
   // One meta per row: how long since it asked or started; a free agent's row needs none.
-  const time = l.at && busy ? agoShort(t, agoOf(l.at, now)) : null;
+  const time = at && busy ? agoShort(t, agoOf(at, now)) : null;
   const entrance = useArrival(arriving, reduced);
   const role =
     plainRole(a.instructions) ??
     (a.role.trim() ||
-      (l.preview || l.previewMedia ? previewBody(t, l.preview ?? "", l.previewMeta ?? null, l.previewMedia) : ""));
-  const asks = approval
-    ? l.waitingCount > 1
-      ? t("mobile.intentAgents.waitingMore", { title: approval.title, count: l.waitingCount - 1 })
-      : approval.title
-    : "";
+      (preview || previewMedia ? previewBody(t, preview ?? "", previewMeta ?? null, previewMedia) : ""));
+  const asks =
+    approvalTitle !== null
+      ? waitingCount > 1
+        ? t("mobile.intentAgents.waitingMore", { title: approvalTitle, count: waitingCount - 1 })
+        : approvalTitle
+      : "";
   const said =
     state === "asks"
       ? t("mobile.intentAgents.waitingLabel", { name: a.name })
@@ -504,7 +612,7 @@ function AgentRow({
         <>
           <PixelOrbit color={agentLook(a).color} size={16} />
           <Text variant="small" tone="ink2" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
-            {work?.tone === "working" || !w ? work?.text : (shown?.line?.text ?? workTitle(t, w))}
+            {work?.tone === "working" || !w ? work?.text : (statusText ?? workTitle(t, w))}
           </Text>
         </>
       ) : state === "waits" && waits ? (
@@ -539,9 +647,9 @@ function AgentRow({
             {t("mobile.agents.state.connect")}
           </Text>
         </Text>
-      ) : state === "out" && shown?.line ? (
+      ) : state === "out" && statusText !== null ? (
         <Text variant="small" tone="faint" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
-          {shown.line.text}
+          {statusText}
         </Text>
       ) : role ? (
         <Text variant="small" tone="muted" numberOfLines={1} style={[LIST_PREVIEW, styles.shrink]}>
@@ -588,11 +696,11 @@ function AgentRow({
         title={a.name}
         time={time}
         // An agent with no role and nothing on has no second line, never an empty one.
-        sub={(state === "free" || (state === "out" && !shown?.line)) && !role ? null : sub}
+        sub={(state === "free" || (state === "out" && statusText === null)) && !role ? null : sub}
       />
     </Animated.View>
   );
-}
+});
 
 /**
  * The agent just created here, while Agentes is on screen: it is greeted once (its row comes in, the others look at it
@@ -617,8 +725,9 @@ function useGreeting(order: readonly string[]): string | null {
 }
 
 /**
- * A newcomer's row coming in: from a little below and a touch small, on a spring with a small bounce (a rare moment,
- * the one place this list is allowed one). Reduced motion: it only fades in. Every other row: no style at all.
+ * A newcomer's row coming in: from a little below and a touch small, settling on a spring without overshoot (a rare
+ * moment, but no finger threw it: nothing to bounce from). Reduced motion: it only fades in. Every other row: no style
+ * at all.
  */
 function useArrival(arriving: boolean, reduced: boolean) {
   const shown = useSharedValue(1);
@@ -626,7 +735,7 @@ function useArrival(arriving: boolean, reduced: boolean) {
     if (!arriving) return;
     shown.set(0);
     shown.set(
-      reduced ? withTiming(1, { duration: 200 }) : withDelay(120, withSpring(1, { duration: 520, dampingRatio: 0.72 })),
+      reduced ? withTiming(1, { duration: 200 }) : withDelay(120, withSpring(1, { duration: 400, dampingRatio: 1 })),
     );
   }, [arriving, reduced, shown]);
   return useAnimatedStyle(() => {

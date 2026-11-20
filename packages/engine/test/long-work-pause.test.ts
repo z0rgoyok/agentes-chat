@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { MACHINE_PROTOCOL_VERSION, userTopic } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
-import { extraUsageLeft, extraUsageOn, planBinding } from "@agenteschat/ui/plan-state";
+import { extraUsageLeft, planBinding } from "@agenteschat/ui/plan-state";
 import {
   addChannelMember,
   answerNow,
@@ -16,11 +16,13 @@ import {
   createDashboard,
   createJobHandlers,
   createRoutine,
+  createUsageToolSource,
   createWidget,
   drainOutbox,
   enqueueRunJob,
   getRoutineView,
   getWidget,
+  grantUsageOverride,
   holdsMessages,
   insertMessage,
   isLongWork,
@@ -38,7 +40,7 @@ import { monthStartUtc } from "../src/usage";
 import { addMember, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 
-/** ADR 0118: long work pauses at 95% of its plan or budget, picks up at the reset, and Continuar agora lets it go on. */
+/** ADR 0118: long work pauses at 99% of its plan or budget, picks up at the reset, and Continuar agora lets it go on. */
 
 let f: Fixture;
 afterEach(() => {
@@ -79,9 +81,7 @@ test("the window that binds long work: live, of this model, never extra usage", 
   expect(planBinding(old, { now })).toBeNull();
   expect(planBinding(reading([{ kind: "five_hour", usedPercent: 96 }]), { now })?.used).toBe(96);
   expect(planBinding(null)).toBeNull();
-  expect(extraUsageOn(u)).toBe(true);
-  expect(extraUsageOn(reading([{ kind: "five_hour", usedPercent: 1 }]))).toBe(false);
-  // Extra usage whose own cap is spent leaves long work nothing to go on into; the switch still shows.
+  // Extra usage whose own cap is spent leaves long work nothing to go on into.
   expect(extraUsageLeft(u)).toBe(false);
   expect(extraUsageLeft(reading([{ kind: "other", label: "Extra usage", usedPercent: 140 }]))).toBe(false);
   expect(extraUsageLeft(reading([{ kind: "other", label: "Extra usage", usedPercent: 10 }]))).toBe(true);
@@ -150,9 +150,9 @@ const allCards = async (fx: Fixture) =>
 const post = (fx: Fixture, body: string, userId = fx.owner.id) =>
   postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, userId, fx.org.id, fx.general.id, { body });
 
-test("at 96% of its budget a long run parks between steps with a card; a short reply finishes", async () => {
+test("at 99% of its budget a long run parks between steps with a card; a short reply finishes", async () => {
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   const [run] = await runs(f);
@@ -171,15 +171,15 @@ test("at 96% of its budget a long run parks between steps with a card; a short r
   const [card] = await cards(f);
   expect(card?.meta.bodyCode).toBe("usage_paused_budget");
   expect(card?.meta.actionCard).toEqual(
-    expect.objectContaining({ state: "paused", source: "budget", percent: 96, forUserId: f.owner.id }),
+    expect.objectContaining({ state: "paused", source: "budget", percent: 99, forUserId: f.owner.id }),
   );
   // The job comes back when the budget renews.
   expect(Date.parse(t.waitingForBrain?.until ?? "")).toBeGreaterThan(Date.now() + 1000);
 });
 
-test("a short reply at 96% of its budget finishes, with no card", async () => {
+test("a short reply at 99% of its budget finishes, with no card", async () => {
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(2) });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev oi");
   await drainOutbox(f.db, f.handlers);
   expect((await runs(f))[0]?.status).toBe("done");
@@ -188,7 +188,7 @@ test("a short reply at 96% of its budget finishes, with no card", async () => {
 
 test("Continuar agora: who may press it lets the run go on once; a person's message meanwhile gets its own run", async () => {
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   const [paused] = await runs(f);
@@ -221,10 +221,67 @@ test("Continuar agora: who may press it lets the run go on once; a person's mess
   expect(audit).toHaveLength(1);
 });
 
+test("told in the chat to ignore the limit, the agent goes on past the pause line, and so does its paused work", async () => {
+  // The run that hears it calls `ignore_usage_limit`, then works 10 more steps at 99%: no later check pauses it.
+  const extra = (text: string) => text.split("pedido extra").length - 1;
+  f = await setup({
+    contextTools: true,
+    budgetNanoUsd: BUDGET,
+    toolSources: [createUsageToolSource()],
+    reply: (req, call) => {
+      const text = JSON.stringify(req);
+      if (!text.includes("ignora o limite")) return stepper(12)(req, call);
+      if (!text.includes("Done: you go on"))
+        return { chunks: [], toolUses: [{ name: "ignore_usage_limit", input: {} }] };
+      return extra(text) < 10
+        ? { chunks: [], toolUses: [{ name: "search_context", input: { query: `pedido extra ${extra(text)}` } }] }
+        : { chunks: ["Seguindo."] };
+    },
+  });
+  await spend(f, 99);
+  await post(f, "@dev analisa os pedidos");
+  await drainOutbox(f.db, f.handlers);
+  const [paused] = await runs(f);
+  expect(paused?.status).toBe("waiting_input");
+
+  await post(f, "@dev ignora o limite e segue");
+  await drainOutbox(f.db, f.handlers);
+  const all = await runs(f);
+  expect(all.map((r) => r.status)).toEqual(["done", "done"]);
+  for (const r of all) expect((r.transcript as { usageGrant?: { by: string } }).usageGrant?.by).toBe(f.owner.id);
+  const [card] = await cards(f);
+  expect(card?.meta.actionCard).toEqual(expect.objectContaining({ state: "continued", continuedByUserId: f.owner.id }));
+  const audit = await f.db
+    .select()
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.orgId, f.org.id), eq(schema.auditLog.action, "usage.continued")));
+  expect(audit.map((a) => (a.details as { via?: string }).via)).toEqual(["chat", "chat"]);
+});
+
+test("only who may press Continuar agora can tell the agent to ignore the limit", async () => {
+  f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
+  await spend(f, 99);
+  await post(f, "@dev analisa os pedidos");
+  await drainOutbox(f.db, f.handlers);
+  const [paused] = await runs(f);
+  if (!paused) throw new Error("no run");
+  const deps = { db: f.db, pubsub: f.pubsub };
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  expect(await grantUsageOverride(deps, bia.id, f.org.id, f.agent.id, paused.id)).toEqual({
+    granted: false,
+    continued: 0,
+  });
+  expect((await runs(f))[0]?.status).toBe("waiting_input");
+  expect(await grantUsageOverride(deps, f.owner.id, f.org.id, f.agent.id, paused.id)).toEqual({
+    granted: true,
+    continued: 1,
+  });
+});
+
 test("Continuar agora from outside the card's conversation: the run's people may, nobody else", async () => {
   // The card of a run that answers another agent sits in the agents' DM, which no person is a member of.
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   const [paused] = await runs(f);
@@ -251,7 +308,7 @@ test("a person's message during a pause is answered by a run of its own", async 
     budgetNanoUsd: BUDGET,
     reply: (req, call) => (JSON.stringify(req).includes("tudo bem") ? { chunks: ["Tudo."] } : stepper(12)(req, call)),
   });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   await post(f, "@dev tudo bem?");
@@ -288,7 +345,7 @@ async function computerAgent(fx: Fixture, over: Partial<typeof schema.agents.$in
   const paired = await pairMachine(deps, fx.owner.id, fx.org.id, { name: "MacBook", ...RUNNER, exec: true });
   await fx.db
     .update(schema.agents)
-    .set({ machineId: paired.machineId, brain: "claude_code", brainFallback: false, ...over })
+    .set({ machineId: paired.machineId, brain: "claude_code", ...over })
     .where(eq(schema.agents.id, fx.agent.id));
   return paired.machineId;
 }
@@ -339,11 +396,11 @@ async function scheduledSlot(fx: Fixture) {
     .where(eq(schema.routineRuns.routineId, routine.id));
 }
 
-test("a routine's slot at 96% of the plan parks before its first turn and picks up after the reset", async () => {
+test("a routine's slot at 99% of the plan parks before its first turn and picks up after the reset", async () => {
   f = await setup();
   const machineId = await computerAgent(f);
   const resetsAt = iso(3600_000);
-  await storeOwnUsage(f, machineId, reading([{ kind: "five_hour", usedPercent: 96, resetsAt }]));
+  await storeOwnUsage(f, machineId, reading([{ kind: "five_hour", usedPercent: 99, resetsAt }]));
   const { brain, seen } = scripted(() => [{ type: "done", text: "Deploys ok." }]);
   const handlers = handlersWith(f, brain);
   await scheduledSlot(f);
@@ -369,7 +426,7 @@ test("a paused slot goes on once a newer reading puts its plan back under the pa
   f = await setup();
   const machineId = await computerAgent(f);
   const resetsAt = iso(26 * 3600_000);
-  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 96, resetsAt }]));
+  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 99, resetsAt }]));
   const { brain, seen } = scripted(() => [{ type: "done", text: "Deploys ok." }]);
   const handlers = handlersWith(f, brain);
   await scheduledSlot(f);
@@ -383,7 +440,7 @@ test("a paused slot goes on once a newer reading puts its plan back under the pa
   });
 
   // Still over the line: it keeps waiting for the reset.
-  await reportOwnUsage(deps, f.org.id, machineId, { claude_code: week(97) });
+  await reportOwnUsage(deps, f.org.id, machineId, { claude_code: week(99) });
   await drainOutbox(f.db, handlers, { now: later(5 * 60_000) });
   expect(seen).toHaveLength(0);
   // The sign-in reads under the line again (another run went through on it): the slot goes on now.
@@ -393,14 +450,14 @@ test("a paused slot goes on once a newer reading puts its plan back under the pa
   expect((await runs(f))[0]?.status).toBe("done");
 });
 
-test("the plan's paid extra usage lets long work go on, unless its switch is off", async () => {
+test("the plan's paid extra usage lets long work go on, never on someone else's plan lent to the agent", async () => {
   f = await setup();
   const machineId = await computerAgent(f);
   await storeOwnUsage(
     f,
     machineId,
     reading([
-      { kind: "five_hour", usedPercent: 97, resetsAt: iso(3600_000) },
+      { kind: "five_hour", usedPercent: 99, resetsAt: iso(3600_000) },
       { kind: "other", label: "Extra usage", usedPercent: 10 },
     ]),
   );
@@ -410,7 +467,7 @@ test("the plan's paid extra usage lets long work go on, unless its switch is off
   await drainOutbox(f.db, handlers);
   expect(seen).toHaveLength(1);
 
-  await f.db.update(schema.agents).set({ brainExtraUsage: false }).where(eq(schema.agents.id, f.agent.id));
+  await f.db.update(schema.agents).set({ brainAccountLentBy: f.owner.id }).where(eq(schema.agents.id, f.agent.id));
   await scheduledSlot(f);
   await drainOutbox(f.db, handlers);
   expect(seen).toHaveLength(1);
@@ -444,7 +501,7 @@ test("a paused mission: a person's question in its thread gets an answer, its no
     reply: (req, call) =>
       JSON.stringify(req).includes("qual o status") ? { chunks: ["Pausado."] } : stepper(12)(req, call),
   });
-  await spend(f, 96);
+  await spend(f, 99);
   const root = await post(f, "Migrar o login");
   await f.db.insert(schema.missions).values({
     orgId: f.org.id,
@@ -501,7 +558,7 @@ test("over the budget's line only by other calls' reservations: it looks again s
       .update(schema.agentBudgetPeriods)
       .set({ reservedNanoUsd })
       .where(and(eq(schema.agentBudgetPeriods.agentId, f.agent.id), eq(schema.agentBudgetPeriods.periodStart, period)));
-  await hold(BUDGET * 0.13);
+  await hold(BUDGET * 0.16);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   const [run] = await runs(f);
@@ -521,7 +578,7 @@ test("over the budget's line only by other calls' reservations: it looks again s
 test("a routine's paused slot: its people hear it, and Rodar agora runs it now", async () => {
   f = await setup();
   const machineId = await computerAgent(f);
-  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 96, resetsAt: iso(3 * 86_400_000) }]));
+  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 99, resetsAt: iso(3 * 86_400_000) }]));
   const { brain, seen } = scripted(() => [{ type: "done", text: "Deploys ok." }]);
   const handlers = handlersWith(f, brain);
   await scheduledSlot(f);
@@ -663,10 +720,10 @@ test("a widget's refresh in line for its computer: joining it tells its widget, 
   expect(statuses.length).toBeGreaterThan(parked + 1);
 });
 
-test("a widget's refresh isn't long work by kind: at 96% of the plan its slot runs, where a routine's slot pauses", async () => {
+test("a widget's refresh isn't long work by kind: at 99% of the plan its slot runs, where a routine's slot pauses", async () => {
   f = await setup();
   const machineId = await computerAgent(f);
-  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 96, resetsAt: iso(26 * 3600_000) }]));
+  await storeOwnUsage(f, machineId, reading([{ kind: "seven_day", usedPercent: 99, resetsAt: iso(26 * 3600_000) }]));
   const { brain, seen } = scripted(() => [{ type: "done", text: "ok" }]);
   const handlers = handlersWith(f, brain);
   const deps = { db: f.db, pubsub: f.pubsub, context: f.context };
@@ -701,7 +758,7 @@ test("a widget's refresh isn't long work by kind: at 96% of the plan its slot ru
 
 test("a run canceled while paused: its card says it won't run, and Continuar agora on it starts nothing", async () => {
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
-  await spend(f, 96);
+  await spend(f, 99);
   await post(f, "@dev analisa os pedidos");
   await drainOutbox(f.db, f.handlers);
   const [paused] = await runs(f);
@@ -721,7 +778,7 @@ test("Rotinas shows a routine's paused slot until its reset; Continuar agora for
   f = await setup();
   const machineId = await computerAgent(f);
   const resetsAt = new Date(Date.now() + 3600_000).toISOString();
-  await storeOwnUsage(f, machineId, reading([{ kind: "five_hour", usedPercent: 96, resetsAt }]));
+  await storeOwnUsage(f, machineId, reading([{ kind: "five_hour", usedPercent: 99, resetsAt }]));
   const { brain, seen } = scripted(() => [{ type: "done", text: "Deploys ok." }]);
   const handlers = handlersWith(f, brain);
   await scheduledSlot(f);
@@ -757,7 +814,7 @@ test("Rotinas shows a routine's paused slot until its reset; Continuar agora for
   expect(await allCards(f)).toHaveLength(0);
   expect((await getRoutineView(f.db, f.owner.id, f.org.id, id)).state).not.toBe("usage_paused");
 
-  // It goes on now, still at 96%: past the pause line until that window resets.
+  // It goes on now, still at 99%: past the pause line until that window resets.
   await drainOutbox(f.db, handlers);
   expect(seen).toHaveLength(1);
   const audit = await f.db
@@ -768,14 +825,15 @@ test("Rotinas shows a routine's paused slot until its reset; Continuar agora for
 });
 
 /**
- * A slot of a routine paused at `percent` of its plan, on an agent whose long work keeps off paid extra usage (or,
- * with `extraUsage`, may use it but the plan's extra usage window is at `extraUsed`; null: the plan reports none).
+ * A slot of a routine paused at `percent` of its plan, on an agent whose long work keeps off paid extra usage, as on
+ * someone else's plan lent to it (or, with `extraUsage`, its owner's own plan, whose extra usage window is at
+ * `extraUsed`; null: the plan reports none).
  */
 async function pausedExtraOff(
   percent: number,
   { extraUsage = false, extraUsed = 10 as number | null }: { extraUsage?: boolean; extraUsed?: number | null } = {},
 ) {
-  const machineId = await computerAgent(f, { brainExtraUsage: extraUsage });
+  const machineId = await computerAgent(f, extraUsage ? {} : { brainAccountLentBy: f.owner.id });
   const usage = (used: number) =>
     reading([
       { kind: "five_hour", usedPercent: used, resetsAt: iso(3600_000) },
@@ -797,11 +855,11 @@ async function pausedExtraOff(
 
 test("with extra usage off, Continuar agora goes on up to the plan's own allowance and is refused past it, on Rotinas and the card alike", async () => {
   f = await setup();
-  const { id, seen, handlers, setUsage } = await pausedExtraOff(97);
+  const { id, seen, handlers, setUsage } = await pausedExtraOff(99);
   expect(seen).toHaveLength(0);
   expect((await getRoutineView(f.db, f.owner.id, f.org.id, id)).usagePause?.extraOff).toBe(false);
 
-  // The plan's window is used up meanwhile: going on would be paid extra usage, which this agent's switch keeps off.
+  // The plan's window is used up meanwhile: going on would be paid extra usage, which a lent plan never pays.
   await setUsage(100);
   expect((await getRoutineView(f.db, f.owner.id, f.org.id, id)).usagePause?.extraOff).toBe(true);
   const refused = await continueRoutineUsagePause({ db: f.db }, f.owner.id, f.org.id, id).catch((e) => e);
@@ -825,7 +883,7 @@ test("with extra usage off, Continuar agora goes on up to the plan's own allowan
         agentId: f.agent.id,
         forUserId: f.owner.id,
         source: "plan",
-        percent: 97,
+        percent: 99,
         plan: "Claude",
         continuedByUserId: null,
         continuedAt: null,
@@ -837,15 +895,15 @@ test("with extra usage off, Continuar agora goes on up to the plan's own allowan
   expect((onCard as { code?: string }).code).toBe("run.continue_extra_off");
 
   // Back under the plan's allowance: it goes on.
-  await setUsage(97);
+  await setUsage(99);
   expect(await continueRoutineUsagePause({ db: f.db }, f.owner.id, f.org.id, id)).toEqual({ continued: true });
   await drainOutbox(f.db, handlers);
   expect(seen).toHaveLength(1);
 });
 
-test("with the extra-usage switch on but no extra usage left, Continuar agora past the plan is refused for that reason, not the switch", async () => {
+test("on the owner's own plan with no extra usage left, Continuar agora past the plan is refused for that reason", async () => {
   f = await setup();
-  const { id, setUsage } = await pausedExtraOff(97, { extraUsage: true, extraUsed: null });
+  const { id, setUsage } = await pausedExtraOff(99, { extraUsage: true, extraUsed: null });
   expect((await getRoutineView(f.db, f.owner.id, f.org.id, id)).state).toBe("usage_paused");
   await setUsage(100);
   const view = await getRoutineView(f.db, f.owner.id, f.org.id, id);
@@ -876,7 +934,7 @@ async function usageCardCode(runId: string) {
         agentId: f.agent.id,
         forUserId: f.owner.id,
         source: "plan",
-        percent: 97,
+        percent: 99,
         plan: "Claude",
         continuedByUserId: null,
         continuedAt: null,
@@ -891,7 +949,7 @@ async function usageCardCode(runId: string) {
 
 test("a run continued with extra usage off stops again at the plan's own allowance", async () => {
   f = await setup();
-  const { id, seen, handlers, setUsage } = await pausedExtraOff(96);
+  const { id, seen, handlers, setUsage } = await pausedExtraOff(99);
   expect(await continueRoutineUsagePause({ db: f.db }, f.owner.id, f.org.id, id)).toEqual({ continued: true });
   await setUsage(100);
   await drainOutbox(f.db, handlers);

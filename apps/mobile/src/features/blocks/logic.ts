@@ -13,6 +13,44 @@ export const MAX_LIVE_BLOCKS = 3;
 export const INLINE_HEIGHT = 380;
 
 /**
+ * A web view for what an agent writes (a block, a page; ADR 0019): its page loads and nothing else does, and it gets
+ * no cookies, storage, files, windows, location or camera of the phone's. With `isolatedPage`'s policy inside it,
+ * it is cut off from the network too.
+ */
+export const ISOLATED_WEB_VIEW = {
+  // Every address passes this list and is refused by `onShouldStartLoadWithRequest`: one failed here would go to the
+  // system to open.
+  originWhitelist: ["*"],
+  onShouldStartLoadWithRequest: (request: { url: string }) => blockMayLoad(request.url),
+  javaScriptEnabled: true,
+  javaScriptCanOpenWindowsAutomatically: false,
+  setSupportMultipleWindows: false,
+  domStorageEnabled: false,
+  incognito: true,
+  cacheEnabled: false,
+  sharedCookiesEnabled: false,
+  thirdPartyCookiesEnabled: false,
+  allowFileAccess: false,
+  allowFileAccessFromFileURLs: false,
+  allowUniversalAccessFromFileURLs: false,
+  geolocationEnabled: false,
+  mediaCapturePermissionGrantType: "deny" as const,
+  mediaPlaybackRequiresUserAction: true,
+};
+
+/**
+ * Run first in a page this web view shows (a script for its `<head>`, as the web's page frame runs its own): in-memory
+ * stand-ins for `localStorage`, `sessionStorage` and `document.cookie`. With no storage of its own
+ * (`ISOLATED_WEB_VIEW`), a page that touches them threw before drawing anything. What the page does after it stays as
+ * it wrote it.
+ */
+export const STORAGE_STANDINS = `<script>(function(){
+function mem(){var d={};return{getItem:function(k){k=String(k);return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[String(k)]=String(v)},removeItem:function(k){delete d[String(k)]},clear:function(){d={}},key:function(i){var k=Object.keys(d)[i];return k===undefined?null:k},get length(){return Object.keys(d).length}}}
+["localStorage","sessionStorage"].forEach(function(n){try{void window[n].length}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(_){}}});
+try{void document.cookie}catch(e){try{Object.defineProperty(document,"cookie",{get:function(){return""},set:function(){},configurable:true})}catch(_){}}
+})();</script>`;
+
+/**
  * Where a block may go: nowhere. Its page is the first load. Anything else would be how a page sends out what it
  * holds, so it is refused here and never handed to the system to open.
  */

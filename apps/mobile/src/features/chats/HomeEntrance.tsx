@@ -10,7 +10,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useReducedMotion } from "@/ui";
-import { useLaunched } from "../launch/launched";
+import { useRevealed } from "../launch/launched";
 
 /** Strong ease-out: the entrance starts fast, where the eye is, and settles slowly. */
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
@@ -19,17 +19,18 @@ const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 let played = false;
 
 /**
- * Whether Conversas plays its arrival: the first time it is on screen after the splash left, once per launch, never
- * again while the app runs (coming back to the tab, a pull, a new day all show it still). Before the splash leaves
- * the parts wait hidden under it, so nothing is seen twice.
+ * Whether Conversas plays its arrival: the first time it is in view after launch (the splash's window opening on it,
+ * `useRevealed`, so it arrives as the window grows), once per launch, never again while the app runs (coming back
+ * to the tab, a pull, a new day all show it still). Until then the parts wait hidden under the splash, so nothing
+ * is seen twice.
  */
 export function useHomeEntrance(): { armed: boolean; play: boolean } {
-  const launched = useLaunched();
+  const inView = useRevealed();
   const [armed] = useState(() => !played);
   useEffect(() => {
-    if (armed && launched) played = true;
-  }, [armed, launched]);
-  return { armed, play: armed && launched };
+    if (armed && inView) played = true;
+  }, [armed, inView]);
+  return { armed, play: armed && inView };
 }
 
 /**

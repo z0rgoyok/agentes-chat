@@ -1,12 +1,13 @@
 import type { Artifact, ArtifactContent, ArtifactFileContent } from "@agenteschat/client";
-import { useArtifact } from "@agenteschat/client";
-import { documentPreview, parsePatch, patchCounts } from "@agenteschat/client/lib/artifacts";
+import { isLiveFileKind, useArtifact } from "@agenteschat/client";
+import { parsePatch, patchCounts } from "@agenteschat/client/lib/artifacts";
 import { previewKind } from "@agenteschat/client/lib/files";
 import { cx } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_THUMB_BYTES, usePreviewUrl } from "@/components/artifacts/FileView";
 import { MermaidDiagram } from "@/components/artifacts/Mermaid";
+import { LiveCover } from "@/components/live/LiveCover";
 import { useOrg } from "@/components/org-context";
 
 const DOC_LINES = 8;
@@ -50,8 +51,10 @@ const extensionOf = (name: string) => (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? 
 export function DrivePreview({ artifact, size = "md" }: { artifact: Artifact; size?: "sm" | "md" | "lg" }) {
   const { org } = useOrg();
   const [ref, seen] = useSeen<HTMLDivElement>();
-  // At its exact version: never stale, and shared by every card of that version.
-  const query = useArtifact(org.id, seen || size === "lg" ? artifact.id : null, artifact.version);
+  // At its exact version: never stale, and shared by every card of that version. A live file's preview is its head's
+  // (ADR 0196 §7), which changes between versions: the latest.
+  const live = isLiveFileKind(artifact.kind);
+  const query = useArtifact(org.id, seen || size === "lg" ? artifact.id : null, live ? undefined : artifact.version);
   const content = query.data?.content;
   return (
     <div
@@ -77,20 +80,6 @@ function PreviewBody({
   const { t } = useTranslation();
   // The small list thumbnail stays simple: diagrams and pages by their shape.
   switch (content.kind) {
-    case "document": {
-      const [head, ...lines] = documentPreview(content.markdown, DOC_LINES);
-      return (
-        <div className="drive-pv__sheet drive-pv__paper">
-          {head && <span className="drive-pv__h">{head}</span>}
-          {lines.map((l, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static preview
-            <span key={i} className="drive-pv__p">
-              {l}
-            </span>
-          ))}
-        </div>
-      );
-    }
     case "table": {
       const cols = content.columns.slice(0, TABLE_COLS);
       return (
@@ -177,6 +166,12 @@ function PreviewBody({
       );
     case "file":
       return <FilePreview content={content} artifact={artifact} />;
+    // Live files (ADR 0196 §7), documents too (ADR 0200): drawn from the preview the server keeps.
+    case "document":
+    case "spreadsheet":
+    case "slides":
+    case "canvas":
+      return <LiveCover content={content} fileId={artifact.id} size={size} />;
   }
 }
 

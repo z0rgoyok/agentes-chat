@@ -143,6 +143,8 @@ export interface AgentMediaDeps {
  */
 const NOT_A_LIGHT_REPLY = [
   "talker",
+  // The line before slow work (ADR 0207): the reply comes after it.
+  "sayNow",
   "notice",
   "noAi",
   "actionCard",
@@ -166,6 +168,8 @@ const NOT_A_LIGHT_REPLY = [
   "brainInterrupted",
   "canceled",
   "interrupted",
+  // A confidential thread's reply (ADR 0190): no judge reads it, and no GIF search gets words chosen from it.
+  "confidential",
   MEDIA_AFTER_KEY,
 ] as const;
 

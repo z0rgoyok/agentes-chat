@@ -1,4 +1,4 @@
-import { bodyTones, toneAt } from "@agenteschat/ui/agent/engine";
+import { bodyTones, drawnKey, toneAt } from "@agenteschat/ui/agent/engine";
 import { ICON_NAMES, type IconName } from "./icons.data";
 
 /**
@@ -30,7 +30,7 @@ const tonePaths = new Map<string, { fill: string; d: string }[]>();
  * mark however many cells, so a list of a hundred cargos stays light.
  */
 export function ditherPaths(color: string, cells: number) {
-  const key = `${color}:${cells}`;
+  const key = `${drawnKey(color)}:${cells}`;
   const cached = tonePaths.get(key);
   if (cached) return cached;
   const tones = bodyTones(color);

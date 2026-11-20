@@ -149,3 +149,7 @@ The machine-side access model, built in the runner and shown in the app and on t
 - Two install modes coexist (desktop-managed and service-managed), kept apart by `managedBy` and the lock.
 - Unsigned builds add a one-time OS warning and possible repeated permission prompts on macOS until we sign.
 - A Rust toolchain enters CI (macOS runner minutes cost more than Linux).
+
+## Addendum (2026-11-15): no API stand-in for a paused computer
+
+Section 6's `agents.brainFallback` is gone: an agent whose computer brain is on a paused computer says so and waits, whatever was stored. See ADR 0032's addendum of the same day.

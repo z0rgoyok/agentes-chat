@@ -1,7 +1,7 @@
 import { type BrainSpeed, isBrainSpeed } from "@agenteschat/adapters";
 import { and, type Database, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
 import { type ContextLimit, isAutoModel, isContextLimit } from "@agenteschat/providers";
-import { type CodingPlan, PLAN_ALIASES, planOf } from "@agenteschat/providers/plans";
+import { type CodingPlan, planOf } from "@agenteschat/providers/plans";
 import {
   type Agent,
   type AgentInput,
@@ -10,13 +10,14 @@ import {
   updateAgent,
   validateAgentFields,
 } from "./agents";
-import { answersOthers, audienceOf } from "./audience";
+import { answersOthers, audienceOf, managesAgent } from "./audience";
 import {
   type AgentBrainInput,
   type BrainEffortSetting,
   brainModelLabel,
   brainOf,
   brainOptions,
+  CLAUDE_CODE_MODELS,
   defaultBrainModel,
   isBrainEffortSetting,
   isBrainKind,
@@ -36,7 +37,7 @@ import {
   DEFAULT_MISSION_COMMAND_APPROVAL,
   isCommandApproval,
 } from "./missions";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
 
 /*
  * One agent's "Quem pensa" and its Autonomia on others (ADR 0094): "Usar em outros agentes" applies them to each agent
@@ -60,7 +61,6 @@ export interface AgentSetupInput {
   effort?: unknown;
   speed?: unknown;
   contextTokens?: unknown;
-  fallback?: unknown;
   onlyOwner?: unknown;
   autonomy?: unknown;
 }
@@ -139,10 +139,8 @@ function readSetup(input: AgentSetupInput): Setup {
   if (input.speed !== undefined && !isBrainSpeed(input.speed)) {
     throw new ValidationError("Choose standard or fast", "brain.invalid_speed");
   }
-  for (const flag of [input.fallback, input.onlyOwner]) {
-    if (flag !== undefined && typeof flag !== "boolean")
-      throw new ValidationError("A switch is on or off", "setup.invalid");
-  }
+  if (input.onlyOwner !== undefined && typeof input.onlyOwner !== "boolean")
+    throw new ValidationError("A switch is on or off", "setup.invalid");
   return {
     brain: input.brain,
     model: normalizeBrainModel(input.brain, input.model),
@@ -151,7 +149,6 @@ function readSetup(input: AgentSetupInput): Setup {
     effort,
     ...(input.speed !== undefined ? { speed: input.speed } : {}),
     contextTokens,
-    fallback: (input.fallback as boolean | undefined) ?? true,
     ...(input.onlyOwner !== undefined ? { onlyOwner: input.onlyOwner as boolean } : {}),
     ...autonomy,
   };
@@ -161,7 +158,7 @@ function readSetup(input: AgentSetupInput): Setup {
 function modelFits(kind: BrainKind, model: string | null, plan: CodingPlan | undefined) {
   if (kind !== "claude_code" || model === null || isAutoModel(model)) return true;
   if (plan) return plan.claudeCode.models.some((m) => m.id === model || m.alias === model);
-  return PLAN_ALIASES.some((a) => a === model) || model.startsWith("claude-");
+  return CLAUDE_CODE_MODELS.some((o) => o.value === model) || model.startsWith("claude-");
 }
 
 const sameModel = (kind: BrainKind, a: string | null, b: string | null) =>
@@ -214,7 +211,8 @@ export async function applyAgentSetup(
   input: { setup: AgentSetupInput; agentIds: readonly string[]; preview?: boolean },
 ): Promise<SetupResult[]> {
   const membership = await requirePermission(deps.db, userId, orgId, "read");
-  const admin = can(membership, "manage_agents");
+  // An admin of each agent, not of the workspace: who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17).
+  const admin = (t: Agent) => managesAgent(t, userId, membership);
   const setup = readSetup(input.setup);
   const ids = [...new Set(input.agentIds)];
   if (ids.length > SETUP_AGENTS_MAX) throw new ValidationError(`At most ${SETUP_AGENTS_MAX} agents`, "setup.invalid");
@@ -261,7 +259,7 @@ export async function applyAgentSetup(
   const plan = (t: Agent) =>
     planFor(t, {
       setup,
-      admin,
+      admin: admin(t),
       userId,
       machine,
       account,
@@ -289,7 +287,7 @@ export async function applyAgentSetup(
             : { status: p.status, ...(p.status === "applied" && p.keeps ? { keeps: p.keeps } : {}) };
         const from = agentMissionApproval(t);
         // Its Autonomia wherever the person may set it by hand, whatever its AI can take.
-        const mayManage = admin || t.ownerUserId === userId;
+        const mayManage = admin(t) || t.ownerUserId === userId;
         const autonomy = mayManage && setup.autonomy && setup.autonomy !== from ? setup.autonomy : null;
         if (p.status !== "applied" && !autonomy) {
           results.set(t.id, { agentId: t.id, ...ai });
@@ -394,7 +392,6 @@ function planFor(
     effort: setup.effort ?? null,
     ...(setup.speed ? { speed: setup.speed } : {}),
     contextTokens: setup.contextTokens ?? null,
-    fallback: setup.fallback ?? true,
   };
   const thinksSo = (account: string | null, onlyOwner?: boolean) =>
     brainOf(t.brain) === kind &&
@@ -403,7 +400,6 @@ function planFor(
     t.brainEffort === how.effort &&
     (how.speed === undefined || t.brainSpeed === how.speed) &&
     t.contextTokens === how.contextTokens &&
-    t.brainFallback === how.fallback &&
     (onlyOwner === undefined || !answersOthers(audienceOf(t), t.ownerUserId) === onlyOwner);
   const takes = takesAccount(t, c);
   if (takes === true) {
@@ -478,6 +474,11 @@ export interface NewAgentSetup {
   account?: {
     id: string;
     label: string;
+    /** Its owner gave it its name (`isDefaultAccountLabel`); else the apps show it by its email. */
+    named: boolean;
+    /** The caller's own's only. */
+    email: string | null;
+    plan: string | null;
     provider: string | null;
     /** The caller's own: a plan thinks only for its owner's agents. */
     mine: boolean;
@@ -487,7 +488,6 @@ export interface NewAgentSetup {
   /** The computer's own sign-in thinks for the caller's agents there (they connected it). */
   ownSignIn?: boolean;
   effort?: BrainEffortSetting | null;
-  fallback?: boolean;
   /** Its Autonomia; null: the default. Set at creation only by an admin or the new agent's owner (`createAgent`). */
   autonomy: CommandApproval | null;
 }
@@ -538,6 +538,9 @@ export async function getNewAgentSetup(
       ? {
           id: listed.id,
           label: listed.label,
+          named: listed.named,
+          email: listed.email,
+          plan: listed.plan,
           provider: listed.provider,
           mine: listed.mine,
           free: listed.shared || listed.usedByIds.length === 0,
@@ -545,7 +548,6 @@ export async function getNewAgentSetup(
       : null,
     ownSignIn: machine.pairedByUserId === userId,
     effort: isBrainEffortSetting(s.effort) ? s.effort : null,
-    fallback: s.fallback ?? true,
     autonomy,
   };
 }

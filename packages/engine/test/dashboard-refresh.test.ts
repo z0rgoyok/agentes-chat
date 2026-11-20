@@ -736,7 +736,7 @@ describe("a refresh that waits (ADR 0135 §6)", () => {
 
   test("paused near its budget's limit, Update now lets it go on now, and it updates", async () => {
     await growsLong();
-    await spend(96);
+    await spend(99);
     const b = await board();
     const w = await createWidget(dash(), f.owner.id, f.org.id, b.id, ask());
     await drainOutbox(f.db, f.handlers);
@@ -753,7 +753,7 @@ describe("a refresh that waits (ADR 0135 §6)", () => {
 
   test("Continue now is Continuar agora's: another editor of the board reads it greyed, and is refused", async () => {
     await growsLong();
-    await spend(96);
+    await spend(99);
     const bia = await addMember(f.db, f.org.id, "member", "bia");
     const b = await createDashboard(dash(), f.owner.id, f.org.id, {
       title: "Vendas",

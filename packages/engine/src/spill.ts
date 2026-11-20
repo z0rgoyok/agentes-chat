@@ -1,11 +1,13 @@
-import { and, type Executor, eq, isNull, ne, schema, sql } from "@agenteschat/db";
+import type { PlanUsage } from "@agenteschat/adapters";
+import { and, type Executor, eq, inArray, isNull, ne, or, schema, sql } from "@agenteschat/db";
 import { isAutoModel } from "@agenteschat/providers";
-import { claudeCodeModel, planOf } from "@agenteschat/providers/plans";
+import { autoPlanModel, claudeCodeModel, NEXT_ACCOUNT_KINDS, planOf } from "@agenteschat/providers/plans";
 import type { Agent } from "./agents";
-import { type BrainPlan, computerBrainUnavailable, planIsOwners, storedPlanUsage } from "./brains/select";
-import type { BrainAccount } from "./brains/types";
+import { type BrainPlan, computerBrainUnavailable, NO_AI_CODES, planIsOwners, storedPlanUsage } from "./brains/select";
+import type { BrainAccount, BrainSession } from "./brains/types";
 import { machineRule, mayUseDevice } from "./devices";
 import type { MachineStatus } from "./machine-hub";
+import { isRightHand } from "./right-hand";
 
 const { agentRuns, machineAccounts, machines } = schema;
 
@@ -75,6 +77,198 @@ export async function spillPlan(
     ...(account ? { account } : {}),
     ...(usage ? { usage } : {}),
   };
+}
+
+/**
+ * A run that went on with another account at its plan's limit (`Transcript.accountMove`, ADR 0041 §6). The agent's own
+ * account never changes: the next run starts on it again.
+ */
+export interface AccountMove {
+  /** The account the run started on: its agent's own. */
+  from: string;
+  to: string;
+  /** Whose plan `to` is when that isn't the agent's owner: lent to the run, so it never spends paid extra usage. */
+  lentBy?: string;
+  /** Every account the run thought with or was refused on, `from` and `to` included: each at most once per run. */
+  tried: string[];
+}
+
+/** Where `nextAccountPlan` landed: the plan on the next account, else how many accounts are all limited and the first reset. */
+export type NextAccount =
+  | { plan: BrainPlan; lentBy: string | null; lenderName?: string }
+  | { plan: null; chain: number; resetsAt?: string };
+
+type SeatRow = { id: string; email: string | null; providerOrgId: string | null };
+/** Two logins of one seat share its limits (`sameAccountWhere`): one email, in the same Claude organization when both know it. */
+const sameSeat = (a: SeatRow, b: SeatRow) =>
+  a.id === b.id ||
+  (!!a.email &&
+    a.email.toLowerCase() === b.email?.toLowerCase() &&
+    (!a.providerOrgId || !b.providerOrgId || a.providerOrgId === b.providerOrgId));
+
+type ChainAgent = Pick<Agent, "id" | "orgId" | "ownerUserId" | "brainAccountPinned" | "builtin">;
+
+/**
+ * The accounts on `machineId` of `kind` a run of `agent` may go on with at its plan's limit (ADR 0041 §6): a CLI
+ * sign-in (never a key, which is paid by the token) shared between agents, whose owner is still a member
+ * (`planIsOwners`) and that serves this agent: its owner's own, or one that serves everyone. The right hand goes on
+ * only with the accounts of the person it answers (`forPerson`), so never on a plan someone else gave it. `keep`: the run's own
+ * accounts, whatever their sharing. A one-agent login is never another's: the runner lends its folder to that agent only.
+ */
+function chainWhere(agent: ChainAgent, kind: string, machineId: string, forPerson: string | null, keep: string[]) {
+  const owner = agent.ownerUserId ?? "";
+  return and(
+    eq(machineAccounts.orgId, agent.orgId),
+    eq(machineAccounts.machineId, machineId),
+    eq(machineAccounts.kind, kind),
+    isNull(machineAccounts.provider),
+    sql`${machineAccounts.authMethod} is distinct from 'api_key'`,
+    isRightHand(agent)
+      ? forPerson === owner
+        ? eq(machineAccounts.createdBy, owner)
+        : sql`false`
+      : or(eq(machineAccounts.createdBy, owner), eq(machineAccounts.serves, "everyone")),
+    keep.length > 0
+      ? or(inArray(machineAccounts.id, keep), eq(machineAccounts.shared, true))
+      : eq(machineAccounts.shared, true),
+  );
+}
+
+/** Its owner still in the workspace (`planIsOwners`). */
+const ownerIsMember = and(
+  eq(schema.organizationMembers.orgId, machineAccounts.orgId),
+  eq(schema.organizationMembers.userId, machineAccounts.createdBy),
+);
+
+/**
+ * The next account a run at its plan's limit goes on with (ADR 0041 §6), on the same computer and of the same kind
+ * (`chainWhere`): its owner's own first and then the others that serve everyone, each by `use_order`. Never an account
+ * `tried` or one of their seats, nor one limited by what is stored: unknown usage is worth a try (a setup token can't
+ * read its usage without a turn). `own`: the agent's own account, which takes the run back when it has room. `room`:
+ * what long work also needs of an account's stored usage. Null plan: no such account, with how many accounts are limited (the
+ * tried ones counted) and the earliest reset.
+ */
+export async function nextAccountPlan(
+  deps: SpillDeps,
+  agent: ChainAgent,
+  plan: BrainPlan,
+  tried: readonly string[],
+  options: {
+    room?: (usage: PlanUsage | null, accountId: string) => boolean;
+    forPerson?: string | null;
+    own?: string;
+  } = {},
+): Promise<NextAccount> {
+  const machineId = plan.session?.machineId;
+  const owner = agent.ownerUserId;
+  const none = { plan: null, chain: 0 } as const;
+  if (!machineId || !owner || !plan.account || plan.missionId || !NEXT_ACCOUNT_KINDS.includes(plan.kind)) return none;
+  if (agent.brainAccountPinned || plan.account.provider) return none;
+  const keep = [plan.account.id, ...(options.own ? [options.own] : [])];
+  const [status, rows] = await Promise.all([
+    deps.machines ? deps.machines.status(machineId).catch(() => null) : null,
+    deps.db
+      .select({
+        id: machineAccounts.id,
+        label: machineAccounts.label,
+        email: machineAccounts.email,
+        providerOrgId: machineAccounts.providerOrgId,
+        createdBy: machineAccounts.createdBy,
+        ownerName: schema.users.name,
+        usage: machineAccounts.usage,
+      })
+      .from(machineAccounts)
+      .innerJoin(schema.organizationMembers, ownerIsMember)
+      .leftJoin(schema.users, eq(schema.users.id, machineAccounts.createdBy))
+      .where(
+        and(
+          chainWhere(agent, plan.kind, machineId, options.forPerson ?? null, keep),
+          eq(machineAccounts.status, "active"),
+        ),
+      )
+      .orderBy(
+        sql`${machineAccounts.createdBy} = ${owner} desc`,
+        sql`${machineAccounts.useOrder} asc nulls last`,
+        machineAccounts.createdAt,
+        machineAccounts.id,
+      ),
+  ]);
+  const triedRows = rows.filter((r) => tried.includes(r.id));
+  const now = Date.now();
+  const chain: SeatRow[] = [];
+  let earliest: number | null = null;
+  for (const r of rows) {
+    const account: BrainAccount = { id: r.id, label: r.label, status: "active" };
+    const usage = (r.usage as PlanUsage | null) ?? null;
+    const model = isAutoModel(plan.model) ? autoPlanModel(undefined, plan.model, usage) : plan.model;
+    const why = computerBrainUnavailable(plan.kind, machineId, status, now, account, true, usage, model);
+    const limited = why?.code === "plan_limit";
+    if (limited || tried.includes(r.id)) {
+      if (!chain.some((c) => sameSeat(c, r))) chain.push(r);
+      const at = Date.parse(why?.resetsAt ?? "");
+      if (limited && at > now && (earliest === null || at < earliest)) earliest = at;
+    }
+    if (why || tried.includes(r.id) || triedRows.some((t) => sameSeat(t, r))) continue;
+    if (options.room && !options.room(usage, r.id)) continue;
+    const { unavailable: _, usage: _usage, ...rest } = plan;
+    return {
+      plan: {
+        ...rest,
+        account,
+        ...(plan.model ? { model: plan.model } : {}),
+        ...(usage ? { usage } : {}),
+        session: { ...(plan.session as BrainSession), id: Bun.randomUUIDv7(), resume: false },
+      },
+      lentBy: r.createdBy === owner ? null : r.createdBy,
+      ...(r.createdBy !== owner && r.ownerName ? { lenderName: r.ownerName } : {}),
+    };
+  }
+  return {
+    plan: null,
+    chain: chain.length,
+    ...(earliest !== null ? { resetsAt: new Date(earliest).toISOString() } : {}),
+  };
+}
+
+/**
+ * A resumed run's plan on the account it moved to (`AccountMove.to`), in the session it has there, with what keeps
+ * that account from thinking now: null when it may no longer take the run (`chainWhere`: gone from the agent's
+ * computer, no longer serving it or its person, or no longer shared).
+ */
+export async function movedAccountPlan(
+  deps: SpillDeps,
+  agent: ChainAgent,
+  plan: BrainPlan,
+  accountId: string,
+  forPerson: string | null = null,
+): Promise<BrainPlan | null> {
+  const machineId = plan.session?.machineId;
+  if (!machineId || plan.kind === "model") return null;
+  const [row] = await deps.db
+    .select({ id: machineAccounts.id, label: machineAccounts.label, status: machineAccounts.status })
+    .from(machineAccounts)
+    .innerJoin(schema.organizationMembers, ownerIsMember)
+    .where(and(eq(machineAccounts.id, accountId), chainWhere(agent, plan.kind, machineId, forPerson, [])));
+  if (!row) return null;
+  const account: BrainAccount = {
+    id: row.id,
+    label: row.label,
+    status: row.status === "active" ? "active" : "signed_out",
+  };
+  const [status, usage] = await Promise.all([
+    deps.machines ? deps.machines.status(machineId).catch(() => null) : null,
+    storedPlanUsage(deps.db, agent.orgId, machineId, plan.kind, row.id).catch(() => null),
+  ]);
+  const model = isAutoModel(plan.model) ? autoPlanModel(undefined, plan.model, usage) : plan.model;
+  // Of its own account's refusal only what holds for the run on any account (the right hand's, say): its limit,
+  // its sign-in or its owner's sharing belong to that account.
+  const own = plan.unavailable;
+  const carried =
+    own && own.code !== "plan_limit" && own.code !== "plan_not_owner" && !NO_AI_CODES.has(own.code) ? own : null;
+  const why =
+    computerBrainUnavailable(plan.kind, machineId, status, Date.now(), account, true, usage, model) ?? carried;
+  const { unavailable: _, usage: _usage, ...rest } = plan;
+  return { ...rest, account, ...(usage ? { usage } : {}), ...(why ? { unavailable: why } : {}) };
 }
 
 /** Online computers of the workspace other than `home` that take spill-over for someone, with nothing in their line. */

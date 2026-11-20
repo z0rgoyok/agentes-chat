@@ -1026,9 +1026,7 @@ describe("a newcomer's first #general", () => {
     await open(newcomer());
     const card = welcome() as HTMLElement;
     expect(card.querySelector("h2")?.textContent).toBe("Boas-vindas à Acme, Walter");
-    expect(card.textContent).toContain(
-      "Aqui o time e os agentes trabalham juntos: escreva no #general ou chame um agente pelo nome. Você também está em #eng.",
-    );
+    expect(card.textContent).toContain("Escreva no #general ou chame um agente pelo nome. Você também está em #eng.");
     expect([...card.querySelectorAll(".welcome-card__name")].map((n) => n.textContent)).toEqual([
       "Ada",
       "Atlas",

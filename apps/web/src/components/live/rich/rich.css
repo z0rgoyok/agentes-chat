@@ -1,0 +1,151 @@
+/* Rich text in live files (ADR 0196 §2): the same look for the editor (ProseMirror) and the drawn text (RichView).
+   Sizes are in em of the box's own font size, so a text box reads the same on a slide at any scale. */
+
+.rt-host {
+  min-width: 0;
+}
+
+.rt {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  font-variant-ligatures: none;
+  outline: none;
+  caret-color: currentColor;
+}
+
+.rt :where(strong) {
+  font-weight: 700;
+}
+
+.rt :where(a) {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
+}
+
+.rt-p {
+  --lv: 0;
+  position: relative;
+  margin: 0;
+  padding-inline-start: calc(var(--lv) * 1.4em);
+}
+
+.rt-p + .rt-p {
+  margin-block-start: 0.3em;
+}
+
+.rt-p[data-level="1"] {
+  --lv: 1;
+}
+.rt-p[data-level="2"] {
+  --lv: 2;
+}
+.rt-p[data-level="3"] {
+  --lv: 3;
+}
+.rt-p[data-level="4"] {
+  --lv: 4;
+}
+
+/* A list item: its marker hangs in the gutter of its level. */
+.rt-p[data-list] {
+  padding-inline-start: calc((var(--lv) + 1) * 1.4em);
+}
+
+.rt-p[data-list]::before {
+  position: absolute;
+  inset-inline-start: calc(var(--lv) * 1.4em);
+  width: 1.4em;
+  text-align: start;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.rt-p[data-list="bullet"]::before {
+  content: "•";
+}
+.rt-p[data-list="bullet"][data-level="1"]::before,
+.rt-p[data-list="bullet"][data-level="3"]::before {
+  content: "◦";
+}
+.rt-p[data-list="bullet"][data-level="2"]::before,
+.rt-p[data-list="bullet"][data-level="4"]::before {
+  content: "▪";
+}
+
+.rt-p[data-list="ordered"]::before {
+  content: attr(data-n) ".";
+}
+
+/* An empty box's hint, in the box's own color made quiet, where the caret will be. */
+.rt-empty::after {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  padding-inline-start: inherit;
+  color: var(--rt-placeholder, currentColor);
+  opacity: var(--rt-placeholder-opacity, 0.42);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Someone else's caret: a bar in their color, their name over it on hover (in page pixels whatever the scale). */
+.rt-caret {
+  position: relative;
+  margin-inline: -1px;
+  border-inline-start: max(2px, calc(2px / var(--slide-scale, 1))) solid var(--peer);
+  pointer-events: auto;
+}
+
+.rt-caret__name {
+  position: absolute;
+  inset-block-end: 100%;
+  inset-inline-start: calc(-1px / var(--slide-scale, 1));
+  padding: calc(2px / var(--slide-scale, 1)) calc(6px / var(--slide-scale, 1));
+  border-radius: calc(6px / var(--slide-scale, 1)) calc(6px / var(--slide-scale, 1)) calc(6px / var(--slide-scale, 1)) 0;
+  background: var(--peer);
+  color: var(--on-action);
+  font-family: var(--font-sans);
+  font-size: calc(12px / var(--slide-scale, 1));
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.rt-caret:hover .rt-caret__name {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rt-caret__name {
+    transition: opacity var(--dur-fast) var(--out);
+    animation: rt-name-show 3s var(--out);
+  }
+}
+
+@keyframes rt-name-show {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.rt-peer-sel {
+  background-color: color-mix(in srgb, var(--peer) 22%, transparent);
+}
+
+/* The person's own selection: neutral ink, never an agent's blue. */
+.rt-editor ::selection {
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}

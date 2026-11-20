@@ -1,5 +1,6 @@
 import { and, type Executor, eq, inArray, isNull, type SQL, schema } from "@agenteschat/db";
 import { recordAudit } from "../audit";
+import { unlinkAllFor } from "../surfaces/links";
 
 const { appGrants, appTokens } = schema;
 
@@ -48,10 +49,13 @@ export async function revokeGrantTokens(tx: Executor, grantIds: string[]) {
 
 /**
  * A new password, or an email change undone ("This wasn't me"): every app and token of the person, in every
- * workspace, stops now. `reason` goes into the audit log.
+ * workspace, stops now, and so do their outside chat surface links (ADR 0187). `reason` goes into the audit log.
  */
-export const revokeUserApps = (db: Executor, userId: string, reason = "password_reset") =>
-  revokeAppGrants(db, eq(appGrants.userId, userId), { type: "system", reason });
+export async function revokeUserApps(db: Executor, userId: string, reason = "password_reset") {
+  const revoked = await revokeAppGrants(db, eq(appGrants.userId, userId), { type: "system", reason });
+  await unlinkAllFor(db, userId);
+  return revoked;
+}
 
 /** A person removed from (or leaving) a workspace: their apps and tokens there stop now. */
 export const revokeMemberApps = (db: Executor, orgId: string, userId: string) =>

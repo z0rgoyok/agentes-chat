@@ -1,9 +1,9 @@
 import { and, type Executor, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
-import { answersOthers, audienceChanged, audienceOf, canTalkTo, speakerOf } from "./audience";
+import { answersOthers, audienceChanged, audienceOf, canTalkTo, managesAgent, speakerOf } from "./audience";
 import { isComputerBrain } from "./brains/types";
 import { caches } from "./cache";
 import { ValidationError } from "./errors";
-import { can, getMembership, type Membership } from "./organizations";
+import { getMembership, type Membership } from "./organizations";
 import { SIDEBAR_PIN_LIMIT, sidebarViewOf } from "./sidebar-items";
 import { foreignMailboxes } from "./tools/scopes";
 
@@ -156,8 +156,9 @@ const keepsPlan = (a: AgentRow) =>
 
 /**
  * Whether an invitation from `giver` may start someone with `a` (ADR 0184): it talks to everyone, it is limited to one
- * of `roleIds`, or `giver` may let one more person in (its owner, or who manages agents) and doing so takes nothing:
- * no plan kept for its owner, no mailbox someone else gave it. A mailbox is never taken unasked, days later, at accept.
+ * of `roleIds`, or `giver` may let one more person in (its owner, or who manages it: `managesAgent`, ADR 0085 addendum
+ * of 2026-11-17) and doing so takes nothing: no plan kept for its owner, no mailbox someone else gave it. A mailbox is
+ * never taken unasked, days later, at accept.
  */
 async function agentOk(
   db: Executor,
@@ -169,7 +170,7 @@ async function agentOk(
 ) {
   if (a.audienceMode === "everyone") return true;
   if (a.audienceMode === "people" && a.audienceRoleIds.some((r) => roleIds.includes(r))) return true;
-  if (!giver || !(can(giver, "manage_agents") || (a.ownerUserId !== null && a.ownerUserId === giverId))) return false;
+  if (!giver || giverId === null || !(managesAgent(a, giverId, giver) || a.ownerUserId === giverId)) return false;
   if (keepsPlan(a)) return false;
   return (await foreignMailboxes(db, orgId, a.id, giverId)).length === 0;
 }

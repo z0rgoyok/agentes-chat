@@ -33,6 +33,7 @@ import {
   machineOnline,
   publishMachineStatus,
 } from "./machines";
+
 import { getMessage, insertMessage, type Message, messageView } from "./messages";
 import { blockedOfTask, missionAllowRules, recordTaskDenials } from "./mission-command-rules";
 import { MISSION_RULES } from "./mission-rules";
@@ -62,11 +63,9 @@ const { machineTasks, agentRuns } = schema;
 export type MachineTaskRow = typeof machineTasks.$inferSelect;
 export type MachineTaskStatus = MachineTaskRow["status"];
 
-/**
- * Running tasks of a machine that went offline become `interrupted` after this (it may just be a network blip
- * or a runner dialing again); it is also when an offline computer becomes an outage people see.
- */
-export const TASK_OFFLINE_GRACE_MS = 2 * 60_000;
+/** Defined in `machines.ts` for `shownStandby` there: that module can't import this one (an import cycle). */
+export { TASK_OFFLINE_GRACE_MS } from "./machines";
+
 /**
  * A start may still be underway on the computer this long after it began (its journal doesn't list the task
  * yet): a hello in that time says nothing about it.

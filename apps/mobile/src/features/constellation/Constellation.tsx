@@ -68,8 +68,8 @@ function Pulse({ links, at }: { links: StarLink[]; at: Map<string, Point> }) {
     const next = () => {
       turn.current += 1;
       setLink(links[turn.current % links.length] ?? null);
-      progress.value = 0;
-      progress.value = withTiming(1, { duration: 1400, easing: Easing.linear });
+      progress.set(0);
+      progress.set(withTiming(1, { duration: 1400, easing: Easing.linear }));
     };
     next();
     const timer = setInterval(next, 1900);
@@ -80,10 +80,10 @@ function Pulse({ links, at }: { links: StarLink[]; at: Map<string, Point> }) {
   const style = useAnimatedStyle(() => {
     if (!a || !b) return { opacity: 0 };
     return {
-      opacity: 1 - progress.value ** 4,
+      opacity: 1 - progress.get() ** 4,
       transform: [
-        { translateX: a.x + (b.x - a.x) * progress.value - 2 },
-        { translateY: a.y + (b.y - a.y) * progress.value - 2 },
+        { translateX: a.x + (b.x - a.x) * progress.get() - 2 },
+        { translateY: a.y + (b.y - a.y) * progress.get() - 2 },
       ],
     };
   });
@@ -189,35 +189,35 @@ export function Constellation({ map, selected, height, onSelect, explore = true,
     if (!width) return;
     // Still: the window is the world, nothing moves. To explore: the selected star in the middle.
     if (still) {
-      zoom.value = 1;
-      x.value = 0;
-      y.value = 0;
+      zoom.set(1);
+      x.set(0);
+      y.set(0);
       return;
     }
     const p = (selected ? at.get(selected) : undefined) ?? { x: side / 2, y: side / 2 };
-    const toX = width / 2 - p.x * zoom.value;
-    const toY = height / 2 - p.y * zoom.value;
-    x.value = placed.current ? withTiming(toX, FOCUS) : toX;
-    y.value = placed.current ? withTiming(toY, FOCUS) : toY;
+    const toX = width / 2 - p.x * zoom.get();
+    const toY = height / 2 - p.y * zoom.get();
+    x.set(placed.current ? withTiming(toX, FOCUS) : toX);
+    y.set(placed.current ? withTiming(toY, FOCUS) : toY);
     placed.current = true;
   }, [selected, at, width, height, side, x, y, zoom, still]);
 
   useEffect(() => {
     if (!play || !width || assemble === undefined) return;
     assembled.add(assemble);
-    lit.value = withTiming(1, { duration: 420, easing: EASE_OUT });
-    drawn.value = withDelay(180, withTiming(1, { duration: 900, easing: EASE_OUT }));
+    lit.set(withTiming(1, { duration: 420, easing: EASE_OUT }));
+    drawn.set(withDelay(180, withTiming(1, { duration: 900, easing: EASE_OUT })));
   }, [play, width, assemble, lit, drawn]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `selected` is the trigger: a new selection draws its links again
   useEffect(() => {
     if (!chosenOnce.current || reduced) {
       chosenOnce.current = true;
-      hotDrawn.value = 1;
+      hotDrawn.set(1);
       return;
     }
-    hotDrawn.value = 0;
-    hotDrawn.value = withTiming(1, { duration: 240, easing: EASE_OUT });
+    hotDrawn.set(0);
+    hotDrawn.set(withTiming(1, { duration: 240, easing: EASE_OUT }));
   }, [selected, reduced, hotDrawn]);
 
   // One light tap on the frame a star is chosen; the lines answer in the same frame.
@@ -272,23 +272,24 @@ export function Constellation({ map, selected, height, onSelect, explore = true,
     const pan = Gesture.Pan()
       .minDistance(6)
       .onChange((e) => {
-        x.value += e.changeX;
-        y.value += e.changeY;
+        x.set((v) => v + e.changeX);
+        y.set((v) => v + e.changeY);
       });
     const pinch = Gesture.Pinch().onChange((e) => {
-      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.value * e.scaleChange));
-      const ratio = next / zoom.value;
-      x.value = e.focalX - (e.focalX - x.value) * ratio;
-      y.value = e.focalY - (e.focalY - y.value) * ratio;
-      zoom.value = next;
+      const now = zoom.get();
+      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, now * e.scaleChange));
+      const ratio = next / now;
+      x.set(e.focalX - (e.focalX - x.get()) * ratio);
+      y.set(e.focalY - (e.focalY - y.get()) * ratio);
+      zoom.set(next);
     });
     return Gesture.Simultaneous(pan, pinch);
   }, [x, y, zoom]);
 
   const world = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: zoom.value }],
+    transform: [{ translateX: x.get() }, { translateY: y.get() }, { scale: zoom.get() }],
   }));
-  const spots = useAnimatedStyle(() => ({ opacity: lit.value }));
+  const spots = useAnimatedStyle(() => ({ opacity: lit.get() }));
 
   const sky = (
     <View onLayout={onLayout} style={[styles.window, { height }]}>

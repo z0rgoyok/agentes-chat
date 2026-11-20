@@ -6,12 +6,11 @@ import { isEveryone, peopleWith, roleName, sortRoles } from "@agenteschat/client
 import { matchesWords } from "@agenteschat/ui/search";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, SearchField, Text, useToast } from "@/ui";
+import { StyleSheet, View } from "react-native";
+import { Button, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, SearchField, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { SettingsPage } from "../settings/parts";
-import { useColors } from "../shared/hooks";
-import { successHaptic, tapHaptic } from "../shared/parts";
+import { successHaptic } from "../shared/parts";
 import { moveRole, OWNER_ROLE, orderChanged, orderSteps, ROLES_MAX, ROLES_SEARCH_FROM, reachLine } from "./logic";
 import { CargoMark, rolesHref, useFail, useRolesData, Waiting } from "./parts";
 
@@ -19,13 +18,12 @@ import { CargoMark, rolesHref, useFail, useRolesData, Waiting } from "./parts";
 const SAVED_MS = 1800;
 
 /**
- * Configurações › Cargos (P2), the web's list: Criar cargo, Todos pinned under Base with what it gives, then the owners
+ * Configurações › Cargos, the web's list: Criar cargo, Todos pinned under Base with what it gives, then the owners
  * and the cargos top first, each with what it adds, its people as the value. Ordenar, in the header, gives each cargo
  * the viewer may move ▲ and ▼, and OK saves the order once.
  */
 export function RolesScreen() {
   const { t, i18n } = useTranslation();
-  const c = useColors();
   const toast = useToast();
   const fail = useFail();
   const { orgId, org, data, everyone, people, failed, error, retry } = useRolesData();
@@ -78,27 +76,22 @@ export function RolesScreen() {
     );
   };
 
-  const headerWord = !movable ? null : reorder.isPending ? (
-    <ActivityIndicator color={c.muted} />
-  ) : (
-    <Pressable
-      accessibilityRole="button"
-      // The word's 18-point line grown to a finger's 44.
-      hitSlop={{ top: 13, bottom: 13, left: 12, right: 12 }}
+  // Ordenar, then OK, as the header's small word (the app's text button, its press and its 44-point target).
+  const headerWord = !movable ? null : (
+    <Button
+      variant="text"
+      size="sm"
+      label={ordering ? t("mobile.roles.orderDone") : saved ? t("common.saved") : t("mobile.roles.order")}
+      loading={reorder.isPending}
       disabled={saved && !ordering}
       onPress={() => {
-        tapHaptic();
         if (ordering) save();
         else {
           setQuery("");
           setDraft(list);
         }
       }}
-    >
-      <Text variant="footnote" style={[styles.word, { color: saved && !ordering ? c.faint : c.ink }]}>
-        {ordering ? t("mobile.roles.orderDone") : saved ? t("common.saved") : t("mobile.roles.order")}
-      </Text>
-    </Pressable>
+    />
   );
 
   const row = (role: OrgRole) => {
@@ -224,5 +217,4 @@ export function RolesScreen() {
 
 const styles = StyleSheet.create({
   search: { paddingTop: 10 },
-  word: { fontWeight: "600" },
 });

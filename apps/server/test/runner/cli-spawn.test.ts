@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { brainProfileLaunch, claudeBrainArgs } from "../../runner/brain";
 import {
   cliSpawn,
   envValue,
@@ -117,6 +118,25 @@ test("on Windows a CLI is found on the PATH, never in the current folder; a .cmd
 
   const posix = cliSpawn(["/usr/local/bin/claude"], args, undefined, "linux");
   expect(posix).toEqual({ file: "/usr/local/bin/claude", args });
+});
+
+test("a turn on the computer's own key reaches Claude Code on Windows with --setting-sources empty, then --tools", () => {
+  const args = claudeBrainArgs({
+    session: "00000000-0000-4000-8000-000000000000",
+    resume: false,
+    model: "example-model",
+    ...brainProfileLaunch("work", false),
+  });
+  const i = args.indexOf("--setting-sources");
+  expect(args.slice(i, i + 3)).toEqual(["--setting-sources", "", "--tools"]);
+
+  const win = cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: has(NPM_SHIM) });
+  const line = (win.args[4] ?? "").slice(1, -1);
+  // cmd.exe: every argument sits inside a quoted pair; only the spaces between them are outside, so & | < > ^ stay text.
+  expect(line.replace(/"[^"]*"/g, "").trim()).toBe("");
+  // npm's launcher hands `%*` on as written; Node's C runtime splits it back into the same argv.
+  expect(line).toContain('"--setting-sources" "" "--tools"');
+  expect(splitWindows(line)).toEqual([NPM_SHIM, ...args]);
 });
 
 test("the Windows lookup: PATHEXT's runnable extensions in its order, quoted and relative entries, full paths", () => {

@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Text another screen hands to a conversation's composer: "Falar com o Theo" in two agents' conversation goes
- * back to the conversation that asked with "@theo " in its field; empty text only focuses the field (an agent tapped in
- * "New" opens your conversation ready to type). One at a time; the conversation's screen in view takes it once
- * (`takeComposerRequest`), so the one the person went back to gets it.
+ * Text a tap hands to a conversation's composer, which takes it and the focus: "Falar com o Theo" in two agents'
+ * conversation goes back to the conversation that asked with "@theo " in its field, an ask from another screen arrives
+ * written ("Ask X" in Memória). Empty text only focuses the field, for a tap on the conversation already on screen
+ * ("Say hi" on a channel's welcome). Merely opening a conversation (a person or agent tapped in New) asks nothing: it
+ * opens with the keyboard down. One at a time; the conversation's screen in view takes it once (`takeComposerRequest`),
+ * so the one the person went back to gets it.
  */
 export interface ComposerRequest {
   channelId: string;

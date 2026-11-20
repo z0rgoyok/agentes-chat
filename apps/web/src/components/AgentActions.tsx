@@ -11,6 +11,7 @@ import {
   receiptTip,
   receiptUnder,
 } from "@agenteschat/client/lib/actions";
+import { managesRoutinesOf } from "@agenteschat/client/lib/audience";
 import { relativeTime, toYmd } from "@agenteschat/client/lib/format";
 import { handedTasksOf } from "@agenteschat/client/lib/issues";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -252,7 +253,7 @@ function Receipt({
 
 /**
  * A webhook routine the agent just made: its address, a secret kept out of the message text, is copied from here by
- * who may manage the routine (the person who asked, admins; the server checks again).
+ * who may manage the routine (the person who asked, who sets up that agent's routines; the server checks again).
  */
 function CopyHookButton({ action: a }: { action: AgentAction }) {
   const { t } = useTranslation();
@@ -260,7 +261,8 @@ function CopyHookButton({ action: a }: { action: AgentAction }) {
   const api = useApi();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const routineId = hookToCopy(a, { userId: me.user.id, managesRoutines: can(org, "manage_routines") });
+  const agent = useDirectory(org.id).agentById.get(a.agentId);
+  const routineId = hookToCopy(a, { userId: me.user.id, managesRoutines: managesRoutinesOf(agent) });
   if (!routineId) return null;
   const copy = async () => {
     setBusy(true);

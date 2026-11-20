@@ -1,7 +1,7 @@
 import { type Message, usePinMessage } from "@agenteschat/client";
 import { messagePath } from "@agenteschat/client/lib/message-links";
 import { can } from "@agenteschat/client/lib/permissions";
-import { voiceOf } from "@agenteschat/client/lib/voice";
+import { listedText } from "@agenteschat/client/lib/voice";
 import { Button, EmojiPickerPopover, Menu } from "@agenteschat/ui";
 import { chartBlocksOf, chartBlockToWidgetSpec } from "@agenteschat/ui/widgets/spec";
 import { useMemo, useState } from "react";
@@ -157,8 +157,9 @@ export function useMessageMenu(
     if (selected) {
       return [copy(selected, "copy", t("contextMenu.copy")), ...reply, { kind: "separator" }, copyLink, wiki(selected)];
     }
-    // A file with no words has no text to copy or save.
-    const words = message.body.trim() !== "" && !voiceOf(message.meta);
+    // A file with no words has no text to copy or save; a voice message only what was typed beside it.
+    const text = listedText(message.body, message.meta);
+    const words = text.trim() !== "";
     const pinned = Boolean(message.pinned);
     const pinEntry: MenuEntry | null =
       options.readOnly || !can(org, "post")
@@ -196,7 +197,7 @@ export function useMessageMenu(
           ] satisfies MenuEntry[])
         : []),
       { kind: "separator" },
-      ...(words ? [copy(message.body, "copy-text", t("contextMenu.copyText"))] : []),
+      ...(words ? [copy(text, "copy-text", t("contextMenu.copyText"))] : []),
       copyLink,
       { kind: "separator" },
       ...(pinEntry ? [pinEntry] : []),
@@ -211,7 +212,7 @@ export function useMessageMenu(
             },
           ] satisfies MenuEntry[])
         : []),
-      ...(words ? [wiki(message.body)] : []),
+      ...(words ? [wiki(text)] : []),
     ];
   };
   const onContextMenu = contextMenuHandler((e) => entries(selectedTextAt(e.target)));

@@ -161,7 +161,7 @@ export function ApprovalAsk({
         )
       }
       under={
-        !refusing && agent && changesWhenAsks(org, approval) ? (
+        !refusing && agent && changesWhenAsks(agent, approval) ? (
           <WhenAsksLink approval={approval} agent={agent} />
         ) : undefined
       }
@@ -371,7 +371,7 @@ export function ApprovalGroupAsk({
         ) : undefined
       }
       under={
-        decider && agent && changesWhenAsks(org, decider) ? (
+        decider && agent && changesWhenAsks(agent, decider) ? (
           <WhenAsksLink approval={decider} agent={agent} />
         ) : undefined
       }

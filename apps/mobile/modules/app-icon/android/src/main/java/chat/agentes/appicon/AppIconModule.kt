@@ -19,6 +19,21 @@ class AppIconModule : Module() {
 
   private fun component(name: String) = ComponentName(context.packageName, "${context.packageName}.$name")
 
+  // On when turned on by hand, or left at its default and on in the manifest. The shipped alias is the one the
+  // manifest turns on (plugins/with-app-icons.js), wherever it sits in `names`: reading the manifest, not a position,
+  // keeps it from staying beside the picked one in the launcher.
+  private fun isOn(pm: PackageManager, name: String): Boolean =
+    when (pm.getComponentEnabledSetting(component(name))) {
+      PackageManager.COMPONENT_ENABLED_STATE_ENABLED -> true
+      PackageManager.COMPONENT_ENABLED_STATE_DEFAULT ->
+        try {
+          pm.getActivityInfo(component(name), PackageManager.MATCH_DISABLED_COMPONENTS).enabled
+        } catch (_: PackageManager.NameNotFoundException) {
+          false
+        }
+      else -> false
+    }
+
   override fun definition() = ModuleDefinition {
     Name("AppIcon")
 
@@ -33,10 +48,11 @@ class AppIconModule : Module() {
       }
     }
 
-    // The alias turned on; none turned on by hand means the manifest's own, the first.
+    // The alias turned on by hand, else the one the manifest turns on, else the first.
     AsyncFunction("get") { names: List<String> ->
       val pm = context.packageManager
       names.firstOrNull { pm.getComponentEnabledSetting(component(it)) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED }
+        ?: names.firstOrNull { isOn(pm, it) }
         ?: names.firstOrNull()
     }
 
@@ -50,14 +66,11 @@ class AppIconModule : Module() {
         PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
         PackageManager.DONT_KILL_APP,
       )
-      // Only what is on is turned off (the first is on by the manifest, with no setting of its own): with the
+      // Only what is on is turned off (the shipped one is on by the manifest, with no setting of its own): with the
       // icons a person makes there are hundreds of entries, and each change is a call to the system.
-      for ((i, other) in names.withIndex()) {
+      for (other in names) {
         if (other == picked) continue
-        val state = pm.getComponentEnabledSetting(component(other))
-        val on = state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
-          (i == 0 && state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT)
-        if (!on) continue
+        if (!isOn(pm, other)) continue
         pm.setComponentEnabledSetting(
           component(other),
           PackageManager.COMPONENT_ENABLED_STATE_DISABLED,

@@ -1,187 +1,247 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type SheetDetent, TrueSheet } from "@lodev09/react-native-true-sheet";
+import { useNavigation } from "expo-router";
+import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from "react-native";
-import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { concentricRadius, displayCornerRadius } from "./display-corner";
-import { Glass } from "./Glass";
-import { hintBackOr } from "./hints";
-import { useTheme } from "./theme";
+import { Keyboard, ScrollView, type ScrollViewInstance, StyleSheet, View, type ViewStyle } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { hintBack } from "./hints";
+import { sheetColors } from "./palette";
+import { SHEET_GAP, SHEET_X } from "./rhythm";
+import { ThemeColorsOverride, useTheme } from "./theme";
+
+/** A sheet's own height: its content's, up to the screen's. */
+const AUTO: SheetDetent[] = ["auto"];
 
 export interface SheetProps {
   open: boolean;
+  /** The person closed it (a flick down, the scrim, Android's back): the owner sets `open` to false. */
   onClose: () => void;
   children?: ReactNode;
-  /** An opaque surface instead of glass (requests to approve, forms). */
-  solid?: boolean;
   /**
-   * Once the sheet is gone from the screen (slid out and its modal dismissed). Something the system presents (the
-   * photo library, the camera) must wait for it: presented over a sheet still leaving, iOS dismisses it with the
-   * sheet, and its answer never comes.
+   * Once the sheet is gone from the screen. Something the system presents (the photo library, the camera) must wait
+   * for it: presented over a sheet still leaving, iOS dismisses it with the sheet, and its answer never comes.
    */
   onGone?: () => void;
   /**
-   * Pinned over the content while it scrolls (a picker's bar and its search): it drags the sheet as the grabber does,
-   * and a tap still reaches what is in it.
+   * Pinned over the content while it scrolls (a picker's bar and its search). It brings its own room under the
+   * grabber (`SheetBar` does).
    */
   header?: ReactNode;
+  /**
+   * The heights it may rest at: fractions of the screen, or `"auto"` (the default) for its content's height. A sheet
+   * whose content changes as the person works in it (a list filtered by what they type) takes fixed ones, so it
+   * doesn't jump at every keystroke or collapse when nothing matches; its content then fills them.
+   */
+  detents?: SheetDetent[];
 }
 
-/** After the sheet unmounts, the time iOS takes to dismiss its modal before something else may be presented. */
-const GONE_MS = 80;
-
-/** How far the grabber must be dragged down to close (points), as on the web. */
-const CLOSE_DRAG = 90;
-/** How far the sheet floats from the screen's edges. */
-const INSET = 8;
-/** The sheet's top corners (and the least for its bottom ones). */
-const RADIUS = 34;
-/** The sheet's width with the phone sideways: a form as wide as the phone is hard to read. */
-const WIDE_WIDTH = 560;
+/**
+ * The bottom sheet (no dialogs on the phone): the system's own, through TrueSheet (iOS's sheet presentation, Android's
+ * Material bottom sheet), on the sheet's solid gray. The system draws it, its grabber and corners, dims the screen,
+ * drags it, and lifts it over the keyboard; by default it takes its content's height, up to the screen's. A sheet
+ * presented while another is up stacks over it, as the system's sheets do. Its content is on the sheet's colors
+ * (`sheetColors`) and scrolls.
+ */
+export function Sheet({ open, onClose, children, onGone, header, detents }: SheetProps) {
+  const ref = useRef<TrueSheet>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
+  // Under a header the content starts right away; alone, it leaves the grabber its room.
+  const body = useSheetBody(header ? 8 : 24);
+  const props = useSheetProps({ open, onClose, onGone, ref, ...(detents ? { detents } : {}) });
+  const fill = !props.detents.includes("auto");
+  return (
+    <TrueSheet
+      ref={ref}
+      {...props}
+      scrollableRef={scroll}
+      {...(fill ? { style: styles.fill } : {})}
+      {...(header
+        ? {
+            header: (
+              <View>
+                <OnSheet>{header}</OnSheet>
+              </View>
+            ),
+          }
+        : {})}
+    >
+      <SheetContent fill={fill}>
+        <ScrollView
+          ref={scroll}
+          style={fill ? styles.fill : undefined}
+          keyboardShouldPersistTaps="handled"
+          // A sheet with a field (an answer, a fix): a drag down its content puts the keyboard away.
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={body}
+        >
+          {children}
+        </ScrollView>
+      </SheetContent>
+    </TrueSheet>
+  );
+}
 
 /**
- * The bottom sheet (no dialogs on the phone): floats 8 points from the edges, its bottom corners following
- * the screen's curve, glass on iOS and an opaque surface on Android, a grabber to drag down, a scrim to tap
- * away. Keyboard-aware for forms: with the keyboard up it fits the room above it and scrolls.
+ * The look every sheet of the app shares, the ones a screen opens and the ones that are routes: the system's grabber
+ * (named for screen readers) and corners, on the sheet's own solid gray (`sheetColors`), never see-through: iOS 26
+ * would draw Liquid Glass without a color, and a pinned bar on the sheet's gray read as a band over the glass.
  */
-export function Sheet({ open, onClose, children, solid = false, onGone, header }: SheetProps) {
-  const { colors, shadows, reducedMotion, motion } = useTheme();
+function useSheetLook() {
+  const { colors, scheme } = useTheme();
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-  const bottomRadius = concentricRadius(
-    displayCornerRadius(Platform.OS === "ios" ? "ios" : "android", width, height, insets.bottom),
-    INSET,
-    RADIUS,
+  const inside = useMemo(() => sheetColors(colors, scheme), [colors, scheme]);
+  return useMemo(
+    () => ({
+      grabber: true,
+      backgroundColor: inside.grouped,
+      accessibilityOptions: { grabberLabel: t("mobile.a11y.grabber") },
+    }),
+    [inside, t],
   );
-  const corners = { borderBottomLeftRadius: bottomRadius, borderBottomRightRadius: bottomRadius };
-  const room = width - 2 * Math.max(insets.left, insets.right);
-  const wide = width > height ? { width: Math.min(WIDE_WIDTH, room), alignSelf: "center" as const } : null;
-  const [mounted, setMounted] = useState(open);
-  const y = useSharedValue(height);
-  const scrim = useSharedValue(0);
+}
+
+/**
+ * The options of a sheet that is a route (`Sheet.Screen` in `app/(app)/_layout.tsx`), on `Sheet`'s look. `detents`:
+ * the fractions of the screen it may rest at, or `"auto"` for its content's height; one with fixed heights fills them.
+ * Its content tells the sheet which view scrolls (`useRouteSheetScrollable`).
+ */
+export function useRouteSheetOptions() {
+  const look = useSheetLook();
+  return useCallback(
+    (detents: SheetDetent[]) => ({
+      ...look,
+      detents,
+      ...(detents.includes("auto") ? {} : { style: styles.fill }),
+    }),
+    [look],
+  );
+}
+
+/**
+ * A route sheet's content: its scroll view is the sheet's own (dragging at its top moves the sheet, the keyboard
+ * insets it).
+ */
+export function useRouteSheetScrollable(ref: RefObject<ScrollViewInstance | null>) {
+  const navigation = useNavigation();
+  useLayoutEffect(() => {
+    navigation.setOptions({ scrollableRef: ref } as never);
+  }, [navigation, ref]);
+}
+
+/**
+ * What every sheet a screen opens shares, for `<TrueSheet>`: content-sized unless `detents` says otherwise, `Sheet`'s
+ * look, Android's back (an open ⓘ goes with the sheet), and `open` driving present and dismiss with `onClose` when the
+ * person closes it and `onGone` once it is off the screen.
+ */
+export function useSheetProps({
+  open,
+  onClose,
+  onGone,
+  ref,
+  presentOnMount = false,
+  detents = AUTO,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGone?: (() => void) | undefined;
+  ref: RefObject<TrueSheet | null>;
+  /**
+   * Present as it mounts, rather than when `open` turns true: the system then waits out a sheet still leaving (or its
+   * recycled view) before presenting, where a `present()` call made meanwhile does nothing.
+   */
+  presentOnMount?: boolean;
+  /** The heights it may rest at (`Sheet`'s `detents`); its content's height by default. */
+  detents?: SheetDetent[];
+}) {
+  const look = useSheetLook();
+  const shown = useRef(presentOnMount);
+  const openRef = useRef(open);
+  openRef.current = open;
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const goneRef = useRef(onGone);
   goneRef.current = onGone;
-  const wasMounted = useRef(mounted);
-  // Unmounted, the modal still dismisses for a moment on iOS: what follows waits for that too.
-  useEffect(() => {
-    if (wasMounted.current && !mounted) setTimeout(() => goneRef.current?.(), GONE_MS);
-    wasMounted.current = mounted;
-  }, [mounted]);
 
-  const ease = Easing.bezier(0.32, 0.72, 0, 1);
-  const ms = reducedMotion ? 0 : 420;
-
-  // Only `open` drives the animation; the rest is read at that moment.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only `open` drives the animation
   useEffect(() => {
+    // A sheet that presents as it mounts starts shown: `open` turning false still takes it away.
     if (open) {
-      // The screen's own field (the composer) lets go of the keyboard first. Kept, iOS gave the keyboard back
-      // when the sheet closed and the composer stayed under it.
-      if (!mounted) Keyboard.dismiss();
-      setMounted(true);
-      y.value = height;
-      y.value = withTiming(0, { duration: ms, easing: ease });
-      scrim.value = withTiming(1, { duration: reducedMotion ? 0 : motion.panel });
-    } else if (mounted) {
-      scrim.value = withTiming(0, { duration: reducedMotion ? 0 : motion.base });
-      y.value = withTiming(height, { duration: reducedMotion ? 0 : motion.panel, easing: ease }, (done) => {
-        if (done) runOnJS(setMounted)(false);
+      if (shown.current) return;
+      shown.current = true;
+      // The screen's own field (the composer) lets go of the keyboard first. Kept, iOS gave the keyboard back when
+      // the sheet closed and the composer stayed under it.
+      Keyboard.dismiss();
+      // A present that fails (no window to present from) ends as a dismissal would: left "shown", the owner would
+      // keep a sheet open that nobody sees.
+      void ref.current?.present().catch(() => {
+        shown.current = false;
+        if (openRef.current) closeRef.current();
+        goneRef.current?.();
       });
+    } else if (shown.current) {
+      void ref.current?.dismiss();
     }
-  }, [open]);
+  }, [open, ref]);
 
-  const pan = useMemo(
-    () =>
-      PanResponder.create({
-        // A tap goes to what is under the finger (the header's buttons and field); a move down takes the sheet.
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
-        onPanResponderMove: (_e, g) => {
-          y.value = Math.max(0, g.dy);
-        },
-        onPanResponderRelease: (_e, g) => {
-          if (g.dy > CLOSE_DRAG || g.vy > 1.2) closeRef.current();
-          else y.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.2, 0.8, 0.2, 1) });
-        },
-        onPanResponderTerminate: () => {
-          y.value = withTiming(0, { duration: 220 });
-        },
-      }),
-    [y],
-  );
+  return {
+    ...look,
+    detents,
+    ...(presentOnMount ? { initialDetentIndex: 0 } : {}),
+    // A present on mount can't be called off before it lands (the system answers "already dismissed" and presents
+    // anyway): one that lands after the owner closed it goes away again.
+    onDidPresent: () => {
+      if (!openRef.current) void ref.current?.dismiss();
+    },
+    onDidDismiss: () => {
+      shown.current = false;
+      // Closed by the person: its owner hears it. Closed by its owner: nothing to tell.
+      if (openRef.current) closeRef.current();
+      goneRef.current?.();
+    },
+    // Android's back takes the sheet away, and an ⓘ open in it with it.
+    onBackPress: () => {
+      hintBack();
+    },
+  };
+}
 
-  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
-  const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }));
-
-  if (!mounted) return null;
+/**
+ * A sheet's content: gestures need their own root in the sheet's window, and it reads the sheet's colors. `fill` for a
+ * sheet of fixed heights, whose content fills them; otherwise it is as tall as what it holds. The root always gets a
+ * style: left without one, it takes `flex: 1`, which in a sheet sized to its content is no height at all, and the
+ * sheet came up empty.
+ */
+export function SheetContent({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
   return (
-    // Both ways, or iOS aborts: a modal's default is portrait, and a view lying down shares no orientation with it.
-    <Modal
-      transparent
-      visible
-      animationType="none"
-      statusBarTranslucent
-      supportedOrientations={["portrait", "landscape"]}
-      onRequestClose={hintBackOr(onClose)}
-    >
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t("mobile.a11y.closeSheet")} />
-      </Animated.View>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={[styles.dock, { paddingTop: insets.top + INSET }]}
-        pointerEvents="box-none"
-      >
-        <Animated.View
-          accessibilityViewIsModal
-          style={[styles.sheet, corners, wide, { maxHeight: height * 0.86, boxShadow: shadows.e3 }, sheetStyle]}
-        >
-          <Glass solid={solid} intensity={70} style={[styles.surface, corners]}>
-            <View
-              {...pan.panHandlers}
-              style={styles.grab}
-              accessibilityRole="adjustable"
-              accessibilityLabel={t("mobile.a11y.grabber")}
-            >
-              <View style={[styles.grabBar, { backgroundColor: colors.grabber }]} />
-            </View>
-            {header ? <View {...pan.panHandlers}>{header}</View> : null}
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 + Math.max(0, insets.bottom - INSET) }}
-            >
-              {children}
-            </ScrollView>
-          </Glass>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <GestureHandlerRootView style={fill ? styles.fill : styles.fit}>
+      <OnSheet>{children}</OnSheet>
+    </GestureHandlerRootView>
   );
 }
 
+/** What sits on the sheet reads the sheet's colors: its content, and the header pinned over it outside the content. */
+function OnSheet({ children }: { children: ReactNode }) {
+  const { colors, scheme } = useTheme();
+  const inside = useMemo(() => sheetColors(colors, scheme), [colors, scheme]);
+  return <ThemeColorsOverride colors={inside}>{children}</ThemeColorsOverride>;
+}
+
+/**
+ * The body of every sheet's content (a screen's sheets, their steps, the sheets that are routes): `SHEET_X` at the
+ * sides, `top` (room for the grabber), 24 over the bottom edge, and `SHEET_GAP` between its blocks. The home indicator's
+ * room is TrueSheet's own (`insetAdjustment` and `contentInsetAdjustment`, both automatic): added here as well, every
+ * sheet ended on an empty band twice that tall.
+ */
+export function useSheetBody(top = 24): ViewStyle {
+  return {
+    paddingHorizontal: SHEET_X,
+    paddingTop: top,
+    paddingBottom: 24,
+    gap: SHEET_GAP,
+  };
+}
+
 const styles = StyleSheet.create({
-  dock: { flex: 1, justifyContent: "flex-end" },
-  // Shrinks to the room above the keyboard (its content scrolls), never past the status bar.
-  sheet: { marginHorizontal: INSET, marginBottom: INSET, borderRadius: RADIUS, flexShrink: 1 },
-  surface: { borderRadius: RADIUS, overflow: "hidden", flexShrink: 1 },
-  // The whole strip over the content drags, its top edge included (the surface's own padding didn't).
-  grab: { alignItems: "center", paddingTop: 12, paddingBottom: 10 },
-  // The system's own grabber (as `SheetSurface` draws it): 36 × 5, round ends; the hairline's tone was too faint on
-  // the glass.
-  grabBar: { width: 36, height: 5, borderRadius: 2.5 },
+  fill: { flex: 1 },
+  fit: { alignSelf: "stretch" },
 });

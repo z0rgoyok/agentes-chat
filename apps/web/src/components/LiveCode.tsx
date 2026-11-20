@@ -198,38 +198,3 @@ export function formatBytes(locale: string, bytes: number) {
   if (kb < 1024) return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(kb)} KB`;
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(kb / 1024)} MB`;
 }
-
-/** A message that went into the running task, as the agent took it in. */
-export interface SteerNote {
-  /** Its author's name. */
-  author: string;
-  /** I wrote it ("seu recado"). */
-  mine: boolean;
-  text: string;
-}
-
-/**
- * "Leu seu recado · separa por iPhone e Android" in a well under the reply's tools; "Parou para ler seu
- * recado" when the person asked it to stop and read now.
- */
-export function SteerWell({ now, note }: { now: boolean; note: SteerNote | undefined }) {
-  const { t } = useTranslation();
-  const title = note
-    ? now
-      ? note.mine
-        ? t("run.well.nowYours")
-        : t("run.well.nowOf", { name: note.author })
-      : note.mine
-        ? t("run.well.readYours")
-        : t("run.well.readOf", { name: note.author })
-    : now
-      ? t("run.well.nowYours")
-      : t("run.well.readYours");
-  return (
-    <p className="live-work__steer ac-iconline">
-      <Icon name={now ? "bolt" : "checks"} size={14} />
-      <b>{title}</b>
-      {note?.text && <q>{note.text}</q>}
-    </p>
-  );
-}

@@ -11,7 +11,7 @@ import {
   useRoster,
 } from "@agenteschat/client";
 import { WORK_TICK_MS, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
-import { listsAgent, opensDetails } from "@agenteschat/client/lib/audience";
+import { managesAgent, opensDetails } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
@@ -22,22 +22,39 @@ import { joinsChannels } from "@agenteschat/client/lib/right-hand";
 import { picksForMe, replyAloneKey } from "@agenteschat/client/lib/routing";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { Fragment, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import { RefreshControl, StyleSheet, View } from "react-native";
+import { LayoutAnimationConfig } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
-import { Button, Card, Count, Icon, Locked, Row, SearchField, Text, useToast, weights } from "@/ui";
+import {
+  Button,
+  EmptyState,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  Locked,
+  SCREEN_X,
+  SearchField,
+  SkeletonList,
+  useToast,
+} from "@/ui";
 import { router } from "@/ui/navigation";
-import { Face, OpensAgent } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
-import { SheetTitle } from "../shared/PromptForm";
-import { ActionList, successHaptic, Tile, tapHaptic } from "../shared/parts";
-import { useSheet } from "../shared/SheetHost";
+import { chooseAction, confirmAction, Gap, SettingsPage } from "../settings/parts";
+import { AgentFace, Face, OpensAgent } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useMeId, useNow, useOrgId, usePullRefresh } from "../shared/hooks";
+import { PushedLargeTitle } from "../shared/PushedLargeTitle";
+import { goBack, Loaded, successHaptic, tapHaptic, useLatest } from "../shared/parts";
 import { usePresenceOf } from "../status/hooks";
 import { lineText } from "../status/logic";
+import { addTargets, channelMembersHrefs } from "./members";
 
 /** Above this many members the list gets a search field (as the web's channel details). */
 const SEARCH_FROM = 8;
+/** A face in a members row: the lists' size, in GroupedRow's 36 column. */
+const FACE = 30;
 
 type Kind = "person" | "agent";
 interface Who {
@@ -50,7 +67,7 @@ interface Who {
   setsReply: boolean;
 }
 
-/** Refreshes who is in the channel after a change (the header's faces, the "@" picker, this list). */
+/** Refreshes who is in the channel after a change (the header's faces, the "@" picker, these screens). */
 function useRefresh(channelId: string) {
   const orgId = useOrgId();
   const qc = useQueryClient();
@@ -61,7 +78,11 @@ function useRefresh(channelId: string) {
 }
 
 /** An agent's line says how it answers my messages: on its own only while something reads the ones that mention nobody. */
-const lineOf = (t: TFunction, w: Who, routing: AiRouting | undefined) =>
+const lineOf = (
+  t: TFunction,
+  w: Pick<Who, "kind" | "autoReply" | "handle" | "name" | "email">,
+  routing: AiRouting | undefined,
+) =>
   w.kind === "agent"
     ? !w.autoReply
       ? t("channelMembers.mentionLine", { handle: w.handle })
@@ -71,22 +92,65 @@ const lineOf = (t: TFunction, w: Who, routing: AiRouting | undefined) =>
     : w.email;
 
 /**
- * Who is in a channel, as the web's channel details: agents and people in groups, each agent with how it
- * replies here. Admins open a member for its options (how an agent replies, "Tirar do canal") and add
- * people or agents; an agent's owner opens it for how it replies; everyone else reads the list.
+ * "Tirar do canal", asked first in the system's confirmation (what it changes for them), then done: a toast says it and
+ * the lists read who is in again. `after` runs once it is done (the agent's screen goes back).
  */
-export function ChannelMembersSheet({ channelId, channelName }: { channelId: string; channelName: string }) {
+function useRemoveMember(channelId: string, channelName: string) {
+  const { t, i18n } = useTranslation();
+  const orgId = useOrgId();
+  const api = useApi();
+  const toast = useToast();
+  const refresh = useRefresh(channelId);
+  const remove = useMutation({
+    mutationFn: (w: Pick<Who, "kind" | "id" | "name">) =>
+      api.chat.removeMember(orgId, channelId, w.kind === "agent" ? { agentId: w.id } : { userId: w.id }),
+    onSuccess: (_, w) => {
+      successHaptic();
+      refresh();
+      toast({
+        title: t("mobile.chat.memberRemoved", { name: w.name, channel: channelName }),
+        ...(w.kind === "agent" ? { agentId: w.id } : { icon: "check" as const }),
+      });
+    },
+    onError: (e) => toast({ title: errorText(t, e, i18n.language), icon: "x" }),
+  });
+  const ask = (w: Pick<Who, "kind" | "id" | "name">, after?: () => void) =>
+    confirmAction({
+      title: t("channelMembers.removeTitle", { name: w.name, channel: channelName }),
+      text: t(
+        w.kind === "agent" ? "channelMembers.removeAgentBody" : "channelMembers.removePersonBody",
+        agentGrammar(w.name),
+      ),
+      action: t("channelMembers.removeConfirm"),
+      cancel: t("common.cancel"),
+      onConfirm: () => remove.mutate(w, after ? { onSuccess: () => after() } : {}),
+    });
+  return { ask, pending: remove.isPending };
+}
+
+/**
+ * Who is in a channel (the web's channel details on the phone), a list screen pushed over the conversation (managing
+ * is a screen, never a sheet), under the system's large title as the app's other pushed lists: the search first when
+ * the list is long, agents and people in groups, off ones under Offline, each agent with what it does and how it
+ * answers here; a pull reads who is in again. Whoever may manage the channel adds people and agents and takes them
+ * out; an agent's owner sets how it answers; everyone reads the list. Muting and leaving the channel close it.
+ */
+export function ChannelMembersScreen({ channelId }: { channelId: string }) {
   const { t, i18n } = useTranslation();
   const orgId = useOrgId();
   const { org } = useOrg();
-  const sheet = useSheet();
   const dir = useDirectory();
   const meId = useMeId();
   const c = useColors();
   const roster = useRoster(orgId, channelId);
+  const pull = usePullRefresh(roster.refetch);
   const routing = useAiStatus(orgId).data?.routing;
   const channels = useChannels(orgId).data;
-  const channel = channels?.find((x) => x.id === channelId);
+  // The channels by id, once per list: every agent's work line names where it works.
+  const channelsById = useMemo(() => new Map((channels ?? []).map((ch) => [ch.id, ch])), [channels]);
+  const channel = channelsById.get(channelId);
+  const channelName = channel?.name ?? "";
+  const removal = useRemoveMember(channelId, channelName);
   // An agent's work first, as the web's members column says it ("aqui" for this channel), then how it replies.
   const presence = usePresenceOf();
   const now = useNow(WORK_TICK_MS);
@@ -97,7 +161,7 @@ export function ChannelMembersSheet({ channelId, channelName }: { channelId: str
       presence.agent(id)?.work,
       {
         agentName: (x) => dir.agentById.get(x)?.name,
-        channelName: (x) => channels?.find((ch) => ch.id === x)?.name,
+        channelName: (x) => channelsById.get(x)?.name,
         here: channelId,
       },
       now,
@@ -144,104 +208,177 @@ export function ChannelMembersSheet({ channelId, channelName }: { channelId: str
     return under?.work ?? (under?.line ? lineText(under.line) : t(`presence.agentWhy.${why}`));
   };
 
-  const open = (w: Who) =>
-    sheet.open(<MemberOptions channelId={channelId} channelName={channelName} who={w} removable={editable} />);
-  // No options to give here: the row is the way to the agent, as its picture is in the options.
-  const seeAgent = (id: string) => {
-    sheet.close();
-    router.push(`/agent/${id}`);
+  /**
+   * What a row opens: an agent whose answers here can be set, or who can be taken out, its own screen; a person who can
+   * be taken out, the short menu with that action (asked again before it goes); an agent with nothing to change here,
+   * its profile. Not on my own row: taking myself out of my own list reads as a mistake (as on the web).
+   */
+  const opens = (w: Who, mine: boolean): RowOpens => {
+    if (w.kind === "agent" && (w.setsReply || editable)) return "screen";
+    if (w.kind === "person" && editable && !mine) return "menu";
+    if (w.kind === "agent" && opensDetails(dir.anyAgent(w.id))) return "profile";
+    return null;
   };
-  const group = (label: string, count: number, list: Who[]) =>
-    list.length > 0 ? (
-      <View>
-        <View style={styles.group}>
-          <Text variant="footnote" tone="faint" style={styles.bold}>
-            {label}
-          </Text>
-          {/* Tabular figures, as every count in the app (`Count`). */}
-          <Count value={count} size={13} weight={weights.medium} color={c.faint} />
-        </View>
-        <Card>
-          {list.map((w) => {
-            const mine = w.kind === "person" && w.id === meId;
-            return (
-              <Row
-                key={`${w.kind}:${w.id}`}
-                leading={<Face who={{ type: w.kind, id: w.id }} size={30} live={false} presence ring={c.raised} />}
-                title={mine ? `${w.name}${t("common.youSuffix")}` : w.name}
-                subtitle={subtitleOf(w)}
-                subtitleLines={w.kind === "agent" ? 2 : 1}
-                faded={off(w)}
-                // Not on my own row: taking myself out of my own list reads as a mistake (as on the web).
-                {...((editable && !mine) || w.setsReply
-                  ? {
-                      onPress: () => open(w),
-                      meta: <Icon name="more" size={18} color={c.faint} />,
-                    }
-                  : w.kind === "agent" && opensDetails(dir.anyAgent(w.id))
-                    ? { onPress: () => seeAgent(w.id) }
-                    : {})}
-              />
-            );
-          })}
-        </Card>
-      </View>
-    ) : null;
+  // What a tap does, one function for every row (the rows are memoized), reading this render's state.
+  const open = useLatest((w: Pick<Who, "kind" | "id" | "name">, what: Exclude<RowOpens, null>) => {
+    if (what === "screen") router.push(channelMembersHrefs.agent(channelId, w.id));
+    else if (what === "profile") router.push(`/agent/${w.id}`);
+    else
+      chooseAction(
+        w.name,
+        [{ label: t("channelMembers.remove"), icon: "x", destructive: true, onPress: () => removal.ask(w) }],
+        t("common.cancel"),
+      );
+  });
 
   return (
-    <>
-      <SheetTitle
-        leading={<Tile icon="hash" />}
-        title={t("shell.members")}
-        subtitle={`#${channelName}${roster.data ? ` · ${t("mobile.chat.here", { count: all.length })}` : ""}`}
-      />
-      <Text variant="footnote" tone="muted">
-        {t("channelMembers.caption")}
-      </Text>
-      {all.length > SEARCH_FROM ? (
-        <SearchField value={q} onChangeText={setQ} placeholder={t("channel.detailsSearch")} autoCorrect={false} />
-      ) : null}
-      {roster.isLoading ? (
-        <ActivityIndicator color={c.muted} />
-      ) : roster.isError ? (
-        <Text tone="muted">{t("mobile.app.failed")}</Text>
-      ) : needle && shown.length === 0 ? (
-        <Text variant="body" tone="muted">
-          {t("channel.detailsEmpty", { q })}
-        </Text>
-      ) : (
-        groups.map((g) => <Fragment key={g.key}>{group(label[g.key], g.count, g.rows)}</Fragment>)
-      )}
-      {editable && !needle ? (
-        <ActionList
-          items={[
-            {
-              key: "add",
-              icon: "plus",
-              label: t("channelMembers.addRow"),
-              onPress: () => sheet.open(<AddChannelMembers channelId={channelId} channelName={channelName} />),
-            },
-          ]}
-        />
-      ) : null}
-      {channel?.isMember ? <ChannelOwnActions channel={channel} /> : null}
-      {editable ? null : (
-        <Text variant="caption" tone="faint" style={styles.note}>
-          {t("channelMembers.readOnly")}
-        </Text>
-      )}
-    </>
+    <PushedLargeTitle
+      title={t("shell.members")}
+      grouped
+      keyboard
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+    >
+      {/* The settings pages' body (`SettingsPage`): their sides, and what was there as it opened doesn't fade in. */}
+      <Locked when={removal.pending} style={styles.page}>
+        <LayoutAnimationConfig skipEntering>
+          {all.length > SEARCH_FROM ? (
+            <View style={styles.search}>
+              <SearchField
+                value={q}
+                onChangeText={setQ}
+                placeholder={t("channel.detailsSearch")}
+                accessibilityLabel={t("channel.detailsSearch")}
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+            </View>
+          ) : null}
+          <GroupedFooter>{t("channelMembers.caption")}</GroupedFooter>
+          <Gap />
+          {editable && !needle ? (
+            <GroupedList>
+              <GroupedRow
+                icon="plus"
+                label={t("channelMembers.addRow")}
+                onPress={() => router.push(channelMembersHrefs.add(channelId))}
+              />
+            </GroupedList>
+          ) : null}
+          {roster.isPending ? (
+            <SkeletonList rows={4} />
+          ) : roster.isError ? (
+            <LoadFailed onRetry={() => void roster.refetch()} />
+          ) : needle && shown.length === 0 ? (
+            <EmptyState
+              size="inline"
+              title={t("channel.detailsEmpty", { q: q.trim() })}
+              action={
+                <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
+              }
+            />
+          ) : (
+            <Loaded>
+              {groups.map((g) =>
+                g.rows.length > 0 ? (
+                  <Fragment key={g.key}>
+                    <GroupedHeader>{`${label[g.key]} · ${g.count}`}</GroupedHeader>
+                    <GroupedList>
+                      {g.rows.map((w) => {
+                        const mine = w.kind === "person" && w.id === meId;
+                        return (
+                          <RosterRow
+                            key={`${w.kind}:${w.id}`}
+                            kind={w.kind}
+                            id={w.id}
+                            name={w.name}
+                            label={mine ? `${w.name}${t("common.youSuffix")}` : w.name}
+                            sub={subtitleOf(w)}
+                            // Off for now (the web's Offline rows): in faint, under its own header.
+                            faint={off(w)}
+                            opens={opens(w, mine)}
+                            ring={c.raised}
+                            onOpen={open}
+                            leading
+                          />
+                        );
+                      })}
+                    </GroupedList>
+                  </Fragment>
+                ) : null,
+              )}
+            </Loaded>
+          )}
+          {channel?.isMember ? (
+            <>
+              <Gap />
+              <ChannelOwnActions channel={channel} />
+            </>
+          ) : null}
+          {editable ? null : <GroupedFooter>{t("channelMembers.readOnly")}</GroupedFooter>}
+        </LayoutAnimationConfig>
+      </Locked>
+    </PushedLargeTitle>
   );
 }
 
+/** What a member's row opens: its agent's screen here, the menu to take a person out, the agent's profile; nothing. */
+type RowOpens = "screen" | "menu" | "profile" | null;
+
+/**
+ * One member: the face (an agent's opens its profile), the name, the line under it, faint while off. Drawn again only
+ * when what it shows changes, not at every change of anyone's presence.
+ */
+const RosterRow = memo(function RosterRow({
+  kind,
+  id,
+  name,
+  label,
+  sub,
+  faint,
+  opens,
+  ring,
+  onOpen,
+}: {
+  kind: Kind;
+  id: string;
+  name: string;
+  label: string;
+  sub: string;
+  faint: boolean;
+  opens: RowOpens;
+  /** The surface the face's presence badge is ringed in. */
+  ring: string;
+  onOpen: (w: Pick<Who, "kind" | "id" | "name">, what: Exclude<RowOpens, null>) => void;
+  /** Always with a face: GroupedList reads it to start the hairline after the face's column, as a GroupedRow's. */
+  leading: boolean;
+}) {
+  const face = <Face who={{ type: kind, id }} size={FACE} live={false} presence ring={ring} />;
+  const what = opens;
+  const tap =
+    what === null
+      ? {}
+      : { ...(what === "menu" ? { more: true } : { chevron: true }), onPress: () => onOpen({ kind, id, name }, what) };
+  return (
+    <GroupedRow
+      // An agent's face opens its profile, as on every surface about it; the row its options.
+      leading={kind === "agent" ? <OpensAgent agentId={id}>{face}</OpensAgent> : face}
+      label={label}
+      sub={sub}
+      subLines={kind === "agent" ? 2 : 1}
+      faint={faint}
+      {...tap}
+    />
+  );
+});
+
 /**
  * What I do about a channel for myself, as the web's channel menu: mute it, and leave it. A public one goes at once;
- * a private one asks first, since only someone in it can bring me back, and the last person out archives it.
+ * a private one asks first, since only someone in it can bring me back, and the last person out archives it. Leaving
+ * goes back past the conversation, which is no longer mine to read.
  */
 function ChannelOwnActions({ channel }: { channel: Channel }) {
   const { t, i18n } = useTranslation();
   const orgId = useOrgId();
-  const sheet = useSheet();
   const toast = useToast();
   const mute = useMuteChannel(orgId);
   const leave = useLeaveChannel(orgId);
@@ -251,209 +388,220 @@ function ChannelOwnActions({ channel }: { channel: Channel }) {
     leave.mutate(channel.id, {
       onSuccess: () => {
         successHaptic();
-        sheet.close();
         toast({ title: t("channel.left", { channel: channel.name }), icon: "check" });
-        router.back();
+        // This screen and the conversation under it.
+        router.dismiss(2);
       },
       onError: failed,
     });
   const ask = () => {
     if (channel.visibility !== "private") return go();
     const alone = (roster.data ?? []).filter((m) => m.type !== "agent").length === 1;
-    Alert.alert(
-      t("channel.leaveTitle", { channel: channel.name }),
-      t(alone ? "channel.leaveLast" : "channel.leavePrivate"),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t(alone ? "channel.leaveLastConfirm" : "channel.leaveConfirm"),
-          style: "destructive",
-          onPress: go,
-        },
-      ],
-    );
+    confirmAction({
+      title: t("channel.leaveTitle", { channel: channel.name }),
+      text: t(alone ? "channel.leaveLast" : "channel.leavePrivate"),
+      action: t(alone ? "channel.leaveLastConfirm" : "channel.leaveConfirm"),
+      cancel: t("common.cancel"),
+      onConfirm: go,
+    });
   };
+  const muted = Boolean(channel.muted);
   return (
-    <ActionList
-      items={[
-        {
-          key: "mute",
-          icon: channel.muted ? "sound" : "mute",
-          label: t(channel.muted ? "contextMenu.unmuteChannel" : "contextMenu.muteChannel"),
-          onPress: () => {
-            tapHaptic();
-            mute.mutate({ channelId: channel.id, muted: !channel.muted }, { onError: failed });
-          },
-        },
-        ...(leavesChannel(channel)
-          ? [
-              {
-                key: "leave",
-                icon: "out" as const,
-                label: t("channel.leave"),
-                danger: true,
-                disabled: leave.isPending,
-                onPress: ask,
-              },
-            ]
-          : []),
-      ]}
-    />
+    <GroupedList>
+      <GroupedRow
+        icon={muted ? "sound" : "mute"}
+        label={t(muted ? "contextMenu.unmuteChannel" : "contextMenu.muteChannel")}
+        disabled={mute.isPending}
+        onPress={() => {
+          tapHaptic();
+          mute.mutate(
+            { channelId: channel.id, muted: !muted },
+            {
+              onSuccess: () =>
+                toast({
+                  title: t(muted ? "mobile.chat.unmuted" : "mobile.chat.muted", { channel: channel.name }),
+                  icon: muted ? "sound" : "mute",
+                }),
+              onError: failed,
+            },
+          );
+        }}
+      />
+      {leavesChannel(channel) ? (
+        <GroupedRow icon="out" label={t("channel.leave")} danger disabled={leave.isPending} onPress={ask} />
+      ) : null}
+    </GroupedList>
   );
 }
 
-/** One member's options: how an agent replies here, and "Tirar do canal" (asked first) for admins. */
-function MemberOptions({
-  channelId,
-  channelName,
-  who,
-  removable,
-}: {
-  channelId: string;
-  channelName: string;
-  who: Who;
-  removable: boolean;
-}) {
+/**
+ * One agent in a channel, pushed from its row: who it is (its profile a tap away), how it answers here for whoever may
+ * set it (on its own, or only when someone calls it), and "Tirar do canal" for whoever manages the channel.
+ */
+export function ChannelAgentScreen({ channelId, agentId }: { channelId: string; agentId: string }) {
   const { t } = useTranslation();
-  const g = agentGrammar(who.name);
   const orgId = useOrgId();
+  const { org } = useOrg();
   const api = useApi();
-  const sheet = useSheet();
+  const dir = useDirectory();
+  const meId = useMeId();
   const toast = useToast();
-  const c = useColors();
   const refresh = useRefresh(channelId);
+  const roster = useRoster(orgId, channelId);
   const routing = useAiStatus(orgId).data?.routing;
-  const [autoReply, setAutoReply] = useState(who.autoReply);
-  const back = () => sheet.open(<ChannelMembersSheet channelId={channelId} channelName={channelName} />);
-  const failed = () => toast({ title: t("mobile.app.failed"), icon: "x" });
-
+  const channel = useChannels(orgId).data?.find((x) => x.id === channelId);
+  const channelName = channel?.name ?? "";
+  const member = roster.data?.find((m) => m.type === "agent" && m.id === agentId);
+  const agent = dir.anyAgent(agentId);
+  const name = member?.name ?? agent?.name ?? "";
+  const g = agentGrammar(name);
+  const editable = managesChannel(channel, meId, org);
+  const setsReply = setsAutoReply(channel, dir.agentById.get(agentId), meId, org);
+  const removal = useRemoveMember(channelId, channelName);
+  // The choice shows at once; the server's answer confirms it, or the old one comes back with what happened.
+  const [autoReply, setAutoReply] = useState<boolean | null>(null);
+  const replies = autoReply ?? Boolean(member?.autoReply);
   const reply = useMutation({
-    mutationFn: (on: boolean) => api.chat.setAutoReply(orgId, channelId, who.id, on),
-    onMutate: (on) => setAutoReply(on),
+    mutationFn: (on: boolean) => api.chat.setAutoReply(orgId, channelId, agentId, on),
+    onMutate: (on) => {
+      tapHaptic();
+      setAutoReply(on);
+    },
     onSuccess: refresh,
     onError: () => {
-      setAutoReply(who.autoReply);
-      failed();
+      setAutoReply(null);
+      toast({ title: t("mobile.app.failed"), icon: "x" });
     },
   });
-  const remove = useMutation({
-    mutationFn: () =>
-      api.chat.removeMember(orgId, channelId, who.kind === "agent" ? { agentId: who.id } : { userId: who.id }),
+  // Taken out (here, from elsewhere meanwhile, or opened by an old link): nothing to set here any more. Once: the
+  // removal's own success and the roster read again after it both lead here.
+  const left = useRef(false);
+  const leave = useCallback(() => {
+    if (left.current) return;
+    left.current = true;
+    goBack();
+  }, []);
+  const gone = roster.isSuccess && !member;
+  useEffect(() => {
+    if (gone && !removal.pending) leave();
+  }, [gone, removal.pending, leave]);
+  const who = {
+    kind: "agent" as const,
+    id: agentId,
+    name,
+    handle: member?.handle ?? "",
+    email: "",
+    autoReply: replies,
+  };
+
+  return (
+    <SettingsPage title={name} {...(channel ? { subtitle: `#${channelName}` } : {})} locked={removal.pending}>
+      {roster.isPending ? (
+        <SkeletonList rows={3} />
+      ) : roster.isError ? (
+        <LoadFailed onRetry={() => void roster.refetch()} />
+      ) : member ? (
+        <>
+          <Gap />
+          {/* The bar already says its name: the row is the way to its profile, not its name again. */}
+          {agent && opensDetails(agent) ? (
+            <GroupedList>
+              <GroupedRow
+                leading={<AgentFace agentId={agentId} size={FACE} live={false} />}
+                label={t("profile.viewProfile")}
+                chevron
+                onPress={() => router.push(`/agent/${agentId}`)}
+              />
+            </GroupedList>
+          ) : null}
+          {/* How it answers here: the choice for whoever may set it, else said in a line. */}
+          {setsReply ? null : <GroupedFooter>{lineOf(t, who, routing)}</GroupedFooter>}
+          {setsReply ? (
+            <>
+              <GroupedHeader>{t("channelMembers.replyHeading", g)}</GroupedHeader>
+              <GroupedList>
+                <GroupedRow
+                  label={t("channelMembers.replyAlone", g)}
+                  sub={t(replyAloneKey(routing), g)}
+                  subLines={0}
+                  checked={replies}
+                  disabled={reply.isPending}
+                  onPress={() => !replies && reply.mutate(true)}
+                />
+                <GroupedRow
+                  label={t("channelMembers.replyMention")}
+                  sub={t("channelMembers.replyMentionHelp", { handle: who.handle })}
+                  subLines={0}
+                  checked={!replies}
+                  disabled={reply.isPending}
+                  onPress={() => replies && reply.mutate(false)}
+                />
+              </GroupedList>
+            </>
+          ) : null}
+          {editable ? (
+            <>
+              <Gap />
+              <GroupedList>
+                <GroupedRow
+                  icon="x"
+                  label={t("channelMembers.remove")}
+                  danger
+                  disabled={removal.pending}
+                  onPress={() => removal.ask(who, leave)}
+                />
+              </GroupedList>
+            </>
+          ) : null}
+        </>
+      ) : null}
+    </SettingsPage>
+  );
+}
+
+/**
+ * Adds people and agents to the channel, pushed from its members: a search, a tap checks or unchecks someone, and the
+ * bar's word adds everyone checked (as the web's dialog). Someone not in the workspace yet, or an agent still to make,
+ * have screens of their own.
+ */
+export function AddChannelMembersScreen({ channelId }: { channelId: string }) {
+  const { t } = useTranslation();
+  const orgId = useOrgId();
+  const api = useApi();
+  const toast = useToast();
+  const dir = useDirectory();
+  const meId = useMeId();
+  const { org } = useOrg();
+  const roster = useRoster(orgId, channelId);
+  const refresh = useRefresh(channelId);
+  const channelName = useChannels(orgId).data?.find((x) => x.id === channelId)?.name ?? "";
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const add = useMutation({
+    mutationFn: async () => {
+      for (const member of addTargets(selected)) await api.chat.addMember(orgId, channelId, member);
+    },
     onSuccess: () => {
       successHaptic();
       refresh();
-      back();
-    },
-    onError: failed,
-  });
-  const askRemove = () =>
-    Alert.alert(
-      t("channelMembers.removeTitle", { name: who.name, channel: channelName }),
-      t(who.kind === "agent" ? "channelMembers.removeAgentBody" : "channelMembers.removePersonBody", g),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        { text: t("channelMembers.removeConfirm"), style: "destructive", onPress: () => remove.mutate() },
-      ],
-    );
-  const picked = (on: boolean) =>
-    on ? <Icon name="check" size={18} color={c.ink} /> : <View style={styles.checkRoom} />;
-
-  return (
-    <>
-      <SheetTitle
-        leading={
-          <OpensAgent agentId={who.id}>
-            <Face who={{ type: who.kind, id: who.id }} size={36} live={false} />
-          </OpensAgent>
-        }
-        title={who.name}
-        subtitle={lineOf(t, { ...who, autoReply }, routing)}
-      />
-      {who.kind === "agent" ? (
-        <View>
-          <Text variant="footnote" tone="faint" style={[styles.bold, styles.heading]}>
-            {t("channelMembers.replyHeading", g)}
-          </Text>
-          <ActionList
-            items={[
-              {
-                key: "alone",
-                label: t("channelMembers.replyAlone", g),
-                hint: t(replyAloneKey(routing), g),
-                trailing: picked(autoReply),
-                disabled: reply.isPending,
-                onPress: () => !autoReply && reply.mutate(true),
-              },
-              {
-                key: "mention",
-                label: t("channelMembers.replyMention"),
-                hint: t("channelMembers.replyMentionHelp", { handle: who.handle }),
-                trailing: picked(!autoReply),
-                disabled: reply.isPending,
-                onPress: () => autoReply && reply.mutate(false),
-              },
-            ]}
-          />
-        </View>
-      ) : null}
-      {removable ? (
-        <ActionList
-          items={[
-            {
-              key: "remove",
-              icon: "x",
-              danger: true,
-              label: t("channelMembers.remove"),
-              disabled: remove.isPending,
-              onPress: askRemove,
-            },
-          ]}
-        />
-      ) : null}
-      <Button variant="ghost" wide label={t("common.back")} onPress={back} />
-    </>
-  );
-}
-
-/** Adds people and agents to the channel: search, tap to pick, "Adicionar N" (as the web's dialog). */
-function AddChannelMembers({ channelId, channelName }: { channelId: string; channelName: string }) {
-  const { t } = useTranslation();
-  const orgId = useOrgId();
-  const api = useApi();
-  const sheet = useSheet();
-  const toast = useToast();
-  const dir = useDirectory();
-  const { org } = useOrg();
-  const c = useColors();
-  const roster = useRoster(orgId, channelId);
-  const refresh = useRefresh(channelId);
-  const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const back = () => sheet.open(<ChannelMembersSheet channelId={channelId} channelName={channelName} />);
-  const add = useMutation({
-    mutationFn: async () => {
-      for (const key of selected) {
-        const [kind, id = ""] = key.split(":");
-        await api.chat.addMember(orgId, channelId, kind === "agent" ? { agentId: id } : { userId: id });
-      }
-    },
-    onSuccess: () => {
-      refresh();
-      back();
+      toast({ title: t("mobile.chat.membersAdded", { count: selected.size, channel: channelName }), icon: "check" });
+      goBack();
     },
     onError: (error) => {
       refresh();
       toast({ title: errorText(t, error), icon: "x" });
     },
   });
-  // Who was in before Adicionar: the ones being added keep their rows until the sheet moves on.
+  // Who was in before Adicionar: the ones being added keep their rows until the screen moves on.
   const inChannel = useHeldWhile(
     new Set((roster.data ?? []).map((m) => `${m.type === "agent" ? "agent" : "person"}:${m.id}`)),
     add.isPending || add.isSuccess,
   );
+  // Only the agents this person may place here, as the server's `requirePlacesAgent`: their own, or one they manage
+  // (ADR 0085 addendum of 2026-11-17). Editing an agent, or talking to it, doesn't move it between channels.
   const candidates = [
     ...dir.agents
-      .filter((a) => listsAgent(org, a) && joinsChannels(a))
+      .filter((a) => joinsChannels(a) && ((meId !== null && a.ownerUserId === meId) || managesAgent(a)))
       .map((a) => ({ kind: "agent" as const, id: a.id, name: a.name, line: `@${a.handle}` })),
     ...[...dir.memberById.values()].map((m) => ({
       kind: "person" as const,
@@ -464,11 +612,6 @@ function AddChannelMembers({ channelId, channelName }: { channelId: string; chan
   ].filter((w) => !inChannel.has(`${w.kind}:${w.id}`));
   const needle = q.trim().toLowerCase();
   const rows = candidates.filter((w) => !needle || `${w.name} ${w.line}`.toLowerCase().includes(needle));
-  // Someone not in the workspace yet, or an agent still to make: their own screens, the sheet closes for them.
-  const leaveFor = (path: string) => () => {
-    sheet.close();
-    router.push(path as never);
-  };
   const elsewhere = [
     ...(can(org, "invite_people")
       ? [
@@ -476,7 +619,7 @@ function AddChannelMembers({ channelId, channelName }: { channelId: string; chan
             key: "invite",
             icon: "mail" as const,
             label: t("shell.invite"),
-            onPress: leaveFor(`/invite-people?channel=${channelId}`),
+            href: `/invite-people?channel=${channelId}`,
           },
         ]
       : []),
@@ -486,7 +629,7 @@ function AddChannelMembers({ channelId, channelName }: { channelId: string; chan
             key: "agent",
             icon: "plus" as const,
             label: t("shell.createAgent"),
-            onPress: leaveFor(`/new-agent?channel=${channelId}`),
+            href: `/new-agent?channel=${channelId}`,
           },
         ]
       : []),
@@ -502,59 +645,86 @@ function AddChannelMembers({ channelId, channelName }: { channelId: string; chan
   };
 
   return (
-    <>
-      <SheetTitle leading={<Tile icon="plus" />} title={t("channelMembers.addTitle", { channel: channelName })} />
-      <SearchField value={q} onChangeText={setQ} placeholder={t("channelMembers.addSearch")} autoCorrect={false} />
-      {rows.length === 0 ? (
-        <Text variant="body" tone="muted">
-          {needle
-            ? t("channelMembers.addEmpty", { q: q.trim() })
-            : t("channelMembers.addEveryone", { org: org?.name ?? "", channel: channelName })}
-        </Text>
-      ) : (
-        <Locked when={add.isPending}>
-          <Card>
-            {rows.map((w) => {
-              const key = `${w.kind}:${w.id}`;
-              const on = selected.has(key);
-              return (
-                <Row
-                  key={key}
-                  leading={<Face who={{ type: w.kind, id: w.id }} size={30} live={false} />}
-                  title={w.name}
-                  subtitle={w.line}
-                  meta={<Icon name={on ? "checkc" : "circle"} size={20} color={on ? c.ink : c.faint} />}
-                  onPress={() => toggle(key)}
-                />
-              );
-            })}
-          </Card>
-        </Locked>
-      )}
-      {elsewhere.length > 0 ? <ActionList items={elsewhere} /> : null}
-      <View style={styles.actions}>
-        <Button variant="secondary" label={t("common.cancel")} onPress={back} />
-        <View style={styles.grow}>
-          <Button
-            variant="primary"
-            wide
-            label={t("channelMembers.addConfirm", { count: selected.size })}
-            loading={add.isPending}
-            disabled={selected.size === 0}
-            onPress={() => add.mutate()}
-          />
-        </View>
+    <SettingsPage
+      title={t("channelMembers.addTitle", { channel: channelName })}
+      action={{
+        label:
+          selected.size > 0 ? t("channelMembers.addConfirm", { count: selected.size }) : t("mobile.chat.membersAdd"),
+        disabled: selected.size === 0,
+        onPress: () => add.mutate(),
+      }}
+      busy={add.isPending}
+    >
+      <View style={styles.search}>
+        <SearchField
+          value={q}
+          onChangeText={setQ}
+          placeholder={t("channelMembers.addSearch")}
+          accessibilityLabel={t("channelMembers.addSearch")}
+          autoCorrect={false}
+          returnKeyType="search"
+        />
       </View>
-    </>
+      {roster.isPending || dir.loading ? (
+        <SkeletonList rows={4} />
+      ) : roster.isError ? (
+        // Who is in already didn't load: listing everyone would offer to add them again.
+        <LoadFailed onRetry={() => void roster.refetch()} />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          size="inline"
+          title={
+            needle
+              ? t("channelMembers.addEmpty", { q: q.trim() })
+              : t("channelMembers.addEveryone", { org: org?.name ?? "", channel: channelName })
+          }
+          {...(needle
+            ? {
+                action: (
+                  <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
+                ),
+              }
+            : {})}
+        />
+      ) : (
+        <GroupedList>
+          {rows.map((w) => {
+            const key = `${w.kind}:${w.id}`;
+            return (
+              <GroupedRow
+                key={key}
+                leading={<Face who={{ type: w.kind, id: w.id }} size={FACE} live={false} />}
+                label={w.name}
+                {...(w.line ? { sub: w.line } : {})}
+                checked={selected.has(key)}
+                onPress={() => toggle(key)}
+              />
+            );
+          })}
+        </GroupedList>
+      )}
+      {elsewhere.length > 0 && !needle ? (
+        <>
+          <Gap />
+          <GroupedList>
+            {elsewhere.map((e) => (
+              <GroupedRow
+                key={e.key}
+                icon={e.icon}
+                label={e.label}
+                chevron
+                onPress={() => router.push(e.href as never)}
+              />
+            ))}
+          </GroupedList>
+        </>
+      ) : null}
+    </SettingsPage>
   );
 }
 
 const styles = StyleSheet.create({
-  group: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 8 },
-  bold: { fontWeight: "600" },
-  heading: { paddingHorizontal: 4, paddingTop: 4, paddingBottom: 8 },
-  note: { textAlign: "center" },
-  checkRoom: { width: 18 },
-  actions: { flexDirection: "row", gap: 8, alignItems: "center" },
-  grow: { flex: 1 },
+  // A settings page's sides and top (`SettingsPage`'s body), under the large title.
+  page: { paddingHorizontal: SCREEN_X, paddingTop: 4 },
+  search: { paddingBottom: 12 },
 });

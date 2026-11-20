@@ -86,18 +86,18 @@ describe("Rotinas: reminders and one-offs from the chat", () => {
     await settle(8);
   };
 
-  test("Lembrete chip, 'Uma vez · sex, 16/10 às 09:00' (my own zone isn't repeated), where it goes", async () => {
+  test("a reminder's row: its bell for a trigger, 'Uma vez · sex, 16/10 às 09:00' (my own zone isn't repeated)", async () => {
     await open();
     const dm = screen().getByRole("article", { name: "Lembrete: ligar para o fornecedor" });
-    expect(dm.textContent).toContain("Lembrete");
-    expect(dm.querySelector(".ac-chip svg")).not.toBeNull();
+    // No chip: the trigger's icon is the reminder's bell. Where it goes is in its details.
+    expect(dm.querySelector(".ac-chip")).toBeNull();
+    expect(dm.querySelector(".routine-row__to > svg")).not.toBeNull();
     expect(dm.textContent).toContain("Uma vez · sex, 16/10 às 09:00");
     expect(dm.textContent).not.toContain("Brasília");
-    expect(dm.textContent).toContain("na DM com o Jorge");
+    expect(dm.textContent).not.toContain("na DM com o Jorge");
     // A plain reminder has nothing to run now.
     expect(within(dm).queryByRole("button", { name: "Rodar agora" })).toBeNull();
     const thread = screen().getByRole("article", { name: "Resumo do deploy" });
-    expect(thread.textContent).toContain("no #general (thread)");
     expect(thread.textContent).not.toContain("Lembrete");
     // Active is a switch on the row.
     expect(within(thread).getByRole("switch", { name: "Ativa: Resumo do deploy" })).toBeTruthy();

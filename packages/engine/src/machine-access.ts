@@ -400,7 +400,8 @@ export async function requestFolderAccess(
     await deps.db
       .update(machineAccessRequests)
       .set({ status: "failed", decidedAt: new Date() })
-      .where(eq(machineAccessRequests.id, row.id));
+      // The call can fail after the computer got it (a lost reply): an answer its person already gave stands.
+      .where(and(eq(machineAccessRequests.id, row.id), eq(machineAccessRequests.status, "pending")));
     throw error;
   }
   // The agent now waits, up to a day, for whoever is at the computer: its owner hears about it in the inbox, waiting.

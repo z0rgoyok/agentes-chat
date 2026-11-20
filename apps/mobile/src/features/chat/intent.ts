@@ -1,83 +1,19 @@
-import type { Agent, Message } from "@agenteschat/client";
+import type { Agent } from "@agenteschat/client";
 import type { IconName } from "@/ui";
-import { approvalIdOf, artifactsOf, questionOf } from "./logic";
 
 /**
- * What the conversation offers next: the
- * composer's suggestions come from the latest card in the conversation, not a fixed list; an agent's
- * first conversation introduces it in plain words and offers three first requests tied to what it does.
- * Pure: the screen turns the keys into text (`mobile.chat.intent.*`).
+ * What an agent's first conversation offers: it introduces the agent in plain words and offers three first requests
+ * tied to what it does. Pure: the screen turns the keys into text (`mobile.chat.intent.*`).
  */
-
-// ── Composer suggestions ─────────────────────────────────────────────────────
-
-export type SuggestionKey = "merge" | "review" | "seeChange" | "summarize" | "nextStep";
-
-export interface Suggestion {
-  icon: IconName;
-  /** Under `mobile.chat.intent.suggest.*`. */
-  key: SuggestionKey;
-  values?: Record<string, string>;
-}
-
-export interface SuggestInput {
-  /** The conversation's messages, oldest first (as the screen lists them). */
-  messages: Message[];
-  meId: string | null;
-  /** People in the workspace (a code change can be handed to one the agent named). */
-  people: { id: string; name: string }[];
-}
-
-/** A pull request or a merge in an agent's words: "PR #128", "pull request", a GitHub pull link. */
-const CODE = /\bPR\s*#?\d+|\bpull request\b|github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+|\bmerge\b/i;
-
-export const mentionsCodeChange = (text: string) => CODE.test(text);
-
-const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-
-/** The first person (not me) the text names by first name, as a whole word. */
-export function personNamed(text: string, people: SuggestInput["people"], meId: string | null) {
-  const words = new Set(fold(text).split(/[^a-z0-9]+/));
-  for (const p of people) {
-    if (p.id === meId) continue;
-    const first = fold(p.name.trim().split(/\s+/)[0] ?? "");
-    if (first.length >= 2 && words.has(first)) return p;
-  }
-  return null;
-}
-
-/**
- * 2–3 suggestions from the latest message, or none: nothing while the latest is a person's (the agent is
- * on it), a request to approve or an open question (the card asks), or a plain reply.
- * After a code change: merge it, have the person the agent named review it, see the change.
- * After a file: summarize it, the next step.
- */
-export function composerSuggestions({ messages, meId, people }: SuggestInput): Suggestion[] {
-  const last = [...messages].reverse().find((m) => !m.local && !m.meta?.issueTaken);
-  if (last?.author.type !== "agent") return [];
-  if (approvalIdOf(last.meta)) return [];
-  const q = questionOf(last.meta);
-  if (q && q.status !== "answered") return [];
-  if (mentionsCodeChange(last.body)) {
-    const who = personNamed(last.body, people, meId);
-    return [
-      { icon: "check", key: "merge" },
-      ...(who ? [{ icon: "reply" as const, key: "review" as const, values: { name: firstName(who.name) } }] : []),
-      { icon: "code", key: "seeChange" },
-    ];
-  }
-  if (artifactsOf(last.meta).some((f) => !f.deleted)) {
-    return [
-      { icon: "list", key: "summarize" },
-      { icon: "target", key: "nextStep" },
-    ];
-  }
-  return [];
-}
-
-const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 // ── First conversation with an agent ─────────────────────────────────────────
+
+/** Lowercase, without accents: "Função" and "funcao" match. */
+const fold = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
 /** What an agent does, as one plain sentence ("Responde os clientes no e-mail."), or null. */
 export function plainWhat(instructions: string | null | undefined): string | null {

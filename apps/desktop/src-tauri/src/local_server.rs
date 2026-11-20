@@ -2676,7 +2676,7 @@ fn erase(app: &AppHandle) -> Result<String, String> {
 
 // ───────────────────────────── commands ─────────────────────────────
 
-fn app_window(webview: &tauri::Webview, allowed: &[&str]) -> Result<(), String> {
+pub(crate) fn app_window(webview: &tauri::Webview, allowed: &[&str]) -> Result<(), String> {
     if allowed.contains(&webview.label()) {
         Ok(())
     } else {
@@ -3012,6 +3012,45 @@ pub fn open_system_settings(webview: tauri::Webview, page: String) -> Result<(),
 pub fn local_server_diagnostics(app: AppHandle, webview: tauri::Webview) -> Result<String, String> {
     app_window(&webview, ANY)?;
     Ok(diagnostics(&app))
+}
+
+/// What "Send a report" on the cover adds: the facts `diagnostics` copies, as fields, and the end of the server's log
+/// (64 KiB). Never the server's address: the cover's script scrubs each line before anyone sees it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportParts {
+    app_version: String,
+    os: &'static str,
+    arch: &'static str,
+    phase: Phase,
+    installed_version: Option<String>,
+    server_version: Option<String>,
+    reach: bool,
+    usage: bool,
+    steps: Vec<String>,
+    server_log_tail: String,
+}
+
+#[tauri::command]
+pub fn problem_report_parts(app: AppHandle, webview: tauri::Webview) -> Result<ReportParts, String> {
+    app_window(&webview, &["main-cover"])?;
+    let status = status(&app, false);
+    let server_log_tail = folder(&app)
+        .and_then(|f| fs::read(f.log()).ok())
+        .map(|bytes| String::from_utf8_lossy(&bytes[bytes.len().saturating_sub(64 * 1024)..]).into_owned())
+        .unwrap_or_default();
+    Ok(ReportParts {
+        app_version: app.package_info().version.to_string(),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        phase: status.phase,
+        installed_version: status.installed_version,
+        server_version: status.server_version,
+        reach: status.reach,
+        usage: status.usage,
+        steps: state(&app).lines.iter().cloned().collect(),
+        server_log_tail,
+    })
 }
 
 /// The popover: a host home's organization refused its token; the next sync asks for a new one.

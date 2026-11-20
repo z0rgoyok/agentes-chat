@@ -44,7 +44,7 @@ step "migrations up to date with the schema" \
 step "migrations keep the running version working" "bun test scripts/check-migrations.test.ts && bun run check:migrations"
 step "deploy and backup scripts" "bun test ./deploy/deploy.test.ts"
 step "test backend 1/3" "bun test packages/engine/test/[a-m]*.test.ts"
-step "test backend 2/3" "bun test packages/engine/test/[!a-m]*.test.ts packages/adapters packages/config packages/db packages/modules packages/providers packages/client packages/i18n packages/tokens packages/setup"
+step "test backend 2/3" "bun test packages/engine/test/[!a-m]*.test.ts packages/adapters packages/config packages/db packages/modules packages/providers packages/client packages/i18n packages/tokens packages/setup packages/live"
 step "test backend 3/3" "bun test apps/server"
 geometry=$(mktemp -d "${TMPDIR:-/tmp}/agentes-geometry.XXXXXX")
 step "test web and design system" "GEOMETRY_OUT=$geometry bun test --preload ./scripts/geometry/capture.ts apps/web packages/ui"

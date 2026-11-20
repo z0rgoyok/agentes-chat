@@ -82,8 +82,6 @@ import { agentSecrets } from "./secrets";
  *   instructions lead its first prompt on stdin, never the command line.
  */
 
-/** Same as the engine's `CODEX_MIN_VERSION` (`packages/engine/src/missions.ts`): the release verified on a real machine. */
-export const CODEX_MIN_VERSION = "0.163.0";
 /** What a `tool_call` keeps of a command's output. */
 export const CODEX_TOOL_OUTPUT_MAX = 4000;
 /** Sessions remembered (oldest forgotten first). */
@@ -121,6 +119,8 @@ export type CodexBrainEvent =
   | { type: "error"; code: string; message: string; retryable?: boolean; worked?: boolean }
   /** Protocol 15 (app-server only): messages handed with `brain.steer` that the turn read. */
   | { type: "steer_read"; uuids: string[] }
+  /** App-server only: the answer of a Codex turn an urgent message ended, posted as it comes (`answers: "each"`). */
+  | { type: "answer"; text: string }
   | { type: "speed_fallback"; message: string }
   /** A file a tool of Codex's own made (an image), kept in the agent's folder: the server shows it with the reply. */
   | { type: "file"; path: string };
@@ -149,6 +149,8 @@ export interface CodexBrainTurnRequest {
   permissions?: { mode?: "plan" | "work" | "chat"; asks?: "always" | "never" };
   /** Protocol 16: false for a background turn (no app-server is kept for it). */
   keepAlive?: boolean;
+  /** Each answer as it comes (`BrainTurnRequest.answers`); a runner that doesn't read it joins them into `done`. */
+  answers?: "each";
 }
 
 /**
@@ -336,19 +338,6 @@ export const codexContextOverride = (tokens: unknown): string[] =>
 /** Codex's `model_reasoning_effort` for a brain effort (it has no `xhigh` or `max`). */
 export function codexEffort(effort: BrainEffort): "low" | "medium" | "high" {
   return effort === "low" || effort === "medium" ? effort : "high";
-}
-
-/** `codex-cli 0.163.0` → true from `CODEX_MIN_VERSION` on. */
-export function codexVersionOk(version: string | undefined): boolean {
-  const parse = (s: string | undefined) => {
-    const m = /(\d+)\.(\d+)\.(\d+)/.exec(s ?? "");
-    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-  };
-  const have = parse(version);
-  const want = parse(CODEX_MIN_VERSION) as number[];
-  if (!have) return false;
-  for (let i = 0; i < 3; i++) if ((have[i] ?? 0) !== (want[i] ?? 0)) return (have[i] ?? 0) > (want[i] ?? 0);
-  return true;
 }
 
 /**
@@ -843,6 +832,11 @@ export interface CodexTurnInput {
   keepAlive?: boolean;
   /** Protocol 41: the team's right hand (`codexTurnArgs`' `chat`), always on `codex exec`, killed at a tool of Codex's own. */
   chat?: boolean;
+  /**
+   * The server posts each answer as it comes (`BrainTurnRequest.answers`): a Codex turn's answer before the one an
+   * urgent message starts is an `answer` event, never joined into `done`.
+   */
+  answers?: "each";
 }
 
 /** The app-server mode as `runCodexTurn` sees it (`CodexAppServers`). */
@@ -861,9 +855,6 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
   if (version === null)
     return fail("codex_failed", "Couldn't check Codex on this computer (`codex --version` didn't answer).", true);
   if (!version) return fail("codex_missing", "Codex is not installed on this computer.");
-  if (!codexVersionOk(version)) {
-    return fail("codex_too_old", `Codex here is ${version}. Agents need ${CODEX_MIN_VERSION} or newer.`);
-  }
   // ADR 0053 §3 on Windows: a plan or work turn runs only inside MXC, Windows' own isolation (`codex-windows.ts`).
   const windows = (opts.platform ?? process.platform) === "win32";
   if (windows && !input.chat) {
@@ -889,8 +880,8 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
   const appServer = !codexRulesNear(codexHomeOf(input.account), input.cwd);
   const run = (turn: CodexTurnInput, turnOpts: CodexTurnOptions) =>
     turnOpts.app && !turn.chat && appServer
-      ? turnOpts.app.turn({ ...turn, version }, turnOpts, () => runCodexExec(turn, turnOpts))
-      : runCodexExec(turn, turnOpts);
+      ? turnOpts.app.turn({ ...turn, version }, turnOpts, () => runCodexExec(turn, turnOpts, version))
+      : runCodexExec(turn, turnOpts, version);
   const { speed: _speed, ...standard } = input;
   if (input.speed !== "fast" || (!input.account && !(await ownChatGptSignIn(opts)))) return run(standard, opts);
   // Fast never costs a reply: failed before anything happened, the same turn goes again at standard speed.
@@ -916,8 +907,17 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
   });
 }
 
-/** One turn as `codex exec --json` (the version already checked). */
-async function runCodexExec(input: CodexTurnInput, opts: CodexTurnOptions): Promise<void> {
+/**
+ * The line of a Codex that refused its command line (a flag or subcommand it doesn't have yet, in clap's words), as it
+ * said it; null for any other failure.
+ */
+export function codexRefusal(stderr: string): string | null {
+  const line = /^error: (?:unexpected argument|unrecognized subcommand|invalid value)\b.*$/m.exec(stderr)?.[0];
+  return line ? line.trim().slice(0, 300) : null;
+}
+
+/** One turn as `codex exec --json` (`version`: what that Codex said it is). */
+async function runCodexExec(input: CodexTurnInput, opts: CodexTurnOptions, version: string): Promise<void> {
   const fail = (code: string, message: string, retryable?: boolean) =>
     opts.emit({ type: "error", code, message, ...(retryable ? { retryable } : {}) });
   const threadKey = codexThreadKey(input.sessionId, input.account?.id);
@@ -1055,6 +1055,11 @@ async function runCodexExec(input: CodexTurnInput, opts: CodexTurnOptions): Prom
     (exit.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT" || (windows && exit.code === 9009);
   if (missing) return fail("codex_missing", "Codex is not installed on this computer.");
   if (exit.error) return fail("codex_failed", exit.error.message);
+  const refused = exit.code !== 0 && !mapper.thread ? codexRefusal(stderr) : null;
+  if (refused) {
+    const said = opts.redact ? opts.redact(refused) : refused;
+    return fail("codex_failed", `Codex at ${launch.file} (${version}) said: ${said}. Update the Codex at that path.`);
+  }
   for (const event of mapper.finish({
     exitCode: exit.code,
     lastFile: last,
@@ -1178,6 +1183,7 @@ export async function handleCodexBrainTurn(
         ...(req.permissions?.asks === "never" ? { asks: "never" as const } : {}),
         ...(req.keepAlive === false ? { keepAlive: false } : {}),
         ...(chat ? { chat } : {}),
+        ...(req.answers === "each" ? { answers: "each" as const } : {}),
       },
       {
         threads,

@@ -530,7 +530,7 @@ describe("tell_agent", () => {
       return { chunks: ["ok"] };
     };
 
-  test("a note doesn't block; what came of it comes back by itself, as what was done with the work", async () => {
+  test("a note doesn't block; what came of it reaches the person as the colleague's own report, noted for the sender", async () => {
     f = await setup({
       askAgent: true,
       // The judge reads the reply as one that tells the sender something (ADR 0089).
@@ -555,9 +555,13 @@ describe("tell_agent", () => {
     ]);
     const [notice] = await notices();
     expect(notice?.meta.notice).toMatchObject({ kind: "consult_reply", from: "@infra", refs: { kind: "note" } });
-    expect(allText(f.provider.calls.at(-1)?.request as ModelRequest)).toContain(
-      "[What @infra did with the work you handed it]: Error rate is 0.1%",
+    // Infra's report is in the person's conversation as its own message; nothing wakes Dev to relay it.
+    expect((notice?.meta.notice as { refs?: Record<string, string> } | undefined)?.refs?.wake).toBeUndefined();
+    const report = (await f.db.select().from(schema.messages)).find(
+      (m) => m.authorAgentId === infra.id && m.meta.handedReport,
     );
+    expect(report?.body).toStartWith("Error rate is 0.1%");
+    expect(f.provider.calls.some((x) => allText(x.request).includes("did with the work you handed it"))).toBe(false);
   });
 
   test("an acknowledgement isn't passed back, and the answering agent can't note back (no ping-pong)", async () => {

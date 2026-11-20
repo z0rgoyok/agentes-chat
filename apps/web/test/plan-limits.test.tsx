@@ -4,10 +4,11 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { join } from "node:path";
-import type { AiAccounts, AiComputer, PlanUsage } from "@agenteschat/client";
+import { type AiAccounts, type AiComputer, ApiError, type PlanUsage } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { declarations, topLevel } from "./built-css";
 import { ADA_ID, ATLAS_ID, createFakeApi, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+import { hintOf } from "./hint";
 import { renderApp, screen, settle } from "./render";
 
 /*
@@ -35,6 +36,7 @@ const MAC: AiComputer = {
   keys: true,
   brains: { claude_code: true, codex: true },
 };
+/** Walter's Claude Team account, with the automatic name: it goes by its email. */
 const TEAM: AiAccounts["accounts"][number] = {
   id: "acct_team",
   kind: "claude_code",
@@ -69,7 +71,7 @@ async function go(path: string, state: State, accounts: AiAccounts["accounts"] =
   fakeMachinesOf.get(api)?.setAiAccounts({ accounts, computers: [MAC] });
   const r = await renderApp(`/org/${ORG_ID}/${path}`, { api });
   await settle(6);
-  return r;
+  return { ...r, api };
 }
 
 const click = async (el: Element) => {
@@ -104,9 +106,9 @@ describe("Sua conta: your plans' limits", () => {
   test("each plan your agents think with: its mark, its name and its compact line, opening Uso", async () => {
     const { router } = await go("settings/account", onPlans());
     const card = screen().getByRole("region", { name: "Limites dos seus planos" });
-    const plan = within(card).getByRole("button", { name: /^Claude Team/ });
+    const plan = within(card).getByRole("button", { name: /^walt@acme\.com/ });
     expect(plan.querySelector(".settings-row__icon .ac-brand")?.getAttribute("data-mark")).toBeTruthy();
-    expect(plan.querySelector(".settings-row__label")?.textContent).toBe("Claude Team");
+    expect(plan.querySelector(".settings-row__label")?.textContent).toBe("walt@acme.com");
     // Its tightest windows and one bar for the fullest: the line the agents' facts and AI accounts draw.
     expect(plan.querySelector(".ac-planmeter__line")?.textContent).toBe("semana 40% · 5h 12%");
     expect(
@@ -189,7 +191,7 @@ describe("IA e uso › Contas with many accounts and long names", () => {
     usage: i === 11 ? null : used(5 * i, i < 2 ? 96 - 10 * i : 7 * i),
   }));
 
-  test("each is one row: whole name, plan, owner's first name and one meter; only those near a limit start open", async () => {
+  test("each is one row: whole name, plan, owner's first name and one meter; every one starts closed, the limit's line on those near it", async () => {
     await go("settings/usage", onPlans(), MANY);
     const plans = screen().getByRole("region", { name: "Contas" });
     // The seeded computer's own sign-in comes first.
@@ -203,14 +205,14 @@ describe("IA e uso › Contas with many accounts and long names", () => {
     // One meter each, none while nothing is known: never 0%.
     expect(heads.map((h) => within(h).queryAllByRole("meter").length)).toEqual([...Array(11).fill(1), 0]);
     expect(heads[0]?.querySelector(".ac-planmeter__line")?.textContent).toBe("semana 96%");
-    expect(heads.map((h) => h.getAttribute("aria-expanded"))).toEqual(["true", "true", ...Array(10).fill("false")]);
+    expect(heads.map((h) => h.getAttribute("aria-expanded"))).toEqual(Array(12).fill("false"));
     expect(heads.map((h) => Boolean(h.querySelector(".plan-row__alert")))).toEqual([
       true,
       true,
       ...Array(10).fill(false),
     ]);
     // A closed row holds nothing: twelve accounts stay twelve lines.
-    expect(rows.slice(2).map((r) => r.querySelector(".plan-row__body")?.textContent)).toEqual(Array(10).fill(""));
+    expect(rows.map((r) => r.querySelector(".plan-row__body")?.textContent)).toEqual(Array(12).fill(""));
     // The keyboard opens one: its head is a button that says whether it is open.
     const third = heads[2] as HTMLElement;
     expect(third.tagName).toBe("BUTTON");
@@ -239,13 +241,13 @@ describe("the account menu: a plan near its limit", () => {
     const { router } = await go("settings", onPlans(), [{ ...TEAM, usage: used(86, 40) }]);
     const menu = await openMenu();
     expect(names(menu)).toEqual([
-      "Claude TeamQuase no limite",
+      "walt@acme.comQuase no limite",
       "Definir status",
       "Editar perfil",
       "Configurações",
       "Sair",
     ]);
-    const plan = within(menu).getByRole("menuitem", { name: /^Claude Team/ });
+    const plan = within(menu).getByRole("menuitem", { name: /^walt@acme\.com/ });
     expect(plan.querySelector(".ac-menu__leading .ac-brand--xs")).toBeTruthy();
     expect(plan.querySelector(".ac-menu__hint")?.textContent).toBe("Quase no limite");
     // Under you, before the menu's first separator.
@@ -266,11 +268,11 @@ describe("the account menu: a plan near its limit", () => {
     };
     await go("settings", onPlans(), [{ ...TEAM, usage: used(95, 40) }, work]);
     const menu = await openMenu();
-    expect(names(menu)[0]).toBe("Trabalho · TeamNo limite");
-    expect(names(menu).filter((n) => n?.startsWith("Claude Team"))).toEqual([]);
+    expect(names(menu)[0]).toBe("TrabalhoNo limite");
+    expect(names(menu).filter((n) => n?.startsWith("walt@acme.com"))).toEqual([]);
     cleanup();
     await go("settings", onPlans(), [{ ...TEAM, usage: used(100, 40) }]);
-    expect(names(await openMenu())[0]).toMatch(/^Claude TeamNo limite até /);
+    expect(names(await openMenu())[0]).toMatch(/^walt@acme\.comNo limite até /);
   });
 });
 
@@ -385,5 +387,232 @@ describe("IA e uso › Contas: the quota per model", () => {
     const row = await openRow("MiniMax");
     expect(row.textContent).toContain("MiniMax não mostra o uso por aqui.");
     expect(row.textContent).not.toContain("%");
+  });
+});
+
+describe("IA e uso › Contas: the order of use at a limit (ADR 0041 §6)", () => {
+  const claude = (id: string, label: string, over: Partial<AiAccounts["accounts"][number]> = {}) => ({
+    ...TEAM,
+    id,
+    label,
+    email: `${id}@example.com`,
+    usedBy: [],
+    usage: used(10, 20),
+    shared: true,
+    ...over,
+  });
+  const ORDER: AiAccounts["accounts"] = [
+    claude("acct_b", "Pessoal", { useOrder: 1 }),
+    claude("acct_a", "Trabalho", { useOrder: 0 }),
+    claude("acct_j", "Conta do João", { mine: false, ownerId: "u-joao", ownerName: "João", email: null }),
+    { ...claude("acct_x", "ChatGPT Plus"), kind: "codex" },
+  ];
+  const plans = () => screen().getByRole("region", { name: "Contas" });
+  const order = () => plans().querySelector(".plan-order") as HTMLElement | null;
+  const places = () =>
+    [...(order()?.querySelectorAll(".plan-row") ?? [])].map((r) => [
+      r.querySelector(".plan-row__place")?.textContent,
+      r.querySelector(".plan-row__title")?.textContent?.trim(),
+    ]);
+
+  test("a plan's accounts come together under one heading, first to last, each with its place; an order of one has none", async () => {
+    await go("settings/usage", onPlans(), ORDER);
+    const group = order();
+    if (!group) throw new Error("no order");
+    // The seeded workspace has accounts on two computers: the heading says which one.
+    expect(group.querySelector(".plan-order__title .ac-hintline > span")?.textContent).toBe(
+      "Claude · Ordem de uso no MacBook",
+    );
+    // The plan's mark leads the heading, the rows start with their places.
+    expect(group.querySelector(".plan-order__title .ac-brand")).toBeTruthy();
+    expect(group.querySelectorAll(".plan-row__head .ac-brand")).toHaveLength(0);
+    expect(within(group).getByRole("button", { name: "Sobre Claude · Ordem de uso" })).toBeTruthy();
+    expect(group.querySelector(".plan-order__terms > span")?.textContent).toBe(
+      "Usar várias contas do Claude é uma área cinzenta nos termos do Claude.",
+    );
+    expect(hintOf("os termos do Claude", group).text).toBe(
+      "Um plano é de uma pessoa, então confira os termos do Claude antes de os seus agentes contarem com várias contas.",
+    );
+    expect(places()).toEqual([
+      ["1", "Trabalho"],
+      ["2", "Pessoal"],
+      ["3", "Conta do João"],
+    ]);
+    // Only whoever may move an account gets its grip: João's is a number.
+    const grips = [...group.querySelectorAll("button.plan-row__place")].map((b) => b.getAttribute("aria-label"));
+    expect(grips).toEqual(["Mover Trabalho, número 1 na ordem", "Mover Pessoal, número 2 na ordem"]);
+    // ChatGPT has one account: a row like any other, no place, no heading.
+    expect(plans().querySelectorAll(".plan-order")).toHaveLength(1);
+    // Its automatic name ("ChatGPT Plus") says nothing: the row goes by its email.
+    const codex = [...plans().querySelectorAll(".plan-row")].find((r) => r.textContent?.includes("acct_x@example.com"));
+    expect(codex?.querySelector(".plan-row__place")).toBeNull();
+  });
+
+  test("an account a run never moves to keeps its row in the order with no number, starting where the others do", async () => {
+    await go("settings/usage", onPlans(), [
+      ...ORDER,
+      claude("acct_solo", "Só da Ada", { useOrder: 0, shared: false }),
+      claude("acct_out", "Saiu", { status: "signed_out" }),
+    ]);
+    expect(places()).toEqual([
+      ["1", "Trabalho"],
+      ["2", "Pessoal"],
+      ["3", "Conta do João"],
+      ["", "Só da Ada"],
+      ["", "Saiu"],
+    ]);
+    const group = order() as HTMLElement;
+    const grips = [...group.querySelectorAll("button.plan-row__place")].map((b) => b.getAttribute("aria-label"));
+    // Only the placed ones have a grip, and their names count only the placed ones.
+    expect(grips).toEqual(["Mover Trabalho, número 1 na ordem", "Mover Pessoal, número 2 na ordem"]);
+  });
+
+  test("Mover para baixo from the place's menu saves the new place and the list follows", async () => {
+    const state = onPlans();
+    await go("settings/usage", state, ORDER);
+    const grip = within(order() as HTMLElement).getByRole("button", { name: "Mover Trabalho, número 1 na ordem" });
+    await click(grip);
+    const menu = screen().getByRole("menu", { name: "Ações" });
+    // The first can't go up.
+    expect(within(menu).getByRole("menuitem", { name: "Mover para cima" }).getAttribute("aria-disabled")).toBe("true");
+    await act(async () => fireEvent.click(within(menu).getByRole("menuitem", { name: "Mover para baixo" })));
+    await settle(6);
+    expect(state.calls.filter((c) => c.method === "machines.moveAccountInOrder").map((c) => c.args.slice(1))).toEqual([
+      ["acct_a", 1],
+    ]);
+    expect(places().map(([, name]) => name)).toEqual(["Pessoal", "Trabalho", "Conta do João"]);
+  });
+
+  const moveDown = async (name: string) => {
+    await click(within(order() as HTMLElement).getByRole("button", { name }));
+    const menu = screen().getByRole("menu", { name: "Ações" });
+    await act(async () => fireEvent.click(within(menu).getByRole("menuitem", { name: "Mover para baixo" })));
+    await settle(6);
+  };
+
+  test("after a move the keyboard stays on the moved account's grip, which says its new place", async () => {
+    await go("settings/usage", onPlans(), ORDER);
+    await moveDown("Mover Trabalho, número 1 na ordem");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Mover Trabalho, número 2 na ordem");
+    expect(document.activeElement?.getAttribute("aria-haspopup")).toBe("menu");
+  });
+
+  test("a move the server refuses says why; while one is saving, no grip takes another", async () => {
+    const { api } = await go("settings/usage", onPlans(), ORDER);
+    api.machines.moveAccountInOrder = async () => {
+      throw new ApiError(403, "account.order_forbidden", "Only the account's owner or an admin may move it");
+    };
+    await moveDown("Mover Trabalho, número 1 na ordem");
+    expect(
+      screen().getByText("Só quem conectou esta conta ou um admin pode mudar o lugar dela na ordem."),
+    ).toBeTruthy();
+    expect(places().map(([, name]) => name)).toEqual(["Trabalho", "Pessoal", "Conta do João"]);
+
+    api.machines.moveAccountInOrder = () => new Promise(() => {});
+    await moveDown("Mover Trabalho, número 1 na ordem");
+    const grips = [...(order() as HTMLElement).querySelectorAll<HTMLElement>("button.plan-row__place")];
+    expect(grips.map((g) => [g.getAttribute("aria-disabled"), g.getAttribute("draggable")])).toEqual([
+      ["true", "false"],
+      ["true", "false"],
+    ]);
+    // Pressed while saving, a grip opens nothing.
+    await click(grips[1] as HTMLElement);
+    expect(screen().queryByRole("menu", { name: "Ações" })).toBeNull();
+  });
+
+  test("an admin moves a teammate's account; twelve accounts keep one width of place, long names included", async () => {
+    const many: AiAccounts["accounts"] = [
+      claude("acct_j", "Conta do João", {
+        mine: false,
+        ownerId: "u-joao",
+        ownerName: "João",
+        email: null,
+        useOrder: 0,
+      }),
+      ...Array.from({ length: 11 }, (_, i) =>
+        claude(`acct_${i}`, i === 10 ? "Assinatura corporativa compartilhada da equipe de produto" : `Conta ${i + 2}`, {
+          useOrder: i + 1,
+        }),
+      ),
+    ].map((a, i) => (i === 0 ? ({ ...a, canMove: true } as never) : a));
+    await go("settings/usage", onPlans(), many);
+    expect(
+      within(order() as HTMLElement).getByRole("button", { name: "Mover Conta do João, número 1 na ordem" }),
+    ).toBeTruthy();
+    expect(places().map(([n]) => n)).toEqual(Array.from({ length: 12 }, (_, i) => String(i + 1)));
+    expect(places().at(-1)?.[1]).toBe("Assinatura corporativa compartilhada da equipe de produto");
+  });
+
+  test("an account signed in once per agent is one row with one place; moving it moves all its logins", async () => {
+    const state = onPlans();
+    // Trabalho signed in three times for all agents (a run may move to each), with Pessoal placed between two of them.
+    const team = (id: string, useOrder: number) =>
+      claude(id, "Trabalho", { email: "trabalho@example.com", sameAs: "acct_t1", useOrder, shared: true });
+    await go("settings/usage", state, [
+      team("acct_t1", 0),
+      claude("acct_p", "Pessoal", { useOrder: 1, sameAs: "acct_p" }),
+      team("acct_t2", 2),
+      team("acct_t3", 3),
+    ]);
+    expect(places()).toEqual([
+      ["1", "Trabalho"],
+      ["2", "Pessoal"],
+    ]);
+    await moveDown("Mover Trabalho, número 1 na ordem");
+    expect(state.calls.filter((c) => c.method === "machines.moveAccountInOrder").map((c) => c.args.slice(1))).toEqual([
+      ["acct_t1", 1],
+    ]);
+    expect(places()).toEqual([
+      ["1", "Pessoal"],
+      ["2", "Trabalho"],
+    ]);
+  });
+
+  test("a row that goes by a login with no place moves its account by one of its logins that has one", async () => {
+    const state = onPlans();
+    // Trabalho's first login thinks for one agent alone (no place); its second serves everyone and has one.
+    await go("settings/usage", state, [
+      claude("acct_t1", "Trabalho", { email: "trabalho@example.com", sameAs: "acct_t1", shared: false }),
+      claude("acct_t2", "Trabalho", { email: "trabalho@example.com", sameAs: "acct_t1", useOrder: 1 }),
+      claude("acct_p", "Pessoal", { useOrder: 0, sameAs: "acct_p" }),
+    ]);
+    expect(places()).toEqual([
+      ["1", "Pessoal"],
+      ["2", "Trabalho"],
+    ]);
+    const grip = within(order() as HTMLElement).getByRole("button", { name: "Mover Trabalho, número 2 na ordem" });
+    expect(grip.getAttribute("data-order-grip")).toBe("acct_t1");
+    await click(grip);
+    const menu = screen().getByRole("menu", { name: "Ações" });
+    await act(async () => fireEvent.click(within(menu).getByRole("menuitem", { name: "Mover para cima" })));
+    await settle(6);
+    expect(state.calls.filter((c) => c.method === "machines.moveAccountInOrder").map((c) => c.args.slice(1))).toEqual([
+      ["acct_t2", 0],
+    ]);
+    expect(places()).toEqual([
+      ["1", "Trabalho"],
+      ["2", "Pessoal"],
+    ]);
+  });
+
+  test("a drop before another row moves the account there", async () => {
+    const state = onPlans();
+    await go("settings/usage", state, ORDER);
+    const rows = [...(order() as HTMLElement).querySelectorAll<HTMLElement>(".plan-row")];
+    const grip = rows[1]?.querySelector("button.plan-row__place") as HTMLElement;
+    const target = rows[0] as HTMLElement;
+    target.getBoundingClientRect = () =>
+      ({ top: 0, height: 40, bottom: 40, left: 0, right: 400, width: 400 }) as DOMRect;
+    const data = { setData: () => {}, setDragImage: () => {}, effectAllowed: "", dropEffect: "" };
+    await act(async () => {
+      fireEvent.dragStart(grip, { dataTransfer: data });
+      fireEvent.dragOver(target, { dataTransfer: data, clientY: 5 });
+    });
+    expect(target.dataset.drop).toBe("before");
+    await act(async () => fireEvent.drop(target, { dataTransfer: data, clientY: 5 }));
+    await settle(6);
+    expect(state.calls.filter((c) => c.method === "machines.moveAccountInOrder").map((c) => c.args.slice(1))).toEqual([
+      ["acct_b", 0],
+    ]);
   });
 });

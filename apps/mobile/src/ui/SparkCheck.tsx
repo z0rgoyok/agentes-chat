@@ -2,7 +2,6 @@ import { gradientOf } from "@agenteschat/ui/agent/engine";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
-  Easing,
   interpolate,
   type SharedValue,
   useAnimatedStyle,
@@ -10,11 +9,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Icon } from "./Icon";
-import { useReducedMotion } from "./theme";
+import { motion, useReducedMotion } from "./theme";
 
 /** The burst's length: short, once, and over before the eye leaves the line. */
 const BURST_MS = 600;
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 /** Eight pixels on the sky's grid (2 pt squares), out on the compass and its diagonals. */
 const RAYS = [0, 45, 90, 135, 180, 225, 270, 315];
 
@@ -29,7 +27,7 @@ export function SparkCheck({ size, color, tone }: { size: number; color: string;
   const t = useSharedValue(0);
   useEffect(() => {
     if (reduced) return;
-    t.set(withTiming(1, { duration: BURST_MS, easing: EASE_OUT }));
+    t.set(withTiming(1, { duration: BURST_MS, easing: motion.easeOut }));
   }, [reduced, t]);
   const [light, deep] = gradientOf(tone ?? undefined);
   return (

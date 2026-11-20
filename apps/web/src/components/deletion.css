@@ -3,31 +3,50 @@
 .settings-danger .ac-card__key {
   color: var(--danger);
 }
-/* Sua conta's last card: one way to delete per column (the account, and for an owner the workspace), each one sentence
-   over its button, starting under the title's words. The buttons share one line however the sentences wrap. */
-.danger-pair {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  padding-inline-start: var(--space-8);
+/* Sua conta's last card: one row per way to reset or delete (the workspace's two for an owner, then the account), one
+   below the other. Closed, a settings row's icon tile and title with the kit's chevron at the end, its line under them
+   (a MediaRow); open, what it does and its button, from the row's edge. */
+.danger-row {
+  border-top: 1px solid var(--line);
 }
-.danger-pair__way {
+/* The settings rows' 28 tile, as tall as the chevron's line. */
+.danger-row,
+.danger-row .ac-mediarow {
+  --mediarow-face: 28px;
+}
+.danger-row:first-child {
+  border-top: 0;
+}
+.danger-row > .ac-disclosure__summary {
   display: flex;
-  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  box-sizing: border-box;
+  padding: var(--space-3) var(--card-pad);
+  color: var(--ink);
+  font-size: inherit;
+  font-weight: inherit;
 }
-.danger-pair__way > p {
-  margin: 0;
-  text-wrap: balance;
+.danger-row > .ac-disclosure__summary > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+/* On the title's line, centred on the icon's tile. */
+.danger-row > .ac-disclosure__summary > .ac-disclosure__chevron {
+  flex: none;
+  margin-block-start: calc((var(--mediarow-face) - 16px) / 2);
+}
+.danger-row > .ac-disclosure__body {
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--card-pad) var(--space-4);
+  font-size: var(--text-sm);
+}
+.danger-row > .ac-disclosure__body > .deletion-lines {
+  align-self: stretch;
 }
 @media (max-width: 640px) {
-  .danger-pair {
-    grid-auto-flow: row;
-  }
-  .danger-pair__way > .ac-btn {
+  .danger-row > .ac-disclosure__body > .ac-btn {
     align-self: stretch;
   }
 }

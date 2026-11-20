@@ -1,4 +1,4 @@
-import type { AgentGroup, TeamAgent } from "../api/types";
+import type { AgentGroup, AgentLineChange, TeamAgent } from "../api/types";
 import { groupOf } from "./agent-groups";
 
 /**
@@ -185,6 +185,20 @@ export function sectorLineChanges(
         .filter((a) => clearOf !== undefined && a.reportsToAgentId === clearOf)
         .map((a) => ({ agentId: a.id, reportsToAgentId: null }));
 }
+
+/**
+ * Whether Undo may put `previous` back (what a change of lines answered, the same call undoing it): each agent goes
+ * back under nobody or under an agent I manage (`canManage`). The server's `setReportsTo` refuses putting an agent under
+ * one I don't manage, since that changes the supervisor too (ADR 0085 addendum of 2026-11-17), so moving an agent away
+ * from such a supervisor offers no Undo; the agents moved are mine to move, or the change was refused.
+ */
+export const mayUndoLines = (
+  previous: readonly AgentLineChange[],
+  agents: readonly Pick<TeamAgent, "id" | "canManage">[],
+) =>
+  previous.every(
+    (p) => p.reportsToAgentId === null || agents.some((a) => a.id === p.reportsToAgentId && a.canManage === true),
+  );
 
 /**
  * Whether `agentId` may report to `to` as the chart sees it (the server checks again): not itself, not into its own

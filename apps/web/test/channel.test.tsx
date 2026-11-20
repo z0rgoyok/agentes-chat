@@ -468,14 +468,13 @@ describe("Canal", () => {
       expect(bar.textContent).toContain("Fazer um merge");
       await act(async () => fireEvent.click(within(bar).getByRole("button", { name: "Ver" })));
       expect(card.classList.contains("rq--flash")).toBe(true);
-      // Ada at work meanwhile: the line still says the request, and keeps her stop at its end.
+      // Ada at work meanwhile: the line still says the request (no stop in it), and the composer stops her.
       const run = { type: "agent.run", channelId: ENG_ID, threadId: null, runId: "r-live", agentId: ADA_ID };
       await act(async () => socket.push({ type: "event", channelId: ENG_ID, event: { ...run, status: "running" } }));
       await settle(2);
       expect(bar.textContent).toContain("Ada espera sua aprovação");
-      const stop = within(bar).getByRole("button", { name: "Parar" });
-      expect(bar.lastElementChild?.contains(stop)).toBe(true);
-      await act(async () => fireEvent.click(stop));
+      expect(within(bar).queryByRole("button", { name: "Parar" })).toBeNull();
+      await act(async () => fireEvent.click(screen().getByRole("button", { name: "Parar a Ada" })));
       await settle(2);
       expect(state.calls.some((c) => c.method === "agents.cancelRun")).toBe(true);
     } finally {

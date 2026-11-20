@@ -3,7 +3,6 @@ import { formatShortDate } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { INVITE_LINK_MAX_USES, INVITE_LINK_TTLS, inviteStart } from "@agenteschat/client/lib/invite-start";
 import { INVITE_NOTE_MAX } from "@agenteschat/client/lib/join-requests";
-import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { everyoneOf, ROLES_SEARCH_FROM } from "@agenteschat/client/lib/roles";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
@@ -200,13 +199,14 @@ function ChannelsPick({ draft, change }: PickProps) {
  */
 function AgentsPick({ draft, change }: PickProps) {
   const { t } = useTranslation();
-  const { orgId, org } = useOrg();
+  const { orgId } = useOrg();
   const api = useApi();
   const meId = useMeId();
   const dir = useDirectory();
   const [query, setQuery] = useState("");
   const roles = useRoles(orgId).data?.roles ?? [];
-  const viewer = { userId: meId ?? "", managesAgents: can(org, "manage_agents") };
+  // Who may open an agent to them: its owner, or who manages that agent (`inviteAgentCase` reads it from the agent).
+  const viewer = { userId: meId ?? "" };
   const listed = listedAgents(dir.agents);
   const right = dir.agents.find(isRightHand);
   const rightShown = right && agentMatches(right, query) ? right : undefined;
@@ -366,7 +366,6 @@ function NotePick({ draft, change }: PickProps) {
         placeholder={t(modeKey(org, "members.dialog.notePlaceholder"), { org: org?.name ?? "" })}
         accessibilityLabel={t("members.dialog.note")}
         limit={INVITE_NOTE_LIMIT}
-        autoFocus
       />
       <GroupedFooter>{t("mobile.invitePeople.noteHelp", { max: INVITE_NOTE_MAX })}</GroupedFooter>
     </SettingsPage>

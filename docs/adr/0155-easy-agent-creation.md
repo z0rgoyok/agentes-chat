@@ -71,3 +71,7 @@ place. On a hold every row waits with no button, and "Agora não" says nothing.
 ADR 0164: on the web, the two steps become one dialog with the starting points on the left and the agent's card,
 edited in place, on the right, opened from every way in. The checklist (§2) reads what the card chose: its sentence,
 its starter and its apps.
+
+## Amendment (2026-11-17): the phone's Conversas has no line back to the card (§6)
+
+Conversas lists conversations only. The line back to the first-run card ("… is setting up the team · 2 of 5") is gone from the phone: the card stays in the right hand's conversation, which is in the list like any other. Início on the web keeps its line.

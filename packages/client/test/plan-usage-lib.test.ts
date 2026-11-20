@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
-import type { AgentBrainLine, AiAccounts, AiComputer, AiStatus, PlanAccountUsage, PlanUsage } from "../src/api/types";
+import type {
+  AccountOrderGroup,
+  AgentBrainLine,
+  AiAccounts,
+  AiComputer,
+  AiStatus,
+  PlanAccountUsage,
+  PlanUsage,
+} from "../src/api/types";
 import {
+  accountKinds,
   accountOwner,
   accountShares,
   groupUsageAccounts,
@@ -12,8 +21,9 @@ import {
   planModelUsage,
   SHARES_SHOWN,
   servesText,
-  shareFacts,
+  shareCells,
   splitUsage,
+  usageOrderSections,
   usageShown,
   workspaceUsesApi,
 } from "../src/lib/plan-usage";
@@ -166,13 +176,13 @@ describe("your plans with their limits (Sua conta, the profile menu near a limit
     });
     const view = {
       computers: [computer({ claude_code: { plan: "max", usage: HOURS } })],
-      accounts: [account("a1"), account("a3", { label: "Trabalho" }), glm],
+      accounts: [account("a1"), account("a3", { label: "Trabalho", named: true }), glm],
     };
-    // Named as "Seus planos" names them: the plan once, after a name that doesn't say it.
+    // A computer's own sign-in by its maker and plan; an account by the name its owner gave it, else its email.
     expect(ownPlanLines(t, view, [onOwn()], ME)).toEqual([
       { key: "m1:claude_code", logo: "claude_code", name: "Claude · Max", usage: HOURS },
-      { key: "a1", logo: "claude_code", name: "Claude Team", usage: HOURS },
-      { key: "a3", logo: "claude_code", name: "Trabalho · Team", usage: HOURS },
+      { key: "a1", logo: "claude_code", name: "a1@acme.com", usage: HOURS },
+      { key: "a3", logo: "claude_code", name: "Trabalho", usage: HOURS },
       { key: "a2", logo: "zai", name: "GLM Coding", usage: HOURS },
     ]);
   });
@@ -227,7 +237,7 @@ describe("your plans with their limits (Sua conta, the profile menu near a limit
     expect(lines([onOwn("Ada", { kind: "codex" })])).toEqual(["a1"]);
   });
 
-  test("two plans of one name say which: their computers, or on the same computer an account's email", () => {
+  test("two plans of one name say which: their computers, or on the same computer the account's email and plan", () => {
     const names = (view: AiAccounts, agents: ReturnType<typeof onOwn>[]) =>
       ownPlanLines(t, view, agents, ME).map((p) => p.name);
     const max = { claude_code: { plan: "max", usage: HOURS } };
@@ -236,15 +246,20 @@ describe("your plans with their limits (Sua conta, the profile menu near a limit
     expect(names(own, agents)).toEqual(["Claude · Max on MacBook", "Claude · Max on iMac"]);
     expect(names({ ...own, computers: own.computers.slice(0, 1) }, agents)).toEqual(["Claude · Max"]);
 
-    // The MacBook's own sign-in on Max and an account named "Claude" on Max.
+    // The MacBook's own sign-in on Max and an account on Max: the account goes by its email, nothing to tell apart.
     const claude = account("a1", { label: "Claude", plan: "max", email: "ana@work.com" });
     const onMac = { computers: [computer(max)], accounts: [claude] };
-    expect(names(onMac, [onOwn()])).toEqual(["Claude · Max on MacBook", "Claude · Max · ana@work.com"]);
-    const onImac = { ...onMac, accounts: [{ ...claude, machineId: "m2", computer: "iMac" }] };
-    expect(names(onImac, [onOwn()])).toEqual(["Claude · Max on MacBook", "Claude · Max on iMac"]);
+    expect(names(onMac, [onOwn()])).toEqual(["Claude · Max", "ana@work.com"]);
+    // Two accounts on one computer that their owner named alike: their emails and plans say which.
+    const work = account("a1", { label: "Trabalho", named: true, plan: "max", email: "ana@work.com" });
+    const home = { ...work, id: "a2", email: "ana@home.com" };
+    expect(names({ computers: [], accounts: [work, home] }, [])).toEqual([
+      "Trabalho · ana@work.com · Max",
+      "Trabalho · ana@home.com · Max",
+    ]);
     // The same account signed in on both computers.
     const both = { computers: [], accounts: [claude, { ...claude, id: "a2", machineId: "m2", computer: "iMac" }] };
-    expect(names(both, [])).toEqual(["Claude · Max on MacBook", "Claude · Max on iMac"]);
+    expect(names(both, [])).toEqual(["ana@work.com on MacBook", "ana@work.com on iMac"]);
   });
 });
 
@@ -348,9 +363,14 @@ describe("an agent's line under an account's bars, and whose the account is", ()
     `${key}${o ? `(${Object.values(o).join(",")})` : ""}`) as unknown as TFunction;
 
   test("the share only while a window has parts; tokens, else that it is on it now, else nothing", () => {
-    expect(shareFacts(t, "en", "week", { share: 48, tokens: 1200 })).toMatch(/^ · week 48\s?% · usageViews\.tokens\(/);
-    expect(shareFacts(t, "en", null, { share: 0, tokens: 0, now: true })).toBe(" · usageViews.usesNow");
-    expect(shareFacts(t, "en", null, { share: 0, tokens: 0 })).toBe("");
+    const cells = shareCells(t, "en", "week", { share: 48, tokens: 1200 });
+    expect(cells.share).toMatch(/^48\u00a0?%$/);
+    expect(cells.tokens).toMatch(/^usageViews\.tokens\(/);
+    expect(shareCells(t, "en", null, { share: 0, tokens: 0, now: true })).toEqual({
+      share: null,
+      tokens: "usageViews.usesNow",
+    });
+    expect(shareCells(t, "en", null, { share: 0, tokens: 0 })).toEqual({ share: null, tokens: null });
   });
 
   test("the owner by first name; no owner named, no words", () => {
@@ -543,5 +563,90 @@ describe("the quota per model of a plan whose models have limits of their own", 
     expect(notSharedText(t, "opencode")).toBeNull();
     expect(notSharedText(t, null)).toBeNull();
     expect(planModelUsage(t, "en", withModels({ "glm-5.3": { at: NOW.toISOString() } }), null, NOW)).toEqual([]);
+  });
+});
+
+describe("usageOrderSections: the usage list by order of use", () => {
+  const row = (machineId: string, kind: "claude_code" | "codex", accountId: string | null) => ({
+    machineId,
+    kind,
+    accountId,
+  });
+  const group = (machineId: string, kind: "claude_code" | "codex", ids: string[]): AccountOrderGroup => ({
+    machineId,
+    computer: "MacBook",
+    kind,
+    accounts: ids.map((id) => ({ id }) as AccountOrderGroup["accounts"][number]),
+  });
+  const ids = (sections: ReturnType<typeof usageOrderSections<ReturnType<typeof row>>>) =>
+    sections.map((s) => [s.group ? `${s.group.machineId}:${s.group.kind}` : null, s.rows.map((r) => r.accountId)]);
+
+  test("an order's rows come together first to last, where its first row was; the rest stay as they came", () => {
+    const rows = [
+      row("m1", "claude_code", null),
+      row("m1", "claude_code", "b"),
+      row("m1", "codex", "x"),
+      row("m1", "claude_code", "a"),
+      row("m1", "claude_code", "c"),
+    ];
+    const groups = [group("m1", "claude_code", ["a", "b", "c"]), group("m1", "codex", ["x"])];
+    expect(ids(usageOrderSections(rows, groups))).toEqual([
+      [null, [null]],
+      ["m1:claude_code", ["a", "b", "c"]],
+      [null, ["x"]],
+    ]);
+  });
+
+  test("an order with one row shown is any other row, and no orders keep the list as it is", () => {
+    const rows = [row("m1", "claude_code", "a"), row("m2", "claude_code", "b")];
+    expect(ids(usageOrderSections(rows, [group("m1", "claude_code", ["a", "z"])]))).toEqual([[null, ["a", "b"]]]);
+    expect(ids(usageOrderSections(rows, undefined))).toEqual([[null, ["a", "b"]]]);
+  });
+
+  test("a row stands at its account's place, whichever of the account's logins it goes by", () => {
+    const placed: AccountOrderGroup = {
+      machineId: "m1",
+      computer: "MacBook",
+      kind: "claude_code",
+      accounts: [
+        { id: "t1", sameAs: "t1" },
+        { id: "p", sameAs: "p" },
+        { id: "t2", sameAs: "t1" },
+      ] as AccountOrderGroup["accounts"],
+    };
+    const rows = [row("m1", "claude_code", "p"), row("m1", "claude_code", "t2")];
+    expect(ids(usageOrderSections(rows, [placed]))).toEqual([["m1:claude_code", ["t2", "p"]]]);
+  });
+});
+
+describe("an account's use by kind", () => {
+  const t = ((key: string, o?: Record<string, string>) =>
+    `${key}${o ? `(${Object.values(o).join(" ")})` : ""}`) as unknown as TFunction;
+
+  test("handoffs, people, routines, in that order whatever the server's; kinds with no tokens left out", () => {
+    const kinds = accountKinds({
+      kinds: [
+        { kind: "routines", tokens: 1_400_000, percent: 7 },
+        { kind: "people", tokens: 0, percent: 0 },
+        { kind: "handoffs", tokens: 6_900_000, percent: 37 },
+      ],
+    });
+    expect(kinds.map((k) => k.kind)).toEqual(["handoffs", "routines"]);
+    expect(accountKinds({})).toEqual([]);
+  });
+
+  test("a kind with a share of the week but no tokens this month (a week that began last month) stays listed", () => {
+    const kinds = accountKinds({ kinds: [{ kind: "handoffs", tokens: 0, percent: 37 }] });
+    expect(kinds.map((k) => k.kind)).toEqual(["handoffs"]);
+    const cells = shareCells(t, "en", "week", { share: 37, tokens: 0 });
+    expect(cells.share).toMatch(/^37\u00a0?%$/);
+    expect(cells.tokens).toBeNull();
+  });
+
+  test("each cell stays whole: no breaking space inside one", () => {
+    const cells = shareCells(t, "en", "week", { share: 37, tokens: 6_900_000 });
+    expect(cells.share).not.toContain(" ");
+    expect(cells.tokens).not.toContain(" ");
+    expect(shareCells(t, "en", null, { share: null, tokens: 0 })).toEqual({ share: null, tokens: null });
   });
 });

@@ -298,6 +298,8 @@ describe("suspended", () => {
     });
     const runner = fakeRunner(hub);
     await runner.hello(paired.token);
+    const stopped: [string, string][] = [];
+    hub.setBrowserHooks({ desktopStopped: (machineId, screenId) => stopped.push([machineId, screenId]) });
     const task = async (status: "queued" | "running", extra: Partial<typeof schema.machineTasks.$inferInsert> = {}) => {
       const [row] = await f.db
         .insert(schema.machineTasks)
@@ -325,6 +327,8 @@ describe("suspended", () => {
     expect(runner.requests().filter((r) => r.op === "desktop.session.stop")).toMatchObject([
       { agent: { id: f.agent.id, handle: "dev" } },
     ]);
+    // Where the agent last pointed on it is forgotten with it (ADR 0062).
+    expect(stopped).toEqual([[paired.machineId, f.agent.id]]);
 
     expect((await runs()).map((r) => [r.status, r.error])).toEqual([
       ["canceled", "This workspace is unavailable for now."],

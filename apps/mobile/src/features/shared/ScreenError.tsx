@@ -27,7 +27,6 @@ export function ScreenError({ error, retry }: ErrorBoundaryProps) {
       <EmptyState
         icon="x"
         title={t("mobile.crash.title")}
-        subtitle={t("mobile.crash.subtitle")}
         action={<Button variant="primary" icon="undo" label={t("mobile.crash.retry")} onPress={() => void retry()} />}
       />
       {words ? (

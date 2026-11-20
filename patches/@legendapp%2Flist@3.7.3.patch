@@ -1,0 +1,32 @@
+diff --git a/react-native.js b/react-native.js
+index 440b0ad0d8af34e5dc4ae9b2a21a7addd2d71efb..98afa444877a42ab8f4458694d4bc6fbd02876fe 100644
+--- a/react-native.js
++++ b/react-native.js
+@@ -9208,6 +9208,11 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+       if ((_b2 = state.props.maintainScrollAtEnd) == null ? void 0 : _b2.onItemLayout) doMaintainScrollAtEnd(ctx);
+     }
+   }, [!!getFixedItemSize, extraData]);
++  // agentes: a drawDistance that grows once the list is ready reaches its rows on the next frame, as the first one does
++  // (`scheduleFullDrawDistancePrewarm`); unpatched, the list only reads it on its next scroll.
++  React2.useEffect(() => {
++    if (peek$(ctx, "readyToRender")) scheduleFullDrawDistancePrewarm(ctx);
++  }, [ctx, drawDistance]);
+   React2.useLayoutEffect(() => {
+     var _a4;
+     set$(ctx, "extraData", extraData);
+diff --git a/react-native.mjs b/react-native.mjs
+index b95e1f86d2cd76d5dbaf1340fdc37f3f1990e9ee..33c9eff2d873958c8b7c4aac859483cd65d458ea 100644
+--- a/react-native.mjs
++++ b/react-native.mjs
+@@ -9187,6 +9187,11 @@ var LegendListInner = typedForwardRef(function LegendListInner2(props, forwarded
+       if ((_b2 = state.props.maintainScrollAtEnd) == null ? void 0 : _b2.onItemLayout) doMaintainScrollAtEnd(ctx);
+     }
+   }, [!!getFixedItemSize, extraData]);
++  // agentes: a drawDistance that grows once the list is ready reaches its rows on the next frame, as the first one does
++  // (`scheduleFullDrawDistancePrewarm`); unpatched, the list only reads it on its next scroll.
++  useEffect(() => {
++    if (peek$(ctx, "readyToRender")) scheduleFullDrawDistancePrewarm(ctx);
++  }, [ctx, drawDistance]);
+   useLayoutEffect(() => {
+     var _a4;
+     set$(ctx, "extraData", extraData);

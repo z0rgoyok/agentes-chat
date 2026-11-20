@@ -14,6 +14,7 @@ import {
   ARTIFACT_LIMITS,
   acceptCustomSuggestion,
   actionLevel,
+  addChannelMember,
   ConflictError,
   type CustomDeps,
   classifyByRules,
@@ -22,6 +23,7 @@ import {
   composioToolkitUrl,
   composioToolName,
   composioUsageOf,
+  composioUserId,
   connectCustomServer,
   connectorListing,
   createConnectorToolSource,
@@ -92,12 +94,16 @@ async function world(options: { cap?: number } = {}) {
     composioPollMs: 0,
   };
   /** Connects Drive as `actor` signed in to `email` at Composio, as the callback finishes it. */
-  const connect = async (email: string, options: { actor?: string; connectionId?: string } = {}) => {
+  const connect = async (
+    email: string,
+    options: { actor?: string; connectionId?: string; personal?: boolean } = {},
+  ) => {
     const actor = options.actor ?? f.owner.id;
     const started = await connectCustomServer(deps, actor, f.org.id, {
       serverUrl: DRIVE,
       returnTo: "/org/x/settings/connectors",
       connectionId: options.connectionId,
+      personal: options.personal,
     });
     if (started.status !== "oauth") throw new Error(`expected oauth, got ${started.status}`);
     const state = new URL(started.authorizeUrl).searchParams.get("state") ?? "";
@@ -113,8 +119,8 @@ async function world(options: { cap?: number } = {}) {
   return { fake, composio, deps, connect, signedIn };
 }
 
-async function runOf(fx: Fixture): Promise<ToolContext> {
-  const msg = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, fx.owner.id, fx.org.id, fx.general.id, {
+async function runOf(fx: Fixture, author = fx.owner.id): Promise<ToolContext> {
+  const msg = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, author, fx.org.id, fx.general.id, {
     body: "organize a pasta do cliente",
   });
   const [run] = await fx.db
@@ -481,6 +487,28 @@ describe("tools through Composio", () => {
     const asked = await call(gateway, ctx, "google_drive_create_folder", { folder: "Notas", why: WHY });
     if (asked.type !== "approval") throw new Error(`expected an approval, got ${asked.type}`);
     expect(asked.approval.approveAlways).toEqual({ tool: "create_folder", actions: [] });
+  });
+
+  test("a personal sign-in is made and used under its person's own account id there, never the workspace's", async () => {
+    const w = await world();
+    const walter = await addMember(f.db, f.org.id, "member", "walter");
+    await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: walter.id });
+    await f.db.update(schema.agents).set({ ownerUserId: walter.id }).where(eq(schema.agents.id, f.agent.id));
+    const { connection, code } = await w.connect("walter@example.com", { actor: walter.id, personal: true });
+    expect(connection.ownerUserId).toBe(walter.id);
+    const his = composioUserId(f.org.id, walter.id);
+    expect(w.fake.state.links.at(-1)?.userId).toBe(his);
+    const gateway = createToolGateway({
+      sources: [createConnectorToolSource({ ...w.deps, artifacts: f.artifactDeps })],
+    });
+    w.fake.answer("GOOGLEDRIVE_FIND_FILE", { files: [{ id: "f1", name: "Notes" }] });
+    const found = await call(gateway, await runOf(f, walter.id), "google_drive_find_file", { q: "notes" });
+    expect(found).toMatchObject({ type: "result", output: { content: expect.stringContaining("Notes") } });
+    expect(w.fake.state.executions.at(-1)?.account).toEqual({
+      connectedAccountId: code,
+      userId: his,
+      toolkit: "googledrive",
+    });
   });
 
   test("an action our rules make ask asks at once, on a connection whose tools were stored before they did", async () => {

@@ -1,5 +1,7 @@
 import { keys, useApi, useMailAccounts, useMailAction } from "@agenteschat/client";
 import type { Level } from "@agenteschat/client/lib/access-levels";
+import { managesAgent } from "@agenteschat/client/lib/audience";
+import { connectionActs } from "@agenteschat/client/lib/connected";
 import {
   choiceOf,
   fromMailLevel,
@@ -12,13 +14,24 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Text, useToast } from "@/ui";
+import {
+  Button,
+  EmptyState,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  SkeletonList,
+  useToast,
+} from "@/ui";
 import { confirmAction } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
-import { errorHaptic, successHaptic, Tile } from "../shared/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { SheetTitle } from "../shared/PromptForm";
+import { errorHaptic, successHaptic } from "../shared/parts";
 import { useSheet } from "../shared/SheetHost";
 import { ConnectorIcon } from "./ConnectorIcon";
 import { Problem } from "./Problem";
@@ -32,18 +45,26 @@ import { MailReview } from "./ToolReview";
  */
 export function MailboxSheet({ accountId }: { accountId: string }) {
   const { t } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const { org } = useOrg();
   const sheet = useSheet();
   const toast = useToast();
   const accounts = useMailAccounts(orgId);
   const { disconnect } = useMailAction(orgId);
-  const admin = can(org, "manage_connectors");
+  const me = useMeId() ?? "";
   const [error, setError] = useState<string | null>(null);
-  const [tools, setTools] = useState(false);
   const account = accounts.data?.find((a) => a.id === accountId);
-  if (!account) return <ActivityIndicator color={c.muted} />;
+  // The shape of what is coming, never a bare spinner; one that didn't load says so.
+  if (!account)
+    return accounts.isError ? (
+      <LoadFailed onRetry={() => void accounts.refetch()} />
+    ) : accounts.data ? (
+      <EmptyState size="inline" title={t("common.gone")} />
+    ) : (
+      <SkeletonList rows={2} />
+    );
+  // One's own mailbox is its person's to change; one left with no person, who manages connectors'.
+  const acts = connectionActs(account, me, can(org, "manage_connectors"));
   const choice = choiceOf(account);
   const fail = (text: string) => {
     errorHaptic();
@@ -60,59 +81,60 @@ export function MailboxSheet({ accountId }: { accountId: string }) {
       onError: () => fail(t("mobile.connectors.disconnectFailed", { name: account.address })),
     });
   };
+  const mark = <ConnectorIcon def={MAIL_BRANDS[choice] ?? null} label={account.label} size={52} check />;
+  // Its tools are the next step, a sheet over this one (a flick down comes back), never this sheet's content swapped
+  // in place.
+  const openTools = () =>
+    sheet.push(
+      <View style={styles.body}>
+        <SheetTitle leading={mark} title={t("connectors.tools")} subtitle={account.address} />
+        <MailReview account={account} onNext={sheet.back} onScreen />
+      </View>,
+    );
   return (
     <View style={styles.body}>
-      <View style={styles.head}>
-        <ConnectorIcon def={MAIL_BRANDS[choice] ?? null} label={account.label} size={52} check />
-        <View style={styles.grow}>
-          <Text variant="title" numberOfLines={1}>
-            {t(`mail.choice.${choice}.name`)}
-          </Text>
-          <Text variant="small" tone="muted" numberOfLines={1}>
-            {account.status === "needs_reconnect"
-              ? `${account.address} · ${t("mail.status.needs_reconnect")}`
-              : account.address}
-          </Text>
-        </View>
-      </View>
-      {tools ? (
-        <MailReview account={account} onNext={() => setTools(false)} onScreen />
-      ) : (
-        <>
-          <WhoUses accountId={account.id} />
-          {admin ? (
-            <GroupedList>
-              <GroupedRow
-                leading={<Tile icon="list" size={30} />}
-                label={t("connectors.tools")}
-                value={String(mailReviewTools(t, account).length)}
-                chevron
-                onPress={() => setTools(true)}
-              />
-            </GroupedList>
-          ) : null}
-          <Button variant="primary" wide label={t("mobile.connectors.done")} onPress={sheet.close} />
-          {admin ? (
-            // Disconnecting, alone in red after the system's confirmation, as on a connection's screen.
-            <GroupedList>
-              <GroupedRow
-                label={t("mobile.connectors.disconnect")}
-                danger
-                disabled={disconnect.isPending}
-                onPress={() =>
-                  confirmAction({
-                    title: t("connectors.disconnectTitle", { name: account.address }),
-                    action: t("mobile.connectors.disconnect"),
-                    cancel: t("common.cancel"),
-                    onConfirm: leave,
-                  })
-                }
-              />
-            </GroupedList>
-          ) : null}
-          {error ? <Problem key={error} text={error} /> : null}
-        </>
-      )}
+      <SheetTitle
+        leading={mark}
+        title={t(`mail.choice.${choice}.name`)}
+        subtitle={
+          account.status === "needs_reconnect"
+            ? `${account.address} · ${t("mail.status.needs_reconnect")}`
+            : account.address
+        }
+      />
+      <WhoUses accountId={account.id} />
+      {acts.change ? (
+        <GroupedList>
+          {/* The row a connection's screen gives its tools: the same tile and words. */}
+          <GroupedRow
+            icon="bolt"
+            label={t("connectors.tools")}
+            value={String(mailReviewTools(t, account).length)}
+            chevron
+            onPress={openTools}
+          />
+        </GroupedList>
+      ) : null}
+      <Button variant="primary" wide label={t("mobile.connectors.done")} onPress={sheet.close} />
+      {acts.remove ? (
+        // Disconnecting, alone in red after the system's confirmation, as on a connection's screen.
+        <GroupedList>
+          <GroupedRow
+            label={t("mobile.connectors.disconnect")}
+            danger
+            disabled={disconnect.isPending}
+            onPress={() =>
+              confirmAction({
+                title: t("connectors.disconnectTitle", { name: account.address }),
+                action: t("mobile.connectors.disconnect"),
+                cancel: t("common.cancel"),
+                onConfirm: leave,
+              })
+            }
+          />
+        </GroupedList>
+      ) : null}
+      {error ? <Problem key={error} text={error} /> : null}
     </View>
   );
 }
@@ -133,7 +155,7 @@ function WhoUses({ accountId }: { accountId: string }) {
             key={a.id}
             agentId={a.id}
             accountId={accountId}
-            leading={<AgentFace agentId={a.id} size={30} live={false} />}
+            leading={<AgentFace agentId={a.id} size={36} live={false} />}
           />
         ))}
       </GroupedList>
@@ -148,7 +170,6 @@ function AgentMailLevel({ agentId, accountId, leading }: { agentId: string; acco
   const qc = useQueryClient();
   const orgId = useOrgId();
   const toast = useToast();
-  const { org } = useOrg();
   const meId = useMeId();
   const dir = useDirectory();
   const accounts = useMailAccounts(orgId);
@@ -156,8 +177,8 @@ function AgentMailLevel({ agentId, accountId, leading }: { agentId: string; acco
   const [saving, setSaving] = useState<Level | null>(null);
   const account = accounts.data?.find((a) => a.id === accountId);
   const current = saving ?? fromMailLevel(account?.agents.find((a) => a.agentId === agentId)?.level);
-  // Giving an agent a mailbox is an admin's call, like its scopes (the server checks it again).
-  const mayChange = can(org, "manage_agents");
+  // Giving an agent a mailbox is for who manages that agent, like its scopes (the server checks it again).
+  const mayChange = managesAgent(agent);
   const choose = (level: Level) => {
     if (level === current) return;
     setSaving(level);
@@ -200,6 +221,4 @@ function AgentMailLevel({ agentId, accountId, leading }: { agentId: string; acco
 
 const styles = StyleSheet.create({
   body: { gap: 14 },
-  head: { flexDirection: "row", alignItems: "center", gap: 12 },
-  grow: { flex: 1, minWidth: 0 },
 });

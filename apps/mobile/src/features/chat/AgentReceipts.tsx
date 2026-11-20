@@ -9,6 +9,7 @@ import {
   useSteerState,
 } from "@agenteschat/client";
 import { listNames } from "@agenteschat/client/lib/activity";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { failedRunFix, filesTextOnlyOf, runFailureLine } from "@agenteschat/client/lib/errors";
 import { sentAtLine } from "@agenteschat/client/lib/format";
 import { mayConnectAi, plansNotYoursOf } from "@agenteschat/client/lib/no-ai";
@@ -22,12 +23,12 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
 import {
   Button,
-  Card,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
   Icon,
   type IconName,
   InfoHint,
-  Row,
-  SectionHeader,
   Text,
   useReducedMotion,
   useToast,
@@ -35,8 +36,9 @@ import {
 import { openAgentAi, openAgentModel } from "../ai/AgentAiScreen";
 import { openConnectAi } from "../ai/NoAiCard";
 import { Note, OpenPage, usePlanHold } from "../ai/parts";
+import { ReportProblemButton } from "../report/ReportProblemButton";
 import { AgentFace, Face } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useColors, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { useSheet } from "../shared/SheetHost";
 import {
@@ -52,18 +54,18 @@ import {
 } from "./agent-receipts";
 import { requestComposerText } from "./composer-request";
 import { useQuietInset } from "./look";
+import { useRowDirectory, useRowMeId } from "./row-data";
 
 /** Under a reply whose picture or PDF reached its AI as text only: "Trocar modelo", for who may change the agent. */
 export function FilesTextOnlyFix({ message: m }: { message: Message }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
-  const meId = useMeId();
-  const dir = useDirectory();
+  const meId = useRowMeId();
+  const dir = useRowDirectory();
   const agentId = m.author.id;
   const fix = agentId
     ? failedRunFix(filesTextOnlyOf(m.meta), {
         keys: false,
-        admin: can(org, "manage_agents"),
+        admin: managesAgent(dir.agentById.get(agentId)),
         owner: meId !== null && dir.agentById.get(agentId)?.ownerUserId === meId,
       })
     : null;
@@ -97,8 +99,8 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
 }) {
   const { t, i18n } = useTranslation();
   const { orgId, org } = useOrg();
-  const meId = useMeId();
-  const dir = useDirectory();
+  const meId = useRowMeId();
+  const dir = useRowDirectory();
   const c = useColors();
   const reduced = useReducedMotion();
   const sheet = useSheet();
@@ -122,7 +124,7 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
     failedAgent && failure
       ? failedRunFix(failure.code, {
           keys: can(org, "manage_credentials") && !held,
-          admin: can(org, "manage_agents"),
+          admin: managesAgent(dir.agentById.get(failedAgent)),
           owner: meId !== null && dir.agentById.get(failedAgent)?.ownerUserId === meId,
         })
       : null;
@@ -227,6 +229,9 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
           }
         />
       ) : null}
+      {failedAgent && receipt?.runOf?.[failedAgent] ? (
+        <ReportProblemButton place="run" context={{ runId: receipt.runOf[failedAgent] }} />
+      ) : null}
       {mine && !held && receipt?.noAi && receipt.server?.kept ? <KeptAnswer messageId={m.id} /> : null}
     </Animated.View>
   );
@@ -247,7 +252,7 @@ export const EveryoneLine = memo(function EveryoneLine({
   mine: boolean;
 }) {
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const inset = useQuietInset();
   const name = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const line = everyoneLineOf(t, m.meta, receiptView(receipt), { agent: name });
@@ -313,7 +318,7 @@ export const ReceiptMark = memo(function ReceiptMark({
 }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const c = useColors();
   const tint = ink ?? c.muted;
   const reduced = useReducedMotion();
@@ -399,7 +404,7 @@ function ReceiptsSheet({
 }) {
   const { t, i18n } = useTranslation();
   const { orgId, org } = useOrg();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const sheet = useSheet();
   const held = usePlanHold(orgId, org) !== null;
   const reactions = useReactions(orgId, m.id, false).data ?? m.reactions;
@@ -422,16 +427,16 @@ function ReceiptsSheet({
   return (
     <>
       <SheetTitle title={t("receipts.popoverTitle")} />
-      <Card>
+      <GroupedList>
         {rows.map((r) => (
-          <Row
+          <GroupedRow
             key={r.agentId}
             leading={<AgentFace agentId={r.agentId} size={30} live={false} />}
-            title={name(r.agentId)}
-            subtitle={t(phaseKey(r.phase, held))}
+            label={name(r.agentId)}
+            sub={t(phaseKey(r.phase, held))}
           />
         ))}
-      </Card>
+      </GroupedList>
       {by ? <Note icon={RULE_ICON[by.rule]}>{by.text}</Note> : null}
       {nobody ? (
         <Note icon="checks">
@@ -441,23 +446,24 @@ function ReceiptsSheet({
         </Note>
       ) : null}
       {callable.length > 0 ? (
-        <>
-          <SectionHeader title={t("channel.callAgent")} />
-          <Card>
+        // The header and its rows as one block of the sheet (its gap goes between blocks).
+        <View>
+          <GroupedHeader>{t("channel.callAgent")}</GroupedHeader>
+          <GroupedList>
             {callable.map((c) => (
-              <Row
+              <GroupedRow
                 key={c.agentId}
                 leading={<AgentFace agentId={c.agentId} size={30} live={false} />}
-                title={name(c.agentId)}
-                subtitle={`@${c.handle}`}
+                label={name(c.agentId)}
+                sub={`@${c.handle}`}
                 onPress={() => {
                   requestComposerText(m.channelId, `@${c.handle} `);
                   sheet.close();
                 }}
               />
             ))}
-          </Card>
-        </>
+          </GroupedList>
+        </View>
       ) : null}
       {mentionNeeded ? (
         <>

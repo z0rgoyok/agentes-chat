@@ -185,6 +185,7 @@ type WhatKey =
   | "planServes"
   | "planModelDropped"
   | "joinSuggestion"
+  | "joinOutside"
   | "invitationAccepted"
   | "invitationAcceptedAny"
   | "proposalWaiting"
@@ -343,6 +344,9 @@ export function Headline({
       // A member's suggestion says who suggested it (ADR 0090); a merged row counts everyone as asking.
       if (asked.total === 1 && n.latest.suggestedBy)
         return k("joinSuggestion", { by: n.latest.suggestedBy, name: asked.names[0] });
+      // An outside collaborator's request (ADR 0191): who they work for, and that they take no seat.
+      if (asked.total === 1 && n.latest.outsideOf)
+        return k("joinOutside", { name: asked.names[0], outsideOf: n.latest.outsideOf });
       return asked.total > 1
         ? k("joinRequestMany", { names: namesText(t, asked.names, 2, asked.total) })
         : k("joinRequest", { name: asked.names[0] });

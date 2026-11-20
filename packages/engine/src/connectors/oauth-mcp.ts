@@ -72,8 +72,16 @@ export function canonicalResource(serverUrl: string) {
   return u.toString().replace(/\/$/, "");
 }
 
-/** One MCP address however it was typed: no trailing slash, any case (mirrors the apps' `sameServer`). */
-export const serverKey = (serverUrl: string) => serverUrl.replace(/\/+$/, "").toLowerCase();
+/**
+ * One MCP address however it was typed: no trailing slash, any case (mirrors the apps' `sameServer`). Read from the
+ * end, not by a pattern: a person types the address, and a pattern backtracks on a long run of slashes that does not
+ * end it.
+ */
+export const serverKey = (serverUrl: string) => {
+  let end = serverUrl.length;
+  while (end > 0 && serverUrl[end - 1] === "/") end--;
+  return serverUrl.slice(0, end).toLowerCase();
+};
 
 /**
  * Asks the server who it is without credentials and reads where its OAuth lives. `headers`: what a person typed for

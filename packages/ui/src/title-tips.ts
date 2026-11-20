@@ -11,7 +11,10 @@ export const TITLE_TIP_ID = "ac-title-tip";
 /** An element wider or taller than this gets its tip by the pointer, not on its own middle (a whole row or card). */
 const NEAR = { width: 320, height: 96 };
 
-/** What can carry a tip: a DOM `title`, or a control whose only content is an icon (its `aria-label`). */
+/**
+ * What can carry a tip: a DOM `title`, a control whose only content is an icon (its `aria-label`), or a button whose
+ * words are cut short.
+ */
 const SOURCES = '[title], button, a[href], [role="button"]';
 const ICON_ONLY = 'button:not([role]), a[href]:not([role]), [role="button"]';
 const FIELDS = "input, textarea, select, [contenteditable]";
@@ -26,6 +29,9 @@ function said(el: Element): string | null {
   const title = el.getAttribute("title");
   // A field's `title` is also its validation bubble's hint (`pattern`): it stays where the browser reads it.
   if (title !== null) return el.hasAttribute("pattern") ? "" : title.trim() && title;
+  // A button's words cut short by its place (`.ac-btn__label` in a dialog's foot) are said whole.
+  const label = el.querySelector(":scope > .ac-btn__label");
+  if (label instanceof HTMLElement && label.scrollWidth > label.clientWidth) return label.textContent ?? "";
   if (
     !el.matches(ICON_ONLY) ||
     // One that opens a hover card or an ⓘ already says more on hover, an open menu covers where the tip would go.

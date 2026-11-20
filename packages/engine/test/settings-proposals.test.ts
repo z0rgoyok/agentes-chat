@@ -6,6 +6,7 @@ import {
   askProposal,
   createAgentGroup,
   createChannel,
+  createRole,
   createSetupToolSource,
   createToolGateway,
   decideProposal,
@@ -29,8 +30,10 @@ import {
   redoAgentAction,
   SETTINGS_REQUEST_CARD,
   saveSkill,
+  setAgentEditors,
   setAgentScopes,
   setAgentSkills,
+  setMemberRoles,
   setRightHandApprovals,
   type ToolContext,
   undoAgentAction,
@@ -533,22 +536,33 @@ describe("an agent's skills on the card, as on its page", () => {
     expect(await skillsOf(f)).toEqual(["pdf"]);
   });
 
-  test("only who manages agents decides it, as on its page: its owner sends the card on, an admin applies it", async () => {
+  test("who edits the agent decides it, as on its page: its owner applies it, anyone else sends the card to who edits it", async () => {
     f = await setup({ rightHand: true });
     await install(f, "excel");
+    await install(f, "pdf");
     const bia = await addMember(f.db, f.org.id, "member", "Bia Rocha");
     await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: bia.id });
-    const asked = await lodiRun(f, bia.id, "coloca a skill excel no dev", true);
-    const out = await call(f, asked, { changes: [{ agent: "@dev", add_skills: ["excel"] }], reason: "pediu" });
-    expect(out.content).toContain("can't apply it: the card lets them send it to whoever may");
-    const [row] = (await cardRows(f, bia.id)).rows;
-    expect(row).toMatchObject({ status: "pending", canDecide: false });
-    await expect(decideProposal(f.db, bia.id, f.org.id, row?.id ?? "", "accept")).rejects.toThrow();
-    expect(await skillsOf(f)).toEqual([]);
-    await askProposal({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, row?.id ?? "");
-    expect(await askedOf(f)).toEqual([f.owner.id]);
-    await decideProposal(f.db, f.owner.id, f.org.id, row?.id ?? "", "accept", { pubsub: f.pubsub });
+    // Its owner edits how it works (ADR 0085 addendum of 2026-11-17): in her own words, it goes on at once.
+    const hers = await lodiRun(f, bia.id, "coloca a skill excel no dev", true);
+    const applied = await call(f, hers, { changes: [{ agent: "@dev", add_skills: ["excel"] }], reason: "pediu" });
+    expect(applied.content).toContain("applied at once");
     expect(await skillsOf(f)).toEqual(["excel"]);
+
+    const caio = await addMember(f.db, f.org.id, "member", "Caio Mendes");
+    const asked = await lodiRun(f, caio.id, "coloca a skill pdf no dev", true);
+    const out = await call(f, asked, { changes: [{ agent: "@dev", add_skills: ["pdf"] }], reason: "pediu" });
+    expect(out.content).toContain("can't apply it: the card lets them send it to whoever may");
+    const [row] = (await cardRows(f, caio.id)).rows;
+    expect(row).toMatchObject({ status: "pending", canDecide: false });
+    await expect(decideProposal(f.db, caio.id, f.org.id, row?.id ?? "", "accept")).rejects.toThrow();
+    expect(await skillsOf(f)).toEqual(["excel"]);
+    // Whom its "Who can edit" names decides it too, and is asked with its owner and the workspace's owner.
+    const bruno = await addMember(f.db, f.org.id, "member", "Bruno Lima");
+    await setAgentEditors(f.db, bia.id, f.org.id, f.agent.id, { userIds: [bruno.id], roleIds: [] });
+    await askProposal({ db: f.db, pubsub: f.pubsub }, caio.id, f.org.id, row?.id ?? "");
+    expect((await askedOf(f)).sort()).toEqual([f.owner.id, bia.id, bruno.id].sort());
+    await decideProposal(f.db, bruno.id, f.org.id, row?.id ?? "", "accept", { pubsub: f.pubsub });
+    expect((await skillsOf(f)).sort()).toEqual(["excel", "pdf"]);
   });
 
   test("clear refusals: a skill not installed, one it already has, one removed since", async () => {
@@ -609,6 +623,33 @@ describe("an agent's skills on the card, as on its page", () => {
     expect(await skillsOf(f)).toEqual([]);
     const [notice] = await notices(f);
     expect(notice).toContain(`@dev's settings: skill "pdf" off.`);
+  });
+
+  test("who edits the changed agent undoes a skill applied from the right hand's card; the right hand's rights don't count", async () => {
+    f = await setup({ rightHand: true });
+    await install(f, "pdf");
+    // @dev is Caio's: he edits it, so its skill rows are his to decide and to undo (ADR 0085 addendum of
+    // 2026-11-17), though the right hand wrote the card and its receipt names the right hand as who acted.
+    const caio = await addMember(f.db, f.org.id, "member", "Caio Mendes");
+    await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: caio.id });
+    const ctx = await lodiRun(f, caio.id, "liga a skill pdf no dev");
+    await call(f, ctx, { changes: [{ agent: "@dev", add_skills: ["pdf"] }], reason: "pediu" });
+    const { card, rows } = await cardRows(f, caio.id);
+    await decideProposal(f.db, caio.id, f.org.id, rows[0]?.id ?? "", "accept", { pubsub: f.pubsub });
+    expect(await skillsOf(f)).toEqual(["pdf"]);
+    const [receipt] = (await actionsFor(f.db, f.org.id, [card.id])).get(card.id) ?? [];
+    expect(receipt).toMatchObject({
+      kind: "agent.settings_changed",
+      agentId: ctx.agentId,
+      target: { type: "agent", id: f.agent.id },
+    });
+    const undo = { db: f.db, pubsub: f.pubsub };
+    const bruno = await addMember(f.db, f.org.id, "member", "Bruno Lima");
+    await expect(undoAgentAction(undo, bruno.id, f.org.id, receipt?.id ?? "")).rejects.toMatchObject({
+      code: "action.skills_admins",
+    });
+    await undoAgentAction(undo, caio.id, f.org.id, receipt?.id ?? "");
+    expect(await skillsOf(f)).toEqual([]);
   });
 });
 
@@ -704,32 +745,38 @@ describe("an agent asks for its own settings on the same card (request_settings_
       agentId: f.agent.id,
       requestedByUserId: f.owner.id,
     });
-    // Its owner may undo its other changes, never a skill's: skills are only admins' on its page.
+    // A skill's change is undone by who edits the agent (ADR 0085 addendum of 2026-11-17), as on its page: its owner
+    // too, never a member who doesn't edit it.
     const caio = await addMember(f.db, f.org.id, "member", "Caio Mendes");
     await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: caio.id });
+    const bruno = await addMember(f.db, f.org.id, "member", "Bruno Lima");
     const undo = { db: f.db, pubsub: f.pubsub };
-    await expect(undoAgentAction(undo, caio.id, f.org.id, receipt?.id ?? "")).rejects.toThrow(/Only an admin/);
-    await undoAgentAction(undo, f.owner.id, f.org.id, receipt?.id ?? "");
+    await expect(undoAgentAction(undo, bruno.id, f.org.id, receipt?.id ?? "")).rejects.toThrow(/Only an admin/);
+    await undoAgentAction(undo, caio.id, f.org.id, receipt?.id ?? "");
     expect(await skillsOf(f)).toEqual([]);
-    await expect(redoAgentAction(undo, caio.id, f.org.id, receipt?.id ?? "")).rejects.toThrow(/Only an admin/);
+    await expect(redoAgentAction(undo, bruno.id, f.org.id, receipt?.id ?? "")).rejects.toThrow(/Only an admin/);
     expect(await skillsOf(f)).toEqual([]);
+    await redoAgentAction(undo, caio.id, f.org.id, receipt?.id ?? "");
+    expect(await skillsOf(f)).toEqual(["excel"]);
   });
 
-  test("Desfazer tudo by the agent's owner undoes nothing of a card with a skill on it, not even its own rows", async () => {
+  test("undoing a whole card with a skill on it: nothing for who applied it but no longer edits the agent, all of it for its owner", async () => {
     f = await setup({ rightHand: true });
     await install(f, "excel");
     const design = await createChannel(f.db, f.owner.id, f.org.id, { name: "design" });
-    const ctx = await devRun(f, f.owner.id, "liga a skill excel e entra no design");
-    await ask(f, ctx, { add_skills: ["excel"], join: ["design"], reason: "pediu" });
-    const { card, rows } = await cardRows(f, f.owner.id);
-    // The skill's row first: Desfazer tudo starts from the newest receipt, the channel's, which its owner may undo.
-    const skillRow = rows.find((r) => r.settings?.[0]?.field === "skill");
-    const seatRow = rows.find((r) => r.settings?.[0]?.field === "channel_add");
-    for (const r of [skillRow, seatRow]) await decideProposal(f.db, f.owner.id, f.org.id, r?.id ?? "", "accept");
-    // Its owner, in #design: alone, the channel's receipt is one he may undo.
+    // Caio owns @dev: he asks for both and applies both himself.
     const caio = await addMember(f.db, f.org.id, "member", "Caio Mendes");
     await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: caio.id });
-    await addChannelMember(f.db, f.owner.id, f.org.id, design.id, { userId: caio.id });
+    for (const channel of [f.general, design])
+      await addChannelMember(f.db, f.owner.id, f.org.id, channel.id, { userId: caio.id });
+    const ctx = await devRun(f, caio.id, "liga a skill excel e entra no design");
+    await ask(f, ctx, { add_skills: ["excel"], join: ["design"], reason: "pediu" });
+    const { card, rows } = await cardRows(f, caio.id);
+    // The skill's row first: undoing the card starts from the newest receipt, the channel's, which who applied it may
+    // undo.
+    const skillRow = rows.find((r) => r.settings?.[0]?.field === "skill");
+    const seatRow = rows.find((r) => r.settings?.[0]?.field === "channel_add");
+    for (const r of [skillRow, seatRow]) await decideProposal(f.db, caio.id, f.org.id, r?.id ?? "", "accept");
     const seated = async () =>
       (
         await f.db
@@ -737,20 +784,36 @@ describe("an agent asks for its own settings on the same card (request_settings_
           .from(schema.channelMembers)
           .where(and(eq(schema.channelMembers.channelId, design.id), eq(schema.channelMembers.agentId, f.agent.id)))
       ).length;
-    await expect(undoMessageActions({ db: f.db, pubsub: f.pubsub }, caio.id, f.org.id, card.id)).rejects.toThrow(
-      /Only an admin/,
-    );
+    expect([await seated(), await skillsOf(f)]).toEqual([1, ["excel"]]);
+    // @dev goes to Bruno: the channel's receipt is still Caio's to undo, the skill's only who edits it now's (ADR 0085
+    // addendum of 2026-11-17), so none is undone.
+    const bruno = await addMember(f.db, f.org.id, "member", "Bruno Lima");
+    await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: bruno.id });
+    const undo = { db: f.db, pubsub: f.pubsub };
+    await expect(undoMessageActions(undo, caio.id, f.org.id, card.id)).rejects.toMatchObject({
+      code: "action.skills_admins",
+    });
     expect(await seated()).toBe(1);
     expect(await skillsOf(f)).toEqual(["excel"]);
+    // Its owner now, in #design, edits it: every row goes back.
+    await addChannelMember(f.db, f.owner.id, f.org.id, design.id, { userId: bruno.id });
+    expect((await undoMessageActions(undo, bruno.id, f.org.id, card.id)).failed).toEqual([]);
+    expect(await seated()).toBe(0);
+    expect(await skillsOf(f)).toEqual([]);
   });
 
-  test("a member who can't decide it sends it with Pedir a um admin; it reaches admins, not the agent's owner", async () => {
+  test("a member who can't decide it sends it with Ask an admin; it reaches who edits the agent, its owner included", async () => {
     f = await setup({ rightHand: true });
     await install(f, "excel");
     const bia = await addMember(f.db, f.org.id, "member", "Bia Rocha");
-    // Its owner decides its channels, never its skills: the card goes to admins alone.
+    // Who edits it decides its skills (ADR 0085 addendum of 2026-11-17): its owner, and whoever holds a role its "Who
+    // can edit" names.
     const caio = await addMember(f.db, f.org.id, "member", "Caio Mendes");
     await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { ownerUserId: caio.id });
+    const reviewers = await createRole(f.db, f.owner.id, f.org.id, { name: "Revisores" });
+    const bruno = await addMember(f.db, f.org.id, "member", "Bruno Lima");
+    await setMemberRoles(f.db, f.owner.id, f.org.id, bruno.id, [reviewers.id]);
+    await setAgentEditors(f.db, caio.id, f.org.id, f.agent.id, { userIds: [], roleIds: [reviewers.id] });
     await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: bia.id });
     const ctx = await devRun(f, bia.id, "liga a skill excel pra você");
     const out = await ask(f, ctx, { add_skills: ["excel"], reason: "pediu" });
@@ -758,10 +821,9 @@ describe("an agent asks for its own settings on the same card (request_settings_
     const [row] = (await cardRows(f, bia.id)).rows;
     expect(row).toMatchObject({ status: "pending", canDecide: false, askedAt: null, requestedByUserId: bia.id });
     await expect(decideProposal(f.db, bia.id, f.org.id, row?.id ?? "", "accept")).rejects.toThrow();
-    await expect(decideProposal(f.db, caio.id, f.org.id, row?.id ?? "", "accept")).rejects.toThrow();
     await askProposal({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, row?.id ?? "");
-    expect(await askedOf(f)).toEqual([f.owner.id]);
-    await decideProposal(f.db, f.owner.id, f.org.id, row?.id ?? "", "accept", { pubsub: f.pubsub });
+    expect((await askedOf(f)).sort()).toEqual([f.owner.id, caio.id, bruno.id].sort());
+    await decideProposal(f.db, bruno.id, f.org.id, row?.id ?? "", "accept", { pubsub: f.pubsub });
     expect(await skillsOf(f)).toEqual(["excel"]);
   });
 

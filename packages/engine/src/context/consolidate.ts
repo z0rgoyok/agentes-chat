@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, isNull, lt, lte, ne, or, schema, sql } from "@agenteschat/db";
 import { isPlaybook } from "../audience";
 import { enqueue } from "../outbox";
@@ -8,7 +9,8 @@ import {
   mergeEvidence,
   type NewContextItem,
   SAME_ITEM_SIMILARITY,
-  similarity,
+  wordSet,
+  wordSetSimilarity,
 } from "./items";
 import { decide, findCandidates, judgeRelations } from "./judgments";
 import { learnConfig } from "./learn";
@@ -30,6 +32,39 @@ export const LEARNED_EXPIRE_DAYS = 14;
 
 /** An unconfirmed fact unused this long is archived (ADR 0167). */
 export const UNCONFIRMED_FACT_DAYS = 30;
+
+/** The daily `context.consolidate` jobs start over this long after the tick, so every workspace's doesn't land at once. */
+export const CONSOLIDATE_SPREAD_MS = 6 * 3600_000;
+
+/** When a workspace's daily consolidation runs: a stable offset into the spread, from a hash of its id. */
+export const consolidateRunAt = (orgId: string, tickAt: Date) =>
+  new Date(tickAt.getTime() + (createHash("sha256").update(orgId).digest().readUInt32BE(0) % CONSOLIDATE_SPREAD_MS));
+
+/** Comparisons between yields to the event loop: a workspace with thousands of notes makes millions of pairs. */
+const PAIRS_PER_YIELD = 5_000;
+
+/**
+ * Near-identical items of one group, in order: each later item merges into the first earlier one it matches, and a
+ * merged item matches nothing after. Word sets are built once per item, and the loop yields every
+ * `PAIRS_PER_YIELD` comparisons so one big workspace doesn't hold the server for its whole O(n²) scan.
+ */
+export async function duplicatePairs<T extends { id: string; content: string }>(items: T[]): Promise<[T, T][]> {
+  const sets = items.map((item) => wordSet(item.content));
+  const archived = new Set<number>();
+  const pairs: [T, T][] = [];
+  let compared = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (archived.has(i)) continue;
+    for (let j = i + 1; j < items.length; j++) {
+      if (archived.has(j)) continue;
+      if (++compared % PAIRS_PER_YIELD === 0) await new Promise((resolve) => setImmediate(resolve));
+      if (wordSetSimilarity(sets[i] as Set<string>, sets[j] as Set<string>) < SAME_ITEM_SIMILARITY) continue;
+      pairs.push([items[i] as T, items[j] as T]);
+      archived.add(j);
+    }
+  }
+  return pairs;
+}
 
 /**
  * Periodic job `context.consolidate` per organization:
@@ -65,41 +100,33 @@ export async function consolidateOrg(deps: ContextDeps, orgId: string, now = new
     const key = `${item.kind}|${item.agentId ?? ""}|${item.scopeType}|${person ?? ""}|${giver ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  const archived = new Set<string>();
   for (const items of groups.values()) {
-    for (let i = 0; i < items.length; i++) {
-      const keep = items[i];
-      if (!keep || archived.has(keep.id)) continue;
-      for (let j = i + 1; j < items.length; j++) {
-        const dup = items[j];
-        if (!dup || archived.has(dup.id) || similarity(keep.content, dup.content) < SAME_ITEM_SIMILARITY) continue;
-        const evidence = mergeEvidence(keep.evidence, dup.evidence);
-        await db.transaction(async (tx) => {
-          await tx
-            .update(contextItems)
-            .set({
-              evidence,
-              verified: evidence.length === 0 ? keep.verified : isVerified(evidence),
-              recurrence: keep.recurrence + dup.recurrence,
-              confidence: Math.max(keep.confidence, dup.confidence),
-              relevance: Math.max(keep.relevance, dup.relevance),
-              trust: keep.trust === "low" || dup.trust === "low" ? "low" : "high",
-              sourceIds: [...new Set([...keep.sourceIds, ...dup.sourceIds])],
-              updatedAt: now,
-            })
-            .where(eq(contextItems.id, keep.id));
-          await tx
-            .update(contextItems)
-            .set({ status: "archived", supersededBy: keep.id, updatedAt: now })
-            .where(eq(contextItems.id, dup.id));
-          for (const id of [keep.id, dup.id])
-            await enqueue(tx, { orgId, kind: "search.index", payload: { kind: "context_item", sourceId: id } });
-        });
-        keep.recurrence += dup.recurrence;
-        keep.evidence = evidence;
-        archived.add(dup.id);
-        merged++;
-      }
+    for (const [keep, dup] of await duplicatePairs(items)) {
+      const evidence = mergeEvidence(keep.evidence, dup.evidence);
+      await db.transaction(async (tx) => {
+        await tx
+          .update(contextItems)
+          .set({
+            evidence,
+            verified: evidence.length === 0 ? keep.verified : isVerified(evidence),
+            recurrence: keep.recurrence + dup.recurrence,
+            confidence: Math.max(keep.confidence, dup.confidence),
+            relevance: Math.max(keep.relevance, dup.relevance),
+            trust: keep.trust === "low" || dup.trust === "low" ? "low" : "high",
+            sourceIds: [...new Set([...keep.sourceIds, ...dup.sourceIds])],
+            updatedAt: now,
+          })
+          .where(eq(contextItems.id, keep.id));
+        await tx
+          .update(contextItems)
+          .set({ status: "archived", supersededBy: keep.id, updatedAt: now })
+          .where(eq(contextItems.id, dup.id));
+        for (const id of [keep.id, dup.id])
+          await enqueue(tx, { orgId, kind: "search.index", payload: { kind: "context_item", sourceId: id } });
+      });
+      keep.recurrence += dup.recurrence;
+      keep.evidence = evidence;
+      merged++;
     }
   }
 
@@ -383,16 +410,23 @@ export async function enqueueIdleReflections(deps: ContextDeps, now = new Date()
     .having(sql`max(${messages.createdAt}) < ${idleBefore.toISOString()}::timestamptz and count(*) >= 2`)
     .limit(500);
   let queued = 0;
+  // Every thread's state in one read: most of a sweep's threads are already covered, and come back on each sweep for
+  // a week, so asking one at a time was up to 500 round trips every time to queue nothing.
+  const roots = threads.flatMap((t) => (t.threadId ? [t.threadId] : []));
+  const states = new Map(
+    roots.length === 0
+      ? []
+      : (await deps.db.select().from(threadReflections).where(inArray(threadReflections.threadRootId, roots))).map(
+          (s) => [s.threadRootId, s] as const,
+        ),
+  );
   // Per workspace, once a sweep: no model to reflect with, no job that would only fail (ADR 0167).
   const ready = new Map<string, boolean>();
   for (const t of threads) {
     if (!t.threadId) continue;
     if (!ready.has(t.orgId)) ready.set(t.orgId, await summaryModelReady(deps, t.orgId));
     if (!ready.get(t.orgId)) continue;
-    const [state] = await deps.db
-      .select()
-      .from(threadReflections)
-      .where(eq(threadReflections.threadRootId, t.threadId));
+    const state = states.get(t.threadId);
     if (state && (state.runs >= cfg.maxPerThread || (state.coveredUntil && state.coveredUntil >= new Date(t.last))))
       continue;
     await enqueue(deps.db, {

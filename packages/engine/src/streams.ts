@@ -79,7 +79,7 @@ export interface Stream extends StreamInput {
 }
 
 /** Whose screen or shell a stream is, as its computer knows it: the agent, or the seat of the right hand it opened. */
-const screenOf = (s: Pick<Stream, "agentId" | "scope">) => s.scope?.id ?? s.agentId;
+export const screenOf = (s: Pick<Stream, "agentId" | "scope">) => s.scope?.id ?? s.agentId;
 
 /**
  * A data socket that serves something else than a person's stream: an agent browser's live view (ADR 0040 §7.1),
@@ -631,12 +631,16 @@ export function createStreamBroker(deps: StreamBrokerDeps) {
       return n;
     },
 
-    /** Who has an agent's desktop open from that computer now, each person once: the agent's pointer goes to them. */
-    desktopViewers(agentId: string, machineId: string) {
-      const seen = new Map<string, { orgId: string; userId: string }>();
+    /**
+     * Who has a screen open from that computer now (an agent's, by its id, or one seat's of the right hand, by the
+     * seat's), each person once per agent they opened it as: the agent's pointer goes to them under that agent's id.
+     */
+    desktopViewers(screenId: string, machineId: string) {
+      const seen = new Map<string, { orgId: string; userId: string; agentId: string; shared?: true }>();
       for (const s of streams.values()) {
-        if (s.agentId !== agentId || s.machineId !== machineId || s.request.kind !== "desktop") continue;
-        seen.set(`${s.orgId}:${s.userId}`, { orgId: s.orgId, userId: s.userId });
+        if (screenOf(s) !== screenId || s.machineId !== machineId || s.request.kind !== "desktop") continue;
+        const { orgId, userId, agentId } = s;
+        seen.set(`${orgId}:${userId}:${agentId}`, { orgId, userId, agentId, ...(s.shared ? { shared: true } : {}) });
       }
       return [...seen.values()];
     },

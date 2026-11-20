@@ -9,7 +9,7 @@ import {
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { can, makesAgents } from "@agenteschat/client/lib/permissions";
+import { makesAgents } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { Button, Card, EmptyState, Icon, PageHeader, Segmented } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
@@ -60,10 +60,10 @@ export function TeamPage() {
   };
   const data = team.data;
   const agents = data?.agents.filter((a) => !isRightHand(dir.agentById.get(a.id))) ?? [];
-  // Archived agents have no page: admins bring them back, or delete them for good (ADR 0082), here.
-  const admin = can(org, "manage_agents");
+  // Archived agents have no page: who manages each one brings it back, or deletes it for good (ADR 0082), here; the
+  // server's `canManage` on it (ADR 0085 addendum of 2026-11-17), so someone's private agent stays out of reach.
   const former = useFormerAgents(org.id);
-  const archived = (former.data ?? []).filter((a) => !a.deleted);
+  const archived = (former.data ?? []).filter((a) => !a.deleted && a.canManage === true);
   const [deleting, setDeleting] = useState<FormerAgent | null>(null);
   const restore = useUnarchiveAgent(org.id);
   const toast = useToast();
@@ -137,7 +137,7 @@ export function TeamPage() {
       {shown && view === "map" && <TeamMap team={shown} />}
       {shown && view === "sectors" && <TeamSectors team={shown} groups={groups} />}
       {view === "usage" && <TeamUsage />}
-      {view === "list" && admin && archived.length > 0 && (
+      {view === "list" && archived.length > 0 && (
         <Card className="team-archived">
           <div className="team-archived__head">
             <Icon name="archive" size={16} />

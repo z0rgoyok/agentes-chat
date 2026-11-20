@@ -5,9 +5,8 @@ import {
   ownApprovalsCount,
   shownApprovalsLevel,
 } from "@agenteschat/client/lib/approvals-level";
-import { can } from "@agenteschat/client/lib/permissions";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { useTranslation } from "react-i18next";
-import { useOrg } from "@/providers/org";
 import { GroupedList, GroupedRow } from "@/ui";
 import { useFailed } from "../routines/hooks";
 import { useOrgId } from "../shared/hooks";
@@ -26,12 +25,12 @@ const useLevelOptions = () => {
 
 /**
  * The web's Aprovações (ADR 0173) on the phone: how much the agent asks before acting, one row with the choice in
- * sight, "Segue o workspace" while it has no choice of its own. Whoever manages agents opens the three choices in a
- * sheet, and a pick saves at once. Anyone else reads the row.
+ * sight, "Segue o workspace" while it has no choice of its own. Whoever manages it opens the three choices in the
+ * app's picker (the value's up-down mark: it changes in its row, no screen opens), and a pick saves at once. Anyone
+ * else reads the row.
  */
 export function ApprovalsLevelRow({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
   const failed = useFailed();
   const options = useLevelOptions();
   const update = useUpdateAgent(useOrgId(), agent.id);
@@ -57,9 +56,7 @@ export function ApprovalsLevelRow({ agent }: { agent: Agent }) {
             ? t("approvalsLevel.follows")
             : t(`approvalsLevel.${level}.title`)
         }
-        {...(can(org, "manage_agents")
-          ? { chevron: true, disabled: update.isPending, onPress: () => void choose() }
-          : {})}
+        {...(managesAgent(agent) ? { menu: true, disabled: update.isPending, onPress: () => void choose() } : {})}
       />
     </GroupedList>
   );
@@ -96,7 +93,7 @@ export function WorkspaceApprovalsRow() {
         label={title}
         hint={{ name: t("common.about", { label: title }), text: t("approvalsLevel.workspaceHelp") }}
         value={t(`approvalsLevel.${level}.title`)}
-        chevron
+        menu
         disabled={set.isPending || !settings.data}
         onPress={() => void choose()}
       />

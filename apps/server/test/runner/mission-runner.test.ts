@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { PUSH_ASK_RULES } from "@agenteschat/adapters/command-policy";
+import { INLINE_CODE_DENY_RULES, PUSH_ASK_RULES } from "@agenteschat/adapters/command-policy";
 import {
   CLI_GIT_MISSING,
   MISSION_RULES,
@@ -13,11 +13,14 @@ import {
 import {
   cachedCodexVersion,
   cachedExecutors,
+  codexCandidates,
   detectExecutors,
   EXECUTORS_EXIT_STRIKES,
   EXECUTORS_RETRY_MS,
   EXECUTORS_TTL_MS,
+  newerVersion,
   resolveCommand,
+  versionLine,
 } from "../../runner/executors";
 import {
   claudePermissionSettings,
@@ -181,6 +184,70 @@ test('Codex turn\'s own look: a timeout is "couldn\'t tell" (null), never "not i
   expect(await cachedCodexVersion(() => ({ ...NOT_FOUND }))()).toBeUndefined();
 });
 
+test("Codex counts at any version: its version is read from the whole output; one that prints none is still there", async () => {
+  expect(
+    versionLine({ stdout: "WARNING: proceeding, even though we could not update PATH\ncodex-cli 0.170.0\n" }),
+  ).toBe("codex-cli 0.170.0");
+  expect(versionLine({ stdout: "", stderr: "codex-cli 0.170.0\n" })).toBe("codex-cli 0.170.0");
+  expect(versionLine({ stdout: "codex-cli 0.100.0" })).toBe("codex-cli 0.100.0");
+  expect(versionLine({ stdout: "" })).toBe("unknown");
+  const empty = (c: string) => (c === "codex" ? { status: 0, stdout: "" } : { ...NOT_FOUND });
+  expect((await detectExecutors(empty)).found).toEqual({ codex: { version: "unknown" } });
+  expect(newerVersion("codex-cli 0.170.0", "codex-cli 0.99.9")).toBe(true);
+  expect(newerVersion("unknown", "codex-cli 0.1.0")).toBe(false);
+});
+
+test.skipIf(!posix)(
+  "several copies of Codex: the newest wins, is reported with its path and is the one started",
+  async () => {
+    const home = tempDir("codex-copies-");
+    dirs.push(home);
+    const copy = (dir: string, version: string) => {
+      mkdirSync(path.join(home, dir));
+      const file = path.join(home, dir, "codex");
+      writeFileSync(file, `#!/bin/sh\necho "codex-cli ${version}"\n`);
+      chmodSync(file, 0o755);
+      return file;
+    };
+    const old = copy("first", "0.150.0");
+    const fresh = copy("second", "0.170.0");
+    writeFileSync(path.join(home, "codex"), "not a program");
+    const pathList = [path.dirname(old), "relative", home, path.dirname(fresh)].join(":");
+    expect(codexCandidates(pathList, "linux").slice(0, 2)).toEqual([old, fresh]);
+    expect(codexCandidates(pathList, "linux", path.dirname(old))[0]).toBe(fresh);
+    expect(codexCandidates(pathList, "win32")).toEqual([]);
+    const run = (command: string, args: string[]) => {
+      if (command !== old && command !== fresh) return { ...NOT_FOUND };
+      const r = spawnSync(command, args, { encoding: "utf8" });
+      return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+    };
+    expect((await detectExecutors(run, {}, {}, undefined, () => [old, fresh])).found).toEqual({
+      codex: { version: "codex-cli 0.170.0", path: fresh },
+    });
+    // The PATH's first copy is the old one: the turn still starts the one reported.
+    expect(resolveCommand("codex", path.dirname(old))).toBe(fresh);
+    expect(await cachedCodexVersion(run, Date.now, () => [old, fresh])()).toBe("codex-cli 0.170.0");
+    // One that won't answer loses to one that does, whatever its place.
+    const silent = (command: string, args: string[]) =>
+      command === old ? { status: 1, stdout: "" } : run(command, args);
+    expect((await detectExecutors(silent, {}, {}, undefined, () => [fresh, old])).found.codex).toEqual({
+      version: "codex-cli 0.170.0",
+      path: fresh,
+    });
+    // The hello carries the path; a path that isn't one line is dropped.
+    const hello = (codex: object) =>
+      (
+        parseRunnerFrame(
+          JSON.stringify({ type: "hello", token: "agm_x", version: "1", protocol: 68, executors: { codex } }),
+        ) as {
+          executors: { codex: unknown };
+        }
+      ).executors.codex;
+    expect(hello({ version: "codex-cli 0.170.0", path: fresh })).toEqual({ version: "codex-cli 0.170.0", path: fresh });
+    expect(hello({ version: "codex-cli 0.170.0", path: "a\nb" })).toEqual({ version: "codex-cli 0.170.0" });
+  },
+);
+
 test("cache: an unsure look is retried soon, never kept for the TTL; hello never waits on a look", async () => {
   let now = 0;
   let answer: (command: string) => object = () => ({ ...TIMED_OUT });
@@ -254,8 +321,11 @@ test("permission profile: work allows git, tests and builds; every push asks the
   for (const p of [work, plan]) {
     expect(p.allow.some((r) => r.startsWith("Bash(git push"))).toBe(false);
     expect(p.deny.some((r) => r.startsWith("Bash(git") && r.includes(" push"))).toBe(false);
-    expect(p.ask).toEqual([...PUSH_ASK_RULES]);
+    expect(p.ask?.slice(0, PUSH_ASK_RULES.length)).toEqual([...PUSH_ASK_RULES]);
   }
+  // Inline code too reaches the prompt tool in a work turn, so the server decides it; a plan turn denies it.
+  expect(work.ask).toEqual([...PUSH_ASK_RULES, ...INLINE_CODE_DENY_RULES]);
+  expect(plan.deny).toEqual(expect.arrayContaining([...INLINE_CODE_DENY_RULES]));
   for (const rule of [
     "Bash(git merge *)",
     "Bash(gh pr merge *)",
@@ -323,7 +393,7 @@ test.skipIf(!posix)(
     expect(work.command).toContain("--permission-mode acceptEdits");
     expect(work.command).toContain(`--settings '${path.join(home, "tasks", id(1), "settings.json")}'`);
     const settings = JSON.parse(readFileSync(path.join(home, "tasks", id(1), "settings.json"), "utf8"));
-    expect(settings.permissions.ask).toEqual([...PUSH_ASK_RULES]);
+    expect(settings.permissions.ask).toEqual([...PUSH_ASK_RULES, ...INLINE_CODE_DENY_RULES]);
     expect(settings.permissions.deny).toContain("Bash(git merge *)");
     // Its prompts say they come from a mission's task, and which branches are its own (the mission's and the agent's).
     const mcp = JSON.parse(readFileSync(path.join(home, "tasks", id(1), "mcp.json"), "utf8"));

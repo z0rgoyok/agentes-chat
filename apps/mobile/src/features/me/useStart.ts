@@ -5,6 +5,7 @@ import { readValue, STORED, writeValue } from "@/lib/storage";
 import { useOrg } from "@/providers/org";
 import { router } from "@/ui/navigation";
 import { useLaunched } from "../launch/launched";
+import { stillHref } from "../links/landing";
 import { inConversation, startHref, withPlace } from "./logic";
 
 /** This conversation is where "Onde você parou" opens the next time the app starts (ADR 0108). */
@@ -22,7 +23,9 @@ let started = false;
 
 /**
  * When the app starts on Conversas (`focused` once the launch splash leaves), what the person chose opens over it,
- * back to Conversas. Never over a screen a notification or a link opened.
+ * back to Conversas. It is there in place, without the push's slide (`stillHref`): the app opens on it rather than on
+ * Conversas with a conversation sliding over once the lists are in. Never over a screen a notification or a link
+ * opened.
  */
 export function useOpenStart(focused: boolean) {
   const { org, orgId } = useOrg();
@@ -41,7 +44,7 @@ export function useOpenStart(focused: boolean) {
     const mine = inConversation(channels.data, dms.data);
     void readValue(STORED.lastPlace).then((raw) => {
       const href = startHref(choice, raw, orgId, mine);
-      if (href) router.push(href as never);
+      if (href) router.push(stillHref(href) as never);
     });
   }, [launched, focused, choice, channels.data, dms.data, orgId]);
 }

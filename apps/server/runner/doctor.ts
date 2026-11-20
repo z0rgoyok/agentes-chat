@@ -13,6 +13,7 @@ import { errnoCode } from "./errors";
 import { detectExecutors } from "./executors";
 import { pidAlive, readLock } from "./lock";
 import { labelOf, PhoneManager, POLL_MS, phoneNotReady } from "./phones";
+import { userUnitLinger } from "./service";
 import { probeToolchains } from "./toolchains";
 
 /**
@@ -50,6 +51,8 @@ export interface DoctorSources {
   apps(): Promise<Executors>;
   toolchains(): Promise<RunnerToolchains>;
   phones(): Promise<DoctorPhone[]>;
+  /** The runner is this user's systemd unit: whether it outlives their logout. Null: not one, or unknown. */
+  linger?(): boolean | null;
 }
 
 export interface Check {
@@ -95,7 +98,7 @@ function connectionChecks(s: DoctorSources): Check[] {
       },
     ];
   }
-  return list.map((c, i): Check => {
+  const checks = list.map((c, i): Check => {
     const where = c.org || c.server;
     const facts = [
       ...(i === 0 ? [s.system] : []),
@@ -118,6 +121,16 @@ function connectionChecks(s: DoctorSources): Check[] {
           : { fix: "Run it in the background:", command: "agentes-runner service install" }),
     };
   });
+  if (s.linger?.() === false)
+    checks.push({
+      key: "computer:linger",
+      status: "needs",
+      title: "The runner stops when you log out",
+      detail: [],
+      fix: "Keep it running after you log out:",
+      command: `sudo loginctl enable-linger ${s.user}`,
+    });
+  return checks;
 }
 
 /** `2.1.4 (Claude Code)` → `2.1.4`. */
@@ -172,6 +185,7 @@ const WAIT_FOR: Partial<Record<NonNullable<RunnerPhone["reason"]>, (phone: strin
   untrusted: (phone) => `Trust on ${phone}`,
   developer_mode_off: (phone) => `Developer Mode on ${phone}`,
   locked: (phone) => `${phone} to be unlocked`,
+  ios_behind_xcode: (phone) => `${phone} to be updated`,
 };
 
 function phoneChecks(phones: DoctorPhone[]): Check[] {
@@ -369,6 +383,7 @@ export function localSources(home: string): DoctorSources {
     system: systemLine(),
     user: os.userInfo().username,
     connections: () => connections(home),
+    linger: () => userUnitLinger(),
     apps: async () => (await detectExecutors()).found,
     toolchains: () => probeToolchains(),
     phones: async () => {

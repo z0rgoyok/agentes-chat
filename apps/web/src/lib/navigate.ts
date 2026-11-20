@@ -1,11 +1,16 @@
 import type { MouseEvent } from "react";
 
-/** Leaves the app for an external URL (OAuth providers). Replaceable in tests. */
-let impl = (url: string) => window.location.assign(url);
+type Leave = (url: string, options?: { replace?: boolean }) => void;
 
-export const navigateAway = (url: string) => impl(url);
+/**
+ * Leaves the app for an external URL (OAuth providers). `replace`: the page leaving stays out of the history, so Back
+ * from there doesn't land on it again. Replaceable in tests.
+ */
+let impl: Leave = (url, options) => (options?.replace ? window.location.replace(url) : window.location.assign(url));
 
-export function setNavigateAway(next: (url: string) => void) {
+export const navigateAway: Leave = (url, options) => impl(url, options);
+
+export function setNavigateAway(next: Leave) {
   impl = next;
 }
 

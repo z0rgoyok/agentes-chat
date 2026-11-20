@@ -25,7 +25,7 @@ export function Updates({ update }: { update: UpdateCheck }) {
   const [manual, setManual] = useState(false);
   const local = useLocalServer();
   const [autoPref, setAutoPref] = usePref<boolean | null>(AUTO_UPDATE_PREF, null);
-  const graphics = useAppInfo()?.graphics;
+  const details = useAppInfo()?.details;
   useEffect(() => host.onUpdateProgress((got, total) => setProgress({ got, total })), [host]);
 
   const install = async () => {
@@ -48,7 +48,7 @@ export function Updates({ update }: { update: UpdateCheck }) {
   // Whole: it installs now (seconds), and there is nothing left to cancel.
   const whole = percent === 100;
 
-  const copyGraphics = async (line: string) => {
+  const copyDetails = async (line: string) => {
     try {
       await navigator.clipboard.writeText(line);
       toast(t("desktop.common.copied"), "copy");
@@ -112,17 +112,17 @@ export function Updates({ update }: { update: UpdateCheck }) {
             <Switch
               id="auto-update"
               aria-describedby="auto-update-hint"
-              checked={autoUpdateOn(autoPref, local.run)}
+              checked={autoUpdateOn(autoPref)}
               onCheckedChange={setAutoPref}
             />
           }
         />
-        {graphics && (
+        {details && (
           <PrefRow
             title={t("desktop.prefs.updates.systemDetails")}
-            desc={graphics}
+            desc={details}
             end={
-              <Button size="sm" icon="copy" onClick={() => void copyGraphics(graphics)}>
+              <Button variant="ghost" size="sm" icon="copy" onClick={() => void copyDetails(details)}>
                 {t("desktop.common.copy")}
               </Button>
             }

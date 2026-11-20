@@ -11,7 +11,6 @@
     "endOfList": "全員のリストの最後に移動します。",
     "channelCount_other": "{{count}}個のチャンネル",
     "none": "カテゴリはまだありません。",
-    "manageHelp": "カテゴリをタップすると、名前の変更、移動、削除ができます。",
     "manageHint": "並び順、名前、削除",
     "deleteTitle": "{{name}}を削除しますか？",
     "order": "リスト内の位置",
@@ -19,8 +18,7 @@
     "down": "下へ移動",
     "position": "{{count}}中{{at}}番目。",
     "channelPosition": "{{count}}中{{at}}番目。",
-    "itsChannels": "チャンネル",
-    "seeAll": "すべて表示"
+    "itsChannels": "チャンネル"
   },
   "blocks": {
     "send": "送信",
@@ -182,16 +180,9 @@
       "text": "停止しているか、ネットワークの外にある可能性があります。復旧するとチャットが自動で表示されます。",
       "kept": "アプリにすでにあった内容を表示しています。"
     },
-    "section": {
-      "agents": "エージェント",
-      "channels": "チャンネル",
-      "people": "人"
-    },
-    "seeAll": {
-      "agents": "すべてのエージェントを表示",
-      "channels": "すべてのチャンネルを表示",
-      "people": "すべての人を表示"
-    },
+    "pinned": "ピン留め",
+    "recent": "最近",
+    "seeAll": "すべてのチャットを表示",
     "wait": {
       "verb": {
         "approval": "があなたのOKを待っています",
@@ -242,8 +233,6 @@
       "mute": "ミュート",
       "unmute": "ミュート解除"
     },
-    "firstRunLine": "{{name}}がチームを準備中 · {{done}}/{{total}}",
-    "firstRunLinePersonal": "{{name}}がエージェントを準備中 · {{done}}/{{total}}",
     "first": {
       "title": "最初のエージェントから始めましょう",
       "subtitle": "名前を付けて、何をするかを伝えてください。ここにチャットとして表示されます。",
@@ -340,13 +329,20 @@
     "startedWith": "{{name}}との会話で開始",
     "replies_other": "{{count}}件の返信",
     "repliesWord_other": "返信",
+    "dayAt": "{{day}} {{time}}",
     "thread": "スレッド",
     "closed": "終了",
     "options": "オプション",
     "profile": "プロフィール",
     "here_other": "{{count}}人が参加中",
+    "membersAdd": "追加",
+    "membersAdded_other": "#{{channel}}に{{count}}人を追加しました",
+    "memberRemoved": "{{name}}を#{{channel}}から外しました",
+    "muted": "#{{channel}}をミュートしました",
+    "unmuted": "#{{channel}}のミュートを解除しました",
     "headerAgent": "{{who}}。プロフィールを開く",
     "headerChannel": "{{who}}。オプション",
+    "headerMembers": "{{who}}。参加者を見る",
     "switchHint": "長押しで会話を切り替え",
     "switchTitle": "会話を切り替え",
     "switchSearch": "会話を検索",
@@ -368,9 +364,7 @@
       "delivered": "{{name}}に届きました",
       "held": "{{name}}はあなたの決定後に読みます",
       "read": "{{name}}が読みました",
-      "resolved": "{{name}}がヘルプのリクエストを閉じました",
-      "well": "メモを読みました",
-      "wellNow": "手を止めてメモを読みました"
+      "resolved": "{{name}}がヘルプのリクエストを閉じました"
     },
     "stopped": {
       "byYou": "ここで停止",
@@ -428,21 +422,15 @@
     "doubleTapHint": "ダブルタップ = 👍",
     "react": "リアクション",
     "attach": {
-      "more": "写真やファイルを追加",
       "remove": "{{name}}を外す",
       "waiting": "{{name}}、送信待ち",
       "sending": "{{name}}、送信中",
+      "failed": "{{name}}、送信できませんでした。送信してやり直せます",
+      "preparing": "ファイルを準備しています…",
       "tooMany": "1つのメッセージに添付できるファイルは{{count}}個までです。"
     },
     "swipeReply": "右にスワイプして返信",
     "intent": {
-      "suggest": {
-        "merge": "そのままマージして",
-        "review": "先に{{name}}にレビューを頼んで",
-        "seeChange": "何が変わったか見せて",
-        "summarize": "3つのポイントでまとめて",
-        "nextStep": "次のステップは？"
-      },
       "arrived": "{{name}}がチームに加わりました",
       "meet": "{{name}}との最初の会話",
       "roleIntro": "チームの{{role}}です。普段の言葉で頼んでください。",
@@ -558,8 +546,6 @@
     "file": "ファイル",
     "media": "GIF",
     "noCamera": "カメラへのアクセスがありません。スマートフォンの設定で許可してください。",
-    "mission": "ミッションを開始",
-    "missionHint": "計画を立てて、最初から最後までやり遂げる長い仕事",
     "summary": "チャットをまとめる",
     "summaryHint": "あなたがいない間の出来事",
     "remind": "あとでリマインド",
@@ -588,7 +574,6 @@
     "minuteLess": "{{n}}分早く",
     "minuteMore": "{{n}}分後",
     "submit": "この時間にリマインド",
-    "quick": "すぐ選べる時間を見る",
     "done": "リマインダーを設定しました",
     "error": {
       "noAgent": "ここにはリマインドできるエージェントがいません",
@@ -645,6 +630,7 @@
     "title": "新しいミッション",
     "intro": "エージェントが計画を立て、あなたの指示があってから始めます。",
     "placeholder": "何をやり遂げる必要がありますか？",
+    "who": "担当",
     "submit": "計画を頼む",
     "created": "{{name}}が計画を立てています",
     "noAgents": "ミッションを実行できるエージェントはまだいません。ウェブサイトでコンピューターを接続してください。",
@@ -788,30 +774,26 @@
   "agentEdit": {
     "missing": "このエージェントはもう存在しません。",
     "saved": "変更を保存しました",
-    "adminsOnly": "名前、役割、指示を変更できるのは管理者だけです。",
+    "adminsOnly": "役割と指示を変更できるのは、このエージェントを編集できる人だけです。名前は管理者だけが変更できます。",
     "discardTitle": "変更を破棄しますか？",
     "discardText": "変更内容はまだ保存されていません。",
     "discard": "破棄",
     "keepEditing": "編集を続ける"
   },
   "newAgent": {
-    "leaveTitle": "作成せずに終了しますか？",
-    "leaveText": "作成途中のエージェントは作成されません。",
-    "keepGoing": "作成を続ける",
     "identityQuestion": "エージェントはだれですか？",
     "identityLead": "名前、チャットでの呼び方、顔です。",
     "handleMention": "@{{handle}}とメンションすると呼べます。",
     "handleFromName": "チャットでは@{{handle}}です。名前から作られます。変更もできます。",
     "handleFromNameEmpty": "チャットでの@は名前から作られます。",
-    "reviewLead": "変更するには行をタップしてください。",
     "planHint": "または、あなたのAIプランを接続してください。{{name}}はそのプランで考えるので、キーを消費しません。",
     "partly": "エージェントは作成されましたが、役割に含まれる一部の設定が反映されませんでした。プロフィールで調整してください。",
     "import": {
       "where": {
         "openbotrun": "openbot-import.json（OpenBotのMigratorから）またはopenbot-transfer.json（インスタンスの移行から）を選んでください。.zipはまず「ファイル」アプリで開きます。タップすると解凍されます。",
         "openmausbot": "OpenMausBotで: チームを右クリック › チームを共有… › ファイルを保存。そのファイルをここで選んでください。",
-        "hermes": "Hermesはターミナルから書き出します（hermes profile export）。形式は.tar.gzで、スマートフォンでは開けません。コンピューターで取り込むか、プロフィールの.mdと.yamlファイルをここで選んでください。",
-        "openclaw": "OpenClawはエージェントをコンピューターの~/.openclawフォルダに保存します。ワークスペースの.mdファイルをここで選ぶか、コンピューターでフォルダごと取り込んでください。",
+        "hermes": "Hermesはターミナルから書き出します（`hermes profile export`）。形式は.tar.gzで、スマートフォンでは開けません。コンピューターで取り込むか、プロフィールの.mdと.yamlファイルをここで選んでください。",
+        "openclaw": "OpenClawはエージェントをコンピューターの`~/.openclaw`フォルダに保存します。ワークスペースの.mdファイルをここで選ぶか、コンピューターでフォルダごと取り込んでください。",
         "paperclip": "パッケージのGitHubリンクを下に貼り付けるか、COMPANY.mdとほかの.mdファイルを選んでください。",
         "agenteschat": "もう一方のワークスペースで: 設定 › インポートとエクスポート › ファイルをダウンロード。その.jsonをここで選んでください。"
       },
@@ -823,7 +805,6 @@
       "archive": "スマートフォンでは.zipや.tar.gzファイルを開けません。「ファイル」アプリで.zipをタップして解凍し、中のファイルを選ぶか、コンピューターで取り込んでください。",
       "privacy": "このスマートフォン上で読み込みます。キーやログイン情報のファイルは開きません。",
       "also": "一緒に移行されるもの",
-      "change": "変更",
       "arrived_other": "{{count}}体のエージェントが到着しました",
       "partial": "{{total}}人中{{done}}人が到着しました。もう一度取り込むと残りも移行されます。"
     }
@@ -846,7 +827,11 @@
     "taskForM": "{{name}}へのタスク",
     "taskPlaceholder": "何をやり遂げる必要がありますか？",
     "sendTask": "タスクを送信",
-    "taskSent": "タスクを送信しました"
+    "taskSent": "タスクを送信しました",
+    "brakes": {
+      "forgetTitle": "これらの回答を忘れますか？",
+      "forgetText": "{{name}}はこの種の作業の前に、もう一度確認します。"
+    }
   },
   "activity": {
     "title": "アクティビティ",
@@ -1048,7 +1033,7 @@
     "agentStyle": "エージェントの話し方",
     "workspaces": "ワークスペース",
     "workspacesIn": "参加中",
-    "workspacesFoot": "それぞれにサインインしたまま、すべての通知を受け取れます。ワークスペースをタップすると開きます。",
+    "workspacesFoot": "それぞれにサインインしたまま、すべての通知を受け取れます。",
     "workspacesUnreachable": "今は応答がありません",
     "addWorkspace": "ワークスペースを追加",
     "addWorkspaceCreate": "新しいワークスペースを作成",
@@ -1134,10 +1119,13 @@
       "diagram": "図",
       "page": "ページ",
       "text": "テキスト",
+      "spreadsheet": "スプレッドシート",
+      "slides": "プレゼンテーション",
+      "canvas": "キャンバス",
       "file": "ファイル"
     },
     "more": "その他のオプション",
-    "send": "送る",
+    "sendCopy": "コピーを送信",
     "savePhotos": "写真に保存",
     "drive": "Driveで表示",
     "saved": "写真に保存しました",
@@ -1151,6 +1139,7 @@
     "place": "{{index}}/{{count}}",
     "previous": "前の画像",
     "next": "次の画像",
+    "noPreviewTitle": "プレビューなし",
     "noPreview": "このファイルはアプリでは開けません。別のアプリに送って開いてください。",
     "video": {
       "play": "再生",
@@ -1160,7 +1149,8 @@
       "mute": "ミュート",
       "unmute": "ミュート解除",
       "fullscreen": "全画面表示",
-      "open": "開く"
+      "open": "開く",
+      "cantPlay": "この動画はこの端末では再生できません。"
     }
   },
   "issues": {
@@ -1252,10 +1242,12 @@
   "drive": {
     "title": "Drive",
     "search": "Driveを検索",
-    "types": "ファイルの種類",
     "type": {
       "all": "すべて",
       "documents": "ドキュメント",
+      "spreadsheets": "スプレッドシート",
+      "presentations": "プレゼンテーション",
+      "canvases": "キャンバス",
       "images": "画像",
       "tables": "表",
       "diffs": "差分"
@@ -1269,11 +1261,13 @@
       "table": "表",
       "diff": "差分",
       "image": "画像",
+      "spreadsheet": "スプレッドシート",
+      "slides": "プレゼンテーション",
+      "canvas": "キャンバス",
       "file": "ファイル"
     },
     "by": "{{name}} · {{when}}",
     "noResults": "この条件に一致するものはありません。",
-    "loadFailed": "Driveを読み込めませんでした。",
     "more": "もっと見る"
   },
   "constellation": {
@@ -1332,8 +1326,6 @@
     "openExisting": "ページを開く"
   },
   "routines": {
-    "loadFailed": "ルーティンを読み込めませんでした。",
-    "anyAgent": "すべてのエージェント",
     "create": "作成",
     "when": {
       "custom": "カスタム",
@@ -1578,18 +1570,9 @@
   },
   "browser": {
     "card": {
-      "needs": "{{name}}が助けを求めています",
-      "needsFor": "{{name}}が助けを求めています · {{time}}",
-      "inControlAt": "あなたが操作中 · {{host}}",
-      "doing": "{{name}} · {{doing}}",
-      "startingF": "{{name}}のブラウザを開いています…",
-      "startingM": "{{name}}のブラウザを開いています…",
       "stopAskF": "{{name}}のブラウザを閉じますか？",
       "stopAskM": "{{name}}のブラウザを閉じますか？",
-      "whereF": "{{name}}のブラウザ内",
-      "whereM": "{{name}}のブラウザ内",
       "open": "開く",
-      "expandHint": "タップして展開",
       "stop": "停止",
       "giveUp": "あきらめる"
     },
@@ -1597,7 +1580,6 @@
       "inControl": "あなたが操作中",
       "helping": "{{name}}が操作中",
       "watchOnly": "{{name}}が操作中です。あなたは見ているだけです。",
-      "takeOver": "操作を代わる",
       "done": "完了",
       "handBack": "操作を戻す",
       "couldnt": "できなかった",
@@ -1618,7 +1600,6 @@
       "closedHelpM": "ログイン情報は次回のために保存されます。",
       "stuckHelpF": "もう一度試すとブラウザが再起動します。ログイン情報は保存されたままです。",
       "stuckHelpM": "もう一度試すとブラウザが再起動します。ログイン情報は保存されたままです。",
-      "hidden": "{{name}}が操作中 · 画面は非表示",
       "key": {
         "Tab": "Tab",
         "Enter": "Enter",
@@ -1706,6 +1687,7 @@
       "ui_automation_off": "UIオートメーションがオフです",
       "xcode_missing": "MacにXcodeが必要です",
       "xcode_too_old": "このiPhoneにはXcodeが古すぎます",
+      "ios_behind_xcode": "この iPhone の iOS をアップデート",
       "device_support": "MacがこのiPhoneを準備しています",
       "helper_missing": "テストヘルパーがまだ設定されていません",
       "helper_expired": "テストヘルパーの更新が必要です",
@@ -1877,7 +1859,7 @@
       "tooOld": "このiPhoneはiOS {{version}}です。エージェントにはiOS 17以降が必要です。可能ならアップデートするか、新しいiPhoneを使ってください。",
       "xcodeOld": "このiPhoneはiOS {{version}}で、{{host}}のXcodeより新しいバージョンです。そちらにXcode {{major}}をインストールしてから、ターミナルでxcrun devicectl manage ddis updateを実行してください。",
       "teamMissing": "Xcodeはサインイン済みですが、まだチームが表示されていません。Xcodeで任意のiOSアプリを作成し、Signing & Capabilitiesでチームを選んで、このiPhoneで一度実行してください。",
-      "uiRefused": "このiPhoneがテストヘルパーのタップを拒否しました。ロックを解除し、求められたらパスコードを入力してください。続く場合は、設定 › デベロッパ › UIオートメーションを有効にするをオフにしてからオンにしてください。",
+      "uiRefused": "エージェントはこのiPhoneの画面を見られますが、iOSがタップを拒否しています。",
       "pluggedIn": "つなぎました",
       "wifi": {
         "also": "{{host}}のWi-Fiにもあります：{{name}}",
@@ -1929,7 +1911,9 @@
       "other": "別のデバイスを使う",
       "stop": "待つのをやめる",
       "useInstead": "代わりに{{name}}を使う",
-      "none": "使える状態のデバイスはほかにありません。"
+      "none": "使える状態のデバイスはほかにありません。",
+      "tried": "{{device}}をもう一度試しています。",
+      "stopped": "{{device}}を待つのをやめました。"
     }
   },
   "connectors": {
@@ -2123,12 +2107,10 @@
     "planRowSub": "エージェントのコンピューターでログイン、キー不要",
     "keyRow": "キー",
     "keyRowSub": "使った分だけ、提供元に直接支払います",
-    "already": "{{org}}にすでにあるもの",
     "stepOf": "{{step}}/{{total}}"
   },
   "crash": {
     "title": "この画面で問題が発生しました",
-    "subtitle": "表示中にアプリでエラーが発生しました。もう一度お試しください。",
     "retry": "もう一度試す"
   },
   "notFound": {
@@ -2157,9 +2139,8 @@
     "deleteIntro": "{{name}}はすぐに全員に対して閲覧のみになり、7日後に完全に削除されます。",
     "holdDelete": "長押しして削除",
     "deleteFailed": "ワークスペースを削除できませんでした。もう一度お試しください。",
-    "access": {
-      "how": "行をタップしてレベルを変更します: アクセスなし、読み取り、読み取りと書き込み。"
-    },
+    "holdReset": "長押ししてリセット",
+    "resetFailed": "ワークスペースをリセットできませんでした。もう一度お試しください。",
     "logo": {
       "failed": "ロゴをアップロードできませんでした",
       "tooBig": "画像が大きすぎます。別の画像をお試しください。"
@@ -2187,7 +2168,6 @@
     "noMatch": "「{{q}}」に一致するロールはありません。",
     "tooMany": "このワークスペースにはすでに100個のロールがあります。新しく作成するには1つ削除してください。",
     "loadFailed": "ロールを読み込めませんでした。{{cause}}",
-    "backToList": "ロールに戻る",
     "nobody": "なし",
     "reach": {
       "permissions_other": "{{count}}件の権限",
@@ -2300,9 +2280,9 @@
       "everyone": "全員が話せます",
       "gate": "{{name}}だけを持つ人は、エージェントと話せません。",
       "gateOn": "エージェントと話すをオンにする",
-      "locked": "変更できるのは、{{name}}の担当者の{{owner}}か、すべてのエージェントを編集できる人だけです。",
-      "locked_female": "変更できるのは、{{name}}の担当者の{{owner}}か、すべてのエージェントを編集できる人だけです。",
-      "lockedNoOwner": "変更できるのは、すべてのエージェントを編集できる人だけです。",
+      "locked": "変更できるのは、{{name}}の担当者の{{owner}}か、エージェントを編集できる人だけです。",
+      "locked_female": "変更できるのは、{{name}}の担当者の{{owner}}か、エージェントを編集できる人だけです。",
+      "lockedNoOwner": "変更できるのは、エージェントを編集できる人だけです。",
       "none": "エージェントはまだいません。",
       "some": "一部のロールと人のみ",
       "addPerson": "人を追加",
@@ -2410,7 +2390,7 @@
       "sealedHelp": "安全のため、ここに保存した内容は二度と表示されません。変更するには、もう一度入力してください。",
       "changePassword": "パスワードを変更",
       "changeValue": "値を変更",
-      "changeHelp": "「保存」をタップすると反映されます。それ以降、エージェントは新しいものを使います。",
+      "changeHelp": "保存すると、エージェントは新しいものを使います。",
       "hidden": "非表示",
       "saved": "保存しました",
       "delete": "削除",
@@ -2429,7 +2409,7 @@
       "newPassword": "新しいパスワード",
       "keyName": "変数",
       "keyNamePlaceholder": "ACME_API_KEY",
-      "keyNameHelp": "大文字、数字、_を使います。例: ACME_API_KEY。エージェントはこの名前でキーを求めます。",
+      "keyNameHelp": "大文字、数字、_を使います。例: `ACME_API_KEY`。エージェントはこの名前でキーを求めます。",
       "value": "値",
       "newValue": "新しい値",
       "description": "説明",
@@ -2551,8 +2531,7 @@
     "bySelfUntil": "{{name}}が設定 · {{when}}"
   },
   "dashboards": {
-    "homeRow": "あなただけ · 自分のウィジェット",
-    "loadFailed": "ダッシュボードを読み込めませんでした。",
+    "homeRow": "あなただけ",
     "create": "作成",
     "routineTarget": "そのウィジェット",
     "pin": {
@@ -2631,11 +2610,11 @@
     },
     "drive": {
       "title": "チームが作ったものを一か所に",
-      "text": "エージェントと人のレポート、表、ファイルがここに残り、すぐに見つかります。",
+      "text": "エージェントと人のレポート、表、ファイルがここに残ります。",
       "viewerTitle": "チームが作ったものを探す",
       "viewerText": "エージェントや人がチャットで作成したものがここに表示されます。",
       "titlePersonal": "エージェントが作ったものを、すべて一か所に",
-      "textPersonal": "エージェントのレポート、表、ファイルはここに残り、すぐに見つかります。",
+      "textPersonal": "エージェントのレポート、表、ファイルはここに残ります。",
       "viewerTitlePersonal": "エージェントが作ったものを探す",
       "viewerTextPersonal": "エージェントがあなたのチャットで作ったものがここに表示されます。"
     },
@@ -2701,7 +2680,7 @@
       "viewerTextPersonal": "誰かが参加すると、ここに表示されます。"
     },
     "chat": {
-      "title": "すべてはメッセージから始まります",
+      "title": "会話を始めましょう",
       "text": "下に書くと、ここにいる全員に届きます。",
       "viewerTitle": "メッセージはここに表示されます",
       "viewerText": "誰かが書き込むと、ここで読めます。"
@@ -2742,8 +2721,8 @@
     "board": {
       "title": "大事なことをひとつのダッシュボードで",
       "text": "ウィジェットを追加するか、エージェントに頼むか、チャットのブロックをピン留めしましょう。",
-      "viewerTitle": "このダッシュボードは準備中です",
-      "viewerText": "このダッシュボードを編集できる人がウィジェットを追加すると、ここに表示されます。"
+      "viewerTitle": "ウィジェットはここに表示されます",
+      "viewerText": "このダッシュボードを編集できる人が追加します。"
     },
     "computers": {
       "title": "エージェントに別のコンピュータを",
@@ -2752,7 +2731,7 @@
       "viewerText": "コンピュータを接続できる人が追加すると、ここに表示されます。"
     },
     "connectors": {
-      "title": "エージェントに本物のツールを",
+      "title": "エージェントにツールを",
       "text": "サービスを接続すると、そこで読み取りや操作ができるようになります。",
       "viewerTitle": "エージェントのツールはここに表示されます",
       "viewerText": "コネクタを管理する人が下のサービスを接続します。"
@@ -2761,5 +2740,217 @@
       "title": "確認するものはありません",
       "text": "エージェントが会話の外で何かを行うと、ここに表示されます。"
     }
+  },
+  "live": {
+    "status": {
+      "opening": "開いています…",
+      "saved": "保存済み",
+      "saving": "保存中…",
+      "offline": "接続がありません",
+      "offlineKept": "接続がありません · 変更はこのスマートフォンに保存されています",
+      "readOnly": "読み取り専用"
+    },
+    "closed": {
+      "missing": "このファイルは存在しないか、あなたと共有されていません",
+      "signedOut": "このファイルを開くには、もう一度ログインしてください",
+      "broken": "このファイルはアプリでは開けません",
+      "toDrive": "Driveに戻る"
+    },
+    "menu": {
+      "undo": "元に戻す",
+      "redo": "やり直す"
+    },
+    "here": {
+      "title": "ここにいる人",
+      "faces_other": "ほかに{{count}}人がいます。誰がいるか見る",
+      "group": {
+        "editing": "編集中",
+        "viewing": "閲覧中"
+      },
+      "editing": "編集中",
+      "viewing": "閲覧中",
+      "editingAt": "{{where}}を編集中",
+      "viewingAt": "{{where}}を表示中",
+      "editingSlide": "スライド{{n}}を編集中",
+      "onSlide": "スライド{{n}}を表示中",
+      "editingShapes_other": "{{count}}個の項目を編集中",
+      "followingName": "{{name}}をフォロー中",
+      "stop": "やめる",
+      "alone": "今ここにいるのはあなただけです",
+      "aloneHint": "このファイルを開いた人は、何をしているかと一緒にここに表示されます。"
+    },
+    "card": {
+      "sheets_other": "{{count}}枚のシート",
+      "slides_other": "{{count}}枚のスライド",
+      "shapes_other": "{{count}}個の項目"
+    },
+    "sheet": {
+      "edit": "編集",
+      "editHint": "このセルに入力します",
+      "editing": "{{cell}}を編集中",
+      "placeholder": "値または=を入力",
+      "empty": "空",
+      "cancel": "元のままにする",
+      "done": "完了",
+      "typeKey": "{{key}}を入力",
+      "stats": "合計 {{sum}} · 平均 {{average}} · 個数 {{count}}",
+      "countOnly": "個数 {{count}}",
+      "cantDo": "ここではその操作はできません",
+      "copied": "コピーしました",
+      "newSheet": "新しいシート",
+      "sheetWord": "シート",
+      "duplicateSheet": "シートを複製",
+      "copyOf": "{{name}}（コピー）",
+      "deleteSheet": "シートを削除",
+      "deleteSheetTitle": "{{name}}を削除しますか？",
+      "deleteSheetText": "このシートの内容は、ファイルにいる全員から削除されます。「元に戻す」で戻せます。",
+      "menu": {
+        "copy": "コピー",
+        "paste": "貼り付け",
+        "clear": "クリア",
+        "rowsAbove_other": "上に{{count}}行を挿入",
+        "rowsBelow_other": "下に{{count}}行を挿入",
+        "colsLeft_other": "左に{{count}}列を挿入",
+        "colsRight_other": "右に{{count}}列を挿入",
+        "sortUp": "昇順で並べ替え（A→Z）",
+        "sortDown": "降順で並べ替え（Z→A）",
+        "deleteRows_other": "{{count}}行を削除",
+        "deleteCols_other": "{{count}}列を削除"
+      },
+      "problem": {
+        "empty": "=の後に何か入力してください",
+        "unexpected": "{{text}}のあたりに問題があります",
+        "paren": "閉じていないかっこがあります",
+        "quote": "閉じていない引用符があります",
+        "sheetQuote": "シート名の引用符が閉じていません",
+        "operand": "記号の横に値がありません",
+        "array": "この値のリストは途中で終わっています",
+        "range": "この範囲は正しくありません",
+        "sheet": "{{text}}という名前のシートはありません",
+        "args": "{{fn}}の値の数が正しくありません",
+        "tooLong": "セルに入れるには長すぎます",
+        "tooDeep": "この数式は入れ子が深すぎます",
+        "tooFar": "この参照はスプレッドシートの上限を超えています",
+        "limit": "スプレッドシートがサイズの上限に達しています",
+        "merged": "結合されたセルがあるためできません",
+        "failed": "うまくいきませんでした。もう一度お試しください。"
+      }
+    },
+    "slides": {
+      "placeholder": {
+        "title": "タップしてタイトルを追加",
+        "text": "タップしてテキストを追加",
+        "image": "タップして写真を追加"
+      },
+      "part": {
+        "title": "タイトル",
+        "subtitle": "サブタイトル",
+        "body": "テキスト",
+        "caption": "キャプション",
+        "number": "大きな数字",
+        "quote": "引用",
+        "shape": "図形内のテキスト",
+        "text": "テキストボックス",
+        "note": "付箋"
+      },
+      "openHint": "スライドを開きます",
+      "editHint": "テキストを編集します",
+      "place": "スライド{{n}}/{{count}}",
+      "placeHidden": "スライド{{n}}/{{count}} · 発表時は非表示",
+      "deleteTitle": "スライド{{n}}を削除しますか？",
+      "deleteText": "ファイルにいる全員から削除されます。「元に戻す」で戻せます。",
+      "notesPlaceholder": "このスライドで話す内容を書く",
+      "pickPhoto": "写真を選ぶ",
+      "tools": {
+        "text": "テキスト",
+        "photo": "写真",
+        "sending": "送信中…"
+      }
+    },
+    "text": {
+      "title": "テキスト",
+      "noteTitle": "付箋",
+      "done": "完了",
+      "placeholder": "テキストを入力",
+      "titlePlaceholder": "タイトルを入力",
+      "hint": "1行が1つの段落になります。"
+    },
+    "show": {
+      "nothing": "すべてのスライドが非表示のため、表示するものがありません。",
+      "upright": "スマートフォンを縦にしてください",
+      "sideways": "スマートフォンを横にしてください"
+    },
+    "canvas": {
+      "tools": {
+        "label": "ツール",
+        "select": "選択",
+        "pen": "ペン",
+        "shapes": "図形",
+        "arrow": "矢印",
+        "note": "付箋",
+        "text": "テキスト",
+        "photo": "写真",
+        "comment": "コメント"
+      },
+      "shapes": {
+        "rect": "四角形",
+        "ellipse": "楕円",
+        "diamond": "ひし形",
+        "triangle": "三角形",
+        "star": "星",
+        "line": "線"
+      },
+      "penHint": "指で描きます。2本の指でキャンバスを動かせます。",
+      "arrowHint": "ある場所から別の場所へドラッグします",
+      "commentHint": "コメントしたい場所をタップします",
+      "pin": "コメント{{n}}（{{name}}）",
+      "addToSelection": "これも選択",
+      "emptyText": "付箋や写真を追加するか、会話でエージェントに頼んでください。"
+    },
+    "talk": {
+      "start": "{{what}}について話す",
+      "openHint": "会話を開きます",
+      "placeholder": {
+        "spreadsheet": "スプレッドシートについて書く…",
+        "slides": "プレゼンテーションについて書く…",
+        "canvas": "キャンバスについて書く…",
+        "document": "ドキュメントについて書く…"
+      },
+      "aboutPoint": "キャンバス上の1か所へのコメント",
+      "comment": "コメント",
+      "imported": "<0>{{name}}</0>が{{file}}から読み込みました",
+      "variationsText": "この画像のバリエーションを作って"
+    },
+    "doc": {
+      "styles": {
+        "paragraph": "標準テキスト",
+        "h1": "見出し1",
+        "h2": "見出し2",
+        "h3": "見出し3",
+        "quote": "引用",
+        "code": "コード"
+      },
+      "style": "テキストのスタイル",
+      "bold": "太字",
+      "italic": "斜体",
+      "bullets": "箇条書き",
+      "numbers": "番号付きリスト",
+      "quote": "引用",
+      "link": "リンクを追加",
+      "linkChoose": "先にリンクにする文字を選んでください",
+      "linkBad": "そのアドレスはリンクにできません",
+      "linkPlaceholder": "リンクのアドレス",
+      "linkApply": "リンクを追加",
+      "placeholder": "ここに書く",
+      "add": "段落を追加",
+      "editHint": "この部分を編集します",
+      "notHere": "この部分はコンピューターで編集します"
+    }
+  },
+  "surface": {
+    "on": "オン",
+    "codeText": "そこで開くメッセージを送信して、ここに戻ってください。",
+    "openFailed": "この端末で{{surface}}を開けませんでした。下のコードを送信してください。",
+    "orType": "またはこのコードを送信"
   }
 }

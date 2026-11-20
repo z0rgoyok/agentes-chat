@@ -21,7 +21,7 @@ export interface WaitingCardProps {
   title?: string;
   /** Under the title: why it was asked in muted, then what it goes through (`WaitingSource`), what it costs. */
   children?: ReactNode;
-  /** Its deadline: the amber fuse and the time left, at the top line's right (`ExpiryLine`). */
+  /** Its deadline: the amber fuse and the time left, under the action from the card's edge (`ExpiryLine`). */
   expires?: { createdAt?: string | null; expiresAt: string } | null;
   /** Without a deadline, at the top line's right: where and when ("#marketing · 19:58"). */
   where?: string;
@@ -170,8 +170,8 @@ const styles = StyleSheet.create({
   sourceMark: { flexShrink: 0 },
   // The decision under the request, as the chat card's foot (its 8 + 4 points above).
   ft: { paddingHorizontal: 16, paddingTop: 12 },
-  // The deadline at the foot's end, right-aligned under the decision (as the chat's card).
-  expiry: { flexDirection: "row", justifyContent: "flex-end", marginTop: 10 },
+  // The deadline under the decision, from the card's edge (as the chat's card).
+  expiry: { flexDirection: "row", marginTop: 10 },
   when: { fontVariant: ["tabular-nums"] },
   // Where and when never take the name's room: at most half the line. On the name's line, not between it and the
   // kind under it.

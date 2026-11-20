@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import { AGENT_GRADIENTS, bodyTones, gradientOf, mixHex, spriteGrid } from "../agent/engine.js";
 import { cx } from "../cx";
+import { PAINT_ATTRS } from "../theme";
 import type { AgentColor, AgentEyes } from "./AgentLook";
+import { Tip } from "./Tip";
 
 /**
  * A routine's runs in pixels: each run is a dithered
@@ -128,19 +130,42 @@ export function useCanvas(
     const ctx = canvas?.getContext?.("2d");
     if (!canvas || !ctx || typeof MutationObserver === "undefined") return;
     const theme = new MutationObserver(() => fn.current(ctx, canvas, performance.now() / 1000));
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: PAINT_ATTRS });
     return () => theme.disconnect();
   }, []);
   return ref;
 }
 
-/** The last runs as a strip of pixel columns, oldest left; empty slots are a dot on the line. */
+/** A bar's own button over the strip: its words for a screen reader, its tip for the eye, what a press does. */
+export interface RunBar {
+  label: string;
+  tip: ReactNode;
+  onPick: () => void;
+}
+
+/** Arrows move between a strip's bars: the strip is one Tab stop. */
+function moveBetweenBars(e: KeyboardEvent<HTMLElement>) {
+  const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!step) return;
+  const bars = [...e.currentTarget.querySelectorAll("button")];
+  const next = bars[bars.indexOf(document.activeElement as HTMLButtonElement) + step];
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
+}
+
+/**
+ * The last runs as a strip of pixel columns, oldest left; empty slots are a dot on the line. With `bar`, each run's
+ * column is a button that shows its tip (`tipLook`) on hover, on the keys' focus or on a finger's long press.
+ */
 export function RunStrip({
   runs,
   color = "sky",
   slots = 14,
   running = false,
   className,
+  bar,
+  tipLook = "ac-hint__bubble ac-glass",
 }: {
   /** Newest first (as the API sends them). */
   runs: RunPixel[];
@@ -149,6 +174,9 @@ export function RunStrip({
   /** The newest slot shows a run in progress. */
   running?: boolean;
   className?: string;
+  /** A run's button, by its index in `runs`; `-1` is the run in progress. */
+  bar?: (index: number) => RunBar;
+  tipLook?: string;
 }) {
   const COLW = 3;
   const GAP = 1;
@@ -168,14 +196,44 @@ export function RunStrip({
     });
     if (running) drawWorking(ctx, (slots - 1) * (COLW + GAP), COLW, ROWS, ROWS - 1, t);
   }, running);
-  return (
+  const canvas = (
     <canvas
       ref={ref}
-      className={cx("ac-run-strip", className)}
+      className={cx("ac-run-strip", !bar && className)}
       width={width}
       height={ROWS}
       style={{ width: width * CELL, height: ROWS * CELL }}
     />
+  );
+  if (!bar) return canvas;
+  // Left to right, as drawn: the shown runs oldest first, then the one in progress.
+  const shown = Math.min(runs.length, slots - (running ? 1 : 0));
+  const order = [...Array.from({ length: shown }, (_, k) => shown - 1 - k), ...(running ? [-1] : [])];
+  const pad = slots - order.length;
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the arrows between the bars, each a button of its own
+    <span
+      className={cx("ac-run-bars", className)}
+      style={{ width: width * CELL, height: ROWS * CELL }}
+      onKeyDown={moveBetweenBars}
+    >
+      {canvas}
+      {order.map((index, k) => {
+        const b = bar(index);
+        return (
+          <Tip key={index} button look={tipLook} align="center" tip={b.tip}>
+            <button
+              type="button"
+              className="ac-run-bars__bar"
+              style={{ left: (pad + k) * (COLW + GAP) * CELL, width: (COLW + GAP) * CELL }}
+              aria-label={b.label}
+              tabIndex={k === order.length - 1 ? 0 : -1}
+              onClick={b.onPick}
+            />
+          </Tip>
+        );
+      })}
+    </span>
   );
 }
 

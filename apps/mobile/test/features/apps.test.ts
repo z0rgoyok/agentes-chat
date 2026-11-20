@@ -16,6 +16,7 @@ import { appVia } from "@agenteschat/client/lib/via";
 import { markOf } from "@agenteschat/ui/brand/marks";
 import { notificationHref } from "../../src/features/links/logic";
 import { visibleSections } from "../../src/features/settings/logic";
+import { pushedByDefault } from "../main-stack";
 import { notification, translator } from "./fixtures";
 
 const NOW = new Date("2026-11-01T12:00:00Z");
@@ -78,8 +79,7 @@ describe("Apps de IA on the phone (ADR 0119)", () => {
   });
 
   test("the screen is in the stack, pushed", () => {
-    const layout = readFileSync(join(import.meta.dir, "..", "..", "app", "(app)", "_layout.tsx"), "utf8");
-    expect(layout).toContain(`name="settings/apps" options={{ ...pushed, ...scrollUnder }}`);
+    expect(pushedByDefault("settings/apps")).toBe(true);
   });
 
   test("what an AI app created, in one line in both languages, opening the newest agent or routine", async () => {

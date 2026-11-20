@@ -141,7 +141,7 @@ function socketsFor() {
     desktops.push(s);
     return s as unknown as ReturnType<SocketFactory>;
   };
-  return { factory, desktops };
+  return { factory, desktops, realtime };
 }
 
 /** Ada on a Linux computer of the workspace's, which serves screens; self-host, or with `cloud` the Cloud's own. */
@@ -160,9 +160,16 @@ async function backend(desktop: Partial<DesktopStatus>, cloud = false) {
   return { state, api, fake, machines, machine: m, sockets: socketsFor() };
 }
 
+/**
+ * Ada as the server sends her to me, the way the app hands her to the dialog: with what I may do with her (whether I
+ * manage her, `canManage`, ADR 0085 addendum of 2026-11-17).
+ */
+const adaOf = async (b: Awaited<ReturnType<typeof backend>>) =>
+  (await b.api.agents.list(ORG_ID)).find((a) => a.id === ADA_ID) as Agent;
+
 async function dialog(desktop: Partial<DesktopStatus> = RUNNING, cloud = false) {
   const b = await backend(desktop, cloud);
-  const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+  const ada = await adaOf(b);
   let closed = 0;
   const r = await renderPage(<ComputerDialog agent={ada} open onClose={() => closed++} />, {
     api: b.api,
@@ -357,7 +364,7 @@ describe("the agent's screen in the computer dialog", () => {
     const b = await backend({ ...RUNNING, canControl: false, controlRefusal: "owner_plan" }, true);
     b.state.scopes[ADA_ID] = [...(b.state.scopes[ADA_ID] ?? []), { connectionId: null, scope: "browser:use" }];
     b.fake.settings.set(ADA_ID, { allowedDomains: null, available: true, reason: null, detail: null, machine: null });
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     await renderPage(<ComputerDialog agent={ada} open onClose={() => {}} />, {
       api: b.api,
       org: true,
@@ -386,7 +393,7 @@ describe("the agent's screen in the computer dialog", () => {
     b.state.roles = (b.state.roles ?? []).map((r) =>
       r.kind === "everyone" ? { ...r, permissions: r.permissions.filter((p) => p !== "own_computers") } : r,
     );
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     await renderPage(<ComputerDialog agent={ada} open onClose={() => {}} />, {
       api: b.api,
       org: true,
@@ -417,7 +424,6 @@ describe("the agent's screen in the computer dialog", () => {
     expect(rfb().options).toEqual({ shared: true });
     expect(rfb()).toMatchObject({
       viewOnly: true,
-      showDotCursor: false,
       qualityLevel: 3,
       compressionLevel: 2,
       scaleViewport: true,
@@ -437,6 +443,21 @@ describe("the agent's screen in the computer dialog", () => {
     expect(view().queryByRole("button", { name: "Recolher" })).toBeNull();
     // Watching gives no way to type into it.
     expect(view().queryByRole("textbox", { name: "Digitar no computador da Ada" })).toBeNull();
+  });
+
+  test("watching, the agent's pointer from the realtime socket draws its cursor over the screen", async () => {
+    const t = await dialog();
+    await connected();
+    const socket = t.sockets.realtime.last();
+    await act(async () => socket.open());
+    const pointer = { x: 640, y: 450, width: 1280, height: 900, act: "click" };
+    await act(async () =>
+      socket.push({ type: "event", scope: "user", event: { type: "agent.desktop.pointer", agentId: ADA_ID, pointer } }),
+    );
+    await settle(4);
+    const cursor = document.querySelector(".dsk-screen .brw-cur") as HTMLElement | null;
+    expect(cursor).not.toBeNull();
+    expect(cursor?.textContent).toContain("Ada");
   });
 
   test("Live once a picture is there: a screen that just started stays black a moment, and says Opening meanwhile", async () => {
@@ -612,7 +633,7 @@ describe("the agent's screen in the computer dialog", () => {
     await settle(4);
     expect(t.sockets.desktops.at(-1)?.url).toEndWith("&mode=control");
     expect(t.sockets.desktops[0]?.closed).toBe(true);
-    expect(rfb()).toMatchObject({ viewOnly: false, showDotCursor: true, qualityLevel: 6, focusOnClick: false });
+    expect(rfb()).toMatchObject({ viewOnly: false, qualityLevel: 6, focusOnClick: false });
     await connected();
     // The person's keys go to the screen at once, through a field over it.
     expect(document.activeElement === view().getByRole("textbox", { name: "Digitar no computador da Ada" })).toBe(true);
@@ -776,7 +797,7 @@ describe("the agent's screen in the computer dialog", () => {
     expect(ws.sent).toEqual([MODE("control")]);
     expect(rfb()).not.toBe(watching);
     expect(watching.canvas.isConnected).toBe(false);
-    expect(rfb()).toMatchObject({ viewOnly: false, showDotCursor: true, qualityLevel: 6, got: [[82, 70, 66]] });
+    expect(rfb()).toMatchObject({ viewOnly: false, qualityLevel: 6, got: [[82, 70, 66]] });
     expect(still()).not.toBeNull();
     expect(screen().getByText("Assumindo o controle…")).toBeTruthy();
     await connected();
@@ -832,7 +853,7 @@ describe("the agent's screen in the computer dialog", () => {
     await settle(4);
     expect(t.sockets.desktops).toHaveLength(1);
     expect(ws.sent).toEqual([MODE("control"), MODE("watch")]);
-    expect(rfb()).toMatchObject({ viewOnly: true, showDotCursor: false, qualityLevel: 3 });
+    expect(rfb()).toMatchObject({ viewOnly: true, qualityLevel: 3 });
     expect(sub()).toBe("Ao vivo · você está assistindo");
     expect(still()).not.toBeNull();
     expect(screen().queryByText("Abrindo o computador da Ada…")).toBeNull();
@@ -844,7 +865,7 @@ describe("the agent's screen in the computer dialog", () => {
     const b = await backend(RUNNING);
     const mine = { ...controlOf(ADA_ID, "u-walter"), id: "h-mine" };
     b.fake.handoffs.set(mine.id, mine);
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     await renderPage(<ComputerDialog agent={ada} open onClose={() => undefined} />, {
       api: b.api,
       org: true,

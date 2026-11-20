@@ -137,10 +137,21 @@ export function splitMatch(value: string, range: { start: number; end: number } 
   return [value.slice(0, range.start), value.slice(range.start, range.end), value.slice(range.end)];
 }
 
+/**
+ * How far back from the caret a token is looked for: past the longest one either kind can be ("#" and 80 characters,
+ * "@" and 32 letters that may each take two code units) and the space before it. Read on every key, it costs the same
+ * in a long draft as in a short one: only this much of the text is matched, never all of it up to the caret.
+ */
+const REF_WINDOW = 128;
+
 /** The "#channel" or "@who" being typed right before the caret (`sigil: "#"` for a channel); null when neither. */
 export function refQuery(text: string, caret: number): { start: number; query: string; sigil?: "#" } | null {
-  const channel = channelQuery(text, caret);
-  return channel ? { ...channel, sigil: "#" } : mentionQuery(text, caret);
+  const from = Math.max(0, caret - REF_WINDOW);
+  // A window that starts inside the text never reads as its start: no token is long enough to fill it.
+  const head = text.slice(from, caret);
+  const channel = channelQuery(head, head.length);
+  const token = channel ? { ...channel, sigil: "#" as const } : mentionQuery(head, head.length);
+  return token && from > 0 ? { ...token, start: token.start + from } : token;
 }
 
 /** The text after picking from either list: "#name " for a channel, "@handle " for someone. */

@@ -473,6 +473,16 @@ describe("what it tells", () => {
     expect(all[0]).toMatchObject({ userId: f.owner.id, count: 2 });
   });
 
+  test("a person's own connection to reconnect reaches only them, never who manages connectors", async () => {
+    f = await setup({ rightHand: true });
+    const member = await addMember(f.db, f.org.id, "member", "caio");
+    await connector("Linear", { createdByUserId: member.id, ownerUserId: member.id });
+    await watch();
+    const all = await rows();
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ userId: member.id, latest: { reason: "connector", names: ["Linear"] } });
+  });
+
   test("a mailbox reaches only its owner, and one nobody owns reaches nobody", async () => {
     f = await setup({ rightHand: true });
     const member = await addMember(f.db, f.org.id, "member", "caio");

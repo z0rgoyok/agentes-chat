@@ -395,12 +395,15 @@ describe("Dialog without a footer", () => {
     expect([...(foot.lastElementChild?.children ?? [])].map((b) => b.textContent)).toEqual(["Cancelar", "Conectar"]);
     const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
     const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
-    // Beside the note while it keeps one line, else on a row of their own under it, at the footer's end, 8 apart.
+    // Beside the note while it keeps one line, else on a row of their own under it from its edge, 8 apart.
     expect(rule(".ac-dialog__foot-note")).toContain("flex: 1 1 auto;");
     expect(rule(".ac-dialog__foot-acts")).toContain("flex: none;");
     expect(rule(".ac-dialog__foot-acts")).toContain("gap: var(--space-2);");
     expect(css).toMatch(/\n\.ac-dialog__foot \{[^}]*justify-content: flex-end;/);
     expect(rule(".ac-dialog__foot:has(> .ac-dialog__foot-acts)")).toContain("column-gap: var(--space-4);");
+    expect(
+      rule(".ac-dialog__foot:has(> .ac-dialog__foot-note),\n.ac-dialog__foot-note ~ .ac-dialog__foot-acts"),
+    ).toContain("justify-content: flex-start;");
   });
 
   test("an empty footer renders nothing, so a list above it ends on the dialog's own edge", () => {

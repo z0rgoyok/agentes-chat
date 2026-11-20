@@ -1,4 +1,5 @@
-/* Lodi's weekly card (TeamWeekCard): its numbers, what worked, a row per fix, the footer with the schedule. */
+/* Lodi's weekly card (TeamWeekCard): its numbers, what worked, the rows to open or to mark, the footer with the
+   schedule. */
 .tw {
   max-width: var(--msg-card-w);
   container-type: inline-size;
@@ -61,93 +62,208 @@
   color: var(--ok);
   flex: none;
 }
-.tw__rows {
+/*
+ * The rows: one per place to open (approvals, what waits, an agent that stopped), then the suggestions the footer's
+ * button applies, under each agent's face. A hairline between them with a step of room on each side, none inside a
+ * group. Nothing sits on a plate of its own: faces, icons, the checks and a chevron, loose on the card.
+ */
+.tw__list {
+  /* A face's size, and where the rows under it start: on its name's edge. */
+  --tw-face: 24px;
+  --tw-indent: calc(var(--tw-face) + var(--space-3));
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
-.tw__fix {
-  padding: var(--space-3);
-  border-radius: 12px 12px 12px 4px;
-  background: var(--card-well);
-  box-shadow: var(--card-well-shadow);
+.tw__list > * {
+  padding-block: var(--space-3);
 }
-.tw__fix[data-done] {
-  background: transparent;
-  box-shadow: 0 0 0 1px var(--line);
+/* The heading's room is over the first one and the footer's under the last. */
+.tw__list > :first-child {
+  padding-block-start: 0;
 }
-/* The title's capitals start at the face's or the tile's top (`.ac-captop` on it), however many lines it wraps to. */
-.tw__fix-row {
-  /* The face's size, and the tile's that stands in its place. */
-  --tw-face: 36px;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
+.tw__list > :last-child {
+  padding-block-end: 0;
 }
-.tw__fix-row > .ac-avatar,
-.tw__tile {
-  flex: none;
+/* Approvals opened under their row stay in its room. */
+.tw__list > * + :not(.tw__approvals) {
+  border-top: 1px solid var(--line);
 }
-.tw__tile {
-  display: grid;
-  place-items: center;
-  width: var(--tw-face);
-  height: var(--tw-face);
-  border-radius: 10px 10px 10px 3px;
-  background: var(--plate);
-  color: var(--ink2);
-}
-.tw__fix-t {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  gap: var(--space-1);
-}
-/* Neither the title nor its line leaves one word alone on a last line. */
-.tw__fix-t b {
-  font-weight: 650;
-  color: var(--ink);
-  text-wrap: pretty;
-  overflow-wrap: anywhere;
-}
-.tw__fix[data-done] .tw__fix-t b {
-  color: var(--muted);
-  font-weight: 550;
-}
-.tw__fix-t span {
-  color: var(--ink2);
-  font-size: 13px;
-  line-height: 18px;
-  text-wrap: pretty;
-  overflow-wrap: anywhere;
-}
-.tw__fix-side {
-  display: flex;
-  align-self: center;
-  align-items: center;
-  gap: var(--space-2);
-  flex: none;
-}
-.tw__done {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--icon-gap);
-  color: var(--ok);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.tw__gone {
-  color: var(--muted);
-  font-size: 13px;
-  white-space: nowrap;
+.tw__list > .tw__approvals {
+  padding-block-start: 0;
 }
 .tw__approvals {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+}
+/* A place to open: the face, the title over its line beside it, a chevron on the title's line. The row is the button. */
+.tw__go {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  margin: 0;
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+button.tw__go {
+  cursor: pointer;
+}
+button.tw__go:hover > .tw__chev {
+  color: var(--ink);
+}
+html:not([data-pointer]) button.tw__go:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+.tw__go > .ac-avatar,
+.tw__head > .ac-avatar {
+  flex: none;
+}
+/* The kind's icon where a row about no agent has no face: loose, in the face's room. */
+.tw__kind {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--tw-face);
+  height: var(--tw-face);
+  color: var(--muted);
+}
+/* What waits on the reader in the color of its number above. */
+.tw__kind[data-kind="waiting"] {
+  color: var(--attention);
+}
+.tw__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+/* Beside a face, the title's first line stands on the face's middle. */
+.tw__go > .tw__text,
+.tw__head-t {
+  padding-block-start: calc((var(--tw-face) - 20px) / 2);
+}
+/* Neither a title nor its line leaves one word alone on a last line, and none is cut. */
+.tw__title,
+.tw__head-t {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* A place's title and a group's name in semibold; a suggestion's own title in the text's weight under its name. */
+.tw__go .tw__title,
+.tw__head-t {
+  font-weight: 600;
+}
+.tw__line {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* Unmarked or ended, the title steps back; once done, the line says so in the ok color. */
+.tw__item[data-off] .tw__title,
+[data-ended] .tw__title {
+  color: var(--muted);
+}
+.tw__line[data-ok] {
+  color: var(--ok);
+  font-weight: 600;
+}
+.tw__chev {
+  margin-block-start: calc((var(--tw-face) - 16px) / 2);
+  color: var(--faint);
+}
+.tw__go[aria-expanded="true"] > .tw__chev {
+  rotate: 90deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tw__chev {
+    transition: rotate var(--dur-base) ease;
+  }
+}
+/* One agent's suggestions: its face and name, each row under it from the name's edge, 12 between them. */
+.tw__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tw__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.tw__head-t {
+  min-width: 0;
+}
+.tw__group > .tw__item {
+  margin-inline-start: var(--tw-indent);
+}
+.tw__group > .tw__item + .tw__item {
+  margin-block-start: var(--space-1);
+}
+/* A row about no agent: the kind's icon on its title's line, its check where the other groups' checks are. */
+.tw__alone {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.tw__alone > .tw__kind {
+  height: 20px;
+}
+.tw__alone > .tw__item {
+  flex: 1;
+  min-width: 0;
+}
+/*
+ * A suggestion: the check, then its title over its line, the whole line its label. What ends it (Dismiss, Undo)
+ * stays beside the words while they keep 24 characters there, else it starts a line of its own on their edge: never
+ * pushed to the far end under a line that holds a control.
+ */
+.tw__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-4);
+  font-size: 14px;
+}
+.tw__mark {
+  display: flex;
+  flex: 1 1 24ch;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+label.tw__mark {
+  cursor: pointer;
+}
+.tw__end {
+  margin-inline-start: calc(18px + 10px);
+  line-height: 20px;
+}
+/* Round, on the title's first line: in ink with the check in the card's color while marked, a thin ring while not. */
+.ac-check.tw__check {
+  margin: 1px 0 0;
+  border-radius: 999px;
+}
+/* Where the check stood: the ok check once applied, its room alone once the row ended another way. */
+.tw__ok {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 20px;
+  color: var(--ok);
 }
 .tw__dismissed {
   margin: var(--space-4) 0 0;
@@ -156,7 +272,6 @@
 }
 /* Doubled: over a request card's end (`.rq__end`, request-card.css), a sheet in another chunk. */
 .tw__when.tw__when {
-  margin-left: auto;
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;
@@ -174,45 +289,30 @@
   padding: var(--space-2);
 }
 /* A narrow column (the phone's browser, a side panel): four numbers go two a line, three stay on one line while each
-   keeps its 88 and else the third takes the next line whole. A fix is a MediaRow: the face and the title on one line,
-   then its line and its button under them at the row's width (rule 23), a quiet button beside it keeping its own. The
-   face never owns a column beside them. */
+   keeps its 88 and else the third takes the next line whole. A place's row is a MediaRow: the face, the title and the
+   chevron on one line, the line under them at the row's width, so the face never keeps a column beside three lines. */
 @container (max-width: 520px) {
   .tw__stat:first-child:nth-last-child(4),
   .tw__stat:first-child:nth-last-child(4) ~ .tw__stat {
     flex-basis: calc(50% - var(--space-2));
   }
-  .tw__fix-row {
+  .tw__go {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: var(--space-2) var(--space-3);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 2px var(--space-3);
   }
-  .tw__fix-t {
+  .tw__go > .tw__text {
     display: contents;
   }
-  /* The title ends half a line under the face's middle, held from the bottom of their line: one line centres on the
-     face, and a title of two lines or more, taller than the face with that room under it, grows the line downwards
-     and keeps its rise (`.ac-captop`), its capitals starting at the face's top. Either way its line stands as far
-     under it. */
-  .tw__fix-t b {
-    align-self: end;
-    /* Browsers without the lh unit: the page's 22px line. */
-    margin-block-end: calc((var(--tw-face) - 22px) / 2);
+  .tw__go .tw__title {
+    grid-area: 1 / 2;
+    padding-block-start: calc((var(--tw-face) - 20px) / 2);
   }
-  @supports (top: 1lh) {
-    .tw__fix-t b {
-      margin-block-end: calc((var(--tw-face) - 1lh) / 2);
-    }
-  }
-  .tw__fix-t span,
-  .tw__fix-side {
+  .tw__go .tw__line {
     grid-column: 1 / -1;
   }
-  .tw__fix-side {
-    justify-content: flex-end;
-  }
-  .tw__fix-side > .ac-btn:not(.ac-btn--ghost) {
-    flex: 1;
+  .tw__go > .tw__chev {
+    grid-area: 1 / 3;
   }
   /* The schedule still ends the footer's last line, its words wrapping when they are longer than it. */
   .tw__when.tw__when {

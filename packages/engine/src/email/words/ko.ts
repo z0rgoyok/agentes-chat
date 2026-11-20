@@ -221,6 +221,10 @@ export const words: EmailWords = {
     preheader: "멤버 페이지에서 승인하거나 거절하세요. 답하기 전에는 아무 일도 일어나지 않아요.",
     headline: "참여 요청이 기다리고 있어요",
     body: (org) => [{ b: org }, "의 초대 링크를 열고 참여를 요청했어요."],
+    outside: (by) => [
+      { b: by },
+      "의 외부 협력자로 참여를 요청했어요. 요금제 자리를 차지하지 않으며, 언제든지 내보낼 수 있어요.",
+    ],
     note: "아는 사람만 승인하세요. 페이지에서 다른 역할을 고르지 않으면 멤버로 참여해요.",
     approve: "승인",
     deny: "거절",
@@ -284,6 +288,13 @@ export const words: EmailWords = {
   deletionCode: {
     subjectWorkspace: (code) => `워크스페이스 삭제 코드: ${code}`,
     subjectAccount: (code) => `계정 전체 삭제 코드: ${code}`,
+    subjectReset: (code) => `워크스페이스 초기화 코드: ${code}`,
+    reset: (org) => [
+      "이 코드를 입력하면 워크스페이스 ",
+      { b: org },
+      "이(가) 초기화돼요. 에이전트, 대화, 파일, 메모리가 즉시 영구 삭제되고 새 워크스페이스처럼 다시 시작해요.",
+    ],
+    whyReset: (org) => `내 계정에서 agentes.chat의 ${org} 초기화를 요청해서 이 메일을 보내 드렸어요.`,
     preheader: "agentes.chat에 입력해서 확인하세요. 10분 동안 유효해요.",
     headline: "인증 코드",
     workspace: (org) => [
@@ -522,5 +533,51 @@ export const words: EmailWords = {
       },
       why: () => "agentes.chat의 이 워크스페이스가 내 것이어서 이 메일을 보내 드렸어요. 이런 알림은 두 번만 보내요.",
     },
+  },
+  surface: {
+    linked: {
+      subject: (surface) => `${surface}이(가) agentes.chat 계정에 연결되었습니다`,
+      preheader: "이제 어시스턴트가 그곳에서 답합니다. 본인이 아니라면 연결을 해제하세요.",
+      headline: (surface) => `${surface} 연결됨`,
+      body: (surface, display, org) => [
+        { b: display },
+        `(${surface})이(가) 이제 `,
+        { b: org },
+        "의 어시스턴트와 대화합니다.",
+      ],
+      notYou: "본인이 아닌가요? 연결을 해제하세요. 그곳에서 보낸 메시지가 바로 계정에 닿지 않게 됩니다.",
+      button: "연결 해제",
+      small: "본인이라면 아무것도 하지 않아도 됩니다. 언제든 설정에서 연결을 해제할 수 있습니다.",
+      why: (surface) => `${surface}이(가) agentes.chat 계정에 연결되어 이 이메일을 보내드립니다.`,
+      picture: "이제 휴대폰에서도 만나는 어시스턴트",
+    },
+    unlinked: {
+      subject: (surface) => `${surface}이(가) agentes.chat 계정에서 연결 해제되었습니다`,
+      preheader: "신원이 바뀌었습니다. 본인이라면 설정에서 다시 연결하세요.",
+      headline: (surface) => `${surface} 연결 해제됨`,
+      body: (surface, display) => [{ b: display }, `(${surface})은(는) 신원이 바뀌어 연결이 해제되었습니다.`],
+      small: "본인이라면 설정에서 다시 연결하세요.",
+      why: (surface) => `${surface}이(가) agentes.chat 계정에 연결되어 있었기 때문에 이 이메일을 보내드립니다.`,
+      picture: "더 이상 휴대폰에 없는 어시스턴트",
+    },
+  },
+  supportReply: {
+    subject: "도움 요청에 대한 답변",
+    preheader: "agentes.chat에서 요청하신 도움에 대한 답변이에요.",
+    headline: "도움 요청에 대한 답변",
+    answers: {
+      received: "요청을 받았고 지금 살펴보고 있어요.",
+      need_more:
+        "도와드리려면 정보가 더 필요해요. 무엇을 하고 있었는지, 어떻게 되길 기대했는지, 실제로 어떻게 됐는지가 필요해요.",
+      resolved: "알려 주신 문제를 고쳤어요.",
+      handed_over: "이제 담당자가 요청을 맡아 답변드릴 거예요.",
+    },
+    from: (host) =>
+      host
+        ? ["이 답변은 ", { nobr: host }, "의 agentes.chat 서버 운영자가 보냈어요."]
+        : "이 답변은 agentes.chat에서 보냈어요.",
+    ai: "이 답변은 AI 어시스턴트가 작성했어요.",
+    reply: (address) => ["답장하려면 ", { mail: address }, "(으)로 연락해 주세요."],
+    why: "agentes.chat에서 도움을 요청하셔서 이 메일을 보내 드렸어요.",
   },
 };

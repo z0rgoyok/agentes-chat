@@ -11,14 +11,14 @@ import {
   pickChoice,
 } from "@agenteschat/client/lib/choices";
 import { MAX_MESSAGE_LENGTH, tooLongRefusal } from "@agenteschat/client/lib/message-length";
-import { Button, overLimit, Spinner, Textarea } from "@agenteschat/ui";
+import { Button, codeAndBold, overLimit, Spinner, Textarea } from "@agenteschat/ui";
 import { type KeyboardEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { CardSky, colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useTextLimit } from "@/hooks/useTextLimit";
-import { codeAndBold, inlineWords } from "@/lib/markdown";
+import { inlineWords } from "@/lib/markdown";
 import { useToast } from "@/lib/toast";
 import "./blocks.css";
 

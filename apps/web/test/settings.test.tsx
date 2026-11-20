@@ -12,6 +12,7 @@ import { pick, rowMenu } from "./catalog";
 import { createFakeApi, OPENROUTER_KEY, OPENROUTER_MODELS, ORG_ID, seedState } from "./fake-api";
 import { shownText } from "./hint";
 import { pick as pickOption } from "./new-agent-flow";
+import { openDetails, shareRow } from "./plan-rows";
 import { renderApp, screen, settle, showIn } from "./render";
 
 afterEach(() => cleanup());
@@ -168,10 +169,16 @@ describe("Configurações do workspace", () => {
 
   test("Notificações: no phone gets them yet, so the row opens the phone app with a code", async () => {
     await go(seedState(), "settings/notifications");
-    const row = document.getElementById("notice-phone-status")?.closest(".settings-row") as HTMLElement;
-    expect(row.textContent).toContain("Ative no app do celular");
+    // How to turn them on is the ⓘ's, as on the rows beside it; the button keeps the name's line.
+    const row = document.getElementById("notice-phone-help")?.closest(".settings-row") as HTMLElement;
+    expect(document.getElementById("notice-phone-help")?.textContent).toBe("Ative no app do celular");
+    expect(document.getElementById("notice-phone-status")).toBeNull();
+    expect(row.classList.contains("settings-row--button")).toBe(true);
     expect(row.textContent).not.toContain("›");
-    await click(within(row).getByRole("button", { name: "Abrir no celular" }));
+    // The button's word is short enough for the name's line; a screen reader hears what it opens.
+    const open = within(row).getByRole("button", { name: "Abrir no celular" });
+    expect(open.textContent).toBe("Abrir");
+    await click(open);
     await settle(4);
     expect(screen().getByRole("dialog", { name: "Abrir no celular" })).toBeTruthy();
   });
@@ -560,14 +567,17 @@ describe("Configurações do workspace", () => {
     expect(plans.textContent).not.toContain("MacBook");
     await click(head);
     expect(head.getAttribute("aria-expanded")).toBe("true");
-    expect(plans.querySelector(".plan-row__body .plan-acct__sub")?.textContent).toBe("Claude Code");
+    // The logo names the maker: no line saying it again.
+    expect(plans.querySelector(".plan-row__body")?.textContent).not.toContain("Claude Code");
     expect(within(plans).getByRole("meter", { name: "Semana" }).getAttribute("aria-valuenow")).toBe("41");
-    // The week's bar split by agent, and one list: no line of parts under it.
+    // The bars stay plain until Detalhes opens; then the week's bar splits by agent, over one list.
+    expect(within(plans).getByRole("meter", { name: "Semana" }).querySelectorAll(".ac-meter__seg").length).toBe(0);
+    await act(async () => openDetails(plans));
     expect(within(plans).getByRole("meter", { name: "Semana" }).querySelectorAll(".ac-meter__seg").length).toBe(2);
     expect(plans.textContent).not.toContain("Ada ≈ 30%");
-    expect([...plans.querySelectorAll(".plan-shares__row")].map((r) => r.textContent)).toEqual([
-      "Ada · semana 30% · 4,5 mi tokens",
-      "Atlas · semana 11% · 600 mil tokens",
+    expect([...plans.querySelectorAll(".plan-shares__row")].map(shareRow)).toEqual([
+      "Ada · 30% · 4,5 mi tokens",
+      "Atlas · 11% · 600 mil tokens",
     ]);
     expect(plans.textContent).toContain("5,1 mi tokens este mês · ≈ US$\u00a092,00 pelo preço da API");
     const api = screen().getByRole("region", { name: "API do workspace" });
@@ -683,6 +693,8 @@ describe("Configurações do workspace", () => {
     expect(document.body.textContent).not.toContain("Acme builds rockets");
     cleanup();
     await go(state, "settings/connectors");
+    // Their own connections only: the team's side has no Adicionar for them.
+    await click(screen().getByRole("radio", { name: /Equipe/ }));
     expect(screen().queryByRole("button", { name: "Adicionar conector" })).toBeNull();
     cleanup();
     // IA e uso: the plans in percentages, never the workspace's keys, money or report.
@@ -784,6 +796,7 @@ describe("a plan account's agents (IA e uso › Contas)", () => {
     await settle(5);
     const plans = screen().getByRole("region", { name: "Contas" });
     await click(within(plans).getByRole("button", { name: /^A conta que os seus agentes dividem/ }));
+    await act(async () => openDetails(plans));
     const week = within(plans).getByRole("meter", { name: "Semana" });
     const segs = [...week.querySelectorAll<HTMLElement>(".ac-meter__seg")];
     // Colours only for the agents the list shows: the folded ones stay the plain use under them.
@@ -791,33 +804,34 @@ describe("a plan account's agents (IA e uso › Contas)", () => {
     expect(segs.every((s) => s.style.getPropertyValue("--seg-deep").startsWith("#"))).toBe(true);
     // The total stays at the bar's right.
     expect(plans.textContent).toContain("Semana41%");
-    const rows = () => [...plans.querySelectorAll(".plan-shares__row")].map((r) => r.textContent);
-    // One line of words per agent, starting at the list's left edge: no column titles over empty cells.
+    const rows = () => [...plans.querySelectorAll(".plan-shares__row")].map(shareRow);
+    // Columns per agent, one fact each, the window's name once over the shares.
     expect(rows()).toEqual([
-      "Ada · semana 30% · 4,5 mi tokens",
-      "Atlas · semana 11% · 600 mil tokens",
-      "Rio · semana 2% · 900 mil tokens",
-      "Nova · semana 1,5% · 700 mil tokens",
-      "Lia · semana 1,2% · 500 mil tokens",
-      "+2 agentes · semana 1,5% · 500 mil tokens",
+      "Ada · 30% · 4,5 mi tokens",
+      "Atlas · 11% · 600 mil tokens",
+      "Rio · 2% · 900 mil tokens",
+      "Nova · 1,5% · 700 mil tokens",
+      "Lia · 1,2% · 500 mil tokens",
+      "+2 agentes · 1,5% · 500 mil tokens",
     ]);
-    expect(plans.querySelector(".plan-shares__head")).toBeNull();
+    expect(plans.querySelector(".plan-group__label .plan-shares__share")?.textContent).toBe("semana");
     expect(plans.textContent).not.toContain("Este mês");
-    // When it renews, once, under the list; then how old the numbers are; then the month.
+    // Each window says when it renews under its own bar; fresh numbers say nothing of their age; Detalhes ends on the
+    // month.
     const text = plans.textContent ?? "";
-    expect(plans.querySelectorAll(".ac-planmeter__reset").length).toBe(1);
-    expect(plans.querySelector(".ac-planmeter__reset")?.textContent).toMatch(/^5h renova .+ · semana renova /);
+    expect(plans.querySelectorAll(".ac-planmeter__window .ac-planmeter__reset").length).toBeGreaterThan(0);
+    expect(text).not.toContain("Atualizado");
     const at = (piece: string) => text.indexOf(piece);
-    expect(at("+2 agentes")).toBeLessThan(at("5h renova"));
-    expect(at("5h renova")).toBeLessThan(at("Atualizado"));
-    expect(at("Atualizado")).toBeLessThan(at("5,1 mi tokens este mês"));
+    expect(at("renova")).toBeLessThan(at("Detalhes"));
+    expect(at("Detalhes")).toBeLessThan(at("+2 agentes"));
+    expect(at("+2 agentes")).toBeLessThan(at("5,1 mi tokens este mês"));
     expect(text.split("tokens este mês").length).toBe(2);
     // The folded row opens the rest in place.
     const more = within(plans).getByRole("button", { name: /\+2 agentes/ });
     expect(more.getAttribute("aria-expanded")).toBe("false");
     await click(more);
     await settle(2);
-    expect(rows().slice(5)).toEqual(["Theo · semana <1% · 300 mil tokens", "Bia · semana <1% · 200 mil tokens"]);
+    expect(rows().slice(5)).toEqual(["Theo · <1% · 300 mil tokens", "Bia · <1% · 200 mil tokens"]);
     expect(within(plans).queryByRole("button", { name: /\+2 agentes/ })).toBeNull();
   });
 });

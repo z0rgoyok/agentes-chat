@@ -24,12 +24,15 @@ describe("migrations", () => {
   });
 
   test("every tenant-owned table has org_id", async () => {
+    // The exempt tables are the installation's own, not a tenant's: accounts and sign-in, the waiting lists, push and
+    // telemetry, the installation's settings and secrets, and `hosts`, the extra hostnames the server answers on
+    // (ADR 0194), which belong to its operator.
     const rows = rowsOf<{ table_name: string }>(
       await db.execute(sql`
         select t.table_name from information_schema.tables t
         where t.table_schema = 'public' and t.table_type = 'BASE TABLE'
           and t.table_name not like 'messages\\_%'
-          and t.table_name not in ('users', 'sessions', 'accounts', 'verifications', 'organizations', 'waitlist_entries', 'partner_waitlist_entries', 'push_devices', 'instance_telemetry', 'instance_secrets', 'instance_push', 'push_relay_instances', 'signup_settings', 'claude_auth_settings', 'early_access_invitations', 'oauth_app_clients')
+          and t.table_name not in ('users', 'sessions', 'accounts', 'verifications', 'organizations', 'waitlist_entries', 'partner_waitlist_entries', 'push_devices', 'instance_telemetry', 'instance_secrets', 'instance_push', 'push_relay_instances', 'signup_settings', 'claude_auth_settings', 'early_access_invitations', 'oauth_app_clients', 'hosts')
           and not exists (
             select 1 from information_schema.columns c
             where c.table_name = t.table_name and c.column_name = 'org_id'

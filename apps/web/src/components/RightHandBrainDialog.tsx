@@ -3,7 +3,7 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { Button, Dialog, DialogBody, DialogFooter, Icon, type IconName } from "@agenteschat/ui";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type HaveItem, HaveList, HaveRow } from "@/components/arrival/ConnectHave";
+import { type HaveItem, HaveList, HaveOffRow, HaveRow } from "@/components/arrival/ConnectHave";
 import { TeamScene } from "@/components/arrival/TeamScene";
 import { BrainLine, PickList, type PickOption } from "@/pages/agent/brain/pieces";
 import "@/pages/agent/brain/brain-dialog.css";
@@ -45,6 +45,7 @@ export function RightHandBrainDialog({
   model,
   accounts,
   links = [],
+  unusable = [],
   busy,
   locked = false,
 }: {
@@ -70,6 +71,8 @@ export function RightHandBrainDialog({
     more?: RightHandLink;
   } | null;
   links?: readonly RightHandLink[];
+  /** Plans it can't think with now, under the others, each with why (`rightHandUnusable`). */
+  unusable?: readonly { id: string; item: Pick<HaveItem, "title" | "mark">; why: ReactNode }[];
   busy: boolean;
   /** Nothing changes for now (a billing hold): the lines that change it don't open. */
   locked?: boolean;
@@ -185,6 +188,14 @@ export function RightHandBrainDialog({
                   label={shown}
                 />
                 {accounts.items.length === 0 && accounts.empty && <p className="small muted">{accounts.empty}</p>}
+                {unusable.length > 0 && (
+                  <div className="bd-use">
+                    <p className="arrival-opts__label">{t("rightHand.unusable.title", g)}</p>
+                    {unusable.map((u) => (
+                      <HaveOffRow key={u.id} item={u.item} why={u.why} />
+                    ))}
+                  </div>
+                )}
                 {accounts.more && (
                   <button
                     type="button"

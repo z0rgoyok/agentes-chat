@@ -275,6 +275,18 @@ test("a view that dies while its stream runs hands its newest frame to the machi
   expect(handed.map((f) => f.seq)).toEqual([2, 3]);
 });
 
+test("a view still dialling when the connection drops isn't kept", async () => {
+  const data = new FakeData();
+  let arrive: (socket: DataSocket) => void = () => undefined;
+  const views = new BrowserViews({ dial: () => new Promise((resolve) => (arrive = resolve)) });
+  const opening = views.open("ana", "S".repeat(43));
+  views.closeAll();
+  arrive(data.socket);
+  await expect(opening).rejects.toThrow("dropped");
+  expect(views.has("ana")).toBe(false);
+  expect(data.closed).not.toBeNull();
+});
+
 test("a dial that fails leaves no view: frames go as before", async () => {
   const views = new BrowserViews({ dial: () => Promise.reject(new Error("refused")) });
   await expect(views.open("ana", "S".repeat(43))).rejects.toThrow("refused");

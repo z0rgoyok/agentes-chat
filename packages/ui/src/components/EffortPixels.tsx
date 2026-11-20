@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { bodyTones } from "../agent/engine.js";
+import { bodyTones, gradientOf } from "../agent/engine.js";
 import { cx } from "../cx";
 import type { AgentColor } from "./AgentLook";
 import { useLocked } from "./Field";
@@ -116,13 +116,15 @@ export function EffortPixels<V extends string>({
   const still = reduced();
   // Still: a new frame only when the choice moves.
   const frameKey = still ? `${index}:${drag}` : "";
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const [top, bottom] = gradientOf(color);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: frameKey repaints a still ramp when the choice moves
   useEffect(() => {
     const c = canvas.current;
     const ctx = c?.getContext?.("2d");
     if (!c || !ctx) return;
-    const tones = bodyTones(color);
+    const tones = bodyTones([top, bottom]);
     let colors = { ink: "", off: "" };
     let frame = 0;
     let raf = 0;
@@ -143,7 +145,7 @@ export function EffortPixels<V extends string>({
     };
     raf = requestAnimationFrame(paint);
     return () => cancelAnimationFrame(raf);
-  }, [color, n, still, frameKey]);
+  }, [top, bottom, n, still, frameKey]);
 
   const reach = (x: number) => {
     const r = canvas.current?.getBoundingClientRect();

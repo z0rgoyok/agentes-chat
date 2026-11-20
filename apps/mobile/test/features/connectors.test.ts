@@ -330,9 +330,59 @@ describe("Ferramentas: Salvar stays at hand", () => {
   test("Salvar is pinned outside the scroll, and no changed tool waits for an Aceitar", async () => {
     const [screen, review] = await Promise.all([read("ToolsScreen.tsx"), read("ToolReview.tsx")]);
     expect(screen).not.toContain("ChangedTools");
-    // Salvar sits in the bar under the scroll, never at the end of a long list.
-    expect(screen.indexOf("<BottomBar")).toBeGreaterThan(screen.indexOf("</ScrollView>"));
-    expect(review).toContain("{onSaveBar ? null : <Button");
+    // Salvar sits in the settings page's docked bar under the scroll (over the keyboard while the search is typed
+    // in), never at the end of a long list.
+    expect(screen).toContain("<SettingsPage");
+    expect(screen).toMatch(/bottom: \(\s+<Button/);
+    expect(screen).not.toContain("<ScrollView");
+    expect(review).toMatch(/\{onSaveBar \? null : \(?\s*<Button/);
+  });
+
+  test("a save on its way spins in its button and keeps its words; reading the tools again only holds it", async () => {
+    const [screen, review, sheet] = await Promise.all([
+      read("ToolsScreen.tsx"),
+      read("ToolReview.tsx"),
+      read("ConnectSheet.tsx"),
+    ]);
+    expect(screen).toContain("loading={save.saving}");
+    expect(review).toContain("onSaveBar?.({ label: saveLabel, saving, busy: refresh.isPending");
+    expect(review).toContain("loading={update.isPending}");
+    // No button trades its words for "Saving…" or "Connecting…" any more: the spinner says it.
+    for (const file of [review, sheet]) {
+      expect(file).not.toContain("mobile.connectors.review.saving");
+      expect(file).not.toContain("mobile.connectors.working");
+    }
+    expect(sheet).toMatch(/label=\{t\("mobile\.connectors\.connect"\)\}\s*loading=\{busy\}/);
+    expect(sheet).toMatch(/label=\{t\("githubApp\.install"\)\}\s*loading=\{busy\}/);
+  });
+});
+
+describe("a connection's screen and the gallery, at a finger's reach", () => {
+  const read = (path: string) => readFileSync(join(import.meta.dir, "../../src/features/connectors", path), "utf8");
+
+  test("renaming opens straight from the bar's own button, with no menu of one item in between", () => {
+    const screen = read("ConnectionScreen.tsx");
+    // The system's bar button (`actions`), never a view of ours drawn in the bar.
+    expect(screen).toMatch(
+      /icon: "pen" as const,\s+sf: "pencil" as const,\s+label: t\("connectors\.rename"\),\s+onPress: \(\) => openRename\(item\.id\),/,
+    );
+    expect(screen).toContain("{...(barAction ? { actions: [barAction] } : {})}");
+    expect(screen).not.toContain("<IconButton");
+    // A menu only when there are two things to do (one's own connection may also go to the team).
+    expect(screen).toMatch(/choices\.length > 1\s+\? \{\s+icon: "more",/);
+    expect(screen).toContain("? { ...only, disabled: move.isPending }");
+  });
+
+  test("a connection that didn't load, or is gone, says so instead of a blank page", () => {
+    const screen = read("ConnectionScreen.tsx");
+    expect(screen).toContain("<LoadFailed onRetry=");
+    expect(screen).toContain('<EmptyState size="inline" title={t("common.gone")} />');
+    expect(screen).not.toContain("ActivityIndicator");
+  });
+
+  test("the amber line of what waits on you is a 44-point target", () => {
+    const gallery = read("ConnectorsScreen.tsx");
+    expect(gallery).toMatch(/wait: \{[^}]*minHeight: 44[^}]*\}/);
   });
 });
 

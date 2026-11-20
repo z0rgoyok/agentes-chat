@@ -252,7 +252,13 @@ export function DeviceRowView({
   return (
     // biome-ignore lint/a11y/useSemanticElements: a grid row of the kit's list (a div), named for screen readers
     <div
-      className={row.kind === "phone" && row.nested ? "ac-list__row dv-row dv-row--child" : "ac-list__row dv-row"}
+      className={
+        row.kind === "computer"
+          ? "ac-list__row dv-row"
+          : row.nested
+            ? "ac-list__row dv-row dv-row--phone dv-row--child"
+            : "ac-list__row dv-row dv-row--phone"
+      }
       role="listitem"
     >
       <DevicePortrait device={d} />

@@ -78,6 +78,23 @@ test("markdown becomes a Word document: headings, inline styles, links, lists, q
   expect(p["docProps/core.xml"]).toContain("<dc:title>Março</dc:title>");
 });
 
+test("inline marks are read in linear time, however many are never closed", () => {
+  const doc = parts(markdownToDocx("a [b](https://c.example) **d** [e](f"))["word/document.xml"] ?? "";
+  expect(doc).toContain('<w:hyperlink r:id="rLink1">');
+  expect(doc).toContain('<w:b/></w:rPr><w:t xml:space="preserve">d</w:t>');
+  expect(doc).toContain("[e](f");
+  const started = performance.now();
+  for (const text of [
+    "[".repeat(100_000),
+    "[a](".repeat(30_000),
+    "*a".repeat(50_000),
+    "_a ".repeat(30_000),
+    "`".repeat(100_000),
+  ])
+    markdownToDocx(text);
+  expect(performance.now() - started).toBeLessThan(1000);
+});
+
 test("documents and tables download as .docx; other kinds can't", async () => {
   f = await setup();
   const person = { type: "person" as const, userId: f.owner.id };

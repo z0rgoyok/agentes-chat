@@ -1,5 +1,6 @@
 import type { Message, ThreadInfo } from "../api/types";
 import { landedAfter } from "./timeline";
+import type { Wallpaper } from "./wallpaper";
 
 /**
  * How a person's conversations look (`chatPrefs` on their membership, on every device). `comfortable` is the original
@@ -33,6 +34,10 @@ export interface ChatPrefs {
   fullMessages?: boolean;
   /** "Always send": a report an agent offers about the app goes with its reply, without asking me. */
   feedbackAuto?: boolean;
+  /** The background behind every conversation (`./wallpaper.ts`); absent: none. */
+  wallpaper?: Wallpaper;
+  /** A conversation's own background, by channel id, over the two above; absent: as the others. */
+  wallpapers?: Record<string, Wallpaper>;
 }
 
 /** Owner's decision: a channel reads as one log, and in a DM right and left already say who spoke. */
@@ -42,10 +47,10 @@ export const DEFAULT_CHAT_TONE: ChatTone = "light";
 /** Owner's decision: smaller words than before the setting existed, which `lg` comes close to. */
 export const DEFAULT_TEXT_SIZE: ChatTextSize = "md";
 /**
- * Owner's decision: a conversation opens where the person stopped reading. Only an explicit `openAt` is stored, so
- * whoever picked "latest" keeps it.
+ * Owner's decision: a conversation opens at its latest message, at once, with no wait for the fresh page and no
+ * scroll up to a "New" line. Only an explicit `openAt` is stored, so whoever picked "read" keeps it.
  */
-export const DEFAULT_OPEN_AT: ChatOpenAt = "read";
+export const DEFAULT_OPEN_AT: ChatOpenAt = "latest";
 
 export const textSizeOf = (prefs: ChatPrefs | undefined): ChatTextSize => prefs?.textSize ?? DEFAULT_TEXT_SIZE;
 export const openAtOf = (prefs: ChatPrefs | undefined): ChatOpenAt => prefs?.openAt ?? DEFAULT_OPEN_AT;
@@ -70,22 +75,36 @@ export const CHAT_RHYTHM: Record<ChatStyle, { part: number; turn: number; card: 
  */
 export const PERSONAL_CHANNEL_STYLE: ChatStyle = "bubbles";
 
-/** A channel's look for whoever hasn't chosen, by the workspace's mode. */
-export const defaultChannelStyle = (personal = false): ChatStyle =>
-  personal ? PERSONAL_CHANNEL_STYLE : DEFAULT_CHANNEL_STYLE;
+/**
+ * Owner's decision: on the phone a channel opens in bubbles too, as a chat app's conversations do; the web keeps the
+ * one log (`DEFAULT_CHANNEL_STYLE`). A look the person picks is theirs on every device.
+ */
+export const PHONE_CHANNEL_STYLE: ChatStyle = "bubbles";
+
+/** Where a conversation is drawn: the phone's channels have their own default (`PHONE_CHANNEL_STYLE`). */
+export type ChatSurface = "web" | "phone";
+
+/** A channel's look for whoever hasn't chosen, by the workspace's mode and where it is drawn. */
+export const defaultChannelStyle = (personal = false, surface: ChatSurface = "web"): ChatStyle =>
+  personal ? PERSONAL_CHANNEL_STYLE : surface === "phone" ? PHONE_CHANNEL_STYLE : DEFAULT_CHANNEL_STYLE;
 
 /**
  * What a conversation shows. A DM has two speakers; anything with more, or with no one person across, is a channel.
- * `personal`: the workspace is personal (ADR 0159), where a channel opens in bubbles too; the person's choice wins.
+ * `personal`: the workspace is personal (ADR 0159), where a channel opens in bubbles too; `surface`: the phone's
+ * channels open in bubbles as well. The person's choice wins.
  */
 export function chatLookOf(
   prefs: ChatPrefs | undefined,
   dm: boolean,
   personal = false,
+  surface: ChatSurface = "web",
 ): { style: ChatStyle; tone: ChatTone } {
   return dm
     ? { style: prefs?.dmStyle ?? DEFAULT_DM_STYLE, tone: prefs?.dmTone ?? DEFAULT_CHAT_TONE }
-    : { style: prefs?.channelStyle ?? defaultChannelStyle(personal), tone: prefs?.channelTone ?? DEFAULT_CHAT_TONE };
+    : {
+        style: prefs?.channelStyle ?? defaultChannelStyle(personal, surface),
+        tone: prefs?.channelTone ?? DEFAULT_CHAT_TONE,
+      };
 }
 
 /** Whether my own rows stand apart on the right. In the others, a row of mine is a row like anyone's. */

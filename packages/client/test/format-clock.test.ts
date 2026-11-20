@@ -14,3 +14,15 @@ test("a gutter's clock drops only the day period: digits and their separator, ne
   expect(formatTime("en-US", AT)).toMatch(/[AP]M$/);
   expect(formatClock("pt-BR", AT)).toBe(formatTime("pt-BR", AT));
 });
+
+test("a time made after the device changes time zone is in the new zone", () => {
+  const was = process.env.TZ;
+  try {
+    process.env.TZ = "UTC";
+    expect(formatTime("en-GB", AT)).toBe("23:43");
+    process.env.TZ = "Asia/Tokyo";
+    expect(formatTime("en-GB", AT)).toBe("08:43");
+  } finally {
+    process.env.TZ = was;
+  }
+});

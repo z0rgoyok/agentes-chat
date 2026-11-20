@@ -109,6 +109,9 @@ describe("geometry check", () => {
       "countfill",
     ])
       expect(SELF_TESTED).toContain(rule);
+    // A button row's state line starts at its name's words, wherever a rule moves it from.
+    for (const twin of ["bad-endline--status", "good-endline"]) expect(fixture).toContain(twin);
+    expect(rules).toContain('side: "status"');
     // A calendar item never covers another: what meets sits beside it.
     expect(SELF_TESTED).toContain("calstack");
     // The working line's stop is at its end before its time comes, not beside its words.
@@ -117,6 +120,10 @@ describe("geometry check", () => {
     for (const twin of ["bad-factwrap--line", "good-factwrap--line"]) expect(fixture).toContain(twin);
     // A title in a row that wraps a word a line is squeezed; one long address wrapping its full lines is not.
     for (const twin of ["bad-wordwrap--row", "good-wordwrap--url"]) expect(fixture).toContain(twin);
+    // A dialog's quiet line touches no bubble of the page behind it; on a bubble of its own dialog it does.
+    for (const twin of ["good-quiet--layers", "bad-quiet--dialog"]) expect(fixture).toContain(twin);
+    // A kit button's words sit in its label: cut by a box around it the button is named, ended by its own "…" nothing is.
+    for (const twin of ["bad-clipped--label", "good-clipped--label"]) expect(fixture).toContain(twin);
     expect(rules).toContain('".ac-facts__value, .ac-factline__fact"');
     // A word broken at its syllables in a box that hyphenates (a narrow calendar item's title) is no midword.
     expect(fixture).toContain("good-midword--hyphens");

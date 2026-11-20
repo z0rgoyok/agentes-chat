@@ -7,8 +7,10 @@ import {
   budgetValue,
   sameAudience,
   sameBrain,
+  sameEditors,
   sameList,
 } from "@agenteschat/client/lib/agent-edit";
+import type { EditorsValue } from "@agenteschat/client/lib/audience";
 import { handleAfterRename } from "@agenteschat/client/lib/new-agent";
 import { type RepoChoice, sameRepoChoice } from "@agenteschat/client/lib/repos";
 import type { AgentAppearance } from "@agenteschat/ui";
@@ -40,6 +42,8 @@ export interface Saved {
   /** A user id or `NO_OWNER`. */
   owner: string;
   audience: AgentAudience;
+  /** "Quem pode editar" (ADR 0085 addendum of 2026-11-17): who else edits how it works. Absent, nothing to compare. */
+  editors?: EditorsValue;
   /** Resource id → level (from the access tree). */
   levels?: Record<string, LevelState>;
   /** Its GitHub repositories (all, or some in order). */
@@ -69,6 +73,7 @@ export interface Edits {
   budget?: string;
   owner?: string;
   audience?: AgentAudience;
+  editors?: EditorsValue;
   levels?: Record<string, Level>;
   repos?: RepoChoice;
   skills?: string[];
@@ -81,14 +86,21 @@ export interface Edits {
 export type Field = Exclude<keyof Edits, "levels"> | "levels";
 
 /**
- * Who edits what (the server's rules): admins everything; the agent's owner its look, audience, channels, computer
- * and who thinks, its API model and which of the workspace's keys it uses included (connecting keys stays admins'). Channels, for both, only the ones they may put an agent in (`addsAgentsTo`). Access and
- * repositories are admins' like its scopes: giving an agent more is an admin's call.
+ * Who edits what (the server's rules, ADR 0085 addendum of 2026-11-17): who manages the agent (`admin`, the server's
+ * `canManage`) everything; who edits how it works (`editor`, the server's `canEdit`: its "Quem pode editar") its
+ * instructions, role and skills (`EDITOR_EDITS`); the agent's owner those too, and its look, audience, who edits it
+ * ("Quem pode editar", which its editors don't change), channels, computer and who thinks, its API model and which of
+ * the workspace's keys it uses included (connecting keys stays admins'). Channels, for both, only the ones they may put
+ * an agent in (`addsAgentsTo`). Access and repositories are admins' like its scopes: giving an agent more is an admin's
+ * call.
  */
-export type Viewer = "admin" | "owner" | "member";
+export type Viewer = "admin" | "owner" | "editor" | "member";
+export const EDITOR_EDITS: ReadonlySet<Field> = new Set<Field>(["instructions", "role", "skills"]);
 export const OWNER_EDITS: ReadonlySet<Field> = new Set<Field>([
+  ...EDITOR_EDITS,
   "look",
   "audience",
+  "editors",
   "channels",
   "machine",
   "brain",
@@ -96,7 +108,15 @@ export const OWNER_EDITS: ReadonlySet<Field> = new Set<Field>([
   "key",
 ]);
 export const canEdit = (viewer: Viewer, field: Field) =>
-  viewer === "admin" || (viewer === "owner" && OWNER_EDITS.has(field));
+  viewer === "admin" ||
+  (viewer === "owner" && OWNER_EDITS.has(field)) ||
+  (viewer === "editor" && EDITOR_EDITS.has(field));
+
+/**
+ * The agent's owner or who manages it: who reads its runs and its private settings (who thinks, its computer, its
+ * browser) and decides for it. Who only edits how it works (`editor`) doesn't.
+ */
+export const ownsOrManages = (viewer: Viewer) => viewer === "admin" || viewer === "owner";
 
 /** Where each field lives: its tab, and its section in Configurações. */
 export const FIELD_PLACE: Record<Field, { tab: AgentTab; sec?: AgentSection }> = {
@@ -113,6 +133,7 @@ export const FIELD_PLACE: Record<Field, { tab: AgentTab; sec?: AgentSection }> =
   budget: { tab: "settings", sec: "budget" },
   owner: { tab: "settings", sec: "owner" },
   audience: { tab: "settings", sec: "audience" },
+  editors: { tab: "settings", sec: "editors" },
   channels: { tab: "settings", sec: "channels" },
   machine: { tab: "settings", sec: "computer" },
   brain: { tab: "settings", sec: "brain" },
@@ -152,6 +173,7 @@ export function changedKeys(saved: Saved, edits: Edits): ChangeKey[] {
     add("budget");
   if (edits.owner !== undefined && edits.owner !== saved.owner) add("owner");
   if (edits.audience && !sameAudience(edits.audience, saved.audience)) add("audience");
+  if (edits.editors && saved.editors && !sameEditors(edits.editors, saved.editors)) add("editors");
   if (edits.channels && saved.channels && !sameList(edits.channels, saved.channels)) add("channels");
   if (edits.machine !== undefined && saved.machine !== undefined && edits.machine !== saved.machine) add("machine");
   if (edits.brain && saved.brain && !sameBrain(edits.brain, saved.brain)) add("brain");

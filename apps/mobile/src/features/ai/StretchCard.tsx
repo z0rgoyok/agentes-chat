@@ -1,5 +1,6 @@
 import { type Message, useApi } from "@agenteschat/client";
 import { mayContinueStretch, stretchCardOf, stretchCardText } from "@agenteschat/client/lib/action-cards";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { clockAt } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { useState } from "react";
@@ -31,7 +32,14 @@ export function StretchCard({ message: m }: { message: Message }) {
   const continued = card.state === "continued";
   const by = card.continuedByUserId;
   const time = card.continuedAt ? clockAt(i18n.language, card.continuedAt) : "";
-  const may = mayContinueStretch(card, meId, (id) => dir.agentById.get(id)?.ownerUserId, can(org, "manage_agents"));
+  // Who manages every one of its agents (the server's `canManage`, ADR 0085 addendum of 2026-11-17), as the server's
+  // `continueStretch` checks, so a private agent on the card isn't restarted by who can't manage it; a card naming no
+  // agent, "Edit agents".
+  const manages =
+    card.agentIds.length > 0
+      ? card.agentIds.every((id) => managesAgent(dir.agentById.get(id)))
+      : can(org, "manage_agents");
+  const may = mayContinueStretch(card, meId, (id) => dir.agentById.get(id)?.ownerUserId, manages);
   const go = async () => {
     setPending(true);
     try {

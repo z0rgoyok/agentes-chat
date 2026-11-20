@@ -482,7 +482,7 @@ jobs:
         working-directory: apps/desktop
         run: |
           bun scripts/icons.ts
-          bun run tauri icon app-icon.png
+          bun run tauri icon app-icon-tile.png
           bun scripts/installer-art.ts
 
       # The cached target may keep an older build's installer (another version): only this build's may be there.
@@ -627,7 +627,7 @@ jobs:
         working-directory: apps/desktop
         run: |
           bun scripts/icons.ts
-          bun run tauri icon app-icon.png
+          bun run tauri icon app-icon-tile.png
 
       - name: Build the app (AppImage, deb)
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2

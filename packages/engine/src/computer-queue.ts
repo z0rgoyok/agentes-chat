@@ -12,13 +12,15 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
+import { managesAgentSql } from "./audience";
+import type { BrainPlan } from "./brains/select";
 import { TtlCache } from "./cache";
 import { NotFoundError } from "./errors";
 import { publishOrgEvent } from "./events";
 import { getMachine } from "./machines";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
 import { enqueue } from "./outbox";
-import { replyThreadOf } from "./runs";
+import { RUN_STALE_MS, replyThreadOf } from "./runs";
 
 const { agentRuns, agents, channelMembers, channels, messages } = schema;
 
@@ -66,6 +68,41 @@ const sinceSql = sql`coalesce((${agentRuns.transcript}->>'roomOrderSince')::bigi
 const rankSql = (now: number) =>
   sql<number>`(case when ${peopleSql} then 0 when ${askedSql} or ${sinceSql} < ${now - ROOM_RANK_AGE_MS}::bigint then 1 else 2 end)`;
 export type RoomRank = 0 | 1 | 2;
+
+/**
+ * Which gate held a run waiting for room, kept on its wait step (`room`): another run ahead in the line, its plan
+ * sign-in at its cap, `ROOM_ASK_SPACING_MS`, or the runner's own room check (`no_slot`, free memory on Linux).
+ */
+export type RoomWaitCause = "line" | "sign_in" | "spacing" | "memory";
+
+/**
+ * Runs one Claude plan sign-in thinks for at once, by default (`CLAUDE_PLAN_CONCURRENCY`). A personal plan used by
+ * many sessions at once reads as automated use to its provider; past this the next run waits in its computer's line
+ * for one of them to end. Long work can hold a slot for hours, so 1 would park every reply behind it.
+ */
+export const SIGN_IN_CONCURRENCY = 6;
+
+/** A Claude plan sign-in a run thinks with: its account, or its computer's own sign-in (`own`). */
+export interface SignInSlot {
+  key: string;
+  /** Runs it takes at once; 0 or less: no limit. */
+  cap: number;
+}
+
+/**
+ * The plan sign-in this plan's turn holds a slot of: Claude Code on a subscription (its account, or its computer's own
+ * sign-in). Never an API key nor a coding plan's key (`provider`), nor another brain.
+ */
+export function signInSlotOf(plan: Pick<BrainPlan, "kind" | "account">, cap: number): SignInSlot | undefined {
+  if (plan.kind !== "claude_code" || plan.account?.provider || cap <= 0) return undefined;
+  return { key: plan.account?.id ?? "own", cap };
+}
+
+/** A computer's own sign-in is that computer's; an account is the workspace's, whichever computer its runs think on. */
+const ownSignIn = (key: string) => key === "own";
+
+/** The sign-in a run in line waits on (`signInWait`): only runs waiting for that same sign-in hold it back. */
+const signInWaitSql = sql<string | null>`${agentRuns.transcript}->'signInWait'->>'key'`;
 
 /** The run first in line for room on this computer, with the wait its job must carry. */
 export async function roomHead(
@@ -124,6 +161,27 @@ export async function kickRoomQueue(db: Database, machineId: string, at?: Date) 
 }
 
 /**
+ * A run on this sign-in left its slot (it ended, or waits on something else): the first run in line waiting for that
+ * sign-in looks again now, not at its next retry.
+ */
+export async function kickSignInLine(db: Executor, machineId: string, key: string) {
+  const [head] = await db
+    .select({ id: agentRuns.id, orgId: agentRuns.orgId, waitId: waitIdSql })
+    .from(agentRuns)
+    .where(and(ownSignIn(key) ? waitingForRoom(machineId) : inLine, sql`${signInWaitSql} = ${key}`))
+    .orderBy(rankSql(Date.now()), sinceSql, agentRuns.id)
+    .limit(1);
+  if (!head?.waitId) return;
+  await enqueue(db, {
+    orgId: head.orgId,
+    kind: "agent_run.execute",
+    payload: { runId: head.id, wait: head.waitId },
+    dedupeKey: `agent_run.execute:${head.id}:sign-in-freed:${head.waitId}`,
+    maxAttempts: 4,
+  });
+}
+
+/**
  * Whether this run may send its computer turn now. Null: go (its ask is recorded, and the next in line is asked
  * once the spacing is over). Otherwise it is behind: `retryAt` is when it may look again. Behind when a run waiting
  * for room ranks ahead of it (by rank, then the longest wait), or, for agents' work, when another run asked
@@ -135,7 +193,8 @@ export async function roomGate(
   run: { id: string; orgId: string },
   machineId: string,
   place: { rank: RoomRank; since: number },
-): Promise<{ retryAt: number } | null> {
+  signIn?: SignInSlot,
+): Promise<{ retryAt: number; cause: RoomWaitCause } | null> {
   const now = Date.now();
   const rank = place.rank === 2 && place.since < now - ROOM_RANK_AGE_MS ? 1 : place.rank;
   const behind = await db.transaction(async (tx) => {
@@ -148,10 +207,32 @@ export async function roomGate(
           waitingForRoom(machineId),
           sql`${agentRuns.id} <> ${run.id}`,
           sql`(${rankSql(now)}, ${sinceSql}, ${agentRuns.id}) < (${rank}::int, ${place.since}::bigint, ${run.id}::uuid)`,
+          // A run held only by another sign-in's limit doesn't hold this one back.
+          sql`(${signInWaitSql} is null or ${signInWaitSql} = ${signIn?.key ?? ""})`,
         ),
       )
       .limit(1);
-    if (ahead) return { retryAt: now + ROOM_BEHIND_RETRY_MS };
+    if (ahead) return { retryAt: now + ROOM_BEHIND_RETRY_MS, cause: "line" as const };
+    if (signIn) {
+      if (!ownSignIn(signIn.key))
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`sign-in:${signIn.key}`}))`);
+      // Its slots: runs working on this sign-in now. One whose worker died stops counting once its heartbeat is stale.
+      const [taken] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.orgId, run.orgId),
+            eq(agentRuns.status, "running"),
+            sql`${agentRuns.id} <> ${run.id}`,
+            ownSignIn(signIn.key) ? sql`${agentRuns.transcript}->'roomAsk'->>'machineId' = ${machineId}` : undefined,
+            sql`${agentRuns.transcript}->'roomAsk'->>'signIn' = ${signIn.key}`,
+            sql`${agentRuns.heartbeatAt} > ${new Date(now - RUN_STALE_MS).toISOString()}::timestamptz`,
+          ),
+        );
+      if (Number(taken?.n ?? 0) >= signIn.cap)
+        return { retryAt: now + ROOM_BEHIND_RETRY_MS, cause: "sign_in" as const };
+    }
     if (rank > 0) {
       const [last] = await tx
         .select({ at: sql<string>`max((${agentRuns.transcript}->'roomAsk'->>'at')::bigint)` })
@@ -165,12 +246,12 @@ export async function roomGate(
           ),
         );
       const at = Number(last?.at ?? 0);
-      if (now - at < ROOM_ASK_SPACING_MS) return { retryAt: at + ROOM_ASK_SPACING_MS };
+      if (now - at < ROOM_ASK_SPACING_MS) return { retryAt: at + ROOM_ASK_SPACING_MS, cause: "spacing" as const };
     }
     await tx
       .update(agentRuns)
       .set({
-        transcript: sql`jsonb_set(coalesce(${agentRuns.transcript}, '{}'::jsonb), '{roomAsk}', ${JSON.stringify({ machineId, at: now })}::jsonb)`,
+        transcript: sql`jsonb_set(coalesce(${agentRuns.transcript}, '{}'::jsonb), '{roomAsk}', ${JSON.stringify({ machineId, at: now, ...(signIn ? { signIn: signIn.key } : {}) })}::jsonb)`,
       })
       .where(eq(agentRuns.id, run.id));
     return null;
@@ -259,15 +340,16 @@ const agentsOnlySql = (kind: SQL, dmKey: SQL) =>
 
 /**
  * Who sees a run's work, for a select naming its columns: the members of its conversation and, for work no person is
- * a member of (a routine's background run, two agents' private conversation), admins (`manage_agents`) and the agent's
- * owner. Other people's DMs stay theirs. The task manager, a task's steps and the rows of the line read it. Never
- * NULL: an agent with no owner would make it so, and `not` of that drops the run from the hidden counts too.
+ * a member of (a routine's background run, two agents' private conversation), who manages the agent (`manages`: a
+ * value, or SQL per run such as `managesAgentSql`, ADR 0085 addendum of 2026-11-17) and the agent's owner. Other
+ * people's DMs stay theirs. The task manager, a task's steps and the rows of the line read it. Never NULL: an agent
+ * with no owner would make it so, and `not` of that drops the run from the hidden counts too.
  */
 export const seesRunSql = (
   run: { channelId: SQL; kind: SQL; dmKey: SQL; background: SQL; ownerUserId: SQL },
   userId: string,
   orgId: string,
-  manages: boolean,
+  manages: boolean | SQL<boolean>,
 ) => sql<boolean>`coalesce(exists (select 1 from ${channelMembers} cm
     where cm.org_id = ${orgId}::uuid and cm.channel_id = ${run.channelId} and cm.user_id = ${userId})
   or ((${run.background} or ${agentsOnlySql(run.kind, run.dmKey)}) and (${manages} or ${run.ownerUserId} = ${userId})), false)`;
@@ -401,7 +483,9 @@ export async function computerQueue(
   machineId: string,
   now = Date.now(),
 ): Promise<ComputerQueue> {
-  const manages = can(await requirePermission(db, actorId, orgId, "read"), "manage_agents");
+  await requirePermission(db, actorId, orgId, "read");
+  // Who manages each run's agent (`managesAgentSql`), never every holder of "Editar qualquer agente".
+  const manages = managesAgentSql("agents", sql`${actorId}::text`);
   const machine = await getMachine(db, orgId, machineId);
   if (!machine) throw new NotFoundError("Computer not found", "machine.not_found");
   const cols = {
@@ -417,6 +501,7 @@ export async function computerQueue(
     authorAgentId: messages.authorAgentId,
     viaRoutine: sql<unknown>`${messages.meta}->'routine'`,
     ownerUserId: agents.ownerUserId,
+    manages,
     sees: seesRunSql(
       {
         channelId: sql`${agentRuns.channelId}`,
@@ -470,9 +555,14 @@ export async function computerQueue(
     threadId: replyThreadOf(r),
     agents: r.sees && r.agentsOnly,
   });
-  const access = (r: { sees: boolean; ownerUserId: string | null; authorUserId: string | null }) => ({
+  const access = (r: {
+    sees: boolean;
+    manages: boolean | null;
+    ownerUserId: string | null;
+    authorUserId: string | null;
+  }) => ({
     canOpen: r.sees,
-    canStop: manages || r.ownerUserId === actorId || r.authorUserId === actorId,
+    canStop: r.manages === true || r.ownerUserId === actorId || r.authorUserId === actorId,
   });
   return {
     machineId,

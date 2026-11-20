@@ -122,8 +122,8 @@ export function BusinessStep({
 
 /**
  * Step 3, "Seu time": the template for the workspace's business (another from its row), made in one tap with no model
- * call. Once the team exists it shows who is in it. Bringing agents from another app instead opens the workspace's
- * import.
+ * call; once made, the next step (`onCreated`). Back on this step later, the team that exists shows who is in it and
+ * Continue goes on. Bringing agents from another app instead opens the workspace's import.
  */
 export function TeamStep({
   orgId,
@@ -134,6 +134,7 @@ export function TeamStep({
   onRetryList,
   reviewer,
   onPick,
+  onCreated,
   onContinue,
   onImport,
   leaving,
@@ -146,13 +147,15 @@ export function TeamStep({
   onRetryList: () => void;
   reviewer: string;
   onPick: (templateId: string) => void;
+  /** The team is made and in the agents' list. */
+  onCreated: () => void;
   onContinue: () => void;
   onImport: () => void;
   leaving: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { colors: c } = useTheme();
-  // Pending until the team is in the agents' list, when the next step opens: a second tap never makes a second team.
+  // Pending until the team is in the agents' list, when the next step comes: a second tap never makes a second team.
   const use = useApplyTeamTemplate(orgId);
   const [failed, setFailed] = useState<string | null>(null);
   if (team.length > 0)
@@ -192,6 +195,7 @@ export function TeamStep({
           if (out.state !== "created")
             return setFailed(out.error ? teamFailureText(t, out.error, i18n.language) : t("mobile.onb.failed"));
           setFailed(null);
+          onCreated();
         },
         onError: (e) => setFailed(stepFailedText(t, e, i18n.language)),
       },

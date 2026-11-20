@@ -2,15 +2,17 @@ import { useBrowserProfiles, useMachines } from "@agenteschat/client";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { IconButton, Text } from "@/ui";
+import { EmptyState, SkeletonList, Text } from "@/ui";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useOrgId } from "../shared/hooks";
-import { goBack } from "../shared/parts";
+import { PushedHeader } from "../shared/parts";
 import { SheetHostProvider } from "../shared/SheetHost";
 import { BrowserCard } from "./BrowserCard";
 
 /**
- * "Fazer login" from the phone (ADR 0110): a shared browser profile's live view, full screen, in the person's
- * control; Devolver hands it back to its agents. The take over itself happened on the computer's page.
+ * "Fazer login" from the phone (ADR 0110): a shared browser profile's live view, pushed with the opaque bar (its title),
+ * the computer it runs on in a line over it, in the person's control; Devolver hands it back to its agents. The take
+ * over itself happened on the computer's page.
  */
 export function ProfileLoginScreen({ profileId }: { profileId: string }) {
   const { t } = useTranslation();
@@ -23,25 +25,24 @@ export function ProfileLoginScreen({ profileId }: { profileId: string }) {
   return (
     <SheetHostProvider>
       <View style={[styles.screen, { backgroundColor: c.bg }]}>
-        <View style={[styles.top, { paddingTop: insets.top + 8 }]}>
-          <IconButton icon="x" plate label={t("mobile.common.close")} onPress={goBack} />
-          <View style={styles.title}>
-            <Text variant="subhead" style={styles.bold} accessibilityRole="header">
-              {profile ? t("browser.profiles.loginTitle", { name: profile.name }) : t("browser.profiles.title")}
-            </Text>
-            <Text variant="footnote" tone="faint">
-              {machine
-                ? t("browser.profiles.controlSubOn", { machine: machine.name })
-                : t("browser.profiles.controlSub")}
-            </Text>
-          </View>
-        </View>
+        <PushedHeader
+          title={profile ? t("browser.profiles.loginTitle", { name: profile.name }) : t("browser.profiles.title")}
+        />
         <ScrollView
           style={styles.fill}
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           automaticallyAdjustKeyboardInsets
         >
+          {/* Where it runs and who waits, whole: the bar's one line would cut it. */}
+          {profile ? (
+            <Text variant="footnote" tone="muted" style={styles.line}>
+              {machine
+                ? t("browser.profiles.controlSubOn", { machine: machine.name })
+                : t("browser.profiles.controlSub")}
+            </Text>
+          ) : null}
           {profile ? (
             <BrowserCard
               agentId={`profile:${profile.id}`}
@@ -49,7 +50,16 @@ export function ProfileLoginScreen({ profileId }: { profileId: string }) {
               surface
               style={styles.flush}
             />
-          ) : null}
+          ) : profiles.isError ? (
+            // A list that didn't load is not a profile that's gone: what happened, and the way to ask again.
+            <LoadFailed onRetry={() => void profiles.refetch()} />
+          ) : profiles.data ? (
+            // Removed meanwhile (on the computer's page, or the web): said, never a blank screen.
+            <EmptyState size="inline" title={t("common.gone")} />
+          ) : (
+            // The profiles still on their way: the shape of what comes, never a blank screen.
+            <SkeletonList rows={2} />
+          )}
         </ScrollView>
       </View>
     </SheetHostProvider>
@@ -59,9 +69,8 @@ export function ProfileLoginScreen({ profileId }: { profileId: string }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   fill: { flex: 1 },
-  top: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 10 },
-  title: { flex: 1, minWidth: 0 },
-  bold: { fontWeight: "600" },
-  body: { paddingHorizontal: 12, gap: 12 },
+  body: { paddingHorizontal: 12, paddingTop: 8, gap: 12 },
   flush: { marginTop: 0 },
+  // On the screen's 16-point margin, as a group's footer.
+  line: { paddingHorizontal: 4 },
 });

@@ -236,6 +236,11 @@ export const words: EmailWords = {
     preheader: "Keur het goed of weiger het in Leden. Er gebeurt niets tot je antwoordt.",
     headline: "Er wacht een verzoek om lid te worden",
     body: (org) => ["Diegene opende de uitnodigingslink van ", { b: org }, " en vraagt om lid te worden."],
+    outside: (by) => [
+      "Diegene werkt voor ",
+      { b: by },
+      " en vraagt om lid te worden als externe medewerker. Diegene neemt geen plek in je abonnement in, en je kunt diegene altijd verwijderen.",
+    ],
     note: "Keur alleen mensen goed die je verwacht. Ze worden lid, tenzij je op de pagina een andere rol kiest.",
     approve: "Goedkeuren",
     deny: "Weigeren",
@@ -307,6 +312,14 @@ export const words: EmailWords = {
   deletionCode: {
     subjectWorkspace: (code) => `${code} is je code om een werkruimte te verwijderen`,
     subjectAccount: (code) => `${code} is je code om je hele account te verwijderen`,
+    subjectReset: (code) => `${code} is je code om een werkruimte te resetten`,
+    reset: (org) => [
+      "Typ deze code om de werkruimte ",
+      { b: org },
+      " te resetten. Agents, gesprekken, bestanden en geheugen worden meteen en definitief gewist, en hij begint opnieuw als een nieuwe werkruimte.",
+    ],
+    whyReset: (org) =>
+      `Je krijgt deze e-mail omdat vanuit je account is gevraagd om ${org} op agentes.chat te resetten.`,
     preheader: "Typ hem in agentes.chat om te bevestigen. Hij werkt 10 minuten.",
     headline: "Je code",
     workspace: (org) => [
@@ -564,5 +577,50 @@ export const words: EmailWords = {
       why: () =>
         "Je krijgt deze e-mail omdat deze werkruimte op agentes.chat van jou is. We sturen maar twee van deze berichten.",
     },
+  },
+  surface: {
+    linked: {
+      subject: (surface) => `${surface} is gekoppeld aan je agentes.chat-account`,
+      preheader: "Je assistent antwoordt je daar nu. Was jij het niet? Ontkoppel het.",
+      headline: (surface) => `${surface} is gekoppeld`,
+      body: (surface, display, org) => [
+        { b: display },
+        ` op ${surface} praat nu met je assistent in `,
+        { b: org },
+        ".",
+      ],
+      notYou: "Was jij het niet? Ontkoppel het. Berichten van daar bereiken je account dan meteen niet meer.",
+      button: "Ontkoppelen",
+      small: "Was jij het wel? Dan hoef je niets te doen. Je kunt het altijd ontkoppelen in Instellingen.",
+      why: (surface) => `Je krijgt deze e-mail omdat ${surface} aan je agentes.chat-account is gekoppeld.`,
+      picture: "Je assistent, nu ook op je telefoon",
+    },
+    unlinked: {
+      subject: (surface) => `${surface} is ontkoppeld van je agentes.chat-account`,
+      preheader: "De identiteit is veranderd. Koppel het opnieuw in Instellingen als jij het was.",
+      headline: (surface) => `${surface} is ontkoppeld`,
+      body: (surface, display) => [{ b: display }, ` op ${surface} is ontkoppeld omdat de identiteit is veranderd.`],
+      small: "Koppel het opnieuw in Instellingen als jij het was.",
+      why: (surface) => `Je krijgt deze e-mail omdat ${surface} aan je agentes.chat-account gekoppeld was.`,
+      picture: "Je assistent, niet meer op je telefoon",
+    },
+  },
+  supportReply: {
+    subject: "Een antwoord op je hulpvraag",
+    preheader: "Over de hulp die je vroeg op agentes.chat.",
+    headline: "Een antwoord op je hulpvraag",
+    answers: {
+      received: "We hebben je vraag ontvangen en kijken ernaar.",
+      need_more: "We hebben meer informatie nodig om je te helpen: wat je deed, wat je verwachtte en wat er gebeurde.",
+      resolved: "Wat je meldde is opgelost.",
+      handed_over: "Een persoon heeft je vraag nu en geeft je antwoord.",
+    },
+    from: (host) =>
+      host
+        ? atHost("Beantwoord door de beheerders van de agentes.chat-server", "op", host)
+        : "Beantwoord door agentes.chat.",
+    ai: "Een AI-assistent schreef dit antwoord.",
+    reply: (address) => ["Wil je antwoorden? Schrijf naar ", { mail: address }, "."],
+    why: "Je krijgt deze e-mail omdat je om hulp vroeg op agentes.chat.",
   },
 };

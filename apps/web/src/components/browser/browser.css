@@ -588,9 +588,10 @@ html:not([data-pointer]) .brw-ac__tt:focus-visible {
 .brw-ac__body--split .brw-ac__stage {
   border-right: 1px solid var(--line);
 }
+/* Concentric with the card: its 18 less the stage's 10. */
 .brw-ac__page {
   position: relative;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   box-shadow: var(--e2);
   background: var(--site-paper);
@@ -809,14 +810,13 @@ html:not([data-pointer]) .brw-ac__stage[tabindex]:focus-visible {
 .brw-ac__add {
   font-size: 13px;
 }
-/* The note takes the title's place, and a line of its own where the row is narrow: the buttons stay together, on the right. */
+/* The note takes the title's place, and a line of its own where the row is narrow: the buttons stay together, ending
+   the title's line or starting their own under it (`.ac-tailrow`). */
 .brw-ac__ways {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  margin-inline-start: auto;
 }
 .brw-ac__back .brw-ac__note {
   flex: 1 1 240px;
@@ -1600,6 +1600,24 @@ html:not([data-pointer]) .brw-mf__now:focus-visible {
   box-shadow: none;
   max-height: none;
 }
+/*
+ * In the conversation's frame the picture runs to the frame's inner corners, which its stage takes on, and has no
+ * ring of its own (the card's page and the screen carry the elevation's): its hairline is drawn over the picture's
+ * own edge, so a page with a border at its edge shows the rounded line at the corners, not its straight one cut
+ * there. Over a held still (z-index 1), under the agent's pointer (2).
+ */
+.brw-mf > .brw-mf__top + .brw-ac__body > .brw-ac__stage {
+  border-radius: inherit;
+}
+.brw-mf > .brw-mf__top + .brw-ac__body > .brw-ac__stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--line);
+  pointer-events: none;
+}
 /* Its steps, newest first, on hover (or focus) of what it does now. */
 .brw-mf__hist {
   position: absolute;
@@ -1841,8 +1859,13 @@ html:not([data-pointer]) .brw-mf-end__row:focus-visible {
   height: 0;
   transition: opacity 0.6s;
 }
+/* Resting where it last went, seen but quiet over the page (`CURSOR_REST_OPACITY`, the phone's too). */
 .brw-cur.is-idle {
-  opacity: 0;
+  opacity: 0.45;
+}
+/* Shown already at rest (a view opened, control handed back): there at once, never fading down to it. */
+.brw-cur.is-placed {
+  transition: none;
 }
 .brw-cur > svg {
   position: absolute;
@@ -1902,6 +1925,15 @@ html:not([data-pointer]) .brw-mf-end__row:focus-visible {
   left: auto;
   right: 4px;
   border-radius: 9px 3px 9px 9px;
+}
+/* Near the picture's bottom the name opens above the arrow (`cursorTagLifts`), its small corner still on the tip. */
+.brw-cur.is-lift .brw-cur__who {
+  top: auto;
+  bottom: 4px;
+  border-radius: 9px 9px 9px 3px;
+}
+.brw-cur.is-lift.is-flip .brw-cur__who {
+  border-radius: 9px 9px 3px 9px;
 }
 .brw-cur-ring {
   position: absolute;

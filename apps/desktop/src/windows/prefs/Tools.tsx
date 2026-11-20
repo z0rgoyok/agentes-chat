@@ -158,7 +158,10 @@ export function Tools() {
     const said = executors.broken?.[cli];
     const name = t(`desktop.tools.${cli}Name`);
     const installable = isInstallableCli(cli) && !(cli === "codex" && host.platform === "windows") && installHome;
-    const command = !installable && cli in CLI_INSTALL ? CLI_INSTALL[cli as keyof typeof CLI_INSTALL] : undefined;
+    const command =
+      !installable && cli in CLI_INSTALL && !(cli === "antigravity" && host.platform === "windows")
+        ? CLI_INSTALL[cli as keyof typeof CLI_INSTALL]
+        : undefined;
     const ran = installs[cli];
     const gitMissing =
       (ran?.state === "failed" && ran.cause === "git_missing") || (said === CLI_GIT_MISSING && ran?.state !== "failed");

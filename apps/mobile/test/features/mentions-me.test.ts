@@ -114,13 +114,21 @@ describe("Conta", () => {
 
   test("open issues with me", () => {
     const issues = [
-      { status: "todo", assignee: { type: "person", id: "me" } },
-      { status: "done", assignee: { type: "person", id: "me" } },
-      { status: "in_review", assignee: { type: "person", id: "me" } },
-      { status: "todo", assignee: { type: "agent", id: "me" } },
-      { status: "todo", assignee: null },
+      { status: "todo", assignees: [{ type: "person", id: "me" }] },
+      { status: "done", assignees: [{ type: "person", id: "me" }] },
+      { status: "in_review", assignees: [{ type: "person", id: "me" }] },
+      { status: "todo", assignees: [{ type: "agent", id: "me" }] },
+      { status: "todo", assignees: [] },
+      // One of several who have it.
+      {
+        status: "todo",
+        assignees: [
+          { type: "agent", id: "a1" },
+          { type: "person", id: "me" },
+        ],
+      },
     ];
-    expect(openIssuesWithMe(issues, "me")).toBe(2);
+    expect(openIssuesWithMe(issues, "me")).toBe(3);
     expect(openIssuesWithMe(issues, null)).toBe(0);
   });
 });

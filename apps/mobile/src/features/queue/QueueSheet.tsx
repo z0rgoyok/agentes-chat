@@ -27,7 +27,7 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { devicePlanName } from "@agenteschat/client/lib/no-ai";
 import { type ReactNode, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import {
   Button,
@@ -39,6 +39,8 @@ import {
   Icon,
   type IconName,
   PressScale,
+  SHEET_X,
+  SkeletonList,
   Text,
   useReducedMotion,
   useToast,
@@ -49,6 +51,7 @@ import { openComputer } from "../computer/AgentComputerRow";
 import { StatusLine } from "../devices/parts";
 import { useDeviceMutation, useDevices } from "../devices/queries";
 import { AgentFace, OpensAgent } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useMeId, useNow, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { useSheet } from "../shared/SheetHost";
@@ -143,9 +146,12 @@ export function QueueSheet({ machineId, computer }: { machineId: string; compute
   const reduced = useReducedMotion();
   if (!q.data) {
     return q.isError ? (
-      <Text tone="muted">{t("mobile.app.failed")}</Text>
+      <LoadFailed onRetry={() => void q.refetch()} />
     ) : (
-      <ActivityIndicator color={c.muted} style={styles.loading} />
+      // Loading: the line's own rows (a face and two lines), at the sheet's edges as a list's rows, never a spinner.
+      <View style={styles.bleed}>
+        <SkeletonList rows={3} />
+      </View>
     );
   }
   const view = queueView(q.data, meId ?? "");
@@ -156,7 +162,7 @@ export function QueueSheet({ machineId, computer }: { machineId: string; compute
   return (
     <>
       <View accessible accessibilityRole="header" accessibilityLabel={t("queue.label", { name: q.data.name })}>
-        <SheetTitle title={q.data.name} subtitle={queueStatusText(t, view, now)} />
+        <SheetTitle title={q.data.name} subtitle={queueStatusText(t, view)} />
       </View>
       <View style={styles.group}>
         <GroupHead title={t("queue.workingNow", { n: view.working.length })} />
@@ -205,7 +211,7 @@ export function QueueSheet({ machineId, computer }: { machineId: string; compute
 }
 
 /**
- * "More computers, shorter line": my other online computers, each with its switch for my replies to start there while
+ * "Your computers": my other online computers, each with its switch for my replies to start there while
  * this one is full (`spill.own`). Nothing when I have none.
  */
 function SpillHere({ machineId }: { machineId: string }) {
@@ -480,7 +486,7 @@ const ROW_IN = FadeIn.duration(160);
 const ROW_OUT = FadeOut.duration(120);
 
 const styles = StyleSheet.create({
-  loading: { marginVertical: 24 },
+  bleed: { marginHorizontal: -SHEET_X },
   button: { height: 40, borderRadius: 20 },
   counted: { flexGrow: 1, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10 },
   head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },

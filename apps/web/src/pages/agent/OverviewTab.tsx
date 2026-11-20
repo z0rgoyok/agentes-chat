@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { AgentSetupCard } from "@/components/AgentSetup";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
+import { ownsOrManages } from "@/lib/agent-edit";
 import { CardHead, useAgentEdit } from "./context";
 import { Ficha } from "./Ficha";
 import { ReadOnlyNote, RunIcon, runWhere } from "./pieces";
@@ -31,12 +32,12 @@ export function OverviewTab() {
   const { agent, g, viewer, goTo, can, ownerFirst } = useAgentEdit();
   const detail = useAgentDetail(org.id, agent.id);
   const proposals = useProposals(org.id);
-  const runs = useRuns(org.id, agent.id, viewer !== "member");
+  const runs = useRuns(org.id, agent.id, ownsOrManages(viewer));
   const channels = useChannels(org.id);
   const pending = pendingOnAgent(proposals.data ?? [], agent.id);
   const approvals = detail.data?.pendingApprovals ?? 0;
   const recent = (runs.data ?? []).slice(0, RECENT);
-  const decides = viewer !== "member";
+  const decides = ownsOrManages(viewer);
   return (
     <>
       <ReadOnlyNote />

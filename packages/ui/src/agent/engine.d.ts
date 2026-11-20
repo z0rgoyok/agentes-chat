@@ -79,6 +79,11 @@ export type Ctx2D = Pick<
 >;
 
 export const AGENT_GRADIENTS: Record<AgentPresetColor, [string, string]>;
+export const DEFAULT_SKY: [string, string];
+export function drawnKey(color?: AgentColorName | string): string;
+export function setSkyColors(pair: readonly [string, string] | null): void;
+/** A [top, bottom] pair drawn as is, as a named color resolves to one. */
+export type SkyPair = readonly [string, string];
 export const EYE_COLOR: string;
 export const BODY_RADIUS: number;
 export const BODY_CUT: number;
@@ -108,14 +113,14 @@ export function mentionTone(color?: AgentColorName | string, dark?: boolean): { 
 export function customGradient(hex: string): [string, string];
 export function nearestPreset(color: string): AgentColorName;
 export function pickerStart(color?: string): string;
-export function gradientOf(color?: AgentColorName | string): [string, string];
-export function bodyTones(color?: AgentColorName | string, deep?: boolean): string[];
+export function gradientOf(color?: AgentColorName | string | SkyPair): [string, string];
+export function bodyTones(color?: AgentColorName | string | SkyPair, deep?: boolean): string[];
 export function spriteBody(color?: AgentColorName | string): string;
 export function ditherCells(px: number): number;
 export function inBody(u: number, v: number): boolean;
 export function bodyPath(x?: number, y?: number, s?: number): string;
 export function toneAt(x: number, y: number, n: number, turn?: [number, number]): number;
-export function bodySvg(color: AgentColorName | string | undefined, n: number, deep?: boolean): string;
+export function bodySvg(color: AgentColorName | string | SkyPair | undefined, n: number, deep?: boolean): string;
 export function eyeShapes(style?: EyeStyle | string, pose?: Pose): EyeShape[];
 export function drawEyes(ctx: Ctx2D, x: number, y: number, s: number, shapes: EyeShape[], color?: string): void;
 export function drawAgent(ctx: Ctx2D, x: number, y: number, s: number, opts?: DrawAgentOptions): void;

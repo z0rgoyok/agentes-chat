@@ -433,8 +433,10 @@ test("what the computer refuses is refused before anything runs, and no person i
   expect(merge.isError).toBe(true);
   expect(textOf(merge)).toContain("This is a merge");
   expect((await call("Bash", { command: "cat ~/.ssh/id_rsa" })).isError).toBe(true);
-  expect(textOf(await call("Bash", { command: `python3 -c 'open("${mark}", "w")'` }))).toContain("denied");
   expect(asked).toEqual([]);
+  // Inline code isn't the computer's to refuse: the server decides it, and nothing runs until it allows.
+  expect((await call("Bash", { command: `python3 -c 'open("${mark}", "w")'` })).isError).toBe(true);
+  expect(asked).toHaveLength(1);
   expect(existsSync(mark)).toBe(false);
 });
 

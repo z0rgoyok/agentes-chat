@@ -460,11 +460,17 @@ export function applyChannelEvent(state: StreamsState, event: StreamEvent, now =
 function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
   switch (event.type) {
     case "agent.run.steered": {
-      // It joined a run under way, one that may be waiting with no row of its own: no new reply comes, so no
-      // "pensando…" for it. By channel: the guess may still hang off the optimistic message.
-      const s = event.agentId
-        ? settleAfterRun(state, { agentId: event.agentId, channelId: event.channelId, threadId: null })
-        : state;
+      // It joined a run under way: no new reply comes, so no "pensando…" for it. By channel: the guess may still hang
+      // off the optimistic message. Not for a run waiting with no row here (a wait the message ends: browser help,
+      // another agent, its device), which resumes right after: dropped now, the line went and came back a moment
+      // later. The resumed run's first event takes the guess's place (`upsert`); one still parked on its computer
+      // or its plan says so here, and its guess goes.
+      const live = state.runs[event.runId];
+      const settles = (live && !live.provisional) || event.computer || event.usage || event.stop;
+      const s =
+        event.agentId && settles
+          ? settleAfterRun(state, { agentId: event.agentId, channelId: event.channelId, threadId: null })
+          : state;
       // Only noted here: it shows in the work once read (`agent.run.read`), under the message until then.
       const r = s.runs[event.runId];
       if (!r) return s;

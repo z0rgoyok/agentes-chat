@@ -1,6 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, eq, inArray, schema, sql } from "@agenteschat/db";
 import { requireChannelAccess } from "../channels";
+import { threadIsConfidential } from "../confidential";
 import { NotFoundError, ValidationError } from "../errors";
 import { publishChannelEvent } from "../events";
 import type { Judge } from "../judge";
@@ -31,6 +32,8 @@ export async function learnFromRefusal(
   approval: Approval,
 ): Promise<ConsolidateResult | null> {
   if (approval.status !== "refused") return null;
+  // Nothing of a confidential thread becomes memory (ADR 0190): the card's title and the reason given quote it.
+  if (await threadIsConfidential(deps.db, approval.orgId, approval.threadRootId)) return null;
   const outcome = await recordOutcome(deps.db, {
     orgId: approval.orgId,
     kind: "approval_refused",

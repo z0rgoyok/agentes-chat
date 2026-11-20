@@ -1,10 +1,13 @@
-import { and, type Database, eq, gte, isNull, schema, sql } from "@agenteschat/db";
+import { and, type Database, eq, gte, inArray, isNull, schema, sql } from "@agenteschat/db";
 import { caches } from "./cache";
 import { can, getMembership, requirePermission } from "./organizations";
 import { readRefusal } from "./standing";
 import { WEB_USAGE_PROVIDER } from "./web-tools";
 
 const { usageRecords, agents, organizationSettings } = schema;
+
+/** What an agent's budget pays for: its own model calls and the pictures it makes (ADR 0197). */
+export const BUDGET_KINDS: ("agent" | "image")[] = ["agent", "image"];
 
 /** Budget of agents without their own, until an admin sets the organization's default (US$ 50). */
 export const DEFAULT_AGENT_BUDGET_NANO_USD = 50_000_000_000;
@@ -69,7 +72,7 @@ export async function agentBudgetsThisMonth(db: Database, orgId: string, now = n
       and(
         eq(usageRecords.orgId, orgId),
         eq(usageRecords.agentId, agents.id),
-        eq(usageRecords.kind, "agent"),
+        inArray(usageRecords.kind, BUDGET_KINDS),
         gte(usageRecords.createdAt, monthStartUtc(now)),
       ),
     )
@@ -106,7 +109,7 @@ export async function agentSpendThisMonth(db: Database, orgId: string, agentId: 
       and(
         eq(usageRecords.orgId, orgId),
         eq(usageRecords.agentId, agentId),
-        eq(usageRecords.kind, "agent"),
+        inArray(usageRecords.kind, BUDGET_KINDS),
         gte(usageRecords.createdAt, monthStartUtc(now)),
       ),
     );

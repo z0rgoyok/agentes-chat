@@ -41,3 +41,13 @@ test("on a phone a lone button takes the width of what holds it, at its own heig
   );
   expect(rule(".ac-mediarow__end--wrap > .ac-btn:only-child:not(.ac-btn--ghost)")).toContain("flex: 1 1 auto");
 });
+
+test("a dialog's foot never holds a button wider than the dialog: its words end in an ellipsis", () => {
+  expect(rule(".ac-dialog__foot .ac-btn")).toContain("max-width: 100%");
+  const label = rule(".ac-dialog__foot .ac-btn__label");
+  for (const d of ["min-width: 0", "overflow: hidden", "text-overflow: ellipsis"]) expect(label).toContain(d);
+  // Beside a note, the buttons are one group no wider than the foot, which goes under the note when both can't share
+  // a line (the action line).
+  expect(rule(".ac-dialog__foot-acts")).toContain("max-width: 100%");
+  expect(rule(".ac-dialog__foot-acts")).toContain("flex: none");
+});

@@ -252,7 +252,7 @@ export function WikiTrash() {
       ) : (
         <>
           {writes && (
-            <div className="wiki-trash__bar">
+            <div className="wiki-trash__bar ac-tailrow">
               <Checkbox
                 checked={all ? true : picked.size > 0 ? "indeterminate" : false}
                 disabled={busy}
@@ -262,7 +262,7 @@ export function WikiTrash() {
               <span className="small muted">
                 {picked.size ? t("wiki.bulk.selected", { count: picked.size }) : t("wiki.bulk.selectAll")}
               </span>
-              <span className="wiki-trash__acts">
+              <span className="wiki-trash__acts ac-tail">
                 <Button size="sm" icon="undo" disabled={busy || picked.size === 0} onClick={() => restore([...picked])}>
                   {t("wiki.trash.restoreMany", { count: picked.size })}
                 </Button>

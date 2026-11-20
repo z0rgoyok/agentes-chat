@@ -159,12 +159,14 @@ test("proposals an agent made for a teammate name it and say what they change: i
     access: null,
     decider: { type: "user" },
   });
+  // A role is how it works: who edits it decides it, its owner named (ADR 0085 addendum of 2026-11-17); giving it apps
+  // stays with who manages it.
   expect(of("agent_role")).toMatchObject({
     title: "Change Ada's role",
     proposedByAgentId: agentId,
     before: "Dev",
     after: "Revisora",
-    decider: { type: "admins" },
+    decider: { type: "user", userId: me?.id },
     canDecide: true,
   });
   expect(of("agent_access")).toMatchObject({

@@ -188,12 +188,13 @@ describe("the card", () => {
         orgId: fx.org.id,
         number: 10,
         title: "Skills do time",
-        assigneeType: "agent",
-        assigneeId: fx.agent.id,
         createdByType: "person",
         createdById: fx.owner.id,
       })
       .returning();
+    await fx.db
+      .insert(schema.issueAssignees)
+      .values({ orgId: fx.org.id, issueId: parent?.id ?? "", assigneeType: "agent", assigneeId: fx.agent.id });
     const step = (number: number, status: "todo" | "in_review") => ({
       orgId: fx.org.id,
       number,
@@ -525,15 +526,19 @@ describe("suggestions on the week's card", () => {
       target: { type: "dm" },
       triggerType: "schedule",
     });
-    await f.db.insert(schema.issues).values({
-      orgId: f.org.id,
-      number: 20,
-      title: "Write the report",
-      assigneeType: "agent",
-      assigneeId: tito.id,
-      createdByType: "person",
-      createdById: f.owner.id,
-    });
+    const [report] = await f.db
+      .insert(schema.issues)
+      .values({
+        orgId: f.org.id,
+        number: 20,
+        title: "Write the report",
+        createdByType: "person",
+        createdById: f.owner.id,
+      })
+      .returning();
+    await f.db
+      .insert(schema.issueAssignees)
+      .values({ orgId: f.org.id, issueId: report?.id ?? "", assigneeType: "agent", assigneeId: tito.id });
     // Dev was made days ago: too new to be called idle.
     await busy(f, SLOT);
     const id = (await post(f, f.owner.id, SLOT)) as string;
@@ -1082,13 +1087,14 @@ describe("Resumo do dia", () => {
           number,
           title: "Write the report",
           status: "done",
-          assigneeType: "agent",
-          assigneeId: f.agent.id,
           createdByType: "person",
           createdById: bia.id,
           updatedAt: at,
         })
         .returning();
+      await f.db
+        .insert(schema.issueAssignees)
+        .values({ orgId: f.org.id, issueId: issue?.id ?? "", assigneeType: "agent", assigneeId: f.agent.id });
       await f.db.insert(schema.issueActivity).values({
         orgId: f.org.id,
         issueId: issue?.id ?? "",
@@ -1131,8 +1137,6 @@ describe("Resumo do dia", () => {
         number: 41,
         title: "Write the report",
         status: "done",
-        assigneeType: "agent",
-        assigneeId: f.agent.id,
         createdByType: "person",
         createdById: bia.id,
         restricted: true,
@@ -1140,6 +1144,9 @@ describe("Resumo do dia", () => {
         updatedAt: at,
       })
       .returning();
+    await f.db
+      .insert(schema.issueAssignees)
+      .values({ orgId: f.org.id, issueId: issue?.id ?? "", assigneeType: "agent", assigneeId: f.agent.id });
     await f.db.insert(schema.issueActivity).values({
       orgId: f.org.id,
       issueId: issue?.id ?? "",

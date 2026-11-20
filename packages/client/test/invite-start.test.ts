@@ -54,25 +54,25 @@ describe("what an invitation starts someone with (ADR 0184)", () => {
     const agent = (extra: Partial<Agent>) => ({ id: "a-fin", ownerUserId: "u-bruno", ...extra }) as Agent;
     const people = (extra: Partial<Agent> = {}) =>
       agent({ audienceMode: "people", audience: { mode: "people", userIds: [], roleIds: [] }, ...extra });
-    const lia = { userId: "u-lia", managesAgents: false };
-    const admin = { userId: "u-ana", managesAgents: true };
+    const lia = { userId: "u-lia" };
+    const ana = { userId: "u-ana" };
+    // The agent as the server sends it to who manages it (`canManage`, ADR 0085 addendum of 2026-11-17).
+    const managed = (extra: Partial<Agent> = {}) => people({ canManage: true, ...extra });
     expect(inviteAgentCase(agent({ audienceMode: "everyone" }), lia, [])).toBe("everyone");
     expect(inviteAgentCase(people(), lia, ["a-fin"])).toBe("cargo");
     expect(inviteAgentCase(people(), lia, [])).toBe("locked");
     expect(inviteAgentCase(people({ ownerUserId: "u-lia" }), lia, [])).toBe("opens");
-    expect(inviteAgentCase(people(), admin, [])).toBe("opens");
-    expect(inviteAgentCase(people(), admin, [], ["Bruno"])).toBe("mailbox");
+    expect(inviteAgentCase(managed(), ana, [])).toBe("opens");
+    expect(inviteAgentCase(managed(), ana, [], ["Bruno"])).toBe("mailbox");
+    // "Edit agents" alone doesn't reach someone's private agent: the server says Ana doesn't manage it.
+    expect(inviteAgentCase(people({ canManage: false }), ana, [])).toBe("locked");
     // On its owner's plan, answering nobody else: only its owner's own switch lets anyone in.
     const plan = { kind: "claude_code", account: "Claude Max" } as Agent["brain"];
     const kept = agent({ audienceMode: "owner", audience: { mode: "owner", userIds: [], roleIds: [] }, brain: plan });
-    expect(inviteAgentCase(kept, { userId: "u-bruno", managesAgents: false }, [])).toBe("plan");
+    expect(inviteAgentCase(kept, { userId: "u-bruno" }, [])).toBe("plan");
     // On a plan that already answers some people, it opens like any other.
     expect(
-      inviteAgentCase(
-        people({ brain: plan, audience: { mode: "people", userIds: ["u-rui"], roleIds: [] } }),
-        admin,
-        [],
-      ),
+      inviteAgentCase(managed({ brain: plan, audience: { mode: "people", userIds: ["u-rui"], roleIds: [] } }), ana, []),
     ).toBe("opens");
     expect(
       ["everyone", "cargo", "opens", "locked", "plan", "mailbox"].filter((c) => invitePickable(c as never)),

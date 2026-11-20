@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createFrameClock } from "../src/agent/clock";
 
 function fakeTimers() {
@@ -59,4 +61,29 @@ test("one timer for many listeners", () => {
   expect(f.count).toBe(1);
   b();
   expect(f.count).toBe(0);
+});
+
+test("a hold stops the clock until every hold is released (a list scrolling, a screen sliding in)", () => {
+  const f = fakeTimers();
+  const clock = createFrameClock(25, f.timers);
+  clock.subscribe(() => {});
+  const scrolling = clock.hold();
+  const sliding = clock.hold();
+  expect(f.count).toBe(0);
+  scrolling();
+  // Released twice counts once: the slide still holds it.
+  scrolling();
+  expect(f.count).toBe(0);
+  sliding();
+  expect(f.count).toBe(1);
+  // The app's own pause still wins over no holds.
+  clock.setPaused(true);
+  expect(f.count).toBe(0);
+});
+
+test("a face's sky is drawn once and every still face is kept, not recorded again on the next mount", () => {
+  const src = readFileSync(join(import.meta.dir, "../src/agent/AgentAvatar.tsx"), "utf8");
+  expect(src).toContain("return kept(skies, ");
+  expect(src).toContain("{ gaze, bodyless, sky: false },");
+  expect(src).toContain('return kept(stills, key.join("|"), draw);');
 });

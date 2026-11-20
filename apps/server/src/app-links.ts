@@ -36,6 +36,7 @@ export const APP_LINK_PATHS = [
   "/org/*/routines",
   "/org/*/search",
   "/org/*/drive",
+  "/org/*/drive/*",
   "/org/*/wiki",
   "/org/*/wiki/*",
   "/org/*/members",

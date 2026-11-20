@@ -1,16 +1,18 @@
+import { NEXT_ACCOUNT_KINDS } from "@agenteschat/providers/plans";
 import type { TFunction } from "i18next";
 import type {
   Agent,
   AgentBrain,
   AiAccounts,
   AiComputer,
+  BrainScope,
   Credential,
   Machine,
   MachineAccount,
   MachineAccountKind,
   PlanUsage,
 } from "../api/types";
-import { joinNames } from "./format";
+import { firstName, joinNames, namesText } from "./format";
 import { isPlanId, loginPerAgent, planName } from "./plans";
 import { shownKeys } from "./providers";
 import { isRightHand } from "./right-hand";
@@ -51,10 +53,15 @@ const newest = (usages: (PlanUsage | null)[]) =>
     null,
   );
 
+/** The newest usage read of an account's logins (an order's block, `orderAccounts`): one login's may be old. */
+export const newestUsage = (logins: readonly { usage?: PlanUsage | null }[]) =>
+  newest(logins.map((l) => l.usage ?? null));
+
 /**
  * The logins of one account together, as the server tells them apart: the same computer, owner, CLI and plan, and
  * the same email (any case) and Claude organization (one not said is any), or key's last 4. Never the label, which any rename can repeat.
- * A login whose email or key the viewer can't see (another person's) is a row of its own.
+ * A login whose email or key the viewer can't see (another person's) goes by the server's `sameAs`, or is a row of
+ * its own where an older server doesn't say it.
  */
 export function groupPlans<A extends MachineAccount & { machineId?: string }>(
   accounts: readonly A[],
@@ -62,7 +69,11 @@ export function groupPlans<A extends MachineAccount & { machineId?: string }>(
   const groups: { key: string; org: string | null; logins: A[] }[] = [];
   for (const a of accounts) {
     const identity = a.provider ? a.keyHint : a.email?.toLowerCase();
-    const key = identity ? JSON.stringify([a.machineId ?? null, a.ownerId, a.kind, a.provider, identity]) : a.id;
+    const key = identity
+      ? JSON.stringify([a.machineId ?? null, a.ownerId, a.kind, a.provider, identity])
+      : a.sameAs
+        ? JSON.stringify(["sameAs", a.sameAs])
+        : a.id;
     const org = a.providerOrgId ?? null;
     // Like the server's, an organization not said matches any: only two known ones tell logins apart.
     const same = groups.filter((g) => g.key === key);
@@ -83,6 +94,34 @@ export function groupPlans<A extends MachineAccount & { machineId?: string }>(
   }));
 }
 
+/**
+ * What an account's row says of its sign-ins (Contas de IA, web and phone), read from every login of it
+ * (`groupPlans`): the agents whose login ended while others still think with it ("Ada ficou sem login."), else that
+ * it is signed out (a key account: its key was refused); while none is out, that one couldn't be checked. Null while
+ * all are signed in.
+ */
+export function signInNote(
+  t: TFunction,
+  g: Pick<PlanAccount<MachineAccount>, "logins" | "signedOut" | "unknown">,
+  key: boolean,
+): { state: "out" | "unknown"; text: string } | null {
+  if (g.signedOut.length > 0) {
+    const outFor = g.signedOut.length === g.logins.length ? [] : g.signedOut.flatMap((l) => l.usedBy);
+    return {
+      state: "out",
+      text:
+        outFor.length > 0
+          ? t("aiAccounts.page.signedOutFor", { count: outFor.length, agents: joinNames(outFor, t) })
+          : t(key ? "aiAccounts.page.keyRefused" : "aiAccounts.page.signedOut"),
+    };
+  }
+  return g.unknown.length > 0 ? { state: "unknown", text: t("aiAccounts.page.statusUnknown") } : null;
+}
+
+/** The login "Entrar de novo" signs in again (`signInNote`): a signed-out one, else one couldn't be checked, else the first. */
+export const againLogin = <A extends MachineAccount>(g: Pick<PlanAccount<A>, "logins" | "signedOut" | "unknown">) =>
+  g.signedOut[0] ?? g.unknown[0] ?? g.logins[0];
+
 /** One account in an agent's account choice: the login it offers, and the agents on any of its logins. */
 export interface AccountChoice<A extends MachineAccount> {
   login: A;
@@ -97,16 +136,17 @@ export interface AccountChoice<A extends MachineAccount> {
 
 /**
  * An agent's account choice, one entry per account (`groupPlans`): the first of `ids` it has a login of (the one
- * chosen, then the one the agent thinks with), else a login of the viewer's that thinks for all of their agents
+ * chosen, then the one the agent thinks with), else a login free to take that thinks for all of its owner's agents
  * there or for nobody (a signed-in one first: a new sign-in of Claude can sign the account's other logins out), else
- * its first.
+ * its first. Of someone else's account, free to take is `lendable`: one login of it may be usable while the others
+ * think for their agents or are signed out.
  */
 export function accountChoices<A extends MachineAccount & { machineId?: string }>(
   accounts: readonly A[],
   ids: readonly (string | null | undefined)[],
 ): AccountChoice<A>[] {
   return groupPlans(accounts).flatMap(({ logins, usedBy }) => {
-    const free = logins.filter((l) => l.mine && (l.shared === true || l.usedBy.length === 0));
+    const free = logins.filter((l) => (l.mine ? l.shared === true || l.usedBy.length === 0 : lendable(l, "")));
     const own =
       ids.map((id) => logins.find((l) => l.id === id)).find(Boolean) ??
       free.find((l) => l.status === "active") ??
@@ -209,12 +249,53 @@ export const identityUnknown = (
 /**
  * An account by its name with its plan once ("Claude · Max", "Trabalho · Ultra"); a key account by its name. A name
  * that already says the plan stays as it is: servers before ADR 0059's 2026-10-30 amendment name accounts after it
- * ("Claude Max 2"), and the phone talks to those too.
+ * ("Claude Max 2"), and the phone talks to those too. How a computer's own sign-in, someone else's account and a key
+ * account read; the viewer's own accounts read by `accountTitle`.
  */
-export const accountTitle = (a: Pick<MachineAccount, "label" | "plan">) =>
+export const labelTitle = (a: Pick<MachineAccount, "label" | "plan">) =>
   a.plan && !a.label.toLowerCase().split(/\s+/).includes(a.plan.toLowerCase())
     ? `${a.label} · ${planName(a.plan)}`
     : a.label;
+
+type TitledAccount = Pick<MachineAccount, "label" | "plan" | "email" | "mine" | "named" | "keyHint" | "provider">;
+
+/** Read by its name (`labelTitle`), not its email: someone else's (whose email the viewer never gets), or a key account (its key's end tells it apart). */
+const byLabel = (a: Pick<TitledAccount, "mine" | "keyHint" | "provider">) =>
+  !a.mine || a.keyHint != null || isPlanId(a.provider);
+
+/**
+ * An account as every app titles it (web, desktop, phone): the name its owner gave it, else its email, else "Unnamed
+ * account" where its sign-in says no email (Claude's token for all agents, ADR 0059 §2), never the automatic
+ * "Claude 2". Someone else's account and a key account keep their name with the plan (`labelTitle`).
+ */
+export function accountTitle(t: TFunction, a: TitledAccount): string {
+  if (byLabel(a)) return labelTitle(a);
+  if (a.named === true) return a.label;
+  return a.email ?? t("aiAccounts.unnamed");
+}
+
+/** Whether the title is "Unnamed account": the viewer's own account with no name of theirs and no email. */
+export const unnamedAccount = (a: TitledAccount) => !byLabel(a) && a.named !== true && !a.email;
+
+/**
+ * An account inside a sentence ("Ada agora pensa com …", "Você já tem … aqui"): its title, or for an unnamed one its
+ * maker ("Claude"), never "Unnamed account" mid-sentence.
+ */
+export const accountInLine = (t: TFunction, a: TitledAccount & Pick<MachineAccount, "kind">) =>
+  unnamedAccount(a) ? t(`aiAccounts.connect.${a.kind}`) : accountTitle(t, a);
+
+/**
+ * What an account's line starts with, where its title doesn't say it: the email under a name its owner gave it, then
+ * its plan ("ana@acme.com · Max"). Nothing for an account read by its name (`labelTitle` says the plan).
+ */
+export function accountSub(a: TitledAccount): string | undefined {
+  if (byLabel(a)) return undefined;
+  return [a.named === true ? a.email : null, a.plan ? planName(a.plan) : null].filter(Boolean).join(" · ") || undefined;
+}
+
+/** `accountSub` before the rest of an account's line ("Max · Também usada por Infra"). */
+export const withSub = (a: TitledAccount, rest?: string | null) =>
+  [accountSub(a), rest].filter(Boolean).join(" · ") || undefined;
 
 /** Whether the accounts sit on more than one computer: only then does a row say on which ("no MacBook"). */
 export const onSeveralComputers = (accounts: readonly { machineId: string }[]) =>
@@ -223,10 +304,19 @@ export const onSeveralComputers = (accounts: readonly { machineId: string }[]) =
 /**
  * The line under an account in an agent's account choice (Quem pensa and Connect an AI, web and phone): whose it is
  * when it isn't the viewer's, the agents on it where choosing it signs this agent in to it too, signed out, the
- * agents it would be taken from (or those it thinks for too, made for all of its owner's agents), else its key's end
- * or its email. One the computer couldn't check says so, never signed out.
+ * agents it would be taken from (or those it thinks for too, made for all of its owner's agents), else its key's end.
+ * One the computer couldn't check says so, never signed out. After what the title leaves out of the viewer's own
+ * (`accountSub`: the email under a name they gave it, the plan).
  */
 export function accountAbout(
+  t: TFunction,
+  choice: AccountChoice<MachineAccount>,
+  agentName: string,
+): string | undefined {
+  return withSub(choice.login, aboutRest(t, choice, agentName));
+}
+
+function aboutRest(
   t: TFunction,
   { login: a, usedBy, also }: AccountChoice<MachineAccount>,
   agentName: string,
@@ -244,7 +334,7 @@ export function accountAbout(
     return t("agentPage.work.brain.accountAlso", { agents: joinNames(others, t) });
   }
   if (others.length) return t("agentPage.work.brain.accountMove", { agents: others.join(", ") });
-  return a.keyHint ? t("aiAccounts.page.keyEnds", { hint: a.keyHint }) : (a.email ?? undefined);
+  return a.keyHint ? t("aiAccounts.page.keyEnds", { hint: a.keyHint }) : undefined;
 }
 
 /**
@@ -304,6 +394,59 @@ export function existingAi<A extends MachineAccount>(
   return [...accounts, ...live].sort((x, y) => rank(x) - rank(y));
 }
 
+/** A row of what the person has that is an account. */
+export type ExistingAccount<A extends MachineAccount = MachineAccount> = Extract<ExistingAi<A>, { kind: "account" }>;
+
+/** Where a row of what the person has goes in a list by owner: theirs ("Suas"), the workspace's keys, each other person's ("De Walter"). */
+export function haveGroup(t: TFunction, r: ExistingAi): { key: string; label: string } {
+  if (r.kind === "key") return { key: "keys", label: t("connectAi.chat.keys") };
+  const a = r.choice.login;
+  return a.mine
+    ? { key: "mine", label: t("connectAi.chat.mine") }
+    : { key: `owner:${a.ownerId}`, label: t("agentPage.work.brain.accountOf", { name: firstName(a.ownerName ?? "") }) };
+}
+
+/**
+ * The line under an account in a list of what the person has, what tells two accounts apart: one's own says what its
+ * title leaves out (`accountSub`: the email under a name they gave it, the plan) or its key's end, then the other
+ * agents that think with it where it thinks for all of them (two names, then how many more); one that would move,
+ * sign in again or is signed out says so (`accountAbout`). Someone else's says whose it is and nothing else: never its
+ * email, and not its plan, which its title already says (`accountTitle`).
+ */
+export function haveAbout(t: TFunction, r: ExistingAccount, agentName: string): string | undefined {
+  const a = r.choice.login;
+  if (!a.mine) return t("agentPage.work.brain.accountOf", { name: firstName(a.ownerName ?? "") });
+  if (r.act !== "use") return accountAbout(t, r.choice, agentName);
+  const others = [...new Set(r.choice.usedBy)].filter((n) => n !== agentName);
+  const who = withSub(a, a.keyHint ? t("aiAccounts.page.keyEnds", { hint: a.keyHint }) : null);
+  if (!others.length || a.shared !== true) return who ?? accountAbout(t, r.choice, agentName);
+  return [who, t("agentPage.work.brain.accountAlso", { agents: namesText(t, others, 2) })].filter(Boolean).join(" · ");
+}
+
+/**
+ * Someone else's accounts the viewer can't pick (`locked`: not lent to them, or signed out), which leave the list:
+ * how many each person has, one per account (`accountChoices`), for one quiet line under that person's group.
+ */
+export function lockedByOwner(rows: readonly ExistingAi[]): { key: string; name: string; count: number }[] {
+  const out: { key: string; name: string; count: number }[] = [];
+  for (const r of rows) {
+    if (r.kind !== "account" || r.act !== "locked") continue;
+    const key = `owner:${r.choice.login.ownerId}`;
+    const found = out.find((o) => o.key === key);
+    if (found) found.count++;
+    else out.push({ key, name: firstName(r.choice.login.ownerName ?? ""), count: 1 });
+  }
+  return out;
+}
+
+/** "Mais 2 contas de Walter que só Walter pode dar." (`lockedByOwner`). */
+export const lockedText = (t: TFunction, o: { name: string; count: number }) =>
+  t("connectAi.have.onlyOwner", { count: o.count, name: o.name });
+
+/** What the person may pick of what they have (`existingAi`): someone else's they can't (`locked`) leave the list. */
+export const pickable = <A extends MachineAccount>(rows: readonly ExistingAi<A>[]) =>
+  rows.filter((r) => r.kind === "key" || r.act !== "locked");
+
 /**
  * Whether Connect an AI starts with what the person already has for the agent (`existingAi`): while it has no AI, and
  * always for the right hand, whose plan may be one it can't think with now.
@@ -349,7 +492,7 @@ export const planWordOf = (plan: string | null) =>
 
 /** A computer's own sign-in as "Seus planos" titles it: its CLI's maker and its plan ("Claude · Max"). */
 export const ownSignInTitle = (t: TFunction, o: Pick<OwnSignInRow, "kind" | "plan">) =>
-  accountTitle({ label: t(`aiAccounts.connect.${o.kind}`), plan: o.plan });
+  labelTitle({ label: t(`aiAccounts.connect.${o.kind}`), plan: o.plan });
 
 /**
  * A computer's own sign-in by name: on a computer the viewer connected, the account their agents there share; on
@@ -433,4 +576,114 @@ export function keyRemovalText(
       t,
     ),
   });
+}
+
+/**
+ * The accounts a run of an agent goes through at its plan's limit (ADR 0041 §6, the server's `nextAccountPlan`): its
+ * own account, then the others of its kind with the CLI's own sign-in (never a key, `movable`) that are signed in and shared
+ * between agents (a login made for one agent is lent to that agent only), its owner's first and then those that serve
+ * everyone, each by `useOrder` (the unplaced after, in the order given: oldest first). Only its own account when it is
+ * pinned ("Só esta conta"), a key's, or of a kind that never moves (Gemini, Grok, Cursor, OpenCode). The right hand's
+ * `scope`: its person's own AI goes on only with that person's accounts (`mine`), and never on a plan someone else
+ * gave it, the workspace's included.
+ */
+export function accountChain<A extends MachineAccount>(
+  accounts: readonly A[],
+  agent: { id: string; ownerId: string | null; account: string | null; pinned?: boolean; scope?: BrainScope },
+): A[] {
+  const own = accounts.find((a) => a.id === agent.account);
+  if (!own) return [];
+  const lent = agent.scope === "workspace" || (agent.scope === "mine" && !own.mine);
+  if (agent.pinned || lent || own.provider || !NEXT_ACCOUNT_KINDS.includes(own.kind)) return [own];
+  const mine = (a: A) => (agent.scope === "mine" ? a.mine : agent.ownerId !== null && a.ownerId === agent.ownerId);
+  const serves = (a: A) => mine(a) || (agent.scope !== "mine" && (a.serves ?? "everyone") === "everyone");
+  const place = (a: A) => a.useOrder ?? Number.POSITIVE_INFINITY;
+  const next = accounts
+    .map((a, i) => ({ a, i }))
+    .filter(
+      ({ a }) =>
+        a.id !== own.id &&
+        a.kind === own.kind &&
+        a.provider === null &&
+        a.status === "active" &&
+        a.shared === true &&
+        runMayMoveTo(a) &&
+        serves(a),
+    )
+    .sort((x, y) => Number(mine(y.a)) - Number(mine(x.a)) || place(x.a) - place(y.a) || x.i - y.i);
+  return [own, ...next.map(({ a }) => a)];
+}
+
+/**
+ * At its own account's limit, whether the agent's runs go on with another account of its `accountChain` that `limited`
+ * doesn't hold. Only when none does is it the agent that waits (the limit screen, a sleeping face, "it waits").
+ */
+export const chainHasRoom = <A>(chain: readonly A[], limited: (a: A) => boolean) =>
+  chain.slice(1).some((a) => !limited(a));
+
+/** A run at another account's limit may go on with it (the server's `movable`; absent: an older server, which says yes). */
+export const runMayMoveTo = (a: { movable?: boolean }) => a.movable !== false;
+
+/**
+ * The accounts of an order of use, each once: the logins of one account signed in once per agent (`sameAs`) together,
+ * at the place of the first of them. A row, a number and a move are the account's, never one login's.
+ */
+export function orderAccounts<A extends { id: string; sameAs?: string }>(logins: readonly A[]): A[][] {
+  const out: A[][] = [];
+  for (const a of logins) {
+    const block = out.find((b) => (b[0]?.sameAs ?? b[0]?.id) === (a.sameAs ?? a.id));
+    if (block) block.push(a);
+    else out.push([a]);
+  }
+  return out;
+}
+
+/** The accounts of an order of use (`orderAccounts`) that have a place in it: one of their logins a run may move to. */
+const placedAccounts = <A extends { id: string; sameAs?: string; movable?: boolean }>(logins: readonly A[]) =>
+  orderAccounts(logins).filter((b) => b.some(runMayMoveTo));
+
+/** The login the server moves an account by (`moveAccountInOrder`): one of the account's logins that has a place. */
+export const orderMover = (logins: readonly { id: string; sameAs?: string; movable?: boolean }[], id: string) =>
+  orderAccounts(logins)
+    .find((b) => b.some((a) => a.id === id))
+    ?.find(runMayMoveTo)?.id ?? id;
+
+/**
+ * Each account's place in its order of use (`orderAccounts`, one entry per account), 1 first: only those a run may
+ * move to (`runMayMoveTo`), null the rest.
+ */
+export function orderPlaces(logins: readonly { id: string; sameAs?: string; movable?: boolean }[]): (number | null)[] {
+  let n = 0;
+  return orderAccounts(logins).map((b) => (b.some(runMayMoveTo) ? ++n : null));
+}
+
+/**
+ * "Subir" and "Descer" in an order of use: the account's place to move it to among those that have one
+ * (`moveAccountInOrder`, which counts accounts and moves their logins together), null at that end or for an account
+ * with no place.
+ */
+export function orderStep(
+  logins: readonly { id: string; sameAs?: string; movable?: boolean }[],
+  id: string,
+  step: -1 | 1,
+): number | null {
+  const placed = placedAccounts(logins);
+  const from = placed.findIndex((b) => b.some((a) => a.id === id));
+  const to = from + step;
+  return from < 0 || to < 0 || to >= placed.length ? null : to;
+}
+
+/**
+ * A dragged account dropped before or after another's row: its place among the other accounts that have one, null
+ * onto itself or onto an account with no place.
+ */
+export function orderDrop(
+  logins: readonly { id: string; sameAs?: string; movable?: boolean }[],
+  id: string,
+  onto: string,
+  where: "before" | "after",
+): number | null {
+  const others = placedAccounts(logins).filter((b) => !b.some((a) => a.id === id));
+  const at = others.findIndex((b) => b.some((a) => a.id === onto));
+  return at < 0 ? null : at + (where === "after" ? 1 : 0);
 }

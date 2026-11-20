@@ -76,8 +76,9 @@ export async function ensureTaskConversation(db: Database, issueId: string): Pro
       .update(issues)
       .set({ conversationChannelId: channel.id, conversationRootId: root.id })
       .where(eq(issues.id, issue.id));
-    // The task's agent (the assignee agent, else the creating one) answers there from the first message.
-    await admitTaskAgents(tx, issue.orgId, channel.id, { taskAgent: true });
+    // The task's agent (its first assigned agent, else the creating one) answers there from the first message, and
+    // every agent that has the task is there to be named.
+    await admitTaskAgents(tx, issue.orgId, channel.id, { taskAgent: true, assigned: true });
     return { channelId: channel.id, rootId: root.id };
   });
 }

@@ -12,6 +12,7 @@ import { type OutageTargetLike, targetOptions } from "@agenteschat/client/lib/ma
 import { quickReply } from "@agenteschat/client/lib/notifications";
 import { computerIcon, type MachineOutage, targetText } from "../../src/features/outages/logic";
 import { suspendedOf } from "../../src/lib/org-choice";
+import { chatScreenSource } from "./chat-screen-source";
 import { notification, translator } from "./fixtures";
 
 /** The workspace's own computer (ADR 0056 §10): the server names it ("Computador da Acme"), its system never said. */
@@ -65,7 +66,7 @@ describe("an organization being deleted on the phone", () => {
     expect(layout).not.toContain("DeletingWorkspace");
     const home = read("features/chats/ChatsScreen.tsx");
     expect(home.indexOf("<DeletingNotice />")).toBeLessThan(home.indexOf("<SetupNotice />"));
-    expect(read("features/chat/ChatScreen.tsx")).toContain('{t("deleting.composer")}');
+    expect(chatScreenSource()).toContain('{t("deleting.composer")}');
   });
 
   test("the island takes no answer: no Responder, no choices, the line in their place; Abrir stays", () => {
@@ -174,7 +175,6 @@ describe("Apagar conta on the phone's closed screens and first run", () => {
     // Workspaces, every server's (ADR 0154): the note first, else the role.
     expect(read("features/me/WorkspacesPages.tsx")).toContain("sub={notes.get(o.id) ?? ");
     const screen = read("features/me/DeleteAccountScreen.tsx");
-    expect(screen).toContain('t("deleteAccount.title")');
     expect(screen).toContain('t("deleteAccount.intro")');
     expect(screen).toContain('t("deleteAccount.oneWorkspace")');
     expect(screen).toContain("notes,\n");
@@ -182,8 +182,17 @@ describe("Apagar conta on the phone's closed screens and first run", () => {
     // Conta: the account's row for everyone, the workspace's own for an owner, each with one sentence and no link row.
     const account = read("features/me/AccountPage.tsx");
     expect(account).toContain('label={t("deleteOrg.card.title")}');
-    expect(account).toContain('router.push("/settings/delete")');
     expect(account).not.toContain("labelLines={2}\n          chevron");
+    // The workspace's row is its red words alone, behind the same confirmation the workspace's settings show first.
+    const at = account.indexOf('label={t("deleteOrg.card.title")}');
+    const row = account.slice(account.lastIndexOf("<GroupedRow", at), account.indexOf("/>", at));
+    expect(row).toContain('onPress={() => confirmDeleteWorkspace(t, org.org?.name ?? "")}');
+    expect(row).not.toMatch(/icon=|chevron/);
+    const settings = read("features/settings/WorkspaceScreen.tsx");
+    expect(settings).toContain("onPress={() => confirmDeleteWorkspace(t, name)}");
+    const confirm = settings.slice(settings.indexOf("export function confirmDeleteWorkspace("));
+    expect(confirm).toContain("confirmAction({");
+    expect(confirm).toContain('router.push("/settings/delete")');
   });
 });
 

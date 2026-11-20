@@ -293,8 +293,6 @@ export function DesktopView({
           setScreenMode(m);
           const next = new Rfb(el, opened.channel(), { shared: true });
           next.viewOnly = !control;
-          // In control, a screen that draws no pointer of its own shows noVNC's dot, never none (watching, desktop.css).
-          next.showDotCursor = control;
           const encoding = desktopEncoding(control, network);
           next.qualityLevel = encoding.quality;
           next.compressionLevel = encoding.compression;

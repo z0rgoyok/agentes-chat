@@ -32,6 +32,7 @@ export interface EnvVarDefinition {
     | "Email for agents"
     | "Push"
     | "Operator"
+    | "Chat surfaces"
     | "Usage report"
     | "Observability";
   /** Example value for docs. Never a real secret. */
@@ -415,6 +416,12 @@ export const envVars = {
     description: "Upper bound on tokens an agent may generate in one reply.",
     section: "Agents",
   },
+  CLAUDE_PLAN_CONCURRENCY: {
+    schema: z.coerce.number().int().min(0).max(50).default(6),
+    description:
+      "How many agent runs one Claude plan sign-in (a subscription, never an API key) works on at once. Past it, the next run waits in line like any other and starts as soon as one ends. 0 turns the limit off.",
+    section: "Agents",
+  },
   AGENT_MAX_TOOL_TURNS: {
     schema: z.coerce.number().int().min(1).max(200).default(200),
     description:
@@ -450,6 +457,27 @@ export const envVars = {
     description:
       "Workspace id for the platform key, when the key is not scoped to a workspace (sent as `anthropic-workspace-id`).",
     section: "Agents",
+  },
+  PLATFORM_OPENAI_API_KEY: {
+    schema: z.string().optional(),
+    description:
+      "The server's own OpenAI API key. Workspaces without an OpenAI key of their own use it to generate images on canvases (GPT Image, ADR 0197) and for agents on OpenAI models. Usage is still recorded per organization.",
+    section: "Agents",
+    secret: true,
+  },
+  PLATFORM_GEMINI_API_KEY: {
+    schema: z.string().optional(),
+    description:
+      "The server's own Gemini API key. Workspaces without a Gemini key of their own use it to generate images on canvases (Nano Banana, ADR 0197) and for agents on Gemini models. Usage is still recorded per organization.",
+    section: "Agents",
+    secret: true,
+  },
+  PLATFORM_OPENROUTER_API_KEY: {
+    schema: z.string().optional(),
+    description:
+      "The server's own OpenRouter API key. Workspaces without an OpenRouter key of their own use it to generate images on canvases (ADR 0197) and for agents on OpenRouter models. Usage is still recorded per organization.",
+    section: "Agents",
+    secret: true,
   },
   MODEL_ENDPOINTS_PRIVATE: {
     schema: z.stringbool().optional(),
@@ -1088,11 +1116,66 @@ export const envVars = {
     example: "<output of openssl rand -base64 48>",
     secret: true,
   },
+  OPERATOR_API_REVEAL_TOKEN: {
+    schema: z
+      .string()
+      .min(32, "must be at least 32 characters. Generate one with `openssl rand -base64 48`")
+      .optional(),
+    description:
+      "A third token for the operator API, for the one thing the other two never do: read a single piece of what a workspace wrote (a message, a step of a run, an agent's instructions), one at a time, with a stated reason, for a member who asked for help or to diagnose a run that failed or got stuck (`POST /reveal/...`, ADR 0056). Every such read is recorded first and shows in that workspace's audit log. Leave it unset unless a tool of yours needs it: setting it makes you a reader of your workspaces' content, which you must tell them, and makes the server keep what members write in the feedback form for 90 days. Needs `OPERATOR_API_TOKEN` and must differ from it and from `OPERATOR_API_READ_TOKEN`. Unset (default): every path under `/reveal` answers 403 and none of those words are kept. Generate with `openssl rand -base64 48`.",
+    section: "Operator",
+    example: "<output of openssl rand -base64 48>",
+    secret: true,
+  },
   OPERATOR_API_PORT: {
     schema: z.coerce.number().int().min(1).max(65535).default(3001),
     description:
-      "Port of the operator API's listener, on the same `HOST`; only with `OPERATOR_API_TOKEN`. The compose file doesn't publish it: containers on the same Docker network reach it as `agentes:3001`.",
+      "Port of the operator API's listener, on the same `HOST`; only with `OPERATOR_API_TOKEN` or `SURFACE_BRIDGE_TOKEN`. The compose file doesn't publish it: containers on the same Docker network reach it as `agentes:3001`.",
     section: "Operator",
+  },
+  SURFACE_BRIDGE_TOKEN: {
+    schema: z
+      .string()
+      .min(32, "must be at least 32 characters. Generate one with `openssl rand -base64 48`")
+      .optional(),
+    description:
+      "Turns on the bridge for an outside chat surface (ADR 0187): `/api/surface/v1` on the operator API's listener (`OPERATOR_API_PORT`), called with this value as `Authorization: Bearer` by a separate service of yours that carries people's messages between a chat app and their DM with the workspace's assistant. It can post as any linked person into that DM and read every reply sent to linked people, so never publish that port or put it behind your reverse proxy. It opens nothing under `/api/operator/v1`, and the operator tokens don't open the bridge. Needs `SURFACE_NAME` and `SURFACE_OPEN_URL`, and must differ from every operator token. Unset (default): no bridge, nothing recorded, no row in the apps. Generate with `openssl rand -base64 48`.",
+    section: "Chat surfaces",
+    example: "<output of openssl rand -base64 48>",
+    secret: true,
+  },
+  SURFACE_NAME: {
+    schema: z.string().trim().min(1).max(32).optional(),
+    description:
+      "The chat surface's name as people and the assistant read it, in settings and in the assistant's instructions. Only with `SURFACE_BRIDGE_TOKEN`. Its lower-cased form is what stored links are keyed by: changing it (even its capitals) ends every link, silently.",
+    section: "Chat surfaces",
+    example: "Example Chat",
+  },
+  SURFACE_OPEN_URL: {
+    schema: z
+      .url({ protocol: /^https$/ })
+      .refine((url) => url.split("{text}").length === 2, "must hold {text} once")
+      .optional(),
+    description:
+      "An `https://` address that opens a chat with the surface's account with a text already typed: `{text}` (once) is replaced by the linking code. Only with `SURFACE_BRIDGE_TOKEN`.",
+    section: "Chat surfaces",
+    example: "https://chat.example.com/open?text={text}",
+  },
+  SURFACE_ONLY: {
+    schema: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value
+          ?.split(",")
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.email()).optional()),
+    description:
+      "While you try the surface out: only the accounts with these emails (separated by commas) may link it; nobody else sees its row. Only with `SURFACE_BRIDGE_TOKEN`. Unset (default): everyone may.",
+    section: "Chat surfaces",
+    example: "you@example.com",
   },
   SUPPORT_EMAIL: {
     schema: z.email().optional(),
@@ -1159,6 +1242,24 @@ export const envVars = {
     example: "<output of openssl rand -base64 48>",
     secret: true,
   },
+  REFERRALS_URL: {
+    schema: z.url({ protocol: /^https$/ }).optional(),
+    description:
+      "Your referral service's address (ADR 0192). Signed-in people get Refer and earn in their menu, and `/refer`, which open it signed in as them. Needs `REFERRALS_LINK_SECRET`, or `BILLING_LINK_SECRET` when this server also has a billing service, to sign the link. Unset (default): no referrals anywhere.",
+    section: "Operator",
+    example: "https://refer.example.com",
+  },
+  REFERRALS_LINK_SECRET: {
+    schema: z
+      .string()
+      .min(32, "must be at least 32 characters; generate one with `openssl rand -base64 48`")
+      .optional(),
+    description:
+      "Signs the link to the referral service (HMAC-SHA256, 5 minutes). The referral service holds the same value. Unset (default): `BILLING_LINK_SECRET` signs it. Generate with `openssl rand -base64 48`.",
+    section: "Operator",
+    example: "<output of openssl rand -base64 48>",
+    secret: true,
+  },
   BILLING_HOLD_NEW_WORKSPACES: {
     schema: z.stringbool().default(false),
     description:
@@ -1189,6 +1290,12 @@ export const envVars = {
   TELEMETRY_URL: {
     schema: z.url().default("https://telemetry.agentes.chat/v1/report"),
     description: "Where the usage report is sent (the report as JSON in a POST).",
+    section: "Usage report",
+  },
+  PROBLEM_REPORT_URL: {
+    schema: z.union([z.literal("off"), z.url()]).default("https://telemetry.agentes.chat/v1/problem-report"),
+    description:
+      "Where Send a report sends a report someone chose to send after seeing it in full (versions, which settings are set, what failed, recent log lines; never messages, pages, names or keys). Sent even with `TELEMETRY=off`, since a person clicked Send. `off`: the button only copies the report.",
     section: "Usage report",
   },
   INSTALL_MODE: {

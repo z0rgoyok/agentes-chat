@@ -132,6 +132,56 @@ describe("Tool Gateway", () => {
     expect(steps.filter((s) => s.kind === "tool_result")).toHaveLength(5);
   });
 
+  test("a call the gateway turns down or that throws keeps why as a code, and the number its error carried", async () => {
+    f = await setup();
+    const throwing = (name: string, error: unknown): ToolDefinition => ({
+      name,
+      description: name,
+      scope: "test:read",
+      inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+      execute: async () => {
+        throw error;
+      },
+    });
+    const tools = createToolGateway({
+      sources: [
+        {
+          name: "test-tools",
+          tools: async () => [
+            throwing("plain", new Error("it broke")),
+            // An MCP client's error says its HTTP status, or the JSON-RPC error's, in `code`; an adapter's in `status`.
+            throwing("unauthorized", Object.assign(new Error("go away"), { code: 401 })),
+            throwing("no_method", Object.assign(new Error("no such method"), { code: -32601 })),
+            throwing("busy", Object.assign(new Error("slow down"), { status: 429 })),
+            throwing("worded", Object.assign(new Error("refused"), { code: "ECONNRESET", status: "503" })),
+            throwing("aborted", Object.assign(new Error("aborted"), { code: 20, status: 0 })),
+          ],
+        },
+      ],
+    });
+    const ctx = await ctxOf(f);
+    await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: "test:read" }]);
+    const kept = async (name: string, input: Record<string, unknown> = { q: "x" }) => {
+      const toolUseId = `tu_${name}_${JSON.stringify(input)}`;
+      const outcome = await tools.invoke(ctx, { toolUseId, name, input });
+      const steps = await f.db.select().from(schema.agentRunSteps).where(eq(schema.agentRunSteps.kind, "tool_result"));
+      const stored = steps.find((s) => (s.data as { toolUseId?: string }).toolUseId === toolUseId);
+      // What the caller gets is what the step keeps.
+      expect(outcome).toMatchObject({ type: "result", output: { isError: true, data: stored?.data.data } });
+      return stored?.data.data;
+    };
+    expect(await kept("rm_rf")).toEqual({ code: "tool.unknown" });
+    expect(await kept("plain", {})).toEqual({ code: "tool.invalid_input" });
+    expect(await kept("plain")).toEqual({ code: "tool.failed" });
+    expect(await kept("unauthorized")).toEqual({ code: "tool.failed", status: 401 });
+    expect(await kept("no_method")).toEqual({ code: "tool.failed", status: -32601 });
+    expect(await kept("busy")).toEqual({ code: "tool.failed", status: 429 });
+    // Only a whole number is a status, never an error's words; and only an HTTP status or a JSON-RPC error's
+    // reserved code, never some other number an error carries.
+    expect(await kept("worded")).toEqual({ code: "tool.failed" });
+    expect(await kept("aborted")).toEqual({ code: "tool.failed" });
+  });
+
   test("sensitive calls create an approval bound to the exact action; tampering is caught", async () => {
     f = await setup();
     const gh = fakeGithub();

@@ -65,6 +65,9 @@ describe("a device's state, as its chip and the words after it", async () => {
       "with Ana's iMac",
     );
     expect(statusView(t, { kind: "busy", running: 1, max: 1 }, when).label).toBe("Busy 1/1");
+    const dropped = statusView(t, { kind: "offline", lastSeenAt: AT, cause: "dropped" }, when);
+    expect(dropped.label).toBe("Offline");
+    expect(dropped.line).toStartWith("connection dropped at ");
   });
 });
 

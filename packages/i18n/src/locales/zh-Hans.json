@@ -5,6 +5,7 @@
   },
   "common": {
     "close": "关闭",
+    "details": "详情",
     "joinSentences": "{{a}}{{b}}",
     "cantUndo": "此操作无法撤销。",
     "removeName": "移除 {{name}}",
@@ -299,8 +300,8 @@
       "noTalk": "只有{{name}}的人不能与智能体对话。",
       "turnOnTalk": "开启“与智能体对话”",
       "search": "搜索智能体",
-      "notYours": "只有{{name}}的负责人{{owner}}或可以编辑任何智能体的人能更改。",
-      "notYoursNoOwner": "只有可以编辑任何智能体的人能更改。",
+      "notYours": "只有{{name}}的负责人{{owner}}或可以编辑智能体的人能更改。",
+      "notYoursNoOwner": "只有可以编辑智能体的人能更改。",
       "none": "还没有智能体。",
       "noMatch": "没有与“{{q}}”匹配的智能体。"
     },
@@ -380,7 +381,7 @@
     },
     "view_all_agents": {
       "title": "查看所有智能体",
-      "desc": "在团队和侧边栏中。关闭后，只显示会回应此人的智能体。",
+      "desc": "在团队和侧边栏中，但不包括他人的个人智能体。关闭后，只显示会回应此人的智能体。",
       "short": "查看所有智能体",
       "say": "查看所有智能体"
     },
@@ -392,9 +393,9 @@
     },
     "manage_routines": {
       "title": "创建例行工作",
-      "desc": "智能体在设定时间自己完成的工作。",
+      "desc": "智能体在设定时间自己完成的工作，限于此人可以对话的智能体。",
       "short": "创建例行工作",
-      "say": "创建例行工作"
+      "say": "为可对话的智能体创建例行工作"
     },
     "approve_actions": {
       "title": "批准智能体的操作",
@@ -409,10 +410,10 @@
       "say": "创建智能体"
     },
     "manage_agents": {
-      "title": "编辑任意智能体",
-      "desc": "指令、大脑、预算，以及每个智能体使用的东西。",
+      "title": "编辑智能体",
+      "desc": "指令、大脑、预算，以及每个智能体使用的东西，限于此人可以对话的智能体。其他人的私人智能体不在其中。",
       "short": "编辑智能体",
-      "say": "编辑任意智能体"
+      "say": "编辑可对话的智能体"
     },
     "pair_computers": {
       "title": "连接电脑",
@@ -587,6 +588,7 @@
     "hidePassword": "隐藏密码",
     "capsLock": "大写锁定已开启",
     "tooManyTries": "尝试次数过多。请等几分钟后再试。",
+    "passwordTries_other": "此账号的密码尝试次数过多。请在 {{count}} 分钟后重试。",
     "accountBlocked": "这个账号无法登录。",
     "passwordHelp": "至少 8 个字符。",
     "passwordOk": "密码可用。",
@@ -605,6 +607,7 @@
     "termsMiddle": "和",
     "privacy": "隐私政策",
     "termsAfter": "。",
+    "poweredBy": "由 agentes.chat 提供支持",
     "signOut": "退出登录",
     "earlyAccess": {
       "otherEmail": "这个邀请是发给另一个地址的。请使用收到邀请的地址注册。",
@@ -624,7 +627,7 @@
       "change": "更改",
       "password": "欢迎回来。",
       "passwordLead": "请输入密码。",
-      "wrong": "嗯，密码不对。",
+      "wrong": "密码不对。",
       "social": "你通过 {{providers}} 登录。",
       "socialLead": "这个账号没有密码。请在这里继续。",
       "createPassword": "我想设置一个密码",
@@ -743,7 +746,7 @@
     "expiredText": "邀请的有效期为 7 天。",
     "askNew": "请求新的邀请",
     "askedNew": "请求已发送",
-    "askNewFailed": "无法从这里发出请求：这个链接可能已被新的邀请替换或已被取消。请查找最新的邀请邮件，或联系邀请你的人。",
+    "askNewFailed": "无法从这里发出请求。可能有人取消了这个链接，或发送了更新的邀请。请查找最新的邀请邮件，或联系邀请你的人。",
     "from": "由 {{name}} 邀请",
     "crew_other": "{{names}} 在那里工作",
     "crewYours_other": "{{names}} 将和你一起工作",
@@ -1170,13 +1173,115 @@
         "held": "工作区的套餐生效后，即可使用“通过 MCP 连接”。现在请先用这种方式导入智能体。",
         "paused": "此工作区暂停期间，“通过 MCP 连接”不可用。现在请先用这种方式导入智能体。"
       },
+      "haveFileButton": "我有文件或链接",
+      "sheet": {
+        "title": "从 {{app}} 导入团队",
+        "otherTitle": "从其他应用导入",
+        "workspaceTitle": "从另一个工作区导入",
+        "fileTitle": "从文件或链接导入",
+        "fileLead": "支持的任何应用的文件都可以，会自动识别。",
+        "paths": {
+          "lead": "选择导入方式。创建之前，你会先检查所有内容。",
+          "best": "最完整",
+          "safe": "无论选哪种方式，{{app}} 的密钥、密码和会话都不会导入。",
+          "command": {
+            "title": "用一条命令",
+            "line": "全部导入，包括文件和工作流。通过编程助手或终端"
+          },
+          "mcp": {
+            "title": "连接 {{app}}",
+            "line": "它通过 MCP 在这里创建智能体。不含文件和工作流"
+          },
+          "prompt": {
+            "title": "让 {{app}} 导出",
+            "line": "它写下所知道的内容，你粘贴到这里。不含文件和工作流"
+          }
+        },
+        "useRequest": "我想改为粘贴请求，再把回复带回来",
+        "backToMcp": "返回 MCP",
+        "waitingMore": "正在等待后续智能体…",
+        "arrivedMore": "{{app}} 可能还在创建中。之后到达的智能体也会显示在这里。",
+        "arrivedMoreAny": "你的 AI 应用可能还在创建中。之后到达的智能体也会显示在这里。",
+        "readHere": "在你的浏览器中读取。在你确认之前，这里不会有任何改动。",
+        "request": {
+          "grok-bot": {
+            "lead": "机器人会把它拥有的一切写成 JSON。你把它粘贴到这里，在创建任何内容之前先检查。",
+            "copyStep": "粘贴到与机器人的聊天中",
+            "answerStep": "把完整的回复粘贴到这里",
+            "answerPlaceholder": "机器人回复的 JSON"
+          },
+          "chatgpt-dots": {
+            "lead": "你的 dot 会把它拥有的一切写进一个文件。你把文件拖到这里，在创建任何内容之前先检查。",
+            "copyStep": "粘贴到一个新的聊天中",
+            "answerStep": "把它生成的文件拖到这里"
+          },
+          "other": {
+            "copyStep": "粘贴到另一个应用的新对话中",
+            "answerStep": "拖入它返回的文件，或粘贴它的回复",
+            "answerPlaceholder": "回复，或 GitHub 链接"
+          },
+          "computer": {
+            "lead": "{{app}} 的智能体把它知道的内容写进一个文件，创建之前由你检查。",
+            "copyStep": "在与 {{app}} 智能体的对话中，粘贴这个请求",
+            "answerStep": "拖入它生成的文件，或粘贴它的回复",
+            "answerPlaceholder": "{{app}} 的回复"
+          }
+        },
+        "workspace": {
+          "download": "下载另一个工作区的文件",
+          "where": "在那里：设置 › 导入和导出 › 下载文件。",
+          "open": "在新标签页中打开 {{org}}",
+          "drop": "把 .json 拖到这里"
+        },
+        "lead": "你的助手会读取这台电脑上的 {{app}}，并把文件写到你选择的位置。创建任何内容之前，你都会先检查一遍。",
+        "leadCommand": "这条命令会读取这台电脑上的 {{app}}，并把文件写到你选择的位置。创建任何内容之前，你都会先检查一遍。",
+        "pasteAssistant": "把这段粘贴到你的编程助手中",
+        "pasteTerminal": "把这段粘贴到终端中",
+        "pastePowerShell": "把这段粘贴到 PowerShell 中",
+        "promptLabel": "给编程助手的请求",
+        "commandLabel": "命令",
+        "copy": "复制请求",
+        "assistants": "Claude Code、Codex，或其他能在这台电脑上运行命令的助手。",
+        "commandHelp": "它会询问保存位置，然后写入一个文件。不会发送任何内容。",
+        "useCommand": "我想自己运行命令",
+        "usePrompt": "回到给助手的请求",
+        "os": {
+          "label": "这台电脑的系统",
+          "unix": "Mac 或 Linux",
+          "windows": "Windows"
+        },
+        "dropStep": "把它写出的文件拖到这里",
+        "drop": "把文件拖到这里",
+        "dropHelp": "{{file}}，在你选择的文件夹中",
+        "safe": "只读。绝不会读取 {{app}} 中的密钥、密码和登录信息。",
+        "ready_other": "{{count}} 个智能体准备好导入了",
+        "readyOther": "准备好导入了",
+        "others_other": "以及另外 {{count}} 个智能体",
+        "routines_other": "{{count}} 个例行工作",
+        "notes_other": "{{count}} 条记忆",
+        "skills_other": "{{count}} 个技能",
+        "channels_other": "{{count}} 个频道",
+        "files_other": "{{count}} 个智能体的文件，复制到 Drive",
+        "filesSize": "{{size}}。整个工作区都能看到这些文件夹。",
+        "after": "之后各点一下即可",
+        "bring_other": "导入 {{count}} 个智能体",
+        "choose": "选择要带上的内容",
+        "arrivedTitle": "团队到了",
+        "arrived_other": "{{names}} 已经到了。",
+        "arrivedOther_other": "{{count}} 项已经到了。",
+        "copying": "正在把文件复制到 Drive",
+        "copyCount": "{{done}}/{{total}}",
+        "keepOpen": "完成之前，请保持这个标签页打开。",
+        "missed_other": "{{count}} 项没有导入。列表中写明了每一项的原因。",
+        "see": "查看导入的内容"
+      },
       "otherName": "其他应用",
       "agenteschatName": "agentes.chat",
       "where": {
         "openbotrun": "拖入 openbot-import.json（来自 OpenBot 的 Migrator）或 openbot-transfer.json（来自实例迁移），或者包含它的 .zip。",
         "openmausbot": "在 OpenMausBot 中：右键点击团队 → 分享团队… → 保存文件。",
-        "hermes": "在终端中运行 hermes profile export 加上配置文件名，然后把 .tar.gz 拖到这里。也可以拖入 ~/.hermes 文件夹，一次带上所有配置文件。",
-        "openclaw": "拖入整个 ~/.openclaw 文件夹（会带上所有智能体），或者只拖一个工作区。在 Mac 上，在文件选择器中按 ⌘⇧. 可以显示隐藏文件夹。",
+        "hermes": "在终端中运行 `hermes profile export` 加上配置文件名，然后把 .tar.gz 拖到这里。也可以拖入 `~/.hermes` 文件夹，一次带上所有配置文件。",
+        "openclaw": "拖入整个 `~/.openclaw` 文件夹（会带上所有智能体），或者只拖一个工作区。在 Mac 上，在文件选择器中按 ⌘⇧. 可以显示隐藏文件夹。",
         "paperclip": "拖入包文件夹（包含 COMPANY.md 的那个），拖入它的 .zip，或者粘贴它的 GitHub 链接。",
         "agenteschat": "在另一个工作区中：设置 → 导入和导出 → 下载文件。然后把 .json 拖到这里。"
       },
@@ -1287,13 +1392,105 @@
         "app_other": "{{who}} 使用 {{label}}。",
         "secret_other": "{{who}} 使用 {{label}}。它不包含在文件中：智能体会在聊天中向你索要。",
         "model_other": "{{who}} 使用 {{label}}，但它在这里不可用。",
-        "file_other": "{{who}} 使用 {{label}}。"
+        "file_other": "{{who}} 使用 {{label}}。",
+        "webhook_other": "{{who}} 的例行工作 {{label}} 在这里会获得新地址：请在调用旧地址的网站或应用中改成新地址。"
+      },
+      "say": {
+        "intro": "这是从 {{app}} 带过来的工作流“{{title}}”。",
+        "skillAbout": "有人请求时，运行从 {{app}} 带过来的工作流“{{title}}”。",
+        "asked": "在 {{app}} 中它会自动启动。在这里，有人请求时才运行。",
+        "webhook": "有人调用这个例行工作的地址时，它就会开始：收到的内容就是你的输入。",
+        "pr": "GitHub 上有人发起拉取请求时，它就会开始：这个拉取请求就是你的输入。",
+        "prIn": "GitHub 上的 {{repos}} 中有人发起拉取请求时，它就会开始：这个拉取请求就是你的输入。如果它来自其他仓库，就停下，什么都不要发。",
+        "text": "从这段文字开始：“{{text}}”",
+        "keep": "（请记住：{{text}}）",
+        "ask": "带上你目前已有的内容，向 @{{handle}} 提出：“{{task}}”，然后使用它的回答。",
+        "image": "生成一张图片：{{prompt}}",
+        "video": "生成一段视频：{{prompt}}",
+        "if": "如果“{{rule}}”的答案是“是”，就继续。",
+        "otherwise": "否则：",
+        "stop": "否则，就在这里停下，什么都不要发。",
+        "approval": "继续之前，先在聊天中请你的负责人审批：“{{question}}”",
+        "approvalPlain": "继续之前，先在聊天中请你的负责人审批。",
+        "channel": "把结果发到 #{{channel}}。",
+        "notify": "把结果发给你的负责人。",
+        "file": "把结果作为文件保存到 Drive。",
+        "githubComment": "把结果作为评论发到 GitHub 上。",
+        "githubDo": "在 GitHub 上，用结果完成这件事：{{action}}。",
+        "pass": "完成后，把你的回答交给 @{{handle}}：{{instruction}}",
+        "passPlain": "完成后，把你的回答交给 @{{handle}}。"
+      },
+      "choose": {
+        "who": "带上谁",
+        "with": "随它们一起带上的内容",
+        "flows": "工作流",
+        "agentOnly": "连同原应用中的指令",
+        "same": "这里已有相同的内容",
+        "of": {
+          "routine_other": "{{picked}}/{{count}} 个例行工作",
+          "skill_other": "{{picked}}/{{count}} 个技能",
+          "note_other": "{{picked}}/{{count}} 条记忆",
+          "channel_other": "{{picked}}/{{count}} 个频道"
+        },
+        "files_other": "{{count}} 个文件，复制到 Drive",
+        "paused_other": "{{count}} 个会像原来一样以暂停状态导入",
+        "pausedOne": "以暂停状态导入",
+        "here_other": "{{count}} 个已经在这里了",
+        "library": "来自技能库，供你开启的智能体使用",
+        "passes": "把回答交给 {{names}}",
+        "webhook": "新地址",
+        "pr": "有人发起拉取请求时",
+        "routine": "例行工作",
+        "skill": "技能",
+        "asked": "有人请求时运行",
+        "was": {
+          "schedule": "在原应用中有无法读取的时间安排，在这里，有人请求时运行",
+          "webhook": "在原应用中通过一个地址触发，在这里，有人请求时运行",
+          "message": "在原应用中由消息触发，在这里，有人请求时运行",
+          "github": "在原应用中由 GitHub 触发，在这里，有人请求时运行",
+          "discord": "在原应用中由 Discord 触发，在这里，有人请求时运行",
+          "telegram": "在原应用中由 Telegram 触发，在这里，有人请求时运行",
+          "slack": "在原应用中由 Slack 触发，在这里，有人请求时运行",
+          "other": "在原应用中自动启动，在这里，有人请求时运行"
+        },
+        "flowsLead": "在这里，工作流会变成例行工作：触发条件就是它的运行时机，步骤写进请求内容。",
+        "becomesRoutine": "变成由 {{agent}} 运行的例行工作，步骤写在它的请求内容里。",
+        "becomesSkill": "变成 {{agent}} 在有人请求时使用的技能，步骤写在技能里。",
+        "postsIn": "在 #{{channel}} 发帖。",
+        "step": {
+          "when": "例行工作的运行时机",
+          "asked": "有人请求时",
+          "text": "从文本开始",
+          "by": "应 {{name}} 的请求",
+          "image": "图片",
+          "video": "视频",
+          "if": "如果",
+          "stop": "继续，否则停止",
+          "else": "继续，否则：",
+          "approval": "在聊天中请求审批",
+          "channel": "在 #{{channel}} 发帖",
+          "notify": "把结果发给你",
+          "file": "保存到 Drive",
+          "github": "在 GitHub 上",
+          "lost": {
+            "file": "原应用中的一个文件",
+            "slack": "在 Slack 发帖",
+            "discord": "在 Discord 发帖",
+            "telegram": "在 Telegram 发帖",
+            "messaging": "在即时通讯聊天中发帖"
+          },
+          "notHere": "不会带上"
+        },
+        "bringWith_other": "导入 {{count}} 个智能体和{{more}}",
+        "more_other": "另外 {{count}} 项",
+        "notComing": "即时通讯连接（{{list}}）不会带上：这里没有可以连接它们的地方。"
       },
       "needDo": {
         "connection": "连接",
         "app": "连接",
         "model": "选择模型",
-        "file": "打开 Drive"
+        "file": "打开 Drive",
+        "webhook": "打开例行工作"
       },
       "linkSkipped_other": "{{count}} 个文件超出了链接的上限",
       "linkSkippedHelp": "一个链接最多读取 200 个文件和 8 MB。要带上其余内容，请下载文件夹并拖到这里。",
@@ -1774,7 +1971,7 @@
     "riskyOn": "这些也由此人决定。",
     "lock": "始终由你决定：资金、成员与角色、AI 密钥、你的邮箱和删除。",
     "coveringTitle": "你替这些人审批",
-    "coveringSubtitle": "发给这些人的请求也会发给你，由你以他们的名义决定。绝不包括你自己提出的请求。",
+    "coveringSubtitle": "发给这些人的请求也会发给你，由你以他们的名义决定，但你自己提出的请求除外。",
     "coveringWhileOut": "此人外出时",
     "coveringUntil": "截至 {{date}}",
     "coveringNow": "正在代审",
@@ -1820,6 +2017,7 @@
     "phone": "手机",
     "phoneOn": "在手机应用中，锁屏时也会收到",
     "phoneOff": "请在手机应用中开启",
+    "phoneOpen": "打开",
     "mac": "Mac 应用",
     "macHelp": "应用打开时，即使在后台也会收到",
     "on": "开启",
@@ -1944,7 +2142,7 @@
       "help": "账号不变，workspace 和套餐也都不变。",
       "change": "更改邮箱",
       "sent": "我们已向 {{email}} 发送链接。打开链接后邮箱就会更改。",
-      "changed": "完成：现在用 {{email}} 登录。",
+      "changed": "现在用 {{email}} 登录。",
       "same": "这已经是你的邮箱。",
       "noMail": "此服务器不发送邮件，所以无法确认新地址。请让服务器的管理员设置邮件发送。",
       "held": "这个邮箱刚离开另一个账号，会为它保留 7 天。请换一个邮箱。",
@@ -2131,6 +2329,56 @@
     "localOnly": "这台服务器只能在运行它的电脑上打开，所以你的手机无法访问它。",
     "localOnlyHow": "在那台电脑的 agentes.chat 应用中，打开偏好设置 › 服务器里的“从你的手机和队友那里访问”，然后回到这里。",
     "localOnlyHere": "打开“从你的手机和队友那里访问”，然后回到这里。"
+  },
+  "surface": {
+    "link": {
+      "consent": "agentes.chat 的 {{assistant}} 可能会在 {{surface}} 上给你发关于你的工作区的消息，只有在事情紧急且你允许时才会给你打电话。发送 stop 即可关闭。",
+      "title": "在{{surface}}上和{{assistant}}聊天",
+      "qr": "打开{{surface}}并填好你的代码的二维码",
+      "making": "正在生成你的代码",
+      "code": "你的代码 {{code}}",
+      "open": "打开{{surface}}",
+      "stepScan": "用手机扫描代码，或打开应用",
+      "stepSend": "按原样发送这条消息",
+      "stepSendText": "你的消息一到，就会自动进入下一步。",
+      "stepConfirm": "核对发送者并在这里确认",
+      "showCode": "再次显示代码",
+      "confirmTitle": "这是你的{{surface}}吗？",
+      "sentBy": "这个发送者发来了你的代码",
+      "onlyYou": "只有这是你本人时才关联。",
+      "workspace": "在{{workspace}}中回复",
+      "confirm": "是，关联",
+      "notMe": "不是我",
+      "doneTitle": "{{surface}}已关联",
+      "doneText": "从现在起，{{assistant}}会在那里回复你。",
+      "newCode": "生成新代码",
+      "done": "完成"
+    },
+    "row": {
+      "hint": "和{{assistant}}聊天，并在{{surface}}上收到回复。",
+      "link": "关联",
+      "none": "{{assistant}}可以在那里给你发消息",
+      "pending": "有发送者在等你确认",
+      "unlink": "取消关联",
+      "unlinkTitle": "要取消关联{{surface}}吗？",
+      "unlinkText": "{{assistant}}将不再在那里回复你。你随时可以重新关联。",
+      "unlinked": "已取消关联{{surface}}"
+    },
+    "undo": {
+      "title": "要取消关联聊天应用吗？",
+      "lead": "你的账号刚刚关联了一个聊天应用。如果不是你，请在这里取消关联。",
+      "button": "取消关联",
+      "done": "已取消关联{{surface}}",
+      "doneLead": "{{display}}再也无法联系到你的账号。",
+      "ended": "已经取消关联",
+      "endedLead": "{{surface}}上的{{display}}之前已取消关联。无需再做什么。",
+      "gone": "这个撤销链接已失效",
+      "sender": "该发送者"
+    },
+    "via": "通过 {{surface}}",
+    "viaTip": "由 {{person}} 通过 {{surface}} 发送",
+    "forwarded": "通过 {{surface}} 转发",
+    "forwardedTip": "{{person}} 从 {{surface}} 转发了这条消息。这是别人的话。"
   },
   "team": {
     "title": "团队",
@@ -2339,7 +2587,8 @@
     "header": {
       "pins": "置顶消息",
       "showMembers": "显示成员",
-      "hideMembers": "隐藏成员"
+      "hideMembers": "隐藏成员",
+      "more": "更多选项"
     },
     "membersButton_other": "频道成员（{{count}}）",
     "membersAgents": "智能体",
@@ -2355,11 +2604,10 @@
     "reply": "回复",
     "quoteOf": "回复 {{name}}：{{excerpt}}。查看消息",
     "quoteGone": "原消息已删除",
-    "jumpTooFar": "这条消息太久远,无法从这里打开。",
     "quoteNoWords": "无文字消息",
     "replyingTo": "正在回复 {{name}}",
     "cancelReply": "取消回复",
-    "jumpMissing": "无法在此处跳转到该消息。它可能已被删除或过于久远。",
+    "jumpMissing": "这条消息不可用。它可能已被删除,或者你无权查看。",
     "emoji": "表情",
     "uploading": "上传中…",
     "uploadFailed": "未上传",
@@ -2488,13 +2736,12 @@
     "failed_other": "{{names}} 无法回答",
     "asking_other": "{{names}} 正在等待回答",
     "outage_other": "{{names}}：AI 服务商出现故障 · 会自动重试",
-    "queued_other": "{{names}} 正在排队等待电脑",
+    "queued_other": "{{names}} 正在排队",
     "away_other": "{{names}} 正在等待电脑",
     "plan_other": "{{names}} 正在等待套餐",
     "budget_other": "{{names}} 将在预算更新后回答",
     "line_other": "其他工作结束后 {{names}} 就会开始",
     "canceled_other": "{{names}} 不会回答",
-    "queuedNext": "{{names}} 正在电脑的队列中 · 下一个",
     "nobody": "没有智能体会回答",
     "status": {
       "seen": "已看到",
@@ -2503,7 +2750,7 @@
       "waiting": "等待审批",
       "asking": "等待回答",
       "outage": "AI 服务商出现故障 · 会自动重试",
-      "queued": "排队等待电脑",
+      "queued": "排队中",
       "away": "等待电脑",
       "plan": "正在等待套餐",
       "budget": "预算更新后回答",
@@ -2543,8 +2790,25 @@
     }
   },
   "rightHand": {
+    "brain": {
+      "unusable": {
+        "title": "需要一台电脑",
+        "computerOnly": "属于 {{owner}}，仅在 {{computer}} 上登录。Lodi 使用以账号登录的方案思考。",
+        "noComputer": "属于 {{owner}}。需要一台电脑，而工作区还没有连接任何电脑。",
+        "away": "属于 {{owner}}，在 {{computer}} 上，该电脑当前离线。",
+        "connect": "连接电脑",
+        "plans": "查看方案"
+      }
+    },
     "label": "你的得力助手",
     "labelCapitalized": "你的得力助手",
+    "unusable": {
+      "title": "现在无法替{{name}}思考",
+      "computerOnly": "仅在{{computer}}上登录。{{name}}使用以账号登录的套餐思考。",
+      "away": "{{owner}}的，在{{computer}}上，当前离开。",
+      "awayYours": "你的，在{{computer}}上，当前离开。",
+      "connect": "连接一台电脑"
+    },
     "newDot": "新",
     "actsAsYou": "以你的权限行事",
     "composerHint": "没有你，什么都不会变",
@@ -2650,6 +2914,7 @@
     "sharedName": "{{name}}(共享)",
     "sharedPlace": "用于频道和自动运行的工作。整个工作区共用这个空间。请不要在这里存放任何私密内容。",
     "computerNoHome": "还没有电脑。等这个工作区有了自己的电脑后，它就会有一台。",
+    "computerNoHomeServer": "还没有浏览器。将<guide>此服务器设为智能体的电脑</guide>即可获得一个。",
     "addComputer": "添加电脑",
     "computerOneUser": "这里没有电脑。工作区的电脑让所有智能体以同一个用户运行，无法把每个人的空间分开。用安装程序的 --system 选项安装的 Linux 服务器可以做到。",
     "powers": {
@@ -2692,7 +2957,7 @@
         "delete": "只有管理员能删除智能体",
         "audience": "只有管理员和负责人能更改谁能和它交谈",
         "channels": "只有管理员和负责人能更改它的频道",
-        "skill": "只有管理员能更改智能体的技能",
+        "skill": "只有能编辑该智能体的人能更改它的技能",
         "ai_account": "只有账户所有者能分配它",
         "name": "只有管理员能重命名智能体",
         "look": "只有管理员和负责人能更改它的外观",
@@ -2827,15 +3092,16 @@
     "approvals": {
       "title_other": "{{name}} 的 {{count}} 个请求在等你",
       "line": "从 {{since}} 起在等。",
-      "action": "查看并批准",
-      "hide": "收起"
+      "action": "查看并批准"
     },
     "budget": {
       "title": "{{name}} 的预算：{{from}} → {{to}}",
+      "item": "预算：{{from}} → {{to}}",
       "line_other": "本月 {{count}} 次停在上限。"
     },
     "channel": {
       "title": "把 {{name}} 加入 #{{channel}}",
+      "item": "加入 #{{channel}}",
       "line": "{{name}} 不在任何频道里，所以这一周没人和它说话。"
     },
     "unanswered": {
@@ -2847,6 +3113,7 @@
     },
     "routine": {
       "title": "{{name}} 的例行任务：每天 {{time}}",
+      "item": "例行任务：每天 {{time}}",
       "line_other": "本周你有 {{count}} 天都这样要求过：“{{text}}”",
       "action": "创建例行任务",
       "done": "例行任务已创建"
@@ -2855,6 +3122,9 @@
       "title": "{{name}} 学会了：{{what}}",
       "line": "已使用 {{uses}} 次。要做成技能吗？",
       "action": "做成技能",
+      "uses": "已使用 {{uses}} 次",
+      "group_other": "{{name}} 学会了 {{count}} 种工作方法",
+      "applyAll_other": "做成 {{count}} 个技能",
       "done": "已确认"
     },
     "stalled": {
@@ -2886,11 +3156,13 @@
     },
     "retire": {
       "title": "归档 {{name}}",
+      "item": "归档",
       "line": "4 周没有工作，没有例行任务，也没有未完成的任务。",
       "action": "归档"
     },
     "model": {
       "title": "{{name}} 可以使用 {{to}}。",
+      "item": "可以使用 {{to}}",
       "line": "目前使用 {{from}}。"
     },
     "skip": "忽略",
@@ -2966,7 +3238,7 @@
       "opencode": "OpenCode 无法在这台电脑上思考。请在 {{name}} 的页面连接一个 OpenCode 密钥。"
     },
     "card": {
-      "connected": "完成：{{name}} 现在有 AI 了。",
+      "connected": "{{name}} 现在有 AI 了。",
       "answerNow": "立即回复",
       "answering": "{{name}} 正在回复…",
       "stillMissing": "{{name}} 仍未连接 AI。"
@@ -3001,7 +3273,7 @@
         "ended": "工作区重新订阅 agentes.chat 后，我会在这里回复。"
       },
       "askAdmin": "管理员处理好 agentes.chat 套餐后，我会在这里回复。",
-      "plan": "套餐包含智能体的电脑，始终开机。AI 用的是你已经付费的：Claude、ChatGPT 等，或 API 密钥。",
+      "plan": "套餐包含智能体的电脑。AI 用的是你已经付费的：Claude、ChatGPT 等，或 API 密钥。",
       "activeTitle": "套餐已生效",
       "activeLine": "连接 AI 后，{{name}} 会在这里回复。",
       "receipt": "已保留",
@@ -3043,10 +3315,12 @@
     "titleFor_female": "为 {{name}} 连接 AI",
     "have": {
       "title": "已连接",
-      "titleFor": "已为 {{name}} 连接",
-      "titleFor_female": "已为 {{name}} 连接",
       "other": "或连接其他",
-      "manageKeys": "管理或删除密钥"
+      "manageKeys": "管理或删除密钥",
+      "pickLine": "选择一个已在这里连接的账号。{{name}} 会用它思考。",
+      "onlyOwner_other": "还有 {{count}} 个账号，只有 {{name}} 能提供。",
+      "moreAgents_other": "以及另外 {{count}} 个智能体",
+      "plenty": "余量充足"
     },
     "chat": {
       "mine": "你的账号",
@@ -3138,7 +3412,7 @@
       "gemini": {
         "title": "你的 Gemini 套餐",
         "tiers": "Google AI Pro、Google AI Ultra 或 Gemini Enterprise",
-        "warning": "Google 表示，在其他应用中使用个人 Gemini 套餐可能导致账号被停用。"
+        "warning": "Google 表示，在其他应用中使用个人 Gemini 套餐可能导致账号被停用。为避免这一风险，请使用 Gemini API 密钥或 Gemini Enterprise。"
       },
       "zen": {
         "title": "OpenCode",
@@ -3173,7 +3447,7 @@
       "useForAll": "为所有人使用此密钥",
       "untested": "{{name}} 的模型还没有通过测试。",
       "testModels": "测试模型",
-      "savedUnchecked": "已保存，但 {{provider}} 没有回应，因此无法检查这个密钥。如果它失败，对话里会说明原因。",
+      "savedUnchecked": "已保存，但 {{provider}} 没有回应，因此我们无法检查这个密钥。如果它失败，对话里会说明原因。",
       "closed": "API 密钥随工作区的 agentes.chat 套餐开放。",
       "notPlan": "编程套餐的密钥请填在上方它自己的选项里。",
       "billing": "请为密钥所属的项目开通结算。不开通结算的话，Google 可能会使用你的智能体发送的内容。",
@@ -3227,6 +3501,13 @@
     "onceHint": "它们共享你套餐的用量上限。",
     "use": "使用 {{label}}",
     "another": "其他账号",
+    "which": {
+      "title": "{{name}} 要用哪个 {{brand}} 账号？",
+      "title_female": "{{name}} 要用哪个 {{brand}} 账号？",
+      "titleAll": "他们要用哪个 {{brand}} 账号？",
+      "mine": "你在 {{computer}} 上的 {{brand}} 账号",
+      "other": "用另一个 {{brand}} 账号登录"
+    },
     "reuse": {
       "active": "你在这里已经有 {{label}}。重新登录它，或使用其他账号。",
       "signedOut": "{{label}} 在这里已退出登录。重新登录后，它的智能体会继续使用它。"
@@ -3256,11 +3537,13 @@
   },
   "keyGuard": {
     "title": "这看起来像一个 API 密钥",
-    "text": "聊天中的所有内容，成员和智能体都能看到。请改为保存成工作区密钥：它会被加密，谁也看不到。",
-    "textMember": "聊天中的所有内容，成员和智能体都能看到。密钥就像密码一样。",
-    "save": "保存为密钥",
+    "titleSecret": "这看起来像一个密钥或密码",
+    "vaultText": "聊天里的内容人和智能体都能看到。把它存进 Vault：它会被加密，你允许的智能体使用时看不到它。",
+    "vault": "保存到 Vault",
+    "useAsAi": "用作 AI 密钥",
     "remove": "删掉它",
-    "send": "仍然发送"
+    "send": "仍然发送",
+    "saved": "有权限的智能体以 {{name}} 这个名字使用它。"
   },
   "costlyCard": {
     "go": "可以做",
@@ -3304,7 +3587,7 @@
   },
   "brakes": {
     "title": "没人要求的工作",
-    "subtitle": "它因为例程、警报或其他智能体而自己开始的工作。人要求的事从不会被拦下。",
+    "subtitle": "它因为例程、警报或其他智能体而自己开始的工作。",
     "costly": "做高成本工作前先问",
     "costlyHelp": "在打开拉取请求、安装软件包或开始长时间任务之前，它会先问负责人。",
     "costlyAsk": "先问",
@@ -3366,9 +3649,7 @@
     "dontRunForbidden": "只有提出请求的人、智能体的负责人或管理员可以取消",
     "answerAnyway": "仍然回复",
     "answerAnywayHint": "读完之后发的所有内容，现在回复",
-    "answerAnywayForbidden": "只有提出请求的人、智能体的负责人或管理员可以这样要求",
-    "extraTitle": "长时间工作可以使用付费的额外用量",
-    "extraHint": "如果套餐开启了额外用量，长时间工作在超过 95% 后仍会继续。关闭时，会在 95% 时暂停，并在套餐重置后继续。"
+    "answerAnywayForbidden": "只有提出请求的人、智能体的负责人或管理员可以这样要求"
   },
   "usageQueue": {
     "back": "{{agent}} {{when}}回来",
@@ -3377,6 +3658,7 @@
     "resuming": "{{agent}} 正在继续",
     "shared_other": "{{agents}} 也在用同一个 {{plan}} 套餐。所有对话都进入同一个队列。",
     "about": "关于队列",
+    "chain": "{{plan}} 的 {{accounts}} 个账号都已达限额。",
     "lists": "对话",
     "queuedTab": "排队中",
     "skippedTab": "已跳过",
@@ -3446,7 +3728,6 @@
       "aiAccount": "使用 {{account}} 思考",
       "aiModel": "通过 API 思考",
       "aiNone": "还没有 AI。创建后再连接一个",
-      "reviewTitle": "查看 {{name}}",
       "lines": "{{name}} 将获得",
       "aChannel": "一个频道",
       "anApp": "一个应用",
@@ -3495,10 +3776,10 @@
     "added": "{{name}} 已加入频道。",
     "allow": "允许 {{person}} 与他对话",
     "allow_female": "允许 {{person}} 与她对话",
-    "allowed": "完成：{{person}} 现在可以与 {{name}} 对话了。",
+    "allowed": "{{person}} 现在可以与 {{name}} 对话了。",
     "allowMe": "让我也能和他对话",
     "allowMe_female": "让我也能和她对话",
-    "allowedMe": "好了：你现在可以和 {{name}} 对话了。",
+    "allowedMe": "你现在可以和 {{name}} 对话了。",
     "mailLossTitle": "移除邮箱访问权限？",
     "mailLoss": "{{name}} 可以访问 {{owners}} 的邮箱。能和他对话的人变多后，他们可能会通过他接触到这些邮件，所以这项访问权限会被移除。连接该邮箱的人可以重新授予。",
     "mailLoss_female": "{{name}} 可以访问 {{owners}} 的邮箱。能和她对话的人变多后，他们可能会通过她接触到这些邮件，所以这项访问权限会被移除。连接该邮箱的人可以重新授予。",
@@ -3841,7 +4122,7 @@
     "former": "已不在此工作区",
     "askAccess": "申请访问",
     "detailsHiddenTitle": "工作方式",
-    "detailsHidden": "只有 {{name}} 回复的人、负责人和管理员能看到它的指令、工具、记忆和用量。"
+    "detailsHidden": "只有 {{name}} 回复的人、能编辑它的人、负责人和管理员能看到它的指令、工具、记忆和用量。"
   },
   "presence": {
     "online": "在线",
@@ -3918,7 +4199,7 @@
       "waiting_approval": "等待审批",
       "waiting_answer": "等待回复",
       "waiting_computer": "等待电脑",
-      "queued_computer": "排队等待电脑",
+      "queued_computer": "排队中",
       "waiting_plan": "正在等待套餐",
       "waiting_budget": "等待预算重置",
       "provider_down": "AI 服务商出现故障 · 会自动重试",
@@ -4066,6 +4347,7 @@
     "seeNewer": "查看更新的请求",
     "computerAway": "{{agent}} 的电脑目前没有响应。此请求在 {{time}} 前保持开放。请稍后重试。",
     "computerPaused": "{{agent}} 的电脑已被所有者暂停。此请求在 {{time}} 前保持开放。",
+    "insecureContext": "此页面不是通过 https 打开的,因此浏览器无法锁定密钥。请通过 https://(或 localhost)打开。",
     "failed": "无法送达。智能体的电脑开着吗？",
     "changed": "你回复时此请求已更改。未发送任何内容。请重新发送。",
     "empty": "请输入值。",
@@ -4186,7 +4468,7 @@
     "error": {
       "title": "请给它起个名字。",
       "website": "请使用 https 地址，例如 app.example.com。",
-      "keyName": "请使用大写字母、数字和 _，并以字母开头，例如 ACME_API_KEY。",
+      "keyName": "请使用大写字母、数字和 _，并以字母开头，例如 `ACME_API_KEY`。",
       "password": "请输入密码。",
       "value": "请输入值。",
       "contact": "请至少填写一项。"
@@ -4334,7 +4616,7 @@
       "show": "显示 {{name}} 的值",
       "hide": "隐藏 {{name}} 的值",
       "problem": {
-        "name": "名称需类似 ACME_API_KEY",
+        "name": "名称需类似 `ACME_API_KEY`",
         "reserved": "保留名称",
         "empty": "没有值",
         "tooLarge": "值太大"
@@ -4830,6 +5112,7 @@
       "joinRequest_other": "{{name}} 等人申请加入",
       "joinRequestNames": "{{names}} 申请加入",
       "joinSuggestion": "{{by}} 推荐了 {{name}}",
+      "joinOutside": "{{name}} 申请以 {{outsideOf}} 外部协作者身份加入，不占用席位",
       "doing": {
         "merge": "合并",
         "deploy": "部署",
@@ -4886,6 +5169,7 @@
       "joinRequest": "<b>{{name}}</b> 申请加入",
       "joinRequestMany": "<b>{{names}}</b> 申请加入",
       "joinSuggestion": "<b>{{by}}</b> 推荐了 <b>{{name}}</b>",
+      "joinOutside": "<b>{{name}}</b> 申请以 <b>{{outsideOf}}</b> 外部协作者身份加入，不占用席位",
       "changeRequest": "<b>{{name}}</b> 请求更改 <b>{{agent}}</b>",
       "proposalWaiting": "来自 <b>{{names}}</b> 的改进提议",
       "changeRequestAgent": "<b>{{name}}</b> 请求新的智能体：<b>{{agent}}</b>",
@@ -5315,12 +5599,12 @@
         "accountAlso": "{{agents}} 也在使用",
         "accountOf": "{{name}} 的",
         "accountOthers": "服务整个 workspace 的套餐会显示属于谁。",
+        "movesOn": "达到限额时改用下一个账号",
+        "pinned": "仅此账号",
+        "pinnedHint": "达到限额时，等这个账号重置，而不是改用下一个。",
         "addAccount": "添加账号",
         "signInAgain": "重新登录",
         "connectPlan": "连接其他套餐",
-        "fallbackTitle": "{{computer}} 无响应时，通过 API 回复",
-        "fallbackHint": "将通过 API 回复，并计入 {{name}} 的预算。否则 {{name}} 会告知提出请求的人，并等待电脑恢复。",
-        "fallbackHint_female": "将通过 API 回复，并计入 {{name}} 的预算。否则 {{name}} 会告知提出请求的人，并等待电脑恢复。",
         "effort": "投入程度",
         "efforts": {
           "auto": "自动",
@@ -5353,7 +5637,8 @@
         },
         "speedText": "在对话中回复更快，套餐额度消耗速度为 2.5 倍。例行工作和长任务仍按标准速度。",
         "modelLine": {
-          "opus": "能力最强，套餐额度消耗更快。",
+          "fable": "能力最强，套餐额度消耗快得多。",
+          "opus": "能力很强，套餐额度消耗更快。",
           "sonnet": "均衡，几乎适合所有场景。",
           "haiku": "快速轻量，适合简单任务。"
         },
@@ -5381,8 +5666,7 @@
           "effort": "投入程度：{{level}}",
           "speed": "速度：快速",
           "context": "上下文：{{size}}",
-          "sharing": "回复其他成员",
-          "waits": "等待电脑"
+          "sharing": "回复其他成员"
         },
         "copy": {
           "row": "用于其他智能体",
@@ -5520,7 +5804,6 @@
           "wait": "等待",
           "modelTitle": "{{name}} 的模型",
           "moreTitle": "{{name}} 的更多选项",
-          "fallback": "套餐停止时使用 API 密钥",
           "computer": "电脑",
           "doneTitle": "都好了",
           "doneSub": "进行中的工作会用新账号继续。",
@@ -5623,6 +5906,7 @@
       "budget": "预算",
       "owner": "所有者",
       "audience": "谁可以对话",
+      "editors": "谁可以编辑",
       "channels": "频道",
       "machine": "电脑",
       "brain": "思考方式",
@@ -5659,13 +5943,10 @@
       "memberOwner": "你可以查看 {{name}} 的工作方式。可编辑的人：管理员和 {{owner}}（所有者）。",
       "memberOwner_female": "你可以查看 {{name}} 的工作方式。可编辑的人：管理员和 {{owner}}（所有者）。",
       "memberOwnerPersonal": "你可以查看 {{name}} 的工作方式。可编辑的人：{{owner}}（所有者）和管理这里的人。",
-      "owner": "你是 {{name}} 的所有者：你可以更改形象、谁可以对话、频道和电脑。其余的只有管理员可以更改。",
-      "owner_female": "你是 {{name}} 的所有者：你可以更改形象、谁可以对话、频道和电脑。其余的只有管理员可以更改。",
-      "ownerKeeper": "你是 {{name}} 的所有者：你可以更改形象、谁可以对话、群组对话和电脑。其余的只有 {{keeper}} 可以更改。",
-      "ownerPersonal": "你是 {{name}} 的所有者：你可以更改形象、谁可以对话、群组对话和电脑。其余的只有管理这里的人可以更改。",
-      "ownerInstructions": "只有管理员可以编辑指令。作为所有者，由你批准提议的更改。",
-      "ownerInstructionsKeeper": "只有 {{keeper}} 可以编辑指令。作为所有者，由你批准提议的更改。",
-      "ownerInstructionsPersonal": "只有管理这里的人可以编辑指令。作为所有者，由你批准提议的更改。",
+      "owner": "你是 {{name}} 的所有者：你可以更改指令、角色、技能、形象、谁可以对话或编辑、频道和电脑。其余的只有管理员可以更改。",
+      "owner_female": "你是 {{name}} 的所有者：你可以更改指令、角色、技能、形象、谁可以对话或编辑、频道和电脑。其余的只有管理员可以更改。",
+      "ownerKeeper": "你是 {{name}} 的所有者：你可以更改指令、角色、技能、形象、谁可以对话或编辑、群组对话和电脑。其余的只有 {{keeper}} 可以更改。",
+      "ownerPersonal": "你是 {{name}} 的所有者：你可以更改指令、角色、技能、形象、谁可以对话或编辑、群组对话和电脑。其余的只有管理这里的人可以更改。",
       "ownerAccess": "只有管理员可以授予或收回权限和仓库。",
       "ownerAccessKeeper": "只有 {{keeper}} 可以授予或收回权限和仓库。",
       "ownerAccessPersonal": "只有管理这里的人可以授予或收回权限和仓库。"
@@ -5792,14 +6073,14 @@
       "forgotten": "已忘记。如需恢复，可在“已归档”中找到。",
       "saved": "已保存，现在算作已验证。",
       "rules": "大家定下的规则",
-      "rulesNote": "对定下规则的人的所有工作都适用，不论请求来自哪里。负责人或管理员的规则对所有人都适用。",
+      "rulesNote": "每条规则都适用于为定下它的人所做的工作，不论请求来自哪里。负责人或管理员的规则对所有人都适用。",
       "rulesNoteRightHand": "你在私信里定下的规则只对你适用。只有你能看到。",
       "ruleBy": "{{name}} · {{date}}",
       "removeRule": "移除",
       "ruleRemoved": "规则已移除。如需恢复，可在“已归档”中找到。",
       "playbook": "{{name}} 的工作方式",
       "playbook_female": "{{name}} 的工作方式",
-      "playbookNote": "它为自己保留的工作方法。不会出现在聊天中。从外部获得且再也没用过的会自动移走，保留在“已归档”中。",
+      "playbookNote": "它为自己保留的工作方法。不会出现在聊天中。从外部获得且再也没用过的会自动移到“已归档”。",
       "details": "技术细节",
       "skills": "它创建的技能",
       "skillUses_other": "已加载 {{count}} 次",
@@ -5883,12 +6164,13 @@
         "computer_busy": "电脑一直忙于其他任务。",
         "computer_failed": "电脑遇到问题，已停止。",
         "computer_timeout": "电脑响应时间过长。",
+        "disk_full": "这台电脑的磁盘已满。请删除上面不再需要的文件（腾出一点空间后，智能体也能帮你删除），或请管理员释放空间。",
         "cli_failed": "因为出错，{{brain}} 程序已停止：{{detail}}",
         "cli_stopped": "因为出错，{{brain}} 程序已停止。",
         "cli_closed": "程序 {{brain}} 意外关闭。",
         "cli_sandbox": "程序 {{brain}} 无法在这台电脑上启动它的沙盒。请在智能体设置中选择其他 AI。",
         "account_missing": "为这个智能体选择的账号已不在它的电脑上。请在智能体设置中选择另一个账号，或重新添加。",
-        "windows_sandbox": "这台 Windows 电脑无法隔离 Codex 的命令：需要 Windows 11 24H2 或更高版本。",
+        "windows_sandbox": "这台 Windows 电脑无法隔离 Codex 的命令：需要 Windows 11 24H2 或更高版本。请更新 Windows，为这个智能体选择 Claude 或 API 密钥，或把它移到一台 Linux 电脑上。",
         "our_error": "我们这边出了点问题，任务已停止。请稍后再提一次。",
         "unknown": "失败。"
       }
@@ -5912,6 +6194,7 @@
       "budget": "预算",
       "owner": "所有者",
       "audience": "谁可以对话",
+      "editors": "谁可以编辑",
       "channels": "频道",
       "computer": "电脑",
       "danger": "归档或删除",
@@ -6304,7 +6587,7 @@
         "done": "我在读取 {{apps}}",
         "doneNone": "暂时没有应用",
         "title": "工作用的应用",
-        "desc": "刚建好的团队会用到的排在前面。读取不会改变任何东西，发送、删除和付款需要你的批准。",
+        "desc": "读取不会改变任何东西。发送、删除和付款需要你的批准。",
         "connect": "连接",
         "all": "查看所有应用",
         "todoPersonal": "连接你的应用。",
@@ -6614,6 +6897,7 @@
     "modelAndCost": "模型和费用",
     "model": "模型",
     "modelDesc": {
+      "fable": "能力最强，适合最难的工作",
       "sonnet": "适合大多数情况",
       "opus": "长时间、高难度的任务",
       "haiku": "快速又便宜",
@@ -6699,7 +6983,6 @@
     "adminsOnlyPersonal": "请管理这里的人允许你创建智能体。",
     "proposalClosed": "这个提议已经有了决定或已过期。",
     "proposalNoAccess": "只有所在对话中的人能看到这个提议。",
-    "backToChat": "返回对话",
     "and": "和",
     "routine": "例行工作",
     "routineKeep": "创建例行工作 {{name}}",
@@ -6874,6 +7157,51 @@
     "otherSkill": "其他技能",
     "namesLead": "试试",
     "namesRoll": "换一批名字",
+    "proposal": {
+      "lead": "调整 {{name}} 的提议。之后都可以修改。",
+      "leadNarrow": "{{name}} 的提议：{{why}}",
+      "side": "提议",
+      "from": "{{name}} 提议",
+      "changed": "你改了什么",
+      "changedNone": "还没有。你在卡片上的修改会显示在这里，可以撤销。",
+      "undo": "撤销",
+      "changes": {
+        "changed": "已修改",
+        "added": "已添加",
+        "removed": "已移除",
+        "how": "工作方式"
+      },
+      "firstTask": "第一个任务",
+      "firstTaskPlaceholder": "先让它做什么（可选）",
+      "firstTaskHint": "会在你和 {{name}} 的对话里备好，直接发送即可。",
+      "firstTaskHintBlank": "会在你和它的对话里备好，直接发送即可。",
+      "firstTaskNone": "没有任务时，对话打开是空的。",
+      "after": "创建之后",
+      "afterAi": "连接一个 AI，让 {{name}} 能思考",
+      "afterAiBlank": "连接一个 AI，让它能思考",
+      "afterApp": "连接 {{app}}",
+      "afterNone": "没有。{{name}} 创建后马上开始工作。",
+      "afterNoneBlank": "没有。创建后马上开始工作。",
+      "discard": "放弃提议",
+      "otherChannel": "其他频道",
+      "chooseChannels": "选择频道",
+      "channelsNone": "只在它和你的对话里。",
+      "channel": {
+        "lead": "{{name}} 工作的地方。",
+        "leadBlank": "它工作的地方。",
+        "does": "在 {{channel}} 里被叫到时，{{name}} 会回答，并阅读那里的内容。",
+        "doesBlank": "在 {{channel}} 里被叫到时，它会回答，并阅读那里的内容。",
+        "remove": "从 {{channel}} 移出"
+      },
+      "routine": {
+        "label": "例行任务",
+        "lead": "{{when}}，在 {{channel}}。",
+        "leadDm": "{{when}}，在它和你的对话里。",
+        "starts": "{{name}} 创建后开始。时间和内容可在“例行任务”里修改。",
+        "startsBlank": "创建后开始。时间和内容可在“例行任务”里修改。",
+        "remove": "移除例行任务"
+      }
+    },
     "skill": {
       "opens": "话题出现时，{{name}} 会打开这份指南。可在“技能”里编辑。",
       "opensBlank": "话题出现时，它会打开这份指南。可在“技能”里编辑。",
@@ -6912,6 +7240,10 @@
     "rolesAdd": "添加角色",
     "rolesChange": "更改角色",
     "moreOf": "{{name}} 的更多操作",
+    "outside": {
+      "chip": "外部",
+      "title": "外部协作者"
+    },
     "passwordLink": {
       "item": "生成新密码链接",
       "hint": "在对方忘记密码时使用",
@@ -7085,7 +7417,7 @@
     },
     "arrival": {
       "title": "欢迎加入 {{org}}，{{name}}",
-      "lead": "在这里，团队和智能体一起工作：在 #{{channel}} 发消息，或直接叫智能体的名字。",
+      "lead": "在 #{{channel}} 发消息，或直接叫智能体的名字。",
       "alsoIn": "你也已加入 {{channels}}。",
       "sayHi": "在 #{{channel}} 打个招呼",
       "talkTo": "和 {{name}} 聊聊",
@@ -7109,6 +7441,8 @@
       "viaLink": "{{when}}通过链接申请",
       "suggested": "由 {{name}} 于{{when}}推荐",
       "suggestedLabel": "{{by}} 推荐了 {{name}}",
+      "outside": "{{when}}申请以 {{outsideOf}} 外部协作者身份加入",
+      "outsideSeat": "外部协作者不计入你套餐的人数，你可以随时移除他们。",
       "asked": "{{ago}}申请",
       "askedNow": "刚刚申请",
       "askedOn": "于 {{date}} 申请",
@@ -7284,7 +7618,10 @@
     "unreachableTitle": "无法连接 agentes.chat",
     "unreachableText": "它可能正在重启。恢复后此页面会自动打开。",
     "offlineTitle": "你已离线",
-    "offlineText": "恢复联网后此页面会自动打开。"
+    "offlineText": "恢复联网后此页面会自动打开。",
+    "unknownHostTitle": "此地址尚未设置",
+    "unknownHostText": "如果刚刚完成连接，请过几分钟再试。",
+    "unknownHostTab": "地址未设置 · agentes.chat"
   },
   "scopes": {
     "context_read": {
@@ -7301,7 +7638,7 @@
     },
     "drive_write": {
       "label": "写入文件",
-      "description": "在 Drive 中创建报告、表格、组织架构图和 diff。"
+      "description": "在 Drive 中创建报告、电子表格、演示文稿、白板和 diff，并生成图片。"
     },
     "issues_write": {
       "label": "任务",
@@ -7457,6 +7794,9 @@
     }
   },
   "issues": {
+    "handedBy": "由 <0/>{{name}} 移交",
+    "fromDm": "来自<0>你与 {{name}} 的私信</0>",
+    "fromDmText": "来自你与 {{name}} 的私信",
     "delete": {
       "action": "删除任务",
       "title": "删除任务 #{{number}}？",
@@ -7472,7 +7812,8 @@
     "table": {
       "task": "任务",
       "github": "GitHub",
-      "sortBy": "按{{column}}排序"
+      "sortBy": "按{{column}}排序",
+      "resize": "调整“{{column}}”列的宽度"
     },
     "fold": {
       "open": "打开{{name}}",
@@ -7555,6 +7896,7 @@
       "canceled": "#{{number}} 回到了原位。",
       "assigned": "#{{number}} 现在由{{name}}负责。",
       "unassigned": "#{{number}} 现在没有负责人。",
+      "removed": "#{{number}} 不再由{{name}}负责。",
       "prioritized": "#{{number}} 现在是{{priority}}优先级。"
     },
     "canceledColumn": "已取消",
@@ -7657,6 +7999,9 @@
       "runningTitle_female": "{{name}} 正在处理",
       "waitingTitle": "{{name}} 在等你",
       "waitingTitle_female": "{{name}} 在等你",
+      "finishedTitle": "{{name}} 已完成",
+      "finishedMeta": "{{when}} · 由 {{name}} 移交",
+      "answer": "回答",
       "stalledTitle": "{{name}} 于 {{when}} 停止",
       "stalledTitle_female": "{{name}} 于 {{when}} 停止",
       "stalledText": "任务仍由 {{name}} 负责，但目前没有运行。",
@@ -7702,6 +8047,10 @@
       "high": "高"
     },
     "noAssignee": "无负责人",
+    "assignees": {
+      "people": "成员和智能体",
+      "done": "完成"
+    },
     "agentRole": "智能体 · {{role}}",
     "pr": "PR #{{number}}",
     "open": "#{{number}} {{title}}",
@@ -7841,7 +8190,9 @@
       "status_changed": "将状态改为{{status}}",
       "priority_changed": "将优先级改为{{priority}}",
       "assigned": "分配了任务",
-      "unassigned": "移除了负责人",
+      "unassigned": "移除了一位负责人",
+      "assigned_named": "将任务分配给了{{name}}",
+      "unassigned_named": "将{{name}}移出了任务",
       "due_date_set": "将截止日期设为 {{date}}",
       "due_date_removed": "移除了截止日期",
       "pr_linked": "关联了 PR #{{number}}",
@@ -8464,6 +8815,7 @@
       "computer_busy": "电脑一直忙于其他任务",
       "computer_failed": "电脑遇到问题，已停止",
       "computer_timeout": "电脑响应时间过长",
+      "disk_full": "电脑的磁盘已满",
       "cli_failed": "电脑上的 AI 程序因出错而停止",
       "account_missing": "智能体的账号已不在它的电脑上",
       "our_error": "我们这边出了点问题"
@@ -8479,13 +8831,13 @@
       "dontRunName": "限额重置后不运行 {{name}}",
       "canceledToast": "已取消。限额重置后不会运行。",
       "continuedToast": "运行继续中。",
-      "forbidden": "现在只有例行工作的创建者、智能体的负责人或管理员可以让它继续",
-      "extra_off": "这个套餐的时段额度已用完，而这个智能体的长时间工作不使用付费的额外用量。在它的 AI 设置中开启后即可立即继续，否则会在重置后继续",
+      "forbidden": "现在只有例行工作的创建者、智能体的负责人、能编辑该智能体的人或管理员可以让它继续",
+      "extra_off": "这个套餐的时段额度已用完，而这个智能体的长时间工作不使用套餐的付费额外用量。会在重置后继续",
       "extra_used_up": "这个套餐的时段额度已用完，付费的额外用量也已用完或不可用。会在重置后继续"
     },
     "pausedRunningToast": "例行工作已暂停。正在进行的运行也已停止。",
     "deleteBodyRunning": "它将停止运行并从列表中移除，正在进行的运行也会停止。过去的运行记录会保留在历史中。",
-    "detailsHidden": "只有创建者、智能体的负责人、管理员和对话中的成员能看到这些。"
+    "detailsHidden": "只有创建者、智能体的负责人、能编辑该智能体的人、管理员和对话中的成员能看到这些。"
   },
   "missions": {
     "chip": "专项任务 · {{done}}/{{count}}",
@@ -8951,8 +9303,7 @@
       "approvals": "默认情况下，合并、部署和回滚需要审批",
       "start": "开始专项任务",
       "created": "专项任务已创建：{{name}} 正在制定计划。",
-      "who": "由谁编程",
-      "codexOld": "{{computer}} 上的 Codex 版本太旧，无法运行专项任务：请在那台电脑上更新。"
+      "who": "由谁编程"
     },
     "commandApproval": {
       "label": "自主程度",
@@ -9847,8 +10198,8 @@
     "line": {
       "invalid": "TypeSafe 不接受这个密钥。请创建一个新的。",
       "no_credit": "在 TypeSafe 充值后，Jev 会自动恢复。",
-      "env": "已在此服务器的设置中配置（TYPESAFE_API_KEY）。",
-      "envInvalid": "TypeSafe 不接受这个密钥。请在此服务器的设置中更改（TYPESAFE_API_KEY）。"
+      "env": "已在此服务器的设置中配置（`TYPESAFE_API_KEY`）。",
+      "envInvalid": "TypeSafe 不接受这个密钥。请在此服务器的设置中更改（`TYPESAFE_API_KEY`）。"
     },
     "checkAgain": "重新检查",
     "via": {
@@ -9874,7 +10225,7 @@
       "line": {
         "invalid": "OpenRouter 不接受这个密钥。请创建一个新的。",
         "no_credit": "在 OpenRouter 充值后，Jev 会自动恢复。",
-        "envInvalid": "OpenRouter 不接受这个密钥。请在此服务器的设置中更改（TYPESAFE_API_KEY）。"
+        "envInvalid": "OpenRouter 不接受这个密钥。请在此服务器的设置中更改（`TYPESAFE_API_KEY`）。"
       }
     },
     "remove": {
@@ -9883,6 +10234,12 @@
     }
   },
   "aiAccounts": {
+    "unnamed": "未命名账号",
+    "rename": {
+      "action": "重命名 {{label}}",
+      "label": "账号名称",
+      "placeholder": "例如：工作、个人"
+    },
     "share": {
       "switch": "回复其他成员",
       "switchAll": "回复其他成员",
@@ -9954,7 +10311,6 @@
       "needsCloud": {
         "online": "{{computer}} 正在重启或重新连接。它回来后这里会自动更新。",
         "installing": "正在 {{computer}} 上安装 {{program}}。完成后这里会自动更新。",
-        "updating": "正在 {{computer}} 上更新 {{program}}。完成后这里会自动更新。",
         "runnerOld": "{{computer}} 上的 agentes.chat 程序版本较旧，更新正在路上。完成后这里会自动更新。",
         "execOff": "{{computer}} 暂时还不能运行 {{program}}。我们正在处理，这里会自动更新。",
         "toolOff": "{{computer}} 上还未允许 {{program}}。这是我们这边的问题：请稍后再试。",
@@ -9990,10 +10346,10 @@
       "copies_other": "这个账号还有 {{count}} 个登录，没有任何智能体使用。",
       "removeCopies": "移除",
       "copiesRemoved_other": "已移除 {{count}} 个未使用的登录。",
-      "removeAllDone": "已移除 {{n}} 个 Grok 登录。",
-      "removeAllText": "它们将不再为 {{computers}} 上的代理思考。其他人的登录不会被改动。",
-      "removeAllTitle": "要移除全部 {{n}} 个 Grok 登录吗？",
       "removeAllGrok": "移除所有 Grok 登录",
+      "removeAllTitle": "要移除全部 {{n}} 个 Grok 登录吗？",
+      "removeAllText": "它们将不再为 {{computers}} 上的代理思考。其他人的登录不会被改动。",
+      "removeAllDone": "已移除 {{n}} 个 Grok 登录。",
       "disconnect": "断开连接",
       "renameTitle": "重命名 {{label}}",
       "nameLabel": "名称",
@@ -10093,8 +10449,8 @@
       "everyone_female": "工作区中的任何人都可以呼叫 {{name}}。",
       "people": "选择可以和 {{name}} 对话的成员和角色。",
       "people_female": "选择可以和 {{name}} 对话的成员和角色。",
-      "owner": "只有 {{owner}} 可以和 {{name}} 对话。",
-      "owner_female": "只有 {{owner}} 可以和 {{name}} 对话。",
+      "owner": "只有 {{owner}} 可以和 {{name}} 对话。在列表中，只有 {{owner}}、管理员和可编辑的人能看到 {{name}}。",
+      "owner_female": "只有 {{owner}} 可以和 {{name}} 对话。在列表中，只有 {{owner}}、管理员和可编辑的人能看到 {{name}}。",
       "noOwner": "设置所有者后才能使用此选项。",
       "everyonePersonal": "这里的任何人都可以呼叫 {{name}}。",
       "everyonePersonal_female": "这里的任何人都可以呼叫 {{name}}。",
@@ -10136,6 +10492,31 @@
       "some_female": "{{name}} 只回复部分成员。",
       "nobody": "{{name}} 目前不回复任何人。",
       "nobody_female": "{{name}} 目前不回复任何人。"
+    }
+  },
+  "editors": {
+    "section": "谁可以编辑",
+    "title": "谁可以编辑 {{name}}",
+    "title_female": "谁可以编辑 {{name}}",
+    "mode": {
+      "owner": "仅 {{name}} 的负责人",
+      "owner_female": "仅 {{name}} 的负责人",
+      "people": "也包括部分成员或角色"
+    },
+    "modeText": {
+      "owner": "{{owner}}（所有者）、管理员，以及能编辑智能体且能和 {{name}} 对话的人可以编辑。",
+      "owner_female": "{{owner}}（所有者）、管理员，以及能编辑智能体且能和 {{name}} 对话的人可以编辑。",
+      "noOwner": "管理员，以及能编辑智能体且能和 {{name}} 对话的人可以编辑。",
+      "noOwner_female": "管理员，以及能编辑智能体且能和 {{name}} 对话的人可以编辑。",
+      "people": "选择还有谁可以更改 {{name}} 的工作方式。",
+      "people_female": "选择还有谁可以更改 {{name}} 的工作方式。"
+    },
+    "rolesHint": "拥有该角色的人都可以编辑，包括之后获得该角色的人。",
+    "note": "编辑指的是更改 {{name}} 的指令、角色、技能和例行工作。应用、预算和所有者仍由能编辑智能体的人管理。",
+    "note_female": "编辑指的是更改 {{name}} 的指令、角色、技能和例行工作。应用、预算和所有者仍由能编辑智能体的人管理。",
+    "summary": {
+      "owner": "仅负责人",
+      "owner_female": "仅负责人"
     }
   },
   "composer": {
@@ -10199,7 +10580,7 @@
     "tooShort": "太短了。再多说一点。",
     "silent": "什么都没听到。没有发送任何内容。",
     "notSent": "语音发送失败。",
-    "limit": "今天的语音已经很多了。请在这里打字，明天再试。",
+    "limit": "今天的语音额度已用完。请在这里打字，或明天再试。",
     "micBlocked": "麦克风已被阻止",
     "micBlockedHint": "请在设备设置中允许使用麦克风，才能录音。",
     "openSettings": "打开设置",
@@ -10214,6 +10595,9 @@
     "keys": "Enter 发送 · Esc 删除",
     "keysHold": "松开发送 · Esc 删除",
     "keysPaused": "已暂停 · 空格键收听 · Enter 发送 · Esc 删除",
+    "askDiscard": "删除这段语音？文字会保留。",
+    "askDelete": "删除",
+    "askKeep": "保留",
     "pausePlay": "暂停",
     "seek": "播放位置",
     "speedAt": "速度 {{speed}}×",
@@ -10596,6 +10980,17 @@
     "saved": "徽标已更新。",
     "removed": "徽标已移除。"
   },
+  "orgAccent": {
+    "label": "强调色",
+    "change": "更改颜色",
+    "useDefault": "使用默认颜色",
+    "suggested": "推荐颜色",
+    "sampleMention": "@智能体",
+    "sampleLink": "一个链接",
+    "save": "保存颜色",
+    "saved": "强调色已更新。",
+    "reset": "已恢复默认颜色。"
+  },
   "look": {
     "previous": "上一个",
     "next": "下一个",
@@ -10805,8 +11200,8 @@
     "audienceInFolder": "位于受限的 {{folder}} 中：在这里只能进一步缩小范围。",
     "audienceFollows": "来自 {{folder}}",
     "audienceUseFolder": "为文件夹 {{folder}} 设置",
-    "audienceFolderSaved": "完成。文件夹的访问范围已更新。",
-    "audienceFolderOpened": "完成。文件夹现在没有限制了。",
+    "audienceFolderSaved": "文件夹访问权限已更新。",
+    "audienceFolderOpened": "文件夹现在没有限制了。",
     "audienceRootTitle": "整个 Wiki 的访问权限",
     "audienceRootText": "适用于 Wiki 的所有页面和文件夹，也包括之后添加的。",
     "audienceInRoot": "整个 Wiki 已受限：这里只能进一步收窄。",
@@ -10837,7 +11232,7 @@
       "failed_other": "{{count}} 页没有变化（{{titles}}）：{{reason}}",
       "agentsTitle_other": "读取 {{count}} 页的智能体",
       "agentsText": "人员中谁能看到每个页面保持不变。",
-      "agentsSaved_other": "完成。已更新 {{count}} 页。"
+      "agentsSaved_other": "已更新 {{count}} 页。"
     },
     "trash": {
       "title": "回收站",
@@ -10868,8 +11263,8 @@
     "audienceAgentDetail": "智能体",
     "audiencePeople": "成员",
     "audienceNoMatch": "没有这个名称的人。",
-    "audienceSaved": "完成。访问权限已更新。",
-    "audienceOpened": "完成。所有人都可以查看和编辑。",
+    "audienceSaved": "访问权限已更新。",
+    "audienceOpened": "所有人都可以查看和编辑。",
     "noAccessTitle": "你没有这个页面的访问权限",
     "noAccessText": "它只对部分人开放。如有需要，请询问负责 Wiki 的人。",
     "delete": "移到回收站",
@@ -11126,12 +11521,6 @@
       "read": "{{name}} 已读",
       "resolved": "{{name}} 关闭了求助请求"
     },
-    "well": {
-      "readYours": "已读你的留言",
-      "readOf": "已读 {{name}} 的留言",
-      "nowYours": "停下来阅读你的留言",
-      "nowOf": "停下来阅读 {{name}} 的留言"
-    },
     "strip": {
       "see": "查看",
       "toStop": "以停止"
@@ -11227,11 +11616,6 @@
       "not_installed": "{{computer}} 上没有安装 {{program}}。",
       "cant_start": "{{program}} 在 {{computer}} 上，但无法启动。",
       "not_reported": "{{computer}} 还在检查有哪些程序。完成后这里会自动更新。",
-      "outdated": "{{computer}} 上的版本太旧。请更新 Codex 后使用。",
-      "outdatedCodex": "在 {{computer}} 上检测到 Codex CLI {{detected}}。请更新到 {{minimum}} 或更高版本。",
-      "codexUpdateGuide": "如何更新 Codex CLI",
-      "codexRecheckHere": "更新后，请在偏好设置 › 工具的 Codex 一行中选择「重新检查」。",
-      "codexRecheckThere": "请在 {{computer}} 上更新 Codex CLI。如果该电脑运行桌面应用，请在偏好设置 › 工具的 Codex 一行中选择「重新检查」。",
       "system": "{{program}} 暂时还不能在 {{computer}} 的系统上运行。",
       "no_computerCloud": "{{computer}} 一就绪即可使用。"
     },
@@ -11271,8 +11655,7 @@
       "cursor": "Cursor · {{model}}",
       "grok": "Grok Build · {{model}}",
       "antigravity": "Antigravity CLI · {{model}}",
-      "opencode": "OpenCode · {{model}}",
-      "noFallback": "{{brain}}，不回退到 API"
+      "opencode": "OpenCode · {{model}}"
     },
     "mission": {
       "modelLabel": "模型",
@@ -11297,24 +11680,16 @@
     "see": "查看队列",
     "openComputer": "打开电脑",
     "label": "{{name}} 的队列",
-    "full": "已满",
-    "fullNext": "已满 · 下一个约 {{n}} 分钟后开始",
     "free": "没有排队",
     "workingNow": "正在工作 · {{n}}",
     "inLine": "排队中 · {{n}}",
     "allStarted": "全部约 {{n}} 分钟内开始",
     "nothingWorking": "现在没有在运行的任务",
     "rule": "电脑有空闲内存时，新工作才会开始。人优先。一起被提到的智能体逐个开始。",
-    "cause_other": "电脑已满：现在有 {{count}} 项工作在使用它的内存（{{fill}}）。",
     "spill": {
-      "title": "电脑更多，排队更短",
+      "title": "你的电脑",
       "text": "这台电脑满了时，给你的回复可以在你的某台电脑上开始。长时间工作和智能体的文件仍留在这里。",
       "plan": "你的 {{plan}} 套餐"
-    },
-    "stopFill": {
-      "routine": "停止例行工作",
-      "work": "停止长时间工作",
-      "agent": "停止 {{name}}"
     },
     "youFirst": "你优先",
     "startsIn": "约 {{n}} 分钟后开始",
@@ -11346,13 +11721,7 @@
       "agents": "智能体之间的对话",
       "private": "私密对话"
     },
-    "live": {
-      "nextEta": "正在等待电脑。下一个就是它，约 {{n}} 分钟后",
-      "next": "正在等待电脑。下一个就是它",
-      "waiting": "正在等待电脑",
-      "behind": "排队中，第 {{nth}}。在 {{names}} 之后",
-      "position": "排队中，第 {{nth}}"
-    },
+    "waiting": "排队中 · 即将开始",
     "nth": {
       "one": "{{n}}",
       "two": "{{n}}",
@@ -11393,7 +11762,7 @@
     "levelOf": "在 {{name}} 中的级别",
     "cell": "{{agent}} 在 {{resource}}：{{level}}",
     "cellAsks": "{{agent}} 在 {{resource}}：{{level}}，敏感操作需要审批",
-    "asksList": "需要批准：{{tools}}",
+    "asksList": "需要审批：{{tools}}",
     "asksMore_other": "等另外 {{count}} 项",
     "asksLegend": "需要审批",
     "customText": "已逐个工具授权。选择一个级别即可简化。",
@@ -11509,7 +11878,10 @@
       "file": "文件",
       "block": "区块",
       "poll": "投票",
-      "choices": "选项"
+      "choices": "选项",
+      "spreadsheet": "电子表格",
+      "slides": "演示文稿",
+      "canvas": "白板"
     },
     "version": "v{{version}}",
     "createdBy": "{{kind}} · 由 {{name}} 创建",
@@ -11642,7 +12014,10 @@
       "file": "文件",
       "block": "区块",
       "poll": "投票",
-      "choices": "选项"
+      "choices": "选项",
+      "spreadsheet": "电子表格",
+      "slides": "演示文稿",
+      "canvas": "白板"
     },
     "view": "视图",
     "viewGrid": "网格",
@@ -11703,7 +12078,7 @@
       "dmBetween": "只有 {{names}} 能看到：它来自私信"
     },
     "private": "私密",
-    "privateHint": "只有对话中的成员能看到这些文件。在频道中，管理员也能看到。",
+    "privateHint": "只有对话中的成员或文件的创建者能看到这些文件。在频道和 Drive 中，管理员也能看到。",
     "downloadAs": "下载为",
     "uploading_other": "正在上传 {{count}} 个文件",
     "uploadWaiting": "排队中",
@@ -11723,7 +12098,40 @@
     "trashBy": "{{name}} · 删除于 {{when}}",
     "daysLeft_other": "{{count}} 天",
     "goneIn_other": "{{count}} 天后清除",
-    "fileBadge": "文件"
+    "fileBadge": "文件",
+    "folders": "文件夹",
+    "folder": "文件夹",
+    "newFolder": "新建文件夹",
+    "renameFolder": "重命名文件夹",
+    "renameFile": "重命名文件",
+    "rename": "重命名",
+    "create": "创建",
+    "openFolder": "打开",
+    "folderMore": "{{name}} 的更多操作",
+    "path": "文件夹路径",
+    "up": "返回上一级",
+    "folderEmptyTitle": "此文件夹为空",
+    "folderEmptyText": "将文件拖放到这里，或上传文件。把文件拖到文件夹上即可移入。",
+    "folderEmptyViewer": "放入此文件夹的文件会显示在这里。",
+    "move": "移动",
+    "moveToMenu": "移动到…",
+    "moveTitle_other": "移动 {{count}} 项",
+    "moveTo": "文件夹",
+    "moveSearch": "搜索文件夹",
+    "moveEmpty": "没有名为“{{q}}”的文件夹。",
+    "moveHere": "当前位置",
+    "moveToName": "移动到 {{name}}",
+    "moved_other": "已将 {{count}} 项移动到 {{name}}。",
+    "deleteFolder": "删除文件夹",
+    "deleteFolderTitle": "删除“{{name}}”？",
+    "deleteFolderBody": "其中的文件夹也会一并删除。你可以删除的文件会进入回收站保留 30 天。其他人的文件会移到此文件夹原来的位置。",
+    "folderDeletedEmpty": "文件夹已删除。",
+    "folderDeleted_other": "文件夹已删除。{{count}} 个文件已进入回收站。",
+    "folderDeletedKept_other": "文件夹已删除。{{count}} 个你无法删除的文件已移到上一级。",
+    "delete": "删除",
+    "deleteItemsTitle_other": "删除 {{count}} 项？",
+    "deleteItemsBody": "文件夹会连同其中的所有内容一起删除。你可以删除的文件会在回收站保留 30 天。其他人的文件会上移一级。",
+    "itemsDeleted_other": "已删除 {{count}} 项。"
   },
   "storage": {
     "title": "存储",
@@ -11979,7 +12387,7 @@
         "invalid": "无效"
       },
       "line": {
-        "env": "已在此服务器的设置中配置（GITHUB_APP_ID）。",
+        "env": "已在此服务器的设置中配置（`GITHUB_APP_ID`）。",
         "invalid": "此服务器无法打开已保存的应用。请移除后重新创建。",
         "events": "要让智能体收到 GitHub 上发生的事，请在应用中勾选这些事件：{{events}}。"
       },
@@ -12059,6 +12467,37 @@
       "add": "添加 MCP",
       "list": "已连接的 MCP 服务器",
       "none": "通过地址连接的 MCP 服务器会显示在这里。"
+    },
+    "personal": {
+      "note": "只有你能打开这些连接。你的智能体只在你要求时使用它们。",
+      "noteOne": "只有你能打开这个连接，你的智能体只在你要求时使用它。",
+      "emptyTitle": "连接你自己的账号",
+      "emptyText": "只有你能打开你的连接，你的智能体只在你要求时使用它们。邮箱遵循自己的规则。",
+      "noApps": "你只为自己连接的服务会显示在这里。",
+      "mailTitle": "你的邮箱",
+      "mailNote": "你允许的智能体会按你的设置使用你的邮箱，也会为直接和它们对话的人使用。当别人请求需要审批的操作时，由你来审批。",
+      "others": "其他人的个人连接",
+      "of": "{{name}} 的个人连接",
+      "seeAll": "查看全部 {{count}} 个",
+      "forWhom": "适用对象",
+      "teamLocked": "只有管理连接器的人才能添加团队的连接。",
+      "mailLocked": "邮箱始终属于连接它的人。",
+      "done": "你的智能体只在你提出请求时使用它。",
+      "worksWhenAsked": "只在你提出请求时生效。",
+      "remove": "移除",
+      "removeName": "移除 {{name}}",
+      "removeTitle": "移除 {{name}}？",
+      "takeOff": "从智能体移除",
+      "takeOffTitle": "从智能体移除 {{name}}",
+      "takeOffName": "从 {{agent}} 移除 {{name}}",
+      "takeOffOne": "移除",
+      "takenOff": "{{agent}} 不再使用 {{name}}。",
+      "turnOff": "关闭",
+      "turnOffName": "为此智能体关闭 {{name}}",
+      "moveToTeam": "移到团队",
+      "moveTitle": "将 {{name}} 移到团队？",
+      "moveText": "工作区里的所有人都能看到。由管理智能体的人选择哪些智能体使用它，智能体的所有者可以在自己的智能体上关闭它。使用所有已连接应用的智能体会立即用上它。",
+      "moved": "{{name}} 现在属于团队。"
     },
     "addTitle": "添加连接器",
     "catalogText": "为 {{org}} 连接一次，然后选择每个智能体可以使用什么。",
@@ -12516,7 +12955,7 @@
     "composio": {
       "via": "通过 Composio",
       "needsReconnect": "需要重新连接",
-      "off_other": "{{names}} 等另外 {{count}} 个服务通过 Composio 连接。要启用它们，请让运行此服务器的人设置 COMPOSIO_API_KEY（见 SELF_HOSTING.md）。",
+      "off_other": "{{names}} 等另外 {{count}} 个服务通过 Composio 连接。要启用它们，请让运行此服务器的人设置 `COMPOSIO_API_KEY`（见 `SELF_HOSTING.md`）。",
       "usage": "Composio：{{month}} 已调用 {{calls}} 次，上限 {{limit}} 次",
       "usageNoLimit": "Composio：{{month}} 已调用 {{calls}} 次",
       "limitNotice": "本工作区本月的 Composio 调用次数已用完",
@@ -13366,6 +13805,16 @@
       "read_artifact": "读取 Drive 中的文件",
       "list_artifacts": "列出 Drive 文件",
       "share_artifact": "分享文件",
+      "read_spreadsheet": "读取电子表格",
+      "edit_spreadsheet": "编辑电子表格",
+      "create_presentation": "创建演示文稿",
+      "read_presentation": "读取演示文稿",
+      "edit_presentation": "编辑演示文稿",
+      "create_canvas": "创建白板",
+      "read_canvas": "读取白板",
+      "edit_canvas": "编辑白板",
+      "read_document": "读取文档",
+      "edit_document": "编辑文档",
       "upload_file": "上传文件",
       "import_file": "导入文件",
       "export_file": "导出文件",
@@ -13379,6 +13828,7 @@
       "commit_co_author": "开启或关闭提交中的智能体署名",
       "web_search": "搜索网页",
       "web_fetch": "读取网页",
+      "image_search": "搜索图片",
       "create_routine": "创建例行工作",
       "update_routine": "更新例行工作",
       "delete_routine": "删除例行工作",
@@ -13425,6 +13875,7 @@
       "vault_delete": "删除密码",
       "vault_make_password": "生成密码",
       "get_my_usage": "查看我的用量",
+      "ignore_usage_limit": "忽略用量上限",
       "send_feedback": "发送反馈",
       "offer_feedback": "提议报告问题"
     }
@@ -13651,7 +14102,7 @@
       },
       "railway": {
         "1": "在 Postgres 服务中，打开 Data → Query，运行下面的命令（请修改密码）。",
-        "2": "在 Variables 中，复制 DATABASE_PUBLIC_URL（DATABASE_URL 是内部地址，从这里无法使用）。",
+        "2": "在 Variables 中，复制 `DATABASE_PUBLIC_URL`（`DATABASE_URL` 是内部地址，从这里无法使用）。",
         "3": "把其中的用户名和密码换成 agentes_leitura 和你设置的密码，然后粘贴到这里。"
       },
       "rds": {
@@ -13686,7 +14137,7 @@
     "error": {
       "auth": "用户名或密码不匹配，请检查后重试。",
       "unreachable": "无法连接到数据库服务器。请检查地址，以及它是否接受外部连接。",
-      "blocked_host": "不允许使用此服务器。请使用数据库的公网地址（内部地址，如 Railway 的 DATABASE_URL，从这里无法使用）。",
+      "blocked_host": "不允许使用此服务器。请使用数据库的公网地址（内部地址，如 Railway 的 `DATABASE_URL`，从这里无法使用）。",
       "tls": "数据库不接受安全连接。请在数据库中开启 SSL，或在“高级”中选择“不加密”（仅限测试数据库）。",
       "unknown": "暂时无法连接，请稍后再试。",
       "no_databases": "此用户无法打开此服务器上的任何数据库。请检查权限或名称开头。"
@@ -14170,6 +14621,22 @@
     }
   },
   "errors": {
+    "surface": {
+      "off": "聊天应用关联已关闭。刷新页面即可查看当前设置。",
+      "notAllowed": "你的账号暂时还不能关联聊天应用。在开放之前，请继续在这里使用应用。",
+      "noAssistant": "此工作区的助手未设置为与你交谈。请选择另一个工作区进行关联。",
+      "noWorkspace": "你已不在此工作区。请选择另一个工作区进行关联。",
+      "linkGone": "此关联已不再等待：它在 10 分钟后过期或已被取消。请生成新代码重新开始。",
+      "taken": "该发送者已关联到另一个 agentes.chat 账号。请先在那里取消关联，再发送新代码。",
+      "undoGone": "此撤销链接已被使用或已过期。请改在通知设置中取消关联。",
+      "codeGone": "此代码错误、已被使用或已在 10 分钟后过期。请生成新代码并重新发送。"
+    },
+    "wallpaper": {
+      "notYours": "这张照片不是你的。",
+      "invalid": "该背景不存在。",
+      "tooLarge": "照片最大 2 MB。",
+      "type": "请使用 JPEG、PNG 或 WebP 照片。"
+    },
     "tooLarge": "超出了服务器接受的大小。",
     "tooLargeMax": "超出了服务器接受的大小：最大 {{max}} MB。",
     "passwordLink": {
@@ -14200,7 +14667,7 @@
       "accountInUse": "这个账号已在为另一个智能体思考。",
       "noAiYet": "还没有连接 AI。",
       "filePurged": "这个文件已删除超过 30 天，无法恢复。",
-      "looksSecret": "这看起来像密码或密钥，这里的所有人都会看到。",
+      "looksSecret": "这看起来像密码或密钥，这里的所有人都会看到。请让智能体改为私下向你请求。",
       "blockSpec": "此区块的组成部分或公式有误，因此无法显示。请修正后重试。",
       "takeControl": "请先接管这个配置文件。",
       "profileBusy": "其他人正在使用这个配置文件。",
@@ -14218,8 +14685,10 @@
       "createRefused": "你现在无法创建工作区。",
       "noAgentToRemind": "这个对话中没有能提醒你的智能体。",
       "agentCantRead": "请先在智能体的访问设置中允许它读取这项内容。",
+      "connectionNotYours": "这个连接是别人的个人连接。只有对方自己的例行任务可以等待它的事件。",
       "neverHappens": "这个日程永远不会触发。",
       "soleOwner": "你是这个有其他成员的工作区的唯一所有者。请先将其他人设为所有者，或删除工作区。",
+      "soleOwnerOutside": "你是这个工作区的唯一所有者，其他人都是外部协作者，不能成为所有者。请先邀请一位成员并设为所有者，或删除工作区。",
       "testFirst": "开启之前，请先用这些设置测试连接。",
       "voiceLength": "录音太长或太短。",
       "sendAgain": "文件没有完整送达。请重新发送。",
@@ -14296,7 +14765,8 @@
       "aboveYou": "只有比这个角色级别更高的人才能修改它。",
       "base": "每个工作区都保留“所有人”角色。",
       "unknown": "这个角色已不存在。",
-      "orderIncomplete": "你移动时角色发生了变化。请刷新后重试。"
+      "orderIncomplete": "你移动时角色发生了变化。请刷新后重试。",
+      "outsideOwner": "外部协作者不能成为所有者。"
     },
     "teamProposal": {
       "undoExpired": "这个团队创建已超过一天，无法在这里撤销。请在各智能体的页面上归档它们。"
@@ -14328,7 +14798,8 @@
       "denied": "你的申请没有获批，请让那里的人邀请你。",
       "answered": "已经有人处理了这个申请。",
       "expired": "这个申请已过期：14 天内无人处理。",
-      "codeNeeded": "请先验证你的邮箱。"
+      "codeNeeded": "请先验证你的邮箱。",
+      "outsideClosed": "这个账号已被封禁或正在删除，因此无法加入。这个申请已关闭。"
     },
     "code": {
       "wrong": "验证码错误，请重试。",
@@ -14414,10 +14885,10 @@
       "takeOverNoAccess": "接手例行工作之前，请先加入它所在的对话。",
       "agentNotInChannel": "请先把智能体添加到对话中。",
       "webhookPaused": "请开启例行工作后再测试。",
-      "continueExtraOff": "这个套餐的时间窗口额度已用完，而这个智能体的长时间工作没有启用付费额外用量。在它的 AI 设置中开启后即可立即继续，否则会在额度重置后继续。",
+      "continueExtraOff": "这个套餐的时间窗口额度已用完，而这个智能体的长时间工作不使用套餐的付费额外用量。会在额度重置后继续。",
       "continueExtraUsedUp": "这个套餐的时间窗口额度已用完，付费额外用量也已用完或不可用。它会在额度重置后继续。",
       "actionsNeedApprover": "只有智能体负责人或批准其操作的人可以让例行工作自行执行。",
-      "editorOnly": "只有例行工作的创建者、智能体负责人或管理员可以修改它。",
+      "editorOnly": "只有例行工作的创建者、智能体负责人、能编辑该智能体的人或管理员可以修改它。",
       "widgetFixed": "这项例行工作负责保持小组件最新。请从小组件修改。"
     },
     "run": {
@@ -14446,6 +14917,32 @@
       "sharingTooMany": "最多选择 {{max}} 个人和 {{max}} 个角色。",
       "notInDrive": "它只存在于自己的对话中，所以无法共享。"
     },
+    "drive": {
+      "folderIntoItself": "文件夹不能移入自身或其中的文件夹。"
+    },
+    "live": {
+      "readOnly": "这个文件现在是只读的，无法更改。",
+      "tooLarge": "这个文件已达到大小上限。请先从中删掉一些内容。",
+      "assetTooLarge": "图片超过了 {{max}} MB，这是每张图片的上限。",
+      "assetType": "这个文件只能放图片：PNG、JPEG、WebP 或 GIF。",
+      "liveOnly": "这个文件只能在原处修改，不能整个替换。"
+    },
+    "office": {
+      "unreadable": "无法在这里打开这个文件，它可能已损坏。请下载后用对应的应用打开。",
+      "tooLarge": "这个文件太大，无法在这里打开。请下载后用对应的应用查看。",
+      "unsupported": "这类文件只能下载。",
+      "encrypted": "这个文件设有密码，只能用对应的应用打开。",
+      "tooLargeToEdit": "这个文件太大，无法在这里编辑。你仍然可以查看和下载。"
+    },
+    "images": {
+      "noModel": "要生成图片，请在工作区设置中添加 OpenAI、Gemini 或 OpenRouter 的密钥。",
+      "modelUnavailable": "工作区已不再提供这个图片 AI。请另选一个。",
+      "reference": "请在这个白板上选择最多 4 张图片作为起点。",
+      "notCanvas": "只能在白板上生成图片。",
+      "rate": "你在过去一小时内请求了很多图片。请稍后再试。",
+      "personLimit": "你本月的 AI 用量已达到上限。",
+      "provider": "AI 现在无法完成这个操作。请稍后再试。"
+    },
     "device": {
       "notLinkMaker": "只有创建链接的人才能让这台电脑加入。",
       "widenForbidden": "管理员只能缩小可以使用他人个人设备的人员范围。",
@@ -14467,6 +14964,7 @@
       "askSelf": "这是你的电脑：用按钮打开它。",
       "adminAskSelf": "你可以在这里自己完成。",
       "accountMethodUnsupported": "这台电脑暂时无法用这种方式连接 Claude。请更新电脑上的 agentes.chat 程序，或使用 API 密钥。",
+      "brainUnavailable": "{{computer}} 上还没有设置这个 AI。请在那里设置，或选择另一个。",
       "offline": "{{name}} 现在离线，等它恢复后再试。",
       "paused": "{{name}} 已暂停：恢复之前不会在上面开始新的工作。",
       "timeout": "电脑没有及时响应，请重试。"
@@ -14510,13 +15008,13 @@
     "agent": {
       "ownerOrAdmin": "只有智能体负责人或管理员可以执行此操作。",
       "detailsHidden": "只有与 {{agentName}} 对话的人可以看到它的工作方式。",
-      "extraOwnerOnly": "只有智能体负责人可以开启或关闭套餐的付费额外用量。",
       "undoForbidden": "只有智能体为其工作的人、智能体负责人或管理员可以撤销此操作。",
-      "undoSkillsAdmins": "只有管理员能撤销或重做对智能体技能的更改。"
+      "undoSkillsAdmins": "只有能编辑该智能体的人能撤销或重做对其技能的更改。"
     },
     "account": {
       "notRestorable": "这个账号已无法恢复。",
-      "notOwner": "只有连接此账号或套餐的人可以执行此操作。"
+      "notOwner": "只有连接此账号或套餐的人可以执行此操作。",
+      "orderForbidden": "只有连接此账号的人或管理员可以调整它在顺序中的位置。"
     },
     "channel": {
       "membersForbidden": "只有频道创建者或管理员可以添加或移除成员。"
@@ -14532,7 +15030,7 @@
       "titleRequired": "请给它起个名字。",
       "tooLong": "太长了。上限是 {{max}}。",
       "notHttps": "请使用以 https:// 开头的地址",
-      "keyNameInvalid": "名称中请使用大写字母、数字和 _，例如 ACME_API_KEY。",
+      "keyNameInvalid": "名称中请使用大写字母、数字和 _，例如 `ACME_API_KEY`。",
       "keyNameReserved": "此名称已被保留。请换一个。",
       "keyNameTaken": "这里已保存了同名的密钥。",
       "contactEmpty": "请至少填写一项。",
@@ -14927,14 +15425,20 @@
       "since": "自 {{time}} 起",
       "until": "至 {{time}}",
       "withHost": "与 {{host}} 一起",
-      "lastSeen": "上次在线 {{time}}"
+      "lastSeen": "上次在线 {{time}}",
+      "offlineUnresponsive": "{{time}} 起无响应",
+      "offlineStopped": "runner 于 {{time}} 停止",
+      "offlineDropped": "连接于 {{time}} 断开"
     },
     "line": {
       "ready": "智能体现在就可以使用它。",
       "busy_other": "{{max}} 个任务中有 {{count}} 个正在运行",
       "offline": "智能体会等它回来。",
       "offlineSeen": "上次在线 {{time}}。智能体会等它回来。",
-      "offlineWithHost": "{{host}} 已离线。智能体会等它回来。"
+      "offlineWithHost": "{{host}} 已离线。智能体会等它回来。",
+      "offlineUnresponsive": "{{time}} 起无响应，可能没有网络或负载过高。请在这台电脑上运行 `{{command}}`。",
+      "offlineStopped": "runner 于 {{time}} 停止。请重新启动它，或在这台电脑上运行 `{{command}}` 查看原因。",
+      "offlineDropped": "连接于 {{time}} 断开，会自动重连。如果没有恢复，请在这台电脑上运行 `{{command}}`。"
     },
     "reason": {
       "locked": "手机已锁定",
@@ -14944,6 +15448,7 @@
       "ui_automation_off": "UI 自动化已关闭",
       "xcode_missing": "Mac 上没有安装 Xcode",
       "xcode_too_old": "Xcode 版本太旧，不支持此 iOS",
+      "ios_behind_xcode": "此 iPhone 的 iOS 比 Xcode 对应的版本旧",
       "device_support": "Mac 正在获取 iPhone 工具",
       "helper_missing": "测试助手还没有设置好",
       "helper_expired": "测试助手需要续期",
@@ -14972,6 +15477,7 @@
       "ui_automation_off": "打开 UI 自动化",
       "xcode_missing": "安装 Xcode",
       "xcode_too_old": "更新 Xcode",
+      "ios_behind_xcode": "更新 iPhone",
       "device_support": "让 Mac 保持开机",
       "helper_missing": "在 Mac 上打开应用",
       "helper_expired": "在 Mac 上打开应用",
@@ -15289,9 +15795,15 @@
       "helperText": "由 Mac 构建，并每 7 天续期一次。在 Xcode 中登录免费的 Apple 账户即可。",
       "helperUntrustedText": "点按开发者的名称，然后点按“信任”。",
       "teamLimitText": "从 iPhone 上删除一个你自己构建的 App：免费 Apple 账户最多允许 3 个。",
+      "iosBehind": "此 iPhone 运行 iOS {{ios}},而这台 Mac 上的 Xcode 适用于 iOS {{sdk}}。请更新 iPhone:设置 › 通用 › 软件更新。",
       "xcodeOld": "{{name}} 运行 iOS {{version}}，而 {{mac}} 上的 Xcode 最高只支持 iOS {{sdk}}。安装 Xcode {{major}}，然后在终端中运行下面的命令。",
       "xcodeOldAny": "{{name}} 运行 iOS {{version}}，比 {{mac}} 上的 Xcode 支持的版本更新。安装 Xcode {{major}}，然后在终端中运行下面的命令。",
-      "uiRefusedText": "iPhone 拒绝了测试助手的点按。请解锁它，如有要求就输入密码。如果反复出现，把 设置 › 开发者 › 启用 UI 自动化 关闭再打开。",
+      "uiRefusedText": "智能体能看到 iPhone 的屏幕，但 iOS 拒绝了它们的点按。",
+      "uiTurnOn": "在 iPhone 上打开以下两项：",
+      "uiPasscode": "需要时输入密码，并保持 iPhone 解锁。",
+      "uiCheck": "再检查一次",
+      "repair": "修复测试助手",
+      "repairHint": "两项都打开后点按仍然失败时使用。Mac 会停止测试助手，并用它的 Xcode 在几分钟内重新构建。",
       "tooOld": "{{name}} 运行 iOS {{version}}，而智能体需要 iOS 17 或更新版本。能更新就更新，或者连接一台更新的 iPhone。",
       "tooOldVersion": "16 或更早版本",
       "pluggedIn": "已经插好了",
@@ -15788,8 +16300,46 @@
     },
     "system": "系统",
     "removed": "已移除",
+    "operatorRead": {
+      "sentence": "{{who}}查看了{{what}}",
+      "who": {
+        "server": "运行此服务器的人",
+        "cloud": "agentes.chat 支持团队"
+      },
+      "what": {
+        "message": "一条消息",
+        "run_step": "智能体工作中的一个步骤",
+        "agent": "一个智能体的指令",
+        "routine": "一项例行工作",
+        "task": "一个后台任务",
+        "channel": "一个频道的名称",
+        "connection": "一个连接的信息",
+        "support_request": "一条支持请求",
+        "direct": "私密对话中的内容",
+        "other": "工作区中的内容"
+      },
+      "request": {
+        "plain": "应 {{name}} 的请求",
+        "app": "应 {{name}} 的请求（从应用发送）",
+        "email": "应 {{name}} 的请求（通过邮件发送）",
+        "operator": "应 {{name}} 的请求（由运行此服务器的人记录）",
+        "support": "应 {{name}} 的请求（由支持团队记录）"
+      },
+      "fault": "为诊断一次失败或卡住的运行",
+      "ai": "使用了 AI 助手"
+    },
+    "operatorReply": {
+      "sentence": "{{who}}通过邮件回复了",
+      "request": "{{name}} 的支持请求"
+    },
+    "operatorReview": {
+      "sentence": "{{who}}出于安全原因审查了内容",
+      "items_other": "{{value}} 项内容",
+      "period": "{{from}}至{{to}}"
+    },
     "change": {
       "mergedWithoutAsking": "未经询问在 {{repo}} 中合并",
+      "accentChanged": "更改了工作区的强调色",
       "pattern": "{{verb}}{{area}}",
       "approval": {
         "approved": "批准了一个请求",
@@ -15801,6 +16351,11 @@
         "left": "离开了工作区",
         "role_changed": "更改了一位成员的角色",
         "password_link": "为成员生成了新密码链接"
+      },
+      "outside": {
+        "approved": "让 {{outsideOf}} 的外部协作者加入了",
+        "removed": "移除了 {{outsideOf}} 的外部协作者",
+        "left": "以 {{outsideOf}} 外部协作者身份离开了工作区"
       },
       "role": {
         "permission_set": "更改了谁可以{{short}}",
@@ -15989,7 +16544,7 @@
       "roles": "每个角色都会增加权限、频道和智能体。",
       "vault": "你的智能体的密码、密钥和联系人。它们永远看不到密码。",
       "access": "每个智能体可以使用什么：每个连接器一个级别。",
-      "connectors": "为整个工作区一次性连接的服务和 MCP 服务器。",
+      "connectors": "为团队或只为你连接的服务和 MCP 服务器。",
       "skills": "智能体在需要时打开的 Markdown 指令。",
       "storage": "工作区文件的存放位置。",
       "usage": "工作区的 AI 账号,以及每个人和每个智能体的用量。",
@@ -16008,11 +16563,11 @@
       "rolesPersonal": "这里每个人可以做什么。所有者可以做任何事。"
     },
     "about": {
-      "basedOn": "基于 Codari Global, LLC 的 <site>agentes.chat</site>",
+      "basedOn": "基于 AGENTESCHAT, LLC 的 <site>agentes.chat</site>",
       "version": "版本",
       "license": "依据 <license>GNU Affero General Public License v3</license> 发布的自由软件，不提供任何担保。",
       "source": "源代码",
-      "copyright": "Copyright © 2026 Codari Global, LLC 及贡献者"
+      "copyright": "Copyright © 2026 AGENTESCHAT, LLC 及贡献者"
     },
     "title": "设置",
     "account": {
@@ -16064,6 +16619,51 @@
           "new3": "还剩 2 家，我明天打电话。",
           "new4": "Drive 中的报告已更新。",
           "newCount": "4 条新消息"
+        },
+        "wallpaper": {
+          "title": "背景",
+          "help": "只对你生效，并同步到你的所有设备",
+          "rowHelp": "显示在所有对话后面，只有你能看到，单个对话也可以在它的菜单里设置自己的背景。",
+          "rowSub": "只对你，所有对话",
+          "onlyHere": "仅在 {{name}}，只对你",
+          "none": "无背景",
+          "sameAsOthers": "与其他对话相同",
+          "sameShort": "与其他相同",
+          "sky": "天空",
+          "drawings": "图案",
+          "color": "颜色",
+          "photos": "你的照片",
+          "choosePhoto": "选择照片",
+          "skyAutoHelp": "第一个随对话变化：在私信中是智能体颜色的天空，在频道中是工作区的天空。",
+          "skyAutoHelpDms": "第一个是智能体颜色的天空。",
+          "skyAutoHelpChannels": "第一个是工作区的天空。",
+          "neutral": {
+            "paper": "纸",
+            "mist": "雾",
+            "sand": "沙"
+          },
+          "name": {
+            "skyAuto": "对话的天空",
+            "skyAgent": "智能体的天空",
+            "skyWorkspace": "工作区的天空",
+            "sky": "天空 · {{color}}",
+            "drawingsAuto": "对话的图案",
+            "drawingsAgent": "智能体的图案",
+            "drawingsWorkspace": "工作区的图案",
+            "drawings": "图案 · {{color}}",
+            "crowd": "智能体",
+            "color": "颜色 · {{color}}",
+            "photo": "你的照片"
+          },
+          "choose": "选择…",
+          "menu": "对话背景…",
+          "preview": "预览",
+          "usePhoto": "使用这张照片",
+          "dragHint": "拖动照片，选择显示的部分",
+          "dim": "在深色模式下调暗",
+          "sending": "正在发送照片…",
+          "failed": "无法保存背景，请重试。",
+          "done": "完成"
         }
       },
       "agentStyle": "智能体如何跟你说话",
@@ -16118,7 +16718,7 @@
       "envOffHere": "已在这台电脑的 agentes.chat 应用中关闭。",
       "see": "查看发送的内容",
       "dialogTitle": "发送的内容",
-      "dialogText": "每天一次。下面就是下一份报告的完整内容。"
+      "dialogText": "每天发送一次。下面就是下一份报告的完整内容。"
     },
     "tileState": {
       "members_other": "{{count}} 位成员"
@@ -16198,7 +16798,8 @@
       "agent": "智能体",
       "router": "路由器",
       "embedding": "搜索",
-      "summary": "摘要"
+      "summary": "摘要",
+      "image": "图片"
     },
     "usageCalls_other": "{{count}} 次调用",
     "usageHidden": "只有管理员能看到工作区的用量。",
@@ -16247,8 +16848,8 @@
         },
         "line": {
           "invalid": "此服务器无法读取这个密钥，请重新粘贴。",
-          "env": "已在此服务器的设置中配置（GIPHY_API_KEY）。",
-          "envInvalid": "此密钥无法使用。请在此服务器的设置中更改（GIPHY_API_KEY）。"
+          "env": "已在此服务器的设置中配置（`GIPHY_API_KEY`）。",
+          "envInvalid": "此密钥无法使用。请在此服务器的设置中更改（`GIPHY_API_KEY`）。"
         },
         "invalid": "GIPHY 不接受这个密钥。请从 GIPHY Developers 重新复制。",
         "remove": {
@@ -16440,9 +17041,29 @@
       "see": "查看用量"
     }
   },
+  "usage": {
+    "kinds": {
+      "label": "按类型",
+      "handoffs": "智能体之间的交接",
+      "people": "与人的对话",
+      "routines": "例行任务"
+    },
+    "hint": {
+      "handoffs": "大部分来自智能体之间的交接。",
+      "message": "给 {{name}} 发消息"
+    }
+  },
   "usageViews": {
     "signedOut": "已退出登录",
     "whose": "{{name}} 的",
+    "order": {
+      "title": "{{plan}} · 使用顺序",
+      "hint": "达到限额时，智能体会改用下一个还有余量的账号，第一个账号重置后再换回来。",
+      "terms": "在 {{plan}} 的条款中，使用多个 {{plan}} 账号属于灰色地带。",
+      "termsLabel": "{{plan}} 的条款",
+      "termsHint": "一个套餐只供一个人使用，所以在让智能体依赖多个账号之前，请先查看 {{plan}} 的条款。",
+      "move": "移动 {{name}}，顺序第 {{n}} 位"
+    },
     "serves": {
       "everyone": "所有人可用",
       "onlyYou": "仅你可用",
@@ -16503,7 +17124,7 @@
       "nowTag": "现在",
       "api": "API",
       "apiMain": "{{name}} 通过 API 思考",
-      "apiFallback": "套餐之外：快速决策，以及套餐无法回答的时候",
+      "apiFallback": "套餐之外：快速决策",
       "removed": "已移除的账号",
       "removedSub": "已不在任何电脑上",
       "old": "{{brand}}，在启用账号之前",
@@ -16537,6 +17158,21 @@
     "tomorrowAt": "明天 {{time}}"
   },
   "work": {
+    "handed": {
+      "lead": "已移交给 <0/>{{name}}",
+      "working": "进行中",
+      "done": "用时 {{duration}} 完成",
+      "waitingYou": "等待你的回答",
+      "waiting": "等待回答",
+      "waitingApprovalYou": "等待你的批准",
+      "waitingApproval": "等待批准",
+      "waitingComputer": "等待电脑",
+      "paused": "已在方案限额处暂停",
+      "queued": "排队中",
+      "failed": "未完成",
+      "stopped": "已停止",
+      "step": "第 {{current}} 步，共 {{total}} 步"
+    },
     "duration": {
       "minutes_other": "{{count}} 分钟",
       "hours_other": "{{count}} 小时",
@@ -16575,7 +17211,7 @@
     "autoUpdateNow": "当前：{{now}}。",
     "statusReply": "我正在处理一项任务（{{duration}}），暂时无法回复。你的消息已在队列中，我会在下一步读到。",
     "statusReplyTurn": "我正在处理一项任务（{{duration}}），暂时无法回复。你的消息已在队列中，这一轮工作结束后我会读到。",
-    "statusReplyQueued": "正在等待电脑（{{duration}}）。轮到我时我会读你的消息。",
+    "statusReplyQueued": "排队中（{{duration}}）。轮到我时我会读你的消息。",
     "statusReplyAway": "正在等我的电脑恢复。电脑一恢复我就读你的消息。",
     "statusReplyPlan": "正在等我的套餐恢复（{{when}}）。套餐恢复后我就读你的消息。",
     "statusReplyPlanUnknown": "正在等我的套餐恢复。套餐一恢复我就读你的消息。",
@@ -16613,9 +17249,20 @@
     "working": "后台进行中"
   },
   "chat": {
+    "request": {
+      "asksYou": "{{name}} 问你"
+    },
     "speedFallback": {
       "text": "ChatGPT 拒绝了此账号或模型的快速模式，因此这条回复以标准速度发送。",
       "action": "打开智能体"
+    },
+    "standIn": {
+      "needsComputer": "已用{{via}}回答：{{plan}}需要一台电脑。",
+      "away": "已用{{via}}回答：{{plan}}所在的电脑当前离开。",
+      "notShared": "已用{{via}}回答：{{plan}}只为连接它的人服务。",
+      "limit": "已用{{via}}回答：{{plan}}已达上限。",
+      "cant": "已用{{via}}回答：{{plan}}现在无法思考。",
+      "change": "更改"
     },
     "modelStandIn": {
       "text": "{{plan}} 用此密钥拒绝了 {{from}}。我改用可用的 {{to}} 回复了。",
@@ -16784,6 +17431,11 @@
         "shell": "会在内部运行其他命令",
         "inline": "会运行内联代码",
         "global": "会为整台电脑安装",
+        "privilege": "它要求更高的权限",
+        "reverseShell": "它把这台电脑的 shell 交给另一台机器",
+        "destroy": "它会清空电脑或整个主文件夹",
+        "network": "它修改或绕过代理和防火墙",
+        "otherUser": "它会访问其他用户的文件",
         "rules": "超出了智能体可自行执行的范围",
         "noAccess": "智能体无权访问此内容",
         "policy": "此类工作中不允许",
@@ -17111,13 +17763,18 @@
       "provider_wait_said": "{{provider}} 返回了错误（{{detail}}）。我会重试，成功后尽快回复。",
       "provider_wait_ours": "问题在我们这边，不是你的账户，它挡住了我的 AI。解决后我会尽快回复。",
       "provider_back": "我的 AI 已恢复。",
-      "brain_busy": "我的电脑正忙于其他任务。空闲后我会尽快回复。",
-      "brain_queued": "我还在电脑的队列里。它一有空闲内存我就回复。",
+      "confidential_removed": "已移除：机密文本保留 {{days}} 天。",
+      "brain_queued": "仍在排队。轮到我时会马上回复。",
       "brain_interrupted": "{{brain}} 在完成前停止了。已完成的不会重复：{{tools}}。",
       "plan_limit_cut": "我在 {{plan}} 套餐的限额处停了下来。{{when}}重置后，我会从停下的地方继续。",
       "plan_limit_cut_unknown": "我在 {{plan}} 套餐的限额处停了下来。重置后我会立即从停下的地方继续。",
       "plan_limit_wait": "{{plan}} 套餐已达限额。{{when}}重置后我会回复。如果在 {{plan}} 中提前解除，我会察觉并立即回复。",
       "plan_limit_wait_unknown": "{{plan}} 套餐已达限额。重置后我会立即回复。",
+      "plan_account_moved": "{{from}} 账号已达限额。我改用 {{to}} 账号继续。",
+      "plan_account_moved_line": "{{from}} 账号快到上限了。我改用 {{to}} 账号继续。",
+      "plan_account_moved_extra": "{{from}} 账号会进入付费额外用量。我改用 {{to}} 账号继续。",
+      "plan_limit_all_wait": "{{plan}} 的 {{accounts}} 个账号都已达限额。{{when}}第一个重置后我会回复。",
+      "plan_limit_all_wait_unknown": "{{plan}} 的 {{accounts}} 个账号都已达限额。任意一个重置后我会立即回复。",
       "plan_model_limit_wait": "{{model}} 在 {{plan}} 中达到了自身的限额。套餐里的其他模型仍可正常使用：更换 {{agent}} 的模型，或等它{{when}}重置。",
       "plan_model_limit_wait_unknown": "{{model}} 在 {{plan}} 中达到了自身的限额。套餐里的其他模型仍可正常使用：更换 {{agent}} 的模型，或等它重置。",
       "plan_model_region_wait": "这个模型（{{model}}）需要在 OpenCode 的 设置 › 隐私 中开启 Global 区域。",
@@ -17188,6 +17845,8 @@
       "file_saved": "文件已保存。",
       "issue_work_start": "请完成任务 #{{number}}。",
       "issue_taken": "接手了任务 #{{number}}。",
+      "surfaceUnlinked": "{{surface}} 因身份变更已解除关联。如果是你，请在设置中重新关联。",
+      "surfaceVoiceDropped": "我没听清那条语音消息。可以再发一次，或者打字告诉我吗？",
       "done": "完成。",
       "stretch_paused_runs_other": "{{agents}} 暂停下来，先向你确认再继续",
       "stretch_paused_spend_other": "{{agents}} 暂停下来向你确认 · 每个已用掉本月预算的 {{percent}}%",
@@ -17275,6 +17934,54 @@
     "update_artifact": {
       "label": "更新文件",
       "description": "保存文件的新版本。"
+    },
+    "read_spreadsheet": {
+      "label": "读取电子表格",
+      "description": "读取电子表格的单元格和公式。"
+    },
+    "read_presentation": {
+      "label": "读取演示文稿",
+      "description": "读取演示文稿的幻灯片和备注。"
+    },
+    "read_canvas": {
+      "label": "读取白板",
+      "description": "读取白板上的内容：图片、便签和文字。"
+    },
+    "create_spreadsheet": {
+      "label": "创建电子表格",
+      "description": "创建电子表格，并写好最前面的几行。"
+    },
+    "edit_spreadsheet": {
+      "label": "编辑电子表格",
+      "description": "修改单元格、公式、格式、行和工作表，大家可以实时看到。"
+    },
+    "create_presentation": {
+      "label": "创建演示文稿",
+      "description": "创建演示文稿及其幻灯片。"
+    },
+    "edit_presentation": {
+      "label": "编辑演示文稿",
+      "description": "修改幻灯片及其中的文字、图片、图表和备注，大家可以实时看到。"
+    },
+    "create_canvas": {
+      "label": "创建白板",
+      "description": "创建一块白板，用来放图片、便签和想法。"
+    },
+    "edit_canvas": {
+      "label": "编辑白板",
+      "description": "添加和移动便签、文字、图片和箭头。"
+    },
+    "read_document": {
+      "label": "读取文档",
+      "description": "逐块读取文档的文字。"
+    },
+    "edit_document": {
+      "label": "编辑文档",
+      "description": "撰写、改写文档文字并设置格式，大家可以实时看到。"
+    },
+    "generate_image": {
+      "label": "生成图片",
+      "description": "用工作区的图片 AI 在对话中或白板上生成图片。费用计入智能体的预算。"
     },
     "list_issues": {
       "label": "查看任务",
@@ -17999,6 +18706,21 @@
     "writeAfter": "。",
     "ask": "需要帮助？请询问这台服务器的管理员。"
   },
+  "resetOrg": {
+    "cardTitle": "重置或删除",
+    "row": {
+      "title": "重置工作区",
+      "text": "清除其中创建的所有内容，并以同样的成员重新开始。"
+    },
+    "goes": "智能体、对话、私信、文件、任务、例行任务和记忆",
+    "stays": "成员、角色、邀请、AI 账号、电脑和连接器",
+    "fresh": "之后它会像新工作区一样打开，带有初始设置",
+    "plan": "套餐保持不变，不会再次收费",
+    "now": "立即生效，无法撤销。",
+    "title": "重置 {{name}}？",
+    "submit": "重置工作区",
+    "resetting": "正在重置 {{name}}…"
+  },
   "deleteOrg": {
     "card": {
       "title": "删除工作区",
@@ -18070,8 +18792,7 @@
     "menu": "删除账号",
     "card": {
       "text": "7 天后在所有工作区中删除你的账号。",
-      "button": "删除账号…",
-      "title": "删除"
+      "button": "删除账号…"
     },
     "title": "删除你的整个账号？",
     "intro": "这会删除你的整个账号，而不只是一个工作区。",
@@ -18094,6 +18815,7 @@
     "serverOwner": "这台服务器是你搭建的。它的设置在这里将没有所有者，只保留在服务器的环境配置中。",
     "blockers": "删除之前需要先处理",
     "soleOwner": "你是 {{name}} 唯一的所有者。请把其他人设为所有者，或删除 {{name}}。",
+    "soleOwnerOutside": "你是 {{name}} 唯一的所有者，其他人都是不能成为所有者的外部协作者。请邀请一位成员并设为所有者，或删除 {{name}}。",
     "soleOwnerSettingUp": "你是 {{name}} 唯一的所有者。请先完成设置，再把其他人设为所有者，或删除 {{name}}。",
     "openPeople": "打开成员页面",
     "finishSetup": "完成设置",
@@ -18113,6 +18835,10 @@
     "seatsPaid_other": "已付费 {{count}} 个席位",
     "noLimit": "无限制",
     "ownBucket": "在你自己的存储桶上，我们不设限制"
+  },
+  "referrals": {
+    "open": "推荐有奖",
+    "failed": "暂时无法打开，请稍后再试。"
   },
   "limits": {
     "members": {
@@ -18577,8 +19303,6 @@
       "working": "工作中",
       "ok": "等你处理",
       "answer": "等待回答",
-      "computerBusy": "等待电脑空位",
-      "inLine": "排队中 · 第 {{position}} 位",
       "computerOffline": "等待电脑",
       "plan": "等待套餐重置",
       "budget": "等待预算重置",
@@ -18603,7 +19327,6 @@
       "computerWait": "等待电脑",
       "computerWaitNext": "准备好后继续",
       "computerOfflineNext": "开机后继续",
-      "computerBusyNext": "有空闲内存时开始",
       "okNext": "有人审批后继续",
       "answerNext": "有人回答后继续",
       "back": "{{when}}继续",
@@ -18688,7 +19411,7 @@
     "failed": "无法停止，请重试。",
     "queue": {
       "see": "查看队列",
-      "full_other": "已满 · {{count}} 个在排队",
+      "inLine_other": "{{count}} 个排队中",
       "room": "有空位",
       "computers": "电脑"
     },
@@ -19264,14 +19987,14 @@
       "failed": "团队没有创建。原因在对话里的卡片上。",
       "none": "都不是",
       "noneSub": "说说你做什么，{{name}}来组建",
-      "tailor": "之后只要让我按你的业务调整就行。",
+      "tailor": "之后可以让我按你的业务调整。",
       "titlePersonal": "你的智能体",
       "leadPersonal": "按你想要的帮助准备好的智能体。之后{{name}}会按你的情况调整。",
       "heldLeadPersonal": "选择最接近你需要的那个。之后什么都能改。",
       "createPersonal": "创建我的智能体",
       "failedPersonal": "你的智能体没有创建。原因在对话里的卡片上。",
       "noneSubPersonal": "说说你需要什么，{{name}}来准备",
-      "tailorPersonal": "之后只要让我按你的日常安排调整就行。"
+      "tailorPersonal": "之后可以让我按你的日常安排调整。"
     },
     "weekly": {
       "name": "团队的一周",
@@ -19335,11 +20058,18 @@
     "savedEveryonePersonal": "现在这里的所有人都能看到这个文件。",
     "savedPeople": "现在你选择的人能看到这个文件。",
     "savedConversation": "现在只有对话里的人能看到这个文件。",
+    "onlyYou": "只有你",
+    "onlyMaker": "只有 {{name}}",
+    "onlyYouLink": "只有你能打开这个链接。",
+    "onlyMakerLink": "只有 {{name}} 能打开这个链接。",
+    "readOnlyDrive": "只有文件的创建者和管理员能更改谁可以查看。",
+    "savedOnlyYou": "现在只有你能看到这个文件。",
+    "savedOnlyMaker": "现在只有 {{name}} 能看到这个文件。",
     "undo": "撤销",
     "fileRef": "文件 {{title}}",
     "fileRefNone": "无权访问的文件",
     "also": "{{text}}。也已与 {{who}} 共享。",
-    "someOnlyHere": "其中一些链接只有文件所在对话里的人能打开。"
+    "someOnlyHere": "其中一些链接只有已经能看到文件的人才能打开。"
   },
   "linkErrors": {
     "signIn": {
@@ -19689,6 +20419,1430 @@
       "always": "总是发送",
       "alwaysOn": "从现在起，这类报告会直接发送，不再询问。",
       "askFirst": "发送前先询问"
+    }
+  },
+  "problemReport": {
+    "button": "发送报告",
+    "title": "向 agentes.chat 发送报告",
+    "lead": "agentes.chat 团队会收到：版本、哪些设置已配置（不含其值）、出错的内容，以及日志的最后几行。不包含消息、页面、名称或密钥。",
+    "noteLabel": "发生了什么？（可选）",
+    "notePlaceholder": "停止时你正在做什么",
+    "emailLabel": "用于回复的邮箱（可选）",
+    "emailHelp": "仅在你需要回复时填写。",
+    "showAll": "查看发送的全部内容",
+    "copy": "复制报告",
+    "copied": "已复制",
+    "send": "发送",
+    "sending": "正在发送…",
+    "cancel": "取消",
+    "loading": "正在收集详细信息…",
+    "sentTitle": "报告 {{id}} 已发送",
+    "sentText": "如果你给我们写信，请注明此代码。",
+    "sentTextReply": "我们会回复到 {{email}}。如果你给我们写信，请注明此代码。",
+    "copyCode": "复制代码",
+    "done": "完成",
+    "noLogComputer": "{{computer}} 没有响应，因此未包含它的日志。",
+    "oldRunner": "{{computer}} 上的 agentes.chat 应用版本太旧，无法包含其日志。请在那台电脑上更新应用后再试。",
+    "noServerLines": "只有安装的所有者发送报告时，才会包含服务器的日志行。",
+    "off": "此服务器已关闭发送（`PROBLEM_REPORT_URL=off`）。请复制报告来分享。",
+    "errorRate": "短时间内报告太多。请在 {{minutes}} 分钟后重试，或复制报告。",
+    "errorUnreachable": "agentes.chat 没有响应。请重试，或复制报告。",
+    "errorRefused": "agentes.chat 未接受此报告（可能来自旧版本）。请改为复制报告。",
+    "errorPreview": "无法收集详细信息：{{reason}}",
+    "emailInvalid": "这个邮箱看起来不对。请修改或留空。",
+    "settingsTitle": "有功能不正常吗？",
+    "settingsText": "将技术详细信息发送给 agentes.chat 团队。"
+  },
+  "live": {
+    "slides": {
+      "rail": {
+        "label": "幻灯片",
+        "slide": "第 {{n}} 张幻灯片",
+        "slideHidden": "第 {{n}} 张幻灯片，已隐藏",
+        "more": "第 {{n}} 张幻灯片的更多选项",
+        "newAfter": "新建幻灯片",
+        "duplicate": "复制",
+        "hide": "演示时隐藏",
+        "show": "演示时显示",
+        "presentFrom": "从这里开始演示",
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "delete": "删除幻灯片",
+        "deleted": "幻灯片已删除"
+      },
+      "stage": {
+        "role": "幻灯片",
+        "label": "第 {{n}} 张幻灯片，共 {{total}} 张",
+        "peers": "{{name}} +{{count}}"
+      },
+      "selection": {
+        "slide": "第 {{n}} 张幻灯片"
+      },
+      "element": {
+        "text": "文字",
+        "shapeText": "形状中的文字"
+      },
+      "placeholder": {
+        "title": "点击添加标题",
+        "text": "点击添加文字"
+      },
+      "tools": {
+        "label": "演示文稿工具",
+        "undo": "撤销",
+        "redo": "重做",
+        "newSlide": "新建幻灯片",
+        "newSlideLayout": "按版式新建幻灯片",
+        "layout": "版式",
+        "theme": "主题",
+        "text": "文本框",
+        "image": "图片",
+        "shape": "形状",
+        "chart": "图表",
+        "table": "表格",
+        "size": "文字大小",
+        "bold": "粗体",
+        "italic": "斜体",
+        "underline": "下划线",
+        "strike": "删除线",
+        "textColor": "文字颜色",
+        "alignLeft": "左对齐",
+        "alignCenter": "居中",
+        "alignRight": "右对齐",
+        "bullets": "项目符号列表",
+        "numbers": "编号列表",
+        "indent": "增加缩进",
+        "outdent": "减少缩进",
+        "link": "链接",
+        "fill": "填充",
+        "stroke": "轮廓",
+        "lineColor": "线条颜色",
+        "arrowEnd": "末端箭头",
+        "arrange": "排列",
+        "delete": "删除"
+      },
+      "layout": {
+        "label": "幻灯片版式"
+      },
+      "layouts": {
+        "title": "标题",
+        "titleBody": "标题和文字",
+        "section": "章节",
+        "twoColumns": "两栏",
+        "imageLeft": "图片在左",
+        "imageRight": "图片在右",
+        "bigNumber": "大数字",
+        "quote": "引用",
+        "titleOnly": "仅标题",
+        "blank": "空白"
+      },
+      "theme": {
+        "label": "主题"
+      },
+      "themes": {
+        "sky": "天空",
+        "night": "夜晚",
+        "paper": "纸张",
+        "graphite": "石墨",
+        "contrast": "高对比度",
+        "forest": "森林"
+      },
+      "shapes": {
+        "rect": "矩形",
+        "ellipse": "椭圆",
+        "triangle": "三角形",
+        "diamond": "菱形",
+        "arrow": "箭头",
+        "line": "线条"
+      },
+      "arrange": {
+        "front": "置于顶层",
+        "forward": "上移一层",
+        "backward": "下移一层",
+        "back": "置于底层"
+      },
+      "align": {
+        "left": "左边缘对齐",
+        "center": "水平居中",
+        "right": "右边缘对齐",
+        "top": "顶端对齐",
+        "middle": "垂直居中",
+        "bottom": "底端对齐"
+      },
+      "colors": {
+        "label": "颜色",
+        "automatic": "自动",
+        "noFill": "无填充",
+        "noStroke": "无轮廓",
+        "text": "主题文字",
+        "muted": "主题次要文字",
+        "accent": "主题强调色",
+        "accent2": "主题第二强调色",
+        "red": "红色",
+        "orange": "橙色",
+        "yellow": "黄色",
+        "green": "绿色",
+        "teal": "蓝绿色",
+        "blue": "蓝色",
+        "purple": "紫色",
+        "pink": "粉色",
+        "white": "白色",
+        "black": "黑色"
+      },
+      "link": {
+        "address": "链接地址",
+        "placeholder": "https://example.com",
+        "apply": "应用",
+        "remove": "移除链接",
+        "invalid": "请使用以 https:// 开头的地址或电子邮件地址"
+      },
+      "image": {
+        "upload": "从电脑上传",
+        "drive": "从 Drive 选择",
+        "driveTitle": "从 Drive 选择图片",
+        "driveSearch": "搜索图片",
+        "clearSearch": "清除搜索",
+        "driveEmpty": "Drive 中还没有图片",
+        "driveMore": "显示更多",
+        "empty": "添加图片",
+        "missing": "找不到图片",
+        "replace": "替换图片",
+        "contain": "完整显示",
+        "cover": "填满框",
+        "onlyImages": "幻灯片只能放 PNG、JPEG、WebP 和 GIF 图片",
+        "tooBig": "请使用不超过 25 MB 的图片",
+        "uploading_other": "正在上传 {{count}} 张图片…"
+      },
+      "chart": {
+        "newTitle": "新建图表",
+        "editTitle": "图表数据",
+        "editData": "编辑数据",
+        "type": "图表类型",
+        "types": {
+          "bar": "柱形图",
+          "line": "折线图",
+          "pie": "饼图",
+          "number": "数字"
+        },
+        "title": "标题",
+        "unit": "单位",
+        "value": "数值",
+        "delta": "变化",
+        "label": "标签",
+        "labelN": "标签 {{n}}",
+        "series": "系列",
+        "seriesName": "系列 {{n}} 的名称",
+        "item": "项目",
+        "cell": "{{label}}，{{series}}",
+        "removeSeries": "移除 {{name}}",
+        "removeRow": "移除 {{label}}",
+        "addRow": "添加行",
+        "addSeries": "添加系列",
+        "notNumber": "请输入数字",
+        "fix": "每个数值都填上数字后才能看到图表",
+        "insert": "插入图表",
+        "save": "保存"
+      },
+      "table": {
+        "size": "表格大小",
+        "dims": "{{rows}} × {{cols}}",
+        "edit": "表格",
+        "rowAbove": "在顶部添加一行",
+        "rowBelow": "在底部添加一行",
+        "colLeft": "在左侧添加一列",
+        "colRight": "在右侧添加一列",
+        "deleteRow": "删除最后一行",
+        "deleteCol": "删除最后一列",
+        "header": "首行作为标题行",
+        "cell": "第 {{row}} 行，第 {{col}} 列"
+      },
+      "notes": {
+        "title": "演讲者备注",
+        "short": "备注",
+        "placeholder": "点击为这张幻灯片添加备注"
+      },
+      "present": {
+        "label": "演示文稿",
+        "controls": "演示控制",
+        "previous": "上一张幻灯片",
+        "nextSlide": "下一张幻灯片",
+        "count": "{{n}} / {{total}}",
+        "exit": "退出",
+        "elapsed": "用时",
+        "next": "下一张",
+        "lastSlide": "这是最后一张幻灯片",
+        "noNotes": "这张幻灯片没有备注",
+        "following": "正在跟随 {{name}}"
+      },
+      "presenting": {
+        "who": "{{name}} 正在演示",
+        "follow": "跟随"
+      },
+      "menu": {
+        "cut": "剪切",
+        "copy": "复制",
+        "paste": "粘贴",
+        "duplicate": "创建副本",
+        "editText": "编辑文字",
+        "editTable": "编辑单元格",
+        "selectAll": "全选",
+        "delete": "删除"
+      },
+      "clipboard": {
+        "blocked": "请用 ⌘V 或 Ctrl+V 粘贴到这里"
+      },
+      "empty": {
+        "title": "还没有幻灯片",
+        "body": "添加一张幻灯片开始吧",
+        "add": "添加幻灯片"
+      },
+      "errors": {
+        "tooMany": "一份演示文稿最多 300 张幻灯片，一张幻灯片最多 200 个元素",
+        "tooLarge": "这段文字太长，一个文本框放不下",
+        "notFound": "有人刚刚删除了它",
+        "invalid": "这项更改与演示文稿不兼容"
+      },
+      "deck": {
+        "label_other": "包含 {{count}} 张幻灯片的演示文稿",
+        "number": "第 {{n}} 张幻灯片",
+        "hiddenNumber": "第 {{n}} 张幻灯片 · 已隐藏"
+      }
+    },
+    "doc": {
+      "body": "文档正文",
+      "title": "文档标题",
+      "placeholder": "开始写作，或在对话中请智能体帮忙",
+      "toolbar": "文档工具",
+      "undo": "撤销",
+      "redo": "重做",
+      "style": {
+        "label": "文字样式",
+        "text": "正文",
+        "h1": "标题 1",
+        "h2": "标题 2",
+        "h3": "标题 3",
+        "quote": "引用",
+        "code": "代码"
+      },
+      "bold": "粗体",
+      "italic": "斜体",
+      "underline": "下划线",
+      "strike": "删除线",
+      "bulletList": "项目符号列表",
+      "numberedList": "编号列表",
+      "quote": "引用",
+      "codeBlock": "代码块",
+      "link": {
+        "title": "链接",
+        "address": "链接地址",
+        "placeholder": "粘贴或输入地址",
+        "apply": "应用",
+        "remove": "移除链接"
+      },
+      "image": {
+        "add": "图片",
+        "upload": "从你的电脑",
+        "drive": "从 Drive",
+        "menu": "图片大小",
+        "small": "小",
+        "medium": "中",
+        "large": "大",
+        "full": "页面宽度",
+        "natural": "原始大小",
+        "remove": "移除图片",
+        "uploading_other": "正在发送 {{count}} 张图片…",
+        "onlyImages": "文档里只能放 PNG、JPEG、WebP 或 GIF 图片。",
+        "tooBig": "有一张图片超过 25 MB，没有放进来。",
+        "missing": "图片无法显示"
+      },
+      "table": {
+        "insert": "表格",
+        "menu": "表格",
+        "rowAbove": "在上方插入行",
+        "rowBelow": "在下方插入行",
+        "columnLeft": "在左侧插入列",
+        "columnRight": "在右侧插入列",
+        "header": "标题行",
+        "deleteRow": "删除行",
+        "deleteColumn": "删除列",
+        "deleteTable": "删除表格"
+      },
+      "selection": {
+        "text": "选中的文字",
+        "image": "图片",
+        "table": "表格"
+      },
+      "keys": {
+        "title": "在文档中",
+        "text": "正文",
+        "heading": "标题 1、2 或 3",
+        "strike": "删除线",
+        "code": "行内代码",
+        "bulletList": "项目符号列表",
+        "numberedList": "编号列表",
+        "link": "链接",
+        "lineBreak": "换行",
+        "nextCell": "表格的下一个单元格"
+      }
+    },
+    "kinds": {
+      "spreadsheet": "电子表格",
+      "slides": "演示文稿",
+      "canvas": "白板",
+      "document": "文档",
+      "spreadsheetHint": "数字和公式，团队一起算",
+      "slidesHint": "用来展示的幻灯片",
+      "canvasHint": "图片、便签和零散的想法",
+      "documentHint": "大家一起写的文字",
+      "untitled": {
+        "spreadsheet": "未命名电子表格",
+        "slides": "未命名演示文稿",
+        "canvas": "未命名白板",
+        "document": "未命名文档"
+      },
+      "new": "新建",
+      "newMenu": "新建文件",
+      "sheetCount_other": "{{count}} 个工作表",
+      "slideCount_other": "{{count}} 张幻灯片"
+    },
+    "shell": {
+      "crumbs": "所在位置",
+      "title": "文件名",
+      "rename": "重命名",
+      "status": {
+        "saved": "已保存",
+        "saving": "正在保存…",
+        "connecting": "正在连接…",
+        "offline": "没有网络连接。你的更改已保留，连接恢复后会立即同步。",
+        "readOnly": "只读",
+        "inTrash": "在回收站中。恢复后才能更改。",
+        "closing": "这个工作区正在被删除，其中的文件只能查看。"
+      },
+      "present": "演示",
+      "download": "下载",
+      "formats": {
+        "xlsx": "Excel（.xlsx）",
+        "csv": "CSV（.csv，第一个工作表）",
+        "pptx": "PowerPoint（.pptx）",
+        "pdf": "PDF（.pdf）",
+        "json": "JSON（.json）",
+        "docx": "Word（.docx）",
+        "md": "Markdown（.md）"
+      },
+      "more": "更多",
+      "menu": {
+        "versions": "版本",
+        "saveVersion": "保存版本…",
+        "duplicate": "创建副本",
+        "showInDrive": "在 Drive 中显示",
+        "copyLink": "复制链接",
+        "trash": "移到回收站",
+        "shortcuts": "键盘快捷键"
+      },
+      "meta": {
+        "madeFrom": "<0>{{name}}</0> 从<1>{{place}}</1>创建",
+        "made": "<0>{{name}}</0> 创建",
+        "imported": "<0>{{name}}</0> 从 <1>{{file}}</1> 导入",
+        "inChannel": "#{{channel}} 中的对话",
+        "with": "与 {{name}} 的对话",
+        "between": "{{names}} 之间的对话",
+        "inConversation": "对话",
+        "edited": "{{when}}编辑"
+      },
+      "notHere": "这类文件暂时还不能在这里打开。",
+      "copyTitle": "{{title}}（副本）",
+      "duplicated": "已创建副本：{{title}}",
+      "open": "打开",
+      "notFound": {
+        "title": "这个文件不存在，或没有共享给你",
+        "back": "返回 Drive"
+      },
+      "failed": {
+        "title": "无法打开这个文件",
+        "body": "请检查网络连接后重试。",
+        "retry": "重试"
+      },
+      "loading": "正在打开文件…",
+      "errors": {
+        "tooLarge": "这个文件已达到大小上限。删掉一些内容才能继续修改。",
+        "rate": "一次更改太多了，稍后会同步。",
+        "readOnly": "这个文件现在是只读的。",
+        "invalid": "有一项更改没能保存。请重新加载页面，查看文件的当前状态。"
+      },
+      "presence": {
+        "title": "谁在这里",
+        "label": "在这个文件中：{{names}}",
+        "you": "你",
+        "agent": "（智能体）",
+        "more": "+{{count}}",
+        "viewing": "正在查看",
+        "editing": "正在编辑",
+        "editingRange": "正在编辑 {{range}}",
+        "atRange": "在 {{range}}",
+        "onSlide": "在第 {{n}} 张幻灯片",
+        "editingSlide": "正在编辑第 {{n}} 张幻灯片",
+        "presenting": "正在演示",
+        "follow": "跟随",
+        "unfollow": "停止跟随",
+        "following": "正在跟随 {{name}}",
+        "stop": "停止",
+        "left": "{{name}} 已离开这个文件。",
+        "inNow": "正在这里：{{names}}"
+      },
+      "versions": {
+        "title": "版本",
+        "close": "关闭版本",
+        "current": "当前版本",
+        "byAgent": "{{name}}（智能体）",
+        "number": "版本 {{version}}",
+        "viewing": "{{when}}的版本",
+        "restore": "恢复这个版本",
+        "back": "返回当前版本",
+        "save": "保存版本",
+        "saveTitle": "保存一个版本",
+        "saveHint": "命名的版本会保留在历史记录中，方便查找和恢复。",
+        "name": "名称",
+        "namePlaceholder": "审阅之前",
+        "saved": "版本已保存。",
+        "nothingNew": "自上个版本以来没有任何更改。",
+        "restored": "已恢复版本 {{version}}。",
+        "empty": "还没有版本。",
+        "failed": "无法加载版本。",
+        "retry": "重试",
+        "opening": "正在打开这个版本…",
+        "openFailed": "无法打开这个版本。"
+      },
+      "shortcuts": {
+        "title": "键盘快捷键",
+        "general": "通用",
+        "undo": "撤销",
+        "redo": "重做",
+        "saveVersion": "保存一个版本",
+        "show": "显示快捷键",
+        "stopFollowing": "停止跟随",
+        "spreadsheet": "在电子表格中",
+        "edit": "编辑单元格",
+        "confirm": "确认并下移",
+        "cancel": "取消编辑",
+        "nextCell": "下一个单元格",
+        "bold": "粗体",
+        "italic": "斜体",
+        "fillDown": "向下填充",
+        "clear": "清除单元格",
+        "selectAll": "全选",
+        "slides": "在演示文稿中",
+        "duplicate": "创建副本",
+        "remove": "删除",
+        "nudge": "微移",
+        "presentNow": "演示",
+        "canvas": "在白板上",
+        "select": "选择",
+        "hand": "移动画面",
+        "note": "便签",
+        "text": "文字",
+        "zoom": "放大和缩小",
+        "fit": "显示全部"
+      }
+    },
+    "conversation": {
+      "button": "对话",
+      "toggle_other": "对话，{{count}} 条消息",
+      "close": "关闭对话",
+      "resize": "对话宽度",
+      "resizeHint": "拖动调整宽度 · 双击恢复默认",
+      "title": {
+        "canvas": "白板对话",
+        "spreadsheet": "电子表格对话",
+        "slides": "演示文稿对话",
+        "document": "文档对话",
+        "file": "文件对话"
+      },
+      "placeholder": {
+        "canvas": "聊聊这块白板 · 用 @ 呼叫智能体",
+        "spreadsheet": "聊聊这个电子表格 · 用 @ 呼叫智能体",
+        "slides": "聊聊这份演示文稿 · 用 @ 呼叫智能体",
+        "document": "聊聊这份文档 · 用 @ 呼叫智能体",
+        "file": "聊聊这个文件 · 用 @ 呼叫智能体"
+      },
+      "this": {
+        "canvas": "这块白板",
+        "spreadsheet": "这个电子表格",
+        "slides": "这份演示文稿",
+        "document": "这份文档"
+      },
+      "origin": {
+        "from": "<0>{{name}}</0> 从<1>{{place}}</1>创建了{{what}}",
+        "made": "<0>{{name}}</0> 创建了{{what}}",
+        "imported": "由 {{name}} 从 <1>{{file}}</1> 导入"
+      },
+      "about": {
+        "range": "关于 {{sheet}} 中的 {{range}}",
+        "slide": "关于第 {{n}} 张幻灯片",
+        "canvas": "关于白板上的{{label}}",
+        "text": "关于选中的文字",
+        "point": "关于白板上的一个位置",
+        "other": "关于{{label}}"
+      },
+      "drop": "不发送选中的内容",
+      "aboutLine": "在文件中显示{{what}}（{{where}}）",
+      "untitled": "未命名文件",
+      "ask": "询问 {{name}}",
+      "ask_female": "询问 {{name}}"
+    },
+    "office": {
+      "loading": "正在打开文件…",
+      "failed": "这个文件无法在这里显示。请下载后打开。",
+      "loadFailed": "无法打开预览",
+      "retry": "重试",
+      "kind": {
+        "excel": "Excel 文件",
+        "ods": "电子表格文件",
+        "csv": "CSV 文件",
+        "powerpoint": "PowerPoint 文件",
+        "word": "Word 文件",
+        "file": "文件"
+      },
+      "editAs": {
+        "workbook": "作为电子表格编辑",
+        "deck": "作为演示文稿编辑",
+        "document": "作为文档编辑"
+      },
+      "editAsHint": "会在旁边创建一个可编辑的副本，这个文件保持不变。",
+      "made": "已创建可编辑副本：{{title}}",
+      "frame": "{{title}}，页面形式"
+    },
+    "activity": {
+      "working": "正在处理文件",
+      "readingFile": "正在读取文件",
+      "readingCells": "正在读取 {{range}}",
+      "writingCells": "正在写入 {{range}}",
+      "formatting": "正在设置 {{range}} 的格式",
+      "sorting": "正在排序 {{range}}",
+      "addingRows": "正在添加行",
+      "addingSheet": "正在添加工作表",
+      "creatingSpreadsheet": "正在搭建电子表格",
+      "addingSlides": "正在添加幻灯片",
+      "editingSlide": "正在编辑第 {{n}} 张幻灯片",
+      "writingSlide": "正在撰写第 {{n}} 张幻灯片",
+      "creatingPresentation": "正在搭建演示文稿",
+      "arrangingCanvas": "正在整理白板",
+      "addingNotes": "正在添加便签",
+      "placingImages": "正在放置图片",
+      "generatingImages": "正在生成图片",
+      "creatingCanvas": "正在搭建白板",
+      "writingDocument": "正在撰写文档"
+    },
+    "defaults": {
+      "sheetName": "工作表 {{n}}",
+      "restored": "已恢复版本 {{version}}",
+      "fromFile": "由 {{name}} 创建"
+    },
+    "canvas": {
+      "label": "白板",
+      "roledescription": "白板",
+      "loading": "正在打开白板…",
+      "count": {
+        "image_other": "{{count}} 张图片",
+        "note_other": "{{count}} 张便签",
+        "text_other": "{{count}} 段文字",
+        "frame_other": "{{count}} 个分区",
+        "shape_other": "{{count}} 个形状",
+        "arrow_other": "{{count}} 个箭头",
+        "draw_other": "{{count}} 处手绘",
+        "html_other": "{{count}} 个页面",
+        "file_other": "{{count}} 个文件",
+        "items_other": "{{count}} 个元素"
+      },
+      "kinds": {
+        "image": "图片",
+        "frame": "分区",
+        "html": "页面",
+        "note": "便签",
+        "text": "文字",
+        "arrow": "箭头",
+        "line": "线条",
+        "draw": "手绘",
+        "file": "文件"
+      },
+      "tools": {
+        "label": "工具",
+        "select": "选择",
+        "hand": "移动画面",
+        "note": "便签",
+        "text": "文字",
+        "shape": "形状",
+        "arrow": "箭头",
+        "frame": "分区",
+        "image": "上传图片",
+        "shapes": "形状",
+        "pen": "画笔",
+        "comment": "评论",
+        "ask": "询问文件的智能体"
+      },
+      "zoom": {
+        "label": "白板缩放",
+        "out": "缩小",
+        "in": "放大",
+        "actual": "缩放到 100%",
+        "fit": "适合窗口",
+        "fitAll": "显示全部",
+        "selection": "显示所选内容",
+        "menu": "缩放 {{percent}}"
+      },
+      "actions": {
+        "cut": "剪切",
+        "copy": "复制",
+        "paste": "粘贴",
+        "duplicate": "创建副本",
+        "delete": "删除",
+        "lock": "锁定",
+        "unlock": "解锁",
+        "editText": "编辑文字",
+        "openFile": "打开文件",
+        "addNote": "新建便签",
+        "addText": "新建文字",
+        "selectAll": "全选"
+      },
+      "arrange": {
+        "label": "排列",
+        "front": "置于顶层",
+        "forward": "上移一层",
+        "backward": "下移一层",
+        "back": "置于底层"
+      },
+      "bar": {
+        "title": "选项",
+        "color": "便签颜色",
+        "fill": "填充",
+        "size": "文字大小",
+        "dashed": "虚线",
+        "label": "箭头文字",
+        "rename": "重命名",
+        "noFill": "无填充",
+        "auto": "自动",
+        "soft": "柔和色调",
+        "strong": "鲜明色调",
+        "stroke": "边框",
+        "noStroke": "无边框",
+        "lineColor": "颜色",
+        "strokeWidth": "粗细",
+        "corners": "圆角",
+        "editText": "文字",
+        "more": "更多"
+      },
+      "colors": {
+        "yellow": "黄色",
+        "pink": "粉色",
+        "blue": "蓝色",
+        "green": "绿色",
+        "purple": "紫色",
+        "gray": "灰色"
+      },
+      "shapeKinds": {
+        "rect": "矩形",
+        "ellipse": "椭圆",
+        "diamond": "菱形",
+        "triangle": "三角形",
+        "star": "星形",
+        "line": "线条"
+      },
+      "sizes": {
+        "s": "小",
+        "m": "中",
+        "l": "大",
+        "xl": "特大",
+        "short": {
+          "s": "小",
+          "m": "中",
+          "l": "大",
+          "xl": "特大"
+        }
+      },
+      "background": {
+        "label": "背景",
+        "dots": "点阵",
+        "grid": "网格",
+        "plain": "纯色"
+      },
+      "empty": {
+        "title": "空白白板",
+        "text": "把图片拖到这里、添加便签，或在对话中请智能体生成图片。",
+        "readOnly": "这块白板上还没有内容。",
+        "note": "新建便签",
+        "upload": "上传图片"
+      },
+      "placeholders": {
+        "note": "写点什么",
+        "text": "在这里输入",
+        "label": "添加文字"
+      },
+      "textBox": {
+        "note": "便签文字",
+        "text": "文字",
+        "label": "形状文字"
+      },
+      "errors": {
+        "tooMany": "这块白板上的内容已经满了。",
+        "tooLarge": "这块白板太大，放不下更多内容了。",
+        "other": "这项更改没有成功。请重试。",
+        "onlyImages": "白板上只能放图片（PNG、JPEG、WebP 或 GIF）。",
+        "imageTooBig": "图片最大 25 MB。",
+        "someImagesLeft": "有些图片没能一起带过来。",
+        "copyImage": "无法复制图片。"
+      },
+      "newFrame": "分区",
+      "renameFrame": "分区名称",
+      "arrowLabel": "箭头文字",
+      "dropHere": "松开即可添加到白板",
+      "uploading": "正在上传图片…",
+      "imageCopied": "图片已复制",
+      "imageFailed": "图片没有加载出来",
+      "imageFile": "图片",
+      "fileMissing": "这个文件已不存在，或没有共享给你",
+      "loadingFile": "正在打开…",
+      "interact": "互动",
+      "routes": {
+        "straight": "直线",
+        "curve": "曲线",
+        "elbow": "折线"
+      },
+      "heads": {
+        "label": "箭头",
+        "end": "在末端",
+        "both": "在两端",
+        "start": "在起点",
+        "none": "无"
+      },
+      "pen": {
+        "label": "画笔",
+        "pen": "钢笔",
+        "marker": "荧光笔",
+        "color": "颜色",
+        "size": "粗细",
+        "sizes": {
+          "s": "细",
+          "m": "中",
+          "l": "粗"
+        },
+        "short": {
+          "s": "细",
+          "m": "中",
+          "l": "粗"
+        }
+      },
+      "inks": {
+        "red": "红色",
+        "ink": "黑色",
+        "blue": "蓝色",
+        "green": "绿色",
+        "orange": "橙色"
+      },
+      "image": {
+        "crop": "裁剪",
+        "replace": "替换图片",
+        "details": "详情"
+      },
+      "ask": {
+        "variations": "生成这张图片的几个变体"
+      },
+      "crop": {
+        "label": "裁剪图片",
+        "apply": "应用",
+        "cancel": "取消"
+      },
+      "layers": {
+        "title": "图层",
+        "close": "关闭图层",
+        "empty": "这块白板上还没有内容。",
+        "hide": "隐藏 {{name}}",
+        "show": "显示 {{name}}"
+      },
+      "comment": {
+        "label": "评论",
+        "pin": "{{name}} 的第 {{n}} 条评论"
+      },
+      "inspector": {
+        "title": "图片",
+        "generated": "生成的图片",
+        "close": "关闭",
+        "prompt": "描述",
+        "model": "模型",
+        "askedBy": "请求者",
+        "byAt": "{{name}} · {{when}}",
+        "references": "参考图片",
+        "variations": "变体",
+        "edit": "用 AI 编辑",
+        "download": "下载",
+        "copy": "复制图片",
+        "open": "打开",
+        "size": "{{w}} × {{h}} 像素",
+        "uploaded": "上传到这块白板"
+      }
+    },
+    "images": {
+      "queued": "正在排队…",
+      "making": "正在生成图片…",
+      "askedBy": "由 {{name}} 请求",
+      "retry": "重试",
+      "failed": {
+        "noKey": "这个模型没有连接密钥",
+        "budget": "预算已用完",
+        "limit": "你已达到支出上限",
+        "blocked": "服务商拒绝了这个请求",
+        "provider": "服务商出错了。请稍后再试。",
+        "tooMany": "这块白板没有空间了",
+        "other": "无法生成图片"
+      }
+    },
+    "sheet": {
+      "errors": {
+        "null": "这些范围没有交集",
+        "div0": "除数为零",
+        "value": "值的类型不对，比如在该填数字的地方填了文字",
+        "ref": "引用了已不存在的单元格",
+        "name": "这个电子表格不认识的函数或名称",
+        "num": "无法计算的数字，或数字太大",
+        "na": "找不到值",
+        "calc": "这个公式计算时间太长",
+        "spill": "结果放不下",
+        "circular": "循环引用"
+      },
+      "loading": "正在打开电子表格…",
+      "toolbar": "电子表格工具",
+      "readOnly": "只读",
+      "empty": "这个电子表格是空的",
+      "undo": "撤销",
+      "redo": "重做",
+      "numberFormat": "数字格式",
+      "formats": {
+        "general": "自动",
+        "number": "数字",
+        "integer": "整数",
+        "percent": "百分比",
+        "percent2": "带小数的百分比",
+        "currency": "货币",
+        "date": "日期",
+        "time": "时间",
+        "datetime": "日期和时间",
+        "scientific": "科学计数",
+        "text": "纯文本",
+        "custom": "自定义"
+      },
+      "decimalsLess": "减少小数位数",
+      "decimalsMore": "增加小数位数",
+      "bold": "粗体",
+      "italic": "斜体",
+      "underline": "下划线",
+      "strike": "删除线",
+      "textColor": "文字颜色",
+      "fillColor": "填充颜色",
+      "automatic": "自动",
+      "noFill": "无填充",
+      "colors": {
+        "red": "红色",
+        "emerald": "翡翠绿",
+        "magenta": "品红色",
+        "orange": "橙色",
+        "cyan": "青色",
+        "olive": "橄榄绿",
+        "plum": "梅紫色",
+        "lime": "青柠绿",
+        "slate": "石板灰",
+        "brown": "棕色"
+      },
+      "alignLeft": "左对齐",
+      "alignCenter": "居中",
+      "alignRight": "右对齐",
+      "wrap": "自动换行",
+      "merge": "合并单元格",
+      "unmerge": "取消合并",
+      "borders": "边框",
+      "border": {
+        "all": "所有边框",
+        "outer": "外边框",
+        "inner": "内边框",
+        "horizontal": "内部横线",
+        "vertical": "内部竖线",
+        "top": "上边框",
+        "bottom": "下边框",
+        "left": "左边框",
+        "right": "右边框",
+        "none": "无边框"
+      },
+      "freeze": "冻结",
+      "frozen": {
+        "none": "不冻结",
+        "rows": "行",
+        "cols": "列",
+        "row_other": "{{count}} 行",
+        "col_other": "{{count}} 列",
+        "upToRow": "冻结到第 {{n}} 行",
+        "upToCol": "冻结到第 {{name}} 列"
+      },
+      "sortAsc": "按 A 到 Z 排序",
+      "sortDesc": "按 Z 到 A 排序",
+      "functions": "函数",
+      "nameBox": "单元格或范围。输入后即可跳转",
+      "fx": "公式",
+      "formula": "单元格内容",
+      "cellLabel": "单元格 {{cell}}",
+      "cellWith": "单元格 {{cell}}，{{value}}",
+      "suggestions": "函数",
+      "moreRows_other": "添加 {{count}} 行",
+      "pasteKeys": "要粘贴到这里，请使用 {{keys}}",
+      "menu": {
+        "cut": "剪切",
+        "copy": "复制",
+        "paste": "粘贴",
+        "pasteValues": "仅粘贴值",
+        "insertRowsAbove_other": "在上方插入 {{count}} 行",
+        "insertRowsBelow_other": "在下方插入 {{count}} 行",
+        "insertColsLeft_other": "在左侧插入 {{count}} 列",
+        "insertColsRight_other": "在右侧插入 {{count}} 列",
+        "deleteRows_other": "删除 {{count}} 行",
+        "deleteCols_other": "删除 {{count}} 列",
+        "clear": "清除",
+        "fitWidth": "宽度适应内容",
+        "fitHeight": "高度适应内容",
+        "ask": "就选中内容询问智能体"
+      },
+      "status": {
+        "label": "选中内容汇总",
+        "sum": "求和 {{value}}",
+        "average": "平均值 {{value}}",
+        "count": "计数 {{value}}"
+      },
+      "tabs": {
+        "label": "工作表",
+        "add": "添加工作表",
+        "base": "工作表",
+        "rename": "重命名",
+        "renameLabel": "工作表名称",
+        "duplicate": "创建副本",
+        "color": "颜色",
+        "noColor": "无颜色",
+        "delete": "删除",
+        "copyName": "{{name}}（副本）",
+        "deleteTitle": "删除 {{name}}？",
+        "deleteBody": "这个工作表上的所有内容都会一起删除。其他工作表中引用它的公式会显示 #REF!。",
+        "deleteConfirm": "删除工作表"
+      },
+      "failed": {
+        "other": "无法进行这项更改。",
+        "no_sheet": "这个工作表已不存在。",
+        "broken": "这个电子表格出了问题，没有接受这项更改。",
+        "limit": "这个电子表格已达到大小上限。",
+        "last_sheet": "电子表格至少需要一个工作表。",
+        "last_row": "工作表至少需要一行。",
+        "last_col": "工作表至少需要一列。",
+        "sheet_name": "请给工作表起个名字。",
+        "sheet_name_taken": "已经有同名的工作表了。",
+        "merged": "不能只对合并单元格的一部分这样操作。",
+        "formula": "无法识别这个公式。",
+        "text_too_long": "这段文字太长，一个单元格放不下。",
+        "formula_too_long": "这个公式太长了。",
+        "range": "这个范围在这里不适用。",
+        "value": "这个值在这里不适用。"
+      },
+      "problem": {
+        "empty": "请在 = 后面输入内容",
+        "unexpected": "这个公式中有无法识别的内容",
+        "unclosed_paren": "有一个括号没有闭合",
+        "unclosed_string": "文本的引号没有闭合",
+        "unclosed_sheet": "工作表名称的引号没有闭合",
+        "missing_operand": "运算符旁边缺少一个值",
+        "bad_array": "大括号中的列表写法有误",
+        "bad_range": "范围写法有误",
+        "bad_sheet": "没有这个名称的工作表",
+        "args": "函数收到的值太多或太少",
+        "too_long": "公式太长",
+        "too_deep": "公式中嵌套的括号太多",
+        "too_far": "引用超出了工作表的最大范围"
+      },
+      "args": {
+        "a1": "A1样式",
+        "angle": "角度",
+        "area_num": "区域编号",
+        "array": "数组",
+        "array1": "数组1",
+        "array2": "数组2",
+        "average_range": "求平均值范围",
+        "base": "底数",
+        "basis": "基准",
+        "bottom": "下限",
+        "by_col": "按列",
+        "col_index_num": "列序号",
+        "cols": "列数",
+        "column_num": "列号",
+        "columns": "列数",
+        "cost": "成本",
+        "criteria": "条件",
+        "criteria1": "条件1",
+        "criteria2": "条件2",
+        "criteria_range1": "条件范围1",
+        "criteria_range2": "条件范围2",
+        "date": "日期",
+        "date_text": "日期文本",
+        "dates": "日期列表",
+        "day": "日",
+        "days": "天数",
+        "decimal_separator": "小数分隔符",
+        "decimals": "小数位数",
+        "default_or_value2": "默认值或值2",
+        "delimiter": "分隔符",
+        "denominator": "分母",
+        "divisor": "除数",
+        "effect_rate": "实际利率",
+        "end_date": "结束日期",
+        "end_period": "终止期",
+        "error_val": "错误值",
+        "exactly_once": "仅出现一次",
+        "expression": "表达式",
+        "find_text": "查找文本",
+        "format_text": "格式文本",
+        "function_num": "函数编号",
+        "fv": "终值",
+        "group_separator": "分组分隔符",
+        "guess": "猜测值",
+        "height": "高度",
+        "holidays": "假日",
+        "hour": "小时",
+        "if_empty": "为空时",
+        "if_not_found": "未找到时",
+        "ignore_empty": "忽略空值",
+        "include": "包含条件",
+        "index_num": "索引号",
+        "instance_num": "出现次序",
+        "k": "名次",
+        "known_xs": "已知x",
+        "known_ys": "已知y",
+        "life": "使用年限",
+        "logical": "逻辑值",
+        "logical1": "逻辑值1",
+        "logical2": "逻辑值2",
+        "logical_test": "测试条件",
+        "logical_test1": "测试条件1",
+        "logical_test2": "测试条件2",
+        "lookup_array": "查找区域",
+        "lookup_value": "查找值",
+        "lookup_vector": "查找向量",
+        "match_end": "匹配结尾",
+        "match_mode": "匹配模式",
+        "match_type": "匹配类型",
+        "max_range": "最大值范围",
+        "mean": "平均值",
+        "method": "方法",
+        "min_range": "最小值范围",
+        "minute": "分钟",
+        "mode": "模式",
+        "month": "月",
+        "months": "月数",
+        "multiple": "倍数",
+        "new_text": "新文本",
+        "no_commas": "不加逗号",
+        "nominal_rate": "名义利率",
+        "nper": "期数",
+        "npery": "每年期数",
+        "num_chars": "字符数",
+        "num_digits": "位数",
+        "number": "数值",
+        "number1": "数值1",
+        "number2": "数值2",
+        "number_chosen": "选取数",
+        "number_times": "重复次数",
+        "numerator": "分子",
+        "old_text": "原文本",
+        "order": "排序方式",
+        "per": "期次",
+        "percent": "百分比",
+        "pmt": "每期付款",
+        "power": "幂",
+        "pv": "现值",
+        "quart": "四分位",
+        "range": "范围",
+        "range_lookup": "近似匹配",
+        "rate": "利率",
+        "ref": "引用",
+        "ref1": "引用1",
+        "ref2": "引用2",
+        "ref_text": "引用文本",
+        "reference": "引用",
+        "result1": "结果1",
+        "result2": "结果2",
+        "result_vector": "结果向量",
+        "return_array": "返回区域",
+        "return_type": "返回类型",
+        "row_index_num": "行序号",
+        "row_num": "行号",
+        "rows": "行数",
+        "salvage": "残值",
+        "search_mode": "搜索模式",
+        "second": "秒",
+        "serial_number": "日期序号",
+        "significance": "倍数",
+        "sort_index": "排序索引",
+        "sort_order": "排序顺序",
+        "standard_dev": "标准差",
+        "start": "起始值",
+        "start_date": "开始日期",
+        "start_num": "起始位置",
+        "start_period": "起始期",
+        "step": "步长",
+        "sum_range": "求和范围",
+        "table_array": "数据表",
+        "text": "文本",
+        "text1": "文本1",
+        "text2": "文本2",
+        "time_text": "时间文本",
+        "top": "上限",
+        "type": "类型",
+        "unit": "单位",
+        "value": "值",
+        "value1": "值1",
+        "value2": "值2",
+        "value_if_error": "出错时的值",
+        "value_if_false": "条件不成立时的值",
+        "value_if_na": "为N/A时的值",
+        "value_if_true": "条件成立时的值",
+        "value_if_true1": "条件成立时的值1",
+        "value_if_true2": "条件成立时的值2",
+        "values": "值列表",
+        "weekend": "周末",
+        "width": "宽度",
+        "within_text": "要搜索的文本",
+        "x": "x值",
+        "x_num": "x数值",
+        "y_num": "y数值",
+        "year": "年"
+      },
+      "fn": {
+        "ABS": "去掉符号后的数字",
+        "ACOS": "一个数字的反余弦值，以弧度表示",
+        "ACOSH": "一个数字的反双曲余弦值",
+        "AND": "所有条件都成立时返回 TRUE",
+        "ASIN": "一个数字的反正弦值，以弧度表示",
+        "ASINH": "一个数字的反双曲正弦值",
+        "ATAN": "一个数字的反正切值，以弧度表示",
+        "ATAN2": "根据 x 和 y 得出一个点的角度，以弧度表示",
+        "ATANH": "一个数字的反双曲正切值",
+        "AVEDEV": "各数字与其平均值之间的平均距离",
+        "AVERAGE": "各数字的平均值",
+        "AVERAGEA": "各值的平均值，文本按 0 计算",
+        "AVERAGEIF": "满足某个条件的单元格的平均值",
+        "AVERAGEIFS": "满足所有条件的单元格的平均值",
+        "CEILING": "向上舍入到某个倍数的数字",
+        "CEILING_MATH": "向上舍入到某个倍数或整数的数字",
+        "CEILING_PRECISE": "向上舍入到某个倍数的数字，不论正负",
+        "CHAR": "某个代码对应的字符",
+        "CHOOSE": "按位置选出的其中一个值",
+        "CLEAN": "去掉无法打印的字符后的文本",
+        "CODE": "文本第一个字符的代码",
+        "COLUMN": "引用所在的列号",
+        "COLUMNS": "一个范围有多少列",
+        "COMBIN": "从若干项中能选出多少组指定大小的组合",
+        "CONCAT": "合并成一段的文本",
+        "CONCATENATE": "合并成一段的文本",
+        "CORREL": "两组数字的变化有多同步",
+        "COS": "以弧度表示的角度的余弦值",
+        "COSH": "一个数字的双曲余弦值",
+        "COUNT": "有多少个单元格包含数字",
+        "COUNTA": "有多少个单元格不是空的",
+        "COUNTBLANK": "有多少个单元格是空的",
+        "COUNTIF": "有多少个单元格满足某个条件",
+        "COUNTIFS": "有多少个单元格满足所有条件",
+        "COVARIANCE_P": "两组数字的协方差，按总体计算",
+        "COVARIANCE_S": "两组数字的协方差，按样本计算",
+        "CUMIPMT": "贷款在两个期间之间支付的利息",
+        "CUMPRINC": "贷款在两个期间之间支付的本金",
+        "DATE": "由年、月、日组成的日期",
+        "DATEDIF": "两个日期之间相隔的天数、月数或年数",
+        "DATEVALUE": "把以文本形式写的日期转换成日期",
+        "DAY": "某个日期是当月的第几天",
+        "DAYS": "两个日期之间相隔多少天",
+        "DAYS360": "按一年 360 天计算两个日期之间的天数",
+        "DEGREES": "把弧度转换成角度",
+        "DEVSQ": "各数字与平均值之差的平方和",
+        "DOLLAR": "以货币格式显示的数字，结果为文本",
+        "EDATE": "某个日期之前或之后若干个月的日期",
+        "EFFECT": "实际年利率",
+        "EOMONTH": "若干个月之前或之后那个月的最后一天",
+        "ERROR_TYPE": "表示错误类型的数字",
+        "EVEN": "向上舍入到最接近的偶数整数的数字",
+        "EXACT": "两段文本完全相同时返回 TRUE",
+        "EXP": "e 的乘幂",
+        "FACT": "一个数字的阶乘",
+        "FALSE": "逻辑值 FALSE",
+        "FILTER": "范围中满足某个条件的行",
+        "FIND": "一段文本在另一段文本中的起始位置，区分大小写",
+        "FIXED": "四舍五入后以文本形式写出的数字",
+        "FLOOR": "向下舍入到某个倍数的数字",
+        "FLOOR_MATH": "向下舍入到某个倍数或整数的数字",
+        "FLOOR_PRECISE": "向下舍入到某个倍数的数字，不论正负",
+        "FORECAST": "沿着穿过已知值的直线推算出的未来值",
+        "FORECAST_LINEAR": "沿着穿过已知值的直线推算出的未来值",
+        "FV": "一笔投资最终的价值",
+        "GCD": "最大公约数",
+        "GEOMEAN": "各数字的几何平均值",
+        "HARMEAN": "各数字的调和平均值",
+        "HLOOKUP": "在表格的第一行中查找一个值，并返回它下方的值",
+        "HOUR": "时间中的小时，0 到 23",
+        "IF": "条件成立时返回一个值，不成立时返回另一个值",
+        "IFERROR": "返回一个值，出错时返回另一个值",
+        "IFNA": "返回一个值，结果为 #N/A 时返回另一个值",
+        "IFS": "第一个成立的条件对应的值",
+        "INDEX": "范围中某行某列的值",
+        "INDIRECT": "以文本形式写出的引用所指向的单元格",
+        "INT": "向下舍入到整数的数字",
+        "INTERCEPT": "穿过已知值的直线与 y 轴相交的位置",
+        "IPMT": "一期贷款还款中的利息部分",
+        "IRR": "现金流的内部收益率",
+        "ISBLANK": "单元格为空时返回 TRUE",
+        "ISERR": "值是除 #N/A 以外的错误时返回 TRUE",
+        "ISERROR": "值是任何错误时返回 TRUE",
+        "ISEVEN": "数字是偶数时返回 TRUE",
+        "ISFORMULA": "单元格包含公式时返回 TRUE",
+        "ISLOGICAL": "值是 TRUE 或 FALSE 时返回 TRUE",
+        "ISNA": "值是 #N/A 时返回 TRUE",
+        "ISNONTEXT": "值不是文本时返回 TRUE",
+        "ISNUMBER": "值是数字时返回 TRUE",
+        "ISODD": "数字是奇数时返回 TRUE",
+        "ISOWEEKNUM": "日期所在的 ISO 周数",
+        "ISREF": "值是引用时返回 TRUE",
+        "ISTEXT": "值是文本时返回 TRUE",
+        "LARGE": "第 k 大的数字",
+        "LCM": "最小公倍数",
+        "LEFT": "文本开头的几个字符",
+        "LEN": "文本包含多少个字符",
+        "LN": "一个数字的自然对数",
+        "LOG": "一个数字以某个底数计算的对数",
+        "LOG10": "一个数字以 10 为底的对数",
+        "LOOKUP": "在一行或一列中查找一个值，并返回对应的值",
+        "LOWER": "转换成小写的文本",
+        "MATCH": "一个值在范围中的位置",
+        "MAX": "最大的数字",
+        "MAXA": "最大的值，文本按 0 计算",
+        "MAXIFS": "满足所有条件的单元格中最大的数字",
+        "MEDIAN": "位于中间的数字",
+        "MID": "文本中间的一些字符",
+        "MIN": "最小的数字",
+        "MINA": "最小的值，文本按 0 计算",
+        "MINIFS": "满足所有条件的单元格中最小的数字",
+        "MINUTE": "时间中的分钟，0 到 59",
+        "MOD": "除法的余数",
+        "MODE": "出现次数最多的数字",
+        "MODE_SNGL": "出现次数最多的数字",
+        "MONTH": "日期中的月份，1 到 12",
+        "MROUND": "舍入到最接近的倍数的数字",
+        "N": "转换成数字的值",
+        "NA": "错误值 #N/A，表示缺少值",
+        "NETWORKDAYS": "两个日期之间有多少个工作日",
+        "NETWORKDAYS_INTL": "两个日期之间有多少个工作日，可自定义周末",
+        "NOMINAL": "名义年利率",
+        "NOT": "与条件相反的结果",
+        "NOW": "当前的日期和时间",
+        "NPER": "需要还多少期才能还清贷款或达到目标",
+        "NPV": "现金流的净现值",
+        "NUMBERVALUE": "按你给出的分隔符把文本读成数字",
+        "ODD": "向上舍入到最接近的奇数整数的数字",
+        "OFFSET": "与某个引用相隔若干行和列的范围",
+        "OR": "任一条件成立时返回 TRUE",
+        "PEARSON": "两组数字的皮尔逊相关系数",
+        "PERCENTILE": "有一定比例的数字低于这个值",
+        "PERCENTILE_EXC": "各数字的百分位数，不含两端",
+        "PERCENTILE_INC": "各数字的百分位数，包含两端",
+        "PERCENTRANK": "一个值在各数字中的排位，以比例表示",
+        "PERCENTRANK_INC": "一个值在各数字中的排位，以比例表示",
+        "PI": "圆周率 pi",
+        "PMT": "贷款每期的还款额",
+        "POWER": "一个数字的乘幂",
+        "PPMT": "一期贷款还款中的本金部分",
+        "PRODUCT": "各数字相乘的积",
+        "PROPER": "每个单词首字母大写的文本",
+        "PV": "一系列未来付款在今天的价值",
+        "QUARTILE": "各数字的四分位数",
+        "QUARTILE_EXC": "各数字的四分位数，不含两端",
+        "QUARTILE_INC": "各数字的四分位数，包含两端",
+        "QUOTIENT": "除法结果的整数部分",
+        "RADIANS": "把角度转换成弧度",
+        "RAND": "0 到 1 之间的随机数",
+        "RANDBETWEEN": "两个数字之间的随机整数",
+        "RANK": "一个数字在列表中的排位",
+        "RANK_AVG": "一个数字在列表中的排位，并列时取平均排位",
+        "RANK_EQ": "一个数字在列表中的排位，并列时取最高排位",
+        "RATE": "贷款或投资每期的利率",
+        "REPLACE": "按位置替换掉部分内容的文本",
+        "REPT": "重复若干次的文本",
+        "RIGHT": "文本末尾的几个字符",
+        "ROUND": "舍入到指定位数的数字",
+        "ROUNDDOWN": "向零方向舍入的数字",
+        "ROUNDUP": "远离零方向舍入的数字",
+        "ROW": "引用所在的行号",
+        "ROWS": "一个范围有多少行",
+        "RSQ": "皮尔逊相关系数的平方",
+        "SEARCH": "一段文本在另一段文本中的起始位置，不区分大小写",
+        "SECOND": "时间中的秒数，0 到 59",
+        "SEQUENCE": "按顺序排列的一列数字",
+        "SIGN": "正数返回 1，负数返回 -1，零返回 0",
+        "SIN": "以弧度表示的角度的正弦值",
+        "SINH": "一个数字的双曲正弦值",
+        "SLN": "资产每期的直线折旧额",
+        "SLOPE": "穿过已知值的直线的斜率",
+        "SMALL": "第 k 小的数字",
+        "SORT": "排序后的范围",
+        "SQRT": "一个数字的平方根",
+        "SQRTPI": "一个数字乘以 pi 后的平方根",
+        "STANDARDIZE": "一个值与平均值相差多少个标准差",
+        "STDEV": "样本的标准差",
+        "STDEV_P": "整个总体的标准差",
+        "STDEV_S": "样本的标准差",
+        "STDEVA": "样本的标准差，文本按 0 计算",
+        "STDEVP": "整个总体的标准差",
+        "SUBSTITUTE": "把部分词语替换成其他词语后的文本",
+        "SUBTOTAL": "跳过其他小计的求和、平均值、计数或其他汇总",
+        "SUM": "各数字相加的和",
+        "SUMIF": "满足某个条件的单元格之和",
+        "SUMIFS": "满足所有条件的单元格之和",
+        "SUMPRODUCT": "各范围逐项相乘后再相加",
+        "SUMSQ": "各数字的平方和",
+        "SWITCH": "与某个值匹配的结果，或默认值",
+        "T": "值为文本时返回该值，否则返回空文本",
+        "TAN": "以弧度表示的角度的正切值",
+        "TANH": "一个数字的双曲正切值",
+        "TEXT": "按数字格式以文本形式写出的值",
+        "TEXTAFTER": "分隔符之后的文本",
+        "TEXTBEFORE": "分隔符之前的文本",
+        "TEXTJOIN": "用分隔符连接起来的多段文本",
+        "TIME": "由时、分、秒组成的时间",
+        "TIMEVALUE": "把以文本形式写的时间转换成时间",
+        "TODAY": "今天的日期",
+        "TRANSPOSE": "行和列互换后的范围",
+        "TRIM": "去掉多余空格的文本",
+        "TRIMMEAN": "去掉最高值和最低值后的平均值",
+        "TRUE": "逻辑值 TRUE",
+        "TRUNC": "去掉小数部分的数字",
+        "TYPE": "表示值类型的数字",
+        "UNICHAR": "某个数字对应的 Unicode 字符",
+        "UNICODE": "文本第一个字符的 Unicode 编号",
+        "UNIQUE": "范围中去掉重复项后的值",
+        "UPPER": "转换成大写的文本",
+        "VALUE": "把文本读成数字",
+        "VAR": "样本的方差",
+        "VAR_P": "整个总体的方差",
+        "VAR_S": "样本的方差",
+        "VARA": "样本的方差，文本按 0 计算",
+        "VARP": "整个总体的方差",
+        "VLOOKUP": "在表格的第一列中查找一个值，并返回它旁边的值",
+        "WEEKDAY": "日期是星期几",
+        "WEEKNUM": "日期是一年中的第几周",
+        "WORKDAY": "相隔若干个工作日的日期",
+        "WORKDAY_INTL": "相隔若干个工作日的日期，可自定义周末",
+        "XIRR": "按日期发生的现金流的内部收益率",
+        "XLOOKUP": "在一个范围中查找一个值，并从另一个范围返回对应的值",
+        "XMATCH": "一个值在范围中的位置，支持更多匹配方式",
+        "XNPV": "按日期发生的现金流的净现值",
+        "XOR": "成立的条件个数为奇数时返回 TRUE",
+        "YEAR": "日期中的年份",
+        "YEARFRAC": "两个日期之间占一年的比例"
+      }
     }
   }
 }

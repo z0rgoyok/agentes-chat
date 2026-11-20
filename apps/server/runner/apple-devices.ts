@@ -184,6 +184,10 @@ export function parseSimctl(json: unknown): Phone[] {
 export const sdkTooOld = (osVersion: string, sdk: string | null) =>
   sdk !== null && majorOf(sdk) > 0 && majorOf(osVersion) > majorOf(sdk);
 
+/** The phone's iOS major is below the Mac's iPhone SDK's: a newer Xcode may no longer drive it. */
+export const iosBehindSdk = (osVersion: string, sdk: string | null) =>
+  sdk !== null && majorOf(osVersion) > 0 && majorOf(osVersion) < majorOf(sdk);
+
 /** `devicectl device info lockState --json-output`: the phone asks for its passcode now; null when unread. */
 export function parseLockState(json: unknown): boolean | null {
   const v = rec(rec(json).result).passcodeRequired;

@@ -317,17 +317,14 @@ describe("Quem pensa: the draft", () => {
     model: "claude-sonnet-5-5",
     owner: "u-joao",
     audience: { mode: "everyone", userIds: [] },
-    brain: { brain: "model", model: null, fallback: true },
+    brain: { brain: "model", model: null },
   };
-  const api: BrainChoice = { brain: "model", model: null, fallback: true };
+  const api: BrainChoice = { brain: "model", model: null };
 
   test("only real differences count", () => {
     expect(changedKeys(saved, { brain: { ...api } })).toEqual([]);
     expect(sameBrain(api, { ...api, model: "opus" })).toBe(true);
-    expect(changedKeys(saved, { brain: { ...api, fallback: false } }).map((c) => c.key)).toEqual(["brain"]);
-    expect(
-      changedKeys(saved, { brain: { brain: "claude_code", model: null, fallback: true } }).map((c) => c.key),
-    ).toEqual(["brain"]);
+    expect(changedKeys(saved, { brain: { brain: "claude_code", model: null } }).map((c) => c.key)).toEqual(["brain"]);
   });
 });
 

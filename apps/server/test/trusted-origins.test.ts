@@ -23,6 +23,9 @@ afterEach(async () => {
   t = undefined;
 });
 
+/** Better Auth's trusted origins with no request: the server's own list (a registered host adds its own, ADR 0194). */
+const baseTrusted = (s: TestServer) => (s.auth.options.trustedOrigins as () => Promise<string[]>)();
+
 async function server(env: Record<string, string> = {}) {
   t = await createTestServer({ env });
   return t;
@@ -32,14 +35,14 @@ describe("EXTRA_TRUSTED_ORIGINS", () => {
   test("unset: the trusted origins are exactly the ones there were before", async () => {
     const s = await server();
     expect(s.config.EXTRA_TRUSTED_ORIGINS).toBeUndefined();
-    expect(s.auth.options.trustedOrigins).toEqual(WITHOUT_EXTRAS);
+    expect(await baseTrusted(s)).toEqual(WITHOUT_EXTRAS);
     expect([...allowedOrigins(s.config)]).toEqual([ORIGIN]);
   });
 
   test("a list: each origin trusted, trimmed, with the trailing slash dropped", async () => {
     const s = await server({ EXTRA_TRUSTED_ORIGINS: ` ${LAN} , ${TUNNEL}/ , ,` });
     expect(s.config.EXTRA_TRUSTED_ORIGINS).toEqual([LAN, TUNNEL]);
-    expect(s.auth.options.trustedOrigins).toEqual([ORIGIN, LAN, TUNNEL, ...WITHOUT_EXTRAS.slice(1)]);
+    expect(await baseTrusted(s)).toEqual([ORIGIN, LAN, TUNNEL, ...WITHOUT_EXTRAS.slice(1)]);
     expect([...allowedOrigins(s.config)]).toEqual([ORIGIN, LAN, TUNNEL]);
   });
 

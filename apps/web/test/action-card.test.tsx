@@ -7,6 +7,7 @@ import type { Agent, Message } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { setNavigateAway } from "@/lib/navigate";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, meWithRole, NOW, ORG_ID, seedState } from "./fake-api";
+import { hintOf } from "./hint";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => {
@@ -328,6 +329,7 @@ describe("what waits on a plan's limit: Não rodar", () => {
         plan: "Claude",
         resetsAt: null,
         sharedWith: [ADA_ID],
+        chain: 2,
         rows: [
           row("r-a", { state: "answering" }),
           row("r-b"),
@@ -347,6 +349,10 @@ describe("what waits on a plan's limit: Não rodar", () => {
     // One title for the phase: it answers the first one, so it is picking up. The shared plan only behind the ⓘ.
     expect(dialog.querySelector(".ac-dialog__title")?.textContent).toContain("Atlas está retomando");
     expect(within(dialog).getByRole("button", { name: "Sobre a fila" })).toBeTruthy();
+    // Every account of its order at its limit comes first behind the ⓘ.
+    expect(hintOf("a fila", dialog).text).toBe(
+      "As 2 contas do Claude chegaram ao limite. Ada usa o mesmo plano do Claude. As conversas dos dois entram na mesma fila.",
+    );
     expect(dialog.textContent).not.toContain("mensagens depois");
     expect(dialog.textContent).not.toContain("Ver conversa");
     // Nothing skipped: no switch, the list alone.

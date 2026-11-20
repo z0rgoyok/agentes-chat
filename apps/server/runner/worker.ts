@@ -669,6 +669,9 @@ export async function runWorker(o: WorkerOptions): Promise<number> {
     socketPath,
     task: (taskId) =>
       tasks.mcpTask(taskId) ?? brains.mcpTask(taskId) ?? codexRuns.get(taskId) ?? delegatedRuns.get(taskId) ?? null,
+    // A delegated CLI's calls find no process here (root runs it): harmless, as all its tools are this bridge's
+    // (`mcp__`), which the silence check never times.
+    onCall: (taskId, delta) => brains.bridgeCall(taskId, delta),
     log,
   });
   await mcp

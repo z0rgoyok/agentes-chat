@@ -1,0 +1,1 @@
+ALTER TABLE "hosts" ADD COLUMN "powered_by" boolean DEFAULT true NOT NULL;

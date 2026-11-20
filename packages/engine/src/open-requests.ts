@@ -1,5 +1,6 @@
 import { and, type Executor, eq, gt, rowsOf, schema, sql } from "@agenteschat/db";
 import { UUID } from "./authority";
+import { CONFIDENTIAL_STUB, confidentialThreadSql } from "./confidential";
 import { cutText } from "./format";
 
 const { agentQuestions, browserHandoffs, channels, messages, secretRequests } = schema;
@@ -71,7 +72,9 @@ function openRequestQueries(db: Executor, orgId: string, agentId: string, channe
       .select({
         id: agentQuestions.id,
         kind: sql<OpenRequest["kind"]>`'question'`.as("kind"),
-        what: sql<string>`${agentQuestions.text}`.as("what"),
+        // Asked in a confidential thread (ADR 0190): its words stay there, and this block is read in every thread.
+        what: sql<string>`case when ${confidentialThreadSql(sql`${agentQuestions.orgId}`, sql`${agentQuestions.threadId}`)}
+          then ${CONFIDENTIAL_STUB} else ${agentQuestions.text} end`.as("what"),
         runId: sql<string | null>`${agentQuestions.runId}`.as("run_id"),
         createdAt: agentQuestions.createdAt,
         ...place,

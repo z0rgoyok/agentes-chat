@@ -119,6 +119,14 @@ const provider = withRetry(createAnthropicProvider());
 let totalNano = 0;
 let judgeNano = 0;
 
+const seconds = (ms: number | null) => (ms === null ? "?" : `${(ms / 1000).toFixed(1)} s`);
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length === 0) return null;
+  return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+};
+
 /** One case, isolated (its own in-memory database and fakes); output buffered, printed when it ends. */
 async function evalCase(c: BehaviorCase, attempt: number): Promise<CaseReport> {
   const out: string[] = [];
@@ -177,6 +185,11 @@ async function evalCase(c: BehaviorCase, attempt: number): Promise<CaseReport> {
       `  tools: ${run.calls.map((t) => t.name).join(", ") || "(none)"}${approval} · runs: ${run.status.join(", ")}`,
     );
     out.push(`  reply: ${clip((run.noReply ? "(silent)" : run.reply).replace(/\s+/g, " "), 240)}`);
+    // The line before slow work (ADR 0207), and how long the person waited for it and for the reply.
+    for (const said of run.saidNow ?? [])
+      out.push(
+        `  line: ${clip(said.text, 160)} · ${seconds(said.afterMs)} after the message · reply ${said.replyAfterMs === null ? "never came" : `at ${seconds(said.replyAfterMs)}`}`,
+      );
   }
   for (const k of checks) out.push(`  ${k.pass ? "ok  " : "FAIL"} ${k.id}: ${k.detail}`);
   console.log(`${out.join("\n")}\n`);
@@ -254,6 +267,17 @@ if (compareLlm)
   );
 for (const [id, m] of [...byCriterion].sort((x, y) => x[0].localeCompare(y[0])))
   console.log(`  ${id.padEnd(30)} ${m.pass}/${m.total}`);
+// The lines before slow work (ADR 0207): in how many runs, and how long people waited for them and for the reply.
+const lines = reports.flatMap((r) => r.run?.saidNow ?? []);
+const sayNow = {
+  lines: lines.length,
+  runs: reports.filter((r) => r.run?.saidNow?.length).length,
+  medianToLineMs: median(lines.flatMap((l) => (l.afterMs === null ? [] : [l.afterMs]))),
+  medianToReplyMs: median(lines.flatMap((l) => (l.replyAfterMs === null ? [] : [l.replyAfterMs]))),
+};
+console.log(
+  `  lines before work (say_now): ${sayNow.lines} in ${sayNow.runs} of ${reports.length} runs${sayNow.lines ? ` · median ${seconds(sayNow.medianToLineMs)} to the line, ${seconds(sayNow.medianToReplyMs)} to the reply` : ""}`,
+);
 // What the agent's calls carried: the prompt (uncached + cache read + cache write) and the output.
 const tokens = { calls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 for (const r of reports)
@@ -281,6 +305,7 @@ writeFileSync(
       toolsOnDemand,
       repeat,
       tokens,
+      sayNow,
       wallMs,
       passed,
       total: byCase.size,

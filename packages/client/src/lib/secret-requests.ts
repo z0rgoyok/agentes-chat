@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import type { AppNotification, SecretRequest } from "../api/types";
-import { MAX_SECRET_BYTES } from "./secret-box";
+import { INSECURE_CONTEXT, MAX_SECRET_BYTES } from "./secret-box";
 
 /**
  * An agent's request for a secret (ADR 0027), as the web's card and the phone's both read it: where the value
@@ -65,13 +65,17 @@ export function latestSecret(live: SecretRequest | undefined, message: SecretReq
  * Why sending was refused while the request itself may still be open: its computer can't take it now (the request
  * waits, and the person can send again), as the i18n key that says so. Null: the request ended.
  */
-export function secretRefusalKey(error: unknown): "secret.computerAway" | "secret.computerPaused" | null {
+export function secretRefusalKey(
+  error: unknown,
+): "secret.computerAway" | "secret.computerPaused" | "secret.insecureContext" | null {
   const code = (error as { code?: string }).code;
   return code === "machine.offline"
     ? "secret.computerAway"
     : code === "machine.paused"
       ? "secret.computerPaused"
-      : null;
+      : code === INSECURE_CONTEXT
+        ? "secret.insecureContext"
+        : null;
 }
 
 const CLOSED = new Set<SecretRequest["status"]>(["delivered", "declined", "expired", "canceled"]);

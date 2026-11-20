@@ -116,7 +116,7 @@ export async function teamStatus(
       : [],
   ]);
   const reportsTask = (t: (typeof allTasks)[number]) =>
-    t.assignee?.type === "agent" && !!only?.agentIds.has(t.assignee.id);
+    t.assignees.some((a) => a.type === "agent" && !!only?.agentIds.has(a.id));
   let tasks = only ? allTasks.filter(reportsTask) : allTasks;
   if (only?.shared) {
     const named = await Promise.all(tasks.map((t) => nameableIn(db, only.channelId, t)));
@@ -179,14 +179,19 @@ export async function teamStatus(
     else quiet.push(`@${a.handle}`);
   }
 
+  const agentsOn = (t: (typeof tasks)[number]) => t.assignees.filter((a) => a.type === "agent");
   const owner = (t: (typeof tasks)[number]) =>
-    t.assignee?.type === "agent" ? ` (@${handle.get(t.assignee.id) ?? "an agent"})` : "";
+    agentsOn(t).length
+      ? ` (${agentsOn(t)
+          .map((a) => `@${handle.get(a.id) ?? "an agent"}`)
+          .join(", ")})`
+      : "";
   const task = (t: (typeof tasks)[number]) =>
     `- #${t.number} ${clean(t.title)}${owner(t)} ${appPageLink(orgId, `/issues/${t.number}`)}`;
   const open = tasks.filter((t) => ["todo", "in_progress", "in_review"].includes(t.status));
   const moved = (t: (typeof tasks)[number]) => new Date(t.updatedAt).getTime();
   const stuck = open.filter(
-    (t) => t.assignee?.type === "agent" && t.status !== "todo" && now.getTime() - moved(t) > STUCK_MS,
+    (t) => agentsOn(t).length > 0 && t.status !== "todo" && now.getTime() - moved(t) > STUCK_MS,
   );
   const done = tasks.filter((t) => t.status === "done" && now.getTime() - moved(t) < LATELY_MS);
 

@@ -1,15 +1,18 @@
-import { type Artifact, useArtifact } from "@agenteschat/client";
+import { type Artifact, type ArtifactLiveContent, type LivePresent, useArtifact } from "@agenteschat/client";
 import { Image } from "expo-image";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text as RNText, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Text as RNText, StyleSheet, View } from "react-native";
 import { CHROME_MAX_SCALE, Icon, type IconName, PressScale, systemText, Text, useTheme, weights } from "@/ui";
-import { router } from "@/ui/navigation";
-import { encodeFileList } from "../files/logic";
+import { useRowDirectory } from "../chat/row-data";
+import type { FileRef } from "../files/logic";
+import { useOpenFile } from "../files/open";
 import { useRemoteFile } from "../files/source";
+import { PresentFaces } from "../live-files/shared/HereFaces";
+import { LiveCover } from "../live-files/shared/LiveCover";
 import { Face } from "../shared/Face";
-import { useDirectory, useOrgId, useWhen } from "../shared/hooks";
-import { MONO, tapHaptic, useSurface } from "../shared/parts";
+import { useOrgId, useWhen } from "../shared/hooks";
+import { MONO, useSurface } from "../shared/parts";
 import { type CardPreview, cardPreview, cardShape, kindKey } from "./logic";
 
 const KIND_ICON: Record<ReturnType<typeof kindKey>, IconName> = {
@@ -17,46 +20,58 @@ const KIND_ICON: Record<ReturnType<typeof kindKey>, IconName> = {
   table: "list",
   diff: "code",
   image: "image",
+  spreadsheet: "spreadsheet",
+  slides: "slides",
+  canvas: "canvas",
   file: "file",
 };
 
-/** Opens an item: pictures in the picture viewer, the rest in the document viewer. */
-export function openDriveItem(a: Pick<Artifact, "id" | "kind" | "title" | "version">) {
-  tapHaptic();
-  if (cardShape(a) === "image")
-    router.push({
-      pathname: "/images",
-      params: { files: encodeFileList([{ id: a.id, version: a.version }]), at: "0" },
-    });
-  else router.push({ pathname: "/file/[id]", params: { id: a.id } });
-}
+/** A Drive item as it's opened: at its version, its kind and name saying what it is before its details load. */
+export const driveRef = (a: Pick<Artifact, "id" | "kind" | "title" | "version">): FileRef => ({
+  id: a.id,
+  version: a.version,
+  title: a.title,
+  kind: a.kind,
+});
 
 /**
  * A Drive card: the real preview at the item's version (a document's
  * first lines under its title, a table's first rows, a diff's first changed lines, the picture itself, a
- * file's type tile) with the kind on a small chip, then the name and who made it, when.
+ * file's type tile, a live file's grid, first slide or canvas map) with the kind on a small chip, then the name and
+ * who made it, when, and the faces of who is in a live file now (`present`, asked for the whole grid at once). A tap
+ * opens it as every file opens (`openFile`): a picture or a video in the picture viewer, among the grid's
+ * (`siblings`, in the grid's order), a live file on its own screen.
  */
 export const DriveCard = memo(function DriveCard({
   artifact: a,
   highlighted = false,
+  siblings,
+  onLongPress,
+  present,
 }: {
   artifact: Artifact;
   highlighted?: boolean;
+  siblings?: readonly FileRef[];
+  /** Its actions (open, send a copy, rename, move, delete); `open` opens it as a tap does. */
+  onLongPress?: (a: Artifact, open: () => void) => void;
+  present?: readonly LivePresent[];
 }) {
   const { t } = useTranslation();
   const { colors: c } = useTheme();
   const surface = useSurface();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const when = useWhen();
   const kind = kindKey(a);
   const author = dir.nameOf(a.createdBy);
+  const open = useOpenFile();
   return (
-    // The card gives under the finger (the open's own tap is its haptic).
+    // Opening it is navigation, as every file's: the card gives under the finger, no tap.
     <PressScale
       to={0.97}
       haptic={false}
       fill={false}
-      onPress={() => openDriveItem(a)}
+      onPress={() => void open(driveRef(a), siblings)}
+      {...(onLongPress ? { onLongPress: () => onLongPress(a, () => void open(driveRef(a), siblings)) } : {})}
       accessibilityRole="button"
       accessibilityLabel={[a.title, t(`mobile.drive.kind.${kind}`), author, when.short(a.updatedAt)]
         .filter(Boolean)
@@ -80,6 +95,7 @@ export const DriveCard = memo(function DriveCard({
         <Text variant="footnote" tone="faint" numberOfLines={1} style={styles.grow}>
           {author ? t("mobile.drive.by", { name: author, when: when.short(a.updatedAt) }) : when.short(a.updatedAt)}
         </Text>
+        <PresentFaces present={present} ring={c.bg} />
       </View>
     </PressScale>
   );
@@ -95,7 +111,25 @@ function Preview({ artifact: a }: { artifact: Artifact }) {
   if (!content) return <Placeholder />;
   const p = cardPreview(a.title, content);
   if (p.kind === "image") return <ImagePreview artifact={a} />;
+  if (p.kind === "live") return <LivePreview content={p.content} />;
   return <ContentPreview preview={p} />;
+}
+
+/** A live file's preview at the card's size (its slide and its canvas map fit the box). */
+function LivePreview({ content }: { content: ArtifactLiveContent }) {
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  return (
+    <View
+      style={StyleSheet.absoluteFill}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        // The same box keeps its object: a layout pass that changed nothing doesn't draw the cover again.
+        setBox((was) => (was.width === width && was.height === height ? was : { width, height }));
+      }}
+    >
+      {box.width > 0 ? <LiveCover content={content} width={box.width} height={box.height} /> : null}
+    </View>
+  );
 }
 
 function ImagePreview({ artifact: a }: { artifact: Artifact }) {
@@ -106,11 +140,41 @@ function ImagePreview({ artifact: a }: { artifact: Artifact }) {
     <Image
       source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: `${a.id}@${a.version}` }}
       recyclingKey={`${a.id}@${a.version}`}
+      // Kept decoded in memory too: a card scrolled back or a grid drawn again shows it without decoding it anew.
+      cachePolicy="memory-disk"
       contentFit="cover"
       transition={160}
       style={StyleSheet.absoluteFill}
       accessible={false}
     />
+  );
+}
+
+/**
+ * A file on its way into the Drive, in a card's shape until it's there: a spinner where its preview goes, its name and
+ * "Sending the file…".
+ */
+export function UploadingCard({ name }: { name: string }) {
+  const { t } = useTranslation();
+  const { colors: c } = useTheme();
+  const surface = useSurface();
+  return (
+    <View
+      style={styles.card}
+      accessible
+      accessibilityLabel={t("mobile.chat.attach.sending", { name })}
+      accessibilityState={{ busy: true }}
+    >
+      <View style={[styles.preview, styles.waiting, surface]}>
+        <ActivityIndicator color={c.faint} />
+      </View>
+      <Text variant="subhead" numberOfLines={1} style={styles.name}>
+        {name}
+      </Text>
+      <Text variant="footnote" tone="faint" numberOfLines={1} style={styles.sending}>
+        {t("mobile.chat.uploading")}
+      </Text>
+    </View>
   );
 }
 
@@ -126,7 +190,7 @@ function Placeholder() {
   );
 }
 
-function ContentPreview({ preview: p }: { preview: Exclude<CardPreview, { kind: "image" }> }) {
+function ContentPreview({ preview: p }: { preview: Exclude<CardPreview, { kind: "image" } | { kind: "live" }> }) {
   const { colors: c, fonts } = useTheme();
   switch (p.kind) {
     case "document":
@@ -248,4 +312,6 @@ const styles = StyleSheet.create({
   name: { fontWeight: "600", marginTop: 8 },
   by: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   grow: { flex: 1, minWidth: 0 },
+  waiting: { alignItems: "center", justifyContent: "center" },
+  sending: { marginTop: 4 },
 });

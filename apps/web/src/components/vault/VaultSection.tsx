@@ -21,6 +21,7 @@ import { ErrorState, LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
+import { useToast } from "@/lib/toast";
 import { hostOf, matchesQuery, sortItems } from "./lib";
 import { AgentFaces } from "./VaultAccess";
 import { VaultConnections } from "./VaultConnections";
@@ -120,6 +121,7 @@ function VaultRow({ item, onOpen }: { item: VaultItem; onOpen: () => void }) {
 export function VaultSection() {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
+  const toast = useToast();
   const vault = useVault(org.id);
   const look = useRightHandLook();
   const [tab, setTab] = useState<Tab | null>(null);
@@ -306,6 +308,7 @@ export function VaultSection() {
           onClose={() => setDialog(null)}
           onImportEnv={open("env")}
           onCreated={(item) => {
+            toast.show(t("vault.new.saved"));
             setDialog(null);
             setTab(item.scope);
           }}

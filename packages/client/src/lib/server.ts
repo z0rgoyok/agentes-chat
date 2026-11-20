@@ -22,9 +22,19 @@ export const helpUrl = (slug: string, locale: string, section?: string) =>
 /** The app API contract these apps speak; a server serves its `minApi` up to its `api` (`GET /api/instance`). */
 export const APP_API = 1;
 
+/**
+ * `address` without the slashes it ends with, read from the end. Not by `/\/+$/`: a person types the address, and
+ * that pattern reads each run of slashes that doesn't end it again from each of its slashes, quadratic in its length.
+ */
+export function withoutTrailingSlashes(address: string): string {
+  let end = address.length;
+  while (end > 0 && address.charAt(end - 1) === "/") end--;
+  return address.slice(0, end);
+}
+
 /** A workspace's Settings section on the server's website (from the phone, which has no such screen). */
 export const webSettingsUrl = (server: string, orgId: string, section: string) =>
-  `${server.replace(/\/+$/, "")}/org/${encodeURIComponent(orgId)}/settings/${section}`;
+  `${withoutTrailingSlashes(server)}/org/${encodeURIComponent(orgId)}/settings/${section}`;
 
 /**
  * `agenteschat://connect?server=<origin>[&token=<one-time sign-in>][&claim=<owner claim>]` opens the phone or

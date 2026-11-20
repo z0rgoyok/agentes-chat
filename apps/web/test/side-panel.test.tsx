@@ -116,7 +116,7 @@ test("over the agent's page with unsaved edits, a click on the scrim or leaving 
   const { router } = await openThread();
   // From inside the thread: everything outside the panel is out of reach.
   await click(within(thread() as HTMLElement).getAllByRole("button", { name: "Perfil de Ada" })[0] as HTMLElement);
-  await settle(6);
+  await act(() => new Promise((r) => setTimeout(r, 120)));
   const card = screen().getByRole("dialog", { name: "Perfil" });
   await act(async () =>
     fireEvent.pointerDown(within(card).getByRole("button", { name: "Mais" }), { button: 0, ctrlKey: false }),
@@ -171,11 +171,11 @@ test("Ver perfil from a thread, then closed: the focus goes back to what opened 
   })[0] as HTMLElement;
   reply.focus();
   await click(reply);
-  // Responder takes the caret to the thread's composer a beat later (ThreadPage): a card opened before then would lose
-  // the focus to it and close.
+  // The thread's view takes the caret as it mounts, and Responder takes it again a beat after the thread loads
+  // (ThreadPage). A card opened in between keeps the focus: waiting past that beat, it is still open.
   await waitFor(() => expect(document.activeElement?.id).toBe("composer-m-1"));
   await click(within(thread() as HTMLElement).getAllByRole("button", { name: "Perfil de Ada" })[0] as HTMLElement);
-  await settle(6);
+  await act(() => new Promise((r) => setTimeout(r, 120)));
   const card = screen().getByRole("dialog", { name: "Perfil" });
   await act(async () =>
     fireEvent.pointerDown(within(card).getByRole("button", { name: "Mais" }), { button: 0, ctrlKey: false }),

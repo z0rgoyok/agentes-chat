@@ -8,12 +8,14 @@ import {
   deleteMachine,
   denyDeviceJoin,
   forgetPhone,
+  IPHONE_REPAIR_LIMIT,
   listDevices,
   lookForPhones,
   normalizeUserCode,
   openConnectLink,
   openXcode,
   pickIphoneOverWifi,
+  repairIphone,
   startWifiPairing,
   stopPhone,
   updateComputerDevice,
@@ -31,6 +33,7 @@ import {
   installScript,
   installScriptPowerShell,
 } from "../../runner/install-script";
+import { migrateScript, migrateScriptPowerShell } from "../../runner/migrate-script";
 import { requestLimitIp } from "../http/client-ip";
 import { apiError, errorResponse } from "../http/errors";
 import {
@@ -76,7 +79,14 @@ const Status = z
     z.object({ kind: z.literal("needs_you"), reason: Reason }),
     z.object({ kind: z.literal("preparing"), reason: Reason }),
     z.object({ kind: z.literal("paused"), until: z.string().nullable() }),
-    z.object({ kind: z.literal("offline"), lastSeenAt: z.string().nullable(), withHost: z.boolean().optional() }),
+    z.object({
+      kind: z.literal("offline"),
+      lastSeenAt: z.string().nullable(),
+      withHost: z.boolean().optional(),
+      cause: z.enum(["unresponsive", "stopped", "dropped"]).optional().openapi({
+        description: "A computer someone brought: why it went offline (`Machine.offlineCause`). Absent: unknown.",
+      }),
+    }),
     z.object({ kind: z.literal("unsupported"), reason: Reason }),
   ])
   .openapi("DeviceStatus");
@@ -533,6 +543,31 @@ export function deviceAppRoutes(deps: AppDeps) {
 
   app.openapi(
     createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/devices/phones/{phoneId}/repair",
+      tags,
+      security,
+      summary: "Repair a real iPhone's test helper (its Mac's owner or an admin)",
+      description:
+        "The Mac stops the iPhone's test helper and whatever is left of it, builds it again with the Xcode installed there now and checks it on the iPhone, in a few minutes; the phone's state shows it. What runs on the phone stops. `update`: the Mac's agentes.chat is too old for it.",
+      request: { params: PhoneParams, body: body(z.object({}).strict()) },
+      responses: {
+        200: json(z.object({ repairing: z.boolean(), update: z.literal(true).optional() }).openapi("IphoneRepair")),
+        429: errorResponse("Too many repairs"),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const { orgId, phoneId } = c.req.valid("param");
+      const userId = c.get("user").id;
+      const limit = await deps.adapters.rateLimiter.consume(`iphone-repair:user:${userId}`, IPHONE_REPAIR_LIMIT);
+      if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many tries. Try again in a few minutes.");
+      return c.json(await repairIphone({ db, hub: hub() }, userId, orgId, phoneId), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
       method: "get",
       path: "/organizations/{orgId}/devices/computers/{machineId}/wifi-iphones",
       tags,
@@ -738,4 +773,8 @@ export function registerConnectScripts(app: OpenAPIHono, deps: AppDeps) {
   };
   app.get("/i/:code", serve(false));
   app.get("/i/:code/ps", serve(true));
+  // `agentes-runner migrate`, run once without installing or connecting anything (ADR 0055, addendum 2026-11-16):
+  // the same for everyone, so no code and nothing of the caller's in it.
+  app.get("/migrate.sh", (c) => c.body(migrateScript(config.PUBLIC_URL), 200, SH));
+  app.get("/migrate.ps1", (c) => c.body(migrateScriptPowerShell(config.PUBLIC_URL), 200, PS));
 }

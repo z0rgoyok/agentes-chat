@@ -5,7 +5,7 @@
  * pixel size and theme and cached; the live loop (../agent/live.ts) stamps it
  * under the agent.
  */
-import { gradientOf, mixHex } from "../agent/engine.js";
+import { drawnKey, gradientOf, mixHex } from "../agent/engine.js";
 import { BoundedMap } from "../bounded-map";
 import { bayerAt } from "./math";
 
@@ -32,7 +32,7 @@ const looked = new BoundedMap<string, HTMLCanvasElement | null>(256);
 
 /** The sky as a `px`×`px` canvas, cached per color, size and theme (null without a DOM canvas). */
 export function avatarSky(color: string | undefined, px: number, dark: boolean): HTMLCanvasElement | null {
-  const asked = `${color ?? ""}|${dark ? 1 : 0}|${px}`;
+  const asked = `${drawnKey(color)}|${dark ? 1 : 0}|${px}`;
   if (looked.has(asked)) return looked.get(asked) ?? null;
   const [top, bottom] = avatarSkyTones(color, dark);
   const key = `${top}|${bottom}|${px}`;

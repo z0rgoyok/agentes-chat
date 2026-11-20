@@ -1,0 +1,852 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "agentes.chat chat surface bridge",
+    "version": "test",
+    "description": "For the separate service that carries linked people's messages between an outside chat surface and their DM with the workspace's right hand (ADR 0187). Every call is recorded (route, answer, whom it touched; never content)."
+  },
+  "servers": [
+    {
+      "url": "/api/surface/v1"
+    }
+  ],
+  "security": [
+    {
+      "surface": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "surface": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "This server's `SURFACE_BRIDGE_TOKEN`. It opens only these routes; the operator API's tokens are refused here."
+      }
+    },
+    "schemas": {
+      "SurfaceHealth": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "surface": {
+            "type": "string",
+            "description": "This server's `SURFACE_NAME`."
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": ["ok", "surface", "version"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "invalid_request",
+                "description": "Stable: the app translates it."
+              },
+              "message": {
+                "type": "string",
+                "example": "name: Required",
+                "description": "English fallback."
+              },
+              "params": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Values for the translated message (names, limits…)."
+              }
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      },
+      "SurfaceClaimed": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending"]
+          },
+          "linkId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "The person confirms in the app before this."
+          },
+          "locale": {
+            "type": "string",
+            "description": "The account's app language, for the service's own words."
+          }
+        },
+        "required": ["status", "linkId", "expiresAt", "locale"]
+      },
+      "SurfaceClaim": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The surface's stable, opaque id for the sender. Never a phone number or any address that can change hands."
+          },
+          "display": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "description": "What the surface shows of the sender (a number, a handle). Shown only."
+          },
+          "profileName": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "description": "The sender's own name there. Untrusted."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "description": "As typed: case, spaces and dashes don't matter."
+          }
+        },
+        "required": ["externalId", "display", "profileName", "code"],
+        "additionalProperties": false
+      },
+      "SurfaceUnlinked": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unlinked", "none"]
+          }
+        },
+        "required": ["status"]
+      },
+      "SurfaceUnlink": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The surface's stable, opaque id for the sender. Never a phone number or any address that can change hands."
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["asked", "identity_changed"]
+          }
+        },
+        "required": ["externalId", "reason"],
+        "additionalProperties": false
+      },
+      "SurfacePosted": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["posted", "duplicate", "queued"],
+            "description": "`queued`: a voice note, posted when its words are ready."
+          },
+          "messageId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "voiceAsFile": {
+            "type": "boolean",
+            "description": "The voice note went in as a file."
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orgName": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": ["status", "messageId", "voiceAsFile", "orgId", "orgName", "locale"]
+      },
+      "SurfaceMessage": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The surface's stable, opaque id for the sender. Never a phone number or any address that can change hands."
+          },
+          "inboundId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "The surface's own message id (for grouped media, the first one's): a resend posts nothing new."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "forwarded": {
+            "type": "string",
+            "enum": ["true"],
+            "description": "Forwarded from another chat: the agent reads it as quoted text, not a request."
+          },
+          "replyTo": {
+            "type": "string",
+            "format": "uuid",
+            "description": "One of our message ids the sender quoted; ignored outside the DM."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "description": "Repeated, at most 10, each with a file name and at most 50 MB."
+          },
+          "voice": {
+            "type": "string",
+            "format": "binary",
+            "description": "One voice note, never with `files`."
+          },
+          "voiceDurationMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "Required with `voice`."
+          }
+        },
+        "required": ["externalId", "inboundId"],
+        "additionalProperties": false
+      },
+      "SurfaceDeliveries": {
+        "type": "object",
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SurfaceDelivery"
+            }
+          }
+        },
+        "required": ["deliveries"]
+      },
+      "SurfaceDelivery": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["reply", "linked"],
+            "description": "`linked`: say in your own words that the link is active."
+          },
+          "linkId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orgName": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string",
+            "description": "The account's app language, for the service's own words."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The right hand's message; null for `linked`."
+          },
+          "inReplyTo": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The person's surface message the run read last."
+          },
+          "text": {
+            "type": "string",
+            "description": "The message's Markdown as stored."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": ["id", "name", "contentType", "size"],
+              "description": "Read the bytes from `GET /files/{artifactId}?delivery={id}`."
+            }
+          },
+          "media": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["gif"]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": ["kind", "id", "title"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["sticker"]
+                  },
+                  "mood": {
+                    "type": "string"
+                  }
+                },
+                "required": ["kind", "mood"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "card": {
+            "type": ["object", "null"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["question", "approval", "secret", "block", "poll", "choices", "artifact"]
+              },
+              "url": {
+                "type": "string",
+                "description": "Where the card opens in the app."
+              }
+            },
+            "required": ["kind", "url"]
+          },
+          "choices": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            },
+            "description": "A question's choices, to list in words."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "linkId",
+          "externalId",
+          "orgId",
+          "orgName",
+          "locale",
+          "createdAt",
+          "messageId",
+          "inReplyTo",
+          "text",
+          "files",
+          "media",
+          "card",
+          "choices"
+        ]
+      },
+      "SurfaceTakenAnswer": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "integer"
+          },
+          "unsent": {
+            "type": "integer"
+          },
+          "late": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": ["sent", "unsent", "late"]
+      },
+      "SurfaceTaken": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 100,
+            "description": "Sent on the surface: the person's DM reads as read up to each reply."
+          },
+          "unsent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 100,
+            "description": "Couldn't be sent: the person is notified in the app instead."
+          }
+        },
+        "required": ["sent", "unsent"],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Surface"],
+        "summary": "Whether the bridge answers, and for which surface",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceHealth"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/links/claim": {
+      "post": {
+        "tags": ["Surface"],
+        "summary": "A link code typed on the surface: a pending link the person confirms in the app",
+        "description": "Never makes a link active. Wrong, used and expired codes all answer `surface.code_gone`; each try counts against the sender's 5 an hour.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceClaim"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceClaimed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wrong, used or expired code (`surface.code_gone`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The sender is linked to another account (`surface.taken`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`surface.claim_limit` (this sender) or `surface.busy` (all senders), with `retryIn`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/links/unlink": {
+      "post": {
+        "tags": ["Surface"],
+        "summary": "End a sender's link: they asked, or their identity on the surface changed",
+        "description": "Pending links of the sender go too. A second call answers `none`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceUnlink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceUnlinked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/messages": {
+      "post": {
+        "tags": ["Surface"],
+        "summary": "A linked sender's message, posted as them in their DM with the workspace's right hand",
+        "description": "At least one of `text`, `files`, `voice`. A voice note that isn't one core takes (type, size, bytes over 8 KB a second of its length, voice off) goes in as a file named `voice.<ext>`. The DM is marked read up to the message.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceMessage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfacePosted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No active link for this sender (`surface.unlinked`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`surface.no_workspace` or `surface.no_assistant`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over 100 MiB, or a file over 50 MB (`surface.too_large`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`surface.rate_limited` (this person, with `retryIn` and `window`) or `surface.busy`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deliveries": {
+      "get": {
+        "tags": ["Surface"],
+        "summary": "What to send now: replies of the right hand to linked people, and links just made",
+        "description": "Oldest first, only rows not yet taken and younger than 5 minutes: anything older already reached the person in the app. Close each with `POST /deliveries/taken`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceDeliveries"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deliveries/taken": {
+      "post": {
+        "tags": ["Surface"],
+        "summary": "Close listed deliveries: sent on the surface, or not",
+        "description": "Idempotent: ids closed before (by an earlier call, or by the fall back to the app after 5 minutes) come back in `late` and change nothing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceTaken"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceTakenAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{artifactId}": {
+      "get": {
+        "tags": ["Surface"],
+        "summary": "The bytes of one file of a delivery's reply",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "delivery",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, as an attachment",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bridge token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown delivery, a file not on its message, or bytes gone (`surface.file_gone`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

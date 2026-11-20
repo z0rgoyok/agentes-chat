@@ -537,12 +537,13 @@ describe("the request card and the screens", () => {
   });
 
   test("every Vault screen is a route of the app, and the org event refreshes the Vault's queries", () => {
-    const app = join(import.meta.dir, "..", "..", "app", "(app)");
+    const app = join(import.meta.dir, "..", "..", "app", "(app)", "(main)");
     const hrefs = [
       vaultHref.list,
       vaultHref.item("i1"),
       vaultHref.create("team"),
       vaultHref.env("team"),
+      vaultHref.envReview,
       vaultHref.itemAccess("i1"),
       vaultHref.connectionAccess("c1"),
       vaultHref.connect("bitwarden"),

@@ -3,14 +3,26 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { AgentAvatar, Button, CARD_PAD, Card, Icon, PixelOrbit, SCREEN_X, Sky, Text, WorkspaceSky } from "@/ui";
+import {
+  AgentAvatar,
+  Button,
+  CARD_PAD,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  PixelOrbit,
+  SCREEN_X,
+  Sky,
+  Text,
+  WorkspaceSky,
+} from "@/ui";
 import { router } from "@/ui/navigation";
 import { mayCreate } from "../new/logic";
 import { AgentFace } from "../shared/Face";
 import { FirstUse } from "../shared/FirstUse";
-import { useColors, useDirectory } from "../shared/hooks";
+import { useDirectory } from "../shared/hooks";
 import { agentLook, firstName, greetingKey } from "../shared/logic";
-import { Tile, useSurface } from "../shared/parts";
+import { useSurface } from "../shared/parts";
 import { FIRST_AGENT_EXAMPLES } from "./examples";
 import { Arrive } from "./HomeEntrance";
 import { type FinishedItem, finishedKey, greetingLine } from "./now";
@@ -150,7 +162,6 @@ export function Greeting({
  */
 export function FirstAgentEmpty() {
   const { t } = useTranslation();
-  const c = useColors();
   const surface = useSurface();
   const { org } = useOrg();
   const newAgent = (what?: string) =>
@@ -179,32 +190,21 @@ export function FirstAgentEmpty() {
           />
         </View>
       </View>
+      {/* Examples, each opening "Novo agente" with what it does filled in: the app's grouped rows. */}
       <View style={styles.ideas}>
-        <Text variant="label" style={styles.ideasTitle}>
-          {t("mobile.homeNow.first.examples")}
-        </Text>
-        <Card>
-          {FIRST_AGENT_EXAMPLES.map((ex, i) => (
-            <Pressable
+        <GroupedHeader>{t("mobile.homeNow.first.examples")}</GroupedHeader>
+        <GroupedList>
+          {FIRST_AGENT_EXAMPLES.map((ex) => (
+            <GroupedRow
               key={ex.key}
+              icon={ex.icon}
+              label={t(`mobile.chats.first.example.${ex.key}.title`)}
+              sub={t(`mobile.chats.first.example.${ex.key}.hint`)}
+              chevron
               onPress={() => newAgent(t(`mobile.chats.first.example.${ex.key}.what`))}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.idea, pressed && { backgroundColor: c.sunken }]}
-            >
-              {i > 0 ? <View style={[styles.sep, { backgroundColor: c.line2 }]} /> : null}
-              <Tile icon={ex.icon} size={IDEA_TILE} />
-              <View style={styles.grow}>
-                <Text variant="callout" style={styles.bold}>
-                  {t(`mobile.chats.first.example.${ex.key}.title`)}
-                </Text>
-                <Text variant="footnote" tone="muted" numberOfLines={1}>
-                  {t(`mobile.chats.first.example.${ex.key}.hint`)}
-                </Text>
-              </View>
-              <Icon name="right" size={16} color={c.faint} />
-            </Pressable>
+            />
           ))}
-        </Card>
+        </GroupedList>
       </View>
     </View>
   );
@@ -212,11 +212,6 @@ export function FirstAgentEmpty() {
 
 /** The empty state's card: its padding, which the sky runs past to the card's edges. */
 const EMPTY_PAD = CARD_PAD;
-/** An example's row: its inset, the tile and the gap to the words (the hairline starts at the words). */
-const IDEA_INSET = 14;
-const IDEA_TILE = 36;
-const IDEA_GAP = 12;
-
 const styles = StyleSheet.create({
   sky: { opacity: 0.5 },
   // At the screen's sides, as the field under it and the list.
@@ -244,24 +239,6 @@ const styles = StyleSheet.create({
   center: { textAlign: "center" },
   emptyText: { marginTop: 6, marginBottom: 20 },
   acts: { gap: 8 },
-  ideas: { paddingHorizontal: 16, paddingTop: 20 },
-  ideasTitle: { paddingHorizontal: 4, paddingBottom: 8 },
-  idea: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: IDEA_GAP,
-    paddingHorizontal: IDEA_INSET,
-    paddingVertical: 12,
-    minHeight: 56,
-  },
-  // Between rows, inset to the text, as every list's hairline.
-  sep: {
-    position: "absolute",
-    top: 0,
-    left: IDEA_INSET + IDEA_TILE + IDEA_GAP,
-    right: 0,
-    height: StyleSheet.hairlineWidth,
-  },
-  grow: { flex: 1, minWidth: 0 },
+  ideas: { paddingHorizontal: 16, paddingTop: 4 },
   bold: { fontWeight: "600" },
 });

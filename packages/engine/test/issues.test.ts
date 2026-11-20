@@ -71,7 +71,7 @@ describe("issues", () => {
 
     await updateIssue(deps, ana, f.org.id, first.id, {
       status: "in_review",
-      assignee: { type: "agent", id: f.agent.id },
+      assignees: [{ type: "agent", id: f.agent.id }],
     });
     const checked = await setCriterion(deps, ana, f.org.id, first.id, first.criteria[0]?.id ?? "", true);
     expect(checked.criteria[0]?.done).toBe(true);
@@ -90,7 +90,7 @@ describe("issues", () => {
 
     expect((await listIssues(f.db, ana, f.org.id, { q: "safari" })).map((i) => i.number)).toEqual([1]);
     expect((await listIssues(f.db, ana, f.org.id, { q: "#2" })).map((i) => i.number)).toEqual([2]);
-    expect((await getIssue(f.db, ana, f.org.id, { number: 1 })).assignee).toEqual({ type: "agent", id: f.agent.id });
+    expect((await getIssue(f.db, ana, f.org.id, { number: 1 })).assignees).toEqual([{ type: "agent", id: f.agent.id }]);
 
     await drainOutbox(f.db, f.handlers);
     const hits = await searchVisible(f.context, {
@@ -192,7 +192,7 @@ describe("issues", () => {
       criteria: ["Funciona no Safari"],
     });
     const asked = await askAgentToImplement(deps, f.owner.id, f.org.id, issue.id, f.agent.id);
-    expect(asked.assignee).toEqual({ type: "agent", id: f.agent.id });
+    expect(asked.assignees).toEqual([{ type: "agent", id: f.agent.id }]);
 
     // The task's conversation: its root and the start inside its thread; nothing in #general or a DM.
     const at = asked.conversation;
@@ -449,6 +449,8 @@ describe("issues", () => {
     // QA's run stays queued, so it is live: only the reply below runs.
     const handed = await askAgentToImplement(deps, f.owner.id, f.org.id, issue.id, qa.id);
     expect(handed.work).toMatchObject({ agentId: qa.id, state: "running" });
+    // Dev is taken off it: the task is QA's alone.
+    await updateIssue(deps, person(f.owner.id), f.org.id, issue.id, { assignees: [{ type: "agent", id: qa.id }] });
 
     const reply = await postPersonMessage(deps, f.owner.id, f.org.id, dm.id, { body: "@dev e aí?", threadId: root.id });
     const runOf = async () =>
@@ -472,7 +474,7 @@ describe("issues", () => {
 
     const mine: WorkActor = { type: "agent", id: f.agent.id };
     const make = (title: string, assignee: WorkActor, criteria: string[] = []) =>
-      createIssue(deps, person(f.owner.id), f.org.id, { title, assignee, criteria });
+      createIssue(deps, person(f.owner.id), f.org.id, { title, assignees: [assignee], criteria });
     const older = await make("Frete lento", mine, ["Responde em 2 s", "Tem teste"]);
     const newer = await make("Login quebra", mine);
     for (const [title, status] of [
@@ -487,7 +489,7 @@ describe("issues", () => {
     const secret = await createChannel(f.db, f.owner.id, f.org.id, { name: "secreto", visibility: "private" });
     const said = await postPersonMessage(deps, f.owner.id, f.org.id, secret.id, { body: "Cofre aberto" });
     const hidden = await issueFromMessage(deps, f.owner.id, f.org.id, said.id);
-    await updateIssue(deps, person(f.owner.id), f.org.id, hidden.id, { assignee: mine });
+    await updateIssue(deps, person(f.owner.id), f.org.id, hidden.id, { assignees: [mine] });
     await updateIssue(deps, person(f.owner.id), f.org.id, older.id, { status: "in_progress" });
     await setCriterion(deps, person(f.owner.id), f.org.id, older.id, older.criteria[0]?.id ?? "", true);
     const at = (id: string, minutesAgo: number) =>
@@ -527,6 +529,8 @@ describe("issues", () => {
           orgId: f.org.id,
           kind: "file",
           title,
+          // A Drive file is made shared with everyone (ADR 0157, amendment 2026-11-17).
+          share: "everyone",
           createdByType: "person",
           createdById: by,
           updatedByType: "person",
@@ -558,6 +562,8 @@ describe("issues", () => {
           orgId: f.org.id,
           kind: "file",
           title,
+          // A Drive file is made shared with everyone (ADR 0157, amendment 2026-11-17).
+          share: "everyone",
           createdByType: "person",
           createdById: by,
           updatedByType: "person",
@@ -591,7 +597,7 @@ describe("issues", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  test("update_issue and create_issue set the assignee: me, a handle, none; an unknown name fails", async () => {
+  test("update_issue and create_issue set the assignees: me, a handle, an empty list; an unknown name fails", async () => {
     f = await setup();
     const deps = { db: f.db, pubsub: f.pubsub };
     const ctx = {
@@ -611,28 +617,27 @@ describe("issues", () => {
     };
     const issue = await createIssue(deps, person(f.owner.id), f.org.id, {
       title: "N+1 no offline-map",
-      assignee: { type: "person", id: f.owner.id },
+      assignees: [{ type: "person", id: f.owner.id }],
     });
-    const mine = await run("update_issue", { issue: `#${issue.number}`, assignee: "me" });
+    const mine = await run("update_issue", { issue: `#${issue.number}`, assignees: ["me"] });
     expect(mine.isError).toBeUndefined();
     // The agent reads who it is, not an id.
     expect(mine.content).toContain("(assignee: @dev (you))");
-    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: issue.id })).assignee).toEqual({
-      type: "agent",
-      id: f.agent.id,
-    });
-    await run("update_issue", { issue: issue.id, assignee: "none" });
-    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: issue.id })).assignee).toBeNull();
-    const failed = await run("update_issue", { issue: issue.id, assignee: "@nobody" });
+    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: issue.id })).assignees).toEqual([
+      { type: "agent", id: f.agent.id },
+    ]);
+    await run("update_issue", { issue: issue.id, assignees: [] });
+    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: issue.id })).assignees).toEqual([]);
+    const failed = await run("update_issue", { issue: issue.id, assignees: ["@nobody"] });
     expect(failed.isError).toBe(true);
     expect(failed.content).toContain("Nobody called");
 
-    const created = await run("create_issue", { title: "Contar o rate limit uma vez", assignee: "@dev" });
+    const created = await run("create_issue", { title: "Contar o rate limit uma vez", assignees: ["@dev"] });
     const [row] = (await listIssues(f.db, person(f.owner.id), f.org.id, { q: "rate limit" })).filter(
       (i) => i.title === "Contar o rate limit uma vez",
     );
     expect(created.isError).toBeUndefined();
-    expect(row?.assignee).toEqual({ type: "agent", id: f.agent.id });
+    expect(row?.assignees).toEqual([{ type: "agent", id: f.agent.id }]);
   });
 
   test("assigning a task to another agent says it doesn't start it, and how to hand it the job", async () => {
@@ -650,18 +655,18 @@ describe("issues", () => {
     const tools = await createIssueToolSource(f.artifactDeps).tools(ctx);
     const run = async (name: string, input: Record<string, unknown>) =>
       (await tools.find((t) => t.name === name)?.execute(input, ctx))?.content ?? "";
-    const created = await run("create_issue", { title: "Revisar o contrato", assignee: "@bia" });
+    const created = await run("create_issue", { title: "Revisar o contrato", assignees: ["@bia"] });
     expect(created).toContain("Assigning doesn't tell @bia or start its work");
     expect(created).toContain("tell_agent");
     const [issue] = await listIssues(f.db, person(f.owner.id), f.org.id, { q: "contrato" });
     const ref = `#${issue?.number}`;
     // The same assignee kept, a change of its own, or the agent itself: nothing to hand over.
     expect(await run("update_issue", { issue: ref, priority: "high" })).not.toContain("tell_agent");
-    expect(await run("update_issue", { issue: ref, assignee: "me" })).not.toContain("tell_agent");
-    expect(await run("update_issue", { issue: ref, assignee: "@bia" })).toContain(
+    expect(await run("update_issue", { issue: ref, assignees: ["me"] })).not.toContain("tell_agent");
+    expect(await run("update_issue", { issue: ref, assignees: ["@bia"] })).toContain(
       "Assigning doesn't tell @bia or start its work",
     );
-    expect(await run("update_issue", { issue: ref, assignee: "@bia", status: "in_progress" })).not.toContain(
+    expect(await run("update_issue", { issue: ref, assignees: ["@bia"], status: "in_progress" })).not.toContain(
       "tell_agent",
     );
   });
@@ -786,7 +791,7 @@ describe("issues", () => {
     const hidden = await createIssue(deps, person(f.owner.id), f.org.id, { title: "Segredo", channelId: secret.id });
     const theirs = await createIssue(deps, person(f.owner.id), f.org.id, {
       title: "Da Ana",
-      assignee: { type: "person", id: f.owner.id },
+      assignees: [{ type: "person", id: f.owner.id }],
     });
     const ctx = { ...(await runContext(f)), agentId };
     await f.db.update(schema.agentRuns).set({ agentId }).where(eq(schema.agentRuns.id, ctx.runId));
@@ -811,9 +816,9 @@ describe("issues", () => {
     expect(await call("comment_issue", { issue: theirs.id, text: "Comecei." })).toMatchObject({
       output: { content: `Commented on #${theirs.number}.` },
     });
-    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: theirs.id })).assignee).toMatchObject({
-      id: f.owner.id,
-    });
+    expect((await getIssue(f.db, person(f.owner.id), f.org.id, { id: theirs.id })).assignees).toMatchObject([
+      { id: f.owner.id },
+    ]);
     expect(await call("update_issue", { issue: hidden.id, status: "done" })).toMatchObject({
       output: { isError: true },
     });
@@ -825,15 +830,15 @@ describe("issues", () => {
     await grantScopes(f.db, f.org.id, f.agent.id, ISSUES);
     const theirs = await createIssue({ db: f.db, pubsub: f.pubsub }, person(f.owner.id), f.org.id, {
       title: "Da Ana",
-      assignee: { type: "person", id: f.owner.id },
+      assignees: [{ type: "person", id: f.owner.id }],
     });
     await f.tools?.invoke(await runContext(f), {
       toolUseId: crypto.randomUUID(),
       name: "update_issue",
-      input: { issue: theirs.id, status: "canceled", assignee: "none" },
+      input: { issue: theirs.id, status: "canceled", assignees: [] },
     });
     expect(await f.db.select().from(schema.agentActions)).toMatchObject([
-      { kind: "issue.updated", after: { status: "canceled", assignee: null } },
+      { kind: "issue.updated", after: { status: "canceled", assignees: [] } },
     ]);
   });
 

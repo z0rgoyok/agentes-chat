@@ -19,7 +19,6 @@ import {
 import type { CodeSetup } from "../git/machine";
 import type { MachineCaller } from "../machine-hub";
 import { MachineDroppedError, MachineOfflineError, MachinePausedError, pausedMessage } from "../machines";
-import { CODEX_MIN_VERSION, versionOf } from "../missions";
 import { runnerUpdateWay } from "../runner-update";
 import {
   accountFields,
@@ -141,15 +140,6 @@ export interface CodexBrainDeps {
   keepAlive?: boolean;
 }
 
-/** `codex-cli 0.163.0` is new enough (`CODEX_MIN_VERSION`). */
-export function codexVersionOk(version: string | undefined): boolean {
-  const have = versionOf(version);
-  const want = versionOf(CODEX_MIN_VERSION) as number[];
-  if (!have) return false;
-  for (let i = 0; i < 3; i++) if ((have[i] ?? 0) !== (want[i] ?? 0)) return (have[i] ?? 0) > (want[i] ?? 0);
-  return true;
-}
-
 /** Events pushed by a callback, read as an async iterable. */
 function channel<T>() {
   const queue: T[] = [];
@@ -209,14 +199,6 @@ const CODEX_CLI: CliBrainSpec = {
         type: "error",
         code: "codex_missing",
         message: "Codex is not installed on the computer.",
-        retryable: true,
-      };
-    }
-    if (!codexVersionOk(codex.version)) {
-      return {
-        type: "error",
-        code: "codex_too_old",
-        message: `Codex on the computer is ${codex.version}. Agents need ${CODEX_MIN_VERSION} or newer (update it there).`,
         retryable: true,
       };
     }
@@ -285,6 +267,20 @@ const ANTIGRAVITY_CLI: CliBrainSpec = {
         },
 };
 
+/**
+ * A ChatGPT sign-in offers Codex its own list of models, not the API's (catalog rows a plan may not have, or not yet),
+ * and refuses any other: "The '<model>' model is not supported when using Codex with a ChatGPT account." It refuses
+ * before the model runs, so the executor takes the turn again with no model, in a fresh session: a Codex thread keeps
+ * the model it was given, and a turn can't clear it.
+ */
+export const codexModelRefused = (message: string) =>
+  /model is not supported when using Codex with a ChatGPT account/i.test(message);
+
+/** How long a sign-in's refusal of a model is remembered: its turns leave that model out meanwhile. */
+const REFUSED_MODEL_MS = 6 * 60 * 60_000;
+// ponytail: per-process memory, so each server process pays one refused turn per sign-in and model; store it if that matters.
+const refusedModels = new Map<string, number>();
+
 export class CodexBrain implements Brain {
   readonly kind: "codex" | "cursor" | "opencode" | "grok" | "antigravity";
 
@@ -296,6 +292,18 @@ export class CodexBrain implements Brain {
   }
 
   async *run(turn: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent> {
+    const key =
+      turn.model && turn.session ? `${this.kind}:${turn.account?.id ?? turn.session.machineId}:${turn.model}` : null;
+    const refused = key !== null && (refusedModels.get(key) ?? 0) > Date.now();
+    for await (const event of this.attempt(refused ? { ...turn, model: undefined } : turn, io)) {
+      if (key && event.type === "error" && codexModelRefused(event.message)) {
+        refusedModels.set(key, Date.now() + REFUSED_MODEL_MS);
+      }
+      yield event;
+    }
+  }
+
+  private async *attempt(turn: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent> {
     const session = turn.session;
     const { name } = this.cli;
     if (!session) {
@@ -423,6 +431,8 @@ export class CodexBrain implements Brain {
       ...(this.deps.keepAlive === false ? { keepAlive: false } : {}),
       ...(freeTier ? { freeTier } : {}),
       ...(turn.personWaiting ? { personWaiting: true } : {}),
+      // Each answer the turn finishes before it goes on is its own message (ADR 0112).
+      answers: "each",
     };
 
     const events = channel<BrainEvent>();
@@ -451,6 +461,8 @@ export class CodexBrain implements Brain {
       for await (const event of events.read()) {
         if (ended) continue;
         if (event.type === "text_delta") text += event.text;
+        // What it streamed before an answer it finished is that answer, posted on its own: never the turn's again.
+        if (event.type === "answer") text = "";
         if (event.type === "done") {
           ended = true;
           yield { type: "done", text: event.text, session: { id: session.id } };

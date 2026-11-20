@@ -114,6 +114,7 @@ describe("a channel", () => {
       "Silenciar canal",
       "Editar canal",
       "Fixar no topo",
+      "Fundo da conversa…",
       "Copiar link",
       "Sair do canal",
       "Arquivar canal",

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 
 /*
  * The web app against the real server: its HTTP client, its own WebSocket, the server's routes, events and presence.
@@ -33,6 +33,9 @@ const { ORIGIN, browser, createTestServer, joinByInvitation, listen, seedOrg, si
   HARNESS
 )) as Harness;
 
+// A list read again after a new message waits up to `UNREAD_REFRESH_MS + UNREAD_SPREAD_MS`, past Bun's 5 s default.
+setDefaultTimeout(20_000);
+
 let t: TestServer;
 let server: ReturnType<Harness["listen"]>;
 // The server and its database start before the DOM is attached (PGlite looks for `window`).
@@ -49,7 +52,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import { createHttpApi, UNREAD_REFRESH_MS } from "@agenteschat/client";
+import { createHttpApi, UNREAD_REFRESH_MS, UNREAD_SPREAD_MS } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { DESKTOP_QUERY } from "@/components/NavDrawer";
 import { renderApp, settle } from "./render";
@@ -180,8 +183,8 @@ const real = async (ms = 400) => {
 };
 /** Past the gap between two reads of a list (`READ_GAP_MS`). */
 const live = () => real(900);
-/** Past the wait of a list read again on a new message or task (`UNREAD_REFRESH_MS`: a burst is one read). */
-const burst = () => real(UNREAD_REFRESH_MS + 300);
+/** Past the longest wait of a list read again on a new message or task (a burst is one read). */
+const burst = () => real(UNREAD_REFRESH_MS + UNREAD_SPREAD_MS + 300);
 
 const column = () => document.querySelector("aside.members-side");
 const memberNames = () =>

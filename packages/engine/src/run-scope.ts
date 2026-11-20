@@ -14,7 +14,7 @@ export const inChannelRun = (r: SQL) => sql`(${r}.thread_root_id = ${r}.trigger_
  * leaves that thread to the agent's other runs.
  */
 export const workKeepsThread = (r: SQL) =>
-  sql`(${r}.work_id is null or exists (select 1 from agent_works w where w.id = ${r}.work_id and w.own_thread))`;
+  sql`(${r}.work_id is null or exists (select 1 from agent_works w where w.id = ${r}.work_id and (w.own_thread or w.how = 'handed')))`;
 
 /**
  * SQL: the run `r` may take a new message of `userId`'s where it is. A person who writes to an agent while it works in

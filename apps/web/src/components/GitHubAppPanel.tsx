@@ -21,6 +21,7 @@ import {
   Card,
   CardHeader,
   Chip,
+  codeAndBold,
   Dialog,
   DialogFooter,
   Icon,
@@ -253,7 +254,7 @@ export function GitHubAppServerCard() {
                   {t("githubApp.server.open")}
                 </a>
               )}
-              {note && <SettingNote icon={setup.state === "ok" ? "info" : "alert"}>{note}</SettingNote>}
+              {note && <SettingNote icon={setup.state === "ok" ? "info" : "alert"}>{codeAndBold(note)}</SettingNote>}
               {events && <SettingNote icon="alert">{events}</SettingNote>}
             </span>
             {(setup.events || setup.source === "settings") && (

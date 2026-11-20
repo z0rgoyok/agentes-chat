@@ -138,3 +138,85 @@ describe("one permalink for every message", () => {
     expect(router.state.location.search).toEqual({ m: IN_DM });
   });
 });
+
+describe("a link to a message far back", () => {
+  /** #general with `n` messages, one a second, oldest first. */
+  function longChannel(n: number) {
+    const state = seedState();
+    const start = Date.now() - 3_600_000 * 24;
+    for (let i = 0; i < n; i++)
+      state.messages.push({
+        id: `far-${i}`,
+        channelId: GENERAL_ID,
+        threadId: null,
+        author: { type: "person" as const, id: "u-joao" },
+        body: `Mensagem ${i}`,
+        mentionedAgentIds: [],
+        agentRunId: null,
+        createdAt: new Date(start + i * 1000).toISOString(),
+      });
+    return state;
+  }
+  const row = (id: string) => document.querySelector(`[data-message-id="${id}"]`);
+  const toLatest = () =>
+    document.querySelector(".channel__latest-btn[aria-label='Ir para as mensagens mais recentes']") as HTMLElement;
+
+  test("older than every page the list could load: it opens at it, lit, read around it by id", async () => {
+    const state = longChannel(6000);
+    await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}?m=far-2`, { api: createFakeApi(state) });
+    await settle(10);
+    expect(row("far-2")?.classList.contains("ac-msg--focus")).toBe(true);
+    expect(state.calls.find((c) => c.method === "chat.messages")?.args[1]).toEqual({ around: "far-2", limit: 200 });
+    // Only the page around it: the latest messages wait below the gap.
+    expect(row("far-5999")).toBeNull();
+    expect(document.body.textContent).not.toContain("Essa mensagem não está disponível.");
+    expect(toLatest().closest(".channel__latest")?.hasAttribute("data-shown")).toBe(true);
+  });
+
+  test("scrolling down reads the newer pages until the latest; the round button goes straight back to it", async () => {
+    const state = longChannel(400);
+    await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}?m=far-150`, { api: createFakeApi(state) });
+    await settle(10);
+    expect(row("far-150")?.classList.contains("ac-msg--focus")).toBe(true);
+    expect(row("far-249")).not.toBeNull();
+    expect(row("far-250")).toBeNull();
+    const list = document.querySelector(".channel__messages") as HTMLElement;
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: 120 });
+      fireEvent.scroll(list);
+    });
+    await settle(6);
+    expect(state.calls.some((c) => c.method === "chat.messages" && (c.args[1] as { after?: string }).after)).toBe(true);
+    expect(row("far-299")).not.toBeNull();
+    // The page after it meets the latest one: one list again.
+    await act(async () => {
+      fireEvent.wheel(list, { deltaY: 120 });
+      fireEvent.scroll(list);
+    });
+    await settle(6);
+    expect(row("far-399")).not.toBeNull();
+    expect(row("far-150")).not.toBeNull();
+  });
+
+  test("the round button leaves the page far back for the latest", async () => {
+    await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}?m=far-2`, { api: createFakeApi(longChannel(1000)) });
+    await settle(10);
+    expect(row("far-999")).toBeNull();
+    await act(async () => fireEvent.click(toLatest()));
+    await settle(6);
+    expect(row("far-999")).not.toBeNull();
+    expect(row("far-2")).toBeNull();
+  });
+
+  test("one that's deleted or not visible says so, without blaming the distance", async () => {
+    await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}?m=00000000-0000-4000-8000-0000000000ff`, {
+      api: createFakeApi(longChannel(300)),
+    });
+    await settle(10);
+    expect(document.body.textContent).toContain(
+      "Essa mensagem não está disponível. Ela pode ter sido apagada ou não estar visível para você.",
+    );
+    expect(document.body.textContent).not.toContain("para trás");
+    expect(row("far-299")).not.toBeNull();
+  });
+});

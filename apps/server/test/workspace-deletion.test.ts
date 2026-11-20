@@ -359,7 +359,7 @@ describe("deleting an account", () => {
         { id: orgId, name: "Acme", role: "member" },
         { id: team, name: "Team", role: "owner" },
       ],
-      soleOwner: [{ id: team, name: "Team" }],
+      soleOwner: [{ id: team, name: "Team", onlyOutside: false }],
       computers: [{ orgId, id: laptop.machineId, name: "Bia's laptop" }],
       staysBehind: [{ orgId, kind: "key", name: "Bia's key" }],
       serverOwner: false,

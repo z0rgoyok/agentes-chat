@@ -178,7 +178,7 @@ test("a level a person set by hand stays theirs when the tool changes", async ()
 test("a changed tool whose level can't be worked out again keeps its pinned version", async () => {
   const w = await connected();
   const listed = [{ name: "search_articles", description: V2, inputSchema: (await w.pin()).inputSchema }];
-  const connection = { id: w.id, orgId: f.org.id, label: "Notes" };
+  const connection = { id: w.id, orgId: f.org.id, label: "Notes", accountLabel: null, ownerUserId: null };
   const failing = { db: f.db, reclassify: () => Promise.reject(new Error("unreachable")) };
   expect((await applyToolPins(failing, connection, listed, () => true))[0]?.description).toBe(V1);
   expect((await w.pin()).description).toBe(V1);

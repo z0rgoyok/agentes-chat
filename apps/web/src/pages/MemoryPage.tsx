@@ -232,7 +232,7 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
             data-item-id={m.id}
             aria-label={`${t(`memory.kinds.${m.kind}`)}: ${memoryLine(t, m)}`}
           >
-            <div className="row">
+            <div className="row ac-tailrow">
               <Chip icon={KIND_ICON[m.kind]}>{t(`memory.kinds.${m.kind}`)}</Chip>
               {m.pinned && <Chip icon="pin">{t("memory.pinned")}</Chip>}
               {m.verified ? (
@@ -249,7 +249,7 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
                   {t("memory.lowTrust")}
                 </Chip>
               )}
-              <span className="memory-item__used">{usageLabel(t, m)}</span>
+              <span className="memory-item__used ac-tail">{usageLabel(t, m)}</span>
             </div>
             <p className="memory-item__text">{memoryLine(t, m)}</p>
             {m.supersedes && (

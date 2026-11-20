@@ -186,7 +186,7 @@ test("work_in_background: the anchor in the timeline, updates in its thread, the
     title: "Migrar a cobrança",
     status: "done",
     channelId: f.general.id,
-    assignee: { type: "agent", id: f.agent.id },
+    assignees: [{ type: "agent", id: f.agent.id }],
     blocked: null,
   });
   expect(issues[0]?.backgroundWork?.plan.map((p) => p.state)).toEqual(["done", "doing", "todo"]);
@@ -640,7 +640,7 @@ test("cards: none for a quick run nor a short auto work; card: true makes one; a
   const existing = await createIssue(deps(), { type: "person", userId: f.owner.id }, f.org.id, {
     title: "Cobrança nova",
     criteria: ["Sem perda de dados"],
-    assignee: { type: "agent", id: f.agent.id },
+    assignees: [{ type: "agent", id: f.agent.id }],
     channelId: f.general.id,
   });
   const reuse = await working("@dev pega a #1");
@@ -761,7 +761,7 @@ test("card_issue: only a card the asker reads, here or workspace-wide; elsewhere
   const elsewhere = await createIssue(deps(), { type: "person", userId: f.owner.id }, f.org.id, {
     title: "Fechamento",
     channelId: finance.id,
-    assignee: { type: "agent", id: f.agent.id },
+    assignees: [{ type: "agent", id: f.agent.id }],
   });
   const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
   const run = await working("pega a #1", undefined, dm.id);

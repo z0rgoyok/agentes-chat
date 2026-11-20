@@ -6,7 +6,7 @@ import { memoryLine } from "@agenteschat/client/lib/proposals";
 import { rightHandOf } from "@agenteschat/client/lib/right-hand";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
@@ -15,10 +15,12 @@ import {
   Chip,
   EmptyState,
   Filters,
-  Row,
+  LIST_AVATAR,
+  ListRow,
   SCREEN_X,
   SearchField,
   SectionHeader,
+  SkeletonList,
   Text,
   useReducedMotion,
   useToast,
@@ -32,8 +34,8 @@ import { aroundStar, memoryMap } from "../constellation/logic";
 import { useOpenDm } from "../new/useOpenDm";
 import { useFailed } from "../routines/hooks";
 import { Face } from "../shared/Face";
-import { FirstUse } from "../shared/FirstUse";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { FirstUse, LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
 import { genderOf } from "../shared/logic";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { goBack, PushedHeader, successHaptic } from "../shared/parts";
@@ -48,10 +50,10 @@ const openMemory = (id: string) => router.push(`/memory/${id}`);
  */
 export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
   const { t, i18n } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const dir = useDirectory();
   const memories = useOrgMemories(orgId);
+  const pull = usePullRefresh(memories.refetch);
   const openDm = useOpenDm();
   // Whoever answers this person: the right hand first (the server's `canTalk` holds the talk permission).
   const listener = [rightHandOf(dir.agents), ...dir.agents].find((a) => a && canTalk(a));
@@ -66,18 +68,25 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
   const reduced = useReducedMotion();
   const fade = reduced ? {} : { entering: FadeIn.duration(160), exiting: FadeOut.duration(120) };
   const when = (iso: string) => relativeTime(t, i18n.language, iso);
+  // The list's own rows, as the wiki's beside it: the agent's face in the 52 column, what it learned (two lines at
+  // most), whose memory it is and when.
   const row = (m: Memory, i: number) => (
-    <Row
+    <ListRow
       key={m.id}
       divider={i > 0}
-      leading={<Face who={{ type: "agent", id: m.agentId }} size={36} live={false} />}
+      leading={<Face who={{ type: "agent", id: m.agentId }} size={LIST_AVATAR - 2} live={false} />}
       title={m.summary ?? memoryLine(t, m)}
-      subtitle={`${dir.nameOf({ type: "agent", id: m.agentId })} · ${when(m.updatedAt)}`}
+      titleLines={2}
+      sub={`${dir.nameOf({ type: "agent", id: m.agentId })} · ${when(m.updatedAt)}`}
+      subLines={1}
       chevron
       onPress={() => openMemory(m.id)}
     />
   );
-  const found = search ? searchMemories(shown, search) : [];
+  // Worked out again only when the memories or the words change, not at each render (each letter, before it settles).
+  const found = useMemo(() => (search ? searchMemories(shown, search) : []), [shown, search]);
+  const recent = useMemo(() => justLearned(shown), [shown]);
+  const used = useMemo(() => mostUsed(shown), [shown]);
   const subtitle = !selected
     ? ""
     : selected.kind === "agent"
@@ -87,7 +96,10 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
           count: selected.weight,
         });
   return (
-    <PushedLargeTitle title={t("mobile.memory.title")}>
+    <PushedLargeTitle
+      title={t("mobile.memory.title")}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+    >
       <Text variant="subhead" tone="muted" style={styles.lead}>
         {t("mobile.memory.subtitle")}
       </Text>
@@ -100,18 +112,9 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
           returnKeyType="search"
         />
       </View>
-      {memories.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
-      {memories.isError && !memories.data ? (
-        <View style={styles.center}>
-          <Text tone="muted">{t("common.loadFailed")}</Text>
-          <Button
-            variant="secondary"
-            size="sm"
-            label={t("mobile.common.retry")}
-            onPress={() => void memories.refetch()}
-          />
-        </View>
-      ) : null}
+      {/* Loading: the rows' own shape; failed: what happened and the way to ask again. */}
+      {memories.isLoading ? <SkeletonList rows={4} /> : null}
+      {memories.isError && !memories.data ? <LoadFailed onRetry={() => void memories.refetch()} /> : null}
       {memories.isSuccess && (memories.data ?? []).length === 0 ? (
         <FirstUse
           place="memory"
@@ -164,9 +167,9 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
             onOpen={() => (selected.kind === "agent" ? router.push(`/agent/${selected.id}`) : openMemory(selected.id))}
           />
           <SectionHeader title={t("mobile.memory.recent")} />
-          {justLearned(shown).map(row)}
+          {recent.map(row)}
           <SectionHeader title={t("mobile.memory.mostUsed")} />
-          {mostUsed(shown).map(row)}
+          {used.map(row)}
         </Animated.View>
       ) : (memories.data ?? []).length > 0 ? (
         <EmptyState
@@ -216,14 +219,19 @@ function MemoryDetail({ id }: { id: string }) {
     [memories.data, dir.agents, agentId],
   );
   if (!m) {
+    // Still loading: the rows' shape; a list that didn't load is not a memory that's gone.
     return (
       <View style={[styles.fill, { backgroundColor: c.bg }]}>
         <PushedHeader solid={false} />
-        {memories.isLoading ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
-        ) : (
-          <EmptyState icon="brain" title={t("mobile.memory.gone")} />
-        )}
+        <ScrollView contentInsetAdjustmentBehavior="automatic">
+          {memories.isLoading ? (
+            <SkeletonList rows={3} />
+          ) : memories.isError && !memories.data ? (
+            <LoadFailed onRetry={() => void memories.refetch()} />
+          ) : (
+            <EmptyState size="page" icon="brain" title={t("mobile.memory.gone")} />
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -386,8 +394,6 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   lead: { paddingHorizontal: SCREEN_X, marginTop: -4 },
   search: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
-  loading: { marginVertical: 24 },
-  center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
   body: { paddingHorizontal: SCREEN_X, paddingTop: 14, gap: 10 },
   who: { flexDirection: "row", alignItems: "center", gap: 6 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

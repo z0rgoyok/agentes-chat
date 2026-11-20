@@ -7,7 +7,8 @@ import type {
   MachineTool,
   PhoneDevice,
 } from "@agenteschat/client";
-import { firstName, namesText } from "@agenteschat/client/lib/format";
+import { offlineCauseText } from "@agenteschat/client/lib/devices";
+import { clockAt, firstName, namesText } from "@agenteschat/client/lib/format";
 import { computerKind, toolWords } from "@agenteschat/client/lib/machines";
 import type { TFunction } from "i18next";
 import type { ComputerState, PortraitKind } from "@/computer/cells";
@@ -44,7 +45,7 @@ export function reasonText(t: TFunction, reason: string | null | undefined, os?:
 export function statusView(
   t: TFunction,
   s: DeviceStatus,
-  when: { time: (iso: string) => string; short: (iso: string) => string },
+  when: { time: (iso: string) => string; short: (iso: string) => string; locale?: string },
   hostName?: string | null,
 ): StatusView {
   const view = (label: string, icon: StatusView["icon"], line: string | null = null): StatusView => ({
@@ -88,9 +89,11 @@ export function statusView(
         null,
         s.withHost && hostName
           ? t("mobile.devices.status.withHost", { host: hostName })
-          : s.lastSeenAt
-            ? t("mobile.devices.status.seen", { when: when.short(s.lastSeenAt) })
-            : null,
+          : s.cause && s.lastSeenAt
+            ? offlineCauseText(t, s.cause, clockAt(when.locale ?? "en", s.lastSeenAt), "detail")
+            : s.lastSeenAt
+              ? t("mobile.devices.status.seen", { when: when.short(s.lastSeenAt) })
+              : null,
       );
     case "unsupported":
       return view(t("mobile.devices.status.unsupported"), "x", reasonText(t, s.reason));
@@ -224,6 +227,7 @@ export function androidStage(phone: Pick<PhoneDevice, "status"> | null | undefin
 
 /** What the Mac reports while it sets up the test helper (the last step). */
 const HELPER_STEP = new Set([
+  "ios_behind_xcode",
   "helper_missing",
   "helper_expired",
   "helper_untrusted",

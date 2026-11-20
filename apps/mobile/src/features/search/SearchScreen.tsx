@@ -11,41 +11,43 @@ import {
   searchWords,
   typingOperator,
 } from "@agenteschat/client/lib/search-filters";
+import { useQueryClient } from "@tanstack/react-query";
 import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BackHandler, Keyboard, StyleSheet, type TextInputInstance, View } from "react-native";
+import { BackHandler, Keyboard, Platform, StyleSheet, type TextInputInstance, View } from "react-native";
 import Animated, { LinearTransition } from "react-native-reanimated";
 import { STORED } from "@/lib/storage";
-import { LargeTitleScreen, SearchField, SectionHeader, useReducedMotion } from "@/ui";
+import { LargeTitleScreen, SCREEN_X, SearchField, SectionHeader, useReducedMotion } from "@/ui";
 import { ConversationRowView } from "../chats/ConversationRowView";
 import { kindOf } from "../chats/logic";
-import { useOrgId } from "../shared/hooks";
+import { useOrgId, usePullRefresh } from "../shared/hooks";
 import { useConversations } from "../shared/queries";
 import { useRecentSearches, useSearchDirectory } from "./hooks";
-import { typeSearch } from "./logic";
+import { searchQueryRoot, typeSearch } from "./logic";
 import { FilterChips, FilteredResults, FilterWords, OperatorPicker, RecentSearches } from "./SearchFilters";
 import { SearchResults } from "./SearchResults";
 
 /** Conversations the empty search lists ("Recentes"). */
 const RECENT = 6;
-/** After the tab's switch, so the keyboard rises once the screen shows. */
-const FOCUS_DELAY_MS = 350;
 
 /**
  * Buscar, its own tab (on iOS 26 the round button apart in the tab bar,
  * like Music's): the large title with the search field under it; when the field takes the focus the title folds
- * away and the field rises into the navigation with "Cancelar", as the system's search bar does. Empty: the recent
- * searches first, then the filters in words (De, Em, Com arquivo, Data: each starts its operator, ADR 0123), then
- * the recent conversations. With words: the results in place, grouped with their counts. Typed operators become
- * chips under the field, with a picker while one is typed; with chips it finds messages only, by channel, with a
- * sort. Recent searches are kept per workspace on this phone.
+ * away and the field rises into the navigation with "Cancelar", as the system's search bar does. The tab opens with
+ * the keyboard down (the field takes the focus when the person taps it), so the recent searches and conversations
+ * under it are in sight. Empty: the recent searches first, then the filters in words (De, Em, Com arquivo, Data:
+ * each starts its operator, ADR 0123), then the recent conversations. With words: the results in place, grouped with
+ * their counts. Typed operators become chips under the field, with a picker while one is typed; with chips it finds
+ * messages only, by channel, with a sort. A pull asks for the conversations and the results again. Recent searches
+ * are kept per workspace on this phone.
  */
 export function SearchScreen() {
   const { t } = useTranslation();
   const focused = useIsFocused();
   const reduced = useReducedMotion();
   const list = useConversations();
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [chips, setChips] = useState<SearchChip[]>([]);
   const [searching, setSearching] = useState(false);
@@ -53,6 +55,9 @@ export function SearchScreen() {
   const [sort, setSort] = useState<SearchSort | null>(null);
   const field = useRef<TextInputInstance>(null);
   const orgId = useOrgId();
+  const pull = usePullRefresh(() =>
+    Promise.all([list.refetch(), qc.refetchQueries({ queryKey: searchQueryRoot(orgId), type: "active" })]),
+  );
   const directory = useSearchDirectory();
   const searchingWords = useMemo(() => searchWords(t), [t]);
   const text = parseSearch(q, directory, searchingWords).text;
@@ -81,15 +86,6 @@ export function SearchScreen() {
     field.current?.focus();
   };
 
-  // Selecting the tab puts the cursor in the (empty) field, like the system's search tab; Cancelar doesn't.
-  const typed = useRef(q);
-  typed.current = q;
-  useEffect(() => {
-    if (!focused || typed.current) return;
-    const timer = setTimeout(() => field.current?.focus(), FOCUS_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [focused]);
-
   const cancel = () => {
     setQ("");
     setChips([]);
@@ -108,11 +104,12 @@ export function SearchScreen() {
     return () => sub.remove();
   });
 
-  // The field and what follows slide up as the title folds away (and back down when it returns).
-  const layout = reduced ? undefined : LinearTransition.duration(220);
+  // Android draws its large title in the content: the field and what follows slide up as it folds away (and back
+  // down when it returns). iOS's is the system's, which moves the content itself; there nothing animates here.
+  const layout = reduced || Platform.OS === "ios" ? undefined : LinearTransition.duration(220);
   const collapsed = searching || words;
   return (
-    <LargeTitleScreen title={t("mobile.find.title")} collapsed={collapsed}>
+    <LargeTitleScreen title={t("mobile.find.title")} collapsed={collapsed} pull={pull}>
       <Animated.View layout={layout}>
         <View style={styles.search}>
           <SearchField
@@ -178,5 +175,5 @@ export function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  search: { paddingHorizontal: 16, paddingBottom: 8 },
+  search: { paddingHorizontal: SCREEN_X, paddingBottom: 8 },
 });

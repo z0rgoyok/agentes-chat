@@ -5,12 +5,13 @@ import { firstName } from "@agenteschat/client/lib/format";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet } from "react-native";
 import { useOrg } from "@/providers/org";
 import { EmptyState, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, RoleMark, useToast } from "@/ui";
+import { RowBones } from "../roles/parts";
 import { Gap, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
-import { useColors, useDirectory, useMeId } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
+import { useDirectory, useMeId } from "../shared/hooks";
 import { goBack, successHaptic, tapHaptic } from "../shared/parts";
 import { findDevice, narrowsAudience } from "./logic";
 import { useDeviceMutation, useDevices } from "./queries";
@@ -23,14 +24,22 @@ const MODES: DeviceAudience["mode"][] = ["owner", "everyone", "people"];
  */
 export function DeviceAudienceScreen({ deviceId }: { deviceId: string }) {
   const { t } = useTranslation();
-  const c = useColors();
   const list = useDevices();
   const found = findDevice(list.data?.devices, deviceId);
   if (!found) {
     return (
       <SettingsPage title={t("mobile.devices.audience.label")}>
         {list.isLoading ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          // The rows' shape while they load, as the device's page.
+          <>
+            <Gap />
+            <GroupedList>
+              <RowBones />
+              <RowBones name={56} />
+            </GroupedList>
+          </>
+        ) : list.isError && !list.data ? (
+          <LoadFailed onRetry={() => void list.refetch()} />
         ) : (
           <EmptyState title={t("mobile.devices.page.notFound")} subtitle={t("mobile.devices.page.notFoundText")} />
         )}
@@ -182,7 +191,3 @@ function AudienceForm({
     </SettingsPage>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: { marginVertical: 16 },
-});

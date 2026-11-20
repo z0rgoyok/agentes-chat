@@ -8,6 +8,7 @@ import {
   type WebPushSender,
 } from "@agenteschat/adapters";
 import { and, asc, type Database, eq, gt, inArray, isNull, lte, notInArray, or, schema } from "@agenteschat/db";
+import { errorNumber } from "./errors";
 import { mediaOf } from "./media";
 import { voiceOf } from "./message-preview";
 import { type NoticePrefs, noticeOn, readNoticePrefs } from "./notice-prefs";
@@ -490,7 +491,7 @@ export async function deliverPush(
 
   let sent = 0;
   const gone: string[] = [];
-  const failures: { retryable: boolean; error: string }[] = [];
+  const failures: { retryable: boolean; error: string; status?: number | null }[] = [];
   let phoneRequestFailed = false;
 
   if (deps.push && phones.length > 0) {
@@ -520,7 +521,11 @@ export async function deliverPush(
     } catch (error) {
       phoneRequestFailed = true;
       const retryable = (error as { retryable?: unknown } | null)?.retryable;
-      failures.push({ retryable: retryable !== false, error: String(error) });
+      failures.push({
+        retryable: retryable !== false,
+        error: String(error),
+        status: errorNumber(error, "status", 100, 599),
+      });
     }
   }
 
@@ -556,7 +561,9 @@ export async function deliverPush(
   if (sent === 0 && failures.length > 0) {
     const retryable = failures.every((f) => f.retryable);
     if (retryable || phoneRequestFailed) {
-      throw new PushError(`push not delivered: ${failures.map((f) => f.error).join("; ")}`, retryable);
+      // The status a sender answered, when it is the only failure: several failures have no one status.
+      const status = failures.length === 1 ? (failures[0]?.status ?? undefined) : undefined;
+      throw new PushError(`push not delivered: ${failures.map((f) => f.error).join("; ")}`, retryable, status);
     }
   }
   return { sent, removed: gone.length, failed: failures.length };

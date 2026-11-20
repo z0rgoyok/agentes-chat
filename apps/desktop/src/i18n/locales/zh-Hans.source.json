@@ -1592,6 +1592,33 @@
   "prefs.general.notchDesc": {
     "value": "On MacBooks with a notch: who is working shows around the camera."
   },
+  "prefs.general.compatTitle": {
+    "value": "Compatibility mode"
+  },
+  "prefs.general.compatDesc": {
+    "value": "Draws the window without the graphics card. It's slower but works on any computer. Use it if the window goes black, gets cut off or freezes."
+  },
+  "prefs.general.compatReopen": {
+    "value": "Takes effect when the app reopens."
+  },
+  "prefs.general.reopenNow": {
+    "value": "Reopen now"
+  },
+  "prefs.general.compatFellBack": {
+    "value": "The window didn't open with the graphics card, so it opened in compatibility mode."
+  },
+  "prefs.general.compatTryCard": {
+    "value": "Try the graphics card again"
+  },
+  "prefs.general.compatOwn": {
+    "value": "WEBKIT_DISABLE_DMABUF_RENDERER decides this now. To choose here, quit the app and open it without that variable."
+  },
+  "prefs.general.reopenTitle": {
+    "value": "Reopen agentes.chat?"
+  },
+  "prefs.general.reopenBody": {
+    "value": "Agents can't use this computer until the app opens again. What is already running finishes first."
+  },
   "prefs.thisMac.agents": {
     "value": "Agents"
   },
@@ -2275,6 +2302,81 @@
   },
   "cover.onlyHereFailed": {
     "value": "Couldn't turn off access from your devices."
+  },
+  "report.button": {
+    "value": "Send a report"
+  },
+  "report.title": {
+    "value": "Send a report to agentes.chat"
+  },
+  "report.noteLabel": {
+    "value": "What happened? (optional)"
+  },
+  "report.notePlaceholder": {
+    "value": "What you were doing when it stopped"
+  },
+  "report.emailLabel": {
+    "value": "Email for a reply (optional)"
+  },
+  "report.emailHelp": {
+    "value": "Only if you want an answer."
+  },
+  "report.showAll": {
+    "value": "See everything that's sent"
+  },
+  "report.copy": {
+    "value": "Copy report"
+  },
+  "report.copied": {
+    "value": "Copied"
+  },
+  "report.send": {
+    "value": "Send"
+  },
+  "report.sending": {
+    "value": "Sending…"
+  },
+  "report.cancel": {
+    "value": "Cancel"
+  },
+  "report.sentTitle": {
+    "value": "Report {{id}} sent"
+  },
+  "report.sentText": {
+    "value": "If you write to us, mention this code."
+  },
+  "report.sentTextReply": {
+    "value": "We'll answer at {{email}}. Mention this code if you write to us."
+  },
+  "report.copyCode": {
+    "value": "Copy code"
+  },
+  "report.done": {
+    "value": "Done"
+  },
+  "report.errorRate": {
+    "value": "Too many reports in a short time. Try again in {{minutes}} min, or copy the report."
+  },
+  "report.errorUnreachable": {
+    "value": "agentes.chat didn't answer. Try again, or copy the report."
+  },
+  "report.errorRefused": {
+    "value": "agentes.chat didn't accept this report (it may be from an older version). Copy the report instead."
+  },
+  "report.emailInvalid": {
+    "value": "That email doesn't look right. Fix it or leave it empty."
+  },
+  "report.coverLead": {
+    "value": "The agentes.chat team gets this app's version, the server's setup steps and the last lines of its log. No names, addresses or keys."
+  },
+  "report.computerLead": {
+    "value": "The agentes.chat team gets this computer's app version, its state and the last lines of its log. No names, addresses or keys."
+  },
+  "report.oldApp": {
+    "value": "This computer's agentes.chat app is too old to add its details. Update it, then try again."
+  },
+  "report.offApp": {
+    "value": "Sending is off in this app (PROBLEM_REPORT_URL=off). Copy the report to share it."
   },
   "menu.about": {
     "value": "About agentes.chat"

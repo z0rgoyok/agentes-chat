@@ -7,6 +7,7 @@ import {
   dragRange,
   HOUR_PX,
   initialScrollMinutes,
+  itemOwners,
   layoutBars,
   layoutDay,
   onDay,
@@ -242,8 +243,17 @@ describe("calendar layout", () => {
         },
       ],
       deadlines: [
-        { issueId: "i1", number: 128, title: "Login", date: "2026-10-14", assignee: { type: "agent", id: "ag-ada" } },
-        { issueId: "i2", number: 129, title: "Nobody", date: "2026-10-14", assignee: null },
+        {
+          issueId: "i1",
+          number: 128,
+          title: "Login",
+          date: "2026-10-14",
+          assignees: [
+            { type: "agent", id: "ag-ada" },
+            { type: "person", id: "u1" },
+          ],
+        },
+        { issueId: "i2", number: 129, title: "Nobody", date: "2026-10-14", assignees: [] },
         { issueId: "i3", number: 130, title: "Older server", date: "2026-10-14" },
       ],
       proposals: [],
@@ -257,6 +267,14 @@ describe("calendar layout", () => {
       ["deadline-i2", undefined],
       ["deadline-i3", undefined],
     ]);
+    // A task due that several have counts for each of them; any other item, for its one owner.
+    const owners = (key: string) => itemOwners(items.find((it) => it.key === key) ?? {});
+    expect(owners("deadline-i1")).toEqual([
+      { type: "agent", id: "ag-ada" },
+      { type: "person", id: "u1" },
+    ]);
+    expect(owners("deadline-i2")).toEqual([]);
+    expect(owners("by-person")).toEqual([{ type: "person", id: "u-ana" }]);
   });
 
   test("overlapping events sit side by side; a later one gets the full width again", () => {

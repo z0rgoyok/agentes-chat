@@ -420,8 +420,9 @@ describe("Routines: a widget's routine", () => {
     const view = await renderApp(`/org/${ORG_ID}/routines`, { api });
     await settle(8);
     const card = screen().getByRole("article", { name: "PRs esperando revisão" });
-    expect(card.textContent).toContain("Ada · atualiza o widget, sem mensagem");
-    expect(card.textContent).toContain("Widget de painel");
+    // Two lines: its name, then when it runs; no "Widget" chip (the trigger's icon is the widget's grid).
+    expect(card.textContent).toContain("A cada hora");
+    expect(card.querySelector(".ac-chip")).toBeNull();
     expect(card.textContent).not.toContain("Drive");
     const trigger = within(card).getByRole("button", { name: "Mais ações: PRs esperando revisão" });
     trigger.focus();

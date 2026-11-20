@@ -15,7 +15,6 @@ export const featureKeysEn = {
     channelCount_one: "{{count}} channel",
     channelCount_other: "{{count}} channels",
     none: "No categories yet.",
-    manageHelp: "Tap a category to rename it, move it or delete it.",
     manageHint: "Order, names and delete",
     deleteTitle: "Delete {{name}}?",
     order: "Place in the list",
@@ -24,7 +23,6 @@ export const featureKeysEn = {
     position: "{{at}} of {{count}}.",
     channelPosition: "{{at}} of {{count}}.",
     itsChannels: "Channels",
-    seeAll: "See all",
   },
   blocks: {
     send: "Send",
@@ -198,16 +196,12 @@ export const featureKeysEn = {
       text: "It may be down or outside your network. Your chats show up on their own when it's back.",
       kept: "Showing what was already in the app.",
     },
-    section: {
-      agents: "Agents",
-      channels: "Channels",
-      people: "People",
-    },
-    seeAll: {
-      agents: "See all agents",
-      channels: "See all channels",
-      people: "See all people",
-    },
+    /** Conversas' strip of what the person pinned (the web sidebar's pins), under Início's widgets. */
+    pinned: "Pinned",
+    /** Conversas' one list: every chat by its latest activity, with no grouping. */
+    recent: "Recent",
+    /** Under Recentes' first rows: the whole list. */
+    seeAll: "See all chats",
     wait: {
       verb: {
         approval: "needs your ok",
@@ -261,10 +255,6 @@ export const featureKeysEn = {
     workingOne: "{{name}} is working",
     /** A conversation's row swiped left: the pane beside Pin, short so the word fits the pane. */
     swipe: { mute: "Mute", unmute: "Unmute" },
-    /** Conversas' one line back to the right hand's first-run checklist (ADR 0155 §6). */
-    firstRunLine: "{{name}} is setting up the team · {{done}} of {{total}}",
-    /** The same line in a personal workspace (ADR 0159): one person's agents, no team. */
-    firstRunLinePersonal: "{{name}} is setting up your agents · {{done}} of {{total}}",
     first: {
       title: "Start with your first agent",
       subtitle: "Give it a name and say what it does. It shows up here, as a chat.",
@@ -301,8 +291,8 @@ export const featureKeysEn = {
     to: "To:",
     people: "People",
     search: "Person or agent",
-    create: "Create",
     agentHint: "A name and what it does",
+    create: "Create",
     chatShort: "Conversation",
     chatHint: "A person or an agent",
     taskHint: "With an assignee and a due date",
@@ -377,14 +367,23 @@ export const featureKeysEn = {
     replies_other: "{{count}} replies",
     repliesWord_one: "reply",
     repliesWord_other: "replies",
+    /** A conversation of bubbles says when it picks up again: "Today 15:35". */
+    dayAt: "{{day}} {{time}}",
     thread: "Thread",
     closed: "closed",
     options: "Options",
     profile: "Profile",
     here_one: "{{count}} here",
     here_other: "{{count}} here",
+    membersAdd: "Add",
+    membersAdded_one: "{{count}} added to #{{channel}}",
+    membersAdded_other: "{{count}} added to #{{channel}}",
+    memberRemoved: "{{name}} is out of #{{channel}}",
+    muted: "#{{channel}} muted",
+    unmuted: "#{{channel}} unmuted",
     headerAgent: "{{who}}. Open the profile",
     headerChannel: "{{who}}. Options",
+    headerMembers: "{{who}}. See who is here",
     switchHint: "Hold to switch conversations",
     switchTitle: "Switch conversation",
     switchSearch: "Search conversations",
@@ -408,8 +407,6 @@ export const featureKeysEn = {
       held: "{{name}} reads it after your decision",
       read: "{{name}} read it",
       resolved: "{{name}} closed the help request",
-      well: "Read your note",
-      wellNow: "Stopped to read your note",
     },
     stopped: {
       byYou: "Stopped here",
@@ -470,26 +467,21 @@ export const featureKeysEn = {
     /** The emoji palette in a message's menu. */
     react: "React",
     attach: {
-      /** The dashed tile after the pictures waiting above the field. */
-      more: "Add another photo or file",
       remove: "Remove {{name}}",
       /** What a screen reader says of a picture waiting to be sent. */
       waiting: "{{name}}, waiting to be sent",
       /** While its upload runs. */
       sending: "{{name}}, sending",
+      /** One that didn't go: it stays, and send tries it again. */
+      failed: "{{name}}, didn't go: send to try again",
+      /** A picker still handing its files over (a video being converted). */
+      preparing: "Getting the files ready…",
       tooMany: "Up to {{count}} files per message.",
     },
     /** Swiping a message to the right. */
     swipeReply: "Swipe right to reply",
     // intentional: chat
     intent: {
-      suggest: {
-        merge: "Go ahead and merge",
-        review: "Ask {{name}} to review first",
-        seeChange: "Show me what changed",
-        summarize: "Sum it up in 3 points",
-        nextStep: "What's the next step?",
-      },
       arrived: "{{name}} joined the team",
       meet: "Your first conversation with {{name}}",
       roleIntro: "{{role}} on your team. Ask in plain words.",
@@ -607,11 +599,9 @@ export const featureKeysEn = {
     camera: "Camera",
     photos: "Photos",
     file: "File",
-    /** The fourth tile: the GIFs and stickers, out of the field so it only sends. */
+    /** The fourth tile: the GIFs and stickers (also beside the mic in the empty field). */
     media: "GIFs",
     noCamera: "No camera access. Allow it in the phone's Settings.",
-    mission: "Start a mission",
-    missionHint: "Long work, with a plan, from start to finish",
     summary: "Sum up the chat",
     summaryHint: "What happened while you were away",
     remind: "Remind me later",
@@ -640,7 +630,6 @@ export const featureKeysEn = {
     minuteLess: "{{n}} minutes earlier",
     minuteMore: "{{n}} minutes later",
     submit: "Remind me at this time",
-    quick: "See quick times",
     done: "Reminder set",
     error: {
       noAgent: "No agent here can remind you",
@@ -699,6 +688,7 @@ export const featureKeysEn = {
     title: "New mission",
     intro: "The agent makes a plan and only starts when you say so.",
     placeholder: "What needs to get done?",
+    who: "Who does it",
     submit: "Ask for a plan",
     created: "{{name}} is making the plan",
     noAgents: "No agent can run missions yet. Connect a computer on the website.",
@@ -858,16 +848,14 @@ export const featureKeysEn = {
   agentEdit: {
     missing: "This agent no longer exists.",
     saved: "Changes saved",
-    adminsOnly: "Only admins change the name, role and instructions.",
+    /** Under the instructions, for who can't edit them: neither its owner, who manages it, nor its "Who can edit". */
+    adminsOnly: "Only whoever can edit this agent changes its role and instructions. Its name, only admins.",
     discardTitle: "Discard your changes?",
     discardText: "What you changed hasn't been saved yet.",
     discard: "Discard",
     keepEditing: "Keep editing",
   },
   newAgent: {
-    leaveTitle: "Leave without creating?",
-    leaveText: "The agent you started won't be created.",
-    keepGoing: "Keep creating",
     /** The second step asks who the agent is: a question and one line, as the other steps. */
     identityQuestion: "Who is the agent?",
     identityLead: "Its name, how to call it in the chat, and its face.",
@@ -875,7 +863,6 @@ export const featureKeysEn = {
     /** Under the name while it is typed: the @ follows the name until the person changes it. */
     handleFromName: "In the chat: @{{handle}}. It comes from the name. You can change it.",
     handleFromNameEmpty: "Its @ in the chat comes from the name.",
-    reviewLead: "Tap a line to change it.",
     planHint: "Or connect your AI plan: {{name}} then thinks with it, without spending the key.",
     planHint_female: "Or connect your AI plan: {{name}} then thinks with it, without spending the key.",
     partly: "The agent was created, but part of what its role brings didn't go through. Adjust it on its profile.",
@@ -886,9 +873,9 @@ export const featureKeysEn = {
         openmausbot:
           "In OpenMausBot: right-click the team\u00a0›\u00a0Share team…\u00a0›\u00a0Save file. Then pick that file here.",
         hermes:
-          "Hermes exports from a terminal (hermes profile export), as a .tar.gz the phone can't open. Import it on the computer, or pick the profile's .md and .yaml files here.",
+          "Hermes exports from a terminal (`hermes profile export`), as a .tar.gz the phone can't open. Import it on the computer, or pick the profile's .md and .yaml files here.",
         openclaw:
-          "OpenClaw keeps agents in the ~/.openclaw folder on the computer. Pick a workspace's .md files here, or import the whole folder on the computer.",
+          "OpenClaw keeps agents in the `~/.openclaw` folder on the computer. Pick a workspace's .md files here, or import the whole folder on the computer.",
         paperclip: "Paste the package's GitHub link below, or pick its COMPANY.md and the other .md files.",
         agenteschat:
           "In the other workspace: Settings\u00a0›\u00a0Import and export\u00a0›\u00a0Download the file. Then pick the .json here.",
@@ -902,7 +889,6 @@ export const featureKeysEn = {
         "The phone doesn't open .zip or .tar.gz files. In the Files app, tap the .zip to unzip it and pick the files inside, or import on the computer.",
       privacy: "Read on this phone. Key and login files are never opened.",
       also: "Also comes along",
-      change: "Change",
       arrived_one: "{{name}} arrived",
       arrived_other: "{{count}} agents arrived",
       partial: "{{done}} of {{total}} arrived. Importing again brings the rest.",
@@ -927,6 +913,12 @@ export const featureKeysEn = {
     taskPlaceholder: "What needs to get done?",
     sendTask: "Send task",
     taskSent: "Task sent",
+    /** Work nobody asked for: the confirmation before "Forget these answers" drops the remembered ones. */
+    brakes: {
+      forgetTitle: "Forget these answers?",
+      forgetText: "{{name}} asks again before this kind of work.",
+      forgetText_female: "{{name}} asks again before this kind of work.",
+    },
   },
   activity: {
     title: "Activity",
@@ -1196,8 +1188,7 @@ export const featureKeysEn = {
     agentStyle: "How agents talk",
     workspaces: "Workspaces",
     workspacesIn: "You're in",
-    workspacesFoot:
-      "You stay signed in to each one and get notifications from all of them. Tap a workspace to open it.",
+    workspacesFoot: "You stay signed in to each one and get notifications from all of them.",
     /** A server in Workspaces that didn't answer. */
     workspacesUnreachable: "No answer right now",
     addWorkspace: "Add workspace",
@@ -1294,10 +1285,14 @@ export const featureKeysEn = {
       diagram: "Diagram",
       page: "Page",
       text: "Text",
+      spreadsheet: "Spreadsheet",
+      slides: "Presentation",
+      canvas: "Canvas",
       file: "File",
     },
     more: "More options",
-    send: "Send",
+    /** The system's share sheet with the file itself (the file screen's bar, the picture viewer's row). */
+    sendCopy: "Send a copy",
     savePhotos: "Save to Photos",
     drive: "View in Drive",
     saved: "Saved to Photos",
@@ -1312,6 +1307,8 @@ export const featureKeysEn = {
     /** The picture viewer's buttons on the picture's sides. */
     previous: "Previous picture",
     next: "Next picture",
+    /** The file screen's heading for a type the app doesn't draw (the file's name is already the bar's title). */
+    noPreviewTitle: "No preview",
     noPreview: "This file doesn't open in the app. Send it to another app to open it.",
     /** The video player's controls (a message's video and the file screen). */
     video: {
@@ -1323,6 +1320,8 @@ export const featureKeysEn = {
       unmute: "Unmute",
       fullscreen: "Full screen",
       open: "Open",
+      /** A video this phone can't play, in the viewer: it can still be sent, shared or opened in the Drive. */
+      cantPlay: "This video can't play on this phone.",
     },
   },
   issues: {
@@ -1411,13 +1410,29 @@ export const featureKeysEn = {
   drive: {
     title: "Drive",
     search: "Search the Drive",
-    types: "File types",
-    type: { all: "All", documents: "Documents", images: "Images", tables: "Tables", diffs: "Diffs" },
+    type: {
+      all: "All",
+      documents: "Documents",
+      spreadsheets: "Spreadsheets",
+      presentations: "Presentations",
+      canvases: "Canvases",
+      images: "Images",
+      tables: "Tables",
+      diffs: "Diffs",
+    },
     section: { today: "Today", week: "This week" },
-    kind: { document: "Document", table: "Table", diff: "Diff", image: "Image", file: "File" },
+    kind: {
+      document: "Document",
+      table: "Table",
+      diff: "Diff",
+      image: "Image",
+      spreadsheet: "Spreadsheet",
+      slides: "Presentation",
+      canvas: "Canvas",
+      file: "File",
+    },
     by: "{{name}} · {{when}}",
     noResults: "Nothing with these filters.",
-    loadFailed: "Couldn't load the Drive.",
     more: "Show more",
   },
   // Wiki (the rest of its words are the web's, `wiki.*`).
@@ -1490,8 +1505,6 @@ export const featureKeysEn = {
 
   // Rotinas (the rest of its words are the web's, `routines.*`).
   routines: {
-    loadFailed: "Couldn't load the routines.",
-    anyAgent: "All agents",
     create: "Create",
     /** The form's "when" as rows, each value picked from the system's list. */
     when: {
@@ -1759,18 +1772,9 @@ export const featureKeysEn = {
   // The agent's browser (ADR 0040).
   browser: {
     card: {
-      needs: "{{name}} needs help",
-      needsFor: "{{name}} needs help · {{time}}",
-      inControlAt: "You're in control · {{host}}",
-      doing: "{{name}} · {{doing}}",
-      startingF: "Opening {{name}}'s browser…",
-      startingM: "Opening {{name}}'s browser…",
       stopAskF: "Close {{name}}'s browser?",
       stopAskM: "Close {{name}}'s browser?",
-      whereF: "In {{name}}'s browser",
-      whereM: "In {{name}}'s browser",
       open: "Open",
-      expandHint: "Tap to expand",
       stop: "Stop",
       giveUp: "Give up",
     },
@@ -1778,7 +1782,6 @@ export const featureKeysEn = {
       inControl: "You're in control",
       helping: "{{name}} is in control",
       watchOnly: "{{name}} is in control. You're only watching.",
-      takeOver: "Take over",
       done: "Done",
       handBack: "Hand back",
       couldnt: "Couldn't do it",
@@ -1799,7 +1802,6 @@ export const featureKeysEn = {
       closedHelpM: "Logins stay saved for next time.",
       stuckHelpF: "Try again restarts the browser. Logins stay saved.",
       stuckHelpM: "Try again restarts the browser. Logins stay saved.",
-      hidden: "{{name}} is in control · screen hidden",
       key: {
         Tab: "Tab",
         Enter: "Enter",
@@ -1888,6 +1890,7 @@ export const featureKeysEn = {
       ui_automation_off: "UI Automation is off",
       xcode_missing: "The Mac needs Xcode",
       xcode_too_old: "Xcode is too old for this iPhone",
+      ios_behind_xcode: "Update this iPhone's iOS",
       device_support: "The Mac is preparing this iPhone",
       helper_missing: "The test helper isn't set up yet",
       helper_expired: "The test helper needs renewing",
@@ -2067,8 +2070,7 @@ export const featureKeysEn = {
       /** Xcode's names (Signing & Capabilities) stay in English. */
       teamMissing:
         "Xcode is signed in but shows no team yet. In Xcode, make any iOS app, pick your team under Signing & Capabilities and run it on this iPhone once.",
-      uiRefused:
-        "This iPhone refused the test helper's taps. Unlock it and enter its passcode if it asks. If it keeps happening, turn Settings\u00a0›\u00a0Developer\u00a0›\u00a0Enable UI Automation off and on.",
+      uiRefused: "Agents see this iPhone's screen, but iOS refuses their taps.",
       /** A button on step 1: the person says it's plugged in, and the guide says what to check. */
       pluggedIn: "It's plugged in",
       /** iPhones on the Mac's network that already trust it (they did over a cable once), offered, never used until picked. */
@@ -2136,6 +2138,9 @@ export const featureKeysEn = {
       stop: "Stop waiting",
       useInstead: "Use {{name}} instead",
       none: "No other device you can use is ready.",
+      /** After "Try now" and "Stop waiting": what the button did, said at once. */
+      tried: "Trying {{device}} again.",
+      stopped: "No longer waiting for {{device}}.",
     },
   },
   connectors: {
@@ -2354,12 +2359,10 @@ export const featureKeysEn = {
     planRowSub: "Signs in on the agent's computer, no key",
     keyRow: "A key",
     keyRowSub: "You pay per use, straight to the maker",
-    already: "Already at {{org}}",
     stepOf: "{{step}} of {{total}}",
   },
   crash: {
     title: "Something went wrong on this screen",
-    subtitle: "The app hit an error showing this. Try again.",
     retry: "Try again",
   },
   notFound: {
@@ -2395,9 +2398,8 @@ export const featureKeysEn = {
     deleteIntro: "{{name}} turns read-only for everyone right away and is deleted for good in 7 days.",
     holdDelete: "Hold to delete",
     deleteFailed: "Couldn't delete the workspace. Try again.",
-    access: {
-      how: "Tap a row to change its level: No access, Read, Read and write.",
-    },
+    holdReset: "Hold to reset",
+    resetFailed: "Couldn't reset the workspace. Try again.",
     logo: {
       failed: "Couldn't upload the logo",
       tooBig: "That image is too big. Try another one.",
@@ -2432,7 +2434,6 @@ export const featureKeysEn = {
     noMatch: "No role matches “{{q}}”.",
     tooMany: "This workspace already has 100 roles. Delete one to create another.",
     loadFailed: "Couldn't load the roles. {{cause}}",
-    backToList: "Back to roles",
     /** A role nobody holds yet, at the start of its glance line. */
     nobody: "Nobody",
     /** What a role adds to what Everyone can, under its name: "+3 permissions · +2 channels · +1 agent". */
@@ -2566,9 +2567,9 @@ export const featureKeysEn = {
       everyone: "Everyone talks to it",
       gate: "People with only {{name}} don't talk to agents.",
       gateOn: "Turn on Talk to agents",
-      locked: "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it.",
-      locked_female: "Only {{owner}}, who looks after {{name}}, or someone who edits any agent changes it.",
-      lockedNoOwner: "Only someone who edits any agent changes it.",
+      locked: "Only {{owner}}, who looks after {{name}}, or someone who edits agents changes it.",
+      locked_female: "Only {{owner}}, who looks after {{name}}, or someone who edits agents changes it.",
+      lockedNoOwner: "Only someone who edits agents changes it.",
       none: "No agents yet.",
       some: "Only some roles and people",
       addPerson: "Add a person",
@@ -2682,7 +2683,7 @@ export const featureKeysEn = {
       sealedHelp: "For safety, what's saved here never shows again. To change it, type it again.",
       changePassword: "Change password",
       changeValue: "Change value",
-      changeHelp: "Tap Save to keep it. Agents use the new one from then on.",
+      changeHelp: "Agents use the new one after you save.",
       hidden: "Hidden",
       saved: "Saved",
       delete: "Delete",
@@ -2701,7 +2702,7 @@ export const featureKeysEn = {
       newPassword: "New password",
       keyName: "Variable",
       keyNamePlaceholder: "ACME_API_KEY",
-      keyNameHelp: "Capital letters, digits and _, like ACME_API_KEY. Agents ask for the key by this name.",
+      keyNameHelp: "Capital letters, digits and _, like `ACME_API_KEY`. Agents ask for the key by this name.",
       value: "Value",
       newValue: "New value",
       description: "Description",
@@ -2829,8 +2830,7 @@ export const featureKeysEn = {
   },
   // Dashboards on the phone (ADR 0135); the rest of their words are the web's, `dashboards.*` and `widgets.*`.
   dashboards: {
-    homeRow: "Only you · your own widgets",
-    loadFailed: "Couldn't load the dashboards.",
+    homeRow: "Only you",
     create: "Create",
     routineTarget: "its widget",
     pin: {
@@ -2916,11 +2916,11 @@ export const featureKeysEn = {
     },
     drive: {
       title: "Everything the team makes, in one place",
-      text: "Reports, tables and files from agents and people stay here, easy to find.",
+      text: "Reports, tables and files from agents and people stay here.",
       viewerTitle: "Find what the team makes",
       viewerText: "What agents and people create in the chats shows up here.",
       titlePersonal: "Everything your agents make, in one place",
-      textPersonal: "Reports, tables and files from your agents stay here, easy to find.",
+      textPersonal: "Reports, tables and files from your agents stay here.",
       viewerTitlePersonal: "Find what your agents make",
       viewerTextPersonal: "What agents create in your chats shows up here.",
     },
@@ -2986,7 +2986,7 @@ export const featureKeysEn = {
       viewerTextPersonal: "When someone joins, they show up here.",
     },
     chat: {
-      title: "It all starts with a message",
+      title: "Start the conversation",
       text: "Write below and everyone here sees it.",
       viewerTitle: "Messages show up here",
       viewerText: "When someone writes, you read it here.",
@@ -3027,8 +3027,8 @@ export const featureKeysEn = {
     board: {
       title: "See what matters on one board",
       text: "Add a widget, ask an agent for one or pin a block from the chat.",
-      viewerTitle: "This board is taking shape",
-      viewerText: "Whoever edits this board adds the widgets, and they show up here.",
+      viewerTitle: "Widgets show up here",
+      viewerText: "Whoever edits this board adds them.",
     },
     computers: {
       title: "Bring another computer to your agents",
@@ -3037,7 +3037,7 @@ export const featureKeysEn = {
       viewerText: "Whoever connects computers adds them, and they show up here.",
     },
     connectors: {
-      title: "Give your agents real tools",
+      title: "Give your agents tools",
       text: "Connect a service and they start reading and acting in it.",
       viewerTitle: "Your agents' tools show up here",
       viewerText: "Whoever manages connectors connects the services below.",
@@ -3046,6 +3046,244 @@ export const featureKeysEn = {
       title: "Nothing to review",
       text: "When an agent does something outside the conversation, it shows up here.",
     },
+  },
+  /** Live files on the phone (ADR 0196): their bar, who is here, the spreadsheet. */
+  live: {
+    /** Under the file's name in its bar. */
+    status: {
+      opening: "Opening…",
+      saved: "Saved",
+      saving: "Saving…",
+      offline: "No connection",
+      offlineKept: "No connection · changes kept on this phone",
+      readOnly: "Read-only",
+    },
+    /** A file that can't open, and the way back. */
+    closed: {
+      missing: "This file doesn't exist or wasn't shared with you",
+      signedOut: "Sign in again to open this file",
+      broken: "This file can't be opened in the app",
+      toDrive: "Back to the Drive",
+    },
+    menu: { undo: "Undo", redo: "Redo" },
+    /** The faces in the bar and the list they open. */
+    here: {
+      title: "Who's here",
+      faces_one: "{{count}} more here. See who",
+      faces_other: "{{count}} more here. See who",
+      group: { editing: "Editing", viewing: "Looking" },
+      editing: "editing",
+      viewing: "viewing",
+      editingAt: "editing {{where}}",
+      viewingAt: "on {{where}}",
+      editingSlide: "editing slide {{n}}",
+      onSlide: "on slide {{n}}",
+      editingShapes_one: "editing {{count}} item",
+      editingShapes_other: "editing {{count}} items",
+      followingName: "Following {{name}}",
+      stop: "Stop",
+      alone: "Only you are here now",
+      aloneHint: "Whoever opens this file shows up here, with what they're doing.",
+    },
+    /** A live file's card on a message: how big it is. */
+    card: {
+      sheets_one: "{{count}} sheet",
+      sheets_other: "{{count}} sheets",
+      slides_one: "{{count}} slide",
+      slides_other: "{{count}} slides",
+      shapes_one: "{{count}} item",
+      shapes_other: "{{count}} items",
+    },
+    sheet: {
+      edit: "Edit",
+      editHint: "Type into this cell",
+      editing: "Editing {{cell}}",
+      placeholder: "Type a value or =",
+      empty: "Empty",
+      cancel: "Leave it as it was",
+      done: "Done",
+      /** The formula keys over the keyboard. */
+      typeKey: "Type {{key}}",
+      /** Several cells selected. */
+      stats: "Sum {{sum}} · Average {{average}} · Count {{count}}",
+      countOnly: "Count {{count}}",
+      cantDo: "That can't be done here",
+      copied: "Copied",
+      newSheet: "New sheet",
+      /** A new sheet's name before its number ("Sheet 2"). */
+      sheetWord: "Sheet",
+      duplicateSheet: "Duplicate sheet",
+      copyOf: "{{name}} (copy)",
+      deleteSheet: "Delete sheet",
+      deleteSheetTitle: "Delete {{name}}?",
+      deleteSheetText: "Everything in this sheet goes for everyone in the file. Undo brings it back.",
+      /** A long press on a cell. */
+      menu: {
+        copy: "Copy",
+        paste: "Paste",
+        clear: "Clear",
+        rowsAbove_one: "Insert a row above",
+        rowsAbove_other: "Insert {{count}} rows above",
+        rowsBelow_one: "Insert a row below",
+        rowsBelow_other: "Insert {{count}} rows below",
+        colsLeft_one: "Insert a column to the left",
+        colsLeft_other: "Insert {{count}} columns to the left",
+        colsRight_one: "Insert a column to the right",
+        colsRight_other: "Insert {{count}} columns to the right",
+        sortUp: "Sort A to Z",
+        sortDown: "Sort Z to A",
+        deleteRows_one: "Delete the row",
+        deleteRows_other: "Delete {{count}} rows",
+        deleteCols_one: "Delete the column",
+        deleteCols_other: "Delete {{count}} columns",
+      },
+      /** Why what was typed wasn't written. */
+      problem: {
+        empty: "Type something after =",
+        unexpected: "Something is off near {{text}}",
+        paren: "A parenthesis isn't closed",
+        quote: "A quote isn't closed",
+        sheetQuote: "A sheet name's quote isn't closed",
+        operand: "A value is missing beside a sign",
+        array: "This list of values isn't complete",
+        range: "This range isn't valid",
+        sheet: "There's no sheet called {{text}}",
+        args: "{{fn}} has the wrong number of values",
+        tooLong: "This is too long for a cell",
+        tooDeep: "This formula has too many levels",
+        tooFar: "This reference goes past the spreadsheet's limit",
+        limit: "The spreadsheet is at its size limit",
+        merged: "Merged cells are in the way",
+        failed: "That didn't work. Try again.",
+      },
+    },
+    /** A presentation on the phone: its slides, a slide opened large, its words, presenting. */
+    slides: {
+      /** What an empty box says while it can be edited. */
+      placeholder: {
+        title: "Tap to add a title",
+        text: "Tap to add text",
+        image: "Tap to add a photo",
+      },
+      /** What a text box is, as its screen and its menu name it. */
+      part: {
+        title: "Title",
+        subtitle: "Subtitle",
+        body: "Text",
+        caption: "Caption",
+        number: "Big number",
+        quote: "Quote",
+        shape: "Text in the shape",
+        text: "Text box",
+        note: "Note",
+      },
+      openHint: "Opens the slide",
+      editHint: "Edits its words",
+      place: "Slide {{n}} of {{count}}",
+      placeHidden: "Slide {{n}} of {{count}} · hidden when presenting",
+      deleteTitle: "Delete slide {{n}}?",
+      deleteText: "It goes for everyone in the file. Undo brings it back.",
+      notesPlaceholder: "Write what to say on this slide",
+      pickPhoto: "Choose a photo",
+      /** The tools under a slide opened large. */
+      tools: {
+        text: "Text",
+        photo: "Photo",
+        sending: "Sending…",
+      },
+    },
+    /** A text box's words on a screen of their own (a slide's, or a canvas's note). */
+    text: {
+      title: "Text",
+      noteTitle: "Note",
+      done: "Done",
+      placeholder: "Type the text",
+      titlePlaceholder: "Type the title",
+      hint: "Each line is a paragraph.",
+    },
+    /** Presenting. */
+    show: {
+      nothing: "Every slide is hidden, so there is nothing to show.",
+      upright: "Stand the phone up",
+      sideways: "Turn the phone sideways",
+    },
+    /** A canvas on the phone: its dock of tools, the shapes' menu, drawing and comments. */
+    canvas: {
+      tools: {
+        label: "Tools",
+        select: "Select",
+        pen: "Pen",
+        shapes: "Shapes",
+        arrow: "Arrow",
+        note: "Note",
+        text: "Text",
+        photo: "Photo",
+        comment: "Comment",
+      },
+      shapes: {
+        rect: "Rectangle",
+        ellipse: "Ellipse",
+        diamond: "Diamond",
+        triangle: "Triangle",
+        star: "Star",
+        line: "Line",
+      },
+      penHint: "Draw with your finger. Two fingers move the canvas.",
+      arrowHint: "Drag from one place to another",
+      commentHint: "Tap where you want to comment",
+      pin: "Comment {{n}} by {{name}}",
+      addToSelection: "Choose this too",
+      emptyText: "Add a note or a photo, or ask an agent in the conversation.",
+    },
+    /** A live file's own conversation, from the file: the line under it, its quote, where the file came from. */
+    talk: {
+      start: "Talk about {{what}}",
+      openHint: "Opens the conversation",
+      placeholder: {
+        spreadsheet: "Write on the spreadsheet…",
+        slides: "Write on the presentation…",
+        canvas: "Write on the canvas…",
+        document: "Write on the document…",
+      },
+      aboutPoint: "A comment on a spot of the canvas",
+      comment: "Comment",
+      imported: "Imported from {{file}} by <0>{{name}}</0>",
+      variationsText: "make variations of this image",
+    },
+    /** A document on the phone (ADR 0200): its blocks, edited one at a time, and the bar over the keyboard. */
+    doc: {
+      styles: {
+        paragraph: "Text",
+        h1: "Heading 1",
+        h2: "Heading 2",
+        h3: "Heading 3",
+        quote: "Quote",
+        code: "Code",
+      },
+      style: "Text style",
+      bold: "Bold",
+      italic: "Italic",
+      bullets: "Bulleted list",
+      numbers: "Numbered list",
+      quote: "Quote",
+      link: "Add a link",
+      linkChoose: "Choose the words for the link first",
+      linkBad: "That address can't be a link",
+      linkPlaceholder: "Link address",
+      linkApply: "Add the link",
+      placeholder: "Write here",
+      add: "Add a paragraph",
+      editHint: "Edits this part",
+      notHere: "This part is edited on the computer",
+    },
+  },
+  /** Linking the outside chat app in Notificações (ADR 0187). {{surface}} is that app's name, as the server sets it. */
+  surface: {
+    /** The row's state while a sender is linked. */
+    on: "On",
+    codeText: "Send the message that opens there, then come back here.",
+    openFailed: "Couldn't open {{surface}} on this phone. Send it the code below instead.",
+    orType: "Or send this code there",
   },
 };
 

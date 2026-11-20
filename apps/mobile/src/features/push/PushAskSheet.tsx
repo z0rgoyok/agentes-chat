@@ -1,4 +1,4 @@
-import { DEFAULT_APP_ICON } from "@agenteschat/client/lib/app-icons";
+import { PHONE_APP_ICON } from "@agenteschat/client/lib/app-icons";
 import { exampleSenders } from "@agenteschat/client/lib/push-offer";
 import { Image } from "expo-image";
 import { useState } from "react";
@@ -82,7 +82,7 @@ export function PushAskSheet({ onClose }: { onClose: () => void }) {
 /** One notification as the phone shows it: the app's icon (the one picked, ADR 0179), who and what, when. */
 function Example({ title, body, time, opacity }: { title: string; body: string; time: string; opacity: number }) {
   const surface = useSurface();
-  const icon = useAppIcon().icon ?? DEFAULT_APP_ICON;
+  const icon = useAppIcon().icon ?? PHONE_APP_ICON;
   return (
     <View style={[styles.example, surface, { opacity }]}>
       {typeof icon === "string" ? (

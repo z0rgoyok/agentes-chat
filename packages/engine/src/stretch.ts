@@ -1,6 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, gt, inArray, isNull, rowsOf, schema, sql } from "@agenteschat/db";
 import { getAgentCached } from "./agents";
+import { managesAgent, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
 import { messageRoot } from "./authority";
 import { routineBriefOfRun } from "./background";
@@ -470,8 +471,8 @@ async function runTriggerOf(db: Database, orgId: string, runId: string | null) {
 /**
  * Continuar on a pause card (`POST …/messages/{id}/answer-now`): the card moves from paused to continued (once:
  * a second press starts nothing), and each held wake-up whose agent is still active there starts at hop 1 in a
- * fresh stretch, past the old one's limits. Who asked, the agents' owners or an admin, the same people as Continuar
- * under a stopped reply. Audited.
+ * fresh stretch, past the old one's limits. Who asked, the agents' owners or an admin who manages every one of them
+ * (`managesAgent`, ADR 0085 addendum of 2026-11-17), the same people as Continuar under a stopped reply. Audited.
  */
 export async function continueStretch(
   deps: { db: Database; pubsub?: PubSub },
@@ -482,10 +483,12 @@ export async function continueStretch(
 ): Promise<{ runs: { agentId: string; runId: string }[] }> {
   const { db } = deps;
   const owners = await db
-    .select({ owner: agents.ownerUserId })
+    .select(REACH_COLUMNS)
     .from(agents)
     .where(and(eq(agents.orgId, message.orgId), inArray(agents.id, card.agentIds)));
-  if (card.forUserId !== userId && !owners.some((a) => a.owner === userId) && !can(membership, "manage_agents"))
+  const manages =
+    owners.length === 0 ? can(membership, "manage_agents") : owners.every((a) => managesAgent(a, userId, membership));
+  if (card.forUserId !== userId && !owners.some((a) => a.ownerUserId === userId) && !manages)
     throw new ForbiddenError("Only who asked, the agents' owners or an admin can do this", "run.answer_forbidden");
   const stretchId = Bun.randomUUIDv7();
   const done = await db.transaction(async (tx) => {

@@ -233,6 +233,11 @@ export const words: EmailWords = {
     preheader: "Approva o rifiuta in Membri. Non succede nulla finché non rispondi.",
     headline: "C’è una richiesta di accesso in attesa",
     body: (org) => ["Una persona ha aperto il link di invito di ", { b: org }, " e ha chiesto di entrare."],
+    outside: (by) => [
+      "Questa persona lavora per ",
+      { b: by },
+      " e chiede di entrare come collaboratore esterno. Non occupa un posto nel tuo piano, e puoi rimuoverla in qualsiasi momento.",
+    ],
     note: "Approva solo le persone che aspetti. Entrano come membro, a meno che tu non scelga un altro ruolo nella pagina.",
     approve: "Approva",
     deny: "Rifiuta",
@@ -299,6 +304,13 @@ export const words: EmailWords = {
   deletionCode: {
     subjectWorkspace: (code) => `${code} è il tuo codice per eliminare uno spazio di lavoro`,
     subjectAccount: (code) => `${code} è il tuo codice per eliminare tutto il tuo account`,
+    subjectReset: (code) => `${code} è il tuo codice per reimpostare uno spazio di lavoro`,
+    reset: (org) => [
+      "Inserisci questo codice per reimpostare lo spazio di lavoro ",
+      { b: org },
+      ". I suoi agenti, conversazioni, file e memoria vengono cancellati subito e per sempre, e riparte da zero come uno nuovo.",
+    ],
+    whyReset: (org) => `Ricevi questa email perché il tuo account ha chiesto di reimpostare ${org} su agentes.chat.`,
     preheader: "Inseriscilo in agentes.chat per confermare. Vale per 10 minuti.",
     headline: "Il tuo codice",
     workspace: (org) => [
@@ -554,5 +566,51 @@ export const words: EmailWords = {
       why: () =>
         "Hai ricevuto questa email perché questo spazio di lavoro su agentes.chat è tuo. Inviamo solo due avvisi come questo.",
     },
+  },
+  surface: {
+    linked: {
+      subject: (surface) => `${surface} è stato collegato al tuo account agentes.chat`,
+      preheader: "Il tuo assistente ora ti risponde lì. Se non sei stato tu, scollegalo.",
+      headline: (surface) => `${surface} è stato collegato`,
+      body: (surface, display, org) => [
+        { b: display },
+        ` su ${surface} ora parla con il tuo assistente in `,
+        { b: org },
+        ".",
+      ],
+      notYou: "Non sei stato tu? Scollegalo. I messaggi da lì smettono subito di arrivare al tuo account.",
+      button: "Scollega",
+      small: "Se sei stato tu, non devi fare nulla. Puoi scollegarlo quando vuoi nelle Impostazioni.",
+      why: (surface) => `Ricevi questa email perché ${surface} è stato collegato al tuo account agentes.chat.`,
+      picture: "Il tuo assistente, ora anche sul tuo telefono",
+    },
+    unlinked: {
+      subject: (surface) => `${surface} è stato scollegato dal tuo account agentes.chat`,
+      preheader: "La sua identità è cambiata. Collegalo di nuovo nelle Impostazioni se sei stato tu.",
+      headline: (surface) => `${surface} è stato scollegato`,
+      body: (surface, display) => [
+        { b: display },
+        ` su ${surface} è stato scollegato perché la sua identità è cambiata.`,
+      ],
+      small: "Collegalo di nuovo nelle Impostazioni se sei stato tu.",
+      why: (surface) => `Ricevi questa email perché ${surface} era collegato al tuo account agentes.chat.`,
+      picture: "Il tuo assistente, non più sul tuo telefono",
+    },
+  },
+  supportReply: {
+    subject: "Una risposta alla tua richiesta di aiuto",
+    preheader: "Sull’aiuto che hai chiesto su agentes.chat.",
+    headline: "Una risposta alla tua richiesta di aiuto",
+    answers: {
+      received: "Abbiamo ricevuto la tua richiesta e la stiamo esaminando.",
+      need_more: "Ci servono più dettagli per aiutarti: cosa stavi facendo, cosa ti aspettavi e cosa è successo.",
+      resolved: "Quello che hai segnalato è stato risolto.",
+      handed_over: "Ora una persona ha la tua richiesta e ti risponderà.",
+    },
+    from: (host) =>
+      host ? atHost("Risposta di chi gestisce il server agentes.chat", "su", host) : "Risposta di agentes.chat.",
+    ai: "Un assistente IA ha scritto questa risposta.",
+    reply: (address) => ["Per rispondere, scrivi a ", { mail: address }, "."],
+    why: "Ricevi questa email perché hai chiesto aiuto su agentes.chat.",
   },
 };

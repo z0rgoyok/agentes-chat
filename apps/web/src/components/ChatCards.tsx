@@ -108,11 +108,13 @@ export function MemoryChangeCard({ update, agentId }: { update: MemoryUpdate; ag
       role="group"
       aria-label={t("memoryCard.group", { name })}
     >
-      <div className="ac-approval__head">
+      <div className="ac-approval__head ac-tailrow">
         <span className="ac-approval__who">
           <b>{t(`memoryCard.${update.action}`, { name })}</b>
         </span>
-        <Chip icon="check">{t("memoryCard.chip")}</Chip>
+        <Chip icon="check" className="ac-tail">
+          {t("memoryCard.chip")}
+        </Chip>
       </div>
       <p className={update.action === "forgot" ? "ac-approval__title struck" : "ac-approval__title"}>{update.text}</p>
       {update.action === "updated" && update.previousText && (
@@ -487,7 +489,7 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
  * in the panel, a consultation, a channel whose composer posts elsewhere), so
  * it never depends on which composer is on screen.
  */
-export function QuestionCard({ question }: { question: AgentQuestion }) {
+export function QuestionCard({ question, asker }: { question: AgentQuestion; asker?: string }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const api = useApi();
@@ -606,6 +608,7 @@ export function QuestionCard({ question }: { question: AgentQuestion }) {
       id={question.id}
       kind="question"
       agent={agent}
+      asker={asker}
       runId={question.runId ?? null}
       label={t("question.group", { agent: name })}
       mine={mine}

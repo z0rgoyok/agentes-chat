@@ -237,9 +237,24 @@ export const SAFE_URL = /^(https?:|mailto:)/i;
 
 /**
  * A short line's `code` and **bold** spans in order, the rest as typed (a task's title, an option's label): only the
- * marks such a line carries, never a link or a mention that would take the press of what it sits in.
+ * marks such a line carries, never a link or a mention that would take the press of what it sits in. Each of `plain`
+ * (a name someone typed, put in the line) stays as typed: its backticks and asterisks neither mark it nor pair with the
+ * line's own.
  */
-export function codeAndBoldParts(text: string): { text: string; mark?: "code" | "bold" }[] {
+export function codeAndBoldParts(
+  text: string,
+  plain: readonly (string | null | undefined)[] = [],
+): { text: string; mark?: "code" | "bold" }[] {
+  const names = plain.filter((n): n is string => !!n);
+  const hits = names.map((n) => ({ n, at: text.indexOf(n) })).filter((h) => h.at >= 0);
+  if (hits.length) {
+    const first = hits.reduce((a, b) => (b.at < a.at || (b.at === a.at && b.n.length > a.n.length) ? b : a));
+    return [
+      ...codeAndBoldParts(text.slice(0, first.at)),
+      { text: first.n },
+      ...codeAndBoldParts(text.slice(first.at + first.n.length), names),
+    ];
+  }
   return text
     .split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g)
     .filter(Boolean)

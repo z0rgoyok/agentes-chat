@@ -93,10 +93,13 @@ What it installs goes through the computers' installer, as root: `install.sh --r
 installs only those and stops (it works by hand too). The browser is `get_chrome` (Google's apt repository, or on
 ARM Debian's `chromium`, else Ubuntu's snap, which refreshes itself, so no timer); the screens are
 `DESKTOP_APT_PACKAGES` and the extras, without system mode's isolation packages; Claude Code is Anthropic's installer
-run in a home that is thrown away, its binary copied to `/usr/local/bin/claude`; Codex is the latest release's static
-build for the processor (`codex-<arch>-unknown-linux-musl.tar.gz` from GitHub), to `/usr/local/bin/codex`. Neither
-is pinned: Claude's installer checks what it downloads against its own manifest, and Codex's release is fetched over
-HTTPS from OpenAI's repository. One already there is kept.
+run in a home that is thrown away, its binary copied to `/usr/local/bin/claude`; Codex is the latest release's whole
+package for the processor (`codex-package-<arch>-unknown-linux-musl.tar.gz` from GitHub: the CLI with the helpers it
+starts, `codex-code-mode-host` for code mode among them, and its resources), unpacked in `/usr/local/lib/codex`, with
+`/usr/local/bin/codex` a link to its `bin/codex`. Neither is pinned: Claude's installer checks what it downloads
+against its own manifest, and Codex's package is checked against its release's `codex-package_SHA256SUMS`. One
+already there is kept, but a Codex that is a lone binary with no `codex-code-mode-host` beside it (what the installer
+put there before) can't run code mode, so it is installed again, whole.
 
 The organizations' homes of the server's own computer now start with the agents' screens on (`access.tools.desktop`),
 with the browser: the setup offered each agent its own screen, and before this the person had to run

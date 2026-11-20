@@ -56,7 +56,7 @@ import { ErrorState } from "@/components/Loading";
 import { COMPACT_QUERY, DESKTOP_QUERY, useMediaQuery } from "@/components/NavDrawer";
 import { OrgProvider } from "@/components/org-context";
 import { ImageCropDialog, OrgMark } from "@/components/ProfilePhoto";
-import { BootSplash, OnboardingHorizon, OnboardingProgress } from "@/components/Sky";
+import { BootSplash, OnboardingHorizon, OnboardingProgress, OnboardingStageSky } from "@/components/Sky";
 import { StepRail } from "@/components/StepRail";
 import { ZonePicker } from "@/components/ZoneSelect";
 import { useSignOut } from "@/hooks/useSignOut";
@@ -631,8 +631,10 @@ export function OnboardingPage() {
   }
   const answered = Math.min(reached, steps.length);
   // A personal workspace's own words for its steps (ADR 0159), from the first question on; it never invites here.
+  // Before that question is answered, the first step is the question itself, whichever way it goes: the rail never
+  // names a step the screen isn't asking.
   const stepName = (s: RailStep) =>
-    personalNow && s !== "business" && s !== "you" && s !== "people"
+    (personalNow && s !== "business" && s !== "you" && s !== "people") || (asking && s === "name")
       ? t(`onboarding.flow.steps.${s}Personal`)
       : t(`onboarding.flow.steps.${s}`);
   const values: Partial<Record<RailStep, string>> = {
@@ -694,6 +696,7 @@ export function OnboardingPage() {
 
   return (
     <div className="onb onb--rail">
+      {wide && <OnboardingStageSky />}
       <aside className="onb__rail">
         <div className="onb__top">
           <span className="onb__brand">

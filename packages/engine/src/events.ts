@@ -386,6 +386,18 @@ export type ChannelEvent =
       newRunId: string;
       messageIds: string[];
     }
+  /**
+   * A message that went into the agent's task isn't for it (the triage, `steerHandling` `elsewhere`): it saw it and
+   * won't answer it; the router decides who does (`message.routed` follows).
+   */
+  | {
+      type: "agent.run.released";
+      channelId: string;
+      threadId: string | null;
+      agentId: string;
+      runId: string;
+      messageId: string;
+    }
   /** The run ended without posting: nobody called it by name and it had nothing to add (`pass`). */
   | { type: "agent.passed"; channelId: string; threadId: string | null; agentId: string; runId: string }
   /**
@@ -543,6 +555,8 @@ export type ChannelEvent =
   | { type: "artifact.created" | "artifact.updated"; channelId: string; artifact: ArtifactView }
   /** A file was deleted (it shows as removed; restorable for 30 days). */
   | { type: "artifact.deleted"; channelId: string; artifactId: string }
+  /** Who is in a live file changed (ADR 0196 §5): its cards ask `…/live/presence` again. Ids only. */
+  | { type: "live.presence"; channelId: string; artifactId: string }
   /** Channel membership changed (agents carry `autoReply`). */
   | {
       type: "channel.member_added" | "channel.member_removed" | "channel.member_updated";

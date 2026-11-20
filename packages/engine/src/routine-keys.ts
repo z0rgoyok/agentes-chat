@@ -1,5 +1,6 @@
 import { and, type Executor, eq, isNull, schema } from "@agenteschat/db";
 import { decidesAgentApprovals, MAX_OWN_ACTIONS } from "./approval-rules";
+import { UUID } from "./authority";
 import { approvalsLevelOf } from "./tools/run-policy";
 
 const { agents, routines } = schema;
@@ -7,7 +8,8 @@ const { agents, routines } = schema;
 /**
  * Vault keys a routine's own run may put in a command (ADR 0144 §2, amended 2026-11-12): the ones its creator listed
  * for it, kept with its own actions as `vault:NAME` (`routines.own_actions`), or approved once with "Sempre nesta
- * rotina". A run that what a routine read woke never gets one.
+ * rotina". A run that routine's work or report woke (its agent's or a teammate's) gets only the listed ones
+ * (`routineKeysLent`, amended 2026-11-16).
  */
 export const VAULT_ACTION_PREFIX = "vault:";
 
@@ -51,6 +53,31 @@ export async function routineKeysAllowed(
         isNull(routines.deletedAt),
       ),
     );
+  if (!row?.creator) return false;
+  const own = new Set(row.ownActions);
+  if (!names.every((n) => own.has(vaultAction(n)))) return false;
+  return decidesAgentApprovals(db, at.orgId, row.creator, row.owner);
+}
+
+/**
+ * Whether a run that a routine's work or report woke may use these Vault keys in a command (ADR 0144 §2, amended
+ * 2026-11-16): every key is one that routine's creator listed for it (`vault:NAME`), while that creator still decides
+ * its agent's approvals. The routine's agent and the command's may differ (a teammate the routine's work reached): the
+ * Vault still releases a key only to an agent it is shared with, for the routine's creator. "Nunca perguntar" opens
+ * no other key here: what woke the run may carry text from outside. Read fresh: a key taken off the routine is refused
+ * at once.
+ */
+export async function routineKeysLent(
+  db: Executor,
+  at: { orgId: string; routineId: string },
+  names: readonly string[],
+): Promise<boolean> {
+  if (names.length === 0 || !UUID.test(at.routineId)) return false;
+  const [row] = await db
+    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: agents.ownerUserId })
+    .from(routines)
+    .innerJoin(agents, and(eq(agents.id, routines.agentId), eq(agents.orgId, routines.orgId)))
+    .where(and(eq(routines.id, at.routineId), eq(routines.orgId, at.orgId), isNull(routines.deletedAt)));
   if (!row?.creator) return false;
   const own = new Set(row.ownActions);
   if (!names.every((n) => own.has(vaultAction(n)))) return false;

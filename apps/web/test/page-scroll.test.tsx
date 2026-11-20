@@ -28,7 +28,8 @@ describe("every page scrolls", () => {
   test("only chat-like pages use the clipped chat column (it scrolls inside its message list)", () => {
     // The Issues board used the chat column and its tall "A fazer" column could not be reached.
     const chat = readdirSync(ROUTES).filter((f) => readFileSync(join(ROUTES, f), "utf8").includes("shell__main--chat"));
-    expect(chat).toEqual(["org.$orgId.calendar.tsx"]);
+    // A live file's page (ADR 0196) is the file beside its conversation, each scrolling inside itself.
+    expect(chat.sort()).toEqual(["org.$orgId.calendar.tsx", "org.$orgId.drive_.$fileId.tsx"]);
   });
 
   test("Issues: the board scrolls in the main column, also after a details dialog opens and closes", async () => {

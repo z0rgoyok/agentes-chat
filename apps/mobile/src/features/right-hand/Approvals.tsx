@@ -3,9 +3,10 @@ import { useRightHandApprovals, useSetRightHandApprovals } from "@agenteschat/cl
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
 import { useOrg } from "@/providers/org";
 import { GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
+import { Gap } from "../settings/parts";
 import { overLimit, TextArea } from "../shared/TextArea";
 
 const USD = 1_000_000_000;
@@ -37,7 +38,7 @@ function RightHandGroup({ view, name }: { view: RightHandApprovals; name: string
   const budget = Math.round(view.budgetCapNanoUsd / USD);
   return (
     <>
-      <View style={styles.gap} />
+      <Gap />
       <GroupedList>
         <GroupedRow
           label={t("rightHandApprovals.title", { name })}
@@ -103,21 +104,25 @@ function RightHandGroup({ view, name }: { view: RightHandApprovals; name: string
           >
             {t("rightHandApprovals.guidanceLabel", { name })}
           </GroupedHeader>
-          <TextArea
-            value={guidance ?? view.guidance}
-            onChangeText={setGuidance}
-            onBlur={() => {
-              // Past its limit it stays as typed, the line under it saying so: nothing is saved cut.
-              if (guidance === null || overLimit(guidance, GUIDANCE_LIMIT)) return;
-              if (guidance.trim() !== view.guidance) save({ guidance: guidance.trim() });
-              setGuidance(null);
-            }}
-            limit={GUIDANCE_LIMIT}
-            minHeight={64}
-            placeholder={t("rightHandApprovals.guidancePlaceholder")}
-            accessibilityLabel={t("rightHandApprovals.guidanceLabel", { name })}
-          />
-          <View style={styles.gap} />
+          {/* A field row of the page, the list its surface, as every long field of the settings pages. */}
+          <GroupedList>
+            <TextArea
+              value={guidance ?? view.guidance}
+              onChangeText={setGuidance}
+              onBlur={() => {
+                // Past its limit it stays as typed, the line under it saying so: nothing is saved cut.
+                if (guidance === null || overLimit(guidance, GUIDANCE_LIMIT)) return;
+                if (guidance.trim() !== view.guidance) save({ guidance: guidance.trim() });
+                setGuidance(null);
+              }}
+              limit={GUIDANCE_LIMIT}
+              minHeight={64}
+              placeholder={t("rightHandApprovals.guidancePlaceholder")}
+              accessibilityLabel={t("rightHandApprovals.guidanceLabel", { name })}
+              style={styles.bare}
+            />
+          </GroupedList>
+          <Gap />
         </>
       ) : null}
     </>
@@ -125,5 +130,6 @@ function RightHandGroup({ view, name }: { view: RightHandApprovals; name: string
 }
 
 const styles = StyleSheet.create({
-  gap: { height: 16 },
+  // Inside a grouped list: the list is its surface.
+  bare: { borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
 });

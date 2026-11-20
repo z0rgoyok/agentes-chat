@@ -1263,7 +1263,7 @@ test("the inviter's notice when someone joins: their face and name, a Members ch
   // Typed by a person: text, never markup.
   expect(row.querySelector(".nt-what b")?.textContent).toBe("Carla <b>Dias</b>");
   expect(row.querySelector(".nt-what b")?.children.length).toBe(0);
-  expect(row.querySelector(".nt-tags .ac-chip")?.textContent).toBe("Membros");
+  expect(row.querySelector(".nt-where")?.textContent).toBe("Membros");
   expect(row.querySelector(".ac-mediarow__face .ac-avatar")).toBeTruthy();
   await click(within(row).getByRole("button", { name: "Abrir" }));
   await settle(6);

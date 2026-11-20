@@ -12,9 +12,9 @@ import {
 import { computerEdition } from "@agenteschat/client/lib/computer";
 import { can } from "@agenteschat/client/lib/permissions";
 import { settingsSectionNameKey } from "@agenteschat/client/lib/personal-view";
+import type { TFunction } from "i18next";
 import { Fragment, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert } from "react-native";
 import { useOrg } from "@/providers/org";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, haptics } from "@/ui";
 import { router } from "@/ui/navigation";
@@ -31,7 +31,7 @@ import {
   type SettingsSection,
   visibleSections,
 } from "./logic";
-import { Gap, SettingsPage } from "./parts";
+import { confirmAction, Gap, SettingsPage } from "./parts";
 
 /** The rows whose group already says the rest get a shorter name (`mobile.settings.section.*`). */
 const SHORT: Partial<Record<SettingsSection, string>> = {
@@ -48,8 +48,9 @@ const SHORT: Partial<Record<SettingsSection, string>> = {
  * entries as groups, each thing once. Workspace: the workspace itself (its mark, its name, what Geral holds) and GIFs.
  * Pessoas, IA e uso, Conectores, Avançado: one neutral tile and one short value per row (a count or a state), the
  * area's own screen says the rest. Owners get "Apagar <nome>" alone in red at the end, behind the
- * system's alert (one firm haptic as it confirms), then the proof and the hold. Opened often, so nothing animates
- * here beyond the rows' press highlight and the platform's push. A personal workspace gets its short list instead
+ * system's alert (one firm haptic as it confirms), then the proof and the hold. A list of places to go, so it takes the
+ * pushed lists' large title. Opened often, so nothing animates here beyond the rows' press highlight and the
+ * platform's push. A personal workspace gets its short list instead
  * (ADR 0159 §3, `PersonalSettingsList`).
  */
 export function WorkspaceScreen() {
@@ -62,7 +63,7 @@ function TeamSettingsList() {
   const { t } = useTranslation();
   const { org } = useOrg();
   return (
-    <SettingsPage title={t("settings.title")}>
+    <SettingsPage title={t("settings.title")} largeTitle>
       <SectionGroups areas={visibleSections(org)} />
       <DeleteWorkspaceRow />
     </SettingsPage>
@@ -81,7 +82,7 @@ function PersonalSettingsList({ others }: { others: number | undefined }) {
   const { main } = personalSections(org, others);
   const values = useAreaValues(main);
   return (
-    <SettingsPage title={t("settings.title")}>
+    <SettingsPage title={t("settings.title")} largeTitle>
       <Gap />
       <GroupedList>
         <GroupedRow
@@ -176,33 +177,61 @@ export function SectionGroups({
 }
 
 /**
- * Owners: "Delete <name>" alone in red, behind the system's alert (one firm haptic as it confirms), then the proof and
- * the hold on a screen of its own. Nothing for anyone else, nor while it is being deleted.
+ * Deleting the workspace starts with the system's confirmation (one firm haptic as it confirms), then the proof and the
+ * hold on a screen of their own: the same way from every row that offers it (here and on the owner's Account).
+ */
+export function confirmDeleteWorkspace(t: TFunction, name: string) {
+  confirmAction({
+    title: t("deleteOrg.title", { name }),
+    text: t("mobile.settings.deleteAlert"),
+    action: t("mobile.settings.deleteAction"),
+    cancel: t("common.cancel"),
+    onConfirm: () => {
+      // One firm tap as the destructive step is taken, in the same moment the next screen comes.
+      haptics.medium();
+      router.push("/settings/delete");
+    },
+  });
+}
+
+/** Resetting the workspace: the system's confirmation first, as deleting it, then its own screen. */
+export function confirmResetWorkspace(t: TFunction, name: string) {
+  confirmAction({
+    title: t("resetOrg.title", { name }),
+    text: t("resetOrg.now"),
+    action: t("resetOrg.submit"),
+    cancel: t("common.cancel"),
+    onConfirm: () => {
+      haptics.medium();
+      router.push("/settings/reset");
+    },
+  });
+}
+
+/**
+ * Owners: "Reset workspace", then "Delete <name>" in red, each behind the system's alert (`confirmResetWorkspace`,
+ * `confirmDeleteWorkspace`), then the proof and the hold on a screen of its own. Nothing for anyone else, nor while it is being deleted.
  */
 export function DeleteWorkspaceRow() {
   const { t } = useTranslation();
   const { org } = useOrg();
   const name = org?.name ?? "";
   if (org?.role !== "owner" || org.deletion) return null;
-  const confirmDelete = () =>
-    Alert.alert(t("deleteOrg.title", { name }), t("mobile.settings.deleteAlert"), [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("mobile.settings.deleteAction"),
-        style: "destructive",
-        onPress: () => {
-          // One firm tap as the destructive step is taken, in the same moment the next screen comes.
-          haptics.medium();
-          router.push("/settings/delete");
-        },
-      },
-    ]);
   return (
     <>
       <Gap />
       <Gap />
       <GroupedList>
-        <GroupedRow label={t("mobile.settings.deleteName", { name })} danger onPress={confirmDelete} />
+        <GroupedRow label={t("resetOrg.row.title")} danger onPress={() => confirmResetWorkspace(t, name)} />
+      </GroupedList>
+      <GroupedFooter>{t("resetOrg.row.text")}</GroupedFooter>
+      <Gap />
+      <GroupedList>
+        <GroupedRow
+          label={t("mobile.settings.deleteName", { name })}
+          danger
+          onPress={() => confirmDeleteWorkspace(t, name)}
+        />
       </GroupedList>
       <GroupedFooter>{t("mobile.settings.deleteFoot")}</GroupedFooter>
     </>

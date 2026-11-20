@@ -15,7 +15,10 @@ import {
   startCursor,
 } from "../../control/activity";
 import { orgName, pairedHomes } from "../../control/store";
-import { agentOf } from "../../hooks";
+import { agentOf, useAppInfo } from "../../hooks";
+import { desktopStrings, systemLocale } from "../../i18n";
+import { mountReportPanel } from "../../report/panel";
+import { computerReport } from "../../report/report";
 import { AgentFace, OrgTile } from "../../ui/bits";
 import { PrefHead } from "../../ui/settings";
 import { useToast } from "../../ui/Toast";
@@ -102,6 +105,8 @@ export function Activity() {
     }
   };
 
+  const [reporting, setReporting] = useState(false);
+
   const options = [
     { value: "all", label: t("desktop.prefs.activity.all") },
     ...homes.map((h) => ({
@@ -118,9 +123,14 @@ export function Activity() {
         title={t("desktop.prefs.activity.title")}
         lead={t("desktop.prefs.activity.lead")}
         action={
-          <Button size="sm" icon="copy" onClick={() => void copyDiagnostics()} disabled={scope.length === 0}>
-            {t("desktop.prefs.activity.copyDiag")}
-          </Button>
+          <span className="ac-acts">
+            <Button size="sm" icon="copy" onClick={() => void copyDiagnostics()} disabled={scope.length === 0}>
+              {t("desktop.prefs.activity.copyDiag")}
+            </Button>
+            <Button size="sm" variant="link" onClick={() => setReporting(true)} disabled={scope.length === 0}>
+              {t("desktop.report.button")}
+            </Button>
+          </span>
         }
       />
       {homes.length > 1 && (
@@ -168,8 +178,56 @@ export function Activity() {
           </div>
         )}
       </div>
+      {reporting && scope[0] && <ComputerReport homeId={scope[0]} onClose={() => setReporting(false)} />}
     </>
   );
+}
+
+/**
+ * Send a report for one computer, from here: the only way when it can't reach its server. The runner gives its facts
+ * and its log, scrubbed; an app too old for that says so.
+ */
+function ComputerReport({ homeId, onClose }: { homeId: string; onClose: () => void }) {
+  const store = useStore();
+  const info = useAppInfo();
+  const { i18n } = useTranslation();
+  const host = useRef<HTMLDivElement>(null);
+  // Live activity redraws the page: the panel stays as it is (with what was typed) until it closes.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const el = host.current;
+    if (!el || !info) return;
+    const words = desktopStrings(systemLocale()).report;
+    let unmount = () => {};
+    let live = true;
+    store.request(homeId, { type: "report" }).then(
+      (parts) => {
+        if (!live) return;
+        unmount = mountReportPanel(el, {
+          words,
+          lead: words.computerLead,
+          report: computerReport(parts, info, [], i18n.language),
+          onClose: () => close.current(),
+        });
+      },
+      () => {
+        if (live)
+          unmount = mountReportPanel(el, {
+            words,
+            lead: words.computerLead,
+            report: null,
+            notes: [words.oldApp],
+            onClose: () => close.current(),
+          });
+      },
+    );
+    return () => {
+      live = false;
+      unmount();
+    };
+  }, [store, homeId, info, i18n.language]);
+  return <div className="dk-report-scrim" ref={host} />;
 }
 
 function EntryRow({ entry, showOrg }: { entry: HomeEntry; showOrg: boolean }) {

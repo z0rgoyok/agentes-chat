@@ -7,6 +7,7 @@ import {
   useRuleDescribe,
 } from "@agenteschat/client";
 import { ownActionName, routineVaultKey, splitOwnActions } from "@agenteschat/client/lib/approval-words";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { formatTokensShort, formatUsd, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -16,40 +17,43 @@ import {
   healthWords,
   isRunAtWork,
   isStoppable,
-  pausedFix,
   routineChannelOf,
+  routineStateTime,
+  routineStateWords,
   runMessageLink,
   runOutcome,
   runPixelStatus,
-  runPixels,
   runsPerDay,
   stopWordsKey,
+  usageContinueBlock,
+  usageContinueOffered,
   usageParts,
   whereItRuns,
 } from "@agenteschat/client/lib/routine-view";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
 import {
-  Button,
-  Chip,
+  GROUPED_ROW,
+  GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
   Icon,
-  IconButton,
   type IconName,
-  InfoHint,
   LineIcon,
+  SCREEN_X,
+  SkeletonList,
   Text,
   useReducedMotion,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { approvalTitleText, useCancelAhead } from "../approvals/parts";
 import { FoldedBody } from "../chat/FoldedBody";
+import { MissingScreen } from "../dashboards/parts";
 import { chatHref, widgetHref } from "../links/logic";
 import { openSwitchComputer } from "../outages/OutageNotice";
 import { useMachineOutages } from "../outages/queries";
@@ -63,9 +67,7 @@ import {
   useOrgId,
   usePullRefresh,
 } from "../shared/hooks";
-import { agentLook } from "../shared/logic";
 import { FocusLive, goBack, PushedHeader } from "../shared/parts";
-import { SheetHostProvider } from "../shared/SheetHost";
 import { EventWebhookSetup } from "./EventWebhookSetup";
 import {
   editRoutineHref,
@@ -77,9 +79,19 @@ import {
   useTargetLabel,
   useWhenText,
 } from "./hooks";
-import { hasFired, isDoneOnce, isPaused, isReminder, isRunning, mailTrouble, routineTitle, targetIcon } from "./logic";
-import { FixButton, StateChip, UsagePausedNote } from "./parts";
-import { RunStrip } from "./RunPixels";
+import {
+  FIX_ICON,
+  fixFor,
+  hasFired,
+  isDoneOnce,
+  isPaused,
+  isReminder,
+  isRunning,
+  mailTrouble,
+  routineTitle,
+  targetIcon,
+} from "./logic";
+import { RoutineRunBars } from "./parts";
 import { nextLabel } from "./rule";
 import { WebhookCard } from "./WebhookCard";
 
@@ -100,49 +112,17 @@ const SUBHEAD_LINE = 20;
  * from the list (there is no single-routine endpoint).
  */
 export function RoutineScreen({ id }: { id: string }) {
-  return (
-    <SheetHostProvider>
-      <RoutineView id={id} />
-    </SheetHostProvider>
-  );
-}
-
-function RoutineView({ id }: { id: string }) {
   const { t } = useTranslation();
-  const c = useColors();
   const routines = useRoutines(useOrgId());
   const r = routines.data?.find((x) => x.id === id);
   if (r) return <Details routine={r} refetch={routines.refetch} />;
   return (
-    <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader title={t("routines.panel.eyebrow")} solid={false} grouped />
-      <View style={styles.center}>
-        {routines.isLoading ? (
-          <ActivityIndicator color={c.muted} />
-        ) : routines.isError && !routines.data ? (
-          <>
-            <Text tone="muted" style={styles.centerText}>
-              {t("mobile.routines.loadFailed")}
-            </Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t("mobile.common.retry")}
-              onPress={() => void routines.refetch()}
-            />
-          </>
-        ) : (
-          <>
-            <Text variant="callout" style={styles.bold}>
-              {t("mobile.notFound.title")}
-            </Text>
-            <Text tone="muted" style={styles.centerText}>
-              {t("mobile.notFound.subtitle")}
-            </Text>
-          </>
-        )}
-      </View>
-    </View>
+    <MissingScreen
+      title={t("routines.panel.eyebrow")}
+      state={routines.isLoading ? "loading" : routines.isError && !routines.data ? "failed" : "gone"}
+      onRetry={() => void routines.refetch()}
+      gone={t("routines.notFound")}
+    />
   );
 }
 
@@ -155,7 +135,7 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
   const dir = useDirectory();
   const say = useSay();
   const controls = useRoutineControls(r);
-  const menu = useRoutineMenu(r, "screen", goBack);
+  const menu = useRoutineMenu(r, goBack);
   const runs = useRoutineRuns(orgId, r.id);
   const targetLabel = useTargetLabel();
   const whenText = useWhenText();
@@ -178,12 +158,13 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
     r.active && r.trigger.type === "schedule" && r.trigger.rule ? r.trigger.rule : null,
   );
   const nexts = described.data?.ok ? described.data.nextRuns.slice(0, 4) : r.nextRunAt ? [r.nextRunAt] : [];
-  const fix = r.canManage ? pausedFix(r) : null;
-  // "Trocar computador": the outage its run waits on, for whoever can move agents, where people connect their own
-  // computers (a Cloud workspace has one).
+  // Its one-tap fix, "Take over" only for who may make a routine for its agent (`fixFor`).
+  const fix = fixFor(r, dir.agentById.get(r.agentId));
+  // "Trocar computador": the outage its run waits on, for whoever manages its agent (the server's `canManage`), where
+  // people connect their own computers (a Cloud workspace has one).
   const selfHost = useEdition() === "selfhost";
   const outage =
-    selfHost && r.state === "waiting_computer" && r.waitingFor && can(org, "manage_agents")
+    selfHost && r.state === "waiting_computer" && r.waitingFor && managesAgent(dir.agentById.get(r.agentId))
       ? outages.outages.find((o) => o.machineId === r.waitingFor?.machineId)
       : undefined;
   const health = healthWords(r.health);
@@ -221,105 +202,136 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
       : null;
   const list = runs.data ?? r.recentRuns;
   const next = done ? "" : nextText(r, at);
-  // A run that starts, or a prepared action withdrawn, while the person watches fades; the rest slide into place.
+  // A run that starts while the person watches fades in; the runs under it slide into place.
   const reduced = useReducedMotion();
   const fade = reduced ? {} : { entering: FadeIn.duration(160), exiting: FadeOut.duration(120) };
   const layout = reduced ? undefined : LinearTransition.duration(220);
+  // Its state in words, in the waiting color when it needs a look (never a pill: the words carry it).
+  const state = routineStateWords(r, routineStateTime(t, i18n.language, r), namesComputer);
+  const stateLine = [done ? t("routines.panel.state.done") : say(state), reminder ? t("routines.reminder") : null]
+    .filter(Boolean)
+    .join(" · ");
+  const stateColor = !done && state.tone === "waiting" ? c.amberInk : c.muted;
+  const usageBlock = r.state === "usage_paused" ? usageContinueBlock(r) : null;
   return (
     <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={t("routines.panel.eyebrow")}
-        solid={false}
-        grouped
-        right={menu.any ? <IconButton icon="more" label={menu.label} onPress={menu.open} /> : undefined}
-      />
+      <PushedHeader title={t("routines.panel.eyebrow")} solid={false} grouped {...(menu ? { actions: [menu] } : {})} />
       <FocusLive>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
           contentContainerStyle={[styles.in, { paddingBottom: insets.bottom + 32 }]}
         >
+          {/* Whose it is and how it stands: the agent's face, the routine's name, the agent and its state. */}
           <View style={styles.head}>
-            <AgentFace agentId={r.agentId} size={56} mode={running ? "run" : isPaused(r) ? "rest" : "idle"} />
+            <AgentFace agentId={r.agentId} size={36} mode={running ? "run" : isPaused(r) ? "rest" : "idle"} />
             <View style={styles.grow}>
-              <Text variant="title2" accessibilityRole="header">
+              <Text variant="title" accessibilityRole="header">
                 {title}
               </Text>
               <Text variant="subhead" tone="muted" numberOfLines={1}>
                 {agentName}
               </Text>
-              <View style={styles.chips}>
-                {done ? <Chip icon="check" label={t("routines.panel.state.done")} /> : <StateChip routine={r} />}
-                {reminder ? <Chip icon="bell" label={t("routines.reminder")} /> : null}
-              </View>
+              <Text variant="footnote" style={{ color: stateColor }} accessibilityLiveRegion="polite">
+                {stateLine}
+              </Text>
             </View>
           </View>
           {r.canManage ? (
-            <View style={styles.actions}>
-              {fix && fix !== "resume" ? <FixButton fix={fix} controls={controls} /> : null}
-              {outage ? (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon="laptop"
-                  label={t("outage.switch")}
-                  onPress={() => openSwitchComputer(outage.machineId)}
-                />
-              ) : null}
-              {/* A widget's routine is changed from its widget. */}
-              {widget ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="chart"
-                  label={t("widgets.notice.openWidget")}
-                  onPress={() => router.push(widgetHref(widget.widgetId, widget.dashboardId))}
-                />
-              ) : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="pen"
-                  label={t("routines.edit")}
-                  onPress={() => router.push(editRoutineHref(r.id))}
-                />
-              )}
-              {/* Parar for a run at work (a paused routine's too); "Rodar agora" while it may run. */}
-              {(stoppable || !fired) && !reminder ? (
-                stoppable ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon="stop"
-                    label={t(stopWordsKey(r))}
+            <>
+              <View style={styles.gap} />
+              <GroupedList>
+                {/* The one-tap fix of what keeps it from running, first. */}
+                {fix && fix !== "resume" ? (
+                  <GroupedRow
+                    key="fix"
+                    icon={FIX_ICON[fix]}
+                    label={t(`routines.fix.${fix}`)}
                     disabled={controls.action.isPending}
-                    onPress={controls.stop}
+                    onPress={() => controls.fix(fix)}
+                  />
+                ) : null}
+                {outage ? (
+                  <GroupedRow
+                    key="outage"
+                    icon="laptop"
+                    label={t("outage.switch")}
+                    chevron
+                    onPress={() => openSwitchComputer(outage.machineId)}
+                  />
+                ) : null}
+                {/* Parar for a run at work (a paused routine's too); "Rodar agora" while it may run. */}
+                {(stoppable || !fired) && !reminder ? (
+                  stoppable ? (
+                    <GroupedRow
+                      key="stop"
+                      icon="stop"
+                      label={t(stopWordsKey(r))}
+                      disabled={controls.action.isPending}
+                      onPress={controls.stop}
+                    />
+                  ) : (
+                    <GroupedRow
+                      key="run"
+                      icon="play"
+                      label={t("routines.runNow")}
+                      disabled={controls.action.isPending}
+                      onPress={controls.run}
+                    />
+                  )
+                ) : null}
+                {fired ? null : (
+                  <GroupedRow
+                    key="active"
+                    icon={r.active ? "pause" : "play"}
+                    label={r.active ? t("routines.panel.pause") : t("routines.resume")}
+                    disabled={controls.action.isPending}
+                    onPress={() => controls.setActive(!r.active)}
+                  />
+                )}
+                {/* A widget's routine is changed from its widget. */}
+                {widget ? (
+                  <GroupedRow
+                    key="widget"
+                    icon="chart"
+                    label={t("widgets.notice.openWidget")}
+                    chevron
+                    onPress={() => router.push(widgetHref(widget.widgetId, widget.dashboardId))}
                   />
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon="play"
-                    label={t("routines.runNow")}
-                    disabled={controls.action.isPending}
-                    onPress={controls.run}
+                  <GroupedRow
+                    key="edit"
+                    icon="pen"
+                    label={t("routines.edit")}
+                    chevron
+                    onPress={() => router.push(editRoutineHref(r.id))}
                   />
-                )
-              ) : null}
-              {fired ? null : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={r.active ? "pause" : "play"}
-                  label={r.active ? t("routines.panel.pause") : t("routines.resume")}
-                  disabled={controls.action.isPending}
-                  onPress={() => controls.setActive(!r.active)}
-                />
-              )}
-            </View>
+                )}
+              </GroupedList>
+            </>
           ) : null}
 
-          {r.state === "usage_paused" ? <UsagePausedNote routine={r} controls={controls} /> : null}
+          {/* Waiting on its plan's or budget's limit: it picks up by itself; near the limit it may go on now. */}
+          {r.state === "usage_paused" ? (
+            usageContinueOffered(r) ? (
+              <>
+                <View style={styles.gap} />
+                <GroupedList>
+                  <GroupedRow
+                    icon="play"
+                    label={t("usageCard.continue")}
+                    {...(usageBlock ? { sub: t(`routines.usagePause.${usageBlock}`), subLines: 0 } : {})}
+                    disabled={usageBlock !== null || controls.action.isPending}
+                    onPress={controls.continueUsage}
+                  />
+                </GroupedList>
+                <GroupedFooter>{t("routines.usagePause.line")}</GroupedFooter>
+              </>
+            ) : (
+              <GroupedFooter>{t("routines.usagePause.lineLimit")}</GroupedFooter>
+            )
+          ) : null}
+
           <Section title={t("routines.panel.week")}>
             <Block>
               <Text variant="body">{health ? health.map(say).join(" · ") : t("routines.health.none")}</Text>
@@ -329,12 +341,7 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
                 </Text>
               ) : null}
               <View style={styles.strip}>
-                <RunStrip
-                  runs={runPixels(r.recentRuns)}
-                  color={agentLook(dir.agentById.get(r.agentId)).color}
-                  running={running}
-                  label={words.label(r)}
-                />
+                <RoutineRunBars routine={r} running={running} />
                 <Text variant="caption" tone="faint" style={styles.shrink}>
                   {words.caption(r, at)}
                 </Text>
@@ -343,27 +350,23 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
           </Section>
 
           <Section title={t("routines.panel.what", agentGrammar(agentName))}>
-            <Block>
-              {r.canSeeDetails && r.prompt !== null ? (
+            {r.canSeeDetails && r.prompt !== null ? (
+              <Block>
                 <Text variant="body" selectable>
                   {r.prompt}
                 </Text>
-              ) : (
-                <Text variant="footnote" tone="muted">
-                  {t("routines.detailsHidden")}
-                </Text>
-              )}
-            </Block>
+              </Block>
+            ) : null}
           </Section>
+          {r.canSeeDetails && r.prompt !== null ? null : <GroupedFooter>{t("routines.detailsHidden")}</GroupedFooter>}
 
           <Section title={t("routines.panel.when")}>
             <Block>
               <Text variant="body">{whenText(r)}</Text>
               {trouble ? (
-                <Chip
-                  icon="mail"
-                  label={trouble === "error" ? t("mail.routine.error") : t("mail.routine.needsReconnect")}
-                />
+                <Text variant="footnote" style={{ color: c.amberInk }}>
+                  {trouble === "error" ? t("mail.routine.error") : t("mail.routine.needsReconnect")}
+                </Text>
               ) : null}
               {r.trigger.type === "email" ? (
                 <Text variant="footnote" tone="muted">
@@ -381,15 +384,9 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
                   {t("routines.panel.eventEvery")}
                 </Text>
               ) : nexts.length > 0 && !done ? (
-                <View style={styles.nexts}>
-                  {nexts.map((iso) => (
-                    <View key={iso} style={[styles.next, { backgroundColor: c.sunken }]}>
-                      <Text variant="footnote" tone="ink2">
-                        {nextLabel(i18n.language, iso)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+                <Text variant="footnote" tone="ink2">
+                  {`${t("routines.form.next")}: ${nexts.map((iso) => nextLabel(i18n.language, iso)).join(" · ")}`}
+                </Text>
               ) : null}
               {next ? (
                 <Text variant="footnote" tone={running ? "ink2" : "muted"}>
@@ -415,92 +412,82 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
             r.canManage ? (
               <WebhookCard routine={r} runs={list} />
             ) : (
-              <Section title={t("routines.form.kind.webhook")}>
-                <Block>
-                  <Text variant="footnote" tone="muted">
-                    {t("routines.webhook.hidden")}
-                  </Text>
-                </Block>
-              </Section>
+              <>
+                <GroupedHeader>{t("routines.form.kind.webhook")}</GroupedHeader>
+                <GroupedFooter>{t("routines.webhook.hidden")}</GroupedFooter>
+              </>
             )
           ) : null}
 
           {r.ahead && r.ahead.length > 0 ? (
-            <Section title={t("routines.panel.ahead")}>
-              {r.ahead.map((a) => (
-                <Animated.View key={a.id} {...fade} layout={layout}>
-                  <AheadItem action={a} />
-                </Animated.View>
-              ))}
-              <Block>
-                <Text variant="footnote" tone="muted">
-                  {t("routines.ahead.hint")}
-                </Text>
-              </Block>
-            </Section>
+            <>
+              <Section title={t("routines.panel.ahead")}>
+                {r.ahead.map((a) => (
+                  <AheadItem key={a.id} action={a} />
+                ))}
+              </Section>
+              <GroupedFooter>{t("routines.ahead.hint")}</GroupedFooter>
+            </>
           ) : null}
 
           {r.canSeeDetails ? (
-            <Section title={t("routines.panel.ownActions")}>
-              {own.apps.map((name) => (
-                <GroupedRow
-                  key={name}
-                  label={ownActionName(t, name)}
-                  {...(r.canManage
-                    ? {
-                        toggle: true,
-                        disabled: controls.action.isPending,
-                        onPress: () =>
-                          controls.action.mutate({
-                            type: "update",
-                            id: r.id,
-                            patch: { ownActions: (r.ownActions ?? []).filter((a) => a !== name) },
-                          }),
-                      }
-                    : {})}
-                />
-              ))}
-              <Block>
-                <InfoHint
-                  name={t("common.about", { label: t("routines.panel.ownActions") })}
-                  text={t(own.apps.length ? "routines.ownActions.hint" : "routines.ownActions.none")}
-                  variant="footnote"
-                >
-                  <Text variant="footnote" tone="muted">
-                    {t(own.apps.length ? "routines.ownActions.hintShort" : "routines.ownActions.noneShort")}
-                  </Text>
-                </InfoHint>
-              </Block>
-            </Section>
+            <>
+              <Section title={t("routines.panel.ownActions")}>
+                {own.apps.map((name) => (
+                  <GroupedRow
+                    key={name}
+                    label={ownActionName(t, name)}
+                    {...(r.canManage
+                      ? {
+                          toggle: true,
+                          disabled: controls.action.isPending,
+                          onPress: () =>
+                            controls.action.mutate({
+                              type: "update",
+                              id: r.id,
+                              patch: { ownActions: (r.ownActions ?? []).filter((a) => a !== name) },
+                            }),
+                        }
+                      : {})}
+                  />
+                ))}
+              </Section>
+              <GroupedFooter
+                hint={{
+                  name: t("common.about", { label: t("routines.panel.ownActions") }),
+                  text: t(own.apps.length ? "routines.ownActions.hint" : "routines.ownActions.none"),
+                }}
+              >
+                {t(own.apps.length ? "routines.ownActions.hintShort" : "routines.ownActions.noneShort")}
+              </GroupedFooter>
+            </>
           ) : null}
 
           {r.canSeeDetails && own.keys.length > 0 ? (
-            <Section title={t("routines.vaultKeys.title")}>
-              {own.keys.map((key) => (
-                <GroupedRow
-                  key={key}
-                  icon="key"
-                  label={key}
-                  {...(r.canManage
-                    ? {
-                        toggle: true,
-                        disabled: controls.action.isPending,
-                        onPress: () =>
-                          controls.action.mutate({
-                            type: "update",
-                            id: r.id,
-                            patch: { ownActions: (r.ownActions ?? []).filter((a) => routineVaultKey(a) !== key) },
-                          }),
-                      }
-                    : {})}
-                />
-              ))}
-              <Block>
-                <Text variant="footnote" tone="muted">
-                  {t("routines.vaultKeys.hint")}
-                </Text>
-              </Block>
-            </Section>
+            <>
+              <Section title={t("routines.vaultKeys.title")}>
+                {own.keys.map((key) => (
+                  <GroupedRow
+                    key={key}
+                    icon="key"
+                    label={key}
+                    {...(r.canManage
+                      ? {
+                          toggle: true,
+                          disabled: controls.action.isPending,
+                          onPress: () =>
+                            controls.action.mutate({
+                              type: "update",
+                              id: r.id,
+                              patch: { ownActions: (r.ownActions ?? []).filter((a) => routineVaultKey(a) !== key) },
+                            }),
+                        }
+                      : {})}
+                  />
+                ))}
+              </Section>
+              <GroupedFooter>{t("routines.vaultKeys.hint")}</GroupedFooter>
+            </>
           ) : null}
 
           <Section title={t("routines.panel.where")}>
@@ -517,31 +504,24 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
 
           {runsOn ? (
             <Section title={t("routines.panel.runsOn")}>
-              <Block>
-                <Text variant="body">{runsOn}</Text>
-              </Block>
+              <GroupedRow icon="laptop" label={runsOn} labelLines={2} />
             </Section>
           ) : null}
 
           <Section title={t("routines.panel.report")}>
-            <Block>
-              <InfoHint
-                name={t("common.about", { label: t("routines.panel.report") })}
-                text={t("routines.report.hint")}
-                variant="body"
-              >
-                <Text variant="body">{t(`routines.report.${r.report}`)}</Text>
-              </InfoHint>
-            </Block>
+            <GroupedRow
+              label={t(`routines.report.${r.report}`)}
+              labelLines={2}
+              hint={{ name: t("common.about", { label: t("routines.panel.report") }), text: t("routines.report.hint") }}
+            />
           </Section>
 
           <Section title={t("routines.panel.runs")}>
             {runs.isLoading && list.length === 0 ? (
-              <Block>
-                <ActivityIndicator color={c.muted} />
-              </Block>
+              // Loading: the rows' own shape, never a spinner.
+              <SkeletonList rows={2} />
             ) : list.length > 0 ? (
-              // The runs fade in over the spinner; the ones there when they load don't each fade again.
+              // The runs fade in over the skeleton; the ones there when they load don't each fade again.
               <Animated.View {...fade} style={styles.runs}>
                 <LayoutAnimationConfig skipEntering>
                   {list.slice(0, RUNS_SHOWN).map((x, i, shown) => (
@@ -551,26 +531,25 @@ function Details({ routine: r, refetch }: { routine: Routine; refetch: () => Pro
                   ))}
                 </LayoutAnimationConfig>
               </Animated.View>
-            ) : (
-              <Block>
-                <Text variant="footnote" tone="muted">
-                  {nexts[0] && !done
-                    ? t("common.joinSentences", {
-                        a: t("routines.noRuns"),
-                        b: t("routines.panel.firstRun", { when: nextLabel(i18n.language, nexts[0]) }),
-                      })
-                    : t("routines.noRuns")}
-                </Text>
-              </Block>
-            )}
+            ) : null}
           </Section>
+          {list.length === 0 && !runs.isLoading ? (
+            <GroupedFooter>
+              {nexts[0] && !done
+                ? t("common.joinSentences", {
+                    a: t("routines.noRuns"),
+                    b: t("routines.panel.firstRun", { when: nextLabel(i18n.language, nexts[0]) }),
+                  })
+                : t("routines.noRuns")}
+            </GroupedFooter>
+          ) : null}
         </ScrollView>
       </FocusLive>
     </View>
   );
 }
 
-/** A section of the screen: its header over a grouped card. */
+/** A section of the screen: its header over a grouped card (none when it holds nothing). */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <>
@@ -580,50 +559,32 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Text inside a section's card. */
+/** Text inside a section's card, on a grouped row's sides. */
 function Block({ children }: { children: ReactNode }) {
   return <View style={styles.block}>{children}</View>;
 }
 
 /**
- * An action prepared for one of its runs (`schedule_action`): what it does and when, opening its request; the
- * "x" withdraws it (it won't run) for whoever may.
+ * An action prepared for one of its runs (`schedule_action`): what it does and when, opening its request; the "×"
+ * withdraws it (it won't run) for whoever may.
  */
 function AheadItem({ action: a }: { action: RoutineAhead }) {
   const { t, i18n } = useTranslation();
-  const c = useColors();
   const cancel = useCancelAhead();
   const title = approvalTitleText(t, { ...a, email: null });
-  const sub = t(a.status === "approved" ? "routines.ahead.approved" : "routines.ahead.pending", {
-    when: nextLabel(i18n.language, a.runAt),
-  });
   return (
-    <View style={styles.ahead}>
-      <Pressable
-        onPress={() => router.push(`/approval/${a.id}`)}
-        accessibilityRole="button"
-        accessibilityLabel={`${title}, ${sub}`}
-        style={({ pressed }) => [styles.aheadMain, pressed ? { opacity: 0.6 } : null]}
-      >
-        <LineIcon name={a.status === "approved" ? "clock" : "wait"} size={16} color={c.muted} variant="subhead" />
-        <View style={styles.grow}>
-          <Text variant="subhead" style={styles.bold}>
-            {title}
-          </Text>
-          <Text variant="footnote" tone="muted">
-            {sub}
-          </Text>
-        </View>
-      </Pressable>
-      {a.canCancel ? (
-        <IconButton
-          icon="x"
-          label={`${t("approval.ahead.cancel")}: ${title}`}
-          disabled={cancel.pending}
-          onPress={() => cancel.cancel(a.id)}
-        />
-      ) : null}
-    </View>
+    <GroupedRow
+      icon={a.status === "approved" ? "clock" : "wait"}
+      label={title}
+      labelLines={2}
+      sub={t(a.status === "approved" ? "routines.ahead.approved" : "routines.ahead.pending", {
+        when: nextLabel(i18n.language, a.runAt),
+      })}
+      onPress={() => router.push(`/approval/${a.id}`)}
+      {...(a.canCancel && !cancel.pending
+        ? { remove: { label: `${t("approval.ahead.cancel")}: ${title}`, onPress: () => cancel.cancel(a.id) } }
+        : {})}
+    />
   );
 }
 
@@ -701,22 +662,24 @@ function RunItem({ run: x, routine: r, last }: { run: RoutineRun; routine: Routi
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  in: { paddingHorizontal: 16, paddingTop: 4 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 32 },
-  centerText: { textAlign: "center" },
+  in: { paddingHorizontal: SCREEN_X, paddingTop: 4 },
   bold: { fontWeight: "600" },
   grow: { flex: 1, minWidth: 0 },
   shrink: { flexShrink: 1, minWidth: 0 },
-  head: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingTop: 8, paddingHorizontal: 4 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 16, paddingHorizontal: 4 },
-  block: { paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
+  // On the cards' content column (their rows' 16 in from their side).
+  head: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingTop: 8, paddingHorizontal: GROUPED_ROW.padX },
+  gap: { height: 20 },
+  block: { paddingHorizontal: GROUPED_ROW.padX, paddingVertical: 12, gap: 8 },
   strip: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 2 },
-  nexts: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  next: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   note: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   runs: { paddingVertical: 6 },
-  run: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  run: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: GROUPED_ROW.padX,
+    paddingVertical: 8,
+  },
   rail: { alignSelf: "stretch", alignItems: "center", width: NODE },
   // Centered on the outcome's first line (subhead, 20 tall).
   node: {
@@ -733,14 +696,4 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.6 },
   open: { marginTop: 2 },
   when: { paddingTop: 2 },
-  // The "x" glyph sits 10 px inside its 40 px button: 4 px more on the right reads as the left's 14.
-  ahead: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 4,
-    paddingLeft: 14,
-    paddingRight: 4,
-    paddingVertical: 6,
-  },
-  aheadMain: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 4 },
 });

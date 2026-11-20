@@ -4,8 +4,9 @@
  * on their device. Nothing is drawn by hand: change a scene in app-icons/scenes.mjs and run this again.
  *
  * - Phone (apps/mobile/assets/app-icons/<id>/): iOS 1024 in light, dark and tinted; Android's front, back and
- *   one-color layers (1024 for the shipped icon, which Expo scales; 432, Android's largest, for the others, which the
- *   app-icons plugin copies as they are) and, for the others, the 192 icon of Android before 8; the picker's previews.
+ *   one-color layers (1024 for the icon the phone ships with, `PHONE_APP_ICON_ID`, which Expo scales; 432, Android's
+ *   largest, for the others, which the app-icons plugin copies as they are) and, for the others, the 192 icon of
+ *   Android before 8; the picker's previews.
  * - Desktop: nothing here. Its build draws its own from the same scenes (apps/desktop/scripts/icons.ts: the bundle's
  *   master and each icon's Dock and window pictures), as its icons folder is never committed.
  * - Web (apps/web/public/): favicon.ico, apple-touch-icon.png and icon-512.png, app-icons/<id>.ico/.png for the
@@ -29,6 +30,7 @@ import {
   MADE_SKIES,
   madeScene,
   monoLayers,
+  PHONE_APP_ICON_ID,
   SCENES,
   tiled,
 } from "./app-icons/scenes.mjs";
@@ -46,7 +48,9 @@ const android = (N) => ({ k: 1536 / N, ox: -256, oy: -256 });
 
 for (const id of APP_ICON_IDS) {
   const scene = SCENES[id];
+  // The web and the desktop ship the first; the phone ships its own.
   const shipped = id === APP_ICON_IDS[0];
+  const phoneShipped = id === PHONE_APP_ICON_ID;
   const light = render(1024, scene.light());
   const dark = render(1024, scene.dark());
   const tile = render(1024, tiled(scene.light()));
@@ -62,11 +66,11 @@ for (const id of APP_ICON_IDS) {
   write(`${phone}/ios.png`, png(light, { opaque: true }));
   write(`${phone}/ios-dark.png`, png(dark, { opaque: true }));
   write(`${phone}/ios-tinted.png`, png(gray(dark), { opaque: true }));
-  const AN = shipped ? 1024 : 432;
+  const AN = phoneShipped ? 1024 : 432;
   write(`${phone}/android-foreground.png`, png(render(AN, frontLayers(scene.light()), android(AN))));
   write(`${phone}/android-background.png`, png(render(AN, backLayers(scene.light()), android(AN)), { opaque: true }));
   write(`${phone}/android-monochrome.png`, png(render(AN, monoLayers(scene.light()), android(AN))));
-  if (!shipped) write(`${phone}/android-legacy.png`, png(resize(tile, 192)));
+  if (!phoneShipped) write(`${phone}/android-legacy.png`, png(resize(tile, 192)));
   write(`${phone}/preview.png`, png(resize(light, 180), { opaque: true }));
   write(`${phone}/preview-dark.png`, png(resize(dark, 180), { opaque: true }));
 

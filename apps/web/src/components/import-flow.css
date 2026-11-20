@@ -1,8 +1,9 @@
 /*
  * Importing from another app (onboarding step and Configurações → Importar e
- * exportar): source cards, one drop zone for files, folders and archives, the
- * plan in groups with a status chip per row, then the report. Neutral surfaces;
- * state is a chip with an icon and a word, never a color alone.
+ * exportar): source cards, each opening its sheet (ImportSheet.tsx), and one
+ * button for a file or link; the plan in groups with a status chip per row,
+ * then the report. Neutral surfaces; state is a chip with an icon and a word,
+ * never a color alone.
  */
 .imp-pick,
 .imp-preview,
@@ -15,6 +16,10 @@
 .imp-pick[data-over] .imp-drop__area {
   border-color: var(--ink);
   background: var(--plate);
+}
+/* "I have a file or link", under the cards: as wide as its words. */
+.imp-pick__file {
+  display: flex;
 }
 
 /* ── Source cards ───────────────────────────────────────────────────────── */
@@ -58,7 +63,6 @@
 }
 /* `.ac-iconline` rows: the icon on the first line's capitals, on a whole-pixel line (a fractional one rounds the
    text's baseline off by a pixel). */
-.imp-tip,
 .imp-note {
   margin: 0;
   color: var(--muted);
@@ -71,12 +75,6 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-}
-.imp-tip {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--plate);
-  color: var(--ink2);
 }
 
 /* ── "Outro app": the request to paste there ────────────────────────────── */
@@ -276,10 +274,12 @@ html:not([data-pointer]) .imp-drop__area:focus-visible {
   padding: 0;
   list-style: none;
 }
+/* Its state ends the words' line, or starts its own under them from the row's edge (`.ac-tailrow`). */
 .imp-row {
+  --tail-gap: 10px;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--tail-gap);
   padding: var(--row-py) 14px;
   border-top: 1px solid var(--line);
 }

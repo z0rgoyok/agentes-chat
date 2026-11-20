@@ -15,12 +15,18 @@
     "@agenteschat/adapters": "workspace:*",
     "@agenteschat/db": "workspace:*",
     "@agenteschat/i18n": "workspace:*",
+    "@agenteschat/live": "workspace:*",
     "@agenteschat/providers": "workspace:*",
     "@agenteschat/tokens": "workspace:*",
     "@agenteschat/ui": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@modelcontextprotocol/server": "2.3.1",
+    "@resvg/resvg-wasm": "2.6.2",
+    "@xmldom/xmldom": "0.9.12",
+    "lib0": "0.2.120",
     "libpg-query": "17",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33",
     "zod": "^4.6.5"
   },
   "devDependencies": {

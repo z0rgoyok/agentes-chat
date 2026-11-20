@@ -4,6 +4,7 @@ import { ConflictError, ForbiddenError, NotFoundError, TooManyError } from "./er
 import { publishChannelEvent } from "./events";
 import { FEEDBACK_MAX, FEEDBACK_PER_HOUR, type Feedback, queueFeedback } from "./feedback";
 import { getMembership } from "./organizations";
+import { recordSupportRequest } from "./support-requests";
 
 const { agents, messages, organizationMembers, users } = schema;
 
@@ -164,6 +165,8 @@ export async function decideFeedbackOffer(
     /** `FEEDBACK_EMAIL`. */
     to?: string | null;
     version: string;
+    /** The server keeps the words of a support request (`recordSupportRequest`). */
+    keepWords?: boolean;
   },
   input: { orgId: string; messageId: string; userId: string; decision: "send" | "dismiss" },
 ): Promise<FeedbackOfferView> {
@@ -219,7 +222,20 @@ export async function decideFeedbackOffer(
       .returning({ id: messages.id });
     // Decided from another device in the meantime: that decision stands, and nothing is sent twice.
     if (!row) return false;
-    if (feedback) await queueFeedback(tx, { orgId: input.orgId, key: `offer:${offer.id}`, feedback });
+    if (feedback) {
+      await queueFeedback(tx, { orgId: input.orgId, key: `offer:${offer.id}`, feedback });
+      // The person read the report and sent it: it is their request, about the reply it rode on.
+      await recordSupportRequest(tx, {
+        orgId: input.orgId,
+        userId: input.userId,
+        source: "offer",
+        ref: offer.id,
+        aboutKind: "agent_message",
+        messageId: message.id,
+        text: offer.text,
+        keepWords: deps.keepWords === true,
+      });
+    }
     return true;
   });
   if (!done) {

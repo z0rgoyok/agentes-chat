@@ -13,6 +13,7 @@ import {
   setThreadFollow,
   type ThreadDeps,
   unarchiveThread,
+  unreadFileConversations,
   unreadTaskConversations,
   updateThread,
 } from "@agenteschat/engine";
@@ -40,7 +41,7 @@ const Thread = z
     id: z.uuid().openapi({ description: "The root message id (what replies carry as `threadId`)." }),
     channelId: z.uuid(),
     channelName: z.string(),
-    channelKind: z.enum(["channel", "dm", "task"]),
+    channelKind: z.enum(["channel", "dm", "task", "file"]),
     title: z.string().nullable().openapi({ description: "Null: show `rootText`." }),
     rootText: z.string(),
     rootAuthor: Actor,
@@ -352,6 +353,27 @@ export function threadRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId } = c.req.valid("param");
       return c.json({ tasks: await unreadTaskConversations(db, c.get("user").id, orgId) }, 200);
+    },
+  );
+
+  const UnreadFile = z
+    .object({ artifactId: z.uuid(), unread: z.number().int(), mentions: z.number().int() })
+    .openapi("UnreadFile");
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/organizations/{orgId}/unread-files",
+      tags,
+      security,
+      summary: "Live files whose conversation has a reply you haven't read, with the ones that mention you",
+      description:
+        "Only files you read (ADR 0199). A reply counts when you follow the conversation or it mentions you, at most 100 each.",
+      request: { params: OrgParams },
+      responses: { 200: json(z.object({ files: z.array(UnreadFile) })), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      return c.json({ files: await unreadFileConversations(db, c.get("user").id, orgId) }, 200);
     },
   );
 

@@ -1,9 +1,9 @@
 import { useChannels } from "@agenteschat/client";
 import { channelOptions } from "@agenteschat/client/lib/channel-refs";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
-import { Icon, OPTION_ROW, Text, useTheme } from "@/ui";
+import { Icon, OPTION_ROW, RowPressable, Text, useTheme } from "@/ui";
 import { useOrgId } from "../shared/hooks";
 
 /**
@@ -17,8 +17,8 @@ export function ChannelPicker({ query, pick }: { query: string; pick: (name: str
   if (options.length === 0) return null;
   return (
     <Animated.View
-      entering={reducedMotion ? undefined : FadeInDown.duration(160)}
-      exiting={reducedMotion ? undefined : FadeOut.duration(100)}
+      entering={reducedMotion ? undefined : CARD_IN}
+      exiting={reducedMotion ? undefined : CARD_OUT}
       accessibilityRole="list"
       accessibilityLabel={t("mobile.channelRef.list")}
       style={[
@@ -30,12 +30,12 @@ export function ChannelPicker({ query, pick }: { query: string; pick: (name: str
       ]}
     >
       {options.map((o, i) => (
-        <Pressable
+        <RowPressable
           key={o.id}
           onPress={() => pick(o.name)}
           accessibilityRole="button"
           accessibilityLabel={t("mobile.channelRef.a11y", { name: o.name })}
-          style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.sunken }]}
+          style={styles.row}
         >
           {i > 0 ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
           <Icon name={o.visibility === "private" ? "lock" : "hash"} size={MARK} color={c.muted} />
@@ -49,12 +49,15 @@ export function ChannelPicker({ query, pick }: { query: string; pick: (name: str
               </Text>
             ) : null}
           </View>
-        </Pressable>
+        </RowPressable>
       ))}
     </Animated.View>
   );
 }
 
+/** The card comes in as the keys bring it and goes as they take it away: built once, never while it redraws. */
+const CARD_IN = FadeInDown.duration(160);
+const CARD_OUT = FadeOut.duration(100);
 /** A row's inset, its mark and the gap to the name: the hairline above starts where the name does. */
 const INSET = 16;
 const MARK = 18;

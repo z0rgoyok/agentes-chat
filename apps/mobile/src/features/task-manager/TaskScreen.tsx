@@ -3,9 +3,11 @@ import { endedState, endedText, linePlace, taskState, taskTitle } from "@agentes
 import { formatDuration } from "@agenteschat/client/lib/work";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  EmptyState,
+  GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
@@ -14,6 +16,7 @@ import {
   PixelStopped,
   SCREEN_X,
   Section,
+  SkeletonList,
   Text,
   weights,
 } from "@/ui";
@@ -21,7 +24,8 @@ import { router } from "@/ui/navigation";
 import { RunSteps } from "../chat/ToolCalls";
 import { useOpenQueue } from "../queue/QueueSheet";
 import { AgentFace, Face, OpensAgent } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useNow } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useMeId, useNow, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedHeader } from "../shared/parts";
 import { SheetHostProvider } from "../shared/SheetHost";
@@ -34,7 +38,8 @@ import { StateLine } from "./parts";
  * works) and how it stands, on one head; what was asked, whole (the lists cut it to one line), with who asked and
  * where, a row that opens the conversation; its steps so far; its place in its computer's line, when it waits for
  * room; and "Parar tarefa" as the list's red row, confirmed by a system alert that says what happens. Once it ends,
- * how it ended and how long it took.
+ * how it ended and how long it took. While the list loads, the rows' shape; one not listed today says it's gone.
+ * Pulling down asks for it again (it is also asked while the screen is on top).
  */
 export function TaskScreen({ runId }: { runId: string }) {
   return (
@@ -54,13 +59,17 @@ function Task({ runId }: { runId: string }) {
     return (
       <View style={[styles.screen, { backgroundColor: c.grouped }]}>
         <PushedHeader title="" solid={false} grouped />
-        <View style={styles.center}>
+        <ScrollView contentInsetAdjustmentBehavior="automatic">
           {tasks.isLoading ? (
-            <ActivityIndicator color={c.muted} />
+            // Loading: the rows' own shape, never a spinner.
+            <SkeletonList rows={3} />
+          ) : tasks.isError && !tasks.data ? (
+            <LoadFailed onRetry={() => void tasks.refetch()} />
           ) : (
-            <Text tone="muted">{t("mobile.taskManager.gone")}</Text>
+            // Ended before today, or out of reach: said in the page's middle, as an empty place is.
+            <EmptyState size="page" icon="clock" title={t("mobile.taskManager.gone")} />
           )}
-        </View>
+        </ScrollView>
       </View>
     );
   if (task) return <Live task={task} />;
@@ -171,6 +180,7 @@ function Page({
   const dir = useDirectory();
   const insets = useSafeAreaInsets();
   const openQueue = useOpenQueue();
+  const pull = usePullRefresh(useTasksToday().refetch);
   const agent = dir.anyAgent(task.agentId);
   const requester = task.requester ?? null;
   const opens = taskHref(task);
@@ -179,6 +189,7 @@ function Page({
       <PushedHeader title={title} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
       >
         {/* Whose it is and how it stands, on one head: the title is already in the bar. */}
@@ -224,11 +235,7 @@ function Page({
             <GroupedList>
               <GroupedRow label={t("taskManager.actions.stopTask")} danger onPress={stop} />
             </GroupedList>
-            {stopNote ? (
-              <Text variant="footnote" tone="faint" style={styles.note}>
-                {stopNote}
-              </Text>
-            ) : null}
+            {stopNote ? <GroupedFooter>{stopNote}</GroupedFooter> : null}
           </View>
         ) : null}
       </ScrollView>
@@ -240,12 +247,10 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   grow: { flex: 1, minWidth: 0, gap: 2 },
   screen: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   scroll: { paddingTop: 4, paddingHorizontal: SCREEN_X },
   head: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 12, paddingBottom: 4 },
   row: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
   semibold: { fontWeight: weights.semibold },
   num: { fontVariant: ["tabular-nums"] },
   apart: { marginTop: 24 },
-  note: { paddingTop: 8, paddingHorizontal: 16 },
 });

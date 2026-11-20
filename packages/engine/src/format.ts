@@ -56,6 +56,18 @@ export const stringsOf = (value: unknown): string[] =>
 export const wholeIn = (value: unknown, min: number, max: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
 
+/** A JSON object, never an array: what Postgres's `jsonb_typeof` calls `object`. */
+export const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** `value` when it is a finite number from `min` to `max`, else null: a stored measure that may hold anything. */
+export const numberIn = (value: unknown, min: number, max: number): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : null;
+
+/** A measure the database worked out, to the nearest whole; null where it measured nothing. */
+export const wholeOrNull = (value: unknown): number | null =>
+  value === null || value === undefined ? null : Math.round(Number(value));
+
 /** Postgres text and jsonb refuse NUL and lone UTF-16 surrogates: `text` without either. */
 export const pgSafeText = (text: string) =>
   text.replaceAll("\0", "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
@@ -174,3 +186,39 @@ export function tableToCsv(columns: string[], rows: string[][]): string {
   const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   return [columns, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
 }
+
+/**
+ * A Markdown link or image: its words, its address. Every part is bounded or stops at the next `[`, so a text of
+ * nothing but brackets is read once, not once per bracket: this runs in the server's own thread on text a model wrote.
+ */
+const LINK = /!?\[([^\][]*)\]\(([^)\s]{0,2048})\)/g;
+
+/**
+ * Text with nothing an app turns into a link, whatever grammar the app reads it by. Two things hold for what comes
+ * back, anywhere in it, code included: no `](`, so nothing reads as a Markdown link, and no `://` with something
+ * right after it, so nothing reads as an address. Each app pairs backticks and fences its own way, so what one shows
+ * as code another shows as words: an address wrapped as code would be a link there.
+ *
+ * An address loses its `http://` or `https://`. Outside code a link or an image keeps its words alone (its address
+ * when it has none). What this takes for code is for looks only: there a link stays as typed, its joint pulled apart.
+ */
+export function inertLinks(text: string): string {
+  return (
+    text
+      .split(/(```[\s\S]*?```|`[^`\n]+`)/)
+      .map((part, i) =>
+        i % 2 ? part : part.replace(LINK, (_, words: string, address: string) => words.trim() || address),
+      )
+      .join("")
+      .replace(/https?:\/\//gi, "")
+      // What dropping a scheme put together again ("hthttps://tps://"), and any other scheme: pulled apart, which
+      // only adds a space and so puts nothing together.
+      .replace(/:\/\/(?=\S)/g, ":// ")
+      // Last: a scheme dropped between "]" and "(" makes a joint.
+      .replaceAll("](", "] (")
+  );
+}
+
+/** A JSON value with every string in it made inert (`inertLinks`). */
+export const inertJson = <T>(value: T): T =>
+  JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === "string" ? inertLinks(v) : v)));

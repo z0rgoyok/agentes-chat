@@ -181,7 +181,7 @@ export function HandBackFoot({
       }}
     >
       <Locked when={pending || locked}>
-        <div className="brw-ac__row">
+        <div className="brw-ac__row ac-tailrow">
           {noted ? (
             <Textarea
               rows={1}
@@ -220,7 +220,7 @@ export function HandBackFoot({
               )}
             </>
           )}
-          <span className="brw-ac__ways">
+          <span className="brw-ac__ways ac-tail">
             {other}
             <Button size="sm" variant="primary" icon="check" disabled={tooLong} loading={pending} onClick={back}>
               {label}

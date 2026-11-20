@@ -11,8 +11,9 @@ import { pickOne } from "../shared/PickerSheet";
 
 /**
  * "Mudar quando perguntar" on a waiting approval (ADR 0173), as the web's: for who decides it and may set its agent's
- * level, the agent's three choices in the picker sheet. Choosing approves nothing. Who may set the workspace's level
- * gets "Para todos os agentes do workspace" under them. A toast says the new choice, with Desfazer.
+ * level (who manages that agent, the server's `canManage`), the agent's three choices in the picker sheet. Choosing
+ * approves nothing. Who may set the workspace's level gets "Para todos os agentes do workspace" under them. A toast
+ * says the new choice, with Desfazer.
  */
 export function useWhenAsks(approval: Approval | undefined) {
   const { t } = useTranslation();
@@ -24,7 +25,7 @@ export function useWhenAsks(approval: Approval | undefined) {
   const change = useChangeWhenAsks(orgId);
   const undo = useUndoWhenAsks(orgId);
   const agent = approval ? dir.agentById.get(approval.agentId) : undefined;
-  const shown = Boolean(approval && agent && changesWhenAsks(org, approval));
+  const shown = Boolean(approval && agent && changesWhenAsks(agent, approval));
   const open = async () => {
     if (!agent) return;
     const level = approvalsLevelOf(agent);
@@ -39,7 +40,9 @@ export function useWhenAsks(approval: Approval | undefined) {
         sub: t(`approvalsLevel.${value}.text`),
         subLines: 3,
       })),
-      ...(can(org, "manage_agents")
+      // The workspace's level reaches private agents too: owners and administrators only (ADR 0085 addendum of
+      // 2026-11-17, the server's `setWorkspaceApprovalsLevel`).
+      ...(can(org, "administrator")
         ? { toggle: { label: t("approvalsLevel.everyAgent"), onChange: (on: boolean) => (everyAgent = on) } }
         : {}),
     });

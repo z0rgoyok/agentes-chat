@@ -1,5 +1,5 @@
 import { splitAtNames } from "@agenteschat/client/lib/text";
-import { type AgentAppearance, Icon } from "@agenteschat/ui";
+import { type AgentAppearance, codeAndBold, Icon } from "@agenteschat/ui";
 import {
   createContext,
   type ReactNode,
@@ -148,7 +148,7 @@ export function ToastProvider({
                       <b className="ac-toast__title">
                         <ToastWords toast={toast} />
                       </b>
-                      <small className="ac-toast__detail">{toast.detail}</small>
+                      <small className="ac-toast__detail">{codeAndBold(toast.detail)}</small>
                     </>
                   ) : (
                     <ToastWords toast={toast} />
@@ -191,14 +191,21 @@ export function ToastProvider({
 
 export const useToast = () => useContext(ToastContext);
 
-/** A toast's words; the agent it names with its face before the name (`.ac-who`), as in the conversation. */
+/**
+ * A toast's words, a command or a setting in them as code; the agent it names with its face before the name
+ * (`.ac-who`), as in the conversation.
+ */
 function ToastWords({ toast }: { toast: Toast }) {
   const who = toast.who;
-  if (!who) return <>{toast.text}</>;
+  if (!who) return <>{codeAndBold(toast.text)}</>;
   return (
     <>
-      {splitAtNames(toast.text, [who.name]).map((part) =>
-        typeof part === "string" ? part : <AgentWho key="who" name={who.name} appearance={who.appearance} />,
+      {splitAtNames(toast.text, [who.name]).map((part, i) =>
+        typeof part === "string" ? (
+          codeAndBold(part, `w${i}`)
+        ) : (
+          <AgentWho key="who" name={who.name} appearance={who.appearance} />
+        ),
       )}
     </>
   );

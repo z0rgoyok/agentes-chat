@@ -72,7 +72,8 @@ describe("IA e uso: who uses each plan", () => {
     await settle(6);
     const plans = screen().getByRole("region", { name: "Contas" });
     const rows = [...plans.querySelectorAll(".plan-row")] as HTMLElement[];
-    const mine = rows.find((r) => r.textContent?.includes("Claude Team")) as HTMLElement;
+    // The viewer's own, with the automatic name and no email: unnamed. Someone else's keeps its name.
+    const mine = rows.find((r) => r.textContent?.includes("Conta sem nome")) as HTMLElement;
     const joao = rows.find((r) => r.textContent?.includes("Claude 2")) as HTMLElement;
     expect(mine.querySelector(".plan-acct__name")?.textContent).toContain("de Walter · Todos usam");
     expect(joao.querySelector(".plan-acct__name")?.textContent).toContain("de João · Só João usa");
@@ -199,7 +200,7 @@ describe("Sua conta: the account's e-mail (ADR 0088 §2, addendum 2026-11-13)", 
     const { dialog } = await open(state);
     await type(within(dialog).getByLabelText("Novo e-mail"), "walter@novo.example.com");
     await click(within(dialog).getByRole("button", { name: "Mudar e-mail" }));
-    expect(dialog.textContent).toContain("Pronto: agora você entra com walter@novo.example.com.");
+    expect(dialog.textContent).toContain("Agora você entra com walter@novo.example.com.");
 
     const held = seedState();
     held.emailChangeError = new ApiError(409, "email.held", "This address left another account a moment ago");

@@ -93,11 +93,11 @@ export function VaultSaveBlock({
               size="sm"
               label={t("vault.card.scope")}
               value={value.scope}
-              disabled={disabled || !canManageTeam}
+              disabled={disabled}
               onValueChange={(scope) => set({ scope })}
               options={[
                 { value: "personal", label: t("vault.scope.personal") },
-                { value: "team", label: t(modeKey(org, "vault.scope.team")) },
+                { value: "team", label: t(modeKey(org, "vault.scope.team")), disabled: !canManageTeam },
               ]}
             />
             <span className="vlt-save__hint">

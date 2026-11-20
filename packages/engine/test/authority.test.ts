@@ -126,6 +126,13 @@ describe("who is behind a run", () => {
       kind: "person",
       personId: f.owner.id,
     });
+    // By id, the stored transcript says it.
+    expect(await runAuthorityById(f.db, f.org.id, woken.id)).toMatchObject({ kind: "unattended" });
+    await f.db
+      .update(schema.agentRuns)
+      .set({ transcript: { steeredBy: f.owner.id } })
+      .where(eq(schema.agentRuns.id, woken.id));
+    expect(await runAuthorityById(f.db, f.org.id, woken.id)).toEqual({ kind: "person", personId: f.owner.id });
   });
 
   test("an answer, or a note's reply, continues the work of the run that sent it, for its person", async () => {

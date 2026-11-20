@@ -12,6 +12,11 @@ export interface GlassProps {
   solid?: boolean;
   /** The system's Liquid Glass where iOS has it (iOS 26), like the bar's own buttons; the blur before it. */
   liquid?: boolean;
+  /**
+   * The Liquid Glass answers a touch itself, as the system's controls do (default). Off for a glass whose owner
+   * draws the press (a button in `PressScale`): two answers to one press read as a glitch.
+   */
+  interactive?: boolean;
   children?: ReactNode;
 }
 
@@ -22,13 +27,25 @@ export const liquidHere = Platform.OS === "ios" && isLiquidGlassAvailable();
  * The design system's glass (bars, sheets, toasts): a real blur under the theme's glass tint on iOS; an
  * opaque surface on Android, where blur is slow and weak.
  */
-export function Glass({ style, intensity = 60, solid = false, liquid = false, children }: GlassProps) {
+export function Glass({
+  style,
+  intensity = 60,
+  solid = false,
+  liquid = false,
+  interactive = true,
+  children,
+}: GlassProps) {
   const { colors, scheme } = useTheme();
   if (solid || Platform.OS !== "ios")
     return <View style={[{ backgroundColor: solid ? colors.bg : colors.glassSolid }, style]}>{children}</View>;
   if (liquid && liquidHere)
     return (
-      <GlassView glassEffectStyle="regular" isInteractive colorScheme={scheme} style={[{ overflow: "hidden" }, style]}>
+      <GlassView
+        glassEffectStyle="regular"
+        isInteractive={interactive}
+        colorScheme={scheme}
+        style={[{ overflow: "hidden" }, style]}
+      >
         {children}
       </GlassView>
     );

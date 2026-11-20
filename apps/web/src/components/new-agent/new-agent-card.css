@@ -109,6 +109,112 @@
   display: contents;
 }
 
+/* "Edit first" on an agent's proposal: in the list's place, the proposal itself: who proposed it and why (a quote on a
+   hairline), what the person changed, the first task, what is left for after it is created. Text and lines, no plates. */
+.nac-review {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 4px 12px 2px;
+}
+/* Its column gives way before the window does (the list's width at most). */
+.nac__grid:has(> .nac-review) {
+  grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+}
+/* Narrow, under the card in its one column, scrolling with it. */
+.nac__keys[data-steps] .nac-review {
+  overflow: visible;
+  padding: 8px 2px 4px;
+}
+.nac-review__sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nac-review__from {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.nac-review__from .ac-avatar {
+  flex: none;
+}
+.nac-review__why {
+  margin: 0;
+  padding: 1px 0 1px 12px;
+  box-shadow: inset 2px 0 0 var(--line2);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 23px;
+  text-wrap: pretty;
+}
+.nac-review__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nac-review__list > li {
+  min-height: 30px;
+  color: var(--ink2);
+  font-size: 14.5px;
+  line-height: 20px;
+}
+/* Each line's mark in a 20px slot: an icon of ours, or an app's own mark without its tile. */
+.nac-review__list > li > .ac-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  color: var(--muted);
+}
+.nac-review__list > li > .connector-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.nac-review__list > li > .connector-icon .connector-icon__mark {
+  width: 16px;
+  height: 16px;
+}
+.nac-review__text {
+  flex: 1;
+  min-width: 0;
+}
+.nac-review__text b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.nac-review__undo.ac-link {
+  flex: none;
+  font-size: 13.5px;
+}
+.nac-review__none,
+.nac-review__hint {
+  margin: 0;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 20px;
+}
+.nac-review__hint {
+  font-size: 13px;
+  line-height: 18px;
+}
+.nac-review__task.nac__instr {
+  field-sizing: content;
+  max-height: 88px;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 21px;
+}
+
 /* The card. Its cover and fitting room follow the card's own width (`nac-card`), whatever the window. */
 .tp-gallery__preview.nac__card {
   display: flex;
@@ -951,7 +1057,7 @@ html:not([data-pointer]) .nac__dice:focus-visible {
   color: var(--ink2);
 }
 .nac-skill__line {
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--ink2);
   font-size: 14.5px;
 }

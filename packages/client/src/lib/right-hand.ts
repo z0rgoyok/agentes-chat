@@ -178,6 +178,10 @@ export function firstVisitOf(dms: readonly DirectMessage[] | undefined, agentId:
 /** The workspace's right hand among its agents, when this person may see it. */
 export const rightHandOf = <A extends Pick<Agent, "builtin">>(agents: readonly A[]) => agents.find(isRightHand);
 
+/** The right hand's name in a workspace, or null while its agents load or when it has none. */
+export const rightHandName = (agents: readonly Pick<Agent, "builtin" | "name">[] | undefined) =>
+  (agents && rightHandOf(agents)?.name) ?? null;
+
 /** The agents a scene of the team shows: the right hand in front (second in the row), then the others, four at most. */
 export function sceneTeam<A extends { id: string }>(agents: readonly A[], lead: A | undefined): A[] {
   const rest = agents.filter((a) => a.id !== lead?.id).slice(0, lead ? 3 : 4);
@@ -331,12 +335,15 @@ export const teamAnswered = (
 
 /**
  * Why the right hand has no computer for anyone in this workspace, as its desktop's state says it (`reason`), by the
- * line that tells it: the workspace has no computer of its own, or one where every agent is the same user. Null when
- * it has one, or for any other state (offline, starting), which its computer's own view tells.
+ * line that tells it: the workspace has no computer of its own (on a self-hosted server, this server made the agents'
+ * computer, `selfHost`), or one where every agent is the same user. Null when it has one, or for any other state
+ * (offline, starting), which its computer's own view tells.
  */
-export const rightHandNoComputer = (reason: string | null | undefined) =>
+export const rightHandNoComputer = (reason: string | null | undefined, selfHost = false) =>
   reason === "no_home"
-    ? ("rightHand.computerNoHome" as const)
+    ? selfHost
+      ? ("rightHand.computerNoHomeServer" as const)
+      : ("rightHand.computerNoHome" as const)
     : reason === "not_system"
       ? ("rightHand.computerOneUser" as const)
       : null;

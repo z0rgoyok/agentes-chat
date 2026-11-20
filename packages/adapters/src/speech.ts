@@ -157,12 +157,28 @@ export function cleanTerms(terms: string[], max: number, words: number): string[
   return out;
 }
 
+const AUDIO_EXTENSIONS: Readonly<Record<string, string>> = {
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/webm": "webm",
+  "audio/amr": "amr",
+};
+
+/** The file extension of an audio content type (parameters and case ignored); null when it isn't a known one. */
+export const audioExtensionOf = (contentType: string): string | null =>
+  AUDIO_EXTENSIONS[contentType.split(";")[0]?.trim().toLowerCase() ?? ""] ?? null;
+
+/** The names speech providers take a recording under: they refuse a file by its name before reading it. */
+const PROVIDER_EXTENSIONS = new Set(["ogg", "mp3", "m4a", "wav", "webm"]);
+
+// Providers read the type from the name: any other recording is sent as m4a, the apps' usual one.
 const extensionOf = (contentType: string) => {
-  const type = contentType.split(";")[0]?.trim() ?? "";
-  if (type === "audio/webm") return "webm";
-  if (type === "audio/wav" || type === "audio/x-wav") return "wav";
-  if (type === "audio/mpeg") return "mp3";
-  return "m4a";
+  const extension = audioExtensionOf(contentType);
+  return extension && PROVIDER_EXTENSIONS.has(extension) ? extension : "m4a";
 };
 
 const fileOf = (input: SpeechFileInput) =>

@@ -139,12 +139,12 @@ describe("a task made in a private conversation stays there", () => {
 
   test("someone outside can't be assigned, by an agent or a person, so nothing reaches them", async () => {
     const { other, call } = await inDm();
-    const refused = await call("create_issue", { title: "Folha", assignee: "ada" });
+    const refused = await call("create_issue", { title: "Folha", assignees: ["ada"] });
     expect(refused).toMatchObject({ output: { isError: true, content: expect.stringContaining("can't see") } });
 
     const task = await made(call, "Fechar a folha");
     await expect(
-      updateIssue(deps(), person(f.owner.id), f.org.id, task.id, { assignee: { type: "person", id: other.id } }),
+      updateIssue(deps(), person(f.owner.id), f.org.id, task.id, { assignees: [{ type: "person", id: other.id }] }),
     ).rejects.toBeInstanceOf(ValidationError);
     await updateIssue(deps(), person(f.owner.id), f.org.id, task.id, { status: "done" });
     await drainOutbox(f.db, f.handlers);
@@ -227,7 +227,9 @@ describe("what still reads a private task", () => {
     );
     const task = await made(call, "Folha");
     await made(call, "Férias");
-    await updateIssue(deps(), person(f.owner.id), f.org.id, task.id, { assignee: { type: "agent", id: outsider.id } });
+    await updateIssue(deps(), person(f.owner.id), f.org.id, task.id, {
+      assignees: [{ type: "agent", id: outsider.id }],
+    });
     const at = await openTaskConversation(f.db, person(f.owner.id), f.org.id, task.id);
     const seen = await listIssues(f.db, { type: "agent", agentId: outsider.id, channelId: at.channelId }, f.org.id);
     expect(seen.map((i) => i.id)).toEqual([task.id]);
@@ -240,7 +242,7 @@ describe("what still reads a private task", () => {
     const secret = await createChannel(f.db, f.owner.id, f.org.id, { name: "secret", visibility: "private" });
     await addChannelMember(f.db, f.owner.id, f.org.id, secret.id, { agentId: f.agent.id });
     await addChannelMember(f.db, f.owner.id, f.org.id, secret.id, { userId: bia.id });
-    const task = await made(await toolsIn(secret.id), "Fusão", { assignee: "bia" });
+    const task = await made(await toolsIn(secret.id), "Fusão", { assignees: ["bia"] });
     const at = await openTaskConversation(f.db, person(bia.id), f.org.id, task.id);
     await drainOutbox(f.db, f.handlers);
     expect((await listNotifications({ db: f.db }, bia.id, f.org.id)).items).toHaveLength(1);
@@ -314,10 +316,10 @@ describe("what still reads a private task", () => {
       });
     for (const title of ["Folha", "Férias"]) {
       const task = await made(call, title);
+      await f.db.update(schema.issues).set({ status: "done" }).where(eq(schema.issues.id, task.id));
       await f.db
-        .update(schema.issues)
-        .set({ status: "done", assigneeType: "agent", assigneeId: f.agent.id })
-        .where(eq(schema.issues.id, task.id));
+        .insert(schema.issueAssignees)
+        .values({ orgId: f.org.id, issueId: task.id, assigneeType: "agent", assigneeId: f.agent.id });
       // The card counts a task an agent closed, by the task's own history.
       await f.db.insert(schema.issueActivity).values({
         orgId: f.org.id,
@@ -483,10 +485,10 @@ describe("the data migrations", () => {
       .update(schema.searchDocuments)
       .set({ channelIds: [] })
       .where(inArray(schema.searchDocuments.sourceId, ids));
-    await f.db
-      .update(schema.issues)
-      .set({ assigneeType: "person", assigneeId: other.id })
-      .where(eq(schema.issues.id, assigned.id));
+    // The columns that migration read, which nothing reads since (ADR 0188).
+    await f.db.execute(
+      sql`update issues set assignee_type = 'person', assignee_id = ${other.id} where id = ${assigned.id}`,
+    );
     await commentIssue(deps(), person(other.id), f.org.id, commented.id, "Vi aqui");
     await drainOutbox(f.db, f.handlers);
     await f.db.delete(schema.agentActions).where(eq(schema.agentActions.targetId, noReceipt.id));

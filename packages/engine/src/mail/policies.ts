@@ -1,9 +1,10 @@
 import { and, type Database, eq, inArray, like, schema } from "@agenteschat/db";
 import { type Agent, getAgent } from "../agents";
-import { audienceError, canTalkTo, speakerFor } from "../audience";
+import { audienceError, canTalkTo, managesAgent, speakerFor } from "../audience";
 import { recordAudit } from "../audit";
 import { caches } from "../cache";
-import { NotFoundError, ValidationError } from "../errors";
+import { seesOthersOnAgent } from "../connectors/personal";
+import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { requirePermission } from "../organizations";
 import { levelOf, MAIL_SCOPES, mailboxAddresses, mailGrants, mailOwnerOnlyError, orgMailAccounts } from "./accounts";
 import { isEmailAddress, normalizeAddress, normalizeAddressRule } from "./text";
@@ -83,22 +84,27 @@ export async function agentMailPolicy(db: Database, orgId: string, agentId: stri
   return (await agentMailPolicies(db, orgId, agentId, [accountId])).get(accountId) ?? { ...DEFAULT_MAIL_POLICY };
 }
 
-/** `GET …/agents/{agentId}/mail`: one entry per connected mailbox (not pending). */
+/**
+ * `GET …/agents/{agentId}/mail`: one entry per connected mailbox (not pending) the viewer may know of: their own and
+ * ownerless ones; someone else's only while the agent holds it, to who may take it off (`seesOthersOnAgent`), with
+ * its level and none of its rules.
+ */
 export async function getAgentMail(db: Database, actorId: string, orgId: string, agentId: string) {
-  await requirePermission(db, actorId, orgId, "read");
+  const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
   const accounts = (await orgMailAccounts(db, orgId)).filter((a) => a.status !== "pending");
   const ids = accounts.map((a) => a.id);
   const grants = await mailGrants(db, orgId, ids);
   const policies = await agentMailPolicies(db, orgId, agentId, ids);
-  return accounts.map(
-    (a): AgentMailbox => ({
-      accountId: a.id,
-      ...levelOf(grants.get(a.id)?.get(agentId) ?? new Set()),
-      policy: policies.get(a.id) ?? { ...DEFAULT_MAIL_POLICY },
-    }),
-  );
+  const seesOthers = seesOthersOnAgent(membership, agent, actorId);
+  return accounts.flatMap((a): AgentMailbox[] => {
+    const held = grants.get(a.id)?.get(agentId) ?? new Set<string>();
+    const theirs = a.createdByUserId !== null && a.createdByUserId !== actorId;
+    if (theirs && !(seesOthers && held.size > 0)) return [];
+    const policy = theirs ? null : policies.get(a.id);
+    return [{ accountId: a.id, ...levelOf(held), policy: policy ?? { ...DEFAULT_MAIL_POLICY } }];
+  });
 }
 
 function rulesOf(list: string[], field: string) {
@@ -186,7 +192,11 @@ async function mayChangeMail(
     throw await audienceError(db, agent);
   }
   if (!lowering) throw await mailOwnerOnlyError(db, account);
-  if (agent.ownerUserId !== actorId) await requirePermission(db, actorId, orgId, "manage_agents");
+  // Who manages the agent (`managesAgent`, ADR 0085 addendum of 2026-11-17), never every holder of the key.
+  if (agent.ownerUserId !== actorId) {
+    const membership = await requirePermission(db, actorId, orgId, "manage_agents");
+    if (!managesAgent(agent, actorId, membership)) throw new ForbiddenError();
+  }
   return false;
 }
 
@@ -247,7 +257,8 @@ export async function setAgentMail(
     });
   });
   caches.scopes.delete(`${orgId}:${agentId}`);
-  return { accountId, ...levelOf(new Set(scopes)), policy };
+  const theirs = account.createdByUserId !== null && account.createdByUserId !== actorId;
+  return { accountId, ...levelOf(new Set(scopes)), policy: theirs ? { ...DEFAULT_MAIL_POLICY } : policy };
 }
 
 /** Whether `connectionId` is one of the org's mailboxes (connected or not). */

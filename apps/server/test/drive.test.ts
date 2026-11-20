@@ -113,7 +113,9 @@ test("storage API: what the workspace's files take, and the disk under this serv
     const { orgId } = await seedOrg(owner);
     const api = (path: string, init?: Parameters<typeof owner>[1]) =>
       owner(`/api/app/organizations/${orgId}${path}`, init);
-    await api("/artifacts", { json: { title: "Metas", content: { kind: "document", markdown: "# Metas" } } });
+    await api("/artifacts", {
+      json: { title: "Metas", content: { kind: "table", columns: ["Metas"], rows: [["1"]] } },
+    });
     const [version] = await server.db.select({ size: schema.artifactVersions.size }).from(schema.artifactVersions);
     const read = (await (await api("/storage")).json()) as {
       platform: unknown;

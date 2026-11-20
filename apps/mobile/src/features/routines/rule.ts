@@ -1,5 +1,5 @@
 import type { ApiRule, ProposedRoutine } from "@agenteschat/client";
-import { clockHour, joinNames, toYmd } from "@agenteschat/client/lib/format";
+import { clockHour, dateFormat, joinNames, toYmd } from "@agenteschat/client/lib/format";
 import { timezoneName } from "@agenteschat/client/lib/routines";
 import {
   BUSINESS_DAYS,
@@ -33,16 +33,14 @@ export function defaultRule(timezone: string, today = new Date()): RecurrenceRul
 /** "15 de outubro". */
 const dayMonth = (locale: string, ymd: string) => {
   const [y, m, d] = ymd.split("-").map(Number);
-  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long" }).format(
-    new Date(y ?? 2000, (m ?? 1) - 1, d ?? 1),
-  );
+  return dateFormat(locale, { day: "numeric", month: "long" }).format(new Date(y ?? 2000, (m ?? 1) - 1, d ?? 1));
 };
 
 /** "31/12" (with the year when it isn't this one). */
 const shortDate = (locale: string, ymd: string, now = new Date()) => {
   const [y, m, d] = ymd.split("-").map(Number);
   const date = new Date(y ?? 2000, (m ?? 1) - 1, d ?? 1);
-  return new Intl.DateTimeFormat(locale, {
+  return dateFormat(locale, {
     day: "2-digit",
     month: "2-digit",
     ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
@@ -116,11 +114,11 @@ export function ruleSentence(
 /** A run in its zone: "seg, 20 out · 09:00" (the form's "Próximas"). */
 export function runLabel(locale: string, iso: string | Date, timeZone: string): string {
   const d = new Date(iso);
-  const date = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", timeZone })
+  const date = dateFormat(locale, { weekday: "short", day: "numeric", month: "short", timeZone })
     .format(d)
     .replace(/\./g, "")
     .replace(/ de /g, " ");
-  const time = new Intl.DateTimeFormat(locale, { hour: clockHour(locale), minute: "2-digit", timeZone }).format(d);
+  const time = dateFormat(locale, { hour: clockHour(locale), minute: "2-digit", timeZone }).format(d);
   return `${date} · ${time}`;
 }
 

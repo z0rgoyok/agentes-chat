@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { gt, schema, sql } from "@agenteschat/db";
+import { gt, rowsOf, schema, sql } from "@agenteschat/db";
 import {
   analyticsRange,
   composioUsageHook,
@@ -17,6 +17,7 @@ import {
   operatorConnectorAnalytics,
   orgOfComposioUser,
   postPersonMessage,
+  productDaysQuery,
   type ToolContext,
   type ToolDefinition,
   ValidationError,
@@ -613,6 +614,54 @@ describe("the operator's reads", () => {
       "db.beta",
     ])
       expect(text).not.toContain(secret);
+  });
+
+  test("the product over two days: per-day counts, and active workspaces counted once across the range", async () => {
+    f = await setup();
+    const [other] = await f.db.insert(schema.organizations).values({ name: "Beta" }).returning();
+    if (!other) throw new Error("no org");
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86_400_000);
+    const event = (type: string, orgId: string | null, createdAt: Date) => ({ type, orgId, createdAt });
+    await f.db
+      .insert(schema.operatorEvents)
+      .values([
+        event("run.finished", f.org.id, yesterday),
+        event("run.finished", f.org.id, yesterday),
+        event("task.finished", other.id, yesterday),
+        event("user.signed_up", null, yesterday),
+        event("run.finished", f.org.id, today),
+        event("organization.created", other.id, today),
+        event("session.created", null, today),
+      ]);
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const a = await operatorAnalytics(f.db, { from: day(yesterday), to: day(today) });
+    expect(a.product).toEqual({
+      days: [
+        { day: day(yesterday), runs: 2, tasks: 1, activeWorkspaces: 2, newWorkspaces: 0, signUps: 1 },
+        { day: day(today), runs: 1, tasks: 0, activeWorkspaces: 1, newWorkspaces: 1, signUps: 0 },
+      ],
+      activeWorkspaces: 2,
+      keptDays: OPERATOR_EVENTS_KEEP_DAYS,
+    });
+    const empty = await operatorAnalytics(f.db, { from: "2001-01-01", to: "2001-01-02" });
+    expect(empty.product).toEqual({ days: [], activeWorkspaces: 0, keptDays: OPERATOR_EVENTS_KEEP_DAYS });
+  });
+
+  test("the product's days hash their groups: the day expression matches the statistics, so no sort of the range", async () => {
+    f = await setup();
+    // 30 days of events, 4 types and 50 workspaces: about 6,000 groups among 60,000 rows.
+    await f.db.execute(sql`insert into operator_events (id, type, org_id, created_at)
+      select gen_random_uuid(), (array['run.finished','task.finished','organization.created','user.signed_up'])[1 + i % 4],
+        orgs.ids[1 + (i * 7919) % 50], timestamptz '2001-01-01' + i * interval '43 seconds'
+      from generate_series(1, 60000) i, (select array_agg(gen_random_uuid()) ids from generate_series(1, 50)) orgs`);
+    await f.db.execute(sql`analyze operator_events`);
+    const plan = rowsOf<{ "QUERY PLAN": string }>(
+      await f.db.execute(sql`explain ${productDaysQuery(f.db, analyticsRange("2001-01-01", "2001-01-30"))}`),
+    )
+      .map((r) => r["QUERY PLAN"])
+      .join("\n");
+    expect(plan).toContain("HashAggregate");
   });
 
   test("at most 500 connectors and 500 workspaces, then `more`", async () => {

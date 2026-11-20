@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text as RNText, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { Count } from "./Count";
 import type { FiltersProps } from "./Filters";
 import { haptics } from "./haptics";
@@ -12,12 +12,12 @@ import { CHROME_MAX_SCALE, weights } from "./type-scale";
 
 export type SegmentedProps = FiltersProps & {
   /**
-   * As wide as its box, the segments sharing it evenly (a screen's views, as an agent's Hoje · Acesso · Memória).
+   * As wide as its box, the segments sharing it evenly (a screen's views, as an agent's Today · Access · Memory).
    * `fit`: each as wide as its words first, so long labels stay on one line (a form's choice).
    */
   wide?: boolean | "fit";
   /**
-   * `page`: the views of a whole screen (an agent's Hoje · Acesso · Memória). As tall as the screen's own button (48),
+   * `page`: the views of a whole screen beside its 48-point buttons (a proposal's or a document's views). As tall as the screen's own button (48),
    * its words a size up: at a toolbar's 32 it read as a filter beside a 48 button and 52 rows.
    */
   size?: "page";
@@ -45,10 +45,7 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
   const placed = useRef(false);
   useEffect(() => {
     if (!at) return;
-    const timing = {
-      duration: reducedMotion || !placed.current ? 0 : motion.base,
-      easing: Easing.bezier(...motion.out),
-    };
+    const timing = { duration: reducedMotion || !placed.current ? 0 : motion.base, easing: motion.easeOut };
     x.value = withTiming(at.x, timing);
     width.value = withTiming(at.width, timing);
     placed.current = true;
@@ -75,15 +72,17 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
       ) : null}
       {items.map((item) => {
         const on = item.key === value;
+        const off = item.disabled === true && !on;
         return (
           <Pressable
             key={item.key}
+            disabled={off}
             onPress={() => {
               if (!on) haptics.selection();
               onChange(item.key);
             }}
             accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
+            accessibilityState={{ selected: on, disabled: off }}
             accessibilityLabel={item.accessibilityLabel}
             onLayout={(e) => {
               const { x: left, width: w } = e.nativeEvent.layout;
@@ -94,6 +93,7 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
             style={({ pressed }) => [
               wide === "fit" ? { flexGrow: 1 } : wide ? { flex: 1 } : null,
               pressed && !on ? { opacity: 0.6 } : null,
+              off ? { opacity: 0.45 } : null,
             ]}
             // The slop gives a segment the 44 a finger needs, past the track's own padding (a page's is 48 already).
             hitSlop={{

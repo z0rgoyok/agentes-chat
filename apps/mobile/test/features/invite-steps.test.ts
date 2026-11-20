@@ -6,13 +6,11 @@ import {
   ASK_STEPS,
   type Asked,
   askAction,
-  askBack,
   askedOf,
   askProgress,
   claimAnswer,
   claimFailedForNow,
   EMAIL_ACTIONS,
-  emailBack,
   emailStart,
   resumesAsk,
   storedAsked,
@@ -35,12 +33,6 @@ describe("asking through a link", () => {
     expect(askProgress("you")).toEqual({ n: 3, total: 3 });
   });
 
-  test("Back never lands on a code already typed, and the first step leaves", () => {
-    expect(askBack("email")).toBeNull();
-    expect(askBack("code")).toBe("email");
-    expect(askBack("you")).toBe("email");
-  });
-
   test("only sending the code is bot-checked", () => {
     expect(ASK_STEPS.map(askAction)).toEqual(["ask-code", "ask-code", null]);
   });
@@ -57,21 +49,8 @@ describe("an email invitation asks only what's missing", () => {
     expect(emailStart(undefined)).toBe("name");
   });
 
-  test("Back returns to the address's own first step, or leaves", () => {
-    expect(emailBack("name", "name")).toBeNull();
-    expect(emailBack("password", "password")).toBeNull();
-    expect(emailBack("newPassword", "name")).toBe("name");
-    expect(emailBack("forgot", "password")).toBe("password");
-    expect(emailBack("sent", "social")).toBe("social");
-  });
-
-  test("the steps that send something carry a bot check for that action", () => {
-    expect(EMAIL_ACTIONS).toEqual({
-      name: "sign-up",
-      newPassword: "sign-up",
-      password: "sign-in",
-      forgot: "password-reset",
-    });
+  test("the first screen's bot check is the password's sign-in; the steps over it check their own", () => {
+    expect(EMAIL_ACTIONS).toEqual({ password: "sign-in" });
   });
 });
 
@@ -146,9 +125,10 @@ describe("an invitation to a personal workspace (ADR 0159): never its name, who 
     expect(screen).toContain('label={personal ? t("invite.enterPersonal") : t("mobile.invite.accept", { org })}');
     expect(screen).toContain('title = t(modeKey(preview, "invite.ask.title"), { org });');
     const email = src("EmailSteps.tsx");
-    expect(email).toContain('const enterLabel = t(modeKey(preview, "invite.enter"), { org });');
+    expect(email).toContain('label={t(modeKey(preview, "invite.enter"), { org })}');
     expect(email).toContain('t("invite.personalName", { name: preview.invitedBy })');
-    expect(src("LinkSteps.tsx")).toContain("email: isPersonal(preview)");
+    expect(src("LinkSteps.tsx")).toContain('? t("invite.calledYouPersonal", { name: by })');
+    expect(src("InviteSteps.tsx")).toContain('t(modeKey(preview, "invite.newPasswordLead"), { org })');
     expect(src("AskWaiting.tsx")).toContain('t(modeKey(words, "invite.ask.waitTitle"), { org })');
   });
 });

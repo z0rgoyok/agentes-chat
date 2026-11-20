@@ -8,12 +8,14 @@ import { Dither } from "@/sky/Dither";
 import { ProviderLogo, useTheme } from "@/ui";
 import { AgentFace } from "../shared/Face";
 import { useDirectory } from "../shared/hooks";
+import { FocusLive } from "../shared/parts";
 
 const TRAIL = [0, 1, 2];
 
 /**
  * The band over "Conectar uma IA" (the web's `ConnectScene`): two of the team asleep under the night, the workspace's
- * computer and the AIs' marks, a few pixels between them. Decoration: the screen's words say what it shows.
+ * computer and the AIs' marks, a few pixels between them. Decoration: the screen's words say what it shows. Its night
+ * and sleepers hold still while the next page is over it.
  */
 export function ConnectScene() {
   const { colors: c } = useTheme();
@@ -28,26 +30,28 @@ export function ConnectScene() {
     </View>
   );
   return (
-    <View style={styles.band} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Dither kind="sky" tones={TEAM_NIGHT} pixel={4} style={StyleSheet.absoluteFill} />
-      <View style={styles.row}>
-        <View style={styles.cast}>
-          {team.map((a) => (
-            <AgentFace key={a.id} agentId={a.id} size={a.id === lead?.id ? 56 : 42} mode="sleep" framed={false} />
-          ))}
-        </View>
-        {team.length > 0 ? trail : null}
-        <ComputerPortrait kind={WORKSPACE_COMPUTER_KIND} state="paused" />
-        {trail}
-        <View style={styles.marks}>
-          {SCENE_PLANS.map((plan, i) => (
-            <View key={plan} style={[styles.plate, { backgroundColor: c.raised }, i > 0 ? styles.over : null]}>
-              <ProviderLogo id={planMark(plan)} size="sm" />
-            </View>
-          ))}
+    <FocusLive>
+      <View style={styles.band} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Dither kind="sky" tones={TEAM_NIGHT} pixel={4} style={StyleSheet.absoluteFill} />
+        <View style={styles.row}>
+          <View style={styles.cast}>
+            {team.map((a) => (
+              <AgentFace key={a.id} agentId={a.id} size={a.id === lead?.id ? 56 : 42} mode="sleep" framed={false} />
+            ))}
+          </View>
+          {team.length > 0 ? trail : null}
+          <ComputerPortrait kind={WORKSPACE_COMPUTER_KIND} state="paused" />
+          {trail}
+          <View style={styles.marks}>
+            {SCENE_PLANS.map((plan, i) => (
+              <View key={plan} style={[styles.plate, { backgroundColor: c.raised }, i > 0 ? styles.over : null]}>
+                <ProviderLogo id={planMark(plan)} size="sm" />
+              </View>
+            ))}
+          </View>
         </View>
       </View>
-    </View>
+    </FocusLive>
   );
 }
 

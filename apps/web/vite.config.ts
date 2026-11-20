@@ -18,7 +18,11 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
     preloadLocale(),
   ],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // One copy of Yjs: it checks its own types with instanceof (live files, ADR 0196).
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    dedupe: ["yjs", "lib0", "y-protocols", "prosemirror-model", "prosemirror-state", "prosemirror-view"],
+  },
   server: { port: 5173, proxy: { "/api": { target: "http://localhost:3000", ws: true } } },
   // `screen.html`: the agent's screen for the phone app (ADR 0098), a small page of its own, not the web app.
   build: {

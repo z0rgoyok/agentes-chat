@@ -183,7 +183,7 @@ describe("Notificações", () => {
     expect(document.body.textContent).toContain("reagiram à sua mensagem");
   });
 
-  test("each chip says its thing once: a channel's name after its #, a task's move with its arrow in the words", async () => {
+  test("two lines a row: where it happened and a task's move lead the snippet in plain words, no chips", async () => {
     const items = [
       notification({
         id: "n-mention",
@@ -201,22 +201,25 @@ describe("Notificações", () => {
         latest: { title: "Corrigir o login com Google", statusFrom: "in_progress", statusTo: "in_review" },
         updatedAt: ago(6),
       }),
+      notification({
+        id: "n-done",
+        kind: "mission_finished",
+        actors: [{ type: "agent", id: ADA_ID }],
+        source: { channelId: ENG_ID, label: "Revisar o PR" },
+        latest: { steps: { done: 5, total: 5 } },
+        updatedAt: ago(9),
+      }),
       ...inbox().filter((n) => n.kind === "reaction"),
     ];
     await go(seedState({ notifications: items }));
-    const chips = [...document.querySelectorAll<HTMLElement>(".nt-tags .ac-chip")];
-    // The channel's # is its icon: the words show the bare name, a screen reader still hears "#eng".
-    const channel = chips.find((c) => c.querySelector(".ac-chip__text")?.textContent === "#eng");
-    expect(channel?.querySelector("svg.ac-icon")).not.toBeNull();
-    expect(channel?.querySelector(".ac-chip__text > .ac-visually-hidden")?.textContent).toBe("#");
-    expect(channel?.querySelector(".ac-chip__text")?.lastChild?.textContent).toBe("eng");
-    const move = chips.find((c) => c.textContent === "Em andamento → Em revisão");
-    expect(move).toBeTruthy();
-    expect(move?.querySelector("svg")).toBeNull();
-    expect(chips.find((c) => c.textContent === "Tarefa #131")?.querySelector("svg.ac-icon")).not.toBeNull();
-    // The kit's chips as they are (22 high, words 12): the inbox sizes none of its own.
-    const sheet = await Bun.file(new URL("../src/pages/notifications.css", import.meta.url).pathname).text();
-    expect(sheet).not.toMatch(/\.nt-tags \.ac-chip[^{]*\{/);
+    expect(document.querySelector(".nt-item .ac-chip")).toBeNull();
+    const mention = document.querySelector('[data-n="n-mention"] .nt-snip') as HTMLElement;
+    expect(mention.querySelector(".nt-where")?.textContent).toBe("#eng");
+    expect(mention.textContent).toBe("#eng · @walter dá uma olhada no deploy das 9h?");
+    const move = document.querySelector('[data-n="n-move"] .nt-where') as HTMLElement;
+    expect(move.textContent).toBe("Tarefa #131 · Em andamento → Em revisão");
+    // A finished run says nothing extra: no step strip.
+    expect(document.querySelector('[data-n="n-done"] .nt-steprow')).toBeNull();
   });
 
   test("an approval is the conversation's card: the agent's why, the action in its well, who asked behind Ver detalhes", async () => {

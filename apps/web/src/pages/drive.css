@@ -169,7 +169,7 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
   }
 }
 
-/* List: the groups' heads inside its card, where its rows' words start. */
+/* List: folders and files share one grid (checkbox, icon, name…), from the same 16 edge as the groups' heads. */
 .drive-table {
   overflow: hidden;
   border-radius: var(--radius-section);
@@ -188,10 +188,10 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
 .drive-table__head,
 .drive-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 108px 40px;
+  grid-template-columns: auto minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 108px 40px;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
 }
 .drive-table__head {
   padding-top: 10px;
@@ -205,9 +205,18 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
   border-top: 1px solid var(--line);
   transition: background 0.12s;
 }
-.drive-row > .drive-check,
-.drive-table__head > .drive-check {
-  justify-self: center;
+/* A row is two lines (the title, then its kind): the checkbox goes on the title's line, centred on its capitals as the
+   icon is (`.ac-iconline`'s rule). In the title's font, so its `lh` is the title's line. */
+.drive-row > .drive-check {
+  align-self: start;
+  font: inherit;
+  font-size: 14px;
+  translate: 0 calc(11px - var(--cap-mid) - 50%);
+}
+@supports (top: 1lh) {
+  .drive-row > .drive-check {
+    translate: 0 calc(0.5lh - var(--cap-mid) - 50%);
+  }
 }
 .drive-row:hover {
   background: color-mix(in srgb, var(--sunken) 55%, transparent);
@@ -227,9 +236,17 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
 }
 .drive-row__name {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: var(--space-3);
   min-width: 0;
+}
+/* A folder's or a file's icon: one 20 box in both rows, so their names start on one line. `.ac-iconline` centres it
+   on the title's capitals: in the title's size, so its `lh` is the title's line. */
+.drive-row__icon {
+  display: inline-flex;
+  flex: none;
+  font-size: 14px;
+  color: var(--muted);
 }
 .drive-row__text {
   min-width: 0;
@@ -252,9 +269,6 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
   font-size: 12.5px;
   color: var(--faint);
   white-space: nowrap;
-}
-.drive-row__sub > .ac-icon {
-  flex: none;
 }
 /* The kind (and, on a phone, who and when) in one box: a flex line clips its loose text without the "…". */
 .drive-row__subtext {
@@ -528,7 +542,7 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
 @media (max-width: 980px) {
   .drive-table__head,
   .drive-row {
-    grid-template-columns: 40px minmax(0, 2.4fr) minmax(0, 1.2fr) 96px 40px;
+    grid-template-columns: auto minmax(0, 2.4fr) minmax(0, 1.2fr) 96px 40px;
   }
   .drive-table__head .drive-row__where,
   .drive-row__where {
@@ -555,9 +569,7 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
     display: none;
   }
   .drive-row {
-    grid-template-columns: 34px minmax(0, 1fr) 34px;
-    gap: 10px;
-    padding: 8px;
+    grid-template-columns: auto minmax(0, 1fr) 34px;
   }
   .drive-row__who,
   .drive-row__when {
@@ -573,4 +585,118 @@ html:not([data-pointer]) .drive-row:has(.drive-hit:focus-visible) {
     width: auto;
     max-width: none;
   }
+}
+
+/* Folders: compact tiles above the files, Google Drive's way; each one takes Drive items dropped on it. */
+.drive-folders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: var(--space-3);
+}
+.drive-folder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--control-h-lg);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--e1), var(--top);
+  transition: box-shadow 0.2s var(--out);
+}
+.drive-folder:hover {
+  box-shadow: var(--e2), var(--top);
+}
+/* The icon, and the checkbox in its place on hover, on focus, while selecting, or when it is picked. */
+.drive-folder__lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+.drive-folder__lead > * {
+  grid-area: 1 / 1;
+}
+.drive-folder__lead > .drive-check {
+  opacity: 0;
+}
+.drive-folder:hover .drive-folder__lead > .drive-check,
+.drive-folder:focus-within .drive-folder__lead > .drive-check,
+.drive--selecting .drive-folder__lead > .drive-check,
+.drive-folder__lead > .drive-check[data-state="checked"] {
+  opacity: 1;
+}
+.drive-folder:hover .drive-folder__lead > .drive-row__icon,
+.drive-folder:focus-within .drive-folder__lead > .drive-row__icon,
+.drive--selecting .drive-folder__lead > .drive-row__icon,
+.drive-folder__lead:has(> .drive-check[data-state="checked"]) > .drive-row__icon {
+  opacity: 0;
+}
+.drive-folder--selected {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+}
+.drive-folder__name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.drive-folder__more {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+.drive-folder--over,
+.drive-row--over {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+}
+html:not([data-pointer]) .drive-folder:has(.drive-hit:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+/* The path under a folder's title: each step a way back, and a place to drop items. */
+.drive-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+.drive-crumbs__step {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.drive-crumbs__step + .drive-crumbs__step::before {
+  content: "/";
+  padding: 0 var(--space-1);
+  color: var(--faint);
+}
+.drive-crumbs__link {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0 var(--space-1);
+  margin: 0 calc(-1 * var(--space-1));
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.drive-crumbs__link:hover {
+  color: var(--ink);
+}
+.drive-crumbs__link--over {
+  background: var(--chosen-bg);
+  color: var(--ink);
+}
+.drive-crumbs__here {
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }

@@ -1,10 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { ISSUE_CARD_FIELDS, ISSUES_GROUPS, ISSUES_SORTS, ISSUES_VIEW_DEFAULT } from "@agenteschat/engine";
+import {
+  ISSUE_CARD_FIELDS,
+  ISSUE_COLUMN_WIDTHS,
+  ISSUES_GROUPS,
+  ISSUES_SORTS,
+  ISSUES_VIEW_DEFAULT,
+} from "@agenteschat/engine";
 import {
   ISSUES_VIEW_DEFAULT as APP_DEFAULT,
   ISSUE_CARD_FIELDS as APP_FIELDS,
   ISSUES_GROUPS as APP_GROUPS,
   ISSUES_SORTS as APP_SORTS,
+  ISSUE_COLUMN_WIDTHS as APP_WIDTHS,
 } from "../../../packages/client/src/lib/issues-view";
 import { browser, createTestServer, joinByInvitation, signUp, type TestServer } from "./harness";
 
@@ -16,6 +23,8 @@ test("Tarefas' view: the engine and the apps know the same parts and start from 
   expect([...APP_GROUPS]).toEqual([...ISSUES_GROUPS]);
   expect([...APP_SORTS]).toEqual([...ISSUES_SORTS]);
   expect(APP_DEFAULT).toEqual(ISSUES_VIEW_DEFAULT);
+  // The list's columns: the same ones, each with the same width of its own, least and most.
+  expect(APP_WIDTHS).toEqual(ISSUE_COLUMN_WIDTHS);
 });
 
 /** A new workspace, set up (one still in its onboarding would come back instead of another). */
@@ -48,6 +57,7 @@ const mine = {
   showCanceled: true,
   hideEmpty: true,
   collapsed: ["high"],
+  widths: { title: 420, label: 200 },
 };
 
 test("Tarefas' view: each person's own, per workspace, on every device; known parts only", async () => {
@@ -74,16 +84,31 @@ test("Tarefas' view: each person's own, per workspace, on every device; known pa
   const { project: _project, ...older } = mine.fields;
   const fromOlder = await owner(path, { method: "PUT", json: { view: { ...mine, fields: older } } });
   expect(await fromOlder.json()).toEqual({ view: { ...mine, fields: { ...mine.fields, project: true } } });
-  // An app from before the label filter, the finished tasks' choice and the folded groups saves without them: each
-  // goes back to its default.
-  const { labels: _labels, done: _done, hideEmpty: _hideEmpty, collapsed: _collapsed, ...before } = mine;
+  // An app from before the label filter, the finished tasks' choice, the folded groups and the columns' widths saves
+  // without them: each goes back to its default.
+  const {
+    labels: _labels,
+    done: _done,
+    hideEmpty: _hideEmpty,
+    collapsed: _collapsed,
+    widths: _widths,
+    ...before
+  } = mine;
   const fromBefore = await owner(path, { method: "PUT", json: { view: before } });
   expect(await fromBefore.json()).toEqual({
-    view: { ...mine, labels: [], done: "all", hideEmpty: false, collapsed: [] },
+    view: { ...mine, labels: [], done: "all", hideEmpty: false, collapsed: [], widths: {} },
   });
+  // A column at its least and at its most is kept; every column can be given one.
+  const ends = { title: ISSUE_COLUMN_WIDTHS.title.min, assignee: ISSUE_COLUMN_WIDTHS.assignee.max };
+  const atEnds = await owner(path, { method: "PUT", json: { view: { ...mine, widths: ends } } });
+  expect(await atEnds.json()).toEqual({ view: { ...mine, widths: ends } });
+  const every = Object.fromEntries(Object.entries(ISSUE_COLUMN_WIDTHS).map(([column, w]) => [column, w.base]));
+  const withEvery = await owner(path, { method: "PUT", json: { view: { ...mine, widths: every } } });
+  expect(await withEvery.json()).toEqual({ view: { ...mine, widths: every } });
   await owner(path, { method: "PUT", json: { view: mine } });
 
-  // A layout, a grouping, an order, a priority or an assignee the app doesn't know, or a part missing: refused, kept.
+  // A layout, a grouping, an order, a priority, an assignee or a width the app doesn't know, or a part missing:
+  // refused, kept.
   const { showCanceled: _, ...partial } = mine;
   for (const bad of [
     { ...mine, layout: "grid" },
@@ -92,6 +117,13 @@ test("Tarefas' view: each person's own, per workspace, on every device; known pa
     { ...mine, priorities: ["urgent"] },
     { ...mine, assignees: ["robot:1"] },
     { ...mine, fields: { ...mine.fields, label: "yes" } },
+    // A column the list doesn't have, a width past its column's ends, half a pixel, not a number.
+    { ...mine, widths: { number: 80 } },
+    { ...mine, widths: { title: ISSUE_COLUMN_WIDTHS.title.min - 1 } },
+    { ...mine, widths: { label: ISSUE_COLUMN_WIDTHS.label.max + 1 } },
+    { ...mine, widths: { due: 120.5 } },
+    { ...mine, widths: { due: "120" } },
+    { ...mine, widths: [120] },
     partial,
   ])
     expect((await owner(path, { method: "PUT", json: { view: bad } })).status).toBe(400);

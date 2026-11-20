@@ -116,14 +116,14 @@ export function Cover({
 
 const styles = StyleSheet.create({
   center: { textAlign: "center" },
+  // One that fills the live screen's box is clipped by it, whatever its corners.
   cover: {
-    borderRadius: 20,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     padding: CARD_PAD,
   },
-  stage: { aspectRatio: DEFAULT_DESKTOP.width / DEFAULT_DESKTOP.height },
+  stage: { aspectRatio: DEFAULT_DESKTOP.width / DEFAULT_DESKTOP.height, borderRadius: 20 },
   // The capsule's hang and a little air, as the live screen's.
   docked: { marginBottom: DOCK_HANG + 12 },
   say: { alignItems: "center", gap: 8, maxWidth: 300 },

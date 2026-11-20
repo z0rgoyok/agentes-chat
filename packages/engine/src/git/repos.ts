@@ -2,10 +2,11 @@ import type { MergeDone } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, schema } from "@agenteschat/db";
 import { recordAgentActions } from "../agent-actions";
 import { getAgent } from "../agents";
+import { managesAgent } from "../audience";
 import { recordAudit } from "../audit";
 import { fedByRoutine, runAuthorityById } from "../authority";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
-import { can, requirePermission } from "../organizations";
+import { requirePermission } from "../organizations";
 import { approvalsLevelOf } from "../tools/run-policy";
 import type { ToolContext } from "../tools/types";
 
@@ -115,8 +116,9 @@ export async function getAgentRepositories(db: Database, actorId: string, orgId:
 
 /**
  * `PUT …/agents/{id}/repositories`: replaces the list. Empty = every
- * repository. Admins set anything; the agent's owner may only narrow it (each
- * repository already in reach), like its access. Audited.
+ * repository. Who manages the agent (`managesAgent`, ADR 0085 addendum of
+ * 2026-11-17) sets anything; its owner may only narrow it (each repository
+ * already in reach), like its access. Audited.
  */
 export async function setAgentRepositories(
   db: Database,
@@ -128,7 +130,7 @@ export async function setAgentRepositories(
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
-  const admin = can(membership, "manage_agents");
+  const admin = managesAgent(agent, actorId, membership);
   if (!admin && agent.ownerUserId !== actorId) {
     throw new ForbiddenError("Only an admin or the agent's owner can change its repositories");
   }
@@ -204,8 +206,8 @@ export async function getAgentMergeRepositories(db: Database, actorId: string, o
 }
 
 /**
- * `PUT …/agents/{id}/merge-repositories`: replaces the list. Its owner or an admin; exact repositories only (never a
- * whole account), each one the agent may use. Audited.
+ * `PUT …/agents/{id}/merge-repositories`: replaces the list. Its owner or who manages it (`managesAgent`); exact
+ * repositories only (never a whole account), each one the agent may use. Audited.
  */
 export async function setAgentMergeRepositories(
   db: Database,
@@ -217,7 +219,7 @@ export async function setAgentMergeRepositories(
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!can(membership, "manage_agents") && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
     throw new ForbiddenError("Only an admin or the agent's owner can change where it merges without asking");
   }
   const { list, invalid } = cleanRepoList(repositories);

@@ -20,8 +20,8 @@ export const MODEL_PDF_PAGES = 100;
 const ANY_TEXT_BYTES = 5_000_000;
 /** A declared text type (`text/csv`, `application/json`, YAML, XML): decoded at any size, `read_artifact` pages it. */
 const TEXT_TYPE = /^text\/|json|xml|yaml/;
-/** One part of an Office file (a sheet, the document's XML) inflated, at most. */
-const OFFICE_PART_BYTES = 40_000_000;
+/** One part of an Office file (a sheet, the document's XML) inflated, at most: also all of one an app reads (ADR 0198). */
+export const OFFICE_PART_BYTES = 40_000_000;
 const ZIP_LIST_MAX = 300;
 const SHEET_ROWS_MAX = 5000;
 /** Excel's last column (XFD): a cell past it is no real cell, and would make every row that wide. */

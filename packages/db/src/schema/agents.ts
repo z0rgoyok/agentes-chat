@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   bigint,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -155,6 +156,13 @@ export const agents = pgTable(
      */
     consultable: boolean().notNull().default(true),
     /**
+     * "Quem pode editar" (ADR 0085, addendum of 2026-11-17): besides its owner and who manages it, the people named
+     * and whoever holds one of `editor_role_ids` at the time edit how it works (instructions, role, skills and
+     * routines) and see it. Talking to it is still its audience's.
+     */
+    editorUserIds: text().array().notNull().default(sql`'{}'::text[]`),
+    editorRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    /**
      * Autonomy brakes (ADR 0131): what it may start that nobody asked for directly (costly work, how much at once,
      * PRs an hour) and which agents it may call. Validated in code (`autonomySettings`); `{}` = the defaults.
      */
@@ -208,11 +216,14 @@ export const agents = pgTable(
     brain: text().notNull().default("model"),
     /** The computer brain's model (`opus`, `sonnet`, `haiku`, a Codex model); null = the brain's default. */
     brainModel: text(),
-    /** When the computer brain can't answer, answer through the API (counts against the budget). */
+    /**
+     * Unused (ADR 0032's 2026-11-15 addendum: the API never stands in for a computer brain). Kept while the previous
+     * release still reads it during a deploy and on rollback; a migration of a later release drops it.
+     */
     brainFallback: boolean().notNull().default(true),
     /**
-     * Long work may go on into the plan's paid extra usage, where the provider reports it on (ADR 0118); off, it
-     * pauses at 95% of the plan like any other.
+     * Never read (ADR 0118's 2026-11-15 addendum: paid extra usage follows the plan, `paysExtraUsage`). Kept and dropped
+     * as `brainFallback` is; until then written `false` where the previous release wrote it, which still reads it.
      */
     brainExtraUsage: boolean().notNull().default(true),
     /**
@@ -231,6 +242,11 @@ export const agents = pgTable(
      * the plan stays lent if that person leaves.
      */
     brainAccountLentBy: text(),
+    /**
+     * "Só esta conta" (ADR 0041 §6): at its plan's limit a run waits for this account to reset instead of going on
+     * with the next account in the workspace's order (`nextAccountPlan`).
+     */
+    brainAccountPinned: boolean().notNull().default(false),
     /** How hard its computer brain thinks (`low`…`max`, ADR 0041); null = the CLI's default. */
     brainEffort: text(),
     /**
@@ -432,7 +448,6 @@ export interface AgentSetup {
   account?: string | null;
   effort?: string | null;
   contextTokens?: number | null;
-  fallback?: boolean;
   /** Its Autonomia (`agents.mission_command_approval`); null: the default. */
   autonomy?: string | null;
 }
@@ -452,7 +467,10 @@ export const rightHandBrains = pgTable(
     /** A computer brain (`claude_code`, `codex`…): an API key is the workspace's, never a person's. */
     brain: text().notNull(),
     brainModel: text(),
-    brainAccountId: uuid().notNull(),
+    /** Null: the plan the person's own computer is signed in to (`machineId`), as any agent's owner may use. */
+    brainAccountId: uuid(),
+    /** The computer whose own sign-in thinks, when there is no account: one the person paired. */
+    machineId: uuid(),
     /** Someone else's plan, given with `use_others_plans`: who gave it (themselves); its owner may take it back. */
     brainAccountLentBy: text().references(() => users.id, { onDelete: "set null" }),
     brainEffort: text(),
@@ -468,7 +486,9 @@ export const rightHandBrains = pgTable(
       columns: [t.orgId, t.brainAccountId],
       foreignColumns: [machineAccounts.orgId, machineAccounts.id],
     }).onDelete("cascade"),
+    foreignKey({ columns: [t.orgId, t.machineId], foreignColumns: [machines.orgId, machines.id] }).onDelete("cascade"),
     index().on(t.orgId, t.brainAccountId),
+    check("right_hand_brains_account_or_machine", sql`${t.brainAccountId} is not null or ${t.machineId} is not null`),
   ],
 );
 

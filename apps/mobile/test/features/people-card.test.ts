@@ -26,6 +26,11 @@ test("the people card applies each row as the web does: the shared words and key
   expect(card).toContain("if (!people || !known.isSuccess) return null;");
 });
 
+test("a settings row sent to an admin names whom the server sent it to, a new supervisor's managers included", () => {
+  // Putting an agent under another goes only to who manages that one too (ADR 0085 addendum of 2026-11-17).
+  expect(src("right-hand/SettingsCard.tsx")).toContain("decidersOf(p, members, roles, agent, dir.anyAgent)");
+});
+
 test("a workspace change's card says who asked, and its tap says which action this app showed", () => {
   const card = src("right-hand/SettingsCard.tsx");
   expect(card).toContain("useDecideActionCard(orgId, { ...where, action: card.params.action })");

@@ -2,7 +2,7 @@ import { type Proposal, useDecideProposals, useProposals } from "@agenteschat/cl
 import { isOpen, proposalWhy, sortProposals, staleCount } from "@agenteschat/client/lib/proposals";
 import { useTranslation } from "react-i18next";
 import { RefreshControl, StyleSheet, View } from "react-native";
-import { Button, EmptyState, Text, useToast } from "@/ui";
+import { Button, EmptyState, SkeletonList, Text, useToast } from "@/ui";
 import { ChangeRequestRow } from "../right-hand/SettingsCard";
 import { useFailed } from "../routines/hooks";
 import { confirmAction } from "../settings/parts";
@@ -24,6 +24,8 @@ export function ProposalsScreen() {
       title={t("shell.proposals")}
       refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
     >
+      {/* The list's own shape while it loads, never a blank page. */}
+      {proposals.isPending ? <SkeletonList rows={3} /> : null}
       {proposals.isError && !proposals.data ? <LoadFailed onRetry={() => void proposals.refetch()} /> : null}
       {proposals.isSuccess && open.length === 0 ? (
         // All clear, the whole screen's: the agent at ease over the words, centered (as the audit's "Nothing to review").

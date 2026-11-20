@@ -113,6 +113,61 @@ html:not([data-pointer]) .onb__me:focus-visible {
   align-items: flex-start;
   min-width: 0;
 }
+/*
+ * A wide window: one stage in its middle instead of a rail on its edge and a column adrift in the rest. The rail is a
+ * card the window's height (28px from each edge) with its steps on top and Lodi on its own horizon at its foot; the
+ * question and the preview stand beside it, the preview's frame on the card's top line, and the window's own horizon
+ * (`OnboardingStageSky`) runs behind them all. 72px from the card to the question and 56px from the question to the
+ * preview, the body's gutter included. Below this width, the rail on the edge as before.
+ */
+.onb__stage-sky {
+  display: none;
+}
+@media (min-width: 1400px) {
+  .onb--rail {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: calc(72px - var(--onb-gutter, 32px));
+    --onb-gutter: 32px;
+  }
+  .onb--rail > .onb__stage-sky {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 30%;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .onb--rail > .onb__rail {
+    position: sticky;
+    top: 28px;
+    z-index: 1;
+    flex: 0 0 280px;
+    height: calc(var(--onb-h, 100dvh) - 56px);
+    margin-block: 28px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-section);
+    box-shadow: var(--e1);
+  }
+  .onb--rail > .onb__main {
+    position: relative;
+    z-index: 1;
+    flex: 0 1 auto;
+  }
+  .onb--rail .onb__cols {
+    width: auto;
+    gap: calc(56px - var(--onb-gutter));
+  }
+  .onb--rail .onb-preview {
+    padding-top: 28px;
+  }
+}
 /* The step's column and, on wide screens, the workspace's preview beside it. */
 .onb__cols {
   --onb-gutter: clamp(16px, 4vw, 32px);
@@ -450,15 +505,17 @@ html:not([data-pointer]) .onb__logo:focus-visible {
   top: 0;
   padding-top: 40px;
 }
+/* As tall as what the workspace has so far, the person's row right under it: never a tall frame with a hole. */
 .onb-preview__frame {
-  height: min(600px, calc(100dvh - 120px));
+  max-height: calc(100dvh - 120px);
   overflow: hidden;
   border-radius: var(--radius-section);
   box-shadow: var(--e2);
 }
 .onb-preview__side.sidebar {
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-height: inherit;
 }
 .onb-preview__side .sidebar__item {
   cursor: default;

@@ -116,8 +116,8 @@ describe("Todos nesta conta", () => {
     };
     const d = await brainDialog("Quem pensa pela Ada");
     await toScreen(d, "Trocar de conta");
-    await pickRow(d, "Claude Team");
-    await click(within(d).getByRole("button", { name: "Trocar para Claude Team" }));
+    await pickRow(d, "next@acme.com");
+    await click(within(d).getByRole("button", { name: "Trocar para next@acme.com" }));
     // The account thinks for both: whom the switch is for, everyone by default.
     expect(brainScreen(d)).toBe("Trocar a conta do time");
     const cards = within(d).getByRole("group", { name: "Para quem é" });

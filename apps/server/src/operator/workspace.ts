@@ -1,4 +1,6 @@
+import { schema } from "@agenteschat/db";
 import {
+  AUDIENCE_MODES,
   OPERATOR_ASK_KINDS,
   OPERATOR_AUDIT_ACTORS,
   OPERATOR_AUDIT_DAYS,
@@ -9,6 +11,7 @@ import {
   operatorAudit,
   operatorConnections,
   operatorRoutines,
+  SYSTEM_STOP_REASONS,
 } from "@agenteschat/engine";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiError, errorResponse } from "../http/errors";
@@ -91,6 +94,45 @@ const AuditQuery = z.object({
   ...paging,
 });
 
+const AudienceMode = z.enum(AUDIENCE_MODES);
+
+const AuditFacts = z
+  .object({
+    fromMode: AudienceMode.nullable().optional().openapi({
+      description:
+        "`agent.audience_changed`: who could talk to the agent before (`everyone`, `people`: the ones listed, `owner`).",
+    }),
+    toMode: AudienceMode.nullable().optional().openapi({ description: "`agent.audience_changed`: and who can now." }),
+    peopleAdded: Count.optional().openapi({
+      description: "`agent.audience_changed`: how many people the list gained, never who.",
+    }),
+    peopleRemoved: Count.optional().openapi({ description: "`agent.audience_changed`: how many it lost." }),
+    rolesAdded: Count.optional().openapi({ description: "`agent.audience_changed`: how many roles the list gained." }),
+    rolesRemoved: Count.optional().openapi({ description: "`agent.audience_changed`: how many it lost." }),
+    via: z.enum(["invitation"]).nullable().optional().openapi({
+      description:
+        "`agent.audience_changed`: `invitation` when inviting someone made the change; null: someone saved it.",
+    }),
+    tools: Count.optional().openapi({
+      description:
+        "`connector.tool_definitions_changed`: how many of the connection's tools changed what they say of themselves, never which.",
+    }),
+    descriptionsChanged: Count.optional().openapi({
+      description: "`connector.tool_definitions_changed`: how many of them changed their description.",
+    }),
+    inputsChanged: Count.optional().openapi({
+      description: "`connector.tool_definitions_changed`: how many of them changed the input they take.",
+    }),
+    fromStatus: z.enum(schema.agentRunStatusEnum.enumValues).nullable().optional().openapi({
+      description: "`run.canceled`: the run's status when it was stopped.",
+    }),
+    reason: z.enum(SYSTEM_STOP_REASONS).nullable().optional().openapi({
+      description: "`run.canceled`: why the system stopped it, as a run's `canceled.reason`; null: a person did.",
+    }),
+    agentId: z.uuid().nullable().optional().openapi({ description: "`run.canceled`: the run's agent." }),
+  })
+  .nullable();
+
 const AuditPage = z
   .object({
     from: Time,
@@ -116,9 +158,13 @@ const AuditPage = z
           }),
           runId: z.uuid().nullable().openapi({ description: "An agent's: the run it happened in." }),
           onBehalfOfUserId: z.string().nullable().openapi({ description: "An agent's: the person behind that run." }),
+          facts: AuditFacts.openapi({
+            description:
+              "What the entry's details say in listed words, counts and ids, for three actions, each with its own keys: `agent.audience_changed`, `connector.tool_definitions_changed` and `run.canceled`. Null for every other action.",
+          }),
         }),
       )
-      .openapi({ description: "Never an entry's details." }),
+      .openapi({ description: "Never an entry's details, but the facts named in `facts`." }),
     next: Next,
   })
   .openapi("OperatorAuditPage");
@@ -245,7 +291,8 @@ const RoutinePage = z
 
 /**
  * What a workspace connected, recorded, asked and scheduled (ADR 0056, its addendum on them): states, codes and
- * times, never a credential, an audit entry's details, what was asked or answered, nor a routine's instructions.
+ * times, never a credential, an audit entry's details (but the facts it names), what was asked or answered, nor a
+ * routine's instructions.
  * All `GET`.
  */
 export function registerOperatorWorkspace(api: OpenAPIHono, { db }: OperatorDeps) {
@@ -279,7 +326,7 @@ export function registerOperatorWorkspace(api: OpenAPIHono, { db }: OperatorDeps
       tags,
       summary: "A workspace's audit log, newest first: who did what to what, never an entry's details",
       description:
-        "What people changed and what agents did, every entry as stored and without its details: those hold a tool's input and what a change was made of. A tool that writes an entry of its own beside its `tool.call` shows as two.",
+        "What people changed and what agents did, every entry as stored and without its details, which hold a tool's input and what a change was made of: never an entry's details, but the facts named here (`facts`). A tool that writes an entry of its own beside its `tool.call` shows as two.",
       request: { params: OrgParams, query: AuditQuery },
       responses: { 200: json(AuditPage), ...errors },
     }),

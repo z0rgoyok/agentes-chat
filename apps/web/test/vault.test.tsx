@@ -417,9 +417,29 @@ describe("Settings › Vault (ADR 0144)", () => {
     await settle(2);
     const create = screen().getByRole("dialog", { name: t("vault.new.title") });
     const who = within(create).getByRole("radiogroup", { name: t("vault.new.who") });
-    for (const option of within(who).getAllByRole("radio")) expect((option as HTMLButtonElement).disabled).toBe(true);
+    // Only Equipe can't be chosen: the chosen Pessoal stays a choice, not faded with it.
+    const team = within(who).getByRole("radio", { checked: false });
+    expect((team as HTMLButtonElement).disabled).toBe(true);
+    expect((within(who).getByRole("radio", { checked: true }) as HTMLButtonElement).disabled).toBe(false);
+    expect(who.hasAttribute("aria-disabled")).toBe(false);
     expect(within(who).getByRole("radio", { checked: true }).textContent).toContain(t("vault.scope.personal"));
     expect(create.textContent).toContain(t("vault.new.teamLocked"));
+  });
+
+  test("a member connecting a password manager: only Equipe fades, the chosen Pessoal stays a choice", async () => {
+    const state = seedState();
+    if (state.me?.organizations[0]) state.me.organizations[0].role = "member";
+    const { t } = await openVault(state, overviewOf({ connections: [], canManageTeam: false }));
+    const views = screen().getByRole("radiogroup", { name: t("vault.tab.label") });
+    await click(within(views).getByRole("radio", { name: new RegExp(`^${t("vault.tab.connections")}`) }));
+    const card = screen().getByRole("region", { name: "1Password" });
+    await click(within(card).getByRole("button", { name: t("vault.connections.connect") }));
+    const who = within(card).getByRole("radiogroup", { name: t("vault.connections.for") });
+    expect((within(who).getByRole("radio", { checked: false }) as HTMLButtonElement).disabled).toBe(true);
+    const chosen = within(who).getByRole("radio", { checked: true }) as HTMLButtonElement;
+    expect(chosen.disabled).toBe(false);
+    expect(chosen.textContent).toContain(t("vault.scope.personal"));
+    expect(who.hasAttribute("aria-disabled")).toBe(false);
   });
 
   test("a saved value stays behind its dots: no Show or Copy, Change for who manages it, and why", async () => {
@@ -498,7 +518,10 @@ describe("Import .env and moving an item (ADR 0144 §11)", () => {
       ["ACME_EMPTY", "problem"],
     ]);
     expect(dialog.textContent).toContain(t("vault.env.duplicates", { names: "ACME_DB_URL" }));
-    expect(stateOf("lower_case")?.textContent).toContain(t("vault.env.problem.name"));
+    // The example name shows as code, never with its backticks.
+    const named = stateOf("lower_case")?.querySelector(".vlt-env__problem");
+    expect(named?.textContent).toBe(t("vault.env.problem.name").replaceAll("`", ""));
+    expect(named?.querySelector("code.ac-inlinecode")?.textContent).toBe("ACME_API_KEY");
     expect(stateOf("OPENAI_API_KEY")?.textContent).toContain(t("vault.env.problem.reserved"));
     expect(stateOf("ACME_EMPTY")?.textContent).toContain(t("vault.env.problem.empty"));
     // Every value behind its dots until asked, one key at a time.
@@ -654,10 +677,11 @@ describe("Import .env and moving an item (ADR 0144 §11)", () => {
 /** A pending secret request for me, with `saveToVault` on the fake api (logged as `secrets.saveToVault`). */
 async function withRequest(
   target: SecretTarget,
-  extra: { name?: string; codeDigits?: number; username?: string } = {},
+  extra: { name?: string; codeDigits?: number; username?: string; member?: boolean } = {},
 ) {
   const pair = await generateSecretKeyPair();
   const state = seedState();
+  if (extra.member && state.me?.organizations[0]) state.me.organizations[0].role = "member";
   const name = extra.name ?? "NPM_TOKEN";
   const secretRequest = {
     id: "00000000-0000-4000-8000-0000000000e1",
@@ -748,6 +772,16 @@ describe("the secret request card: Save to the Vault (ADR 0144)", () => {
     const call = state.calls.find((c) => c.method === "secrets.saveToVault");
     // Empty: no username, not the agent's guess (absent would keep it).
     expect(call?.args[2]).toMatchObject({ value: "hunter2-for-the-shop", username: "" });
+  });
+
+  test("a member's card: only Equipe fades, the chosen Pessoal stays a choice", async () => {
+    const { t, card } = await withRequest({ kind: "env" }, { member: true });
+    const who = within(card()).getByRole("radiogroup", { name: t("vault.card.scope") });
+    expect((within(who).getByRole("radio", { checked: false }) as HTMLButtonElement).disabled).toBe(true);
+    const chosen = within(who).getByRole("radio", { checked: true }) as HTMLButtonElement;
+    expect(chosen.disabled).toBe(false);
+    expect(chosen.textContent).toContain(t("vault.scope.personal"));
+    expect(who.hasAttribute("aria-disabled")).toBe(false);
   });
 
   test("unchecked: delivered, and nothing goes to the Vault", async () => {

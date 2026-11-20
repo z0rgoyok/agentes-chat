@@ -48,7 +48,7 @@ import type { TFunction } from "i18next";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConnectorIcon } from "@/components/ConnectorCatalog";
-import { CodePanel, formatBytes, OutputView, type SteerNote, SteerWell } from "@/components/LiveCode";
+import { CodePanel, formatBytes, OutputView } from "@/components/LiveCode";
 import { useOrg } from "@/components/org-context";
 
 /** Our own tools by what they do: their icon in the block (a connector's call shows its logo). */
@@ -210,20 +210,18 @@ function useBlockItems(items: ToolItem[]): ToolBlockItem[] {
 /**
  * The tools of a reply while it works (and kept after, `done`): one line saying what it does now, the apps'
  * logos and the steps, opening into every call; a single call is that call's own line. What it said between calls
- * is inside; the messages it read stay outside, under the block, so "Leu seu recado" is always in sight.
+ * is inside. A message it read on the way shows nothing here: that message says it ("Ada read it", `MessageReceipts`).
  */
 export function LiveTools({
   work,
   agentName,
   color,
-  steerNote,
   done,
   stopped,
 }: {
   work: LiveWork[];
   agentName: string;
   color?: AgentColor;
-  steerNote?: (messageId: string) => SteerNote | undefined;
   /** The reply is done: "Usou 4 ferramentas". */
   done?: boolean;
   /** Stopped by someone: the call running then shows as stopped. */
@@ -235,28 +233,22 @@ export function LiveTools({
   const blockItems = useBlockItems(items);
   const logo = useCallLogo();
   const calls = toolCalls(items);
-  const steers = items.flatMap((i) => (i.kind === "steer" ? [i] : []));
-  // Done, its tools are the summary the person chose not to see (`showActivity`): what it read stays.
-  if (done && !showsActivity(org))
-    return steers.map((s) => <SteerWell key={s.key} now={s.now} note={steerNote?.(s.messageId)} />);
+  // Done, its tools are the summary the person chose not to see (`showActivity`).
+  if (done && !showsActivity(org)) return null;
   // A lone quick read that only fed the answer: no card, as if it called nothing (once done, what it said on the way
   // is in its reply).
   const quiet = quietWork(items);
   const now = quiet ? null : toolNow(items);
   const said = quiet && done ? [] : items.flatMap((i) => (i.kind === "say" ? [i] : []));
   if (!now) {
-    // Nothing called yet: what it said and read, as lines.
-    return said.length + steers.length > 0 ? (
+    // Nothing called yet: what it said, as lines.
+    return said.length > 0 ? (
       <div className="live-work-notes">
-        {items.map((i) =>
-          i.kind === "say" && said.length > 0 ? (
-            <p key={i.key} className="live-work__say">
-              {i.text}
-            </p>
-          ) : i.kind === "steer" ? (
-            <SteerWell key={i.key} now={i.now} note={steerNote?.(i.messageId)} />
-          ) : null,
-        )}
+        {said.map((i) => (
+          <p key={i.key} className="live-work__say">
+            {i.text}
+          </p>
+        ))}
       </div>
     ) : null;
   }
@@ -274,24 +266,19 @@ export function LiveTools({
         count: t("chat.work.steps", { count: calls }),
       };
   return (
-    <>
-      <ToolBlock
-        logos={toolApps(items).map((a) => <span key={appKey(a)}>{logo(a)}</span>)}
-        head={head}
-        // Its own line is closed until clicked, as the block it stands for (code that runs shows when opened).
-        items={
-          one
-            ? blockItems.map((i) => (i.kind === "line" ? { ...i, line: { ...i.line, defaultOpen: false } } : i))
-            : blockItems
-        }
-        color={color}
-        label={t("chat.work.block", agentGrammar(agentName))}
-        one={one}
-      />
-      {steers.map((s) => (
-        <SteerWell key={s.key} now={s.now} note={steerNote?.(s.messageId)} />
-      ))}
-    </>
+    <ToolBlock
+      logos={toolApps(items).map((a) => <span key={appKey(a)}>{logo(a)}</span>)}
+      head={head}
+      // Its own line is closed until clicked, as the block it stands for (code that runs shows when opened).
+      items={
+        one
+          ? blockItems.map((i) => (i.kind === "line" ? { ...i, line: { ...i.line, defaultOpen: false } } : i))
+          : blockItems
+      }
+      color={color}
+      label={t("chat.work.block", agentGrammar(agentName))}
+      one={one}
+    />
   );
 }
 

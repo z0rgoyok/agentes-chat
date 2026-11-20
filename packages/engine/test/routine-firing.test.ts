@@ -12,6 +12,7 @@ import {
   setRoutineActive,
   stopRoutineRun,
   takeOverRoutine,
+  wakeAgentUsageWaits,
 } from "../src";
 import * as ledgerModule from "../src/routine-ledger";
 import { addMember, type Fixture, setup } from "./fixtures";
@@ -271,6 +272,35 @@ describe("one run at a time", () => {
     const fresh = await fire(f, routine.id, minutesFromNow(-60), "schedule");
     await park(fresh.agentRunId);
     expect(await resumeRunsWaitingForMachine(f.db, machineId, { pubsub: f.pubsub })).toEqual([fresh.agentRunId ?? ""]);
+    expect(await routineRunRow(f, fresh.id)).toMatchObject({ status: "started" });
+  });
+
+  test("the agent's AI changed while its computer was away: the stale run is missed, a fresh one resumes", async () => {
+    f = await setup();
+    const routine = await channelRoutine(f);
+    const machineId = crypto.randomUUID();
+    const park = (agentRunId: string | null) =>
+      f.db
+        .update(schema.agentRuns)
+        .set({
+          status: "waiting_input",
+          waitingMachineId: machineId,
+          transcript: {
+            waitingForBrain: { kind: "claude_code", machineId, code: "machine_offline", waitId: Bun.randomUUIDv7() },
+          },
+        })
+        .where(eq(schema.agentRuns.id, agentRunId ?? ""));
+    const stale = await fire(f, routine.id, minutesFromNow(-13 * 60), "schedule");
+    await park(stale.agentRunId);
+    expect(await wakeAgentUsageWaits(f.db, f.org.id, f.agent.id, { pubsub: f.pubsub })).toEqual([]);
+    expect(await routineRunRow(f, stale.id)).toMatchObject({ status: "missed", code: "stale" });
+    expect((await agentRunRow(f, stale.agentRunId)).status).toBe("canceled");
+
+    const fresh = await fire(f, routine.id, minutesFromNow(-60), "schedule");
+    await park(fresh.agentRunId);
+    expect(await wakeAgentUsageWaits(f.db, f.org.id, f.agent.id, { pubsub: f.pubsub })).toEqual([
+      fresh.agentRunId ?? "",
+    ]);
     expect(await routineRunRow(f, fresh.id)).toMatchObject({ status: "started" });
   });
 });

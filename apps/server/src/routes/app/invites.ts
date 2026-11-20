@@ -44,9 +44,11 @@ import {
   json,
   noContent,
   OrgParams,
+  requestBaseUrl,
   requireSession,
   security,
 } from "./context";
+import { OutsideOf } from "./schemas";
 
 const tags = ["Organizations"];
 /** Asks from one place (ADR 0068). A link's own count is the engine's (`askToJoin`). */
@@ -142,6 +144,7 @@ const JoinRequest = z.object({
   suggestedBy: z.string().nullable().openapi({
     description: "The member who suggested this person (their name, ADR 0090): no link, no proof.",
   }),
+  outsideOf: OutsideOf,
   link: z
     .object({
       id: z.uuid(),
@@ -181,7 +184,7 @@ export function inviteRoutes(deps: AppDeps) {
   const app = createAppRouter(deps);
   app.use("/organizations/*", requireSession(deps.auth));
   const events = { db, pubsub: adapters.pubsub };
-  const linkUrl = (token: string) => `${config.PUBLIC_URL.replace(/\/$/, "")}/invite/${token}`;
+  const linkUrl = (base: string, token: string) => `${base}/invite/${token}`;
   /** A link's token when it can be shown again (ADR 0068 §9), else null. */
   const linkToken = (link: { id: string; tokenHash: string }) => {
     const token = inviteLinkToken(config.AGENTES_SECRET, link.id);
@@ -217,11 +220,12 @@ export function inviteRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId } = c.req.valid("param");
       const links = await listInviteLinks(db, config.AGENTES_SECRET, c.get("user").id, orgId);
+      const base = await requestBaseUrl(deps, c.req.raw.headers);
       return c.json(
         {
           links: links.map(({ token, neverExpires, ...l }) => ({
             ...l,
-            url: token ? linkUrl(token) : null,
+            url: token ? linkUrl(base, token) : null,
             expiresAt: l.expiresAt.toISOString(),
             ...(neverExpires ? { neverExpires: true as const } : {}),
             createdAt: l.createdAt.toISOString(),
@@ -260,7 +264,10 @@ export function inviteRoutes(deps: AppDeps) {
         Object.keys(choices).length > 0
           ? await createInviteLink(db, config.AGENTES_SECRET, userId, orgId, choices)
           : await inviteLink(db, config.AGENTES_SECRET, userId, orgId);
-      return c.json({ ...linkOut(link), url: linkUrl(token) }, made ? 201 : 200);
+      return c.json(
+        { ...linkOut(link), url: linkUrl(await requestBaseUrl(deps, c.req.raw.headers), token) },
+        made ? 201 : 200,
+      );
     },
   );
 
@@ -288,7 +295,8 @@ export function inviteRoutes(deps: AppDeps) {
       const { orgId, linkId } = c.req.valid("param");
       const link = await editInviteLink(db, c.get("user").id, orgId, linkId, choicesOf(c.req.valid("json")));
       const token = linkToken(link);
-      return c.json({ ...linkOut(link), url: token ? linkUrl(token) : null }, 200);
+      const base = await requestBaseUrl(deps, c.req.raw.headers);
+      return c.json({ ...linkOut(link), url: token ? linkUrl(base, token) : null }, 200);
     },
   );
 
@@ -542,9 +550,11 @@ export function inviteRoutes(deps: AppDeps) {
       const from = requestLimitIp(c.req.raw.headers, config.TRUSTED_PROXIES);
       const ip = await adapters.rateLimiter.consume(`join-code:ip:${from}`, CODES_PER_IP);
       if (!ip.allowed) return apiError(c, 429, "join.rate_limited", TOO_MANY);
-      // Before the link's count, so refused bots don't spend what everyone asking through it shares.
+      // Before the link's count, so refused bots don't spend what everyone asking through it shares. A registered host
+      // runs no check: there the limit per IP above guards it.
       const refused = await humanCheckRefusal(
         adapters.humanCheck,
+        db,
         c.req.raw.headers,
         "ask-code",
         config.TRUSTED_PROXIES,
@@ -556,7 +566,8 @@ export function inviteRoutes(deps: AppDeps) {
       const { email } = c.req.valid("json");
       const user = await sessionUser(deps.auth, c.req.raw.headers);
       if (!user && !email) return apiError(c, 400, "invalid_request", "Your email is needed");
-      const sent = await sendJoinCode({ ...events, rateLimiter: adapters.rateLimiter }, config.PUBLIC_URL, {
+      const base = await requestBaseUrl(deps, c.req.raw.headers);
+      const sent = await sendJoinCode({ ...events, rateLimiter: adapters.rateLimiter }, base, {
         token,
         user,
         email,

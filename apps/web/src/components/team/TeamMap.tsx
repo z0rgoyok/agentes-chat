@@ -1,7 +1,7 @@
 import type { Routine, Team, TeamAgent } from "@agenteschat/client";
 import { useAgentGroups, useApprovals, useProposeChannelMove, useRoutines } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { can } from "@agenteschat/client/lib/permissions";
 import {
   mapColumns,
   mayReportTo,
@@ -42,7 +42,7 @@ interface Line {
  * other in the last day, and the right hand under them. When an agent reports to another, a band of supervisors sits
  * between the people and the channels, with a solid line to each report. Dropping an agent on another channel asks
  * the right hand for a settings card in my DM with it, applied there like any other; dropping it on a supervisor in
- * the band (who manages agents) makes it report there at once, with Desfazer.
+ * the band (who manages that agent) makes it report there at once, with Desfazer.
  */
 export function TeamMap({ team }: { team: Team }) {
   const { t } = useTranslation();
@@ -58,7 +58,6 @@ export function TeamMap({ team }: { team: Team }) {
   const columns = mapColumns(team.agents, look.channelOrder, look.isLodi);
   const sups = supervisors(team.agents.filter((a) => !look.isLodi(a)));
   const setReportsTo = useSetReportsTo();
-  const arranges = can(org, "manage_agents");
   const owners = [
     ...new Set(columns.flatMap((c) => c.agents.map((a) => a.ownerUserId)).filter((id): id is string => !!id)),
   ].filter((id) => look.members.has(id));
@@ -73,10 +72,12 @@ export function TeamMap({ team }: { team: Team }) {
     });
 
   const [dragging, setDragging] = useState<{ agentId: string; from: string | null } | null>(null);
-  // While who manages agents drags one, the band also offers every agent it may report to: the first supervisor is
-  // made here too, not only on the Organograma.
+  // Its line changes only for who manages the agent dragged (`setReportsTo`, ADR 0085 addendum of 2026-11-17). While
+  // they drag it, the band also offers every agent it may report to: the first supervisor is made here too, not only
+  // on the Organograma.
+  const links = !!dragging && managesAgent(team.agents.find((a) => a.id === dragging.agentId));
   const band =
-    dragging && arranges
+    dragging && links
       ? [
           ...sups,
           ...team.agents.filter(
@@ -84,6 +85,7 @@ export function TeamMap({ team }: { team: Team }) {
               !look.isLodi(a) &&
               a.id !== dragging.agentId &&
               !sups.includes(a) &&
+              a.canManage === true &&
               mayReportTo(team.agents, dragging.agentId, a.id),
           ),
         ]
@@ -174,12 +176,13 @@ export function TeamMap({ team }: { team: Team }) {
   }, [shape, owners.join()]);
 
   const [over, setOver] = useState<string | null>(null);
-  /** A supervisor in the band takes an agent that may report to it (who manages agents). */
+  /** A supervisor in the band takes an agent that may report to it, from who manages that agent (`links`). */
   const supZone = (supId: string) => {
     const takes = () =>
       !!dragging &&
-      arranges &&
+      links &&
       team.agents.find((a) => a.id === dragging.agentId)?.reportsToAgentId !== supId &&
+      team.agents.find((a) => a.id === supId)?.canManage === true &&
       mayReportTo(team.agents, dragging.agentId, supId);
     const key = `sup:${supId}`;
     return {
@@ -254,10 +257,8 @@ export function TeamMap({ team }: { team: Team }) {
 
   // Every agent still outside the channels: there's no map to draw yet. One in a channel I don't see is placed.
   if (columns.every((c) => c.channelId === null && c.agents.every((a) => !a.channelIds?.length))) {
-    // The one agent this person may place: an agent's channels are its owner's or who manages agents' to change.
-    const first = team.agents.find(
-      (a) => !look.isLodi(a) && (can(org, "manage_agents") || a.ownerUserId === me.user.id),
-    );
+    // The one agent this person may place: an agent's channels are its owner's or who manages it's to change.
+    const first = team.agents.find((a) => !look.isLodi(a) && (managesAgent(a) || a.ownerUserId === me.user.id));
     return (
       <EmptyState
         size="page"

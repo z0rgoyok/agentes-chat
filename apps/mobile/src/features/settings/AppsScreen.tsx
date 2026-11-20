@@ -4,13 +4,11 @@ import { appFacts, appMark, appsSettingsUrl, isAppsEmpty, tokenFacts } from "@ag
 import { settingsFrozen } from "@agenteschat/client/lib/deletion";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { serverUrl } from "@/lib/server";
 import { useOrg } from "@/providers/org";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, ProviderLogo, useToast } from "@/ui";
-import { Note, openPage } from "../ai/parts";
-import { FirstUse } from "../shared/FirstUse";
-import { useColors } from "../shared/hooks";
+import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, ProviderLogo, SkeletonList, useToast } from "@/ui";
+import { openPage } from "../ai/parts";
+import { FirstUse, LoadFailed } from "../shared/FirstUse";
 import { errorHaptic, Loaded, successHaptic } from "../shared/parts";
 import { CommandBlock, chooseAction, confirmAction, Gap, SettingsPage } from "./parts";
 
@@ -21,7 +19,6 @@ import { CommandBlock, chooseAction, confirmAction, Gap, SettingsPage } from "./
  */
 export function AppsScreen() {
   const { t, i18n } = useTranslation();
-  const c = useColors();
   const toast = useToast();
   const { orgId, org } = useOrg();
   const list = useApps(orgId);
@@ -31,13 +28,7 @@ export function AppsScreen() {
   if (!list.data) {
     return (
       <SettingsPage title={title}>
-        {list.isError ? (
-          <View style={styles.note}>
-            <Note icon="x">{t("common.loadFailed")}</Note>
-          </View>
-        ) : (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
-        )}
+        {list.isError ? <LoadFailed onRetry={() => void list.refetch()} /> : <SkeletonList rows={4} />}
       </SettingsPage>
     );
   }
@@ -137,9 +128,3 @@ export function AppsScreen() {
     </SettingsPage>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: { marginTop: 32 },
-  // The other settings screens' note: on the groups' edge, not indented past it.
-  note: { paddingHorizontal: 4, paddingTop: 10 },
-});

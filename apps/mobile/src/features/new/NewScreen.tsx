@@ -1,38 +1,40 @@
+import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
 import { markTerms } from "@agenteschat/client/lib/search-filters";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
-import { type AgentPresetColor, gradientOf, mixHex } from "@agenteschat/ui/agent/engine";
-import { type NativeStackNavigationOptions, useIsFocused, useNavigation } from "expo-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useTrueSheetNavigation } from "@lodev09/react-native-true-sheet/navigation/expo-router";
+import { useIsFocused } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BackHandler,
   Keyboard,
-  Pressable,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   TextInput,
   type TextInputInstance,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
 import {
+  Button,
   EmptyState,
   fieldText,
   GroupedHeader,
   GroupedList,
   GroupedRow,
-  Icon,
   type IconName,
   PixelOrbit,
+  SheetBar,
   SheetSurface,
   Text,
-  useReducedMotion,
+  useRouteSheetScrollable,
   useTheme,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { busyAgents } from "../agents/logic";
+import { useCreateLive } from "../live-files/shared/useCreateLive";
 import { AgentFace, Face } from "../shared/Face";
 import { useDirectory, useMeId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
@@ -48,19 +50,19 @@ const DETENTS_TYPING = [1];
 
 /**
  * "New", the "+" of the tabs, as the system's new message: a sheet over the list (the native form sheet: it tracks
- * the finger, a drag or a flick puts it away, the screen behind steps back), on the grouped gray, "Cancelar" in its
- * corner and the "Para:" field on top (nothing focused until the person taps). Under it, everything as rows: what
- * to start, each with its icon on a soft tile of its color (found at a glance); the agents, the one you talked to
- * last first, a tap opening your conversation ready to type; then the people, and "Invite people" at their end.
- * Typing raises the sheet to the full detent with the keyboard and filters the same agents and people (what to
- * start steps aside); cancelling puts the sheet away.
+ * the finger, a drag or a flick puts it away, the screen behind steps back), on the grouped gray, the task sheets'
+ * bar (`SheetBar`, × in its corner) and the "Para:" field on top (nothing focused until the person taps). Under it,
+ * everything as rows: what to start, each with its icon on a soft tile of its color (found at a glance); the agents,
+ * the one you talked to last first, a tap opening your conversation in this sheet's place (its keyboard down, as
+ * every screen opens: the person taps the field); then the people, and "Invite people" at their end. Typing raises
+ * the sheet to the full detent with the keyboard and filters the same agents and people (what to start steps aside,
+ * at once, as the system's own search lists do); × puts the sheet away.
  */
 export function NewScreen() {
   const { t } = useTranslation();
   const focused = useIsFocused();
-  const reduced = useReducedMotion();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useTrueSheetNavigation();
   const { colors } = useTheme();
   const { org } = useOrg();
   const meId = useMeId();
@@ -80,21 +82,21 @@ export function NewScreen() {
   // No words: the agents in the order you talk to them; words: the matches.
   const agents = typed ? found.agents : recent;
   const people = found.people;
-  const ownsAgent = Boolean(meId) && dir.agents.some((a) => a.ownerUserId === meId);
-  const items = createItems(org, { ownsAgent });
+  // Some agent this person may make a routine for (`createsRoutinesFor`: they set up its routines and it answers them).
+  const createsRoutines = dir.agents.some((a) => createsRoutinesFor(a));
+  const items = createItems(org, { createsRoutines });
   const invite = !typed && items.includes("invite");
 
-  const talkTo = (agentId: string) => void openDm({ agentId }, { compose: true, replace: true });
+  const talkTo = (agentId: string) => void openDm({ agentId }, { replace: true });
   const cancel = () => {
     Keyboard.dismiss();
     goBack();
   };
 
   // The keyboard up: the sheet rises to the whole screen (the system animates the detent change); down, it may rest
-  // at two thirds again.
+  // at two thirds again. The route is a TrueSheet screen (`app/(app)/_layout.tsx`): its heights are its `detents`.
   useEffect(() => {
-    const options: NativeStackNavigationOptions = { sheetAllowedDetents: typing ? DETENTS_TYPING : DETENTS_REST };
-    navigation.setOptions(options);
+    navigation.setOptions({ detents: typing ? DETENTS_TYPING : DETENTS_REST });
   }, [navigation, typing]);
 
   // Android's back drops the keyboard first (as the field's blur does), not the sheet.
@@ -108,16 +110,16 @@ export function NewScreen() {
     return () => sub.remove();
   });
 
-  // Groups that come and go as the person types fade, and what stays slides into place.
-  const fade = reduced ? {} : { entering: FadeIn.duration(160), exiting: FadeOut.duration(120) };
-  const layout = reduced ? undefined : LinearTransition.duration(220);
+  // The list is the sheet's scroll view (dragging at its top moves the sheet, the keyboard insets it).
+  const scroll = useRef<ScrollViewInstance>(null);
+  useRouteSheetScrollable(scroll);
 
   return (
     <SheetSurface>
       <ScrollView
+        ref={scroll}
         style={styles.fill}
-        // The bar rides at the top of the scroll view, pinned: a form sheet tracks its first scroll view, so nothing may
-        // stand before it (a bar above it was drawn under the list).
+        // The bar rides at the top of the scroll view, pinned, on the sheet's color as the list passes under it.
         stickyHeaderIndices={[0]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -125,23 +127,8 @@ export function NewScreen() {
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
       >
-        <SheetBar>
-          <Pressable
-            onPress={cancel}
-            accessibilityRole="button"
-            hitSlop={10}
-            style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
-          >
-            <Text variant="body" tone="ink2">
-              {t("mobile.common.cancel")}
-            </Text>
-          </Pressable>
-          <Text variant="title" style={styles.title} accessibilityRole="header" numberOfLines={1}>
-            {t("mobile.new.title")}
-          </Text>
-          <View style={styles.side} />
-        </SheetBar>
-        <Animated.View layout={layout}>
+        <SheetBar title={t("mobile.new.title")} onClose={cancel} />
+        <View>
           {/* "Para:" and the words, white with a hairline on the gray, as the system's new message. */}
           <View style={styles.search}>
             <View
@@ -168,13 +155,9 @@ export function NewScreen() {
             </View>
           </View>
           <View style={styles.lists}>
-            {!typed ? (
-              <Animated.View {...fade} layout={layout}>
-                <CreateList items={items.filter((i) => i !== "invite")} />
-              </Animated.View>
-            ) : null}
+            {!typed ? <CreateList items={items.filter((i) => i !== "invite")} /> : null}
             {agents.length > 0 ? (
-              <Animated.View {...fade} layout={layout}>
+              <View>
                 <GroupedHeader>{t("mobile.find.agents")}</GroupedHeader>
                 <GroupedList>
                   {agents.map((a) => {
@@ -199,10 +182,10 @@ export function NewScreen() {
                     );
                   })}
                 </GroupedList>
-              </Animated.View>
+              </View>
             ) : null}
             {people.length > 0 || invite ? (
-              <Animated.View {...fade} layout={layout}>
+              <View>
                 <GroupedHeader>{t("mobile.new.people")}</GroupedHeader>
                 <GroupedList>
                   {people.map((p) => (
@@ -212,13 +195,13 @@ export function NewScreen() {
                       label={p.name}
                       {...(typed ? { labelParts: markTerms(p.name, [typed]) } : {})}
                       chevron
-                      // As an agent's: the conversation opens ready to type.
-                      onPress={() => void openDm({ userId: p.userId }, { compose: true, replace: true })}
+                      // As an agent's: the conversation opens in the sheet's place.
+                      onPress={() => void openDm({ userId: p.userId }, { replace: true })}
                     />
                   ))}
                   {invite ? (
                     <GroupedRow
-                      leading={<TintTile icon="members" color="teal" />}
+                      icon="members"
                       label={t("members.inviteTitle")}
                       sub={t("mobile.new.inviteHint")}
                       chevron
@@ -226,34 +209,48 @@ export function NewScreen() {
                     />
                   ) : null}
                 </GroupedList>
-              </Animated.View>
+              </View>
             ) : null}
             {typed && agents.length + people.length === 0 && !dir.loading ? (
-              <EmptyState size="inline" title={t("mobile.find.nothing", { q: typed })} />
+              <EmptyState
+                size="inline"
+                title={t("mobile.find.nothing", { q: typed })}
+                action={
+                  <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
+                }
+              />
             ) : null}
           </View>
-        </Animated.View>
+        </View>
       </ScrollView>
     </SheetSurface>
   );
 }
 
-/** Each thing to start has a color of its own, so it is found without reading. */
-const CREATE_LOOK: Record<Exclude<CreateItem, "invite">, { icon: IconName; color: AgentPresetColor }> = {
-  agent: { icon: "agent", color: "violet" },
-  channel: { icon: "hash", color: "sky" },
-  task: { icon: "checkc", color: "green" },
-  routine: { icon: "clock", color: "amber" },
-  wiki: { icon: "file", color: "graphite" },
+/**
+ * Each thing to start on the system Settings' tile (`IconTile`): its color comes with its icon (`TILE_TINTS`), so it is
+ * found without reading and reads the same on every screen.
+ */
+const CREATE_ICON: Record<Exclude<CreateItem, "invite">, IconName> = {
+  agent: "agent",
+  channel: "hash",
+  task: "checkc",
+  routine: "clock",
+  wiki: "file",
+  spreadsheet: "spreadsheet",
+  slides: "slides",
+  canvas: "canvas",
 };
 
 /**
- * What to start, as rows: a soft tile of its color, a short name and a hint under it. A personal workspace's channel
- * is a group conversation, and its wiki is for its person's agents (ADR 0159).
+ * What to start, as rows: the system Settings' tile for it, a short name and a hint under it (every row has one, so
+ * the rows line up). A personal workspace's channel is a group conversation, and its wiki is for its person's agents (ADR 0159). A
+ * spreadsheet, a presentation or a canvas is made in the Drive at once and opens on its own screen (ADR 0196 §9).
  */
 function CreateList({ items }: { items: CreateItem[] }) {
   const { t } = useTranslation();
   const { org } = useOrg();
+  const maker = useCreateLive();
   // The short names reuse labels already translated in every language (a form field's or a screen's name elsewhere).
   const spec: Record<Exclude<CreateItem, "invite">, { label: string; sub: string; onPress: () => void }> = {
     agent: { label: t("missions.new.agent"), sub: t("mobile.new.agentHint"), onPress: () => router.push("/new-agent") },
@@ -273,6 +270,21 @@ function CreateList({ items }: { items: CreateItem[] }) {
       sub: t(modeKey(org, "mobile.new.wikiHint")),
       onPress: () => newWikiPage(),
     },
+    spreadsheet: {
+      label: t("live.kinds.spreadsheet"),
+      sub: t("live.kinds.spreadsheetHint"),
+      onPress: () => void maker.make("spreadsheet"),
+    },
+    slides: {
+      label: t("live.kinds.slides"),
+      sub: t("live.kinds.slidesHint"),
+      onPress: () => void maker.make("slides"),
+    },
+    canvas: {
+      label: t("live.kinds.canvas"),
+      sub: t("live.kinds.canvasHint"),
+      onPress: () => void maker.make("canvas"),
+    },
   };
   const create = items.filter((i): i is Exclude<CreateItem, "invite"> => i !== "invite");
   if (create.length === 0) return null;
@@ -281,53 +293,27 @@ function CreateList({ items }: { items: CreateItem[] }) {
       <GroupedHeader>{t("mobile.new.create")}</GroupedHeader>
       <GroupedList>
         {create.map((item) => (
-          <GroupedRow key={item} leading={<TintTile {...CREATE_LOOK[item]} />} {...spec[item]} subLines={2} chevron />
+          <GroupedRow
+            key={item}
+            icon={CREATE_ICON[item]}
+            {...spec[item]}
+            subLines={2}
+            chevron
+            disabled={maker.busy !== null}
+          />
         ))}
       </GroupedList>
     </>
   );
 }
 
-/** An icon on a soft tile of its color: the color's light tone over the row, its deep tone for the glyph. */
-function TintTile({ icon, color }: { icon: IconName; color: AgentPresetColor }) {
-  const { colors, scheme } = useTheme();
-  const [light, deep] = gradientOf(color);
-  const dark = scheme === "dark";
-  return (
-    <View style={[styles.tint, { backgroundColor: mixHex(colors.raised, light, dark ? 0.3 : 0.45) }]}>
-      <Icon name={icon} size={16} color={dark ? light : deep} />
-    </View>
-  );
-}
-
-/** The faces in the rows: framed in their skies at 36 (the list's small size); the tiles match them. */
+/** The faces in the rows: framed in their skies at 36 (the list's small size), the tiles' column. */
 const FACE = 36;
-/** The sheet's bar, on the sheet's own color so the list passes under it when pinned. */
-function SheetBar({ children }: { children: ReactNode }) {
-  const { colors } = useTheme();
-  return <View style={[styles.head, { backgroundColor: colors.grouped }]}>{children}</View>;
-}
-
-const TILE = 36;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The sheet's bar: Cancelar at the left, the title centered, 50 tall, clear of the grabber (5 tall at 5 from the top).
-  head: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 50, marginTop: 14, paddingHorizontal: 16 },
-  cancel: { minWidth: 72, minHeight: 44, justifyContent: "center" },
-  title: { flex: 1, textAlign: "center" },
-  side: { minWidth: 72 },
-  pressed: { opacity: 0.6 },
   search: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   field: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 14 },
   input: { flex: 1, minWidth: 0, paddingVertical: 0 },
   lists: { paddingHorizontal: 16, paddingBottom: 24 },
-  tint: {
-    width: TILE,
-    height: TILE,
-    // Proportional, as the faces' tiles beside it.
-    borderRadius: Math.round(TILE * 0.3),
-    alignItems: "center",
-    justifyContent: "center",
-  },
 });

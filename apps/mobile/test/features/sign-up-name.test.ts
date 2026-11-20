@@ -6,25 +6,41 @@ import { looksLikePassword, nameIsPassword } from "@agenteschat/client/lib/text"
 /* Every phone flow that makes an account (or a request that becomes one) refuses a password equal to the name. */
 
 const source = (file: string) => readFileSync(join(import.meta.dir, "../../src/features/auth", file), "utf8");
-const GUARD =
-  /nameIsPassword\(name, password\)\) \{\s*(?:\/\/[^\n]*\s*)?setPassword\(""\);\s*go\("name"\);\s*setError\(t\("auth\.flow\.nameIsPassword"\)\);/;
-// An invite asks the name and the password on one step: the password is cleared there, with the name in view.
-const GUARD_SAME_STEP =
-  /step === "you" && nameIsPassword\(name, password\)\) \{\s*setPassword\(""\);\s*setError\(t\("auth\.flow\.nameIsPassword"\)\);/;
+/** The name and the password on one screen: the password is cleared there, with the name in view. */
+const SAME_SCREEN = (onward: string) =>
+  new RegExp(
+    `if \\(nameIsPassword\\(name, password\\)\\) \\{\\s*(?:\\/\\/[^\\n]*\\n\\s*)*setPassword\\(""\\);\\s*setError\\(t\\("auth\\.flow\\.nameIsPassword"\\)\\);\\s*\\} else void ${onward}\\(\\);`,
+  );
+/** An email invitation's password, on a screen over its name's: back on the name, which says so. */
+const BACK_ON_NAME =
+  /if \(nameIsPassword\(name, password\)\) \{\s*(?:\/\/[^\n]*\n\s*)*setPassword\(""\);\s*updateEmailInvite\(token, \{ nameError: t\("auth\.flow\.nameIsPassword"\) \}\);\s*router\.back\(\);\s*\} else void signUp\(\);/;
 
 describe("a password typed as the name, on the phone", () => {
-  for (const [file, rule, onward] of [
-    ["AuthFlow.tsx", GUARD, "void signUp()"],
-    ["EmailSteps.tsx", GUARD, "void signUp()"],
-    ["LinkSteps.tsx", GUARD_SAME_STEP, "void ask()"],
-  ] as const)
-    test(`${file}: back on the name before the account, and the soft hint on the name`, () => {
-      const code = source(file);
-      const guard = code.search(rule);
-      expect(guard).toBeGreaterThan(-1);
-      expect(guard).toBeLessThan(code.indexOf(onward, guard));
-      expect(code).toContain("<NameHint name={name} />");
-    });
+  test("signing up: the name and the password on one screen, cleared there before the account", () => {
+    const steps = source("SignInSteps.tsx");
+    const name = steps.slice(steps.indexOf("export function NameStep("), steps.indexOf("export function ClosedStep("));
+    expect(name).toMatch(SAME_SCREEN("signUp"));
+    expect(name).toContain("<NameHint name={name} />");
+  });
+
+  test("an email invitation: the password's screen sends the person back to the name, which shows why", () => {
+    const steps = source("InviteSteps.tsx");
+    const password = steps.slice(
+      steps.indexOf("export function InviteNewPassword("),
+      steps.indexOf("export function InviteForgot("),
+    );
+    expect(password).toMatch(BACK_ON_NAME);
+    const first = source("EmailSteps.tsx");
+    expect(first).toContain("const nameError = shared?.nameError ?? null;");
+    expect(first).toContain("{shownError ? <ErrorLine error={shownError} /> : <NameHint name={name} />}");
+  });
+
+  test("asking through a link: the name and the password on one screen, cleared there before the ask", () => {
+    const steps = source("InviteSteps.tsx");
+    const you = steps.slice(steps.indexOf("export function InviteYou("), steps.indexOf("function ResendLine("));
+    expect(you).toMatch(SAME_SCREEN("ask"));
+    expect(you).toContain("<NameHint name={name} />");
+  });
 
   test("what the guard and the hint go by", () => {
     expect(nameIsPassword("Fake#Pass1", "Fake#Pass1")).toBe(true);

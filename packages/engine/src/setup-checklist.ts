@@ -1,4 +1,5 @@
 import { and, type Database, eq, isNotNull, isNull, schema, sql } from "@agenteschat/db";
+import { managesAgent } from "./audience";
 import { caches } from "./cache";
 import { NotFoundError } from "./errors";
 import { can, requirePermission } from "./organizations";
@@ -93,14 +94,14 @@ export function setupOf(
 
 /**
  * A person confirmed one step of the agent's checklist (they chose in its dialog, or skipped it). Who may change the
- * agent may: its owner or whoever manages agents. On the right hand's first run only "Agora não" is stored, on apps
- * (who connects apps) and people (who invites). Confirming twice changes nothing; an agent with no checklist keeps
- * none.
+ * agent may: its owner or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17). On the right hand's first
+ * run only "Agora não" is stored, on apps (who connects apps) and people (who invites). Confirming twice changes
+ * nothing; an agent with no checklist keeps none.
  */
 export async function confirmSetupStep(db: Database, actorId: string, orgId: string, agentId: string, step: SetupStep) {
   const membership = await requirePermission(db, actorId, orgId, "read");
   const [agent] = await db
-    .select({ ownerUserId: agents.ownerUserId, builtin: agents.builtin })
+    .select()
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId), isNull(agents.deletedAt)));
   const allowed = !agent
@@ -109,7 +110,7 @@ export async function confirmSetupStep(db: Database, actorId: string, orgId: str
       ? FIRST_RUN_SKIPS.has(step) && can(membership, step === "apps" ? "manage_connectors" : "invite_people")
       : !agent.builtin &&
         SETUP_STEPS.includes(step as never) &&
-        (agent.ownerUserId === actorId || can(membership, "manage_agents"));
+        (agent.ownerUserId === actorId || managesAgent(agent, actorId, membership));
   // Not found for whoever may not change it, as for an agent that isn't there.
   if (!allowed) throw new NotFoundError("Agent not found");
   const one = JSON.stringify([step]);

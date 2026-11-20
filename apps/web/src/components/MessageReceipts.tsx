@@ -23,9 +23,10 @@ import { useTranslation } from "react-i18next";
 import { ActorAvatar, AgentAvatar } from "@/components/AgentAvatar";
 import { usePlanHold } from "@/components/ai/ConnectAiSteps";
 import { useOpenBilling } from "@/components/BillingLinkButton";
-import { FanOutStrip, QueuedWords } from "@/components/ComputerQueue";
+import { FanOutStrip } from "@/components/ComputerQueue";
 import { useConnectAi } from "@/components/ConnectAi";
 import { HelpLink } from "@/components/HelpLink";
+import { ReportProblem, useProblemReports } from "@/components/ReportProblem";
 import { useDirectory } from "@/hooks/useDirectory";
 import { STORAGE_KEYS, sessionStore } from "@/lib/storage";
 import { useToast } from "@/lib/toast";
@@ -163,6 +164,7 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
   // reload), this line does.
   const failedAgent = status?.kind === "failed" && status.agents.length === 1 ? status.agents[0] : undefined;
   const failedRun = failedAgent ? receipt?.runOf?.[failedAgent] : undefined;
+  const reports = useProblemReports();
   const rowSaysWhy = useLive((s) => (failedRun ? s.streams.runs[failedRun]?.status === "failed" : false));
   const callAgent =
     actions && actions.channelAgents.length > 0 ? (
@@ -338,15 +340,11 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
       {check}
       {(status?.kind === "outage" ||
         status?.kind === "away" ||
+        status?.kind === "queued" ||
         status?.kind === "plan" ||
         status?.kind === "budget") && (
         <span className="ac-receipt__words">
           <span>{statusText}</span>
-        </span>
-      )}
-      {status?.kind === "queued" && (
-        <span className="ac-receipt__words">
-          <QueuedWords message={message} fallback={statusText} />
         </span>
       )}
       {status?.kind === "failed" && actions && (
@@ -370,6 +368,11 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
                 {retrying && <PixelSpinner size={14} />}
                 {t(retrying ? "receipts.retrying" : "receipts.retry")}
               </button>
+            </ReceiptAction>
+          )}
+          {failedRun && reports && (
+            <ReceiptAction>
+              <ReportProblem place="run" context={{ runId: failedRun }} className="ac-receipt__action" />
             </ReceiptAction>
           )}
         </span>

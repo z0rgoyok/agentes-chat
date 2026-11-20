@@ -5,6 +5,7 @@ import { cutText } from "../format";
 import { canonicalJson } from "../tools/json-schema";
 import type { ConnectorConnection } from "./connections";
 import type { McpTool } from "./mcp";
+import { auditLabel } from "./personal";
 
 const pins = schema.connectorToolPins;
 
@@ -27,7 +28,7 @@ export async function applyToolPins(
     reclassify?: () => Promise<unknown>;
     log?: { warn(message: string, data?: Record<string, unknown>): void };
   },
-  connection: Pick<ConnectorConnection, "id" | "orgId" | "label">,
+  connection: Pick<ConnectorConnection, "id" | "orgId" | "label" | "accountLabel" | "ownerUserId">,
   tools: McpTool[],
   pinned: (name: string) => boolean,
 ): Promise<McpTool[]> {
@@ -99,7 +100,11 @@ export async function applyToolPins(
       actor: { type: "system", id: null },
       action: "connector.tool_definitions_changed",
       target: { type: "connector_connection", id: connection.id },
-      details: { connection: connection.label, tools: moved },
+      details: {
+        connection: auditLabel(connection),
+        tools: moved,
+        ...(connection.ownerUserId ? { personalOf: connection.ownerUserId } : {}),
+      },
     }).catch(() => {});
   }
   return tools;

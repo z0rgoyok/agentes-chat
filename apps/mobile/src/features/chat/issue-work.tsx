@@ -1,15 +1,18 @@
 import { type Message, useIssue } from "@agenteschat/client";
 import { type HandedTask, handedTasksOf, type IssueWorkRef, issueTakenOf } from "@agenteschat/client/lib/issues";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, View } from "react-native";
-import { EventPill, Icon, Text } from "@/ui";
+import { StyleSheet, View } from "react-native";
+import { CARD_PAD, Disclosure, EventPill, Icon, PressScale, Text, TOUCH } from "@/ui";
 import { router } from "@/ui/navigation";
 import { StateChip } from "../issues/parts";
 import { chatHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
+import { useColors, useOrgId, useWhen } from "../shared/hooks";
 import { useSurface } from "../shared/parts";
-import { useCardTop, useQuietInset } from "./look";
+import { usePresenceOf } from "../status/hooks";
+import { useCardTop, useMessageCardCorners, useQuietInset } from "./look";
+import { useRowDirectory, useRowMeId } from "./row-data";
 
 /**
  * "Ask Ada to implement" (as on the web): the root of the work thread in the
@@ -17,23 +20,27 @@ import { useCardTop, useQuietInset } from "./look";
  * issue"); the agent's instructions never show in the chat.
  */
 export function IssueWorkCard({ work, authorId }: { work: IssueWorkRef; authorId: string | null }) {
+  const cardCorners = useMessageCardCorners();
   const { t } = useTranslation();
   const c = useColors();
   const cardTop = useCardTop();
   const surface = useSurface();
   const orgId = useOrgId();
-  const meId = useMeId();
-  const dir = useDirectory();
+  const meId = useRowMeId();
+  const dir = useRowDirectory();
   const issue = useIssue(orgId, work.number);
   const current = issue.data?.id === work.issueId ? issue.data : null;
   const asker = authorId && authorId !== meId ? dir.nameOf({ type: "person", id: authorId }) : "";
   return (
-    <Pressable
+    <PressScale
       onPress={() => router.push(`/issues/${work.number}`)}
       accessibilityRole="button"
       accessibilityLabel={`${t("chat.issueWork.label")}: #${work.number} ${current?.title ?? work.title}`}
       accessibilityHint={t("chat.issueWork.view")}
-      style={({ pressed }) => [styles.card, surface, cardTop, pressed && styles.pressed]}
+      // The card's own size: the press area never grows past it.
+      fill={false}
+      style={[styles.cardBox, surface, cardCorners, cardTop]}
+      contentStyle={styles.card}
     >
       <View style={styles.head}>
         {/* The icon alone: no tile inside the card. */}
@@ -50,16 +57,16 @@ export function IssueWorkCard({ work, authorId }: { work: IssueWorkRef; authorId
         <Text variant="small" tone="ink2" style={styles.bold}>
           {t("chat.issueWork.view")}
         </Text>
-        <Icon name="right" size={15} color={c.faint} />
+        <Disclosure />
       </View>
-    </Pressable>
+    </PressScale>
   );
 }
 
 /** Where the issue came from: one event pill, "Ada took task #24 · its title", the issue a tap on it away. */
-export function IssueTakenLine({ message, gap }: { message: Message; gap: number }) {
+export const IssueTakenLine = memo(function IssueTakenLine({ message, gap }: { message: Message; gap: number }) {
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const when = useWhen();
   const inset = useQuietInset();
   const taken = issueTakenOf(message.meta);
@@ -82,7 +89,7 @@ export function IssueTakenLine({ message, gap }: { message: Message; gap: number
       </EventPill>
     </View>
   );
-}
+});
 
 /**
  * The tasks the right hand handed on in this reply (ADR 0137 §13), as on the web: one row each, "#42 Campanha de
@@ -105,48 +112,56 @@ function HandedTaskChip({ task }: { task: HandedTask }) {
   const c = useColors();
   const surface = useSurface();
   const orgId = useOrgId();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const issue = useIssue(orgId, task.number);
   const current = issue.data?.id === task.issueId ? issue.data : null;
   const agent = dir.agentById.get(task.agentId);
+  // A chip's face lives only while its agent works: still, it costs nothing as the conversation scrolls.
+  const working = usePresenceOf().agent(task.agentId)?.presence === "working";
   const title = current?.title ?? task.title;
   return (
-    <Pressable
+    <PressScale
       onPress={() => router.push(chatHref(task.channelId, task.rootId))}
       accessibilityRole="button"
       accessibilityLabel={t("chat.issueWork.chipLabel", { number: task.number, title })}
-      style={({ pressed }) => [styles.chip, surface, pressed && styles.pressed]}
+      // As wide as its words: the press area keeps the chip's size.
+      fill={false}
+      style={[styles.chipBox, surface]}
+      contentStyle={styles.chip}
     >
       <Icon name="issue" size={14} color={c.ink2} />
-      <Text variant="small" tone="ink" style={[styles.grow, styles.bold]} numberOfLines={1}>
+      {/* A chip as wide as its words: they shrink at the column's edge (a flex: 1 here collapsed them to nothing). */}
+      <Text variant="small" tone="ink" style={[styles.fit, styles.bold]} numberOfLines={1}>
         #{task.number} {title}
       </Text>
-      {agent ? <AgentFace agentId={agent.id} size={18} /> : null}
+      {agent ? <AgentFace agentId={agent.id} size={18} live={working} /> : null}
       {current ? <StateChip issue={current} /> : null}
-    </Pressable>
+    </PressScale>
   );
 }
 
 const styles = StyleSheet.create({
   chips: { gap: 6, marginTop: 6, alignItems: "flex-start" },
+  // A chip: its box (the color, the corner) and its one row of words, a finger's 44 tall.
+  chipBox: { maxWidth: "100%", borderRadius: 14 },
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    minHeight: 40,
-    maxWidth: "100%",
+    minHeight: TOUCH,
     paddingVertical: 6,
     paddingLeft: 12,
     paddingRight: 8,
-    borderRadius: 14,
   },
-  card: { padding: 14, borderRadius: 20, gap: 8 },
+  fit: { flexShrink: 1, minWidth: 0 },
+  // The card's box, as every card in a message, and its content at the cards' padding.
+  cardBox: { borderRadius: 20 },
+  card: { padding: CARD_PAD, gap: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   grow: { flex: 1, flexShrink: 1 },
   title: { fontWeight: "600" },
   foot: { flexDirection: "row", alignItems: "center", gap: 4 },
   bold: { fontWeight: "600" },
-  pressed: { opacity: 0.85 },
   // An event pill at the messages' words, left aligned; the list sets its top.
   line: { paddingRight: 16 },
   // The pill's words' size (its sentence sets it; a nested text keeps the variant's own otherwise).

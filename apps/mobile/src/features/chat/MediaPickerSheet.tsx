@@ -30,15 +30,17 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { StickerCanvas, StickerStageContext, useStickerLive } from "@/agent/StickerCanvas";
 import { createStickerStage } from "@/agent/sticker-stage";
-import { Button, Filters, PressScale, SearchField, Segmented, Text } from "@/ui";
+import { Button, EmptyState, Filters, PressScale, SearchField, Segmented, SHEET_X, Text, usePulse } from "@/ui";
 import { useReducedMotion } from "@/ui/theme";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { gifImageSource } from "./ChatMedia";
 import {
+  GIF_GAP,
   type GifPlace,
   masonryPlaces,
   nearEnd,
@@ -194,22 +196,38 @@ function GifTab({ onSend }: { onSend: (media: MessageMedia) => void }) {
         showsVerticalScrollIndicator={false}
       >
         {search.isPending ? (
-          <View style={styles.state}>
-            <ActivityIndicator color={c.muted} accessibilityLabel={t("media.gifs.loading")} />
-          </View>
+          <GifBones />
         ) : failed ? (
-          <View style={styles.state}>
-            <Text variant="small" tone="muted" style={styles.centered} accessibilityLiveRegion="polite">
-              {why ?? t("media.gifs.error")}
-            </Text>
-            <Button size="sm" variant="secondary" label={t("media.gifs.retry")} onPress={() => void search.refetch()} />
-          </View>
+          // Why it failed, in words, and the way to ask again.
+          <EmptyState
+            size="inline"
+            title={why ?? t("media.gifs.error")}
+            action={
+              <Button
+                size="sm"
+                variant="secondary"
+                label={t("media.gifs.retry")}
+                onPress={() => void search.refetch()}
+              />
+            }
+          />
         ) : gifs.length === 0 ? (
-          <View style={styles.state}>
-            <Text variant="small" tone="muted" style={styles.centered} accessibilityLiveRegion="polite">
-              {t("media.gifs.empty")}
-            </Text>
-          </View>
+          <EmptyState
+            size="inline"
+            title={t("media.gifs.empty")}
+            {...(query.trim()
+              ? {
+                  action: (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      label={t("filters.clearSearch")}
+                      onPress={() => setQuery("")}
+                    />
+                  ),
+                }
+              : {})}
+          />
         ) : (
           <View
             style={[{ height }, search.isPlaceholderData && styles.stale]}
@@ -231,6 +249,37 @@ function GifTab({ onSend }: { onSend: (media: MessageMedia) => void }) {
   );
 }
 
+/** The GIFs' bones while the first page loads: two columns of the masonry's shapes, pulsing together. */
+function GifBones() {
+  const { t } = useTranslation();
+  const c = useColors();
+  const pulse = usePulse();
+  return (
+    <Animated.View
+      style={[styles.bones, pulse]}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={t("media.gifs.loading")}
+    >
+      {BONES.map((column, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed shapes, never reordered
+        <View key={i} style={styles.boneColumn}>
+          {column.map((height, j) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: fixed shapes, never reordered
+            <View key={j} style={[styles.bone, { height, backgroundColor: c.sunken }]} />
+          ))}
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
+
+/** The bones' heights per column: GIFs of a few proportions, as a first page lays them out. */
+const BONES = [
+  [120, 92, 140],
+  [92, 136, 110],
+] as const;
+
 /** One GIF at its place: the small file through our server; with reduced motion, its still frame. */
 const GifCell = memo(function GifCell({ place, onPick }: { place: GifPlace<Gif>; onPick: (gif: Gif) => void }) {
   const { t } = useTranslation();
@@ -251,6 +300,7 @@ const GifCell = memo(function GifCell({ place, onPick }: { place: GifPlace<Gif>;
       <Image
         source={source}
         recyclingKey={source.cacheKey}
+        cachePolicy="memory-disk"
         contentFit="cover"
         autoplay={!reduced}
         transition={120}
@@ -333,11 +383,22 @@ function StickerTab({
           showsVerticalScrollIndicator={false}
         >
           {sections.length === 0 ? (
-            <View style={styles.state}>
-              <Text variant="small" tone="muted" style={styles.centered} accessibilityLiveRegion="polite">
-                {t("media.stickers.empty")}
-              </Text>
-            </View>
+            <EmptyState
+              size="inline"
+              title={t("media.stickers.empty")}
+              {...(query.trim()
+                ? {
+                    action: (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        label={t("filters.clearSearch")}
+                        onPress={() => setQuery("")}
+                      />
+                    ),
+                  }
+                : {})}
+            />
           ) : null}
           {sections.map(({ agent, moods }) => (
             <View
@@ -364,9 +425,6 @@ function StickerTab({
           ))}
         </ScrollView>
       </StickerStageContext.Provider>
-      <Text variant="caption" tone="faint" style={styles.centered}>
-        {t("media.stickers.foot")}
-      </Text>
     </>
   );
 }
@@ -403,9 +461,11 @@ const styles = StyleSheet.create({
   picker: { gap: 10 },
   tabs: { alignItems: "center" },
   // Runs past the sheet's padding, so a long last chip scrolls instead of being cut at it.
-  chips: { marginHorizontal: -16 },
+  chips: { marginHorizontal: -SHEET_X },
   grow: { flex: 1 },
-  state: { alignItems: "center", gap: 10, paddingVertical: 32, paddingHorizontal: 12 },
+  bones: { flexDirection: "row", gap: GIF_GAP },
+  boneColumn: { flex: 1, gap: GIF_GAP },
+  bone: { borderRadius: 10 },
   centered: { textAlign: "center" },
   bold: { fontWeight: "600" },
   stale: { opacity: 0.5 },

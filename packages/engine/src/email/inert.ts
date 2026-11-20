@@ -9,6 +9,8 @@
  * last period stays as typed; and a long run with no break gets one.
  */
 
+import { isPhoneNumber, maskPhone } from "@agenteschat/i18n/format";
+
 /**
  * U+200A HAIR SPACE, set after a ".", "@", ":" or "\" inside a token. Mail clients link by scanning text
  * (Gmail's linkifier, Apple Mail's data detectors, Outlook, the plain-text part), so markup does not stop
@@ -149,3 +151,9 @@ export function inertText(value: string, max = 64): string {
     .join("");
   return breakLongRuns(broken);
 }
+
+/**
+ * A chat surface's sender as an email prints it: a phone number formatted with its middle digits as dots, which no
+ * mail client offers to call, anything else (a handle) through `inertText`.
+ */
+export const inertSender = (value: string) => (isPhoneNumber(value) ? maskPhone(value) : inertText(value));

@@ -40,6 +40,23 @@ const Decision = z.enum(["read", "write", "approval", "off"]);
 /** What connecting did: a new account, a new sign-in for one, or the same account again (nothing new). */
 export const Outcome = z.enum(["connected", "reconnected", "same_account"]);
 
+/** The person's own connection, which any member adds, instead of the team's (who manages connectors). */
+export const Personal = z.boolean().optional().openapi({
+  description:
+    "The person's own connection, which any member adds (who manages connectors adds the team's): only they see its details, and agents use it for them. GitHub connects for the team only.",
+});
+
+/**
+ * `others=1`: also everyone else's personal connections (who manages connectors only), as read-only rows. A client
+ * that doesn't send it (an older app) never gets one, so it can't show someone's as the team's.
+ */
+export const OthersQuery = z.object({
+  others: z
+    .enum(["0", "1"])
+    .optional()
+    .openapi({ description: "`1`: also everyone else's personal ones, for who manages connectors." }),
+});
+
 const CustomServer = z
   .object({
     id: z.uuid(),
@@ -101,6 +118,13 @@ const CustomServer = z
     ),
     reviewedAt: z.string().nullable(),
     createdAt: z.string(),
+    ownerUserId: z.string().nullable().openapi({
+      description:
+        "A personal connection's person (ADR 0099 addendum): only they see its details and give it to agents, and its tools serve runs that person is behind. Someone else's comes with its name, service and person only, to who manages connectors. Null: the team's.",
+    }),
+    agentIds: z.array(z.uuid()).optional().openapi({
+      description: "A personal connection's agents (a grant of their own on it), in the list only.",
+    }),
   })
   .openapi("CustomServer");
 
@@ -171,10 +195,18 @@ export function customConnectorRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Custom MCP servers and their tools",
-      request: { params: OrgParams },
+      request: { params: OrgParams, query: OthersQuery },
       responses: { 200: json(z.object({ servers: z.array(CustomServer) })), ...errors },
     }),
-    async (c) => c.json({ servers: await listCustomServers(db, c.get("user").id, c.req.valid("param").orgId) }, 200),
+    async (c) =>
+      c.json(
+        {
+          servers: await listCustomServers(db, c.get("user").id, c.req.valid("param").orgId, {
+            others: c.req.valid("query").others === "1",
+          }),
+        },
+        200,
+      ),
   );
 
   app.openapi(
@@ -195,6 +227,7 @@ export function customConnectorRoutes(deps: AppDeps) {
             label: z.string().max(80).optional(),
             returnTo: z.string().max(500).optional(),
             connectionId: ReconnectId,
+            personal: Personal,
             headers: z
               .array(z.object({ name: z.string(), value: z.string() }))
               .optional()
@@ -258,12 +291,15 @@ export function customConnectorRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/connectors/presets/{presetId}/connect",
       tags,
       security,
-      summary: "Connect a one-click connector (admins): returns the OAuth URL to open",
+      summary:
+        "Connect a one-click connector (the team's by admins, a personal one by any member): returns the OAuth URL to open",
       description:
         "After the OAuth, our suggested classification is applied to its tools (admins can change it). No app registration needed. Accounts and `connectionId` as in `POST …/connectors/custom`. It connects by the way the catalog lists for it (the vendor's server, or Composio, ADR 0107). A `soon` one Composio doesn't serve here is refused (400 `connector.not_approved`): its vendor hasn't approved agentes.chat yet.",
       request: {
         params: OrgParams.extend({ presetId: z.string().max(60) }),
-        body: body(z.object({ returnTo: z.string().max(500).optional(), connectionId: ReconnectId })),
+        body: body(
+          z.object({ returnTo: z.string().max(500).optional(), connectionId: ReconnectId, personal: Personal }),
+        ),
       },
       responses: { 200: json(ConnectStart), ...errors },
     }),
@@ -277,12 +313,13 @@ export function customConnectorRoutes(deps: AppDeps) {
           connector: preset.id,
         });
       }
-      const { returnTo, connectionId } = c.req.valid("json");
+      const { returnTo, connectionId, personal } = c.req.valid("json");
       const started = await connectCustomServer(custom, c.get("user").id, orgId, {
         serverUrl: way?.serverUrl ?? preset.serverUrl,
         label: preset.label,
         returnTo,
         connectionId,
+        personal,
       });
       return c.json(started, 200);
     },

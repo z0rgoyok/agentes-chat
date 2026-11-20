@@ -99,5 +99,6 @@ test("what the right hand found: the problem itself as the headline, in the read
   const budget = document.querySelector('[data-n="n-budget"]') as HTMLElement;
   expect(waiting.contains(budget)).toBe(false);
   expect(budget.querySelector(".nt-what")?.textContent).toBe("O orçamento de Ada está quase no fim.");
-  expect(budget.querySelector(".nt-snip")).toBeNull();
+  // Its sentence isn't said again: the line under it is only where it's fixed, in plain words.
+  expect(budget.querySelector(".nt-snip")?.textContent).toBe(budget.querySelector(".nt-where")?.textContent);
 });

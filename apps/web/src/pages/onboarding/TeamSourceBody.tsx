@@ -24,8 +24,8 @@ import {
   Preview,
   SourceMark,
   useImportFlow,
-  useImportMethod,
 } from "@/components/ImportFlow";
+import { useImportMethod } from "@/components/ImportSheet";
 import { EXPORT_PROMPT } from "@/lib/import";
 import {
   agentsArrived,

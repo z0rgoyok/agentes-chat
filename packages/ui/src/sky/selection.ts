@@ -4,7 +4,7 @@
  * where the item's own background shows (so it sits on any surface and keeps the item's radius);
  * cached per color and theme. An agent's row uses the agent's color.
  */
-import type { AgentColorName } from "../agent/engine.js";
+import { type AgentColorName, drawnKey } from "../agent/engine.js";
 import { agentTones, bayerAt } from "./math";
 
 /** Cells: 72 × 20, drawn at the item's height (2px cells on a 40px item), anchored right. */
@@ -14,7 +14,7 @@ const H = 20;
 const cache = new Map<string, string>();
 
 export function selectionSkyUrl(color: AgentColorName = "sky", dark = false): string {
-  const key = `${color}:${dark}`;
+  const key = `${drawnKey(color)}:${dark}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const tones = agentTones(color);

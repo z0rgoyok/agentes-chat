@@ -1,7 +1,5 @@
+import { siteName } from "@agenteschat/client/lib/sites";
 import { useEffect, useState } from "react";
-
-/** The site as people say it: "www.google.com" → "google.com" (its letter is G, not W). */
-export const siteName = (host: string) => host.replace(/^(www|web|m)\./, "");
 
 /**
  * A site's own icon (its `/favicon.ico`, asked without a referrer), or its first letter when it has

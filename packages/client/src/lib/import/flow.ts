@@ -14,6 +14,7 @@ import { forbiddenText } from "../errors";
 import { formatBytes } from "../files";
 import { joinNames } from "../format";
 import { hiddenRepoOf, hiddenRepoText } from "../skills";
+import { type ComputerCard, computerChat } from "./computer";
 import {
   type AgentFile,
   type AgentFileSkip,
@@ -85,8 +86,11 @@ export type RequestCard = Extract<ImportCard, PromptApp | "other">;
 export const isRequestCard = (card: ImportCard | null): card is RequestCard =>
   card === "grok-bot" || card === "chatgpt-dots" || card === "other";
 
-/** How a source's agents come: the app creates them here through this server's MCP, or the request and its reply. */
-export type ImportMethod = "mcp" | "prompt";
+/**
+ * How a source's agents come: the app creates them here through this server's MCP, the request and its reply, or (an
+ * app on the person's computer) the command that reads it there.
+ */
+export type ImportMethod = "mcp" | "prompt" | "command";
 
 /** A source's steps to connect it to this server's MCP; none for one that can't take an MCP server. */
 export const mcpClient = (card: ImportCard) => IMPORT_APP_CLIENTS.find((c) => c.id === card);
@@ -96,6 +100,17 @@ export const mcpClient = (card: ImportCard) => IMPORT_APP_CLIENTS.find((c) => c.
  * read-only, which can't create agents.
  */
 const MCP_UNCONFIRMED: ReadonlySet<ImportCard> = new Set(["chatgpt-dots"]);
+
+/**
+ * The ways an app on the person's computer offers (ADR 0055, addendum 2026-11-16): the command always (it brings the
+ * most), its own agent creating them here through MCP where the app takes it and reaches this server, and its agent
+ * writing the export where it has a chat to ask in.
+ */
+export const computerPaths = (card: ComputerCard, reachable: boolean): ImportMethod[] => [
+  "command",
+  ...(reachable && mcpClient(card) ? (["mcp"] as const) : []),
+  ...(computerChat(card) ? (["prompt"] as const) : []),
+];
 
 /** MCP wherever the app takes it and apps on the internet reach this server (`aiAppImport`'s `available`). */
 export const defaultMethod = (card: ImportCard, reachable: boolean): ImportMethod =>

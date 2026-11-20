@@ -10,11 +10,13 @@ const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
 
 describe("the tabs of a personal workspace", () => {
   test("Threads leaves the bar the system's way, and its list is pushed from You › Work", () => {
-    const tabs = read("app/(app)/(tabs)/_layout.tsx");
-    expect(tabs).toContain('{ name: "threads", glyph: "threads", label: "mobile.tabs.threads", teamOnly: true }');
+    const tabs = read("app/(app)/(main)/(tabs)/_layout.tsx");
+    expect(tabs).toMatch(
+      /\{\s*name: "threads",\s*glyph: "threads",\s*label: "mobile\.tabs\.threads",\s*sf: \{[^}]*\},\s*teamOnly: true,\s*\}/,
+    );
     expect(tabs).toContain("hidden={personal && tab.teamOnly === true}");
     // A hidden tab can't be opened: the pushed list lives at /conversations/threads.
-    const route = read("app/(app)/conversations/[kind].tsx");
+    const route = read("app/(app)/(main)/conversations/[kind].tsx");
     expect(route).toContain('if (kind === "threads" && personal) return <ThreadsScreen pushed />;');
     expect(read("src/features/chats/ThreadsScreen.tsx")).toContain("<PushedLargeTitle");
     const me = read("src/features/me/MeScreen.tsx");
@@ -30,14 +32,13 @@ describe("the tabs of a personal workspace", () => {
 });
 
 describe("Conversas in a personal workspace", () => {
-  test("channels are group conversations, and a quiet #general stays out while the person is alone", () => {
+  test("a quiet #general stays out of Recentes and its See all while the person is alone", () => {
     const chats = read("src/features/chats/ChatsScreen.tsx");
-    expect(chats).toContain("withoutQuietGeneral(pinned.rows, hideGeneral)");
-    expect(chats).toContain('t("shell.channelsPersonal")');
+    expect(chats).toContain("recentRows(withoutQuietGeneral(pinned.rows, hideGeneral))");
     expect(chats).toContain("isPersonal(org) && ![...memberById.keys()].some((id) => id !== meId)");
     const list = read("src/features/chats/ConversationListScreen.tsx");
     expect(list).toContain("withoutQuietGeneral(rightHandPin(list.rows, rightHandOf(dir.agents)).rows, hideGeneral)");
-    expect(list).toContain('kind === "channels" && personal');
+    expect(list).toContain("recentRows(all)");
   });
 });
 
@@ -50,7 +51,7 @@ describe("You in a personal workspace", () => {
     expect(me).toContain("<WorkspaceMark org={org.org} size={36} />");
   });
 
-  test("Work leads with Routines and Drive and ends with Team; a team's keeps its order", () => {
+  test("Work leads with Routines and Drive and ends with Team, then the archived channels; a team's keeps its order", () => {
     const list = (name: string) => {
       const from = me.indexOf(`const ${name}: WorkRow[] = [`);
       return me
@@ -68,14 +69,24 @@ describe("You in a personal workspace", () => {
       "dashboards",
       "memory",
       "team",
+      "archived",
     ]);
-    expect(list("TEAM_WORK")).toEqual(["issues", "proposals", "routines", "wiki", "drive", "dashboards", "memory"]);
+    expect(list("TEAM_WORK")).toEqual([
+      "issues",
+      "proposals",
+      "routines",
+      "wiki",
+      "drive",
+      "dashboards",
+      "memory",
+      "archived",
+    ]);
     expect(me).toContain('onPress={() => open("/team")}');
   });
 
   test("Agents' Team row stays a team's: a personal workspace has it in You › Work", () => {
     const agents = read("src/features/agents/AgentsScreen.tsx");
-    expect(agents).toContain("{total > 0 && !isPersonal(org) ? <TeamEntry /> : null}");
+    expect(agents).toContain("{total > 0 && !isPersonal(org) ? <TeamEntry divider={showsManager} /> : null}");
   });
 
   test("a personal workspace in the lists wears your face and says whose it is", () => {

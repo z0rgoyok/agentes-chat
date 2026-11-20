@@ -1,5 +1,6 @@
 import type { MailAccount, MailFolder, Routine, RoutineEmailFilter } from "@agenteschat/client";
 import { useAgentMail, useMailAccounts, useMailFolders } from "@agenteschat/client";
+import { upperFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { mailboxReader, triggerChoices } from "@agenteschat/client/lib/routines";
 import { Field, Icon, Input, Select } from "@agenteschat/ui";
@@ -48,7 +49,7 @@ export function EmailTriggerFields({
   /** The routine's agent: only the mailboxes it reads are offered (the server refuses the others). */
   agentId: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const accounts = useMailAccounts(org.id);
   const list = accounts.data ?? [];
@@ -113,7 +114,13 @@ export function EmailTriggerFields({
           <Select
             value={value.accountId || first?.id}
             onValueChange={(accountId) => onChange({ ...value, accountId, folder: "" })}
-            options={options.map((a) => ({ value: a.id, label: a.address }))}
+            options={[
+              // Someone else's mailbox the routine already watches isn't listed to the viewer: it stays, unnamed.
+              ...(value.accountId && !options.some((a) => a.id === value.accountId)
+                ? [{ value: value.accountId, label: upperFirst(t("mail.routine.unknownMailbox"), i18n.language) }]
+                : []),
+              ...options.map((a) => ({ value: a.id, label: a.address })),
+            ]}
             placeholder={waiting ? t("common.loading") : undefined}
             disabled={waiting}
           />

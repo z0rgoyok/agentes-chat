@@ -1,5 +1,6 @@
 import {
   IPHONE_DEV_MODE_PROTOCOL,
+  PHONE_REPAIR_PROTOCOL,
   type PhonePairFailure,
   type PhonePairing,
   type PhonePairState,
@@ -12,7 +13,7 @@ import {
   type XcodeFixKind,
 } from "@agenteschat/adapters";
 import { and, type Database, eq, isNull, schema } from "@agenteschat/db";
-import { recordAudit } from "./audit";
+import { type AuditEntry, recordAudit } from "./audit";
 import { mayManageDevice, publishDevicesChanged } from "./devices";
 import { ForbiddenError, NotFoundError } from "./errors";
 import { type MachineCaller, MachineRequestError } from "./machine-hub";
@@ -333,4 +334,65 @@ export async function openXcode(
     if (tooOld(error)) return { opened: false };
     throw error;
   }
+}
+
+/** Repairs of an iPhone's test helper per person, and per agent: each stops what runs on the phone and rebuilds it. */
+export const IPHONE_REPAIR_LIMIT = { limit: 10, windowMs: 10 * 60_000 };
+
+/** A repair of an iPhone's test helper started; `update`: the Mac's agentes.chat is too old to repair it. */
+export interface IphoneRepairView {
+  repairing: boolean;
+  update?: true;
+}
+
+/**
+ * Asks the Mac to repair the iPhone's test helper (`phone.repair`) and logs who did. Shared by the apps' Repair and
+ * the agents' `phone_repair`. Offline: `MachineOfflineError`.
+ */
+export async function sendIphoneRepair(
+  deps: Deps,
+  orgId: string,
+  machine: { id: string; protocol: number },
+  phone: { id: string; serial: string },
+  by: Pick<AuditEntry, "actor" | "runId" | "channelId" | "onBehalfOfUserId">,
+): Promise<IphoneRepairView> {
+  if (machine.protocol < PHONE_REPAIR_PROTOCOL) return { repairing: false, update: true };
+  const reply = await deps.hub.call(machine.id, { op: "phone.repair", serial: phone.serial });
+  await recordAudit(deps.db, {
+    orgId,
+    ...by,
+    action: "device.iphone_repair",
+    target: { type: "machine", id: machine.id },
+    details: { phoneId: phone.id },
+  });
+  return { repairing: reply.repairing === true };
+}
+
+/**
+ * `POST …/devices/phones/{phoneId}/repair` (who manages its Mac: its owner or an admin): the Mac stops the iPhone's
+ * test helper and what's left of it, builds it again with the Xcode installed there now and checks it on the iPhone.
+ */
+export async function repairIphone(
+  deps: Deps,
+  actorId: string,
+  orgId: string,
+  phoneId: string,
+): Promise<IphoneRepairView> {
+  const membership = await requirePermission(deps.db, actorId, orgId, "read");
+  const [phone] = await deps.db
+    .select()
+    .from(machinePhones)
+    .where(and(eq(machinePhones.orgId, orgId), eq(machinePhones.id, phoneId), isNull(machinePhones.deletedAt)));
+  const machine = phone?.machineId ? await getMachine(deps.db, orgId, phone.machineId) : null;
+  if (!phone || !machine || machine.kind === "managed") throw new NotFoundError("Device not found", "device.not_found");
+  if (phone.platform !== "ios" || phone.kind !== "device") {
+    throw new NotFoundError("Only a real iPhone has a test helper to repair", "device.not_found");
+  }
+  if (!mayManageDevice(membership, actorId, machine.pairedByUserId)) {
+    throw new ForbiddenError(
+      "Only the Mac's owner or an admin can repair its iPhone's test helper",
+      "device.forbidden",
+    );
+  }
+  return sendIphoneRepair(deps, orgId, machine, phone, { actor: { type: "person", id: actorId } });
 }

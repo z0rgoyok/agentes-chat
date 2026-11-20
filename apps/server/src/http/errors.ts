@@ -7,11 +7,13 @@ import {
   MachineRequestError,
   MissingCredentialError,
   NotFoundError,
+  PersonLimitError,
   runErrorDetail,
   TooManyError,
   UnauthorizedError,
   ValidationError,
 } from "@agenteschat/engine";
+import { ProviderError, providerCause } from "@agenteschat/providers";
 import type { Hook } from "@hono/zod-openapi";
 import { z } from "@hono/zod-openapi";
 import type { Context, Env } from "hono";
@@ -93,6 +95,19 @@ function domainError(error: unknown): [ContentfulStatusCode, string, string, Rec
   if (error instanceof ValidationError) return [400, error.code, error.message, error.params];
   if (error instanceof TooManyError) return [429, error.code, error.message, error.params];
   if (error instanceof BudgetExceededError) return [402, "budget_exceeded", error.message, { agentId: error.agentId }];
+  // A person's own monthly AI limit (ADR 0141), reached by a call made for them (pictures on a canvas, ADR 0197).
+  if (error instanceof PersonLimitError) return [402, "person_limit", error.message];
+  // A model provider's failure on a call a route made: who answered and why, never its raw body. A 503, as a 502 never
+  // reaches the app behind Cloudflare.
+  if (error instanceof ProviderError) {
+    const cause = providerCause(error);
+    return [
+      503,
+      "provider_error",
+      error.message,
+      { ...(error.provider ? { provider: error.provider } : {}), ...(cause ? { cause } : {}) },
+    ];
+  }
   if (error instanceof MissingCredentialError) {
     // `provider`: the one whose key is missing, when the message names it (the app says it in the person's words).
     const provider = runErrorDetail(error.message)?.errorParams?.provider;

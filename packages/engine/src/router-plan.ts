@@ -5,7 +5,27 @@ import { publishChannelEvent } from "./events";
 import type { MachineCaller } from "./machine-hub";
 import { parseRouterJson, RouterSkip, type RouterStrategy, routerPrompt, scoresOf } from "./router";
 
-const { agents, machineAccounts, machines } = schema;
+const { agents, instanceTelemetry, machineAccounts, machines } = schema;
+
+/** Never changes after the migration that sets it, so read once per database. */
+const fallbackOf = new WeakMap<object, Promise<boolean>>();
+
+/**
+ * Whether this installation lets a person's own plan pick who answers: only one that had a workspace before it
+ * became opt-in (`instance_telemetry.router_plan_fallback`). A new installation never routes on anyone's plan.
+ */
+export function routerPlanFallback(db: Executor): Promise<boolean> {
+  let known = fallbackOf.get(db);
+  if (!known) {
+    known = db
+      .select({ on: instanceTelemetry.routerPlanFallback })
+      .from(instanceTelemetry)
+      .where(eq(instanceTelemetry.id, 1))
+      .then(([row]) => row?.on === true);
+    fallbackOf.set(db, known);
+  }
+  return known;
+}
 
 /** A plan sign-in that may pick who answers its owner's messages (ADR 0074 §3). */
 export interface PlanSignIn {
@@ -26,6 +46,7 @@ export interface PlanSignIn {
  * paired that computer, one of their agents thinks with it and it is signed in with a plan (`claude.ai`). Codex
  * doesn't say how it is signed in, so a computer's own Codex sign-in never counts. Only computers online now
  * that speak `brain.route`, aren't paused and would run it: not on Windows, and with that CLI switched on there.
+ * None where the installation keeps people's plans out of routing (`routerPlanFallback`).
  */
 export async function planSignInsOf(
   db: Executor,
@@ -33,6 +54,7 @@ export async function planSignInsOf(
   orgId: string,
   userId?: string,
 ): Promise<PlanSignIn[]> {
+  if (!(await routerPlanFallback(db))) return [];
   const [lent, own] = await Promise.all([
     db
       .select({

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { eq, schema } from "@agenteschat/db";
+import { countQueries, eq, schema } from "@agenteschat/db";
 import {
   addRunStep,
   buildTeamWeek,
@@ -56,6 +56,34 @@ describe("no reflection where there's no summary model (ADR 0167)", () => {
     await revoke(null);
     expect(await summaryModelReady(f.context, f.org.id)).toBe(true);
     expect(await enqueueIdleReflections(f.context, later)).toBe(1);
+  });
+
+  test("a sweep reads the state of every idle thread at once, however many there are", async () => {
+    f = await setup();
+    const later = new Date(Date.now() + 3 * 3600_000);
+    // An idle thread already reflected on: it comes back on every sweep for a week, with nothing to queue.
+    const covered = async () => {
+      const post = (body: string, threadId?: string) =>
+        insertMessage(f.db, {
+          orgId: f.org.id,
+          channelId: f.general.id,
+          ...(threadId ? { threadId } : {}),
+          author: { type: "person", userId: f.owner.id },
+          body,
+        });
+      const root = await post("Como vai o lançamento?");
+      for (const body of ["Quase pronto.", "Falta o texto da página."]) await post(body, root.id);
+      await f.db
+        .insert(schema.threadReflections)
+        .values({ orgId: f.org.id, threadRootId: root.id, channelId: f.general.id, runs: 1, coveredUntil: later });
+    };
+    await covered();
+    const one = await countQueries(() => enqueueIdleReflections(f.context, later));
+    await covered();
+    await covered();
+    const three = await countQueries(() => enqueueIdleReflections(f.context, later));
+    expect([one.result, three.result]).toEqual([0, 0]);
+    expect(three.queries).toBe(one.queries);
   });
 });
 

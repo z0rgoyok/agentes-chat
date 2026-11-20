@@ -186,6 +186,11 @@ function RemovalCard({
 
   const unsent = open.filter((p) => !p.canDecide && !p.askedAt);
   const sent = open.find((p) => p.askedAt);
+  // Each row went to who manages its agent (ADR 0085 addendum of 2026-11-17): the card names them all, once each.
+  const sentRows = open.filter((p) => p.askedAt);
+  const sentTo = [
+    ...new Set(sentRows.flatMap((p) => decidersOf(p, members, roles, dir.anyAgent(p.agentId), dir.anyAgent))),
+  ];
   const state = decides ? undefined : mine && unsent.length > 0 ? t(onlyKey(first)) : t("proposals.waitingAdmin");
   const decision = decides ? (
     <>
@@ -230,7 +235,7 @@ function RemovalCard({
     sent?.askedAt && (
       <span className="rq__sent ac-iconline">
         <Icon name="arrowUp" size={14} />
-        <span>{sentToText(t, i18n.language, decidersOf(sent, members, roles, null), sent.askedAt)}</span>
+        <span>{sentToText(t, i18n.language, sentTo, sent.askedAt)}</span>
       </span>
     )
   );
@@ -356,7 +361,7 @@ function SettingsRow({
       note: byRightHand && delegate?.reason ? inlineWords(delegate.reason) : undefined,
       time: p.decidedAt ? formatTime(i18n.language, p.decidedAt) : undefined,
       action: byRightHand
-        ? (first && <DelegateUndo d={delegate} />) || undefined
+        ? (first && <DelegateUndo d={delegate} agentId={p.agentId} />) || undefined
         : undoable && (
             <Button
               size="sm"
@@ -376,7 +381,7 @@ function SettingsRow({
   }
 
   const asked = p.askedAt
-    ? sentToText(t, i18n.language, decidersOf(p, members, roles, agent?.ownerUserId), p.askedAt)
+    ? sentToText(t, i18n.language, decidersOf(p, members, roles, agent, dir.anyAgent), p.askedAt)
     : null;
   const state = p.stale
     ? t("rightHand.card.stale")

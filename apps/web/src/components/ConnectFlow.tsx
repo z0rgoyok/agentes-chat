@@ -29,6 +29,7 @@ import {
   saveLevels,
   sharedLevel,
 } from "@agenteschat/client/lib/access-levels";
+import { canEditAudience, managesAgent } from "@agenteschat/client/lib/audience";
 import { composioConnectText } from "@agenteschat/client/lib/composio";
 import {
   accountUnchecked,
@@ -40,10 +41,12 @@ import {
   itemName,
   orgAccessChange,
   outcomeText,
+  personalAllowed,
 } from "@agenteschat/client/lib/connected";
 import { humanize, isHttpsUrl, sameServer } from "@agenteschat/client/lib/custom-tools";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
+import { can } from "@agenteschat/client/lib/permissions";
 import {
   BLANK_HEADER,
   connectsWithoutKey,
@@ -90,8 +93,10 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectorIcon } from "@/components/ConnectorCatalog";
 import { FlowTitle } from "@/components/FlowTitle";
 import { LoadingList, useStepText } from "@/components/Loading";
+import { ForWhom, type OwnerTab } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
 import { useAgentsAccess } from "@/hooks/useAgentsAccess";
+import { useDirectory } from "@/hooks/useDirectory";
 import { oauthReturnPath } from "@/lib/desktop";
 import { forgetGithubOrgs, keepGithubOrgs, readGithubOrgs } from "@/lib/github-orgs";
 import { navigateAway } from "@/lib/navigate";
@@ -109,6 +114,7 @@ export type FlowState =
    * Step 1: a catalog entry, or `null` for any MCP server by address. `add`: another account of `item`'s server
    * (an MCP server takes several); `reconnect`: a new sign-in for `item`, whose name, tools and agents stay. `url`: the
    * address already typed in (an agent's card). `account`: GitHub's sign-in alone, without the agentes.chat app first.
+   * `personal`: where "Para quem" starts (Pessoal for who may not add the team's, whatever this says).
    */
   | {
       step: 0;
@@ -117,6 +123,7 @@ export type FlowState =
       item?: ConnectedItem;
       url?: string;
       account?: boolean;
+      personal?: boolean;
     }
   /** `naming`: a new account the provider didn't name ("Stripe 2"): its name comes first, above its tools. */
   | { step: "done" | 1 | 2; item: ConnectedItem; naming?: boolean };
@@ -203,6 +210,7 @@ export function ConnectFlow({
           item={flow.item}
           initialUrl={flow.url}
           accountOnly={flow.account === true}
+          startPersonal={flow.personal}
           onConnected={(item, naming) => onChange({ step: "done", item, naming })}
           onClose={onClose}
         />
@@ -242,6 +250,8 @@ export function ConnectFlow({
  * or the same account again, ends here with a toast saying which. GitHub, where the server has the agentes.chat app
  * (ADR 0156), offers the app first (installed on GitHub's page, which comes back to Conectores) and an account second.
  * A server by address the catalog doesn't list also takes request headers (ADR 0186), with a key or alone.
+ * Where the workspace has more than one person, a new connection asks "Para quem": the person's own (Pessoal, which
+ * any member adds) or the team's (who manages connectors). Another account or a new sign-in keeps its owner.
  */
 function ConnectStep({
   def,
@@ -250,6 +260,7 @@ function ConnectStep({
   item,
   initialUrl,
   accountOnly,
+  startPersonal,
   onConnected,
   onClose,
 }: {
@@ -259,16 +270,21 @@ function ConnectStep({
   item?: ConnectedItem;
   initialUrl?: string;
   accountOnly?: boolean;
+  startPersonal?: boolean;
   /** `naming`: another account of a server the provider didn't name ("Stripe 2"). */
   onConnected: (item: ConnectedItem, naming: boolean) => void;
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const toast = useToast();
+  const admin = can(org, "manage_connectors");
+  const members = useDirectory(org.id).members.length;
+  const [scope, setScope] = useState<OwnerTab>((startPersonal ?? !admin) ? "personal" : "team");
   const catalog = useCatalog();
-  const connections = useConnections(org.id);
-  const servers = useCustomServers(org.id);
+  // The lists Conectores reads (others' rows for who manages connectors): already in hand, and `sameOwner` skips them.
+  const connections = useConnections(org.id, true, { others: admin });
+  const servers = useCustomServers(org.id, true, { others: admin });
   const { connect } = useCustomServerAction(org.id);
   const withKey = useConnectWithKey(org.id);
   const oauth = useStartOAuth(org.id);
@@ -315,6 +331,12 @@ function ConnectStep({
     (keyOpen || !canOAuth) &&
     !(canHeaders && connectsWithoutKey(headers, savedHeaders) && apiKey.trim() === "");
   const serverUrl = fixed ?? (def?.kind === "remote_mcp" ? def.serverUrl : url.trim());
+  const teamOnly = !personalAllowed(def?.id ?? item?.def?.id);
+  const personal = mode ? Boolean(item?.ownerUserId) : !teamOnly && (scope === "personal" || !admin);
+  const forWhom = !mode && !teamOnly && members > 1;
+  const mine = personal ? { personal: true } : {};
+  // The accounts this one joins or replaces: the person's own for a personal one, else the team's.
+  const sameOwner = (owner: string | null | undefined) => (personal ? owner === me.user.id : !owner);
   const appOffered =
     def?.id === "github" && !viaComposio && !mode && !accountOnly && githubApp.data?.installable === true;
   const viaApp = appOffered && how === "app";
@@ -322,11 +344,13 @@ function ConnectStep({
   const sent = busy || withKey.isSuccess || connect.data?.status === "connected";
   // As the server does: a server by address takes another account, a catalog connector a new sign-in.
   const accounts = useHeldWhile(
-    (servers.data ?? []).filter((s) => sameServer(s.serverUrl, serverUrl)),
+    (servers.data ?? []).filter((s) => sameServer(s.serverUrl, serverUrl) && sameOwner(s.ownerUserId)),
     sent,
   );
   const again = useHeldWhile(
-    byAddress ? accounts.length > 0 : (connections.data ?? []).some((c) => c.connector === def?.id && !c.revokedAt),
+    byAddress
+      ? accounts.length > 0
+      : (connections.data ?? []).some((c) => c.connector === def?.id && !c.revokedAt && sameOwner(c.ownerUserId)),
     sent,
   );
   const replacing = mode === "reconnect" || (!byAddress && again);
@@ -382,11 +406,11 @@ function ConnectStep({
     if (byAddress) {
       setRefused(null);
       connect.mutate(
-        { serverUrl, label: name, returnTo: back, connectionId, headers },
+        { serverUrl, label: name, returnTo: back, connectionId, headers, ...mine },
         { onSuccess: byAddressResult, onError: failed },
       );
     } else if (def) {
-      oauth.mutate({ connector: def.id, returnTo: back }, { onSuccess: (to) => navigateAway(to) });
+      oauth.mutate({ connector: def.id, returnTo: back, ...mine }, { onSuccess: (to) => navigateAway(to) });
     }
   };
   const startApp = () => installApp.mutate(back, { onSuccess: (to) => navigateAway(to) });
@@ -396,12 +420,12 @@ function ConnectStep({
     if (byAddress) {
       setRefused(null);
       connect.mutate(
-        { serverUrl, label: name, apiKey: apiKey.trim(), returnTo: back, connectionId, headers },
+        { serverUrl, label: name, apiKey: apiKey.trim(), returnTo: back, connectionId, headers, ...mine },
         { onSuccess: byAddressResult, onError: failed },
       );
     } else if (def) {
       withKey.mutate(
-        { connector: def.id, apiKey: apiKey.trim() },
+        { connector: def.id, apiKey: apiKey.trim(), ...mine },
         {
           onSuccess: (c) =>
             done(fromConnection(c, catalog.data?.connectors ?? []), again ? "reconnected" : "connected"),
@@ -489,6 +513,15 @@ function ConnectStep({
               />
             </Field>
           )}
+          {forWhom && (
+            <ForWhom
+              label={t("connectors.personal.forWhom")}
+              value={personal ? "personal" : "team"}
+              locked={!admin}
+              note={t("connectors.personal.teamLocked")}
+              onValueChange={setScope}
+            />
+          )}
           {githubOrgs && <GithubOrgs />}
           {appOffered && (
             <OptionList
@@ -555,7 +588,9 @@ function ConnectStep({
                 ? t(unchecked ? "connectFlow.replaceUnchecked" : "connectFlow.replace")
                 : again && unchecked
                   ? t("connectFlow.newAccountUnchecked")
-                  : t("connectFlow.allCanUse")
+                  : personal
+                    ? t("connectors.personal.done")
+                    : t("connectFlow.allCanUse")
         }
       >
         <Button onClick={onClose}>{t("common.cancel")}</Button>
@@ -846,7 +881,7 @@ function DoneStep({ item, onAdjust, onClose }: { item: ConnectedItem; onAdjust: 
   const waiting = item.pending > 0 ? item.server : null;
   return (
     <ConnectedDone
-      text={connectedSummary(t, item)}
+      text={item.ownerUserId ? t("connectors.personal.done") : connectedSummary(t, item)}
       busy={save.isPending}
       onAdjust={onAdjust}
       onClose={onClose}
@@ -1075,12 +1110,16 @@ function ToolsStep({
  */
 function WhoStep({ item, onBack, onClose }: { item: ConnectedItem; onBack: () => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
   const agents = useAgents(org.id);
-  const list = agents.data ?? [];
+  // A personal connection goes on for the agents its person may change (their own, and the ones they manage); a team
+  // one for the agents the person manages (ADR 0085 addendum of 2026-11-17): the server refuses the rest.
+  const list = (agents.data ?? []).filter((a) =>
+    item.ownerUserId ? canEditAudience(org, a, me.user.id) : managesAgent(a),
+  );
   const access = useAgentsAccess(list);
   const resourceId = `connector:${item.id}`;
   const current = (agentId: string) => levelIn(access.byAgent.get(agentId), resourceId);

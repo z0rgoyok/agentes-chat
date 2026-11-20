@@ -4,6 +4,7 @@ import {
   fileIcon,
   formatBytes,
   isJsonFile,
+  isOfficePreview,
   MAX_PREVIEW_BYTES,
   previewKind,
   previewType,
@@ -13,6 +14,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { CodeBlock } from "@/components/CodeBlock";
+import { OfficePreview } from "@/components/live/office/OfficePreview";
 import { useOrg } from "@/components/org-context";
 import { ImageZoom } from "./ImageZoom";
 
@@ -153,12 +155,19 @@ export function FileView({
   const { t } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
-  const kind = previewKind(content.contentType);
+  // An Office file is drawn from the server's reading of it (ADR 0198), never from its bytes here.
+  const read = previewKind(content.contentType, content.name);
+  const kind = isOfficePreview(read) ? null : read;
   // A video streams from the download: any size plays. The rest load whole, up to the preview limit.
   const canPreview = kind !== null && (kind === "video" || content.size <= MAX_PREVIEW_BYTES);
   const { url, failed } = usePreviewUrl(artifactId, version, content.contentType, canPreview && kind !== "video");
   const [videoFailed, setVideoFailed] = useState(false);
   const videoLabels = useVideoLabels();
+
+  // A spreadsheet, a presentation or a Word document the server reads for the apps to draw (ADR 0198).
+  if (isOfficePreview(read) && content.size <= MAX_PREVIEW_BYTES) {
+    return <OfficePreview artifactId={artifactId} version={version} content={content} title={title} kind={read} />;
+  }
 
   // A video fills the viewer, with its controls.
   if (kind === "video") {

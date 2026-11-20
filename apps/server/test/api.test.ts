@@ -79,6 +79,7 @@ describe("sign-up policy (self-host)", () => {
         permissions: expect.arrayContaining(["read", "post", "talk_to_agents"]),
         rank: null,
         logo: null,
+        accent: null,
         standing: { state: "active", reason: null },
         start: { page: "home", channelId: null },
         showActivity: false,

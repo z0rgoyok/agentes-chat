@@ -1,6 +1,7 @@
 import { and, type Database, desc, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
 import type { Agent } from "./agents";
 import { runBrainOf } from "./brains/select";
+import type { SteerHandling } from "./judge";
 import type { Message } from "./messages";
 import { latestPlan, missionOfThread, planMark } from "./missions";
 import { type AgentRun, replyThreadOf } from "./runs";
@@ -47,6 +48,8 @@ export interface TalkerSnapshot {
   conversation: { from: string; text: string; you?: true }[];
   /** The message to answer or pass on. */
   message: { from: string; text: string };
+  /** A separate request the agent takes up right after the current task (the triage's `queue`). */
+  afterTask?: true;
 }
 
 export const ago = (now: Date, at: Date) => {
@@ -71,6 +74,11 @@ export function stepLine(kind: string, data: Record<string, unknown>): string | 
     case "error":
       if (data.reason === "usage_wait")
         return data.code === "budget" ? "ran out of its monthly budget" : "hit its plan's limit";
+      // Its computer stopped a CLI that went quiet: sent again from where it was, or (the second time) ended.
+      if (data.reason === "brain_stalled")
+        return data.resumed === true
+          ? "a step stopped responding on its computer and was started again from where it was"
+          : "a step stopped responding on its computer twice, so that work stopped";
       return typeof data.reason === "string" ? `hit a problem: ${data.reason}` : "hit a problem";
     case "context":
       return Array.isArray(data.steeredMessageIds) ? "read new messages from people" : null;
@@ -157,6 +165,8 @@ export async function loadTalkerSnapshot(
     message: Message;
     live: boolean;
     waited: WaitMessageOutcome | null;
+    /** How the triage said the agent takes the message (`TalkerInput.handling`). */
+    handling?: SteerHandling | null;
     now: Date;
   },
 ): Promise<TalkerSnapshot> {
@@ -216,5 +226,6 @@ export async function loadTalkerSnapshot(
         ...(m.authorAgentId === run.agentId ? { you: true as const } : {}),
       })),
     message: { from: author, text: clip(message.body, 2000) },
+    ...(input.handling === "queue" ? { afterTask: true as const } : {}),
   };
 }

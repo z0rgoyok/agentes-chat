@@ -15,8 +15,15 @@ import {
 } from "@agenteschat/client/lib/right-hand";
 import { STICKER_STILL_T, WAVE_SECONDS } from "@agenteschat/ui/agent/stickers";
 import { stickerFrame } from "../../src/agent/sticker";
-import { agentStarters, buildConversations, homeLayout, rightHandPin } from "../../src/features/chats/logic";
+import {
+  agentStarters,
+  buildConversations,
+  pinnedRows,
+  recentRows,
+  rightHandPin,
+} from "../../src/features/chats/logic";
 import { SETTINGS_SECTIONS } from "../../src/features/settings/logic";
+import { chatScreenSource } from "./chat-screen-source";
 import { agent, at } from "./fixtures";
 
 const lodi = agent({ id: "a-lodi", name: "Lodi", builtin: "right_hand" });
@@ -28,12 +35,14 @@ const dm = (a: { id: string; name: string; handle: string }, minutesAgo: number,
   unread,
 });
 
-test("the right hand is its own row, its DM's unread kept, never one of Agentes' sorted rows", () => {
+test("the right hand is its own row, its DM's unread kept, never a row of Recentes nor a face on the strip", () => {
   const rows = buildConversations({ channels: [], dms: [dm(lodi, 1, 2), dm(theo, 5)], threads: [] });
   const { pin, rows: rest } = rightHandPin(rows, rightHandOf([theo, lodi]));
   expect(pin).toMatchObject({ kind: "dm", channelId: "d-a-lodi", unread: 2 });
-  const agents = homeLayout(rest, []).find((s) => s.key === "agents");
-  expect(agents?.rows.map((r) => r.key)).toEqual(["d:d-a-theo"]);
+  expect(recentRows(rest).map((r) => r.key)).toEqual(["d:d-a-theo"]);
+  // Even pinned (on the web), it holds no place on the strip: its field is right above.
+  const pins = { agents: [lodi.id, theo.id], channels: [], people: [] };
+  expect(pinnedRows(rest, agentStarters([theo]), pins).map((r) => r.key)).toEqual(["d:d-a-theo"]);
 });
 
 test("Conversas asks the right hand from its own field under the greeting, never one of Agentes' rows", () => {
@@ -182,13 +191,11 @@ test("its greeting of a newcomer is the one ask only until they answer it, whate
   expect(welcomeOpen(undefined, true)).toBe(false);
 });
 
-test("the phone's greeting draws the checklist and Conversas has one line back to it, not a second list", () => {
+test("the phone's greeting draws the checklist, and Conversas holds only conversations (no line back to it)", () => {
   const src = (f: string) => readFileSync(new URL(`../../src/features/${f}`, import.meta.url), "utf8");
   expect(src("right-hand/Intro.tsx")).toContain("<FirstRunCard agent={agent} channelId={channelId} />");
-  expect(src("chats/ChatsScreen.tsx")).toContain("<FirstRunLine />");
-  // One line that says who is setting up the team and how far ("Atlas is setting up the team · 1 of 3"); a personal
-  // workspace's says "your agents" (ADR 0159).
-  expect(src("chats/FirstRunLine.tsx")).toContain('t(modeKey(org, "mobile.chats.firstRunLine")');
+  // The checklist lives in the right hand's conversation only (ADR 0155, amendment of 2026-11-17).
+  expect(src("chats/ChatsScreen.tsx")).not.toContain("FirstRunLine");
   // The apps row names what it reads, as the web's does, never "Sem apps" with apps connected; an invitation waiting
   // finishes the people row, saying who; a personal workspace's rows read its own words (ADR 0159).
   const card = src("right-hand/FirstRun.tsx");
@@ -228,10 +235,12 @@ test("on a hold for its first plan the phone's card leads with the plan row: whe
 test("its Computador row is always there: it opens the viewer's own place, or says why it has none", () => {
   const screen = readFileSync(new URL("../../src/features/right-hand/SettingsScreen.tsx", import.meta.url), "utf8");
   expect(screen).toContain("      <Computer agentId={agent.id} />\n");
-  expect(screen).toContain("const none = rightHandNoComputer(view.desktopQ.data?.reason);");
+  expect(screen).toContain("const none = rightHandNoComputer(view.desktopQ.data?.reason, selfHosted(auth.data));");
   // With none there is nothing to open: no chevron, no press, and the reason under the row.
   expect(screen).toContain('<GroupedRow icon="laptop" label={t("agentComputer.button")} />');
-  expect(screen).toContain('<GroupedFooter>{t(none ?? "rightHand.computerYours")}</GroupedFooter>');
+  expect(screen).toContain('t(none ?? "rightHand.computerYours")');
+  // On a self-hosted server with none, the line links to making this server the agents' computer.
+  expect(screen).toContain('none === "rightHand.computerNoHomeServer" ? (');
   // No computer of the workspace's own: whoever may add one opens Dispositivos from the row.
   expect(screen).toContain('const add = none === "rightHand.computerNoHome" && can(org, "pair_computers");');
   expect(screen).toContain('onPress={() => router.push("/settings/devices")}');
@@ -246,17 +255,21 @@ test("Configurações lists no section for it: its settings open from its own pr
 
 test("its DM, cards and profile treat it apart through the one shared helper", () => {
   const src = (f: string) => readFileSync(new URL(`../../src/features/${f}`, import.meta.url), "utf8");
-  // No computer in its DM, and its own line; its field says "Mensagem para …" on one line, as every DM's.
-  const chat = src("chat/ChatScreen.tsx");
+  // Its computer in its DM as any agent's, and its own line; its field says "Mensagem para …" on one line, as every
+  // DM's.
+  const chat = chatScreenSource();
   expect(chat).toContain("isRightHand(dmAgent)");
   expect(chat).not.toContain('t("rightHand.composerHint")');
-  expect(chat).toMatch(/dmComputer = dmAgentId && !isThread && !rightHand/);
+  expect(chat).toContain("const dmComputer = dmAgentId && !isThread ? { agentId: dmAgentId, onOpen: leavePlace }");
+  expect(chat).toContain("const computerInBar = Boolean(dmAgentId && !isThread && computerWords && !queueInBar);");
   // Never archived or deleted from the phone.
   expect(src("agents/AgentEditScreen.tsx")).toContain("admin && !rightHand");
   // Its profile shows what it may use like any agent's (apps, built-in areas, mailboxes), without the AI row: its AI
   // is each person's, on its settings.
   const profile = src("agents/AgentProfileScreen.tsx");
   expect(profile).toContain("{details ? accessView : null}");
+  // Its computer card on its profile, as any agent's.
+  expect(profile).toContain("{details ? <AgentComputerCard agentId={id} style={styles.computer} /> : null}");
   expect(profile).toContain("const mailboxes = useAgentMailboxes(id, details);");
   expect(profile).toContain("{thinks && !rightHand ? (");
   // No coordinator anywhere on the phone (ADR 0093, superseded by 0137).
@@ -278,7 +291,7 @@ test("it waves on the person's first visit only: its DM never read by them, on a
   expect(firstVisitOf([dm(lodi, 1)], lodi.id)).toBe(false);
   // Decided by the conversation, so the greeting moving into the list with the first message keeps it, not playing
   // again; under the greeting, decorative, playing once.
-  const chat = readFileSync(new URL("../../src/features/chat/ChatScreen.tsx", import.meta.url), "utf8");
+  const chat = chatScreenSource();
   expect(chat).toContain('useRightHandWave(orgId, rightHand && dmAgent ? dmAgent.id : "")');
   expect(
     chat.match(/<RightHandIntro agent=\{dmAgent\} channelId=\{channelId\} waveFrom=\{waveFrom\} \/>/g),

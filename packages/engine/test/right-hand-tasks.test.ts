@@ -77,7 +77,7 @@ describe("a task Lodi hands on (ADR 0137 §13)", () => {
     f = await setup({ rightHand: true });
     const lodi = await lodiOf();
     const ctx = await lodiRun(f.owner.id, "pede pro dev preparar a campanha de natal");
-    const out = await createIssue(ctx, { title: "Campanha de Natal", assignee: "@dev" });
+    const out = await createIssue(ctx, { title: "Campanha de Natal", assignees: ["@dev"] });
     expect(out.isError).toBeFalsy();
     expect(out.content).toContain("started on it in the task's own conversation");
 
@@ -85,7 +85,9 @@ describe("a task Lodi hands on (ADR 0137 §13)", () => {
     if (!issue?.conversationChannelId || !issue.conversationRootId) throw new Error("no conversation");
     expect(issue.createdByType).toBe("agent");
     expect(issue.createdById).toBe(lodi.id);
-    expect(issue.assigneeId).toBe(f.agent.id);
+    expect(await f.db.select().from(schema.issueAssignees)).toMatchObject([
+      { issueId: issue.id, assigneeType: "agent", assigneeId: f.agent.id },
+    ]);
     // Never opened to everyone from a private DM: tied to it, or to the person who asked.
     expect(issue.restricted || issue.channelId === ctx.dmId).toBe(true);
 
@@ -140,7 +142,7 @@ describe("a task Lodi hands on (ADR 0137 §13)", () => {
   test("what came of it goes back to the person's DM with Lodi, by itself", async () => {
     f = await setup({ rightHand: true });
     const ctx = await lodiRun(f.owner.id, "pede pro dev preparar a campanha");
-    await createIssue(ctx, { title: "Campanha", assignee: "@dev" });
+    await createIssue(ctx, { title: "Campanha", assignees: ["@dev"] });
     const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, f.agent.id));
     if (!run) throw new Error("no run");
     const reply = await insertMessage(f.db, {
@@ -175,7 +177,7 @@ describe("a task Lodi hands on (ADR 0137 §13)", () => {
     f = await setup({ rightHand: true });
     const bob = await addMember(f.db, f.org.id, "member", "bob");
     await setAgentAudience(f.db, f.owner.id, f.org.id, f.agent.id, { mode: "owner", userIds: [] });
-    const out = await createIssue(await lodiRun(bob.id, "pede pro dev"), { title: "Algo", assignee: "@dev" });
+    const out = await createIssue(await lodiRun(bob.id, "pede pro dev"), { title: "Algo", assignees: ["@dev"] });
     expect(out.isError).toBe(true);
     expect(out.content).toContain("its owner or an admin can let them in");
     expect(await f.db.select().from(schema.issues)).toEqual([]);
@@ -183,7 +185,7 @@ describe("a task Lodi hands on (ADR 0137 §13)", () => {
 
   test("a task with no agent, or assigned to a person, starts nothing", async () => {
     f = await setup({ rightHand: true });
-    const out = await createIssue(await lodiRun(f.owner.id, "anota isso"), { title: "Lembrar", assignee: "@ana" });
+    const out = await createIssue(await lodiRun(f.owner.id, "anota isso"), { title: "Lembrar", assignees: ["@ana"] });
     expect(out.isError).toBeFalsy();
     expect(out.data?.handedTask).toBeUndefined();
     expect(await f.db.select().from(schema.agentConsultations)).toEqual([]);

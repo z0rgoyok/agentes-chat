@@ -131,7 +131,8 @@ export async function pickRow(d: HTMLElement, which: string | RegExp | ((row: Br
   const at = rows.findIndex((r) => !r.still && test(r));
   const row = d.querySelectorAll(".arrival-have__row")[at];
   if (at < 0 || !row) throw new Error(`No row ${which} in: ${rows.map((r) => r.title).join(", ")}`);
-  await clicked(row.querySelector('[role="radio"]') as Element);
+  // A list whose pick waits for its confirm has radios; one whose pick acts at once has buttons.
+  await clicked(row.querySelector('[role="radio"]') ?? row);
 }
 
 /** The footer's main button ("Trocar para …", "Usar …", "Concluído"), to read or press with `confirmScreen`. */

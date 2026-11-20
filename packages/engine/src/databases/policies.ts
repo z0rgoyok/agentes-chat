@@ -1,5 +1,5 @@
 import { and, type Database, eq, inArray, schema } from "@agenteschat/db";
-import { getAgent } from "../agents";
+import { getAgent, requireAgentManager } from "../agents";
 import { recordAudit } from "../audit";
 import { caches } from "../cache";
 import { NotFoundError, ValidationError } from "../errors";
@@ -147,8 +147,8 @@ export async function getAgentDatabases(db: Database, actorId: string, orgId: st
 }
 
 /**
- * `PUT …/agents/{agentId}/databases/{connectionId}` (admins): the level is
- * the `database:read` scope on that connection; the rest is the agent's rules there.
+ * `PUT …/agents/{agentId}/databases/{connectionId}` (who manages the agent, `managesAgent`, ADR 0085 addendum of
+ * 2026-11-17): the level is the `database:read` scope on that connection; the rest is the agent's rules there.
  */
 export async function setAgentDatabase(
   db: Database,
@@ -158,9 +158,7 @@ export async function setAgentDatabase(
   connectionId: string,
   input: { level: DatabaseLevel; policy: DatabasePolicy },
 ): Promise<AgentDatabase> {
-  await requirePermission(db, actorId, orgId, "manage_agents");
-  const agent = await getAgent(db, orgId, agentId);
-  if (!agent) throw new NotFoundError("Agent not found");
+  await requireAgentManager(db, actorId, orgId, agentId);
   const connection = (await orgDbConnections(db, orgId)).find((c) => c.id === connectionId);
   if (!connection) throw new NotFoundError("Database not found", "database.not_found");
   const policy = normalizeDatabasePolicy(input.policy);

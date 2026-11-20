@@ -149,7 +149,7 @@ export function calendarRoutes(deps: AppDeps) {
                 number: z.number(),
                 title: z.string(),
                 date: z.string(),
-                assignee: Actor.nullable().openapi({ description: "Who has the task; null: nobody." }),
+                assignees: z.array(Actor).openapi({ description: "Who has the task, in order; empty: nobody." }),
               }),
             ),
             proposals: z.array(Proposal),

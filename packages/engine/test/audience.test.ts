@@ -19,12 +19,15 @@ import {
   executeRoutineRun,
   ForbiddenError,
   getAgentBrain,
+  getMembership,
   getTeam,
   insertMessageWithRuns,
   inviteMany,
   listAgentGroups,
   listAgents,
   listRoutines,
+  listsAgentSql,
+  listsAgentTo,
   NO_PERSON,
   NotFoundError,
   openDm,
@@ -36,6 +39,7 @@ import {
   routeMessage,
   setAgentAudience,
   setAgentBrain,
+  setAgentEditors,
   setMemberRoles,
   speakerFor,
   updateAgent,
@@ -67,7 +71,7 @@ const runsOf = async (messageId: string) =>
   (await f.db.select().from(schema.agentRuns)).filter((r) => r.triggerMessageId === messageId);
 
 describe("who can talk to the agent", () => {
-  test("an admin sees and manages another admin's agent kept to a role they don't hold; a member outside sees its card", async () => {
+  test("an admin sees and manages another admin's agent kept to a role they don't hold; the key alone doesn't reach it, who it names as editors edit it; a member outside sees its card", async () => {
     const { bia } = await world();
     const walt = await addMember(f.db, f.org.id, "admin", "walt");
     const caio = await addMember(f.db, f.org.id, "admin", "caio");
@@ -94,17 +98,33 @@ describe("who can talk to the agent", () => {
     });
     expect((await card(caio.id))?.canTalk).toBe(true);
 
-    // A member whose role manages agents, without being an admin: the same as an admin.
+    // Seeing it isn't talking to it: what an admin outside it writes in its conversation starts no run.
+    const ownerDm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+    const sent = await postPersonMessage(deps(), f.owner.id, f.org.id, ownerDm.id, { body: "oi" });
+    await drainOutbox(f.db, f.handlers);
+    expect(await runsOf(sent.id)).toEqual([]);
+
+    // A member whose role holds "Edit agents", without being an admin: someone's private agent is out of the key's
+    // reach (ADR 0085 addendum of 2026-11-17), its public card and no conversation, nothing of it theirs to change.
     const managers = await createRole(f.db, f.owner.id, f.org.id, { name: "Gestores", permissions: ["manage_agents"] });
     const lia = await addMember(f.db, f.org.id, "member", "lia");
     await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [managers.id]);
-    expect(await card(lia.id)).toMatchObject({ seesDetails: true, canTalk: false });
-    const liaDm = await openDm(f.db, lia.id, f.org.id, { agentId: f.agent.id });
-    expect(liaDm.kind).toBe("dm");
-    // Seeing it isn't talking to it: what they write there starts no run.
-    const sent = await postPersonMessage(deps(), lia.id, f.org.id, liaDm.id, { body: "oi" });
-    await drainOutbox(f.db, f.handlers);
-    expect(await runsOf(sent.id)).toEqual([]);
+    expect(await card(lia.id)).toMatchObject({
+      seesDetails: false,
+      canTalk: false,
+      canManage: false,
+      capabilities: [],
+    });
+    await expect(openDm(f.db, lia.id, f.org.id, { agentId: f.agent.id })).rejects.toMatchObject({
+      code: "audience.only",
+    });
+    await expect(updateAgent(f.db, lia.id, f.org.id, f.agent.id, { role: "Suporte" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    // Named in its "Who can edit", she sees how it works and edits its role, still not talking to it.
+    await setAgentEditors(f.db, walt.id, f.org.id, f.agent.id, { userIds: [lia.id], roleIds: [] });
+    expect(await card(lia.id)).toMatchObject({ seesDetails: true, canTalk: false, canManage: false });
+    expect((await updateAgent(f.db, lia.id, f.org.id, f.agent.id, { role: "Suporte" })).role).toBe("Suporte");
 
     // A member outside it: its public card, no conversation.
     expect(await card(bia.id)).toMatchObject({ seesDetails: false, canTalk: false, capabilities: [] });
@@ -671,29 +691,37 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
     count: (await orgOverview(f.db, userId, f.org.id)).agents,
   });
 
-  test("on for everyone by default; off, a member lists only the agents that answer them, admins still all", async () => {
+  test("on for everyone by default, private agents aside; off, a member lists only the agents that answer them, admins still all", async () => {
     f = await setup();
-    const bento = await createAgent(
-      f.db,
-      f.owner.id,
-      f.org.id,
-      { name: "Bento", handle: "bento", credentialId: f.credential.id },
-      { model: "claude-sonnet-5-5" },
-    );
+    const make = (name: string) =>
+      createAgent(
+        f.db,
+        f.owner.id,
+        f.org.id,
+        { name, handle: name.toLowerCase(), credentialId: f.credential.id },
+        { model: "claude-sonnet-5-5" },
+      );
+    const bento = await make("Bento");
+    const cora = await make("Cora");
+    const support = await createRole(f.db, f.owner.id, f.org.id, { name: "Suporte" });
     await setAgentAudience(f.db, f.owner.id, f.org.id, bento.id, { mode: "owner", userIds: [], roleIds: [] });
+    await setAgentAudience(f.db, f.owner.id, f.org.id, cora.id, { mode: "people", userIds: [], roleIds: [support.id] });
     await setAgentAudience(f.db, f.owner.id, f.org.id, f.agent.id, { mode: "everyone", userIds: [], roleIds: [] });
     await createAgentGroup({ db: f.db }, f.owner.id, f.org.id, { name: "Time", agentIds: [f.agent.id] });
     await createAgentGroup({ db: f.db }, f.owner.id, f.org.id, { name: "Privado", agentIds: [bento.id] });
+    await createAgentGroup({ db: f.db }, f.owner.id, f.org.id, { name: "Vazio" });
     const walt = await addMember(f.db, f.org.id, "member", "walt");
     const all = await listing(f.owner.id);
-    expect(all.team).toEqual(["Bento", "Dev"]);
-    expect(all.groups).toEqual(["Time:1", "Privado:1"]);
-    expect(await listing(walt.id)).toEqual(all);
+    expect(all.team).toEqual(["Bento", "Cora", "Dev"]);
+    expect(all.groups).toEqual(["Time:1", "Privado:1", "Vazio:0"]);
+    // Bento answers only its owner: unlisted to who merely sees every agent, its group with it.
+    const viewsAll = { team: ["Cora", "Dev"], groups: ["Time:1", "Vazio:0"], count: all.count - 1 };
+    expect(await listing(walt.id)).toEqual(viewsAll);
 
     await everyoneWithout(f.db, f.org.id, "view_all_agents");
-    expect(await listing(walt.id)).toEqual({ team: ["Dev"], groups: ["Time:1"], count: all.count - 1 });
+    expect(await listing(walt.id)).toEqual({ team: ["Dev"], groups: ["Time:1"], count: all.count - 2 });
     expect(await listing(f.owner.id)).toEqual(all);
-    // A cargo that holds the key, or manages agents, lists every agent again.
+    // A cargo that holds the key, or manages agents, lists every agent again but the private one.
     for (const permissions of [["view_all_agents"], ["manage_agents"]] as const) {
       const role = await createRole(f.db, f.owner.id, f.org.id, {
         name: permissions[0],
@@ -701,10 +729,59 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
       });
       const lia = await addMember(f.db, f.org.id, "member", `lia-${permissions[0]}`);
       await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [role.id]);
-      expect(await listing(lia.id)).toEqual(all);
+      expect(await listing(lia.id)).toEqual(viewsAll);
     }
     // It narrows lists only: Bento's public card still reaches the member, to draw its messages.
     expect((await listAgents(f.db, walt.id, f.org.id)).map((a) => a.id)).toContain(bento.id);
+  });
+
+  test("a private agent is listed only to its owner, administrators and who its Quem pode editar names", async () => {
+    f = await setup();
+    const duda = await addMember(f.db, f.org.id, "member", "duda");
+    const bento = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Bento", handle: "bento", credentialId: f.credential.id },
+      { model: "claude-sonnet-5-5" },
+    );
+    await f.db.update(schema.agents).set({ ownerUserId: duda.id }).where(eq(schema.agents.id, bento.id));
+    await setAgentAudience(f.db, duda.id, f.org.id, bento.id, { mode: "owner", userIds: [], roleIds: [] });
+    const review = await createRole(f.db, f.owner.id, f.org.id, { name: "Revisão" });
+    const keys = await createRole(f.db, f.owner.id, f.org.id, { name: "Chaves", permissions: ["manage_agents"] });
+    const [walt, caio, edna, fabi, gil] = await Promise.all([
+      addMember(f.db, f.org.id, "member", "walt"),
+      addMember(f.db, f.org.id, "admin", "caio"),
+      addMember(f.db, f.org.id, "member", "edna"),
+      addMember(f.db, f.org.id, "member", "fabi"),
+      addMember(f.db, f.org.id, "member", "gil"),
+    ]);
+    await setMemberRoles(f.db, f.owner.id, f.org.id, fabi.id, [review.id]);
+    await setMemberRoles(f.db, f.owner.id, f.org.id, gil.id, [keys.id]);
+    await setAgentEditors(f.db, duda.id, f.org.id, bento.id, { userIds: [edna.id], roleIds: [review.id] });
+
+    const lists = async (userId: string) => {
+      const team = (await getTeam(f.db, userId, f.org.id)).agents.some((a) => a.id === bento.id);
+      const membership = await getMembership(f.db, userId, f.org.id);
+      const [row] = await f.db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.id, bento.id), listsAgentSql("agents", sql`${userId}::text`, membership)));
+      const agent = (await listAgents(f.db, userId, f.org.id)).find((a) => a.id === bento.id);
+      // The rule, its SQL twin and Equipe agree.
+      expect(Boolean(row)).toBe(team);
+      expect(agent && listsAgentTo(agent, userId, membership)).toBe(team);
+      return team;
+    };
+    for (const who of [duda, f.owner, caio, edna, fabi]) expect(await lists(who.id)).toBe(true);
+    // A plain member who sees every agent, and who holds "Editar qualquer agente" without its audience.
+    for (const who of [walt, gil]) expect(await lists(who.id)).toBe(false);
+
+    // Answering someone else, it is listed again to who sees every agent.
+    await setAgentAudience(f.db, duda.id, f.org.id, bento.id, { mode: "people", userIds: [duda.id], roleIds: [] });
+    expect(await lists(walt.id)).toBe(false);
+    await setAgentAudience(f.db, duda.id, f.org.id, bento.id, { mode: "people", userIds: [edna.id], roleIds: [] });
+    expect(await lists(walt.id)).toBe(true);
   });
 
   test("the migration gives the key back to every workspace's base role, once", async () => {

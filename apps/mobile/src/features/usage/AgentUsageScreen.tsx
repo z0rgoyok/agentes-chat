@@ -1,5 +1,6 @@
 import type { AgentPlanUsage } from "@agenteschat/client";
 import { useAgentPlanUsage, useApi } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import {
   formatMonth,
   formatPercent,
@@ -16,15 +17,18 @@ import {
   usageSourceName,
   usageSourcePart,
 } from "@agenteschat/client/lib/plan-usage";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { gradientOf } from "@agenteschat/ui/agent/engine";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { LayoutAnimationConfig } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
-import { Icon, InfoHint, ProviderLogo, Text } from "@/ui";
-import { useColors, useDirectory } from "../shared/hooks";
+import { Button, Icon, InfoHint, ProviderLogo, SkeletonList, Text } from "@/ui";
+import { openAgentAi } from "../ai/AgentAiScreen";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useMeId, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { Loaded, PushedHeader } from "../shared/parts";
 import { AccountHead, PlanMeter, PlanModels, Swatch, UsageCard, UsageDays } from "./parts";
@@ -41,14 +45,33 @@ export function AgentUsageScreen({ agentId }: { agentId: string }) {
   const api = useApi();
   const c = useColors();
   const dir = useDirectory();
+  const meId = useMeId();
   const insets = useSafeAreaInsets();
   const usage = useAgentPlanUsage(orgId, agentId);
   const agent = dir.agentById.get(agentId);
   const name = agent?.name ?? "";
+  // Its owner and who manages it (the server's `canManage`) change what it thinks with, as on its page (the right
+  // hand's is each person's own, on its settings). Here too: this is where they see it at its limit.
+  const changes = agent && !isRightHand(agent) && (Boolean(meId && agent.ownerUserId === meId) || managesAgent(agent));
+  const switchAi = changes ? (
+    <View style={styles.switch}>
+      <Button
+        variant="secondary"
+        size="sm"
+        label={t("usageQueue.switchAi", agentGrammar(name))}
+        onPress={() => openAgentAi(agentId)}
+      />
+    </View>
+  ) : null;
   // Looking at the plans: their usage is looked up again (it comes back as `machine.updated`).
   useEffect(() => {
     void api.machines.refreshAccountUsage(orgId).catch(() => undefined);
   }, [api, orgId]);
+  // A pull asks the plans for their usage again and reads the agent's month again.
+  const pull = usePullRefresh(() => {
+    void api.machines.refreshAccountUsage(orgId).catch(() => undefined);
+    return usage.refetch();
+  });
   const data = usage.data;
   // Plan accounts in inks, in the order they come (now first); the API in the agent's own color.
   const planTones = [c.ink, c.faint, c.lineStrong];
@@ -63,21 +86,18 @@ export function AgentUsageScreen({ agentId }: { agentId: string }) {
       <PushedHeader title={t("usageViews.agent.title", agentGrammar(name))} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
         contentContainerStyle={[styles.in, { paddingBottom: insets.bottom + 24 }]}
       >
         {/* The numbers fade in over the spinner; numbers already here when the screen opens just show. */}
         <LayoutAnimationConfig skipEntering>
-          {usage.isLoading ? <ActivityIndicator color={c.muted} /> : null}
-          {!usage.isLoading && !data ? (
-            <Text variant="small" tone="muted">
-              {t("common.loadFailed")}
-            </Text>
-          ) : null}
+          {usage.isLoading ? <SkeletonList rows={3} /> : null}
+          {!usage.isLoading && !data ? <LoadFailed onRetry={() => void usage.refetch()} /> : null}
           {data ? (
             <Loaded>
               <View style={styles.stack}>
                 <Month data={data} name={name} tones={tones} />
-                {data.current ? <Now data={data} agentId={agentId} name={name} /> : null}
+                {data.current ? <Now data={data} agentId={agentId} name={name} action={switchAi} /> : switchAi}
                 {data.sources.length > 0 ? (
                   <BySource
                     data={data}
@@ -117,14 +137,15 @@ function Month({ data, name, tones }: { data: AgentPlanUsage; name: string; tone
   });
   const used = data.sources.filter((s) => s.tokens > 0);
   return (
-    <UsageCard icon="chart" title={t("usageViews.agent.title", g)}>
+    // The bar says whose usage it is: the card says what it draws, the month day by day.
+    <UsageCard icon="chart" title={t("usageViews.agent.daysLabel", { month })}>
       {data.tokens === 0 ? (
         <Text variant="small" tone="muted">
           {t("usageViews.agent.empty", { ...g, month })}
         </Text>
       ) : (
         <>
-          <Text variant="title" tone="ink" style={styles.sentence}>
+          <Text variant="body" tone="ink" style={styles.sentence}>
             {t("usageViews.agent.sentence", {
               ...g,
               month,
@@ -167,7 +188,18 @@ function Month({ data, name, tones }: { data: AgentPlanUsage; name: string; tone
   );
 }
 
-function Now({ data, agentId, name }: { data: AgentPlanUsage; agentId: string; name: string }) {
+function Now({
+  data,
+  agentId,
+  name,
+  action,
+}: {
+  data: AgentPlanUsage;
+  agentId: string;
+  name: string;
+  /** "Trocar a IA do Nick", under the account it thinks with now, for who may. */
+  action: ReactNode;
+}) {
   const { t, i18n } = useTranslation();
   const dir = useDirectory();
   const g = agentGrammar(name);
@@ -210,6 +242,7 @@ function Now({ data, agentId, name }: { data: AgentPlanUsage; agentId: string; n
         </Text>
       )}
       <PlanModels usage={current.usage} provider={current.provider} />
+      {action}
     </UsageCard>
   );
 }
@@ -317,7 +350,8 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   bold: { fontWeight: "600" },
   tabular: { fontVariant: ["tabular-nums"] },
-  sentence: { fontWeight: "500", lineHeight: 26 },
+  // The month in one sentence, read before the chart: the body's size, a step heavier.
+  sentence: { fontWeight: "500" },
   legend: { flexDirection: "row", flexWrap: "wrap", rowGap: 4, columnGap: 14 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   // The figures under the account, as wide as the row: beside it, a narrow column squeezed them and the name.
@@ -333,4 +367,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   n: { alignItems: "flex-start" },
+  switch: { flexDirection: "row" },
 });

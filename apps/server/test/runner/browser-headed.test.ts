@@ -301,6 +301,36 @@ test.if(posix)(
   },
 );
 
+test.if(posix)(
+  "on its desktop, a page it opens or goes back to moves its pointer to Chrome's toolbar there; headless, it doesn't",
+  async () => {
+    const sent: Record<string, unknown>[] = [];
+    const t = setup({
+      send: (frame) => {
+        sent.push(frame as unknown as Record<string, unknown>);
+        return true;
+      },
+    });
+    // The page's top left corner on its screen, under Chrome's bars.
+    writeFileSync(process.env.FAKE_AB_STATE as string, JSON.stringify({ onScreen: [1280, 811, 0, 89] }));
+    const pointers = () => sent.filter((f) => f.type === "desktop.pointer");
+    await t.act("open", ["https://shop.example/"], true);
+    expect(pointers()).toEqual([
+      { type: "desktop.pointer", agentId: dev.id, x: 200, y: 65, width: 1280, height: 900, act: "type" },
+    ]);
+    await t.act("back", [], true);
+    expect(pointers().at(-1)).toMatchObject({ x: 23, y: 65, act: "click" });
+    // Only toolbar moves: a read says nothing.
+    await t.act("snapshot", [], true);
+    expect(pointers()).toHaveLength(2);
+
+    const quiet: unknown[] = [];
+    const other = setup({ send: (frame) => quiet.push(frame) > 0 });
+    await other.act("open", ["https://shop.example/"], false);
+    expect(quiet.filter((f) => (f as { type?: unknown }).type === "desktop.pointer")).toEqual([]);
+  },
+);
+
 test.if(posix)("a Chrome in the other mode starts again in this one, on the same profile and page", async () => {
   const t = setup();
   await t.act("open", ["https://shop.example/cart"], false);

@@ -15,6 +15,7 @@ import {
   auditQueryOf,
   auditReason,
   auditReasonKey,
+  auditReasonLabel,
   auditRoutine,
   auditSecretText,
   auditSentence,
@@ -26,12 +27,12 @@ import {
   TOOL_CALL,
 } from "@agenteschat/client/lib/audit";
 import { humanize } from "@agenteschat/client/lib/custom-tools";
-import { formatTime, whenAt } from "@agenteschat/client/lib/format";
+import { whenAt } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import type { TFunction } from "i18next";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import {
   Button,
@@ -44,25 +45,24 @@ import {
   type IconName,
   LineIcon,
   SCREEN_X,
+  SkeletonList,
   Text,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
+import { closeAgentPick, openAgentPick } from "../dashboards/agent-pick";
 import { chatHref } from "../links/logic";
 import { Face } from "../shared/Face";
-import { useEmptyLook } from "../shared/FirstUse";
+import { LoadFailed, useEmptyLook } from "../shared/FirstUse";
 import { useColors, useDirectory, useWhen } from "../shared/hooks";
-import { pickOne } from "../shared/PickerSheet";
 import { copyText, Tile } from "../shared/parts";
 import { Gap, SettingsPage } from "./parts";
 
-/** The picker's key for "Qualquer agente" (no filter). */
-const ANY_AGENT = "\u0000any";
-
 /*
  * Configurações › Auditoria on the phone (admins), as the web's: the log by day, a sentence per row (who, what),
- * the line under it (about what, who asked, where) and how it ended; shortcuts on top and an agent to narrow it to.
+ * the line under it (about what, who asked, where) and how it ended; shortcuts on top and an agent to narrow it to,
+ * picked on its own pushed screen (the agent picker every form shares) and taken off with the row's ×.
  * A row pushes its own screen with the reason, the approval or the secret, what was sent (secrets hidden), the
  * technical detail, and the conversation and the request to open. Words in `@agenteschat/client/lib/audit`.
  */
@@ -80,8 +80,7 @@ const MARK_ICON: Record<AuditMark, IconName> = {
 };
 
 export function AuditScreen({ agentId: first = null }: { agentId?: string | null } = {}) {
-  const { t, i18n } = useTranslation();
-  const c = useColors();
+  const { t } = useTranslation();
   const when = useWhen();
   const dir = useDirectory();
   const { orgId, org } = useOrg();
@@ -93,26 +92,20 @@ export function AuditScreen({ agentId: first = null }: { agentId?: string | null
   const rows = useMemo(() => audit.data?.pages.flatMap((p) => p.rows) ?? [], [audit.data]);
   const days = useMemo(() => byDay(rows, when.day), [rows, when.day]);
   const agent = agentId ? dir.agentById.get(agentId) : undefined;
-  // In the app's picker: "Qualquer agente" first, then each agent with its face and role, the one shown checked.
-  const pickAgent = () =>
-    void pickOne({
-      title: t("audit.agent"),
-      value: agentId ?? ANY_AGENT,
-      options: [
-        { key: ANY_AGENT, label: t("audit.anyAgent"), leading: { kind: "icon", name: "members" } },
-        ...dir.agents.map((a) => ({
-          key: a.id,
-          label: a.name,
-          ...(a.role?.trim() ? { sub: a.role.trim() } : {}),
-          leading: { kind: "agent" as const, agentId: a.id },
-        })),
-      ],
-    }).then((key) => {
-      if (key !== null) setAgentId(key === ANY_AGENT ? null : key);
-    });
+  // Every agent of the workspace (the log has those no one talks to), on the picker's own screen; the pick comes
+  // back here at once. The pick's state goes when the log closes.
+  const pickAgent = () => {
+    openAgentPick({ agentId, apply: setAgentId, title: t("audit.agent"), note: "", everyone: true });
+    router.push("/agent-pick");
+  };
+  useEffect(() => closeAgentPick, []);
 
   return (
-    <SettingsPage title={t("settings.section.audit")}>
+    <SettingsPage
+      title={t("settings.section.audit")}
+      largeTitle
+      {...(admin ? { onRefresh: () => audit.refetch() } : {})}
+    >
       <GroupedFooter>{t("settings.sectionText.audit")}</GroupedFooter>
       {!admin ? (
         <View style={styles.note}>
@@ -121,11 +114,14 @@ export function AuditScreen({ agentId: first = null }: { agentId?: string | null
       ) : (
         <>
           <Gap />
-          <Filters
-            items={AUDIT_SHOWS.map((s) => ({ key: s, label: t(`audit.filter.${s}`) }))}
-            value={show}
-            onChange={(key) => setShow(key as AuditShow)}
-          />
+          {/* The chips scroll to the screen's edges; the first one starts where the groups do. */}
+          <View style={styles.bleed}>
+            <Filters
+              items={AUDIT_SHOWS.map((s) => ({ key: s, label: t(`audit.filter.${s}`) }))}
+              value={show}
+              onChange={(key) => setShow(key as AuditShow)}
+            />
+          </View>
           {show !== "people" ? (
             <>
               <Gap />
@@ -134,18 +130,19 @@ export function AuditScreen({ agentId: first = null }: { agentId?: string | null
                   icon="agent"
                   label={t("audit.agent")}
                   value={agent?.name ?? t("audit.anyAgent")}
-                  chevron
+                  {...(agent
+                    ? { valueLeading: <Face who={{ type: "agent", id: agent.id }} size={22} live={false} /> }
+                    : {})}
+                  {...(agentId
+                    ? { remove: { label: t("audit.anyAgent"), onPress: () => setAgentId(null) } }
+                    : { chevron: true })}
                   onPress={pickAgent}
                 />
               </GroupedList>
             </>
           ) : null}
-          {audit.isPending ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
-          {audit.isError && !audit.data ? (
-            <View style={styles.note}>
-              <Note icon="x">{t("common.loadFailed")}</Note>
-            </View>
-          ) : null}
+          {audit.isPending ? <SkeletonList rows={4} /> : null}
+          {audit.isError && !audit.data ? <LoadFailed onRetry={() => void audit.refetch()} /> : null}
           {audit.isSuccess && rows.length === 0 ? (
             show === "all" && !agentId ? (
               <EmptyState
@@ -178,7 +175,8 @@ export function AuditScreen({ agentId: first = null }: { agentId?: string | null
               <GroupedHeader>{day}</GroupedHeader>
               <GroupedList>
                 {list.map((row) => (
-                  <AuditRowView key={row.id} row={row} time={formatTime(i18n.language, row.at)} />
+                  // The list's kept clock format (`useWhen`), not a new one per row.
+                  <AuditRowView key={row.id} row={row} time={when.time(row.at)} />
                 ))}
               </GroupedList>
             </Fragment>
@@ -218,7 +216,7 @@ function byDay(rows: AuditRow[], day: (iso: string) => string): [string, AuditRo
 function AuditRowView({ row, time }: { row: AuditRow; time: string }) {
   const { t, i18n } = useTranslation();
   const { name, text } = auditSentence(t, row, i18n.language);
-  const sub = auditSubLine(t, row);
+  const sub = auditSubLine(t, row, i18n.language);
   const look = auditOutcome(t, row);
   return (
     <GroupedRow
@@ -289,8 +287,9 @@ export function AuditRowScreen({ id }: { id: string }) {
   const name = auditActorName(t, row) ?? t("audit.system");
   const { name: who, text } = auditSentence(t, row, i18n.language);
   const look = auditOutcome(t, row);
-  const reason = auditReason(t, row);
+  const reason = auditReason(t, row, i18n.language);
   const reasonKey = auditReasonKey(row);
+  const reasonLabel = auditReasonLabel(t, row);
   const said = auditToolSaid(row);
   const isCall = row.action === TOOL_CALL;
   const where = auditWhere(t, row);
@@ -298,7 +297,7 @@ export function AuditRowScreen({ id }: { id: string }) {
   const asked = isCall ? askedOf(t, row) : null;
   const input = isCall ? (row.details.input as Record<string, unknown> | undefined) : undefined;
   const sent = input ? Object.entries(input) : [];
-  const changeDetails = isCall ? [] : auditDetailEntries(row.details);
+  const changeDetails = isCall ? [] : auditDetailEntries(row.details, row.action);
   const copy = async () => {
     if (await copyText(row.id)) toast({ title: t("audit.panel.copied"), icon: "check" });
   };
@@ -322,7 +321,7 @@ export function AuditRowScreen({ id }: { id: string }) {
       {reason ? (
         <View style={styles.note}>
           <Note icon={reasonKey === "refused" ? "x" : "info"}>
-            {`${t(`audit.panel.reason.${reasonKey}`)}: ${reason}`}
+            {reasonLabel ? `${reasonLabel}: ${reason}` : reason}
           </Note>
         </View>
       ) : null}
@@ -452,7 +451,8 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   // The other settings screens' note: on the groups' edge, not indented past it.
   note: { paddingHorizontal: 4, paddingTop: 10 },
-  loading: { marginTop: 24 },
+  // Under the page's 16 at its sides: the chips' own row runs from edge to edge.
+  bleed: { marginHorizontal: -SCREEN_X },
   end: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
   outcome: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
   time: { fontVariant: ["tabular-nums"] },

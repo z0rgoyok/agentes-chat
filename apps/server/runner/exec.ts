@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import { constants } from "node:os";
 import path from "node:path";
@@ -138,6 +138,23 @@ export function killTree(
       // already gone
     }
   }
+}
+
+/**
+ * Every process under `pid` on macOS and Linux, from `ps`, even those in a process group of their own (Claude Code
+ * starts each shell command detached); empty when `ps` can't say.
+ */
+export function descendantPids(pid: number): number[] {
+  const ps = spawnSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5000 });
+  const children = new Map<number, number[]>();
+  for (const row of (ps.stdout ?? "").split("\n")) {
+    const [child, parent] = row.trim().split(/\s+/).map(Number);
+    if (!child || !parent) continue;
+    children.set(parent, [...(children.get(parent) ?? []), child]);
+  }
+  const found: number[] = [];
+  for (let i = -1; i < found.length; i++) found.push(...(children.get(i < 0 ? pid : (found[i] as number)) ?? []));
+  return found;
 }
 
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;

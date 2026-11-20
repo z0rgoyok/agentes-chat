@@ -16,7 +16,6 @@ import {
   inviteRefusalText,
   inviteStart,
 } from "@agenteschat/client/lib/invite-start";
-import { can } from "@agenteschat/client/lib/permissions";
 import { personalHelperRole } from "@agenteschat/client/lib/personal-view";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { everyoneOf, isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
@@ -368,7 +367,8 @@ export function AgentsField({
   const { org, me } = useOrg();
   const api = useApi();
   const dir = useDirectory(org.id);
-  const viewer = { userId: me.user.id, managesAgents: can(org, "manage_agents") };
+  // Who may open an agent to them: its owner, or who manages that agent (`inviteAgentCase` reads it from the agent).
+  const viewer = { userId: me.user.id };
   const right = dir.agents.find(isRightHand);
   const listed = dir.agents.filter((a) => !isRightHand(a) && listsAgent(org, a));
   const cargoAgents = choices.own.agentIds;

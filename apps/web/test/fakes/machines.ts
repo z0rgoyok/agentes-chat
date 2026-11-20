@@ -30,6 +30,7 @@
  */
 import type {
   AccountLoginStatus,
+  AccountOrderGroup,
   AiAccounts,
   ApiClient,
   CliInstall,
@@ -39,14 +40,72 @@ import type {
   DeviceRequest,
   HostComputer,
   Machine,
+  MachineAccount,
   MachineAccountKind,
   MachineOutages,
   MoveAgentsResult,
   SecretBox,
 } from "@agenteschat/client";
 import { ApiError } from "@agenteschat/client";
+import { orderAccounts } from "@agenteschat/client/lib/ai-accounts";
 import { isPlanId, planOf } from "@agenteschat/client/lib/plans";
 import { clone, type MockContext, MockNotFoundError } from "./context";
+
+/** The server's automatic names (`defaultAccountLabel`): the maker, or a coding plan's name. */
+const AUTO_NAMES: Record<string, string> = {
+  claude_code: "Claude",
+  codex: "ChatGPT",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  grok: "Grok",
+  antigravity: "Gemini",
+};
+const OLD_LABEL_WORDS = /^(code|pro\+?|max|ultra|team|teams|enterprise|plus|business|free)$/i;
+
+/**
+ * An account as the server sends it (`isDefaultAccountLabel`): `named` false while its name is the automatic one
+ * ("Claude", "Claude 2", an older "Claude Max 2"), true for any other. A test that sets `named` keeps it.
+ */
+export function withNamed<A extends Pick<MachineAccount, "label" | "kind" | "provider" | "named">>(a: A): A {
+  if (a.named !== undefined) return a;
+  const base = planOf(a.provider)?.label ?? AUTO_NAMES[a.kind] ?? "";
+  const rest = a.label.startsWith(base) ? a.label.slice(base.length).trim().split(/\s+/).filter(Boolean) : null;
+  if (rest && rest.length > 0 && /^\d+$/.test(rest[rest.length - 1] ?? "")) rest.pop();
+  const auto =
+    rest !== null &&
+    (rest.length === 0 || (rest.length === 1 && OLD_LABEL_WORDS.test(rest[0] ?? "") && a.label[base.length] === " "));
+  return { ...a, named: !auto };
+}
+
+/** A run may move to it (`movable`): a fixture's own say, else shared and signed in. */
+const movable = (a: AiAccounts["accounts"][number]) => a.movable ?? (a.shared === true && a.status === "active");
+
+/**
+ * The order of use as the server lists it: the viewer's Claude and ChatGPT sign-ins, by computer and kind, those a run
+ * never moves to last.
+ */
+function orderGroups(ai: AiAccounts): AccountOrderGroup[] {
+  const groups: AccountOrderGroup[] = [];
+  const listed = ai.accounts
+    .map((a, i) => ({ a, i }))
+    .filter(({ a }) => (a.kind === "claude_code" || a.kind === "codex") && a.provider === null)
+    .sort(
+      (x, y) =>
+        Number(movable(y.a)) - Number(movable(x.a)) ||
+        (x.a.useOrder ?? Infinity) - (y.a.useOrder ?? Infinity) ||
+        x.i - y.i,
+    );
+  for (const { a } of listed) {
+    let g = groups.find((x) => x.machineId === a.machineId && x.kind === a.kind);
+    if (!g) {
+      g = { machineId: a.machineId, computer: a.computer, kind: a.kind, accounts: [] };
+      groups.push(g);
+    }
+    // An admin may move anyone's: a fixture says so with its own `canMove`.
+    g.accounts.push({ ...a, movable: movable(a), canMove: (a as { canMove?: boolean }).canMove ?? a.mine });
+  }
+  return groups;
+}
 
 export interface FakeMachines {
   client: ApiClient["machines"];
@@ -315,7 +374,9 @@ export function createFakeMachines(ctx: MockContext, log: (method: string, ...ar
       accountLogin: async (_orgId, _machineId, loginId) => {
         login(loginId);
         const waiting: AccountLoginStatus = { state: "waiting" };
-        return clone(loginStatus.get(loginId) ?? waiting);
+        const st = clone(loginStatus.get(loginId) ?? waiting);
+        // The account it signed in as the server sends it: whether its name is the automatic one.
+        return st.account ? { ...st, account: withNamed(st.account) } : st;
       },
       cancelAccountLogin: async (orgId, machineId, loginId) => {
         log("machines.cancelAccountLogin", orgId, machineId, loginId);
@@ -326,7 +387,10 @@ export function createFakeMachines(ctx: MockContext, log: (method: string, ...ar
         log("machines.refreshAccountUsage", orgId);
       },
       // Read whenever an accounts screen renders: not logged.
-      aiAccounts: async () => clone(ai),
+      aiAccounts: async () => {
+        const all = clone(ai);
+        return { ...all, accounts: all.accounts.map(withNamed) };
+      },
       takeBackPlan: async (orgId, accountId, agentId) => {
         log("machines.takeBackPlan", orgId, accountId, agentId);
         return { agentIds: agentId ? [agentId] : [] };
@@ -334,6 +398,21 @@ export function createFakeMachines(ctx: MockContext, log: (method: string, ...ar
       setAccountServes: async (orgId, accountId, serves) => {
         log("machines.setAccountServes", orgId, accountId, serves);
         return { serves, agentIds: [] };
+      },
+      // Read whenever an order renders: not logged.
+      accountOrder: async () => ({ groups: clone(orderGroups(ai)) }),
+      moveAccountInOrder: async (orgId, accountId, index) => {
+        log("machines.moveAccountInOrder", orgId, accountId, index);
+        const group = orderGroups(ai).find((g) => g.accounts.some((a) => a.id === accountId && a.movable));
+        if (!group) throw new MockNotFoundError("Conta não encontrada.");
+        // As the server: a place is an account's among those with one, its logins (`sameAs`) move together.
+        const accounts = orderAccounts(group.accounts.filter((a) => a.movable));
+        const moved = accounts.find((b) => b.some((a) => a.id === accountId)) ?? [];
+        const others = accounts.filter((b) => b !== moved);
+        others.splice(Math.min(index, others.length), 0, moved);
+        const ids = others.flat().map((a) => a.id);
+        for (const a of ai.accounts) if (ids.includes(a.id)) a.useOrder = ids.indexOf(a.id);
+        return clone(orderGroups(ai).find((g) => g.machineId === group.machineId && g.kind === group.kind) ?? group);
       },
       renameAccount: async (orgId, machineId, accountId, label) => {
         log("machines.renameAccount", orgId, machineId, accountId, label);
@@ -343,6 +422,7 @@ export function createFakeMachines(ctx: MockContext, log: (method: string, ...ar
           [...loginStatus.values()].find((st) => st.account?.id === accountId)?.account;
         if (!a) throw new MockNotFoundError("Conta não encontrada.");
         a.label = label;
+        a.named = true;
         return clone(a);
       },
       removeAccount: async (orgId, machineId, accountId) => {

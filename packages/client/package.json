@@ -8,17 +8,22 @@
   "exports": {
     ".": "./src/index.ts",
     "./api/http-client": "./src/api/http-client.ts",
-    "./lib/*": "./src/lib/*.ts"
+    "./lib/*": "./src/lib/*.ts",
+    "./live/testing": "./src/live/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@agenteschat/i18n": "workspace:*",
+    "@agenteschat/live": "workspace:*",
     "@agenteschat/providers": "workspace:*",
     "@agenteschat/tokens": "workspace:*",
     "@agenteschat/ui": "workspace:*",
-    "yaml": "^2.9.1"
+    "lib0": "0.2.120",
+    "y-protocols": "1.0.7",
+    "yaml": "^2.9.1",
+    "yjs": "13.6.33"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.104.1",

@@ -1,0 +1,289 @@
+/*
+ * Live files drawn outside their page (ADR 0196): the editors' loading shapes, the covers in the Drive and in
+ * messages, and uploaded Office files in the viewer. Imported by each of those, so the Drive and the chat have them
+ * without loading the file's page.
+ */
+
+/* ── Loading: the editor's own shape ────────────────────────────────────────────────────────────────────────────── */
+
+.lf-skel {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.lf-skel__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: var(--control-h-md);
+  padding: 0 var(--page-x);
+  border-bottom: 1px solid var(--line);
+}
+/* The grid's lines: 100 wide, 24 tall, as a sheet's cells. */
+.lf-skel__grid {
+  flex: 1 1 auto;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:
+    100px 24px,
+    100px 24px;
+  background-position: 48px 24px;
+  opacity: 0.7;
+}
+.lf-skel--slides {
+  flex-direction: row;
+}
+.lf-skel__rail {
+  flex: none;
+  width: 216px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
+  border-right: 1px solid var(--line);
+  box-sizing: border-box;
+}
+.lf-skel__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+}
+.lf-skel__stage {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background: var(--surface-sunken);
+}
+.lf-skel__slide {
+  width: min(100%, 960px);
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-item);
+}
+.lf-skel__plane {
+  position: relative;
+  flex: 1 1 auto;
+  background-image: radial-gradient(var(--line) 1.5px, transparent 1.6px);
+  background-size: 24px 24px;
+}
+.lf-skel__dock {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  width: 360px;
+  max-width: calc(100% - 2 * var(--space-4));
+  height: var(--control-h-lg);
+  border-radius: var(--radius-lg);
+  transform: translateX(-50%);
+}
+@media (max-width: 760px) {
+  .lf-skel__rail {
+    display: none;
+  }
+}
+
+/* ── Covers: a live file drawn small (the Drive's cards and rows, the cards in messages) ─────────────────────────── */
+
+/* The cover fills its box (`.drive-pv`, `.artifact-tile__cover`) and sizes what it draws by its own width. */
+.lf-cover {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  background: var(--surface-raised);
+}
+/*
+ * A spreadsheet: its grid at about a quarter of its size, the column letters and row numbers on the sunken headers,
+ * the cells' words in ink (bold, aligned as they are). A column's width comes from the file (`--w`, px at 100%).
+ */
+.lf-mini-grid {
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 4.2cqw;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.lf-mini-grid col {
+  width: calc(var(--w, 100) * 0.3cqw);
+}
+.lf-mini-grid col.lf-mini-grid__num {
+  width: 11cqw;
+}
+.lf-mini-grid :is(th, td) {
+  height: 7.4cqw;
+  padding: 0 1.4cqw;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+}
+.lf-mini-grid th {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  font-size: 3.4cqw;
+  font-weight: 400;
+  text-align: center;
+}
+.lf-mini-grid thead th {
+  height: 6cqw;
+}
+.lf-mini-grid tr > :first-child {
+  border-left: 0;
+}
+.lf-mini-grid thead tr > * {
+  border-top: 0;
+}
+.lf-mini-grid td.is-b {
+  font-weight: 700;
+}
+.lf-mini-grid td[data-align="r"] {
+  text-align: right;
+}
+.lf-mini-grid td[data-align="c"] {
+  text-align: center;
+}
+/* The list's small thumbnail: the grid's lines only, under a sunken header row. */
+.lf-cover--tiny {
+  background-color: var(--surface-raised);
+  background-image:
+    linear-gradient(var(--surface-sunken), var(--surface-sunken)), linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:
+    100% 20%,
+    33.4% 20%,
+    33.4% 20%;
+  background-repeat: no-repeat, repeat, repeat;
+}
+/* A presentation: its first slide on the sunken ground, with the slide's own corners and lift. */
+.lf-cover--slides {
+  display: grid;
+  place-items: center;
+  /* A share of the cover's width (percent padding reads the box's width), so the slide sits the same in a Drive card
+     and in a message, which aren't size containers. */
+  padding: 8%;
+  box-sizing: border-box;
+  background: var(--surface-sunken);
+}
+.lf-cover__slide {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-xs, 4px);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--e1);
+}
+.drive-pv--sm .lf-cover--slides {
+  padding: 3px;
+}
+/* A canvas: its map, on its own dotted plane (`CanvasMini`). */
+.lf-cover--canvas > * {
+  position: absolute;
+  inset: 0;
+}
+/* Who is in the file now: up to three faces at the cover's bottom right, ringed in the cover's ground. */
+.lf-here {
+  --stack-ring: var(--surface-raised);
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  z-index: var(--z-raised);
+  pointer-events: none;
+}
+
+/* ── Uploaded Office files in the viewer (ADR 0198) ─────────────────────────────────────────────────────────────── */
+
+/* A box of its own in the viewer, tall enough to read in, its edge a hairline. */
+.lf-office {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: min(72vh, 760px);
+  min-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--pane);
+}
+.lf-office--state {
+  height: auto;
+  justify-content: center;
+}
+/* What the file is, and its editable copy: the quiet line the spreadsheet's read-only view has over its grid. Its
+   plated button a full step from the bar's edges. */
+.lf-office__bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  min-height: var(--control-h-md);
+  padding: var(--space-2) var(--space-4);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.lf-office__kind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+.lf-office__kind .ac-icon {
+  flex: none;
+}
+/* The spreadsheet's own view fills the box; its quiet line holds the bar's words and button, a full step from its
+   edges as the bar's. */
+.lf-office__sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.lf-office .sheet-quiet {
+  justify-content: space-between;
+  padding-block: var(--space-2);
+}
+.lf-office__view {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-sunken);
+}
+.lf-office__view--doc {
+  display: flex;
+  overflow: hidden;
+  background: var(--pane);
+}
+/* A Word document's page in the isolated frame, edge to edge in the box. */
+.lf-office__doc {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+.lf-office__slides {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-4);
+}
+.lf-office__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+.lf-office__skel--office-doc {
+  background: var(--pane);
+}

@@ -1853,14 +1853,12 @@ html:not([data-pointer]) .ac-msg__time--details:focus-visible {
 .ac-approval--wide {
   max-width: none;
 }
+/* Its state ends the line, or starts its own under who asked (`.ac-tailrow`), never floating at the end. */
 .ac-approval__head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
-}
-.ac-approval__head .ac-chip {
-  margin-left: auto;
 }
 .ac-approval__who {
   font-size: 13px;
@@ -3186,10 +3184,15 @@ html:not([data-pointer]) .ac-tab:focus-visible {
   flex-wrap: wrap;
 }
 /* A note and its buttons are an action line: the buttons, one group 8 apart (`__foot-acts`), beside the note while it
-   keeps one line there, else on a row of their own under it at the footer's end. The note takes its content's width,
-   so the wrap gives it the line before the buttons could squeeze it word by word. */
+   keeps one line there (the note grows, so they end the line), else on a row of their own under it from the note's
+   edge, never floating at the other end. The note takes its content's width, so the wrap gives it the line before
+   the buttons could squeeze it word by word. */
 .ac-dialog__foot:has(> .ac-dialog__foot-acts) {
   column-gap: var(--space-4);
+}
+.ac-dialog__foot:has(> .ac-dialog__foot-note),
+.ac-dialog__foot-note ~ .ac-dialog__foot-acts {
+  justify-content: flex-start;
 }
 .ac-dialog__foot-note {
   flex: 1 1 auto;
@@ -3208,6 +3211,16 @@ html:not([data-pointer]) .ac-tab:focus-visible {
 }
 .ac-dialog__foot-acts:empty {
   display: none;
+}
+/* A button is never wider than its dialog: a long name in its words (an account, an agent) ends in an ellipsis, the
+   whole label still its name and, cut, its tip (title-tips.ts). */
+.ac-dialog__foot .ac-btn {
+  max-width: 100%;
+}
+.ac-dialog__foot .ac-btn__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A ghost at the footer's start or end, or in its note: its words on the dialog's edge, as `.ac-acts` does in a row. */
 .ac-dialog__foot > .ac-btn--ghost:not(.ac-btn--icon):is(:first-child, :last-child),
@@ -5951,8 +5964,10 @@ html:not([data-pointer]) .ac-seg__item:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-/* Shown, not changed (a member reading an admin's setting): the choice stays readable, faded. */
-.ac-seg:has(.ac-seg__item:disabled) {
+/* Shown, not changed (a member reading an admin's setting): the choice stays readable, faded. One option that can't
+   be chosen fades alone, so the chosen one still reads as chosen. */
+.ac-seg[aria-disabled="true"],
+.ac-seg:not([aria-disabled]) .ac-seg__item:disabled {
   opacity: 0.65;
 }
 .ac-seg__item:disabled {
@@ -6921,6 +6936,25 @@ html:not([data-pointer]) .ac-msg:focus-within .ac-msg__actions,
   align-items: flex-end;
   justify-content: flex-end;
 }
+/* A source glyph before the time: on the line's middle, then up by --cap-mid in its own type, which is the time's
+   type under my own rows and in the bubble's stamp. */
+.ac-msg__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  color: var(--faint);
+  translate: 0 calc(-1 * var(--cap-mid));
+}
+/* What fills it (a glyph in a span of its own) is a box, never a line of text whose baseline would lift the glyph. */
+.ac-msg__mark > * {
+  display: flex;
+}
+.ac-msg__own-foot > .ac-msg__mark {
+  height: 16px;
+  margin-right: var(--space-1);
+  font-size: 11px;
+}
 .ac-msg__own-foot > .ac-msg__aside {
   gap: 0;
   height: 16px;
@@ -7503,8 +7537,6 @@ html:not([data-pointer]) .ac-composer__send:focus-visible {
   font-size: var(--text-sm);
   color: var(--danger);
 }
-/* Voice messages (ADR 0100). The recording sits on the text's first line and hides nothing but the text, which keeps
-   its place: the box never changes height, whatever was typed. */
 .ac-composer__text {
   position: relative;
   display: flex;
@@ -7512,22 +7544,24 @@ html:not([data-pointer]) .ac-composer__send:focus-visible {
   flex-direction: column;
   min-width: 0;
 }
+/* Voice messages (ADR 0100). The take is a row of its own above the files, the whole strip wide: the text, its tools
+   and the files stay usable under it. */
 .ac-composer__voice {
-  position: absolute;
-  bottom: 0;
-  left: var(--space-2);
-  right: var(--space-2);
+  flex: 1 1 100%;
+  min-width: 0;
   height: var(--control-h-sm);
-  display: none;
+  display: flex;
   align-items: center;
   gap: 10px;
   container: ac-composer-voice / inline-size;
 }
-.ac-composer[data-voice] .ac-composer__voice {
-  display: flex;
-}
-.ac-composer[data-voice] textarea {
-  visibility: hidden;
+/* Esc with text in the box: the row asks, in place, and its answers follow the words or drop under them. */
+/* Beats `.ac-actline`'s top alignment: one line of words centres on its 32 tall buttons. */
+.ac-composer__voice-ask.ac-actline {
+  flex: 1 1 100%;
+  min-height: var(--control-h-sm);
+  align-items: center;
+  font-size: var(--text-sm);
 }
 .ac-composer[data-voice="rec"] {
   box-shadow:
@@ -7574,15 +7608,11 @@ html:not([data-pointer]) .ac-composer__send:focus-visible {
   width: 28px;
   height: 28px;
 }
-/* The row stays: the send button and the microphone where they were, attach and emoji give way to delete. */
-.ac-composer[data-voice] .ac-composer__tools > :not(.ac-composer__voice-trash, .ac-composer__mic, .ac-composer__send),
-.ac-composer[data-voice] .ac-composer__pills {
-  display: none;
-}
 .ac-composer__voice-trash {
   color: var(--danger);
 }
-/* The keys, after the wave while there is room for both. The last seconds' countdown always shows. */
+/* The keys, after the wave while there is room for both and they are the take's (not the box's, where the focus is
+   with text). The last seconds' countdown always shows. */
 .ac-composer__voice-hint {
   flex: none;
   white-space: nowrap;
@@ -8123,21 +8153,16 @@ html:not([data-pointer]) .ac-video__rail:focus-visible .ac-video__knob {
     inset 0 0 0 2px var(--line-strong);
 }
 /* Formatting, floating over the text selected in the box (`FormatBar` places it from the selection). As wide as its
-   buttons, capped to the composer's width by the script: on a narrow one they wrap onto a second row. */
+   buttons, capped to the composer's width by the script: on a narrow one its row scrolls sideways, its ends faded. */
 .ac-formatbar {
   position: absolute;
   top: 0;
   left: 0;
   z-index: var(--z-floating);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
   box-sizing: border-box;
   width: max-content;
   /* Until the script places and caps it: never past the text's cell, so it can't widen the page. */
   max-width: 100%;
-  padding: var(--space-1);
   border-radius: calc(var(--control-r-sm) + var(--space-1));
   background: var(--raised);
   box-shadow: var(--e3), var(--top);
@@ -8164,6 +8189,34 @@ html:not([data-pointer]) .ac-video__rail:focus-visible .ac-video__knob {
   .ac-formatbar[data-open] {
     transition: none;
   }
+}
+/* The padding is the row's, not the bar's: a scroller clips at its padding box, and a focus ring stays inside it. */
+.ac-formatbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* A button the arrow keys reach scrolls in clear of the fade. */
+  scroll-padding-inline: 48px;
+}
+.ac-formatbar__row::-webkit-scrollbar {
+  display: none;
+}
+.ac-formatbar__row[data-more="end"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.ac-formatbar__row[data-more="start"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 48px);
+  mask-image: linear-gradient(to right, transparent, #000 48px);
+}
+.ac-formatbar__row[data-more="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
 }
 .ac-formatbar__item {
   display: inline-flex;
@@ -9702,6 +9755,14 @@ html:not([data-pointer]) .ac-grouphead__title > button:focus-visible {
   gap: 8px;
   margin-left: auto;
 }
+/* Without a search, the filters and the actions are the row's two groups: side by side at its two ends, or each on its
+   own line from the row's start when they wrap, never the actions floating at the end under the filters. */
+.ac-toolbar:not(:has(> .ac-toolbar__search)):has(> .ac-toolbar__filters) {
+  justify-content: space-between;
+}
+.ac-toolbar:not(:has(> .ac-toolbar__search)):has(> .ac-toolbar__filters) > .ac-toolbar__actions {
+  margin-left: 0;
+}
 /* Buttons and selects in the row take the row's step, so "Nova issue" lines up with the search. */
 .ac-toolbar .ac-btn {
   height: var(--tool-h);
@@ -10368,6 +10429,39 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
     transform: translateY(-12px);
   }
 }
+/* A move as a crossing (JourneyScene): the land on a small canvas, the team standing on its ground line. */
+.ac-journey {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 148px;
+  /* Before the first frame: the far side's own blue. */
+  background: #2468dc;
+}
+.ac-journey__land {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.ac-journey__walker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  will-change: transform;
+}
+.ac-journey__walker .ac-avatar {
+  width: 40px;
+  height: 40px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-journey__walker[data-hop] .ac-avatar {
+    animation: ac-hosting-hop 0.52s var(--spring) both;
+    animation-delay: calc(var(--i) * 0.12s);
+  }
+}
 .ac-hosting__agent {
   display: block;
 }
@@ -10642,7 +10736,11 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
     --bar-btn: var(--control-h-sm);
     gap: 8px;
   }
-  /* The floating bar keeps its 32px buttons (nine fit a phone's width on one row), their targets taller. */
+  /* The floating bar keeps its 32px buttons, their targets as tall as a finger's: the row grows to hold them, since it
+     clips what passes its padding. */
+  .ac-formatbar__row {
+    padding-block: calc((var(--touch-target) - var(--control-h-sm)) / 2);
+  }
   .ac-formatbar__btn {
     position: relative;
   }
@@ -10844,6 +10942,29 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
 .ac-run-key {
   display: block;
   image-rendering: pixelated;
+}
+/* A strip whose bars are buttons (RunStrip's `bar`): each bar's button covers its column, a little taller for a finger. */
+.ac-run-bars {
+  position: relative;
+  display: block;
+  flex: none;
+}
+.ac-run-bars__bar {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  bottom: calc(-1 * var(--space-1));
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  cursor: pointer;
+}
+.ac-run-bars__bar:hover {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+html:not([data-pointer]) .ac-run-bars__bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 /* An agent's month (MonthRuns): the row's whole width, 2px cells. */
 .ac-month-runs {
@@ -11059,6 +11180,84 @@ html:not([data-pointer]) .ac-optrow[data-state="checked"]:focus-visible {
 }
 .ac-optlist--locked .ac-optrow[data-state="checked"]:hover {
   box-shadow: var(--optrow-chosen);
+}
+/* List: plain compact rows, 2 apart as menu rows, no border; hover and the chosen one are a quiet fill. */
+.ac-optlist--list {
+  gap: 2px;
+}
+.ac-optlist--list .ac-optrow,
+.ac-optlist--list .ac-optrow--lead {
+  min-height: var(--control-h-md);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+}
+.ac-optlist--list .ac-optrow:hover {
+  background: color-mix(in srgb, var(--sunken) 70%, transparent);
+  box-shadow: none;
+}
+.ac-optlist--list .ac-optrow:active {
+  transform: none;
+}
+.ac-optlist--list .ac-optrow[data-state="checked"],
+.ac-optlist--locked.ac-optlist--list .ac-optrow[data-state="checked"]:hover {
+  --optrow-chosen: none;
+  background: var(--chosen-bg);
+  box-shadow: none;
+  transform: none;
+}
+html:not([data-pointer]) .ac-optlist--list .ac-optrow:focus-visible {
+  box-shadow: var(--field-ring);
+}
+.ac-optlist--list .ac-optrow__title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+/* A long name wraps: the icon stays at the top, centred on the first line's capitals (`.ac-iconline`'s rule), at every
+   depth. In the title's size, so its `lh` is the title's line. */
+.ac-optlist--list .ac-optrow {
+  align-items: flex-start;
+}
+.ac-optlist--list .ac-optrow__lead {
+  font-size: 14px;
+  color: var(--muted);
+  translate: 0 calc(11px - var(--cap-mid) - 50%);
+}
+@supports (top: 1lh) {
+  .ac-optlist--list .ac-optrow__lead {
+    translate: 0 calc(0.5lh - var(--cap-mid) - 50%);
+  }
+  /* A one-line row stays centred: the air above and under its line split the row's 40 evenly. */
+  .ac-optlist--list .ac-optrow,
+  .ac-optlist--list .ac-optrow--lead {
+    --optrow-pad-y: calc((var(--control-h-md) - 1lh) / 2);
+    padding-block: var(--optrow-pad-y);
+  }
+}
+.ac-optlist--list .ac-optrow[data-state="checked"] .ac-optrow__title {
+  font-weight: 650;
+}
+.ac-optlist--list .ac-optrow--lead[data-state="unchecked"] .ac-optrow__lead {
+  opacity: 1;
+  filter: none;
+}
+/* A tree level: 16 per level, its hairline under the middle of the parent's 16 icon, through the row's padding and
+   the 2 between rows (the row's 12 gap is taken back, so levels step by 16, not 28). */
+.ac-optrow__guide {
+  flex: none;
+  align-self: stretch;
+  width: var(--space-4);
+  margin-block: calc(-1 * var(--optrow-pad-y, var(--space-2)) - 1px);
+  margin-inline-end: calc(-1 * var(--space-3));
+  background: linear-gradient(var(--line2), var(--line2)) center / 1px 100% no-repeat;
+}
+/* Phone width: 12 per level, the hairline still under the parent's icon (8 in), so deep trees keep room for words. */
+@media (max-width: 640px) {
+  .ac-optrow__guide {
+    width: var(--space-3);
+    background-position: var(--space-2) 0;
+  }
 }
 /*
  * Attached: the chosen row and its settings are one card. The row on top, a hairline, then the settings
@@ -12492,6 +12691,31 @@ html:not([data-pointer]) .ac-carousel__arrow:focus-visible {
 }
 
 /*
+ * A wrapping row that ends on one thing (`.ac-tail`: a time left, a status, a link): it ends the first line while it
+ * fits there, and when it wraps it starts its own line at the row's start, never pushed to the end under the rest. A
+ * spring of no width before it takes the first line's spare room; its gap is taken back so the spring never wraps on
+ * its own. A row with another column gap sets `--tail-gap` to it. After `.ac-actrow`, whose control it may be.
+ */
+.ac-tailrow {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--tail-gap, var(--space-2));
+}
+.ac-tailrow::after {
+  content: "";
+  order: 1;
+  flex: 1 0 0;
+  margin-inline-start: calc(-1 * var(--tail-gap, var(--space-2)));
+}
+.ac-tailrow > .ac-tail {
+  order: 2;
+  margin-inline-start: 0;
+}
+.ac-tailrow > .ac-tail ~ * {
+  order: 3;
+}
+
+/*
  * MediaRow: the face (32, or 24 in a list row with `--row`), then the name and the role on its line, everything else
  * (the text, chips, actions) under them at the row's full width, never in a column beside the face. Classes, not a
  * component: the row is whatever its markup is (a button, a link, an `li`, a label).
@@ -12734,6 +12958,72 @@ html:not([data-pointer]) .ac-foldrow__head:focus-visible {
 .ac-foldrow__more > .ac-acts {
   flex-wrap: wrap;
   row-gap: var(--space-2);
+}
+
+/* ---------- Disclosure: what most people never need, behind one quiet line ---------- */
+/* The summary is a small control tall, in muted words with the chevron after them; it opens what it holds 8 under it,
+   growing to its height where the browser can animate to `auto` and opening at once where it can't. */
+.ac-disclosure__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h-sm);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.ac-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+.ac-disclosure__summary:hover {
+  color: var(--ink);
+}
+html:not([data-pointer]) .ac-disclosure__summary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+.ac-disclosure__chevron {
+  color: var(--faint);
+}
+.ac-disclosure[open] > .ac-disclosure__summary > .ac-disclosure__chevron {
+  rotate: 90deg;
+}
+.ac-disclosure__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+}
+/* A closed body still lays out when something measures it (content-visibility only skips painting), so its controls
+   would read as spilling out of the row and its card; hidden, they are gone for good. */
+.ac-disclosure:not([open]) > .ac-disclosure__body {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-disclosure {
+    interpolate-size: allow-keywords;
+  }
+  /* Hidden only once the collapse has ended, so closing still shows the body folding away. */
+  .ac-disclosure:not([open]) > .ac-disclosure__body {
+    transition: visibility 0s var(--dur-panel);
+  }
+  .ac-disclosure::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size var(--dur-panel) ease,
+      content-visibility var(--dur-panel) allow-discrete;
+  }
+  .ac-disclosure[open]::details-content {
+    block-size: auto;
+  }
+  .ac-disclosure__chevron {
+    transition: rotate var(--dur-base) ease;
+  }
 }
 
 /* ---------- A phone's own Settings path (`SettingsPath`) ---------- */

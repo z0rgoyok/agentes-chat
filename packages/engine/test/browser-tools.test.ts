@@ -50,7 +50,7 @@ afterEach(async () => {
   f = undefined as never;
 });
 
-type Reply = { success: boolean; data: unknown; error?: string };
+type Reply = { success: boolean; data: unknown; error?: string; code?: string };
 type Act = Extract<MachineRequest, { op: "browser.act" }>;
 
 /** A hub for one machine: its status as the test sets it, and every request it got. */
@@ -512,9 +512,27 @@ test("stale numbers, covered clicks and runner refusals reach the agent as plain
   // Switched off on the computer: the reply carries the switch, so the chat shows its one click.
   const off = await b.call("browser_read", {});
   expect(off.content).toContain("turns it on with the button under your reply");
-  expect(off.data).toEqual({ toolOff: { machineId: b.machineId, tool: "browser" } });
+  expect(off.data).toEqual({ code: "tool.failed", toolOff: { machineId: b.machineId, tool: "browser" } });
   b.s.error = new MachineRequestError("browser_unavailable", "Chrome not found");
   expect((await b.call("browser_read", {})).content).toContain("Chrome not found");
+
+  // The computer said nothing at all: no cause to guess, no retry that would queue behind the stuck command.
+  b.s.error = new MachineRequestError("timeout", "the computer MacBook did not answer within 140 s");
+  const silent = (await b.call("browser_read", {})).content;
+  expect(silent).toContain("The computer MacBook didn't answer within 140 s and didn't say why.");
+  expect(silent).toContain("Don't guess why and don't try again right away");
+  expect(silent).toContain("runner log");
+  expect(silent).not.toContain("still be loading");
+  // The runner's own deadline names the step it got stuck on.
+  b.s.error = null;
+  b.s.reply = {
+    success: false,
+    data: null,
+    code: "browser_stuck",
+    error: "The browser didn't answer within 110 s: stuck starting Chrome",
+  };
+  const stuck = (await b.call("browser_read", {})).content;
+  expect(stuck).toContain("The browser didn't answer within 110 s: stuck starting Chrome. Don't guess why");
 });
 
 test("a computer's Google Chrome failing: the agent tells the person plainly, and operators get one report", async () => {

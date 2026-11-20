@@ -1,8 +1,9 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, type Database, type Executor, eq, isNull, schema } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, inArray, isNull, schema } from "@agenteschat/db";
+import { managesAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { invalidateOrg } from "./cache";
-import { NotFoundError, ValidationError } from "./errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishAgentsChanged } from "./events";
 import { requirePermission } from "./organizations";
 import { forgetTeam } from "./team";
@@ -74,9 +75,10 @@ export async function reportsToRefusal(db: Executor, orgId: string, agentId: str
 }
 
 /**
- * Sets who each agent reports to, in order, as `actorId` (who manages agents), at once: each change is checked against
- * the lines as the ones before it left them, and all apply or none. Returns what they were, for Desfazer (the same
- * call with `previous`). A setor's "Supervisor" is one call with its agents.
+ * Sets who each agent reports to, in order, as `actorId` (who manages each of them and each agent they put one under,
+ * `managesAgent`), at once: each change is checked against the lines as the ones before it left them, and all apply
+ * or none. Returns what they were, for Desfazer (the same call with `previous`). A setor's "Supervisor" is one call
+ * with its agents.
  */
 export async function setReportsTo(
   deps: { db: Database; pubsub?: PubSub },
@@ -84,8 +86,22 @@ export async function setReportsTo(
   orgId: string,
   changes: ReportsToChange[],
 ): Promise<{ previous: ReportsToChange[] }> {
-  await requirePermission(deps.db, actorId, orgId, "manage_agents");
+  const membership = await requirePermission(deps.db, actorId, orgId, "manage_agents");
   if (changes.length === 0) return { previous: [] };
+  // Each agent whose line changes must be one this person manages (ADR 0085 addendum of 2026-11-17): the key alone
+  // doesn't reach someone's private agent. Its new supervisor too, below: a line changes that agent as well.
+  const ids = [...new Set(changes.map((c) => c.agentId))];
+  const supervisorIds = changes.flatMap((c) => (c.reportsToAgentId ? [c.reportsToAgentId] : []));
+  const reached = await deps.db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.orgId, orgId), inArray(agents.id, [...new Set([...ids, ...supervisorIds])])));
+  for (const id of ids) {
+    const agent = reached.find((a) => a.id === id);
+    if (!agent) throw new NotFoundError("Agent not found");
+    if (!managesAgent(agent, actorId, membership))
+      throw new ForbiddenError("Only who manages the agent changes its line");
+  }
   const previous = await deps.db.transaction(async (tx) => {
     const rows = await lineRows(tx, orgId);
     const before: ReportsToChange[] = [];
@@ -95,6 +111,12 @@ export async function setReportsTo(
       const why = lineRefusal(rows, c.agentId, c.reportsToAgentId);
       if (why) throw new ValidationError(why, "agent.reports_to");
       if (row.reportsToAgentId === c.reportsToAgentId) continue;
+      // Putting an agent under another changes that one too: its brakes no longer keep it from calling its new report
+      // (`inLine`), its "# Your line" tells it to hand them work and it gets team_status. So only who manages the
+      // supervisor puts others under it (ADR 0085 addendum of 2026-11-17); one that isn't here was refused just above.
+      const supervisor = c.reportsToAgentId ? reached.find((a) => a.id === c.reportsToAgentId) : undefined;
+      if (c.reportsToAgentId && !(supervisor && managesAgent(supervisor, actorId, membership)))
+        throw new ForbiddenError("Only who manages an agent puts others under it");
       if (!before.some((b) => b.agentId === c.agentId))
         before.push({ agentId: c.agentId, reportsToAgentId: row.reportsToAgentId });
       rows.set(c.agentId, { ...row, reportsToAgentId: c.reportsToAgentId });

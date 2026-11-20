@@ -1,0 +1,50 @@
+{
+  "full": {
+    "format": 1,
+    "instance": "test_instance_000000",
+    "source": "server",
+    "place": "browser",
+    "code": "browser.no_answer",
+    "step": "open",
+    "happenedAt": "2026-11-15T12:00:00.000Z",
+    "timings": { "openMs": 61000, "attempts": 2 },
+    "versions": {
+      "server": "2026.11.15.5",
+      "runner": "2026.11.15.5",
+      "runnerProtocol": 67,
+      "web": "2026.11.15.5",
+      "os": "windows 10.0.22631",
+      "arch": "x64",
+      "browser": "chrome 142"
+    },
+    "install": "desktop",
+    "locale": "en",
+    "facts": {
+      "config.SMTP_URL": "set",
+      "config.TELEMETRY": "on",
+      "config.publicUrl": "loopback",
+      "counts.orgs": 1,
+      "counts.agents": 3,
+      "machine.connection": "online",
+      "machine.paused": false,
+      "browser.lastError": null
+    },
+    "logs": [
+      {
+        "name": "runner",
+        "lines": [
+          "2026-11-15T11:59:00.000Z info browser starting",
+          "2026-11-15T12:00:01.000Z warn browser no answer after 60s"
+        ]
+      },
+      { "name": "server", "lines": ["2026-11-15T12:00:01.000Z info browser.open timed out"] }
+    ],
+    "note": "The agent's browser never opened.",
+    "replyTo": "someone@example.com"
+  },
+  "minimal": {
+    "format": 1,
+    "source": "server",
+    "place": "settings"
+  }
+}

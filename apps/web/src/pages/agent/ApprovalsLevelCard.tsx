@@ -1,6 +1,6 @@
 import { useUpdateAgent } from "@agenteschat/client";
 import { followsWorkspace, shownApprovalsLevel } from "@agenteschat/client/lib/approvals-level";
-import { can } from "@agenteschat/client/lib/permissions";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { Card } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,8 +11,9 @@ import { useAgentEdit } from "./context";
 
 /**
  * Ferramentas e acesso → Aprovações (ADR 0173): how much the agent asks before acting, as one line with the choice
- * in sight, "Segue o workspace" while it has no choice of its own. Whoever manages agents opens the three choices
- * from it. A choice saves at once, outside the page's save bar, and closes the dialog. Anyone else reads the line.
+ * in sight under its name, "Segue o workspace" while it has no choice of its own. Whoever manages the agent
+ * (`managesAgent`) opens the three choices from it. A choice saves at once, outside the page's save bar, and closes the dialog. Anyone else
+ * reads the line.
  */
 export function ApprovalsLevelCard() {
   const { t } = useTranslation();
@@ -29,12 +30,12 @@ export function ApprovalsLevelCard() {
           id="agent-approvals-level"
           icon="shield"
           label={title}
-          value={
+          status={
             followsWorkspace(agent) && !update.isPending
               ? t("approvalsLevel.follows")
               : t(`approvalsLevel.${level}.title`)
           }
-          onOpen={can(org, "manage_agents") ? () => setOpen(true) : undefined}
+          onOpen={managesAgent(agent) ? () => setOpen(true) : undefined}
         />
       </div>
       <ApprovalsLevelDialog

@@ -1,7 +1,8 @@
-import { type AgentColorName, mixHex } from "@agenteschat/ui/agent/engine";
+import { type AgentColorName, gradientOf, mixHex } from "@agenteschat/ui/agent/engine";
 import { memo, useEffect, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useFrameTime, useLivePaused } from "@/agent/live";
+import { useAppActive } from "@/lib/useAppActive";
 import { useReducedMotion, useTheme } from "@/ui/theme";
 import { CellCanvas } from "../browser/TrailPixels";
 import { RUN_SLOTS } from "./logic";
@@ -19,6 +20,7 @@ import {
   spritePose,
   spriteX,
   stripCells,
+  stripRunAt,
   stripWidth,
 } from "./run-pixels";
 
@@ -40,26 +42,28 @@ export function useRunTones(): RunTones {
 
 /**
  * The last runs as a strip of pixel columns, oldest left; a run at work flickers in the newest slot. `label` says
- * them: a screen reader hears the strip as one image. `dim`: a paused or finished routine's.
+ * them: a screen reader hears the strip as one image. With `onPick`, a tap picks the run under the finger (its index
+ * in `runs`, `-1` for the one at work).
  */
 export const RunStrip = memo(function RunStrip({
   runs,
   color,
   label,
   running = false,
-  dim = false,
+  onPick,
 }: {
   /** Newest first (`runPixels`). */
   runs: readonly RunPixel[];
   color: AgentColorName;
   label: string;
   running?: boolean;
-  dim?: boolean;
+  onPick?: (index: number) => void;
 }) {
   const tones = useRunTones();
   const reduced = useReducedMotion();
-  // A run at work is redrawn about 12 times a second, as on the web.
-  const frame = Math.floor(useFrameTime(running && !reduced, 0) * 12);
+  // A run at work is redrawn about 12 times a second, as on the web: the clock steps at that rate, so the strip
+  // renders only when its frame changes (the epsilon keeps a step's float error from reading as the frame before).
+  const frame = Math.floor(useFrameTime(running && !reduced, 0, 12) * 12 + 1e-6);
   const key = runs.map((r) => `${r.status}:${r.weight ?? 1}`).join(",");
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the runs
   const cells = useMemo(
@@ -68,20 +72,32 @@ export const RunStrip = memo(function RunStrip({
   );
   const w = stripWidth(RUN_SLOTS) * RUN_CELL;
   const h = STRIP_ROWS * RUN_CELL;
+  const canvas = <CellCanvas runs={cells} width={w} height={h} cx={RUN_CELL} />;
+  if (!onPick || (runs.length === 0 && !running))
+    return (
+      <View style={{ width: w, height: h }} accessible accessibilityRole="image" accessibilityLabel={label}>
+        {canvas}
+      </View>
+    );
   return (
-    <View
-      style={[{ width: w, height: h }, dim ? styles.dim : null]}
-      accessible
-      accessibilityRole="image"
+    <Pressable
+      style={({ pressed }) => [{ width: w, height: h }, pressed ? styles.pressed : null]}
+      // A finger's 44 points tall around the strip's 20.
+      hitSlop={{ top: 12, bottom: 12 }}
+      accessibilityRole="button"
       accessibilityLabel={label}
+      onPress={(e) => {
+        const i = stripRunAt(e.nativeEvent.locationX, runs.length, RUN_SLOTS, running);
+        if (i !== null) onPick(i);
+      }}
     >
-      <CellCanvas runs={cells} width={w} height={h} cx={RUN_CELL} />
-    </View>
+      {canvas}
+    </Pressable>
   );
 });
 
 /**
- * One routine's lane on the horizon, `width` points wide: the dotted line, its past runs, its coming ones, and
+ * One agent's lane on the horizon, `width` points wide: the dotted line, its past runs, its coming ones, and
  * the agent itself on its next run (or at "now" while it runs). Decorative: the lane's words are its button's.
  */
 export const LaneTrack = memo(function LaneTrack({
@@ -138,9 +154,11 @@ function LaneSprite({
   const reduced = useReducedMotion();
   const t = useTicker(!reduced, 125);
   const { hop, blink } = spritePose(t, look, running, reduced);
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const [top, bottom] = gradientOf(look.color);
   const cells = useMemo(
-    () => spriteCells(look.color, look.eyes, running, blink),
-    [look.color, look.eyes, running, blink],
+    () => spriteCells([top, bottom], look.eyes, running, blink),
+    [top, bottom, look.eyes, running, blink],
   );
   return (
     <View style={[styles.sprite, { left: (x - 4) * cx, top: (LANE_BASE - 8 - hop) * RUN_CELL }]}>
@@ -150,12 +168,13 @@ function LaneSprite({
 }
 
 /**
- * Seconds, ticking every `ms` while `active` on a screen that is showing: the sprites hop and blink at a few frames
- * a second (the shared clock's 25 would redraw every lane that often for a blink).
+ * Seconds, ticking every `ms` while `active` on a screen that is showing and the app is in front: the sprites hop and
+ * blink at a few frames a second (the shared clock's 25 would redraw every lane that often for a blink).
  */
 function useTicker(active: boolean, ms: number): number {
   const paused = useLivePaused();
-  const on = active && !paused;
+  const inFront = useAppActive();
+  const on = active && !paused && inFront;
   const [t, setT] = useState(() => Date.now() / 1000);
   useEffect(() => {
     if (!on) return;
@@ -166,6 +185,6 @@ function useTicker(active: boolean, ms: number): number {
 }
 
 const styles = StyleSheet.create({
-  dim: { opacity: 0.5 },
   sprite: { position: "absolute" },
+  pressed: { opacity: 0.6 },
 });

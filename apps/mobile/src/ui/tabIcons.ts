@@ -10,8 +10,11 @@ const GLYPH_PT = Platform.OS === "ios" ? 28 : 24;
 
 const cache = new Map<string, Promise<ImageSourcePropType | null>>();
 
-/** An SVG drawn with Skia into a PNG data URI at the screen's scale (`size` in points). */
-function rasterize(svgText: string, size: number): ImageSourcePropType | null {
+/**
+ * An SVG drawn with Skia into a PNG data URI at the screen's scale (`size` in points), for the native tab bar's images
+ * (Android's glyphs, and Agentes' on iOS, where the other tabs show the system's symbols).
+ */
+export function rasterize(svgText: string, size: number): ImageSourcePropType | null {
   const scale = PixelRatio.get();
   const px = Math.max(1, Math.round(size * scale));
   // The glyph SVGs say width/height 24; Skia draws at those, not at the surface size, so a 24px glyph

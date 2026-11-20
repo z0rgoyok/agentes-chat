@@ -8,7 +8,7 @@ import { type AgentTaskView, tasksBadge } from "./logic";
 import { TaskMark, useAgentColor } from "./parts";
 
 /** While an agent's DM is open its tasks are asked again this often (its work there also comes live). */
-const DM_POLL_MS = 5_000;
+const DM_POLL_MS = 15_000;
 
 /** An agent's tasks for its DM's header: null while it has none (or for no agent). */
 export function useDmAgentTasks(agentId: string | null) {

@@ -1,4 +1,4 @@
-import { keys, useAgentBrain, useAiStatus, useApi, useModels, useSetupPreview } from "@agenteschat/client";
+import { keys, useAgentBrain, useApi, useModels, useSetupPreview } from "@agenteschat/client";
 import {
   autonomyName,
   changes,
@@ -15,18 +15,19 @@ import { isAuto } from "@agenteschat/client/lib/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
-import { AgentAvatar, Button, GroupedList, GroupedRow, Text, useToast } from "@/ui";
+import { AgentAvatar, Button, GroupedFooter, GroupedList, GroupedRow, SkeletonList, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { confirmQuestion } from "../chat/ReachLines";
+import { Gap } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
-import { PushedHeader } from "../shared/parts";
+import { BottomBar, PushedHeader } from "../shared/parts";
 import { advancedOf } from "./AgentAdvancedScreen";
 import { setupWords } from "./logic";
-import { Note } from "./parts";
 
 /*
  * "Usar em outros agentes" on the phone (ADR 0094), the web's dialog over "Quem pensa" as a screen of its own, from
@@ -47,7 +48,6 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
   const insets = useSafeAreaInsets();
   const dir = useDirectory();
   const brain = useAgentBrain(orgId, agentId);
-  const apiKey = useAiStatus(orgId).data?.apiKey !== false;
   const models = useModels();
   // "Levar a autonomia" off: the others keep their own.
   const [withAutonomy, setWithAutonomy] = useState(true);
@@ -64,7 +64,7 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
   const results = sortedResults(preview.data ?? []);
   const can = takers(results);
   const chosen = can.filter((id) => picked.has(id));
-  const setupText = view ? setupWords(t, i18n.language, view, { apiKey, now: advancedOf(view) }) : "";
+  const setupText = view ? setupWords(t, i18n.language, view, { now: advancedOf(view) }) : "";
   const toggle = (id: string) =>
     setPicked((p) => {
       const next = new Set(p);
@@ -87,11 +87,18 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
     try {
       const results = await api.agents.applySetup(orgId, { setup, agentIds: chosen });
       const { done, autonomyOnly, missed } = setupOutcome(results, chosen.length);
-      if (done > 0)
-        toast({ title: t("agentPage.work.brain.copy.done", { count: done, setup: setupText }), icon: "check" });
-      if (autonomyOnly > 0)
-        toast({ title: t("agentPage.work.brain.copy.autonomyOnly", { count: autonomyOnly }), icon: "check" });
-      if (missed > 0) toast({ title: t("agentPage.work.brain.copy.missed", { count: missed }), icon: "x" });
+      // One toast for the whole save, never three in a row: what changed first, the rest under it.
+      const [title, ...rest] = [
+        done > 0 ? t("agentPage.work.brain.copy.done", { count: done, setup: setupText }) : null,
+        autonomyOnly > 0 ? t("agentPage.work.brain.copy.autonomyOnly", { count: autonomyOnly }) : null,
+        missed > 0 ? t("agentPage.work.brain.copy.missed", { count: missed }) : null,
+      ].filter((line) => line !== null);
+      if (title)
+        toast({
+          title,
+          ...(rest.length > 0 ? { subtitle: rest.join(" ") } : {}),
+          icon: done + autonomyOnly > 0 ? "check" : "x",
+        });
       router.back();
     } catch {
       toast({ title: t("agentPage.work.failed"), icon: "x" });
@@ -114,16 +121,22 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
       <PushedHeader title={t("agentPage.work.brain.copy.title")} solid={false} grouped />
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.in, { paddingBottom: 24 }]}>
         {brain.isPending ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={4} />
         ) : !setup || preview.isError ? (
-          <Note icon="x">{t("common.loadFailed")}</Note>
+          <LoadFailed
+            onRetry={() => {
+              // The preview is asked again only once there is a setup to preview (a refetch ignores `enabled`).
+              if (setup) void preview.refetch();
+              else void brain.refetch();
+            }}
+          />
         ) : (
           <>
-            <Text variant="body" tone="muted" style={styles.lead}>
-              {t("agentPage.work.brain.copy.sub", { setup: setupText })}
-            </Text>
+            {/* What goes, said once over the lists, on their headers' edge. */}
+            <GroupedFooter>{t("agentPage.work.brain.copy.sub", { setup: setupText })}</GroupedFooter>
             {brain.data?.autonomy ? (
-              <View style={styles.autonomy}>
+              <>
+                <Gap />
                 <GroupedList>
                   <GroupedRow
                     icon="shield"
@@ -137,12 +150,13 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
                     onPress={() => setWithAutonomy((on) => !on)}
                   />
                 </GroupedList>
-              </View>
+              </>
             ) : null}
             {preview.isPending ? (
-              <ActivityIndicator color={c.muted} style={styles.loading} />
+              <SkeletonList rows={4} />
             ) : (
               <>
+                <Gap />
                 <GroupedList>
                   <GroupedRow
                     icon="members"
@@ -157,37 +171,36 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
                     onPress={() => setPicked(new Set(chosen.length === can.length ? [] : can))}
                   />
                 </GroupedList>
-                <View style={styles.gap}>
-                  <GroupedList>
-                    {results.map((r) => {
-                      const a = dir.agentById.get(r.agentId);
-                      if (!a) return null;
-                      const ownerName = a.ownerUserId ? dir.memberById.get(a.ownerUserId)?.name : undefined;
-                      const owner = ownerName ? firstName(ownerName) : undefined;
-                      const api = isAuto(a.model)
-                        ? t("brain.auto.label")
-                        : (models.data?.models.find((m) => m.id === a.model)?.label ?? a.model);
-                      const now = brainLine(t, a.brain, api).text;
-                      return (
-                        <GroupedRow
-                          key={a.id}
-                          leading={<AgentAvatar agent={{ ...agentLook(a), id: a.id }} size={32} live={false} />}
-                          label={a.name}
-                          sub={setupResultLine(t, r, { now, owner })}
-                          checked={changes(r) && picked.has(a.id)}
-                          disabled={busy || !changes(r)}
-                          onPress={() => toggle(a.id)}
-                        />
-                      );
-                    })}
-                  </GroupedList>
-                </View>
+                <Gap />
+                <GroupedList>
+                  {results.map((r) => {
+                    const a = dir.agentById.get(r.agentId);
+                    if (!a) return null;
+                    const ownerName = a.ownerUserId ? dir.memberById.get(a.ownerUserId)?.name : undefined;
+                    const owner = ownerName ? firstName(ownerName) : undefined;
+                    const api = isAuto(a.model)
+                      ? t("brain.auto.label")
+                      : (models.data?.models.find((m) => m.id === a.model)?.label ?? a.model);
+                    const now = brainLine(t, a.brain, api).text;
+                    return (
+                      <GroupedRow
+                        key={a.id}
+                        leading={<AgentAvatar agent={{ ...agentLook(a), id: a.id }} size={32} live={false} />}
+                        label={a.name}
+                        sub={setupResultLine(t, r, { now, owner })}
+                        checked={changes(r) && picked.has(a.id)}
+                        disabled={busy || !changes(r)}
+                        onPress={() => toggle(a.id)}
+                      />
+                    );
+                  })}
+                </GroupedList>
               </>
             )}
           </>
         )}
       </ScrollView>
-      <View style={[styles.footer, { borderTopColor: c.line, paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <BottomBar bottom={insets.bottom}>
         <Button
           variant="primary"
           wide
@@ -196,10 +209,11 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
               ? t("agentPage.work.brain.copy.pick")
               : t("agentPage.work.brain.copy.use", { count: chosen.length })
           }
-          disabled={busy || chosen.length === 0}
+          loading={busy}
+          disabled={chosen.length === 0}
           onPress={() => void use()}
         />
-      </View>
+      </BottomBar>
     </View>
   );
 }
@@ -207,10 +221,4 @@ export function AgentSetupScreen({ agentId }: { agentId: string }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   in: { paddingHorizontal: 16, paddingTop: 8 },
-  loading: { marginTop: 16 },
-  lead: { paddingHorizontal: 4, paddingBottom: 14 },
-  autonomy: { marginBottom: 20 },
-  // A list without a header keeps a header's room above it.
-  gap: { marginTop: 20 },
-  footer: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
 });

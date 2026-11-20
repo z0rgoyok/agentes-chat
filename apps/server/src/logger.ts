@@ -8,6 +8,13 @@ export type LogFormat = "json" | "gcp";
 
 const order: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
+/** How many written lines `recentLogLines` keeps: the server has no log file (Docker's go to stdout). */
+const RECENT_MAX = 300;
+const recent: string[] = [];
+
+/** The last lines this process wrote at info or above, oldest first, for a problem report. */
+export const recentLogLines = (): readonly string[] => recent;
+
 /** The names Google Cloud Logging gives its severities. */
 const GCP_SEVERITY: Record<Level, string> = { debug: "DEBUG", info: "INFO", warn: "WARNING", error: "ERROR" };
 
@@ -63,6 +70,10 @@ export function createLogger(minLevel: Level, errors: ErrorReporter = noErrorRep
           : { time, level, msg, ...fields, ...thrown },
       );
       (level === "error" ? console.error : console.log)(line);
+      if (order[level] >= order.info) {
+        recent.push(line);
+        if (recent.length > RECENT_MAX) recent.shift();
+      }
     }
     if (level !== "error" || !fields || !("error" in fields)) return;
     const tags: ErrorTags = { log: msg };

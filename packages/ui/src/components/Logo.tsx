@@ -1,5 +1,5 @@
 import { type CSSProperties, useId } from "react";
-import { bodyPath, eyeShapes } from "../agent/engine.js";
+import { bodyPath, eyeShapes, type SkyPair } from "../agent/engine.js";
 import { cx } from "../cx";
 import { ditherUrl } from "../sky/dither";
 
@@ -13,8 +13,19 @@ const EYES = eyeShapes("round").map((e) => ({ x: 2 + e.x * 28, y: 2 + e.y * 28, 
 /**
  * The agent mark: the square with the cut corner in the sky's dither (solid
  * `agent` under it, and alone in the mono logo) and the engine's white eyes.
+ * `sky`: a given workspace's pair (`workspaceSky`) in place of the active one's.
  */
-export function LogoMark({ size, className, label }: { size?: number; className?: string; label?: string }) {
+export function LogoMark({
+  size,
+  className,
+  label,
+  sky,
+}: {
+  size?: number;
+  className?: string;
+  label?: string;
+  sky?: SkyPair;
+}) {
   const clip = `ac-logo-${useId().replace(/[^\w-]/g, "")}`;
   return (
     <svg
@@ -30,10 +41,10 @@ export function LogoMark({ size, className, label }: { size?: number; className?
           <path d={BODY} />
         </clipPath>
       </defs>
-      <path className="ac-logo__body" d={BODY} />
+      <path className="ac-logo__body" d={BODY} style={sky ? { fill: sky[1] } : undefined} />
       <image
         className="ac-logo__dither"
-        href={ditherUrl("sky", 12)}
+        href={ditherUrl(sky ?? "sky", 12)}
         x="2"
         y="2"
         width="28"

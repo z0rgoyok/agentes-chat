@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ApiError } from "@agenteschat/client";
 import { invitedErrorText } from "@agenteschat/client/lib/errors";
+import { waitsForRoom } from "@agenteschat/client/lib/join-requests";
+import { ownerCandidates } from "@agenteschat/client/lib/roles";
 import { joinRequestLine, subtitleOf } from "../../src/features/activity/logic";
 import { afterSignIn, boldParts, signInPurpose, storedInvite, storedInviteOf } from "../../src/features/auth/links";
-import { membersByName, requestChips, roleLine } from "../../src/features/members/logic";
+import { membersByName, outsideLine, requestChips, requestLine, roleLine } from "../../src/features/members/logic";
 import { notification, translator } from "./fixtures";
 
 const TOKEN = "k3J8sQ2xY7pL0vB4nM6cD1eF9gH5jK2a";
@@ -149,6 +151,55 @@ describe("a request to join, in the Requests sheet", () => {
       ({ createdAt, confirmed }) as { createdAt: string; confirmed: boolean; verified: boolean };
     expect(requestChips(en, "en", old(true), now).unverified).toBeNull();
     expect(requestChips(en, "en", old(false), now).unverified).toBe("Not verified");
+  });
+});
+
+describe("an outside collaborator (ADR 0191)", () => {
+  const now = new Date("2026-10-26T15:00:00.000Z");
+  const createdAt = "2026-10-26T13:00:00.000Z";
+  const outsideOf = "Northwind Consulting";
+
+  test("their request says for whom, never 'Not verified', and a full workspace still approves it", async () => {
+    const en = await translator("en");
+    const r = { createdAt, verified: true, confirmed: true, outsideOf };
+    expect(requestChips(en, "en", r, now)).toEqual({
+      unverified: null,
+      asked: "Asked 2 h ago to join as an outside collaborator for Northwind Consulting",
+    });
+    expect(requestLine(en, "en", r, [], now)).toContain("as an outside collaborator for Northwind Consulting");
+    expect(en("members.requests.outsideSeat")).toBe(
+      "Outside collaborators don't count toward your plan's people, and you can remove them at any time.",
+    );
+    expect(waitsForRoom(r, true)).toBe(false);
+    expect(waitsForRoom({ outsideOf: null }, true)).toBe(true);
+    expect(waitsForRoom({}, false)).toBe(false);
+  });
+
+  test("Atividade's line names who they work for and that they take no seat", async () => {
+    const en = await translator("en");
+    const one = notification({
+      id: "j1",
+      kind: "join_request",
+      actors: [],
+      count: 1,
+      latest: { names: ["Bruno"], outsideOf },
+    });
+    expect(joinRequestLine(en, one).text).toBe(
+      "Bruno asks to join as an outside collaborator for Northwind Consulting, taking no seat",
+    );
+  });
+
+  test("Membros: Outside and who they work for under the name; never offered as an owner", async () => {
+    const pt = await translator("pt-BR");
+    expect(outsideLine(pt, { outsideOf })).toBe("Externo · Northwind Consulting");
+    expect(outsideLine(pt, { outsideOf: null })).toBeNull();
+    expect(outsideLine(pt, {})).toBeNull();
+    const people = [
+      { userId: "a", role: "owner" as const },
+      { userId: "b", role: "member" as const, outsideOf },
+      { userId: "c", role: "member" as const, outsideOf: null },
+    ];
+    expect(ownerCandidates(people).map((p) => p.userId)).toEqual(["c"]);
   });
 });
 

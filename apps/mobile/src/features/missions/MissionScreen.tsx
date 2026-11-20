@@ -1,6 +1,13 @@
-import { useMission, useMissionDecisions, useMissionReviews, useThreadInfo, useThreadTasks } from "@agenteschat/client";
+import {
+  ApiError,
+  useMission,
+  useMissionDecisions,
+  useMissionReviews,
+  useThreadInfo,
+  useThreadTasks,
+} from "@agenteschat/client";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ComputerIcon, ComputerPortrait, useComputerKind } from "@/computer/ComputerPortrait";
@@ -10,13 +17,14 @@ import {
   Card,
   Chip,
   Count,
+  EmptyState,
   Icon,
-  IconButton,
   LineIcon,
   PixelOrbit,
   PlanTrack,
   SCREEN_X,
   Section,
+  SkeletonList,
   Text,
   useReducedMotion,
 } from "@/ui";
@@ -24,7 +32,17 @@ import { router } from "@/ui/navigation";
 import { ThreadOptions } from "../chat/sheets";
 import { chatHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useEdition, useNamesComputers, useNow, useOrgId, useWhen } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
+import {
+  useColors,
+  useDirectory,
+  useEdition,
+  useNamesComputers,
+  useNow,
+  useOrgId,
+  usePullRefresh,
+  useWhen,
+} from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { MONO, PushedHeader, Tile } from "../shared/parts";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
@@ -42,9 +60,10 @@ import {
 } from "./logic";
 
 /**
- * A mission (ADR 0029): what it is for, how far it got (the plan as pixel
- * cells), its conversation, what waits on you, who works on the computer
- * now, the plan and the decisions taken.
+ * A mission (ADR 0029): "Missão" in the bar with its options (the thread's) as the system's bar button, the mission's
+ * name as the page's heading, how far it got (the plan as pixel cells), its conversation, what waits on you, who works
+ * on the computer now, the plan and the decisions taken. While it loads, the rows' shape; gone, it says so. Pulling
+ * down asks for all of it again.
  */
 export function MissionScreen({ id }: { id: string }) {
   return (
@@ -69,6 +88,9 @@ function Mission({ id }: { id: string }) {
   const tasks = useThreadTasks(orgId, m?.threadId);
   const reviews = useMissionReviews(orgId, id);
   const decisions = useMissionDecisions(orgId, id);
+  const pull = usePullRefresh(() =>
+    Promise.all([mission.refetch(), thread.refetch(), tasks.refetch(), reviews.refetch(), decisions.refetch()]),
+  );
   const computer = useComputerKind(orgId, m?.machine?.id);
   const cloud = useEdition() === "cloud";
   const names = useNamesComputers();
@@ -79,16 +101,20 @@ function Mission({ id }: { id: string }) {
   const layout = reduced ? undefined : LinearTransition.duration(220);
 
   if (!m) {
+    const gone = mission.error instanceof ApiError && mission.error.status === 404;
     return (
       <View style={[styles.screen, { backgroundColor: c.bg }]}>
-        <PushedHeader title="" solid={false} />
-        <View style={styles.center}>
-          {mission.isError ? (
-            <Text tone="muted">{t("mobile.mission.notFound")}</Text>
+        <PushedHeader title={t("mobile.mission.kind")} solid={false} />
+        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.scroll}>
+          {gone ? (
+            <EmptyState size="page" icon="target" title={t("mobile.mission.notFound")} />
+          ) : mission.isError ? (
+            <LoadFailed onRetry={() => void mission.refetch()} />
           ) : (
-            <ActivityIndicator color={c.muted} />
+            // Loading: the rows' own shape, never a spinner.
+            <SkeletonList rows={3} />
           )}
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -111,24 +137,29 @@ function Mission({ id }: { id: string }) {
 
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
+      {/* The kind in the bar, the mission's name as the page's heading under it (as a task's number and title). */}
       <PushedHeader
-        title={m.title}
+        title={t("mobile.mission.kind")}
         solid={false}
-        right={
-          thread.data ? (
-            <IconButton
-              icon="more"
-              label={t("mobile.chat.options")}
-              onPress={() => {
-                const info = thread.data;
-                if (info) sheet.open(<ThreadOptions thread={info} mission={m} />);
-              }}
-            />
-          ) : null
-        }
+        {...(thread.data
+          ? {
+              actions: [
+                {
+                  icon: "more" as const,
+                  sf: "ellipsis" as const,
+                  label: t("mobile.chat.options"),
+                  onPress: () => {
+                    const info = thread.data;
+                    if (info) sheet.open(<ThreadOptions thread={info} mission={m} />);
+                  },
+                },
+              ],
+            }
+          : {})}
       />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
       >
         <View style={styles.head}>
@@ -138,7 +169,7 @@ function Mission({ id }: { id: string }) {
               {channelName ? t("mobile.mission.in", { channel: channelName }) : t("mobile.mission.kind")}
             </Text>
           </View>
-          <Text variant="display" style={styles.title}>
+          <Text variant="display2" accessibilityRole="header" style={styles.title} maxFontSizeMultiplier={1.4}>
             {m.title}
           </Text>
           <Text variant="body" tone="muted">
@@ -361,7 +392,6 @@ function Mission({ id }: { id: string }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { paddingTop: 4 },
   head: { paddingHorizontal: SCREEN_X, gap: 4 },
   progCard: { marginHorizontal: 16, marginTop: 16 },

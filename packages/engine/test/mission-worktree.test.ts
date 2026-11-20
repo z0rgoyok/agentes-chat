@@ -23,7 +23,7 @@ import {
 import { deliverNotice } from "../src/delivery";
 import { type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
-import { ownerWrites, pairedMachine, RUNNER } from "./mission-helpers";
+import { missionComputerBrain, ownerWrites, pairedMachine, RUNNER } from "./mission-helpers";
 
 let f: Fixture;
 afterEach(async () => {
@@ -141,7 +141,12 @@ const settle = async () => {
 };
 
 async function started(ensure: EnsurePlan[] = [], options: { start?: boolean } = {}) {
-  f = await setup({ machines: true, missionTools: true, reply: () => ({ chunks: ["ok"] }) });
+  f = await setup({
+    machines: true,
+    missionTools: true,
+    reply: () => ({ chunks: ["ok"] }),
+    brains: missionComputerBrain().brains,
+  });
   const paired = await pairedMachine(f);
   const r = runner(f.machineHub as MachineHub);
   await r.hello(paired.token);

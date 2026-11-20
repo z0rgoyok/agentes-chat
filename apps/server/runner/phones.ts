@@ -41,6 +41,7 @@ import {
   APPLE_APP,
   appleNeedsYou,
   IOS_MIN,
+  iosBehindSdk,
   needsUsbList,
   parseDevicectl,
   parseLockState,
@@ -204,6 +205,13 @@ export const noDriverWords = (platform: NodeJS.Platform) =>
     ? "Windows has no USB driver for the phone. Install its maker's (Google's for a Pixel, Samsung's for a Galaxy), then plug it in again."
     : "This computer can't open the phone. Add udev rules for it (developer.android.com/studio/run/device), then plug it in again.";
 
+/** The person's steps on the iPhone when iOS refuses UI testing. */
+const UI_STEPS =
+  "On the iPhone: Settings › Privacy & Security › Developer Mode on; Settings › Developer › Enable UI Automation on (off and on again if it already is); enter the passcode when it asks; keep the iPhone unlocked.";
+/** What iOS refusing UI testing is not: the agent was seen asking for a rebuild in Xcode and for terminal access. */
+const UI_NOTHING_ELSE =
+  "Nothing needs rebuilding and no terminal access is needed: this Mac builds and renews the test helper by itself.";
+
 export const REASON_WORDS: Partial<Record<PhoneReason, string>> = {
   unauthorized: "Tap Allow on the phone (check Always allow from this computer first).",
   adb_offline: "The phone shows as offline. Unplug it and plug it back in.",
@@ -222,13 +230,14 @@ export const REASON_WORDS: Partial<Record<PhoneReason, string>> = {
     "Xcode on this Mac isn't signed in to an Apple Account: Xcode › Settings › Apple Accounts, then add one (a free one is enough).",
   apple_team_missing:
     "Xcode is signed in but shows no team yet. In Xcode, make any iOS app, pick your team under Signing & Capabilities and run it on the iPhone once.",
-  ui_not_authorized:
-    "The iPhone refused the test helper's taps. Unlock it and enter its passcode if it asks. If it keeps happening, turn Settings › Developer › Enable UI Automation off and on.",
+  ui_not_authorized: `Screen capture works, but iOS refuses the test helper's taps and other actions (UI Automation isn't allowed). ${UI_STEPS} ${UI_NOTHING_ELSE}`,
   helper_untrusted:
     "The iPhone doesn't trust the test helper yet: on the iPhone, Settings › General › VPN & Device Management, tap the developer, then Trust.",
-  ui_automation_off: "Turn on UI Automation on the iPhone: Settings › Developer › Enable UI Automation.",
+  ui_automation_off: `iOS doesn't allow UI Automation on this iPhone yet. ${UI_STEPS} ${UI_NOTHING_ELSE}`,
   xcode_too_old:
     "This iPhone's iOS is newer than Xcode on this Mac. Install the Xcode matching the iPhone's iOS (27 for iOS 27), then run `xcrun devicectl manage ddis update`.",
+  ios_behind_xcode:
+    "This iPhone's iOS is older than the one Xcode on this Mac is for. Update the iPhone: Settings › General › Software Update.",
   device_support: "Xcode is still preparing the iPhone. Try again in a few minutes.",
   wifi_away: "The iPhone isn't on this Mac's Wi-Fi network. Join the same network on the iPhone, or plug it in.",
   wifi_asleep:
@@ -239,7 +248,10 @@ export const REASON_WORDS: Partial<Record<PhoneReason, string>> = {
     "The iPhone doesn't trust this Mac. Plug it in once, tap Trust and enter its passcode, then pick it over Wi-Fi again.",
 };
 
-/** Helper failures an Xcode older than the iPhone's iOS explains (its device support or test daemon too old). */
+/** A helper that stopped carrying out actions while the screen still answered (`STUCK_AFTER` timeouts in a row). */
+export const STUCK_WORDS = `The iPhone's screen still answers, but the test helper stopped carrying out actions, so it was started fresh. If this keeps happening, iOS is most likely refusing UI actions. ${UI_STEPS} ${UI_NOTHING_ELSE}`;
+
+/** Helper failures an Xcode that doesn't match the iPhone's iOS (older, or newer) explains (its device support or test daemon too old). */
 const OLD_XCODE_SIGNS = new Set<PhoneReason>(["device_support", "ui_not_authorized"]);
 
 /** Reasons only the test helper has: an iPhone still installs, opens apps and reads its log meanwhile. */
@@ -254,8 +266,11 @@ const HELPER_REASONS = new Set<PhoneReason>([
   "ui_not_authorized",
   // devicectl installs and opens apps on an iOS newer than the Mac's SDK: only the helper needs the matching Xcode.
   "xcode_too_old",
+  "ios_behind_xcode",
 ]);
 const NEEDS_HELPER = new Set(["phone.screenshot", "phone.record", "phone.flow"]);
+/** Ops the helper does without acting on the phone: iOS refusing UI actions leaves them working. */
+const WATCHES = new Set(["phone.screenshot", "phone.record"]);
 
 export const TOOL_HELP = {
   adb: "Install Android platform-tools (or Android Studio), then try again.",
@@ -274,7 +289,9 @@ export function phoneNotReady(p: Phone): { title: string; fix: string } | null {
   const fix =
     p.platform === "ios" && p.reason === "os_too_old"
       ? `It runs iOS ${p.osVersion || "16 or older"}, and agents need iOS ${IOS_MIN} or newer.`
-      : ((p.reason && REASON_WORDS[p.reason]) ?? "Try again in a moment.");
+      : p.reason === "ios_behind_xcode" && p.osVersion
+        ? `This iPhone runs iOS ${p.osVersion}, older than the one Xcode on this Mac is for. Update the iPhone: Settings › General › Software Update.`
+        : ((p.reason && REASON_WORDS[p.reason]) ?? "Try again in a moment.");
   return { title: `${labelOf(p)} ${p.state === "unsupported" ? "can't be used" : "isn't ready"}`, fix };
 }
 
@@ -550,6 +567,7 @@ export class PhoneManager {
    */
   async look(): Promise<boolean> {
     if (this.platform === "darwin") {
+      this.ios?.recheck();
       await this.polling;
       this.appleNow = true;
       await this.poll();
@@ -559,6 +577,33 @@ export class PhoneManager {
     this.lookUntil = this.now() + LOOK_MS;
     void this.poll();
     return true;
+  }
+
+  /**
+   * `phone.repair`: an iPhone's test helper stopped and built again with the Xcode installed now (`IosHelper.repair`),
+   * then looked at again. Only a real iPhone on this Mac has one.
+   */
+  async repair(req: { serial?: unknown }): Promise<MachineReplies["phone.repair"]> {
+    const serial = typeof req.serial === "string" && req.serial.length <= 200 ? req.serial : "";
+    if (!serial) throw new RunnerError("bad_request", "phone.repair names its iPhone (serial)");
+    if (!this.ios) throw new RunnerError("unsupported", "Only a Mac has an iPhone test helper to repair.");
+    this.first ??= this.poll();
+    await this.first;
+    const key = `ios:${serial}`;
+    if (!this.seen.has(key)) await this.poll();
+    const phone = this.seen.get(key);
+    if (!phone) throw new RunnerError("phone_missing", "This iPhone isn't connected to this Mac right now.");
+    if (phone.kind !== "device") throw new RunnerError("unsupported", "A simulator's test helper needs no repair.");
+    const tools = await this.tools();
+    if (!tools.xcrun) throw new RunnerError("tool_missing", "iPhones need Xcode on this Mac.");
+    if ((this.holds.get(key)?.busy ?? 0) > 0)
+      throw new RunnerError("phone_busy", `${labelOf(phone)} is in use right now. Try again when it's free.`);
+    await this.ios.repair(serial);
+    this.ios.need(serial, tools.xcrun);
+    this.appleNow = true;
+    await this.polling;
+    await this.poll();
+    return { repairing: true };
   }
 
   /**
@@ -955,8 +1000,14 @@ export class PhoneManager {
       // An iOS newer than this Mac's iPhone SDK often still works (apps open, screenshots), so the version alone
       // turns nothing away: it names the likely cause once the helper itself is stuck.
       // device_support is only "preparing" to the helper, but with an older SDK the person has the way out.
-      const oldXcode = !!need && OLD_XCODE_SIGNS.has(need.reason) && sdkTooOld(phone.osVersion, tools.sdk);
-      const named = oldXcode ? { state: "needs_you" as const, reason: "xcode_too_old" as const } : {};
+      // The reverse too: an iPhone behind the SDK's iOS is named only when the helper is stuck the same way.
+      const signs = !!need && OLD_XCODE_SIGNS.has(need.reason);
+      const named =
+        signs && sdkTooOld(phone.osVersion, tools.sdk)
+          ? { state: "needs_you" as const, reason: "xcode_too_old" as const }
+          : signs && iosBehindSdk(phone.osVersion, tools.sdk)
+            ? { state: "needs_you" as const, reason: "ios_behind_xcode" as const }
+            : {};
       out.push(need ? { ...phone, ...need, ...named } : phone);
     }
     return out;
@@ -1180,8 +1231,12 @@ export class PhoneManager {
     if (!phone) throw new RunnerError("phone_missing", "This phone isn't connected to this computer right now.");
     if (opts.locked && phone.reason === "locked") return phone;
     const helper = phone.reason !== undefined && HELPER_REASONS.has(phone.reason);
-    const problem = helper && opts.op !== undefined && !NEEDS_HELPER.has(opts.op) ? null : phoneNotReady(phone);
+    const watching = phone.reason === "ui_not_authorized" && opts.op !== undefined && WATCHES.has(opts.op);
+    const problem =
+      (helper && opts.op !== undefined && !NEEDS_HELPER.has(opts.op)) || watching ? null : phoneNotReady(phone);
     if (problem) {
+      // The person may have just allowed it: the next look runs the setup check now, not after its wait.
+      if (phone.reason === "ui_not_authorized" || phone.reason === "ui_automation_off") this.ios?.recheck(phone.serial);
       const broken = helper ? this.ios?.unknownFailure(phone.serial) : null;
       if (broken) throw new RunnerError("internal", `The iPhone test helper couldn't be set up on this Mac: ${broken}`);
       throw new RunnerError(
@@ -1686,13 +1741,8 @@ export class PhoneManager {
     const run = await this.helper(phone, tools);
     if (phone.kind === "device" && (await run.client.locked().catch(() => false))) {
       // Polls look again (devicectl's lock state) until it's unlocked.
-      const key = keyOf(phone);
-      this.locked.add(key);
-      const lockedNow = (p: Phone): Phone => (keyOf(p) === key ? { ...p, state: "needs_you", reason: "locked" } : p);
-      this.appleSeen = this.appleSeen?.map(lockedNow) ?? null;
-      const seen = this.seen.get(key);
-      if (seen) this.seen.set(key, lockedNow(seen));
-      this.changed();
+      this.locked.add(keyOf(phone));
+      this.needsNow(phone, "locked");
       throw new RunnerError("phone_not_ready", `${labelOf(phone)} is locked. ${REASON_WORDS.locked}`);
     }
     const video = req.record === true ? await this.outFile(io, "flow", "mp4") : null;
@@ -1714,13 +1764,20 @@ export class PhoneManager {
         await writeFile(shot.abs, png);
         return shot.rel;
       },
-    }).catch((err: unknown) => ({
-      passed: false,
-      output: `FAILED  ${err instanceof Error ? err.message : String(err)}`,
-      screenshots: [],
-    }));
+    }).catch((err: unknown) =>
+      // iOS refusing the helper's actions is the phone's state, not the flow's: said as such, not as a failed step.
+      err instanceof RunnerError && err.code === "phone_not_ready"
+        ? err
+        : { passed: false, output: `FAILED  ${err instanceof Error ? err.message : String(err)}`, screenshots: [] },
+    );
     const seconds = Math.round((this.now() - started) / 1000);
     await recorder?.stop();
+    if (result instanceof RunnerError) {
+      const need = phone.kind === "device" ? this.ios?.need(phone.serial, null) : null;
+      if (need?.reason === "ui_not_authorized" || need?.reason === "ui_automation_off")
+        this.needsNow(phone, need.reason);
+      throw result;
+    }
     const log = yaml.rel.replace(/\.yaml$/, ".log");
     const output = [result.output, ...result.screenshots.map((p) => `Screenshot: ${p}`)].join("\n");
     await writeFile(yaml.abs.replace(/\.yaml$/, ".log"), output);
@@ -1732,6 +1789,16 @@ export class PhoneManager {
       ...(kept && video ? { video: video.rel } : {}),
       log,
     } satisfies MachineReplies["phone.flow"];
+  }
+
+  /** The phone shows it needs the person now (`reason`), before the next look says so too. */
+  private needsNow(phone: Phone, reason: PhoneReason) {
+    const key = keyOf(phone);
+    const now = (p: Phone): Phone => (keyOf(p) === key ? { ...p, state: "needs_you", reason } : p);
+    this.appleSeen = this.appleSeen?.map(now) ?? null;
+    const seen = this.seen.get(key);
+    if (seen) this.seen.set(key, now(seen));
+    this.changed();
   }
 
   /** A Maestro flow, recorded around when asked. Its YAML, log and video land in `.agentes/phone/`. */

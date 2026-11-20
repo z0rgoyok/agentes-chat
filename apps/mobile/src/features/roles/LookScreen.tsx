@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Icon, RoleMark, roleMarkIcon, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
-import { SettingsPage } from "../settings/parts";
+import { Gap, SettingsPage } from "../settings/parts";
 import { useColors } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
 import { goBack, successHaptic, tapHaptic } from "../shared/parts";
@@ -16,12 +16,12 @@ import { CargoMark, Gone, rolesHref, useFail, useRolesData, Waiting } from "./pa
 
 /** A cargo's name: at most this many letters (`ROLE_NAME_MAX` on the server). */
 const NAME_MAX = 40;
-/** The icon grid's cells (P9): four a row. */
+/** The icon grid's cells: four a row. */
 const CELL = 52;
 const PER_ROW = 4;
 
 /**
- * Nome, cor e ícone (P9): the name (its own screen), the color's swatches, the icons in a 4 × 4 grid, and whether its
+ * Nome, cor e ícone: the name (its own screen), the color's swatches, the icons in a 4 × 4 grid, and whether its
  * people show apart in the members list. Each change saves at once. Todos keeps its name and icon: only its color.
  */
 export function RoleLookScreen({ roleId }: { roleId: string }) {
@@ -71,7 +71,7 @@ export function RoleLookScreen({ roleId }: { roleId: string }) {
           <GroupedList>
             <IconPick icons={data.icons} value={role.icon} disabled={off} onPick={(icon) => patch({ icon })} />
           </GroupedList>
-          <View style={styles.gap} />
+          <Gap />
           <GroupedList>
             <GroupedRow
               label={t("rolesPage.hoist")}
@@ -216,24 +216,27 @@ export function RenameRoleScreen({ roleId }: { roleId: string }) {
       <GroupedHeader hint={{ name: t("common.about", { label: t("rolesPage.name") }), text: t("rolesPage.nameDesc") }}>
         {t("rolesPage.name")}
       </GroupedHeader>
-      <TextArea
-        value={value}
-        onChangeText={setDraft}
-        multiline={false}
-        minHeight={50}
-        maxLength={NAME_MAX}
-        autoFocus
-        returnKeyType="done"
-        onSubmitEditing={save}
-        accessibilityLabel={t("rolesPage.name")}
-      />
+      {/* A field row of the page, the list its surface, as every field of the settings pages. */}
+      <GroupedList>
+        <TextArea
+          value={value}
+          onChangeText={setDraft}
+          multiline={false}
+          minHeight={50}
+          maxLength={NAME_MAX}
+          returnKeyType="done"
+          onSubmitEditing={save}
+          accessibilityLabel={t("rolesPage.name")}
+          style={styles.bare}
+        />
+      </GroupedList>
       {draft !== null && !next ? <GroupedFooter>{t("errors.role.nameRequired")}</GroupedFooter> : null}
     </SettingsPage>
   );
 }
 
 /**
- * Criar cargo (P10): its name and what it starts from, a value row with a menu (Do zero, the three templates, or
+ * Criar cargo: its name and what it starts from, a value row with a menu (Do zero, the three templates, or
  * "Igual a" a cargo: one below the viewer is copied whole, its channels and agents too). Criar opens the new cargo.
  */
 export function NewRoleScreen() {
@@ -285,19 +288,21 @@ export function NewRoleScreen() {
       busy={create.isPending}
     >
       <GroupedHeader>{t("rolesPage.name")}</GroupedHeader>
-      <TextArea
-        value={name}
-        onChangeText={setName}
-        multiline={false}
-        minHeight={50}
-        maxLength={NAME_MAX}
-        autoFocus
-        returnKeyType="done"
-        onSubmitEditing={submit}
-        placeholder={t("rolesPage.namePlaceholder")}
-        accessibilityLabel={t("rolesPage.name")}
-      />
-      <View style={styles.gap} />
+      <GroupedList>
+        <TextArea
+          value={name}
+          onChangeText={setName}
+          multiline={false}
+          minHeight={50}
+          maxLength={NAME_MAX}
+          returnKeyType="done"
+          onSubmitEditing={submit}
+          placeholder={t("rolesPage.namePlaceholder")}
+          accessibilityLabel={t("rolesPage.name")}
+          style={styles.bare}
+        />
+      </GroupedList>
+      <Gap />
       <GroupedList>
         <GroupedRow
           label={t("rolesPage.startFrom")}
@@ -317,7 +322,8 @@ export function NewRoleScreen() {
 }
 
 const styles = StyleSheet.create({
-  gap: { height: 14 },
+  // A field inside a grouped list: the list is its surface.
+  bare: { borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
   swatches: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 12 },
   // The ring's circle sits 2 out from the mark's, 2 wide: concentric.
   swatch: { padding: 2, borderRadius: 19, borderWidth: 2 },

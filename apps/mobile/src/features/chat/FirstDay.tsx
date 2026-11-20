@@ -2,10 +2,10 @@ import { type Agent, useMe } from "@agenteschat/client";
 import { firstName } from "@agenteschat/client/lib/format";
 import { playSound } from "@agenteschat/client/lib/sounds";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
+import { WALLPAPER_LIFT } from "@agenteschat/ui/sky/wallpaper";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, {
   Easing,
   type SharedValue,
@@ -15,12 +15,13 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
-import { Button, Text, useReducedMotion } from "@/ui";
+import { Button, Text, useReducedMotion, useTheme } from "@/ui";
 import { AgentFace } from "../shared/Face";
 import { useColors } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { tapHaptic } from "../shared/parts";
 import { agentIntro, firstAskKind, firstAsks, isNewAgent } from "./intent";
+import { useKeyboardRoom } from "./keyboard-room";
 import { CHAT_TEXT_MAX_SCALE, chatNameOf, chatTimeOf, MSG_AVATAR, MSG_GAP, MSG_INSET } from "./logic";
 import { lookRows, useConversationLook } from "./look";
 
@@ -61,23 +62,30 @@ function useRise(value: SharedValue<number>, rise: number, moves: boolean) {
  */
 export function FirstDay({
   agent,
+  topInset,
   bottomInset,
   keyboardLift,
   onAsk,
+  channelId,
 }: {
   agent: Agent;
+  /** Room for the clear bar over the top: a greeting taller than the room above the keys scrolls out from under it. */
+  topInset: number;
   /** Room for the composer floating over the bottom. */
   bottomInset: number;
   /** How much of the composer's bottom padding hides behind the open keyboard. */
   keyboardLift: number;
   onAsk: (text: string) => void;
+  /** The conversation: over its background the greeting's bubble is lifted off it, as a message's. */
+  channelId?: string;
 }) {
   const { t } = useTranslation();
   const c = useColors();
+  const { scheme, shadows } = useTheme();
   const me = useMe();
   const { org } = useOrg();
   const reduced = useReducedMotion();
-  const look = useConversationLook(true, agentLook(agent).color);
+  const look = useConversationLook(true, agentLook(agent).color, channelId);
   const text = look.text ?? undefined;
   const nameSize = look.text ? chatNameOf(look.text) : undefined;
   const timeSize = look.text ? chatTimeOf(look.text) : undefined;
@@ -139,9 +147,9 @@ export function FirstDay({
     useRise(start2, START_RISE[2], plays),
   ];
 
-  // The composer rides the keyboard; the message gives way with it instead of staying under the keys.
-  const keyboard = useReanimatedKeyboardAnimation();
-  const above = useAnimatedStyle(() => ({ paddingBottom: Math.max(0, -keyboard.height.get() - keyboardLift) }));
+  // The composer rides the keyboard; the message gives way with it instead of staying under the keys (`useKeyboardRoom`:
+  // a translate while it moves, its room once it settles).
+  const above = useKeyboardRoom(keyboardLift);
 
   const body = (
     <Text variant="body" tone="ink" style={text} maxFontSizeMultiplier={text ? CHAT_TEXT_MAX_SCALE : undefined}>
@@ -150,10 +158,11 @@ export function FirstDay({
   );
 
   return (
-    <Animated.View style={[styles.grow, above]}>
+    <Animated.View style={[styles.grow, ...above]}>
       <ScrollView
         style={styles.grow}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 16 }]}
+        contentContainerStyle={[styles.content, { paddingTop: topInset + 8, paddingBottom: bottomInset + 16 }]}
+        scrollIndicatorInsets={{ top: topInset, bottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
@@ -194,7 +203,20 @@ export function FirstDay({
                   {t("mobile.chat.intent.now")}
                 </Text>
               </View>
-              {bubbled ? <View style={[lookRows.bubble, { backgroundColor: c.bubble }]}>{body}</View> : body}
+              {bubbled ? (
+                <View
+                  style={[
+                    lookRows.bubble,
+                    look.wallpaper
+                      ? { backgroundColor: WALLPAPER_LIFT[scheme], boxShadow: shadows.e1 }
+                      : { backgroundColor: c.bubble },
+                  ]}
+                >
+                  {body}
+                </View>
+              ) : (
+                body
+              )}
             </Animated.View>
             <View style={styles.starts}>
               {asks.map((a, i) => {
@@ -224,7 +246,7 @@ export function FirstDay({
 const styles = StyleSheet.create({
   grow: { flex: 1 },
   // The message sits at the bottom, over the composer, where a conversation's latest message is.
-  content: { flexGrow: 1, justifyContent: "flex-end", paddingTop: 8 },
+  content: { flexGrow: 1, justifyContent: "flex-end" },
   // The chat's row: the face at the inset, the words on the chat's text column (MSG_TEXT).
   row: { flexDirection: "row", gap: MSG_GAP, paddingLeft: MSG_INSET, paddingRight: 16 },
   avatar: { width: MSG_AVATAR },

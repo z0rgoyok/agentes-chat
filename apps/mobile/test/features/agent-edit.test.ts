@@ -12,6 +12,8 @@ import {
   ROLE_IDS,
   takenHandles,
 } from "@agenteschat/client/lib/new-agent";
+import { gradientOf, hsvToHex } from "@agenteschat/ui/agent/engine";
+import { hsvRgb, rgbHex, tileOf } from "../../src/features/agents/color-pick";
 import {
   type AgentDraft,
   agentChanges,
@@ -90,7 +92,7 @@ describe("editing an agent", () => {
     audience: { mode: "people", userIds: ["u-bia"], roleIds: [], consultable: true },
   };
 
-  test("admins change everything, its person only the look, others nothing", () => {
+  test("who manages it changes everything, who edits it its role and instructions, its person its look too, others nothing", () => {
     expect([...editableFields({ admin: true, owner: false })].sort()).toEqual([
       "consultable",
       "instructions",
@@ -98,8 +100,18 @@ describe("editing an agent", () => {
       "name",
       "role",
     ]);
-    expect([...editableFields({ admin: false, owner: true })]).toEqual(["look", "consultable"]);
+    // Someone its "Who can edit" names: how it works, never its name or its look.
+    expect([...editableFields({ admin: false, editor: true, owner: false })]).toEqual(["role", "instructions"]);
+    // Its owner always edits it (ADR 0085 addendum of 2026-11-17), named an editor or not.
+    expect([...editableFields({ admin: false, owner: true })]).toEqual(["role", "instructions", "look", "consultable"]);
+    expect([...editableFields({ admin: false, editor: true, owner: true })]).toEqual([
+      "role",
+      "instructions",
+      "look",
+      "consultable",
+    ]);
     expect(editableFields({ admin: false, owner: false }).size).toBe(0);
+    expect(editableFields({ admin: false, editor: false, owner: false }).size).toBe(0);
   });
 
   test("a save sends only what changed and may change", () => {
@@ -108,9 +120,14 @@ describe("editing an agent", () => {
     expect(
       agentChanges(saved, { ...saved, name: " Nina B ", look: { ...saved.look, accessory: "crown" } }, all),
     ).toEqual({ name: "Nina B", appearance: { color: "teal", eyes: "happy", accessory: "crown" } });
-    // Its person's draft can't carry a new name.
+    // Its person's draft can't carry a new name, only how it works.
     const own = editableFields({ admin: false, owner: true });
-    expect(agentChanges(saved, { ...saved, name: "Outra", instructions: "x" }, own)).toBeNull();
+    expect(agentChanges(saved, { ...saved, name: "Outra", instructions: "x" }, own)).toEqual({ instructions: "x" });
+    // Who edits it sends its role and instructions, never a new name or look.
+    const editor = editableFields({ admin: false, editor: true, owner: false });
+    const renamed = { ...saved, name: "Outra", look: { ...saved.look, accessory: "crown" as const } };
+    expect(agentChanges(saved, { ...renamed, role: " Suporte " }, editor)).toEqual({ role: "Suporte" });
+    expect(agentChanges(saved, renamed, editor)).toBeNull();
     // An emptied name is never sent.
     expect(agentChanges(saved, { ...saved, name: "  " }, all)).toBeNull();
   });
@@ -121,6 +138,8 @@ describe("editing an agent", () => {
     expect(agentChanges(saved, off, editableFields({ admin: false, owner: true }))).toEqual(sent);
     expect(agentChanges(saved, off, editableFields({ admin: true, owner: false }))).toEqual(sent);
     expect(agentChanges(saved, off, editableFields({ admin: false, owner: false }))).toBeNull();
+    // Who talks to it stays with its person and who manages it: editing it doesn't change that.
+    expect(agentChanges(saved, off, editableFields({ admin: false, editor: true, owner: false }))).toBeNull();
   });
 
   test("someone who can't edit reads the instructions drawn as Markdown, as the chat does, never its marks", () => {
@@ -163,8 +182,9 @@ describe("renaming an agent on the phone", () => {
       handle: "dra",
     });
     expect(handleAfterRename(saved, "Claudio", "clau")).toBe("clau");
-    // The agent's own person changes its look only: never its @.
+    // Neither the agent's own person nor who edits it moves its @: it goes with its name, who manages it renames it.
     expect(agentChanges(saved, draft, editableFields({ admin: false, owner: true }))).toBeNull();
+    expect(agentChanges(saved, draft, editableFields({ admin: false, editor: true, owner: false }))).toBeNull();
   });
 
   test("Menções says why a taken @ can't be used and offers a free one; its own old @ comes back", async () => {
@@ -265,33 +285,68 @@ describe("creating an agent on the phone", () => {
     );
   });
 
-  test("Create agent on the grouped gray: the step said once, presets as checked rows, a level picked from a list", async () => {
+  test("Create agent on the grouped gray: the step in the bar, presets as checked rows, a level picked from a list", async () => {
     // The screens are components the tests can't render: what they wire in, as text.
     const read = (f: string) => Bun.file(new URL(`../../src/features/agents/${f}`, import.meta.url).pathname).text();
     const [screen, look] = await Promise.all([read("NewAgentScreen.tsx"), read("LookPicker.tsx")]);
-    // Not in the header's subtitle: once, under the bar ("2 of 4 · Who it is").
+    // Where the step stands is the bar's line under its title ("2 of 4"), never a progress bar of its own.
     expect(screen).not.toContain("newAgent.stepOf");
-    expect(screen).toContain('t("mobile.choices.step", { step: index + 1, total })');
+    expect(screen).toContain('return at ? t("mobile.choices.step", at) : undefined;');
+    expect(screen).toContain('<PushedHeader title={t("newAgent.title")} subtitle={subtitle} solid={false} grouped />');
+    expect(screen).not.toContain("function StepBar");
     // A role is a row with the check, never a ringed card; with none chosen yet there is no bar to press.
     expect(screen).toContain("checked={role === id}");
     expect(screen).not.toContain("RoleCard");
-    expect(screen).toContain("const footer = importing || backs || goes;");
+    expect(screen).toMatch(/bar=\{\s*change \|\| role !== null \?/);
     // A proposal's levels come from the app's picker of the three, never cycled by taps.
     expect(screen).not.toContain("nextLevel");
     expect(screen).toContain("const chooseLevel = (title: string, current: string, choose: (level: Level) => void) =>");
-    expect(screen).toContain("chooseLevel(app, level, (l) => setProposedLevels((p) => ({ ...p, [i.id]: l })))");
-    // The look in the list: swatches checked inside, the eyes and the accessory each in a sheet of checked rows.
-    expect(screen).toContain("<LookList look={look} onChange={setLook} />");
+    expect(screen).toContain("chooseLevel(app, level, (l) => setProposedLevel(i.id, l))");
+    // The look in the list: swatches checked inside, the eyes and the accessory each on a pushed screen of checked
+    // rows (ADR 0135: screens, never sheets).
+    expect(screen).toContain("<LookList look={look} onChange={(value) => editNewAgent({ look: value })} />");
     expect(look).toContain("checked={o.key === value}");
+    expect(look).toContain('router.push("/agent-look");');
+    expect(look).not.toContain("<Sheet");
   });
 
   test("the custom color sheet: starts from the current color, applies it on done, keeps the drag from the scroll", async () => {
     // The sheet is a component the tests can't render: what it wires in, as text.
     const sheet = await Bun.file(new URL("../../src/features/agents/ColorSheet.tsx", import.meta.url).pathname).text();
     expect(sheet).toContain("hexToHsv(pickerStart(value))");
-    expect(sheet).toContain("onResponderTerminationRequest: () => false");
-    expect(sheet).toMatch(/const done = \(\) => \{\s*onChange\(hex as `#\$\{string\}`\);\s*onClose\(\);/);
-    expect(sheet).toContain('label={t("look.useColor")} onPress={done}');
+    expect(sheet).toMatch(
+      /const done = \(\) => \{\s*\(onDone \?\? onChange\)\(hex as `#\$\{string\}`\);\s*onClose\(\);/,
+    );
+    expect(sheet).toContain('label={doneLabel ?? t("look.useColor")} onPress={done}');
     expect(sheet).toContain("onSubmitEditing={done}");
+  });
+
+  test("a drag on the color sheet runs on the UI thread and tells the form once, when the finger lets go", async () => {
+    const sheet = await Bun.file(new URL("../../src/features/agents/ColorSheet.tsx", import.meta.url).pathname).text();
+    // A pan from the first touch, never the JS responder: the sheet's scroll can't take the drag over mid-way.
+    expect(sheet).not.toMatch(/onResponder(Grant|Move)/);
+    expect(sheet.match(/usePanGesture\(\{\s*minDistance: 0,/g)).toHaveLength(2);
+    // Each move writes shared values only; the form hears the color on release, never per move.
+    expect(
+      sheet.match(
+        /onFinalize: \(\) => \{\s*"worklet";\s*scheduleOnRN\(commit, hue\.get\(\), sat\.get\(\), val\.get\(\)\);/g,
+      ),
+    ).toHaveLength(2);
+    expect(sheet).not.toMatch(/onUpdate: \(e\) => \{[^}]*(setHsv|onChange|scheduleOnRN)/);
+    // The thumbs move by transform, the tile is drawn from the color on the UI thread.
+    expect(sheet).toContain("{ translateX: sat.get() * areaW.get() - THUMB / 2 }");
+    expect(sheet).toContain("const tile = useDerivedValue(() => tileOf(hue.get(), sat.get(), val.get()));");
+  });
+
+  test("the color sheet's UI-thread tile is the engine's own, over the whole picker", () => {
+    const steps = Array.from({ length: 21 }, (_, i) => i / 20);
+    const hues = [...Array.from({ length: 52 }, (_, i) => i * 7), 359, 359.5];
+    for (const h of hues)
+      for (const s of steps)
+        for (const v of steps) {
+          const hex = hsvToHex(h, s, v);
+          expect(rgbHex(hsvRgb(h, s, v))).toBe(hex);
+          expect(tileOf(h, s, v)).toEqual(gradientOf(hex));
+        }
   });
 });

@@ -3,7 +3,16 @@ import { matchesWords } from "@agenteschat/ui/search";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
-import { GroupedHeader, GroupedList, GroupedRow, type IconName, ProviderLogo, SearchField, Text } from "@/ui";
+import {
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  type IconName,
+  ProviderLogo,
+  SearchField,
+  Text,
+} from "@/ui";
 
 export type PickRow = Pick<BrainPickOption, "value" | "label" | "keywords"> &
   Partial<Pick<BrainPickOption, "group" | "mark" | "description" | "hint" | "disabled">> & {
@@ -14,6 +23,10 @@ export type PickRow = Pick<BrainPickOption, "value" | "label" | "keywords"> &
     icon?: IconName;
     /** Lines its description may take (default 2). */
     subLines?: number;
+    /** A line under its description (a plan's room, a key's budget), as the grouped rows' `belowText`. */
+    below?: string;
+    /** Its group's own key, where two groups' headings read alike (`pickGroups`). */
+    groupKey?: string;
   };
 
 /** One choice from a list, the phone's picker: a search over the rows by their logos, in their groups, the chosen one checked. */
@@ -24,8 +37,11 @@ export function PickList<O extends PickRow>({
   placeholder,
   searchLabel,
   noResults,
+  notes = [],
 }: {
   options: readonly O[];
+  /** A line under a group (by its key, `pickGroups`), or after them all where that group has no row here. */
+  notes?: readonly { key: string; text: string }[];
   value: string | undefined;
   onPick: (option: O) => void;
   placeholder: string;
@@ -53,7 +69,7 @@ export function PickList<O extends PickRow>({
         </Text>
       ) : (
         groups.map((g, i) => (
-          <Fragment key={g.group ?? `~${i}`}>
+          <Fragment key={g.key ?? `~${i}`}>
             {g.group ? <GroupedHeader>{g.group}</GroupedHeader> : <View style={styles.gap} />}
             <GroupedList>
               {g.options.map((o) => (
@@ -61,6 +77,7 @@ export function PickList<O extends PickRow>({
                   key={o.value}
                   label={o.label}
                   {...(o.description ? { sub: o.description, subLines: o.subLines ?? 2 } : {})}
+                  {...(o.below ? { belowText: o.below } : {})}
                   {...(o.hint ? { hint: { name: t("common.about", { label: o.label }), text: o.hint } } : {})}
                   {...(o.mark
                     ? { leading: <ProviderLogo id={o.mark} size="sm" off={o.off ?? false} /> }
@@ -73,9 +90,19 @@ export function PickList<O extends PickRow>({
                 />
               ))}
             </GroupedList>
+            {notes
+              .filter((n) => n.key === g.key)
+              .map((n) => (
+                <GroupedFooter key={n.key}>{n.text}</GroupedFooter>
+              ))}
           </Fragment>
         ))
       )}
+      {q.trim()
+        ? null
+        : notes
+            .filter((n) => !groups.some((g) => g.key === n.key))
+            .map((n) => <GroupedFooter key={n.key}>{n.text}</GroupedFooter>)}
     </>
   );
 }

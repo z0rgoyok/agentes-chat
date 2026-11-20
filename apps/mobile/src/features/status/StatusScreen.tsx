@@ -8,8 +8,9 @@ import {
 } from "@agenteschat/client/lib/presence";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import {
+  Filters,
   fieldText,
   GroupedHeader,
   GroupedList,
@@ -18,13 +19,15 @@ import {
   MEDIA_ROW,
   MediaRow,
   PresenceBadge,
+  PressScale,
+  SCREEN_X,
   Text,
   useTheme,
   useToast,
   WithPresence,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { Gap, SettingsPage } from "../settings/parts";
+import { chooseAction, Gap, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
 import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
@@ -43,7 +46,8 @@ export const openStatus = () => router.push("/me/status");
  * Status (ADR 0084), pushed from Você on the grouped gray, "Salvar" in the bar: how people see you (a preview that
  * follows the draft), the line with its emoji key and ✕, the suggestions (each fills the line, its emoji, when it
  * clears and how you appear), "Limpar depois de" (with a line), "Aparecer como" (Online, Ausente, Ocupado, Oculto)
- * and "Limpar status" when one is saved. The emoji and the end are picked in short sheets.
+ * and "Limpar status" when one is saved. The emoji is picked in its grid's sheet, the end in the app's short menu; the
+ * line sits in a grouped card as every field does, the suggestions are the app's chips.
  */
 export function StatusScreen() {
   return (
@@ -55,7 +59,7 @@ export function StatusScreen() {
 
 function StatusEditor() {
   const { t, i18n } = useTranslation();
-  const { colors: c, shadows } = useTheme();
+  const { colors: c } = useTheme();
   const orgId = useOrgId();
   const meId = useMeId();
   const me = useMyPerson();
@@ -136,36 +140,25 @@ function StatusEditor() {
       </>,
     );
 
+  // A short fixed list: the app's menu, the one in use checked. The end the saved line already has stays offered,
+  // chosen, until another is picked.
   const pickUntil = () =>
-    sheet.open(
-      <>
-        <SheetTitle title={t("presence.clearAfter")} />
-        <ActionList
-          items={[
-            // The end the saved line already has stays offered, chosen, until another is picked.
-            ...("at" in d.until && d.until.at
-              ? [
-                  {
-                    key: "kept",
-                    label: clearsText(t, language, d.until.at),
-                    trailing: <Icon name="check" size={18} color={c.ink} />,
-                    onPress: () => sheet.close(),
-                  },
-                ]
-              : []),
-            ...UNTIL_CHOICES.map((u) => ({
-              key: u,
-              label: t(`presence.until.${u}`),
-              ...(pickedChoice === u ? { trailing: <Icon name="check" size={18} color={c.ink} /> } : {}),
-              onPress: () => {
-                edit({ until: { choice: u } });
-                sheet.close();
-              },
-            })),
-          ]}
-        />
-      </>,
+    chooseAction(
+      t("presence.clearAfter"),
+      [
+        ...("at" in d.until && d.until.at
+          ? [{ label: clearsText(t, language, d.until.at), checked: true, onPress: () => undefined }]
+          : []),
+        ...UNTIL_CHOICES.map((u) => ({
+          label: t(`presence.until.${u}`),
+          checked: pickedChoice === u,
+          onPress: () => edit({ until: { choice: u } }),
+        })),
+      ],
+      t("common.cancel"),
     );
+  // The suggestion the line now reads as, if any: its chip shows chosen.
+  const suggested = STATUS_SUGGESTIONS.find((s) => isSuggestion(d, t(`presence.suggest.${s.key}`), s.emoji))?.key ?? "";
 
   return (
     <SettingsPage
@@ -195,79 +188,69 @@ function StatusEditor() {
       </GroupedList>
 
       <GroupedHeader>{t("mobile.status.doing")}</GroupedHeader>
-      <View style={[styles.field, { backgroundColor: c.raised, boxShadow: `${shadows.e1}, ${shadows.top}` }]}>
-        <Pressable
-          onPress={pickEmoji}
-          accessibilityRole="button"
-          accessibilityLabel={d.emoji ? `${t("presence.emoji")}, ${d.emoji}` : t("presence.emoji")}
-          style={({ pressed }) => [styles.key, { backgroundColor: c.sunken }, pressed && styles.pressed]}
-        >
-          {d.emoji ? <Text style={styles.keyEmoji}>{d.emoji}</Text> : <Icon name="smile" size={20} color={c.muted} />}
-        </Pressable>
-        <TextInput
-          value={d.text}
-          onChangeText={(v) => edit({ text: v })}
-          placeholder={t("mobile.status.placeholder")}
-          placeholderTextColor={c.faint}
-          maxLength={TEXT_MAX}
-          returnKeyType="done"
-          autoCapitalize="sentences"
-          style={[fieldText("body"), styles.input, { color: c.ink }]}
-        />
-        {d.text ? (
-          <Pressable
-            onPress={() => edit({ text: "", emoji: null, until: { choice: "never" } })}
+      <GroupedList>
+        <View style={styles.field}>
+          <PressScale
+            onPress={pickEmoji}
             accessibilityRole="button"
-            accessibilityLabel={t("presence.wipe")}
-            hitSlop={11}
-            style={({ pressed }) => [styles.wipe, { backgroundColor: c.faint }, pressed && styles.wipePressed]}
+            accessibilityLabel={d.emoji ? `${t("presence.emoji")}, ${d.emoji}` : t("presence.emoji")}
+            style={[styles.key, { backgroundColor: c.sunken }]}
+            contentStyle={styles.keyIn}
           >
-            <Icon name="x" size={12} color={c.raised} />
-          </Pressable>
-        ) : null}
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.chips}
-        style={styles.chipsRow}
-      >
-        {STATUS_SUGGESTIONS.map((s) => {
-          const label = t(`presence.suggest.${s.key}`);
-          const on = isSuggestion(d, label, s.emoji);
-          return (
+            {d.emoji ? <Text style={styles.keyEmoji}>{d.emoji}</Text> : <Icon name="smile" size={20} color={c.muted} />}
+          </PressScale>
+          <TextInput
+            value={d.text}
+            onChangeText={(v) => edit({ text: v })}
+            placeholder={t("mobile.status.placeholder")}
+            placeholderTextColor={c.faint}
+            maxLength={TEXT_MAX}
+            returnKeyType="done"
+            autoCapitalize="sentences"
+            accessibilityLabel={t("mobile.status.doing")}
+            style={[fieldText("body"), styles.input, { color: c.ink }]}
+          />
+          {d.text ? (
             <Pressable
-              key={s.key}
-              onPress={() => {
-                tapHaptic();
-                edit({ text: label, emoji: s.emoji, until: { choice: s.until }, availability: s.availability });
-              }}
+              onPress={() => edit({ text: "", emoji: null, until: { choice: "never" } })}
               accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={label}
-              // A 34-point suggestion: the slop makes its target 44.
-              hitSlop={{ top: 5, bottom: 5 }}
-              style={({ pressed }) => [
-                styles.chip,
-                { backgroundColor: c.raised, boxShadow: shadows.e1 },
-                on && { borderColor: c.ink },
-                pressed && styles.pressed,
-              ]}
+              accessibilityLabel={t("presence.wipe")}
+              hitSlop={11}
+              style={({ pressed }) => [styles.wipe, { backgroundColor: c.faint }, pressed && styles.wipePressed]}
             >
-              <Text variant="callout" tone={on ? "ink" : "ink2"} numberOfLines={1}>
-                {`${s.emoji} ${label}`}
-              </Text>
+              <Icon name="x" size={12} color={c.raised} />
             </Pressable>
-          );
-        })}
-      </ScrollView>
+          ) : null}
+        </View>
+      </GroupedList>
+      {/* The suggestions as the app's chips, to the screen's edges under the field; the one the line reads as is
+          chosen, and a tap fills the line, its emoji, its end and how you appear. */}
+      <View style={styles.chips}>
+        <Filters
+          items={STATUS_SUGGESTIONS.map((s) => ({
+            key: s.key,
+            label: `${s.emoji} ${t(`presence.suggest.${s.key}`)}`,
+            accessibilityLabel: t(`presence.suggest.${s.key}`),
+          }))}
+          value={suggested}
+          onChange={(key) => {
+            const s = STATUS_SUGGESTIONS.find((x) => x.key === key);
+            if (!s) return;
+            edit({
+              text: t(`presence.suggest.${s.key}`),
+              emoji: s.emoji,
+              until: { choice: s.until },
+              availability: s.availability,
+            });
+          }}
+        />
+      </View>
 
       {text ? (
         <>
           <Gap />
           <GroupedList>
-            <GroupedRow label={t("presence.clearAfter")} value={untilLabel(d.until)} chevron onPress={pickUntil} />
+            <GroupedRow label={t("presence.clearAfter")} value={untilLabel(d.until)} menu onPress={pickUntil} />
           </GroupedList>
         </>
       ) : null}
@@ -307,33 +290,17 @@ function StatusEditor() {
 }
 
 const styles = StyleSheet.create({
-  pressed: { opacity: 0.6 },
   preview: { gap: 8, paddingHorizontal: 16, paddingVertical: 14 },
-  field: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 14,
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 12,
-  },
-  key: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  // The line inside its grouped card: the emoji's key, the words, the ×.
+  field: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, paddingLeft: 6, paddingRight: 12 },
+  key: { width: 38, height: 38, borderRadius: 11 },
+  keyIn: { alignItems: "center", justifyContent: "center" },
   keyEmoji: { fontSize: 21, lineHeight: 26 },
   input: { flex: 1, minWidth: 0, paddingVertical: 8, paddingHorizontal: 2 },
   wipe: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", opacity: 0.55 },
   wipePressed: { opacity: 0.3 },
-  // The chips run to the screen's edges under the field.
-  chipsRow: { marginHorizontal: -16 },
-  chips: { gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
-  chip: {
-    minHeight: 34,
-    paddingHorizontal: 13,
-    borderRadius: 17,
-    borderWidth: 1.5,
-    borderColor: "transparent",
-    justifyContent: "center",
-  },
+  // The chips' row runs to the screen's edges under the field (they start where the field does).
+  chips: { marginHorizontal: -SCREEN_X, paddingTop: 12 },
   lead: { width: 32, alignItems: "center", justifyContent: "center" },
   emojis: { flexDirection: "row", flexWrap: "wrap", gap: 4, justifyContent: "flex-start" },
   emojiCell: { width: 52, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center" },

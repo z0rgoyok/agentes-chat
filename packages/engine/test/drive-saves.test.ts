@@ -112,13 +112,12 @@ const call = async (ctx: ToolContext, name: string, input: Record<string, unknow
 
 /** The run a person's message started, finished; calls go through it afterwards. */
 async function runAfter(agentId: string, channelId: string, body: string, userId = f.owner.id) {
-  await postPersonMessage({ db: f.db, pubsub: f.pubsub }, userId, f.org.id, channelId, { body });
+  const trigger = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, userId, f.org.id, channelId, { body });
   await drainOutbox(f.db, f.handlers);
-  const runs = await f.db
+  const [run] = await f.db
     .select()
     .from(schema.agentRuns)
-    .where(and(eq(schema.agentRuns.agentId, agentId), eq(schema.agentRuns.channelId, channelId)));
-  const run = runs.at(-1);
+    .where(and(eq(schema.agentRuns.agentId, agentId), eq(schema.agentRuns.triggerMessageId, trigger.id)));
   if (!run) throw new Error("no run");
   return run;
 }
@@ -156,7 +155,7 @@ async function consultedRun(biaId: string, channelId = f.general.id) {
 }
 
 const save = (ctx: ToolContext, extra: Record<string, unknown> = {}) =>
-  call(ctx, "create_artifact", { title: "Relatório", kind: "document", markdown: "# oi", ...extra });
+  call(ctx, "create_artifact", { title: "Relatório", kind: "table", columns: ["oi"], rows: [["1"]], ...extra });
 
 /** What the Drive API lists for this person: the same two calls as its route. */
 async function driveOf(userId: string) {
@@ -391,9 +390,10 @@ describe("a routine's own files", () => {
     await f.db.update(schema.agentRuns).set({ status: "done" });
     const next = ctxOf(await agentRunRow(f, (await fire(f, routine.id, new Date(Date.now() + 86_400_000))).agentRunId));
     expect((await call(next, "list_artifacts", {})).content).toContain(id);
-    expect((await call(next, "read_artifact", { artifact_id: id })).content).toContain("# oi");
+    expect((await call(next, "read_artifact", { artifact_id: id })).content).toContain("oi");
     expect(
-      (await call(next, "update_artifact", { artifact_id: id, note: "semana", markdown: "# novo" })).isError,
+      (await call(next, "update_artifact", { artifact_id: id, note: "semana", columns: ["novo"], rows: [["2"]] }))
+        .isError,
     ).toBeFalsy();
     expect((await call(next, "update_artifact", { artifact_id: id, note: "x", shared_drive: true })).content).toContain(
       "the workspace's shared Drive",
@@ -475,10 +475,11 @@ describe("share_artifact", () => {
     const id = (saved.data as { artifact: { id: string } }).artifact.id;
     await f.db.update(schema.artifacts).set({ channelId: run.channelId }).where(eq(schema.artifacts.id, id));
     await join(bob.id);
-    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, bob.id, f.org.id, f.general.id, { body: "@dev manda" });
+    const trigger = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, bob.id, f.org.id, f.general.id, {
+      body: "@dev manda",
+    });
     await drainOutbox(f.db, f.handlers);
-    const runs = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.channelId, f.general.id));
-    const asked = runs.at(-1);
+    const [asked] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, trigger.id));
     if (!asked) throw new Error("no run");
     expect((await call(ctxOf(asked), "share_artifact", { artifact_id: id })).isError).toBe(true);
   });
@@ -691,7 +692,7 @@ describe("who may widen a file to the whole workspace", () => {
     const first = ctxOf(await agentRunRow(f, (await fire(f, routine.id, new Date())).agentRunId));
     const id = idOf(await save(first));
     await updateArtifact(f.artifactDeps, { type: "person", userId: f.owner.id }, f.org.id, id, {
-      content: { kind: "document", markdown: "anotação privada" },
+      content: { kind: "table", columns: ["anotação"], rows: [["privada"]] },
       note: "minha",
     });
     await f.db.update(schema.routineRuns).set({ status: "reported", finishedAt: new Date() });

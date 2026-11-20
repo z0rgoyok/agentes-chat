@@ -4,6 +4,7 @@ import {
   type RunnerFrame,
   STREAM_CLOSE,
 } from "@agenteschat/adapters/machine-protocol";
+import { RunnerError } from "./errors";
 import type { DataSocket } from "./streams";
 
 type Frame = Extract<RunnerFrame, { type: "browser.frame" }>;
@@ -67,6 +68,8 @@ export class BrowserViews {
    * idle page sends nothing new, so the picture a dead view held (or lost on its way) would otherwise never come.
    */
   private readonly latest = new Map<string, Frame>();
+  /** Goes up with every `closeAll`. */
+  private turn = 0;
   /**
    * An agent's view has room for its next frame again, or it ended: its browser's stream may send the next one
    * (`BrowserManager.room`; in system mode root tells the agent's worker, `Supervisor.browserRoom`).
@@ -81,7 +84,13 @@ export class BrowserViews {
 
   /** `browser.view.open`: answers once the server took the data socket; a view this agent had closes. */
   async open(agentId: string, streamId: string): Promise<{ opened: true }> {
+    const turn = this.turn;
     const socket = await this.opts.dial(streamId);
+    // The server's connection dropped while this dialled (`closeAll` found no view yet): it isn't kept.
+    if (turn !== this.turn) {
+      socket.close(STREAM_CLOSE.normal, "the connection dropped");
+      throw new RunnerError("internal", "The connection to the server dropped while the view opened");
+    }
     const old = this.views.get(agentId);
     // Not `end`: the stream goes on, and its newest frame is the new view's first.
     if (old) this.close(old, STREAM_CLOSE.normal, "a new view", false);
@@ -146,6 +155,7 @@ export class BrowserViews {
 
   /** The server's connection dropped: every view goes (the server opens them again with the streams). */
   closeAll() {
+    this.turn++;
     for (const agentId of [...this.views.keys()]) this.end(agentId);
     // The streams stop with the connection (`BrowserManager.stopStreams`): nothing they sent is newest any more.
     this.latest.clear();

@@ -20,6 +20,8 @@ export interface OptionListItem<V extends string> {
   side?: ReactNode;
   /** Its settings, under the row while it is the one chosen, aligned with the row's text. */
   children?: ReactNode;
+  /** List only: its level in a tree (0 at the top), one thin guide line per level before it, as a file tree. */
+  depth?: number;
 }
 
 export interface OptionListProps<V extends string> {
@@ -34,9 +36,10 @@ export interface OptionListProps<V extends string> {
    * `rows` (default): full-width rows. `cards`: side by side, the illustration
    * on top; the chosen card's
    * settings go under all of them. One column on narrow screens. `tiles`: two
-   * per row, the leading icon on the title's line.
+   * per row, the leading icon on the title's line. `list`: plain compact rows (a list of places to pick, a
+   * folder tree), no borders, a quiet hover and chosen background.
    */
-  layout?: "rows" | "cards" | "tiles";
+  layout?: "rows" | "cards" | "tiles" | "list";
   /**
    * Rows only: the chosen row and its settings are one card, the
    * settings full width under a hairline.
@@ -65,7 +68,8 @@ export function OptionList<V extends string>({
   const locked = useLocked();
   const cards = layout === "cards";
   const tiles = layout === "tiles";
-  const card = attached && !cards && !tiles;
+  const list = layout === "list";
+  const card = attached && !cards && !tiles && !list;
   const item = (o: OptionListItem<V>) => (
     <RRadioGroup.Item
       key={o.value}
@@ -73,6 +77,11 @@ export function OptionList<V extends string>({
       disabled={o.disabled}
       className={cx("ac-optrow", o.leading ? "ac-optrow--lead" : undefined)}
     >
+      {list &&
+        Array.from({ length: o.depth ?? 0 }, (_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: one guide per level, never reordered
+          <span key={i} className="ac-optrow__guide" aria-hidden="true" />
+        ))}
       {o.leading && <span className="ac-optrow__lead">{o.leading}</span>}
       <span className="ac-optrow__text">
         <span className="ac-optrow__title">
@@ -92,6 +101,7 @@ export function OptionList<V extends string>({
         "ac-optlist",
         cards && "ac-optlist--cards",
         tiles && "ac-optlist--tiles",
+        list && "ac-optlist--list",
         (disabled || locked) && "ac-optlist--locked",
         card && "ac-optlist--attached",
         className,

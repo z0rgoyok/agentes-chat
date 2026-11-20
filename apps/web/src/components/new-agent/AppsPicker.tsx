@@ -36,8 +36,8 @@ export function AppsPickerDialog({
   onCard: Set<string>;
   /** Over a form that lists its apps (Criar agente's steps) instead of a card: the words say "list". */
   inList?: boolean;
-  /** Whoever opened it may connect apps for the workspace. */
-  canConnect: boolean;
+  /** Whoever opened it may connect this app: for the team, or as their own (`personalAllowed`). */
+  canConnect: (def: ConnectorDef) => boolean;
   onUse: (def: ConnectorDef) => void;
   onConnect: (def: ConnectorDef) => void;
   onClose: () => void;
@@ -78,7 +78,7 @@ export function AppsPickerDialog({
       <Button size="sm" onClick={() => onUse(d)}>
         {t("newAgentCard.picker.use")}
       </Button>
-    ) : canConnect ? (
+    ) : canConnect(d) ? (
       <Button size="sm" onClick={() => onConnect(d)}>
         {t("agentSetup.firstRun.apps.connect")}
       </Button>

@@ -18,7 +18,8 @@ export function WorkLine({
   className,
 }: {
   tone: WorkLineTone;
-  text: string;
+  /** Plain text, or words with a face in them ("Handed to [Atlas] Atlas · working on it"). */
+  text: ReactNode;
   /** The latest update, plain text. */
   update?: string | null;
   /** What it waits to hear: two lines at most, all of it on hover. */

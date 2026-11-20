@@ -14,6 +14,7 @@ import {
   steerStateOf,
   steerStore,
 } from "../src/index";
+import { applyReceiptEvent } from "../src/realtime/receipts";
 import { fakeSockets } from "./fake-socket";
 
 type Ev = Parameters<typeof applyChannelEvent>[1];
@@ -24,6 +25,7 @@ const read = (...messageIds: string[]) => ({ type: "agent.run.read", ...base, me
 const delivered = (...messageIds: string[]) => ({ type: "agent.run.delivered", ...base, messageIds }) as Ev;
 const redispatched = (runId: string, newRunId: string, ...messageIds: string[]) =>
   ({ type: "agent.run.redispatched", ...base, runId, newRunId, messageIds }) as Ev;
+const released = (messageId: string) => ({ type: "agent.run.released", ...base, messageId }) as Ev;
 const waitMessage = (messageId: string, outcome: "resolved" | "woke" | "held") =>
   ({ type: "agent.run.wait_message", ...base, messageId, waitKind: "browser_help", outcome }) as Ev;
 
@@ -190,6 +192,37 @@ describe("what became of a message sent while an agent works", () => {
     s = reconcileSteer(s, "c1", [], 2_000);
     expect(steerStateIn(s, "m2")?.state).toBe("read");
     expect(steerStateIn(s, "m3")?.state).toBe("waiting");
+  });
+
+  test("a message the triage found for someone else leaves the run: nothing of that run under it, live or listed", () => {
+    let s = applySteerEvent(emptySteer, steered("m2"));
+    s = applySteerEvent(s, released("m2"));
+    expect(steerStateIn(s, "m2")).toBeNull();
+    // A list read before the release had it on that run: the release takes it off.
+    let listed = seedSteerMessages(emptySteer, "c1", [person("m3", ["r1", "r2"])]);
+    listed = applySteerEvent(listed, released("m3"));
+    expect(listed.seeded.m3?.runs.map((r) => r.runId)).toEqual(["r2"]);
+    // Another run's word on a message stays.
+    const other = applySteerEvent(emptySteer, steered("m4", { runId: "r9" }));
+    expect(applySteerEvent(other, released("m4"))).toBe(other);
+  });
+
+  test("its receipt: the agent only saw it, and that run's news is no longer the message's", () => {
+    const at = { channelId: "c1", threadId: null, agentId: "ada", runId: "r1", messageId: "m1" };
+    let r = applyReceiptEvent({}, { type: "agent.run.steered", ...at });
+    expect(r.m1?.agents).toEqual([["ada", "claimed"]]);
+    r = applyReceiptEvent(r, { type: "agent.run.released", ...at });
+    expect(r.m1?.agents).toEqual([["ada", "seen"]]);
+    expect(r.m1?.runs).toEqual([]);
+    r = applyReceiptEvent(r, {
+      type: "run.finished",
+      channelId: "c1",
+      threadId: "t1",
+      agentId: "ada",
+      runId: "r1",
+      status: "done",
+    } as Parameters<typeof applyReceiptEvent>[1]);
+    expect(r.m1?.agents).toEqual([["ada", "seen"]]);
   });
 
   test("run.continued and meta.canceled.continuedRunId mark the stopped reply", () => {

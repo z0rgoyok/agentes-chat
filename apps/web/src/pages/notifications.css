@@ -127,8 +127,9 @@ html:not([data-pointer]) .nt-item:focus-visible {
   display: flex;
 }
 /* Its first plate reaches into the footer's gap (a ghost in `.ac-acts`): that room is given back here, so the plate
-   stands 8 from a button that grows up to it (a phone's Abrir). */
-.rq__end:has(> .nt-tail) {
+   stands 8 from a button that grows up to it (a phone's Abrir). After a time left it is not the first, and the time
+   left keeps the footer's edge when it wraps under the buttons. */
+.rq__end:has(> .nt-tail:first-child) {
   padding-inline-start: var(--ghost-plate);
 }
 
@@ -238,10 +239,6 @@ html:not([data-pointer]) .nt-item:focus-visible {
   font-size: 13.5px;
   color: var(--muted);
 }
-/* A source chip ("Devices", "Routine") never touches the headline above it: 8 under it, like the snippet under them. */
-.nt-item:has(> .ac-mediarow__body > .nt-tags:first-child) {
-  row-gap: var(--space-2);
-}
 /* In the body its parts stand the body's gap apart. */
 .nt-item > .ac-mediarow__body > * {
   margin-block: 0;
@@ -272,17 +269,8 @@ html:not([data-pointer]) .nt-item:focus-visible {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* The kit's chips as they are: 22 high, their words 12. */
-.nt-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 .nt-chip-ink {
   color: var(--ink2);
-}
-.nt-chip-ok .ac-icon {
-  color: var(--ok);
 }
 .nt-chip-warn .ac-icon {
   color: var(--warn);
@@ -296,6 +284,10 @@ html:not([data-pointer]) .nt-item:focus-visible {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* Where it happened leads the snippet's line, quieter than the words after it. */
+.nt-where {
+  color: var(--muted);
 }
 /* A restriction's notice: its whole line, how to contest it included. */
 .nt-snip--whole {
@@ -376,7 +368,7 @@ html:not([data-pointer]) .nt-item:focus-visible {
   cursor: pointer;
 }
 .nt-more:hover {
-  background: rgba(127, 127, 127, 0.12);
+  color: var(--ink);
 }
 html:not([data-pointer]) .nt-more:focus-visible {
   outline: none;

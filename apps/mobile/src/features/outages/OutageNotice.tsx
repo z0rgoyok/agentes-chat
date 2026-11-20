@@ -6,6 +6,7 @@ import { readValueSync, STORED, writeValue } from "@/lib/storage";
 import { Button, IconButton, LineIcon, Text, textLineOf } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFontScale } from "@/ui/text-scale";
+import { ReportProblemButton } from "../report/ReportProblemButton";
 import { useColors, useEdition } from "../shared/hooks";
 import { useSurface } from "../shared/parts";
 import { computerIcon, dismissedOutages, type MachineOutage, noticeText } from "./logic";
@@ -103,6 +104,7 @@ function OutageNotice({ outage: o, onDismiss }: { outage: MachineOutage; onDismi
           onPress={() => openSwitchComputer(o.machineId)}
         />
       )}
+      <ReportProblemButton place="computer" code="computer.offline" context={{ machineId: o.machineId }} />
     </View>
   );
 }

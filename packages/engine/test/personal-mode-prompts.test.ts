@@ -90,6 +90,8 @@ describe("the rules every agent reads", () => {
       audienceMode: "everyone" as const,
       audienceUserIds: [],
       audienceRoleIds: [],
+      editorUserIds: [],
+      editorRoleIds: [],
       consultable: true,
       brain: "model",
       autonomyBrakes: {},

@@ -210,13 +210,17 @@ test("its prompt says what the person may do, and shows only the agents they may
   const owner = await prompt(f.owner.id);
   expect(owner).toContain("You are Lodi (@lodi)");
   expect(owner).toContain("an owner of this workspace");
-  expect(owner).toContain("They may: create agents; change any agent's settings");
+  // "Edit agents" and "Create routines" reach the agents a person talks to (ADR 0085 addendum of 2026-11-17).
+  expect(owner).toContain(
+    "They may: create agents; change the settings (model, AI account, budget, owner, who may use it) of the agents they talk to and the ones with no owner (owners and administrators: every agent), archive and delete them;",
+  );
+  expect(owner).toContain("manage the routines of the agents they talk to.");
   expect(owner).not.toContain("They can't");
   expect(owner).toContain("- @cofre (Cofre)");
   expect(owner).toContain("- @dev (Dev), Developer");
   const member = await prompt(nina.id);
   expect(member).toContain("They can't: ");
-  expect(member).toMatch(/They can't: [^\n]*change any agent's settings/);
+  expect(member).toMatch(/They can't: [^\n]*change the settings \(model, [^\n]*\) of the agents they talk to/);
   expect(member).not.toContain("@cofre");
   expect(member).toContain("(1 more agent this person can't see.)");
   expect(member).toContain("Never ask for a key, password or token in the chat");

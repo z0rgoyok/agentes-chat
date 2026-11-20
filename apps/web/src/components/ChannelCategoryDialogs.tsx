@@ -430,6 +430,7 @@ export function MoveChannelDialog({
             >
               {shown.length > 0 ? (
                 <OptionList
+                  layout="list"
                   aria-label={t("channelCategories.moveSearch")}
                   value={dest}
                   onValueChange={setDest}

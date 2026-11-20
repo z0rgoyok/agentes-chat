@@ -20,6 +20,8 @@ import {
   browserSetupOf,
   CHROME_FAILURES,
   CHROMIUM_LINUX,
+  chromeExitCause,
+  chromeExitText,
   chromeFailureKind,
   decodeBrowserFrame,
   MACHINE_PROTOCOL_VERSION,
@@ -1295,15 +1297,18 @@ test.if(posix)(
       "Failed to create a ProcessSingleton for your profile directory. Aborting now to avoid profile corruption.";
     err = await failedStart(`echo "${held}" >&2; exit 21`);
     expect(err.missing).toEqual([]);
-    expect(err.message).toBe("Chrome closed while starting (another Chrome is using this profile)");
+    expect(err.message).toBe("Chrome closed while starting (another Chrome is using this profile, exit 21)");
     expect(err.profile).toBe(true);
     expect(err.detail).toBe(held);
 
-    // Any other exit, a loader error among them, gets no guess at why; what Chrome said goes to the logs.
+    // Any other exit, a loader error among them, gets no guess at why, only its code; what Chrome said goes to the logs.
     err = await failedStart(`echo "$0: /lib/libc.so.6: version 'GLIBC_2.38' not found (required by $0)" >&2; exit 1`);
     expect(err.missing).toEqual([]);
-    expect(err.message).toBe("Chrome closed while starting");
+    expect(err.message).toBe("Chrome closed while starting (exit 1)");
+    expect(err.why).toStartWith("Google Chrome closed as it started (exit 1). Update Google Chrome on it");
     expect(err.detail).toContain("version 'GLIBC_2.38' not found");
+    err = await failedStart("kill -SEGV $$");
+    expect(err.message).toBe("Chrome closed while starting (signal SIGSEGV)");
   },
 );
 
@@ -2547,8 +2552,63 @@ test.if(posix)(
     const libs = (await said()) as { message: string };
     expect(libs.message).toStartWith(`${CHROME_FAILURES.start} This computer is missing system libraries`);
     expect(chromeFailureKind(libs.message)).toBe("start");
+    // How it closed reaches the agent, with the way out.
+    failure = new ChromeStartError("Chrome closed while starting (exit 1)", "", [], false, chromeExitCause(1, null));
+    const exited = (await said()) as { message: string };
+    expect(exited.message).toBe(`${CHROME_FAILURES.start} ${chromeExitCause(1, null)}`);
+    expect(chromeFailureKind(exited.message)).toBe("start");
     // Anything else of the browser's (a busy computer) isn't a Chrome failure.
     expect(chromeFailureKind("This computer already has 8 browsers open (its limit).")).toBeNull();
+  },
+);
+
+test("a Chrome's exit code reads in hex on Windows, and the codes we know name their cause", () => {
+  expect(chromeExitText(0xc0000005, null, "win32")).toBe("exit 0xC0000005/3221225477");
+  // Some runtimes hand Windows codes over as signed numbers.
+  expect(chromeExitText(-1073741515, null, "win32")).toBe("exit 0xC0000135/3221225781");
+  expect(chromeExitText(21, null, "win32")).toBe("exit 0x15/21");
+  expect(chromeExitText(1, null, "linux")).toBe("exit 1");
+  expect(chromeExitText(null, "SIGKILL", "linux")).toBe("signal SIGKILL");
+  expect(chromeExitCause(-1073741515, null, "win32")).toBe(
+    "A file Google Chrome needs is missing (exit 0xC0000135/3221225781). Reinstall Google Chrome from google.com/chrome, then try again.",
+  );
+  expect(chromeExitCause(0xc0000005, null, "win32")).toStartWith(
+    "Google Chrome crashed as it started (exit 0xC0000005/3221225477). Update Google Chrome on it (open Chrome, then Settings › About Chrome, and Relaunch)",
+  );
+  expect(chromeExitCause(24, null, "win32")).toStartWith(
+    "Another Google Chrome already running with the agent's profile",
+  );
+  expect(chromeExitCause(0, null, "win32")).toBe(
+    "Google Chrome closed as it started (exit 0x0/0). Update Google Chrome on it (open Chrome, then Settings › About Chrome, and Relaunch), then try again.",
+  );
+});
+
+test.if(posix)(
+  "a Chrome that keeps closing as it starts isn't started again for a minute: the agent hears the last cause at once",
+  async () => {
+    let now = 1_000_000;
+    let starts = 0;
+    const lines: string[] = [];
+    const why = chromeExitCause(0xc0000005, null, "win32");
+    const t = setup({
+      now: () => now,
+      log: (l) => lines.push(l),
+      startChrome: async () => {
+        starts++;
+        throw new ChromeStartError("Chrome closed while starting (exit 0xC0000005/3221225477)", "", [], false, why);
+      },
+    });
+    const said = () => t.act("open", ["https://a/"]).catch((e: { code: string; message: string }) => e);
+    for (let i = 0; i < 3; i++) {
+      expect(await said()).toMatchObject({ code: "browser_unavailable", message: `${CHROME_FAILURES.start} ${why}` });
+    }
+    expect(starts).toBe(3);
+    expect(lines.some((l) => l.includes("closed while starting 3 times in a row"))).toBe(true);
+    expect(await said()).toMatchObject({ code: "browser_unavailable", message: `${CHROME_FAILURES.start} ${why}` });
+    expect(starts).toBe(3);
+    now += 60_000;
+    await said();
+    expect(starts).toBe(4);
   },
 );
 
@@ -3913,6 +3973,186 @@ test.if(posix)(
 );
 
 test.if(posix)(
+  "after the computer restarted or moved, Chrome opens the agent's tidy tabs again: no empty page, copy or popup, 8 at most, its active one first, the old pile still gone",
+  async () => {
+    const devtools = fakeDevtools([]);
+    try {
+      let boot = "boot-a";
+      const logs: string[] = [];
+      const json = jsonTargets([{ id: "CUR", url: "https://shop.example.com/cart" }]);
+      const chromes = chromesAt(devtools);
+      const t = setup({
+        startChrome: chromes.start,
+        fetch: json.fetch,
+        bootId: () => boot,
+        log: (l) => logs.push(l),
+      });
+      await t.act("open", ["https://shop.example.com/cart"]);
+      devtools.attach(0, { targetId: "POPUP", openerId: "CUR", canAccessOpener: true });
+      await Bun.sleep(50);
+      const sites = Array.from({ length: 9 }, (_, i) => ({ id: `S${i}`, url: `https://site${i}.example/a?step=${i}` }));
+      json.targets.push(
+        { id: "BLANK", url: "about:blank" },
+        { id: "NEW", url: "chrome://newtab/" },
+        { id: "START", url: "file:///home/dev/.agentes/start/agentes-start.html" },
+        { id: "COPY", url: "https://shop.example.com/cart" },
+        { id: "POPUP", url: "https://accounts.example.com/signin" },
+        ...sites,
+      );
+      // Only listed: the tabs as they are now are kept for a computer that restarts.
+      await t.act("tab", []);
+      // The computer goes down under the runner: its Chrome is gone without the runner closing it.
+      chromes.started[0]?.close();
+      await Bun.sleep(20);
+      const profile = chromes.started[0]?.profile ?? "";
+      mkdirSync(path.join(profile, "Default", "Sessions"), { recursive: true });
+      writeFileSync(path.join(profile, "Default", "Sessions", "tabs.json"), JSON.stringify(["https://pile.example/"]));
+
+      boot = "boot-b";
+      await t.act("open", ["https://shop.example.com/cart"]);
+      const tidy = ["https://shop.example.com/cart", ...sites.slice(0, 7).map((s) => s.url)];
+      const args = chromes.started[1]?.args ?? [];
+      expect(args.slice(-8)).toEqual(tidy);
+      expect(args.at(-9)).toStartWith("--");
+      // The tabs Chrome saved itself never come back beside them.
+      expect(chromes.started[1]?.tabs).toEqual(tidy.slice(-1));
+      expect(logs.join("\n")).not.toContain("site0.example");
+
+      // Opened again once: the next start on this boot is the start page, as always.
+      chromes.started[1]?.close();
+      await Bun.sleep(20);
+      json.targets.splice(0);
+      await t.act("open", ["https://shop.example.com/"]);
+      expect(chromes.started[2]?.args.at(-1)).toMatch(/^file:\/\/.+\/agentes-start\.html$/);
+      expect(chromes.started[2]?.args).not.toContain("https://site0.example/a?step=0");
+    } finally {
+      devtools.stop();
+    }
+  },
+);
+
+test.if(posix)(
+  "on the same boot an idle restart and a fresh start open the start page, and a Chrome update the last page, tabs kept or not",
+  async () => {
+    const devtools = fakeDevtools([]);
+    try {
+      let now = 1_000_000;
+      let version = CHROME_VERSION;
+      const json = jsonTargets([{ id: "CUR", url: "https://heavy.example/" }]);
+      const chromes = chromesAt(devtools);
+      const t = setup({
+        startChrome: chromes.start,
+        fetch: json.fetch,
+        bootId: () => "boot-a",
+        now: () => now,
+        idleMs: 60_000,
+        chromeVersion: () => version,
+      });
+      await t.act("open", ["https://heavy.example/"]);
+      json.targets.push({ id: "OTHER", url: "https://other.example/" });
+      await t.act("tab", []);
+      now += 61_000;
+      await t.manager.sweep();
+      expect(chromes.started[0]?.killed || chromes.started[0]?.closed).toBe(true);
+
+      await t.act("open", ["https://heavy.example/"]);
+      expect(chromes.started[1]?.args.at(-1)).toMatch(/^file:\/\/.+\/agentes-start\.html$/);
+      expect(chromes.started[1]?.args).not.toContain("https://other.example/");
+
+      await waitFor(() => devtools.asked.includes("Network.enable page-1"));
+      version = "157.0.8100.10";
+      devtools.crash(1);
+      await waitFor(() => chromes.started.length === 3);
+      expect(chromes.started[2]?.args.at(-1)).toBe("https://heavy.example/");
+      expect(chromes.started[2]?.args).not.toContain("https://other.example/");
+    } finally {
+      devtools.stop();
+    }
+  },
+);
+
+test.if(posix)("a browser the runner closed as idle starts on its one page after a restart too", async () => {
+  const devtools = fakeDevtools([]);
+  try {
+    let now = 1_000_000;
+    let boot = "boot-a";
+    const json = jsonTargets([{ id: "CUR", url: "https://heavy.example/" }]);
+    const chromes = chromesAt(devtools);
+    const t = setup({
+      startChrome: chromes.start,
+      fetch: json.fetch,
+      bootId: () => boot,
+      now: () => now,
+      idleMs: 60_000,
+    });
+    await t.act("open", ["https://heavy.example/"]);
+    await t.act("tab", []);
+    const record = path.join(chromes.started[0]?.profile ?? "", "agentes-tabs.json");
+    expect(existsSync(record)).toBe(true);
+    now += 61_000;
+    await t.manager.sweep();
+    expect(existsSync(record)).toBe(false);
+
+    boot = "boot-b";
+    await t.act("open", ["https://heavy.example/"]);
+    expect(chromes.started[1]?.args.at(-1)).toMatch(/^file:\/\/.+\/agentes-start\.html$/);
+  } finally {
+    devtools.stop();
+  }
+});
+
+test.if(posix)(
+  "after a restart, nothing kept opens the start page; a garbled record opens only its web pages, an overlong one left out; a failed start keeps it",
+  async () => {
+    const devtools = fakeDevtools([]);
+    try {
+      let boot = "boot-a";
+      let failing = false;
+      const chromes = chromesAt(devtools);
+      const t = setup({
+        // Chrome's tab list never answers, so nothing writes the record again after a start.
+        fetch: (async () => new Response("{}")) as unknown as typeof globalThis.fetch,
+        startChrome: async (exe, args, profile) => {
+          if (failing) throw new ChromeStartError("Chrome closed while starting", "");
+          return chromes.start(exe, args, profile);
+        },
+        bootId: () => boot,
+      });
+      await t.act("open", ["https://shop.example.com/"]);
+      await t.manager.stop(dev);
+      const profile = chromes.started[0]?.profile ?? "";
+      const record = path.join(profile, "agentes-tabs.json");
+      expect(existsSync(record)).toBe(false);
+
+      boot = "boot-b";
+      await t.act("open", ["https://shop.example.com/"]);
+      expect(chromes.started[1]?.args.at(-1)).toMatch(/^file:\/\/.+\/agentes-start\.html$/);
+      await t.manager.stop(dev);
+
+      const long = `https://long.example/#${"x".repeat(5000)}`;
+      writeFileSync(
+        record,
+        JSON.stringify({
+          urls: ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", 42, long, "https://ok.example/"],
+          boot: "boot-b",
+        }),
+      );
+      boot = "boot-c";
+      failing = true;
+      expect(await errorCode(() => t.act("open", ["https://shop.example.com/"]))).toBe("browser_unavailable");
+      expect(existsSync(record)).toBe(true);
+      failing = false;
+      await t.act("open", ["https://shop.example.com/"]);
+      expect(chromes.started[2]?.args.at(-2)).toStartWith("--");
+      expect(chromes.started[2]?.args.at(-1)).toBe("https://ok.example/");
+      expect(existsSync(record)).toBe(false);
+    } finally {
+      devtools.stop();
+    }
+  },
+);
+
+test.if(posix)(
   "a Chrome the profile's lock names is judged by its recorded start time: a reused pid is not stopped",
   async () => {
     let reusedPid = 0;
@@ -4587,3 +4827,90 @@ test.if(posix)(
     expect(eased(0)).toHaveLength(1);
   },
 );
+
+describe("one deadline for a whole command", () => {
+  const stuckIn = (answer: BrowserAnswer | undefined) => ({ code: answer?.code, error: answer?.error });
+
+  test.if(posix)(
+    "a browser that stops answering in the runner's own checks answers browser_stuck, naming the step, inside the command's time",
+    async () => {
+      const t = setup();
+      await t.act("open", ["https://shop.example.com/"]);
+      // Every eval hangs: the look at whether the tab shows and the names put on the controls before a snapshot, each
+      // 15 s on its own, which the server never counted.
+      t.page({ hang: { command: "eval", ms: 20_000 } });
+      const startedAt = performance.now();
+      const { answers } = await t.manager.batch(dev, await t.folder(), {
+        op: "browser.batch",
+        commands: [{ command: "snapshot", args: [], timeoutSeconds: 2 }],
+      });
+      const took = performance.now() - startedAt;
+      expect(took).toBeGreaterThan(1_500);
+      expect(took).toBeLessThan(4_000);
+      expect(stuckIn(answers.at(-1))).toEqual({
+        code: "browser_stuck",
+        error: `The browser didn't answer within 2 s: stuck on "snapshot"`,
+      });
+      // What was running stopped with it: the next command runs at once.
+      t.page({ hang: null });
+      const after = performance.now();
+      expect((await t.act("get", ["url"])).success).toBe(true);
+      expect(performance.now() - after).toBeLessThan(2_000);
+    },
+  );
+
+  test.if(posix)("a command waiting behind a stuck one says it was waiting in the queue", async () => {
+    const t = setup();
+    await t.act("open", ["https://shop.example.com/"]);
+    t.page({ hang: { command: "get", ms: 20_000 } });
+    const folder = await t.folder();
+    const first = new AbortController();
+    const held = t.manager.act(
+      dev,
+      folder,
+      { op: "browser.act", command: "get", args: ["text", "@e3"], timeoutSeconds: 20 },
+      first.signal,
+    );
+    await waitFor(() => t.logged().some((c) => c.args.includes("text")));
+    const { answers } = await t.manager.batch(dev, folder, {
+      op: "browser.batch",
+      commands: [{ command: "snapshot", args: [], timeoutSeconds: 1 }],
+    });
+    expect(stuckIn(answers.at(-1))).toEqual({
+      code: "browser_stuck",
+      error: "The browser didn't answer within 1 s: stuck waiting behind the agent's earlier browser command",
+    });
+    first.abort();
+    await held;
+    t.page({ hang: null });
+  });
+
+  test.if(posix)(
+    "a killed agent-browser whose child still holds its output frees the queue a moment later",
+    async () => {
+      const t = setup();
+      await t.act("open", ["https://shop.example.com/"]);
+      t.page({ orphan: { command: "get", ms: 60_000 } });
+      const folder = await t.folder();
+      try {
+        const stuck = await t.manager.act(dev, folder, {
+          op: "browser.act",
+          command: "get",
+          args: ["url"],
+          timeoutSeconds: 1,
+        });
+        expect(stuck.code).toBe("browser_stuck");
+        t.page({ orphan: null });
+        // The killed process exited; its child holding the pipe no longer holds the agent's next command.
+        const startedAt = performance.now();
+        expect((await t.act("get", ["url"])).success).toBe(true);
+        expect(performance.now() - startedAt).toBeLessThan(8_000);
+      } finally {
+        const pid = JSON.parse(readFileSync(process.env.FAKE_AB_STATE as string, "utf8")).orphanPid as
+          | number
+          | undefined;
+        if (pid) process.kill(pid, "SIGKILL");
+      }
+    },
+  );
+});

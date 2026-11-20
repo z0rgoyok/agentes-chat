@@ -2,6 +2,7 @@ import { and, type Database, desc, type Executor, eq, inArray, lt, ne, or, schem
 import { recordAudit } from "./audit";
 import type { RunAuthority } from "./authority";
 import { readableChannelIds } from "./channels";
+import { othersLabel } from "./connectors/personal";
 import { serverUrlShown } from "./connectors/presets";
 import { cutText } from "./format";
 import { can, requirePermission } from "./organizations";
@@ -64,13 +65,16 @@ export function auditInput(input: Record<string, unknown>): Record<string, unkno
  * Which calls the audit keeps. Every refusal and failure; of the rest, what
  * changes or sends something, a connected app's reads (someone's data), and
  * the computer's commands. Not looking around inside the workspace (search,
- * reading a channel), a directory's search or `pass`: they would bury the rest.
+ * reading a channel), a directory's search (but one listing a person's own
+ * connection's tools) or `pass`: they would bury the rest.
  */
 export function auditsCall(
   kind: string,
-  tool: { connectionId?: string | null },
+  tool: { connectionId?: string | null; ownerUserId?: string },
   outcome: schema.AuditOutcome,
 ): boolean {
+  // Its row is what hides its result from a run's other readers (`othersPersonalTools`).
+  if (kind === "directory") return Boolean(tool.ownerUserId);
   if (outcome === "refused" || outcome === "failed") return kind !== "directory";
   if (kind === "read") return Boolean(tool.connectionId);
   return kind !== "directory" && kind !== "pass" && kind !== "self" && kind !== "here";
@@ -129,6 +133,13 @@ export async function recordToolCall(
     /** A call that ran without the card its tool would open, because its agent never asks (ADR 0173). */
     unasked?: boolean;
     about?: ToolCallSubject | null;
+    /** A call in a person's own connection: that person, the only one whose audit log shows what it asked. */
+    personalOf?: string | null;
+    /**
+     * A call of a run in a confidential thread (ADR 0190): the row says the tool and how it ended, never its
+     * arguments, title or reason. Those may repeat what the run read, and this log is kept for good.
+     */
+    confidential?: boolean;
   },
 ) {
   // A secret's variable-style name is the agent's own: people read its label (the call's title), never this.
@@ -136,8 +147,12 @@ export async function recordToolCall(
   const named = call.tool === REQUEST_SECRET_TOOL || call.tool === MAKE_KEY_TOOL;
   const asked = named && typeof secretName === "string" && secretName ? secretName : null;
   const unnamed = (text: string) => (asked ? text.replaceAll(asked, "the secret") : text);
-  const input = asked === null ? call.input : (JSON.parse(unnamed(JSON.stringify(rest))) as Record<string, unknown>);
-  const reason = call.reason && unnamed(call.reason);
+  const input = call.confidential
+    ? {}
+    : asked === null
+      ? call.input
+      : (JSON.parse(unnamed(JSON.stringify(rest))) as Record<string, unknown>);
+  const reason = call.confidential ? null : call.reason && unnamed(call.reason);
   await recordAudit(db, {
     orgId: call.orgId,
     actor: { type: "agent", id: call.agentId },
@@ -146,7 +161,8 @@ export async function recordToolCall(
     details: {
       kind: call.kind,
       ...(call.connector ? { connector: call.connector } : {}),
-      ...(call.title ? { title: cutText(masked(call.title), MAX_TITLE) } : {}),
+      ...(call.title && !call.confidential ? { title: cutText(masked(call.title), MAX_TITLE) } : {}),
+      ...(call.confidential ? { confidential: true } : {}),
       behind: call.authority?.kind ?? null,
       ...(call.authority?.kind === "routine" && call.authority.brief
         ? { routine: { id: call.authority.brief.routineId, name: call.authority.brief.name } }
@@ -158,7 +174,8 @@ export async function recordToolCall(
       ...(call.secretRequestId ? { secretRequestId: call.secretRequestId } : {}),
       ...(call.approvalRules?.length ? { approvalRules: call.approvalRules } : {}),
       ...(call.unasked ? { approvalsLevel: "never" } : {}),
-      ...(call.about ? { about: call.about } : {}),
+      ...(call.about && !call.confidential ? { about: call.about } : {}),
+      ...(call.personalOf ? { personalOf: call.personalOf } : {}),
     },
     runId: call.runId,
     channelId: call.channelId,
@@ -168,6 +185,25 @@ export async function recordToolCall(
 }
 
 // ── Reading it ────────────────────────────────────────────────────────────
+
+/**
+ * The tools of someone else's own connection a run called (`personalOf` other than `actorId`): a run's steps keep
+ * their name only, as this log keeps only that the call happened.
+ */
+export async function othersPersonalTools(db: Database, orgId: string, runId: string, actorId: string) {
+  const rows = await db
+    .selectDistinct({ tool: auditLog.targetId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.orgId, orgId),
+        eq(auditLog.runId, runId),
+        eq(auditLog.action, TOOL_CALL),
+        sql`${auditLog.details} ->> 'personalOf' <> ${actorId}`,
+      ),
+    );
+  return new Set(rows.flatMap((r) => (r.tool ? [r.tool] : [])));
+}
 
 /**
  * Rows a tool writes about itself while the gateway records the same call (`tool.call`): the reader leaves
@@ -282,6 +318,19 @@ async function hiddenFrom(db: Database, orgId: string, userId: string, rows: Aud
 const CUSTOM_SERVER_ACTIONS: readonly string[] = ["connector.custom_connected", "connector.custom_reconnected"];
 
 /**
+ * What a line about someone else's own connection (`personalOf`) keeps for anyone else: its name as others read it
+ * (written so, `auditLabel`) and what a save says of the team's, never its tools, their levels or descriptions.
+ */
+const OTHERS_KEEP: readonly string[] = [
+  ...["label", "connection", "from", "to", "level", "connector", "connectionId", "personal", "agentId"],
+  ...["all", "connectors", "scopes", "allow", "deny"],
+];
+const othersOwn = (details: Record<string, unknown>, actorId: string) =>
+  typeof details.personalOf === "string" && details.personalOf !== actorId
+    ? Object.fromEntries(Object.entries(details).filter(([k]) => OTHERS_KEEP.includes(k)))
+    : details;
+
+/**
  * The org's audit log, newest first, for admins (`configure`): what people
  * changed and what agents did, with names (an agent or person since removed
  * keeps its id and a null name).
@@ -330,6 +379,10 @@ export async function listAudit(
     .limit(limit + 1);
   const page = found.slice(0, limit);
   const hidden = can(membership, "administrator") ? new Set<string>() : await hiddenFrom(db, orgId, actorId, page);
+  // A call in someone else's personal connection keeps only that it happened, for admins too.
+  for (const r of page)
+    if (r.action === TOOL_CALL && typeof r.details.personalOf === "string" && r.details.personalOf !== actorId)
+      hidden.add(r.id);
 
   const approvalOf = (r: (typeof page)[number]) =>
     typeof r.details.approvalId === "string" ? r.details.approvalId : null;
@@ -408,9 +461,22 @@ export async function listAudit(
         : r.action === TOOL_CALL
           ? r.details
           : auditInput(
-              CUSTOM_SERVER_ACTIONS.includes(r.action) && typeof r.details.serverUrl === "string"
-                ? { ...r.details, serverUrl: serverUrlShown(r.details.serverUrl) }
-                : r.details,
+              !CUSTOM_SERVER_ACTIONS.includes(r.action)
+                ? othersOwn(r.details, actorId)
+                : r.details.personal === true && r.actorId !== actorId
+                  ? // Someone else's own server: its address and account stay theirs, as on the lists.
+                    {
+                      ...r.details,
+                      serverUrl: "",
+                      account: null,
+                      label: othersLabel(
+                        String(r.details.label ?? ""),
+                        typeof r.details.account === "string" ? r.details.account : null,
+                      ),
+                    }
+                  : typeof r.details.serverUrl === "string"
+                    ? { ...r.details, serverUrl: serverUrlShown(r.details.serverUrl) }
+                    : r.details,
             ),
       runId: r.runId,
       channelId: r.channelId,

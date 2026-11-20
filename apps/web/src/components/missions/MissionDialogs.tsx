@@ -110,7 +110,6 @@ export function NewMissionDialog({
         machine: e.machine,
         executors: e.executors ?? [],
         defaultExecutor: e.defaultExecutor,
-        codexTooOld: e.codexTooOld,
         commandApproval: e.commandApproval,
       },
     ];
@@ -313,14 +312,6 @@ export function NewMissionDialog({
                 onValueChange={(v) => setPicked(v as MissionExecutor)}
                 options={executorOptions(t, agent.executors, agent.name, agent.id)}
               />
-              {agent.codexTooOld && (
-                <span className="mi-hint ac-iconline">
-                  <Icon name="info" size={14} />
-                  {t("missions.new.codexOld", {
-                    computer: computerNameOf(t, org.name, agent.machine?.name ?? "", isPersonal(org)),
-                  })}
-                </span>
-              )}
             </div>
           )}
           {!none && (

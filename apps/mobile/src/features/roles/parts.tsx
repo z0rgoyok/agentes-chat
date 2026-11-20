@@ -1,7 +1,7 @@
 import type { OrgRole, Person } from "@agenteschat/client";
 import { ApiError, useApi, usePeople, useRoles, useSetMemberRoles } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { everyoneOf, roleName } from "@agenteschat/client/lib/roles";
+import { everyoneOf } from "@agenteschat/client/lib/roles";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, StyleSheet, View } from "react-native";
@@ -18,7 +18,6 @@ import {
   useTheme,
   useToast,
 } from "@/ui";
-import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
 import { SettingsPage } from "../settings/parts";
 import { useMeId } from "../shared/hooks";
@@ -27,7 +26,6 @@ import { glanceLine, mailLossQuestion, OWNER_MARK, OWNER_ROLE, type Viewer } fro
 
 /** The cargos' screens (`app/(app)/settings/roles/*`): a cargo's id, or `owner` for the owners'. */
 export const rolesHref = {
-  list: "/settings/roles",
   role: (roleId: string) => `/settings/roles/${roleId}`,
   tab: (tab: "permissions" | "channels" | "agents" | "people" | "look" | "add" | "rename", roleId: string) => ({
     pathname: `/settings/roles/${tab}`,
@@ -101,7 +99,7 @@ export function ask(question: { title: string; text?: string }, cancel: string, 
 }
 
 /**
- * Giving people a cargo asks first when agents would lose a mailbox (only a mailbox's owner gives one, W9's step), and
+ * Giving people a cargo asks first when agents would lose a mailbox (only a mailbox's owner gives one), and
  * sends what was asked (`mailLossSeen`): one given meanwhile makes the server refuse rather than take it unasked.
  * Resolves with the mailboxes agreed to (empty: none at stake), or null when the person went back.
  */
@@ -230,7 +228,10 @@ export function RowBones({ name = 44 }: { name?: number }) {
   );
 }
 
-/** A cargo's head on its page (P3): its mark, its name, the glance line. */
+/**
+ * A cargo's head on its page, under the bar that names it: its mark and the glance line, as the owners' page shows
+ * their mark. The name is the bar's title, never said again right under it.
+ */
 export function CargoHead({
   role,
   everyone,
@@ -244,11 +245,8 @@ export function CargoHead({
 }) {
   const { t } = useTranslation();
   return (
-    <View style={styles.head} accessible accessibilityRole="header">
+    <View style={styles.head}>
       <CargoMark role={role} size={56} />
-      <Text variant="title2" style={styles.center}>
-        {roleName(t, role)}
-      </Text>
       <Text variant="footnote" tone="muted" style={styles.center}>
         {glanceLine(t, role, everyone, areas, people)}
       </Text>
@@ -256,7 +254,10 @@ export function CargoHead({
   );
 }
 
-/** Back to the list when the cargo is gone (someone deleted it, or a link to one that never was). */
+/**
+ * A cargo that is gone (someone deleted it, or a link to one that never was): it says so, and the bar's back is the way
+ * out, as on any pushed screen; never a row drawn as a second back.
+ */
 export function Gone({ title }: { title: string }) {
   const { t } = useTranslation();
   return (
@@ -264,9 +265,6 @@ export function Gone({ title }: { title: string }) {
       <View style={styles.note}>
         <Note icon="x">{t("errors.role.unknown")}</Note>
       </View>
-      <GroupedList>
-        <GroupedRow icon="back" label={t("mobile.roles.backToList")} onPress={() => router.replace(rolesHref.list)} />
-      </GroupedList>
     </SettingsPage>
   );
 }

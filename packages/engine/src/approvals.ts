@@ -21,12 +21,14 @@ import { type ActiveCover, activeCoversFrom, activeCoversTo } from "./approval-c
 import { resumeHeldRuns, wakeLine } from "./approval-order";
 import { addApprovalRules, addRoutineOwnActions, type RememberedKind, rememberedKindOf } from "./approval-rules";
 import { queueApprovalsDigest } from "./approvals-digest";
+import { ACCESS_COLUMNS, managesAgent, managesAgentSql, managesRoutinesOf, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
 import { approvalCardVia } from "./card-via";
 import { CONNECTOR_CATALOG } from "./connectors/catalog";
 import { toolPrefixOfConnection } from "./connectors/connections";
 import { isCustom } from "./connectors/custom";
 import { exposedToolName } from "./connectors/mcp";
+import { auditLabel } from "./connectors/personal";
 import { learnFromRefusal } from "./context/feedback";
 import type { MemoryJudging } from "./context/items";
 import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
@@ -38,7 +40,7 @@ import { enqueue } from "./outbox";
 import { quietEnd, withMootRequest } from "./parked-asks";
 import { maySql, type RolePermission } from "./permissions";
 import { accountInUse } from "./standing";
-import { taskReaderSql } from "./task-access";
+import { fileConversationReaderSql, taskReaderSql } from "./task-access";
 import { AHEAD_GRACE_MS, type Approval, readsSqlOnly, routineCall } from "./tools/gateway";
 import { canonicalJson } from "./tools/json-schema";
 import { REQUEST_PERMISSION_TOOL } from "./tools/permission";
@@ -149,6 +151,8 @@ interface ApprovalContext {
   email: ApprovalEmail | null;
   issue: { id: string; number: number; title: string } | null;
   trail: { text: string; at: string }[];
+  /** A person's own connection: its whole name and account, for that person's eyes alone (`viewsOf`). */
+  own?: { userId: string; label: string; account: string | null; stored: string };
 }
 
 /** The stored origin (`approvals.origin`), read safely: its card and its notification say it. */
@@ -191,6 +195,7 @@ async function approvalContexts(db: Database, rows: Approval[]): Promise<Map<str
             connector: connectorConnections.connector,
             label: connectorConnections.label,
             account: connectorConnections.accountLabel,
+            ownerUserId: connectorConnections.ownerUserId,
           })
           .from(connectorConnections)
           .where(inArray(connectorConnections.id, connectionIds))
@@ -253,9 +258,23 @@ async function approvalContexts(db: Database, rows: Approval[]): Promise<Map<str
     }
     const connection = row.connectionId ? connectionOf.get(row.connectionId) : undefined;
     const mailbox = row.connectionId ? mailboxOf.get(row.connectionId) : undefined;
+    // A person's own connection: its tools named the card as others read it (`auditLabel`), and so does the card.
+    const others = connection?.ownerUserId
+      ? { ...connection, label: auditLabel({ ...connection, accountLabel: connection.account }), account: null }
+      : connection;
     out.set(row.id, {
       connector: connection?.connector ?? (mailbox ? "email" : null),
-      connectorAccount: connection ? accountNote(connection) : (mailbox?.address ?? null),
+      connectorAccount: others ? accountNote(others) : (mailbox?.address ?? null),
+      ...(connection?.ownerUserId && others
+        ? {
+            own: {
+              userId: connection.ownerUserId,
+              label: connection.label,
+              account: accountNote(connection),
+              stored: others.label,
+            },
+          }
+        : {}),
       email: mailbox ? approvalEmail(row, mailbox) : null,
       issue: row.runId ? (issueOfRun.get(row.runId) ?? null) : null,
       trail: trail.slice(-12),
@@ -430,15 +449,28 @@ export async function routineIds(db: Executor, rows: Approval[]): Promise<Set<st
   return out;
 }
 
-/** Views with their context (connector, issue); `trail` only when asked (one approval's details). */
-async function viewsOf(db: Database, rows: Approval[], canDecide: (row: Approval) => boolean, trail = false) {
+/**
+ * Views with their context (connector, issue); `trail` only when asked (one approval's details). `viewer` reads a card
+ * of their own connection with its whole name; anyone else, and a view with no one viewer, as others read it.
+ */
+async function viewsOf(
+  db: Database,
+  rows: Approval[],
+  canDecide: (row: Approval) => boolean,
+  trail = false,
+  viewer?: string,
+) {
   const [contexts, cardThreads, routine] = await Promise.all([
     approvalContexts(db, rows).catch(() => new Map<string, ApprovalContext>()),
     approvalCardThreads(db, rows).catch(() => new Map<string, string | null>()),
     routineIds(db, rows).catch(() => new Set<string>()),
   ]);
   return rows.map((r) => {
-    const { trail: steps, ...context } = contexts.get(r.id) ?? {
+    const {
+      trail: steps,
+      own,
+      ...context
+    } = contexts.get(r.id) ?? {
       connector: null,
       connectorAccount: null,
       email: null,
@@ -447,6 +479,10 @@ async function viewsOf(db: Database, rows: Approval[], canDecide: (row: Approval
     };
     const view = approvalView(r, canDecide(r), routine.has(r.id));
     const threadId = cardThreads.has(r.id) ? (cardThreads.get(r.id) ?? null) : view.threadId;
+    if (own && own.userId === viewer) {
+      context.connectorAccount = own.account;
+      if (view.title.startsWith(`${own.stored}: `)) view.title = own.label + view.title.slice(own.stored.length);
+    }
     return { ...view, threadId, ...context, ...(trail ? { trail: steps } : {}) };
   });
 }
@@ -525,7 +561,8 @@ const BROWSER_PROFILE_PREFIX = "browser-profile:";
 
 /**
  * The keys that let someone decide any approval of its kind: `approve_actions`; for `request_permission`, the keys
- * that give the same access on the agent's page (`manage_agents`, and `manage_connectors` for a browser profile).
+ * that give the same access on the agent's page (`manage_agents`, and `manage_connectors` for a browser profile),
+ * where `manage_agents` counts only on an agent it reaches (`managesAgent`, ADR 0085 addendum of 2026-11-17).
  */
 export function decidingKeys(approval: Pick<Approval, "tool"> & Partial<Pick<Approval, "params">>): RolePermission[] {
   if (!adminsDecide(approval)) return ["approve_actions"];
@@ -535,23 +572,44 @@ export function decidingKeys(approval: Pick<Approval, "tool"> & Partial<Pick<App
     : ["manage_agents"];
 }
 
+/** The agent an access request asks for (`adminsDecide`), as `managesAgent` reads it. */
+type AskingAgent = Parameters<typeof managesAgent>[0];
+
 /**
- * Whether `actorId` may decide `approval`: whoever holds its `decidingKeys` (admins), the agent's owner
- * (`adminsDecide` aside), or for one asked with `request_approval` the people it names instead of the owner (ADR
- * 0126). The person whose request it was never decides it, unless they approve by role (admins, the role it names).
- * One in someone's own mailbox that someone else asked (`required`) only that person decides.
+ * Whether `actorId` may decide `approval`: whoever holds its `decidingKeys` (admins; for an access request, only on
+ * an agent they manage: `agent`, its agent, `managesAgent`), the agent's owner (`adminsDecide` aside), or for one
+ * asked with `request_approval` the people it names instead of the owner (ADR 0126). The person whose request it was
+ * never decides it, unless they approve by role (admins, the role it names). One in someone's own mailbox that someone
+ * else asked (`required`) only that person decides.
  */
 export function decides(
   approval: Pick<Approval, "ownerUserId" | "tool"> & Partial<Pick<Approval, "approvers" | "params">>,
   actorId: string,
-  membership: Pick<Membership, "permissions"> | null,
+  membership: Pick<Membership, "permissions" | "roleIds"> | null,
+  agent: AskingAgent | null,
 ) {
   const named = approval.approvers;
   if (named?.required) return named.userIds.includes(actorId);
-  if (decidingKeys(approval).every((key) => can(membership, key))) return true;
+  if (
+    decidingKeys(approval).every((key) => can(membership, key)) &&
+    (!adminsDecide(approval) || (!!agent && managesAgent(agent, actorId, membership)))
+  )
+    return true;
   if (named?.requestedBy === actorId && !named.requesterDecides) return false;
   if (adminsDecide(approval)) return false;
   return named?.userIds.length ? named.userIds.includes(actorId) : approval.ownerUserId === actorId;
+}
+
+/** The agents the access requests among `rows` ask for (`adminsDecide`), by id: what `decides` reads of each. */
+async function askingAgents(db: Executor, orgId: string, rows: readonly Pick<Approval, "agentId" | "tool">[]) {
+  const ids = [...new Set(rows.filter((r) => adminsDecide(r)).map((r) => r.agentId))];
+  const found = ids.length
+    ? await db
+        .select({ id: agents.id, ...REACH_COLUMNS })
+        .from(agents)
+        .where(and(eq(agents.orgId, orgId), inArray(agents.id, ids)))
+    : [];
+  return new Map<string, AskingAgent>(found.map((a) => [a.id, a]));
 }
 
 /** `decides` as SQL over `approvals` (the sidebar's count). */
@@ -559,7 +617,8 @@ export const decidableBySql = (actorId: string) => sql`(case
   when coalesce((${approvals.approvers} ->> 'required')::boolean, false)
     then ${approvals.approvers} -> 'userIds' @> to_jsonb(${actorId}::text)
   when ${approvals.tool} = ${REQUEST_PERMISSION_TOOL}
-    then ${maySql(approvals.orgId, actorId, "manage_agents")}
+    then exists (select 1 from ${agents} pa where pa.id = ${approvals.agentId} and pa.org_id = ${approvals.orgId}
+        and ${managesAgentSql("pa", sql`${actorId}::text`)})
       and (coalesce(${approvals.params} ->> 'permission', '') not like ${`${BROWSER_PROFILE_PREFIX}%`}
         or ${maySql(approvals.orgId, actorId, "manage_connectors")})
   when ${maySql(approvals.orgId, actorId, "approve_actions")} then true
@@ -614,7 +673,7 @@ export function coveredFor(approval: Coverable, actorId: string, covers: ActiveC
 }
 
 type Askable = Pick<Approval, "orgId" | "ownerUserId"> &
-  Partial<Pick<Approval, "tool" | "approvers" | "params" | "requestedByUserId" | "highRisk">>;
+  Partial<Pick<Approval, "agentId" | "tool" | "approvers" | "params" | "requestedByUserId" | "highRisk">>;
 
 /**
  * The people asked to decide (the card's badge, the live Aprovações list): whoever holds its `decidingKeys` (ADR 0085)
@@ -624,13 +683,17 @@ type Askable = Pick<Approval, "orgId" | "ownerUserId"> &
  */
 export async function approverIds(db: Database, approval: Askable, notified = false) {
   const keys = decidingKeys({ tool: approval.tool ?? "", params: approval.params ?? {} });
+  // An access request's `manage_agents` counts on its own agent only (`managesAgentSql`, ADR 0085 addendum of
+  // 2026-11-17): a private agent's request never goes to who merely holds the key.
+  const holds = (key: RolePermission) =>
+    key === "manage_agents" && approval.agentId
+      ? sql`exists (select 1 from ${agents} pa where pa.id = ${approval.agentId} and pa.org_id = ${approval.orgId}
+          and ${managesAgentSql("pa", sql`${organizationMembers.userId}`)})`
+      : maySql(approval.orgId, organizationMembers.userId, key);
   const members = await db
     .select({
       userId: organizationMembers.userId,
-      admin: sql<boolean>`(${sql.join(
-        keys.map((key) => maySql(approval.orgId, organizationMembers.userId, key)),
-        sql` and `,
-      )})`,
+      admin: sql<boolean>`(${sql.join(keys.map(holds), sql` and `)})`,
     })
     .from(organizationMembers)
     .innerJoin(users, eq(users.id, organizationMembers.userId))
@@ -735,15 +798,21 @@ export async function repointApprovals(
 }
 
 /**
- * `userId` left the workspace: the actions in their mailboxes that may still run (waiting for a person, or approved and
- * not run) never run, and a run waiting on one hears it. In the transaction that removes them; then `publishApproval`
- * each row returned.
+ * `userId` left the workspace: the actions in their mailboxes and personal connections that may still run (waiting
+ * for a person, or approved and not run) never run, and a run waiting on one hears it. In the transaction that
+ * removes them; then `publishApproval` each row returned.
  */
 export async function cancelMailboxApprovals(tx: Executor, orgId: string, userId: string, actorId: string) {
-  const theirs = tx
+  const mailboxes = await tx
     .select({ id: mailAccounts.id })
     .from(mailAccounts)
     .where(and(eq(mailAccounts.orgId, orgId), eq(mailAccounts.createdByUserId, userId)));
+  const connections = await tx
+    .select({ id: connectorConnections.id })
+    .from(connectorConnections)
+    .where(and(eq(connectorConnections.orgId, orgId), eq(connectorConnections.ownerUserId, userId)));
+  const theirs = [...mailboxes, ...connections].map((r) => r.id);
+  if (theirs.length === 0) return [];
   const rows = await tx
     .update(approvals)
     .set({ status: "canceled", decidedByUserId: actorId, decidedAt: new Date() })
@@ -864,9 +933,12 @@ export async function publishApproval(
   await publishChannelEvent(deps.pubsub, { type, channelId: approval.channelId, approval: view });
   const deciders = await approverIds(deps.db, approval);
   for (const userId of deciders) {
+    const [theirs = view] = approval.approvers?.personal
+      ? await viewsOf(deps.db, [approval], () => false, false, userId)
+      : [view];
     await publishUserEvent(deps.pubsub, approval.orgId, userId, {
       type,
-      approval: { ...view, canDecide: true, canCancel: approval.status === "approved" && aheadLive(approval) },
+      approval: { ...theirs, canDecide: true, canCancel: approval.status === "approved" && aheadLive(approval) },
     });
   }
   // The inbox: waiting for whoever is told (`notifiedIds`); out of it once decided or expired.
@@ -919,7 +991,8 @@ export async function decideApproval(
     .where(and(eq(approvals.id, approvalId), eq(approvals.orgId, orgId)));
   if (!current) throw new NotFoundError("Approval not found");
   const membership = await requirePermission(db, actorId, current.orgId, "read");
-  const direct = decides(current, actorId, membership);
+  const asking = await askingAgents(db, orgId, [current]);
+  const direct = decides(current, actorId, membership, asking.get(current.agentId) ?? null);
   const forUserId = direct ? null : coveredFor(current, actorId, await activeCoversTo(db, orgId, actorId, at));
   if (!direct && !forUserId) {
     throw new ForbiddenError(
@@ -1005,7 +1078,7 @@ export async function decideApproval(
   // A refusal (with its reason) becomes an outcome and a lesson for the agent.
   if (outcome.row.status === "refused") await learnFromRefusal(deps, outcome.row).catch(() => null);
   // The person who decided may decide it: an action they approved ahead, they may still withdraw.
-  const [view = approvalView(outcome.row, true)] = await viewsOf(db, [outcome.row], () => true);
+  const [view = approvalView(outcome.row, true)] = await viewsOf(db, [outcome.row], () => true, false, actorId);
   return view;
 }
 
@@ -1029,8 +1102,11 @@ export async function decideApprovals(
   if (input.via) for (const id of ids) vias.set(id, await approvalCardVia(db, orgId, input.via, id));
   const membership = await requirePermission(db, actorId, orgId, "read");
   const covers = await activeCoversTo(db, orgId, actorId, at);
-  const forUserOf = (r: Approval) => (decides(r, actorId, membership) ? null : coveredFor(r, actorId, covers));
-  const allowed = (r: Approval) => decides(r, actorId, membership) || forUserOf(r) !== null;
+  // The agents of the access requests among them, once their rows are read (`decides`).
+  let asking = new Map<string, AskingAgent>();
+  const direct = (r: Approval) => decides(r, actorId, membership, asking.get(r.agentId) ?? null);
+  const forUserOf = (r: Approval) => (direct(r) ? null : coveredFor(r, actorId, covers));
+  const allowed = (r: Approval) => direct(r) || forUserOf(r) !== null;
   /** Some still wait and none is this person's to decide. */
   let theirs = false;
   const decided = await db.transaction(async (tx) => {
@@ -1044,6 +1120,7 @@ export async function decideApprovals(
       : [];
     const out: Approval[] = [];
     const resumed = new Set<string>();
+    asking = await askingAgents(tx, orgId, rows);
     const mine = rows.filter(allowed);
     theirs = rows.length > 0 && mine.length === 0;
     const routine = input.only ? await routineIds(tx, mine) : null;
@@ -1084,22 +1161,37 @@ export async function decideApprovals(
   }
   const done = new Set(decided.map((r) => r.id));
   return {
-    approvals: await viewsOf(db, decided, () => false),
+    approvals: await viewsOf(db, decided, () => false, false, actorId),
     skipped: ids.filter((id) => !done.has(id)),
   };
 }
 
 /**
  * An approval's ending in the audit log: the person who approved or refused it, or the system when it
- * expired unanswered. The action it then ran is the agent's own row (`tool.call`, agent-audit.ts).
+ * expired unanswered. The action it then ran is the agent's own row (`tool.call`, agent-audit.ts). A card of a
+ * person's own connection names it as others do (`auditLabel`), its current name when it was renamed since; anyone
+ * else reads only that name and the agent (`listAudit`).
  */
-function auditDecision(
+async function auditDecision(
   tx: Executor,
   row: Approval,
   personId: string | null,
   always: (RememberedKind & { connectionId: string | null }) | null = null,
   via: string | null = null,
 ) {
+  const [c] = row.connectionId
+    ? await tx
+        .select({
+          label: connectorConnections.label,
+          accountLabel: connectorConnections.accountLabel,
+          ownerUserId: connectorConnections.ownerUserId,
+        })
+        .from(connectorConnections)
+        .where(eq(connectorConnections.id, row.connectionId))
+    : [];
+  // A card opened before its connection was renamed starts with a name no longer known: the tool stands for the rest.
+  const title =
+    !c?.ownerUserId || row.title.startsWith(`${auditLabel(c)}: `) ? row.title : `${auditLabel(c)}: ${row.tool}`;
   return recordAudit(tx, {
     orgId: row.orgId,
     actor: personId ? { type: "person", id: personId } : { type: "system", id: null },
@@ -1108,10 +1200,11 @@ function auditDecision(
     details: {
       tool: row.tool,
       agentId: row.agentId,
-      title: row.title,
+      title,
       ...(row.reason ? { reason: row.reason } : {}),
       ...(always ? { always } : {}),
       ...(via ? { via } : {}),
+      ...(c?.ownerUserId ? { label: auditLabel(c), personalOf: c.ownerUserId } : {}),
     },
     runId: row.runId,
     channelId: row.channelId,
@@ -1265,9 +1358,17 @@ export async function cancelableAhead(db: Database, actorId: string, orgId: stri
         .from(routines)
         .where(and(eq(routines.id, current.routineId), eq(routines.orgId, orgId)))
     : [];
+  // Who manages the agent's routines (`managesRoutinesOf`, ADR 0085 addendum of 2026-11-17), not the key alone.
+  const [agent] =
+    current.ownerUserId === actorId || routine?.createdByUserId === actorId || can(membership, "approve_actions")
+      ? []
+      : await db
+          .select(ACCESS_COLUMNS)
+          .from(agents)
+          .where(and(eq(agents.id, current.agentId), eq(agents.orgId, orgId)));
   const may =
     can(membership, "approve_actions") ||
-    can(membership, "manage_routines") ||
+    (!!agent && managesRoutinesOf(agent, actorId, membership)) ||
     current.ownerUserId === actorId ||
     routine?.createdByUserId === actorId;
   if (!may) throw new ForbiddenError("Only who may decide it or manage its routine can cancel this");
@@ -1289,7 +1390,7 @@ export async function cancelAheadApproval(
   const current = await cancelableAhead(deps.db, actorId, orgId, approvalId);
   const [ended] = await withdrawAhead(deps, eq(approvals.id, current.id), actorId, true);
   if (!ended) throw new ConflictError("This action already ran or ended", "approval.not_cancelable");
-  const [view = approvalView(ended)] = await viewsOf(deps.db, [ended], () => false);
+  const [view = approvalView(ended)] = await viewsOf(deps.db, [ended], () => false, false, actorId);
   return view;
 }
 
@@ -1375,8 +1476,24 @@ const seenBy = (db: Database, orgId: string, actorId: string) =>
         .from(channelMembers)
         .where(and(eq(channelMembers.orgId, orgId), eq(channelMembers.userId, actorId))),
     ),
-    // A task's conversation (ADR 0145): people are never its members; whoever sees the task sees its cards.
+    // A task's conversation (ADR 0145): people are never its members; whoever sees the task sees its cards. A live
+    // file's (ADR 0199): whoever reads the file.
     taskReaderSql(sql`${approvals.channelId}`, sql`${actorId}::text`),
+    fileConversationReaderSql(sql`${approvals.channelId}`, sql`${actorId}::text`),
+  );
+
+/** One in someone's own connection (`approvers.personal`): only they and who is in its conversation list it. */
+const personalSeenBy = (db: Database, orgId: string, actorId: string) =>
+  or(
+    sql`not coalesce((${approvals.approvers} ->> 'personal')::boolean, false)`,
+    sql`${approvals.approvers} -> 'userIds' @> to_jsonb(${actorId}::text)`,
+    inArray(
+      approvals.channelId,
+      db
+        .select({ id: channelMembers.channelId })
+        .from(channelMembers)
+        .where(and(eq(channelMembers.orgId, orgId), eq(channelMembers.userId, actorId))),
+    ),
   );
 
 /**
@@ -1405,12 +1522,19 @@ export async function listApprovals(
         options.agentId ? eq(approvals.agentId, options.agentId) : undefined,
         options.messageId ? eq(approvals.messageId, options.messageId) : undefined,
         admin ? undefined : seenBy(db, orgId, actorId),
+        personalSeenBy(db, orgId, actorId),
       ),
     )
     .orderBy(desc(approvals.createdAt))
     .limit(Math.min(options.limit ?? 100, 500));
-  const covers = await activeCoversTo(db, orgId, actorId);
-  return viewsOf(db, rows, (r) => decides(r, actorId, membership) || coveredFor(r, actorId, covers) !== null);
+  const [covers, asking] = await Promise.all([activeCoversTo(db, orgId, actorId), askingAgents(db, orgId, rows)]);
+  return viewsOf(
+    db,
+    rows,
+    (r) => decides(r, actorId, membership, asking.get(r.agentId) ?? null) || coveredFor(r, actorId, covers) !== null,
+    false,
+    actorId,
+  );
 }
 
 export async function getApproval(db: Database, actorId: string, orgId: string, approvalId: string) {

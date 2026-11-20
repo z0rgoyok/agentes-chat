@@ -2,6 +2,7 @@
 
 - Status: Accepted (built: the server, the runner, the web and the phone app)
 - Amended 2026-11-12: §2, a routine's own run uses the keys its creator allowed for it
+- Amended 2026-11-16: §2, a run a routine's work or report woke uses the keys listed for that routine
 - Addendum, 2026-11-10: §9, logins agents save in a connected password manager (sources may write)
 - Addendum, 2026-11-11: §11, keys from a .env file, and moving an item between Personal and Team
 - Date: 2026-11-03
@@ -83,6 +84,21 @@ Two narrower rules:
   inbound email, a webhook, a report) still gets none, now with one way out ("Ask for it in the routine's
   conversation"). The routine's page lists its keys ("Chaves do Vault que usa", web and phone), each taken out with
   its ×.
+
+  *Amended 2026-11-16:* a run that a routine's work or report woke may put a key in a command when that key is listed
+  for the routine (`vault:NAME`), whichever agent runs the command: the routine's own, in the conversation its report
+  woke, or a teammate its run handed a step to (`tell_agent`, `ask_agent`, a message). A routine that splits its job
+  between agents (one plans, another runs the script that calls an API) otherwise stopped at that step every run,
+  whatever its creator had set up, and the refusal's words ("Ask for it in the routine's conversation") made the
+  agent ask for a go-ahead in the chat that no message could give. The conditions (`routineKeysLent`, checked in
+  `vaultKeysFor`): every key of the command is listed for the routine the run's chain roots in (`authority.brief`,
+  followed through the server's links, never text) and its creator still decides its agent's approvals. The Vault's
+  own rule stays on top: the key is released for the routine's creator and only to an agent it is shared with.
+  "Nunca perguntar" opens no other key there, and a key off the list is refused with what a person sets up once
+  (`ROUTINE_KEYS_NOT_LENT`); an agent at "Sempre perguntar" asks a person for the command as for any other, and the
+  one a person approves runs with its keys. What this accepts: text from outside that reached the routine's work can now reach a
+  command holding a listed key in a teammate's run, as it already could in the routine's own run; the list is the
+  creator's choice of which keys carry that risk, per routine.
 - **A shared browser profile (ADR 0110) takes only what all its agents may use, for anyone.** A session signed in
   there is every granted agent's, whoever each one works for, so a personal login is never typed in one, nor a team
   login open only to some people or roles; a team login open to everyone, only when it is shared with all agents or
@@ -151,7 +167,7 @@ A saved login is typed without a person's yes each time. The guards are elsewher
 7. **Every use is recorded** on the item (who, where, for whom) and in the audit log.
 
 Keys follow the same path to step 2, then go into the environment of one command only (`run_code` with `keys`,
-`exec.vault`), with its output redacted, and are kept nowhere; never in a run a routine feeds (§2). Computer brains,
+`exec.vault`), with its output redacted, and are kept nowhere; in a run a routine feeds, only on §2's terms. Computer brains,
 whose own shells can't take a value for one command, reach the same path through a tool. A key's use is recorded
 once the computer took the command with it: an answer came back (any exit code), or none did (the link dropped, no
 answer in time). Not when the command never reached the computer or the runner refused it before opening the keys

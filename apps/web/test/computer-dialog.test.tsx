@@ -71,6 +71,8 @@ const SPECS = { cpus: 4, memoryGb: 8, diskGb: 100 };
 const RUNNING: Partial<DesktopStatus> = { available: true, reason: null, running: true, canControl: true };
 
 interface Options {
+  /** The agent is the built-in right hand: its computer is the workspace's own. */
+  rightHand?: boolean;
   /** The workspace gets its own computer (the Cloud), this far. */
   setup?: Partial<ComputerSetup>;
   /** Ada's computer; null: none. */
@@ -112,9 +114,17 @@ async function backend(o: Options = {}) {
   return { state, api, fake, machines, machine, sockets: socketsFor() };
 }
 
+/**
+ * Ada as the server sends her to me, the way the app hands her to the dialog: with what I may do with her (whether I
+ * manage her, `canManage`, ADR 0085 addendum of 2026-11-17).
+ */
+const adaOf = async (b: Awaited<ReturnType<typeof backend>>) =>
+  (await b.api.agents.list(ORG_ID)).find((a) => a.id === ADA_ID) as Agent;
+
 async function dialog(o: Options = {}) {
   const b = await backend(o);
-  const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+  const found = await adaOf(b);
+  const ada = o.rightHand ? ({ ...found, builtin: "right_hand" } as Agent) : found;
   let closed = 0;
   const r = await renderPage(<ComputerDialog agent={ada} open onClose={() => closed++} />, {
     api: b.api,
@@ -357,7 +367,7 @@ describe("the computer dialog, live", () => {
 
   test("opened for an agent's shared place: named for it, and what it reads and shows is that place", async () => {
     const b = await backend();
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     await renderPage(
       <SeatContext.Provider value={{ agentId: ADA_ID, seat: SHARED_SEAT }}>
         <ComputerDialog agent={ada} open onClose={() => {}} />
@@ -375,7 +385,7 @@ describe("the computer dialog, live", () => {
 
   test("the steps' line comes under the screen while the agent works there, and goes with its run", async () => {
     const b = await backend();
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     /** The conversation the agent works in, open in this tab: its runs come live. */
     function Listening() {
       useChannelRealtime(ORG_ID, ENG_ID, true);
@@ -480,7 +490,7 @@ describe("the computer dialog, live", () => {
     const browserAsk = screenAsk({ id: "h-sign-in", screen: "browser", instructions: "Entrar no painel da loja" });
     const b = await backend({ handoff: browserAsk, browser: true });
     b.fake.sameWindow.add(ADA_ID);
-    const ada = b.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(b);
     await renderPage(<ComputerDialog agent={ada} open onClose={() => {}} />, {
       api: b.api,
       org: true,
@@ -654,7 +664,7 @@ describe("the computer dialog, self-host", () => {
       ],
       targets: [],
     });
-    const ada = listed.state.agents.find((a) => a.id === ADA_ID) as Agent;
+    const ada = await adaOf(listed);
     await renderPage(<ComputerDialog agent={ada} open onClose={() => {}} />, {
       api: listed.api,
       org: true,
@@ -690,6 +700,11 @@ describe("the computer dialog, self-host", () => {
     expect(sub()).toBe("Sem computador ainda");
     expect(box().textContent).toContain("Escolha um computador para a Ada.");
     expect(view().getByRole("button", { name: "Escolher um computador" })).toBeTruthy();
+  });
+
+  test("no computer yet for the right hand: never one to choose", async () => {
+    await dialog({ machine: null, desktop: { available: false, reason: "no_computer" }, rightHand: true });
+    expect(view().queryByRole("button", { name: "Escolher um computador" })).toBeNull();
   });
 
   test("neither its screen nor its browser: where to allow them is the button", async () => {

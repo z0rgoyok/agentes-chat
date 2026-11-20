@@ -14,7 +14,7 @@ import { RunnerError } from "./errors";
 import { killTree } from "./exec";
 import { readJson, writeJson } from "./json-file";
 import { acquireLock, pidAlive, readLock } from "./lock";
-import { type PhoneScreenDriver, REASON_WORDS, runTool, startTool } from "./phones";
+import { type PhoneScreenDriver, REASON_WORDS, runTool, STUCK_WORDS, startTool } from "./phones";
 import { parsePlist, USBMUXD_SOCKET, usbmuxForward } from "./usbmux";
 
 /**
@@ -77,6 +77,9 @@ export function helperReason(text: string): PhoneReason | null {
   if (/provisioning profile.*expired|profile has expired/i.test(text)) return "helper_expired";
   return null;
 }
+
+/** Reasons that say iOS refuses UI testing on the phone: only a session action that works shows they're gone. */
+export const UI_REFUSALS: ReadonlySet<PhoneReason> = new Set(["ui_not_authorized", "ui_automation_off"]);
 
 export const helperWords = (reason: PhoneReason, detail: string) =>
   REASON_WORDS[reason] ?? `The test helper couldn't be set up: ${detail}`;
@@ -478,6 +481,8 @@ export class HelperSlow extends RunnerError {
 export interface WdaClientOptions {
   /** The helper is gone or refused UI actions (`reason`): its run is dropped. */
   onGone?: (reason: PhoneReason | null) => void;
+  /** A call under the session worked: iOS lets the helper act. */
+  onActed?: () => void;
   /** Stops this client's calls too (a flow's): `scoped`. */
   signal?: AbortSignal;
 }
@@ -487,18 +492,40 @@ const SOURCE_ROUTE =
   "/source?format=json&excluded_attributes=accessible,focused,nativeAccessibilityElement,traits,nativeFrame";
 /** One look at the screen: a lookup polls again until its own deadline when one takes longer. */
 export const SOURCE_TIMEOUT_MS = 20_000;
+/**
+ * Session calls in a row that time out while `/status` answers: the helper is stuck, not slow. iOS refusing UI
+ * actions can hang WDA's main queue instead of answering Code=41, and every later call would time out the same way.
+ */
+export const STUCK_AFTER = 3;
+
+interface WdaShared {
+  sid: Promise<string> | null;
+  /** Session calls in a row that timed out with the helper up. */
+  slow: number;
+  /** Why the helper was dropped as unable to act, said to every call after. */
+  refused: PhoneReason | null;
+}
 
 export class WdaClient implements IosScreen {
   /** Shared by concurrent calls and scoped copies: WDA keeps one session, and a second one opened ends the first. */
-  private readonly shared: { sid: Promise<string> | null };
+  private readonly shared: WdaShared;
 
   constructor(
     readonly base: string,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly opts: WdaClientOptions = {},
-    shared?: { sid: Promise<string> | null },
+    shared?: WdaShared,
   ) {
-    this.shared = shared ?? { sid: null };
+    this.shared = shared ?? { sid: null, slow: 0, refused: null };
+  }
+
+  /** The helper can't act (`reason`, from its own output): this call and every later one say so. */
+  refuse(reason: PhoneReason) {
+    this.shared.refused = reason;
+  }
+
+  private refusal(reason: PhoneReason) {
+    return new RunnerError("phone_not_ready", REASON_WORDS[reason] ?? REASON_WORDS.ui_not_authorized ?? reason);
   }
 
   /** The same helper and session, its calls stopped when `signal` aborts. */
@@ -515,6 +542,7 @@ export class WdaClient implements IosScreen {
   ) {
     const stop = this.opts.signal;
     for (let attempt = 0; ; attempt++) {
+      if (this.shared.refused) throw this.refusal(this.shared.refused);
       const prefix = opts.session ? `/session/${await this.session()}` : "";
       const timeout = AbortSignal.timeout(opts.timeoutMs ?? 60_000);
       const res = await this.fetchImpl(`${this.base}${prefix}${route}`, {
@@ -523,16 +551,27 @@ export class WdaClient implements IosScreen {
         signal: stop ? AbortSignal.any([timeout, stop]) : timeout,
       }).catch(async (err: unknown) => {
         if (stop?.aborted) throw new RunnerError("internal", "Stopped");
+        if (this.shared.refused) throw this.refusal(this.shared.refused);
         const words = `The test helper didn't answer: ${err instanceof Error ? err.message : String(err)}`;
         // Slow on a busy screen, yet up: the caller may ask again. Down, or stuck: it's started again. WDA answers
         // `/status` on a queue of its own, beside the call that timed out.
-        if (timeout.aborted && (await this.ready())) throw new HelperSlow(words);
+        if (timeout.aborted && (await this.ready())) {
+          if (!opts.session || ++this.shared.slow < STUCK_AFTER) throw new HelperSlow(words);
+          this.opts.onGone?.(null);
+          throw new HelperGone(STUCK_WORDS);
+        }
         this.opts.onGone?.(null);
         throw new HelperGone(words);
       });
       const json = (await res.json().catch(() => ({}))) as { value?: unknown; sessionId?: string };
       const value = json.value as { error?: string; message?: string } | undefined;
-      if (res.ok && !(value && typeof value === "object" && "error" in value)) return json.value as T;
+      if (res.ok && !(value && typeof value === "object" && "error" in value)) {
+        if (opts.session) {
+          this.shared.slow = 0;
+          this.opts.onActed?.();
+        }
+        return json.value as T;
+      }
       if (opts.session && attempt === 0 && /invalid session/i.test(String(value?.error ?? value?.message))) {
         this.shared.sid = null;
         continue;
@@ -541,7 +580,7 @@ export class WdaClient implements IosScreen {
       if (helperReason(said) === "ui_not_authorized") {
         // Its test session can't act any more: the next op starts a fresh one.
         this.opts.onGone?.("ui_not_authorized");
-        throw new RunnerError("phone_not_ready", REASON_WORDS.ui_not_authorized as string);
+        throw this.refusal("ui_not_authorized");
       }
       throw new RunnerError("internal", `The test helper said: ${said.split("\n")[0]?.slice(0, 300)}`);
     }
@@ -643,19 +682,23 @@ export class WdaClient implements IosScreen {
   }
 }
 
+/** Fresh helpers a flow may start after the one it ran on died or got stuck. */
+export const HELPER_RECOVERIES = 2;
+
 /**
- * A flow's screen: each call goes to the phone's running helper (`get`), and one the helper died under is tried
- * once more on a fresh one, once a flow.
+ * A flow's screen: each call goes to the phone's running helper (`get`), and one the helper died under (or got stuck
+ * under) is tried again on a fresh one, `HELPER_RECOVERIES` times a flow at most.
  */
 export function recoveringScreen(get: () => Promise<IosScreen>): IosScreen {
-  let recovered = false;
+  let recovered = 0;
   const call = async <T>(f: (s: IosScreen) => Promise<T>): Promise<T> => {
-    try {
-      return await f(await get());
-    } catch (err) {
-      if (!(err instanceof HelperGone) || recovered) throw err;
-      recovered = true;
-      return f(await get());
+    for (;;) {
+      try {
+        return await f(await get());
+      } catch (err) {
+        if (!(err instanceof HelperGone) || recovered >= HELPER_RECOVERIES) throw err;
+        recovered++;
+      }
     }
   };
   return {
@@ -806,6 +849,8 @@ export function helperEnv(
 const HEALTHY_FOR_MS = 5000;
 
 const frameTimeoutMs = 5000;
+/** The setup check's one session call: a phone refusing UI actions may hang it rather than answer. */
+const CHECK_ACT_MS = 20_000;
 const FRAMES_IDLE_MS = 30_000;
 /** WDA's own MJPEG settings, which the live view uses; a recording raises them while it lasts. */
 const MJPEG_DEFAULTS = { mjpegServerScreenshotQuality: 25, mjpegServerFramerate: 10 };
@@ -918,8 +963,14 @@ export class IosHelper {
 
   private kick(key: string, xcrun: string, udid: string, meta: BuildMeta | null, failure: Failure | undefined) {
     if (!this.xcode) void this.xcodeVersion(xcrun);
-    if (this.busy.has(key) || this.starting.has(udid) || this.running.has(udid)) return;
+    if (this.busy.has(key) || this.starting.has(udid)) return;
     if (failure && this.now() - failure.at < retryWait(failure)) return;
+    const up = this.running.get(udid);
+    if (up) {
+      // An op keeps it running while iOS refused it: the check asks the running one instead of starting its own.
+      if (failure && UI_REFUSALS.has(failure.reason)) this.probe(key, up, failure);
+      return;
+    }
     if (!this.fresh(meta)) void this.build(key, xcrun, { kind: "device", udid });
     else if ((!meta?.checkedAt || failure) && !this.heldElsewhere(udid)) this.check(key, xcrun, udid);
   }
@@ -1036,14 +1087,36 @@ export class IosHelper {
     writeJson(path.join(derived, "meta.json"), meta);
   }
 
-  /** Runs a new build once on its phone: UI Automation on and the developer trusted, or what's missing. */
+  /**
+   * Runs a new build once on its phone: UI Automation on and the developer trusted, or what's missing. iOS lets the
+   * helper start and film the screen while it refuses every tap, so one session call shows it may act.
+   */
   private check(key: string, xcrun: string, udid: string) {
+    // A refusal whose call only hangs is neither cleared nor said again: without this, every look would check again.
+    const failure = this.failed.get(key);
+    if (failure) failure.at = this.now();
     const job = this.start(key, xcrun, "device", udid).then(
-      (run) => {
+      async (run) => {
         const meta = this.meta(key);
         if (meta) writeJson(path.join(this.dir, key, "meta.json"), { ...meta, checkedAt: this.now() });
+        await run.client
+          .call("GET", "/window/size", undefined, { session: true, timeoutMs: CHECK_ACT_MS })
+          .catch(() => undefined);
         if (!run.kept && !this.wanted.has(udid)) this.stop(udid);
       },
+      () => undefined,
+    );
+    this.busy.set(
+      key,
+      job.finally(() => this.busy.delete(key)),
+    );
+  }
+
+  /** One session call on a running helper iOS refused: it clears the refusal (`acted`) or says it again. */
+  private probe(key: string, run: WdaRun, failure: Failure) {
+    failure.at = this.now();
+    const job = run.client.call("GET", "/window/size", undefined, { session: true, timeoutMs: CHECK_ACT_MS }).then(
+      () => undefined,
       () => undefined,
     );
     this.busy.set(
@@ -1154,9 +1227,25 @@ export class IosHelper {
       throw new RunnerError("internal", "The test helper couldn't start.");
     }
     let said = "";
+    let run: WdaRun | null = null;
+    /** iOS refused UI testing while the helper runs: it can't act, so it's let go and the phone says why. */
+    let refused: PhoneReason | null = null;
     // The tail: why it stopped comes last, after a long run's output.
     const hear = (chunk: Buffer) => {
-      said = (said + chunk.toString("utf8")).slice(-256 * 1024);
+      const text = chunk.toString("utf8");
+      // The new words and a little before them: a line split across chunks still matches.
+      const fresh = said.slice(-200) + text;
+      said = (said + text).slice(-256 * 1024);
+      // Only Code=41's own words: the looser UI Automation ones could match a working helper's log and stop it.
+      const reason = sim || refused ? null : helperReason(fresh);
+      if (reason !== "ui_not_authorized") return;
+      refused = reason;
+      this.opts.log(`iPhone test helper (${udid}): iOS refused UI testing (${reason})`);
+      this.fail(key, { reason, detail: failureLine(fresh), check: true, unknown: false });
+      if (run && this.running.get(udid) === run) {
+        run.client.refuse(reason);
+        this.drop(udid, run);
+      }
     };
     child.stdout?.on("data", hear);
     child.stderr?.on("data", hear);
@@ -1185,15 +1274,18 @@ export class IosHelper {
         throw fail(err instanceof RunnerError ? err : new RunnerError("internal", String(err)));
       }
     }
-    let run: WdaRun | null = null;
     const client = new WdaClient(`http://127.0.0.1:${http}`, this.opts.fetch, {
       onGone: (reason) => {
         if (reason && !sim) this.fail(key, { reason, detail: reason, check: true, unknown: false });
         if (run && this.running.get(udid) === run) this.drop(udid, run);
       },
+      onActed: () => {
+        if (!sim) this.acted(key);
+      },
     });
     const deadline = this.now() + (sim ? 180_000 : 300_000);
     while (!(await client.ready())) {
+      if (refused) throw fail(new RunnerError("phone_not_ready", helperWords(refused, "")));
       if (gone || this.now() > deadline) {
         const reason = helperReason(said);
         const detail = gone ? failureLine(said) : "The test helper didn't start in time.";
@@ -1206,7 +1298,10 @@ export class IosHelper {
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    if (!sim) this.failed.delete(key);
+    if (refused) throw fail(new RunnerError("phone_not_ready", helperWords(refused, "")));
+    // Up isn't able to act: iOS's refusal stays until a session call works (`acted`).
+    const failure = this.failed.get(key);
+    if (!sim && !(failure && UI_REFUSALS.has(failure.reason))) this.failed.delete(key);
     const up: WdaRun = { child, client, mjpegPort: frames, forwards, lastUsed: this.now(), kept: false, frames: null };
     run = up;
     this.running.set(udid, up);
@@ -1218,6 +1313,45 @@ export class IosHelper {
       this.drop(udid, up);
     });
     return up;
+  }
+
+  /** A session call worked: iOS lets the helper act, so a refusal it said before is over. */
+  private acted(key: string) {
+    const failure = this.failed.get(key);
+    if (failure && UI_REFUSALS.has(failure.reason)) this.failed.delete(key);
+  }
+
+  /**
+   * Checks again at the next look instead of after the failure's wait (a person says they fixed it): every phone's,
+   * or `udid`'s.
+   */
+  recheck(udid?: string) {
+    for (const [key, failure] of this.failed) {
+      if (failure.check && (udid === undefined || key === this.keyOf("device", udid))) failure.at = 0;
+    }
+  }
+
+  /**
+   * Repairs a real iPhone's helper: stops it and any leftover of it on this Mac, forgets its build so the next look
+   * builds it again with the Xcode installed now, and forgets what failed. The next `need` starts that build.
+   */
+  async repair(udid: string) {
+    if (this.heldElsewhere(udid)) {
+      throw new RunnerError("phone_busy", "Another workspace's connection on this computer is using this iPhone.");
+    }
+    const key = this.keyOf("device", udid);
+    this.stop(udid);
+    // A helper a runner before this one started (it crashed, or was killed) still holds the phone's test session. One
+    // still starting goes too, before it's waited for: its start could take minutes.
+    await runTool("pkill", ["-f", `test-without-building.*id=${key}`], {
+      timeoutMs: 10_000,
+      env: this.opts.env,
+    }).catch(() => undefined);
+    await this.starting.get(udid)?.catch(() => undefined);
+    await rm(path.join(this.dir, key, "meta.json"), { force: true });
+    this.failed.delete(key);
+    this.xcode = null;
+    this.opts.log(`iPhone test helper: repairing it for ${udid}`);
   }
 
   private drop(udid: string, run: WdaRun) {

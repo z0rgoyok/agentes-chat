@@ -5,11 +5,13 @@ import {
   CLI_INSTALL_PROTOCOL,
   DESKTOP_PROTOCOL,
   HEARTBEAT_MS,
+  MACHINE_CLOSE,
   MACHINE_TOKEN_PREFIX,
   type MachineAgent,
   MIN_RUNNER_PROTOCOL,
   type PubSub,
   REMOTE_PAUSE_PROTOCOL,
+  RUNNER_STOPPED_CLOSE,
 } from "@agenteschat/adapters";
 import {
   and,
@@ -26,6 +28,7 @@ import {
 } from "@agenteschat/db";
 import { appLocale } from "@agenteschat/i18n/locale";
 import { getAgent, workspaceHomeId } from "./agents";
+import { listsAgentSql, managesAgent, managesAgentSql, REACH_COLUMNS } from "./audience";
 import { type AuditEntry, recordAudit } from "./audit";
 import { isSandboxedBrain } from "./brains/types";
 import { caches } from "./cache";
@@ -48,6 +51,12 @@ export type MachineRow = typeof machines.$inferSelect;
 
 /** A machine whose last sign of life is older than this is offline, whatever its row says (a replica may have died). */
 export const MACHINE_STALE_MS = 3 * HEARTBEAT_MS;
+
+/**
+ * Running tasks of a machine that went offline become `interrupted` after this (it may just be a network blip
+ * or a runner dialing again); it is also when an offline computer becomes an outage people see.
+ */
+export const TASK_OFFLINE_GRACE_MS = 2 * 60_000;
 
 export const MACHINE_LIMITS = { nameChars: 80 };
 
@@ -157,6 +166,49 @@ export function machineOnline(row: Pick<MachineRow, "online" | "lastSeenAt" | "d
 /** The operator put the workspace's own computer in standby (ADR 0161): offline by design until something wants it. */
 export const inStandby = (row: Pick<MachineRow, "kind" | "standbyAt">) =>
   row.kind === "managed" && row.standbyAt !== null;
+
+/**
+ * Asleep in standby as people see it (ADR 0161): waking as it should. Taken out of standby before its runner's hello
+ * (it is starting), it still is until that hello (`wake_wanted_at` set). One wanted awake (`wake_wanted_at`) that
+ * hasn't said hello within the outage grace is down, and shows so (`machine.wake_overdue` tells the apps).
+ */
+export const shownStandby = (
+  row: Pick<MachineRow, "deletedAt" | "kind" | "standbyAt" | "wakeWantedAt">,
+  now = new Date(),
+) =>
+  !row.deletedAt &&
+  row.kind === "managed" &&
+  (row.standbyAt !== null || row.wakeWantedAt !== null) &&
+  (row.wakeWantedAt === null || now.getTime() - row.wakeWantedAt.getTime() < TASK_OFFLINE_GRACE_MS);
+
+/**
+ * Online as people see it: a computer in standby reads as online and ready, never asleep or seen at a time, while it
+ * wakes as it should (`shownStandby`). Operators' views and the run logic use `machineOnline` and `inStandby`.
+ */
+export const shownOnline = (
+  row: Pick<MachineRow, "online" | "lastSeenAt" | "deletedAt" | "kind" | "standbyAt" | "wakeWantedAt">,
+  now = new Date(),
+) => machineOnline(row, now) || shownStandby(row, now);
+
+export type OfflineCause = "unresponsive" | "stopped" | "dropped";
+
+/**
+ * Why a computer someone brought is offline, from its runner's last close: `unresponsive` (no pong: no network, or
+ * the computer too busy to answer), `stopped` (its runner stopped for good), `dropped` (anything else, our restarts
+ * included). Null: online, the workspace's own computer, or no close recorded since its last sign of life (a replica
+ * that died records none).
+ */
+export function offlineCause(
+  row: Pick<MachineRow, "kind" | "disconnects" | "lastSeenAt">,
+  online: boolean,
+): OfflineCause | null {
+  const last = row.disconnects[0];
+  if (online || row.kind === "managed" || !last) return null;
+  if (row.lastSeenAt && row.lastSeenAt.getTime() > Date.parse(last.at)) return null;
+  if (last.code === MACHINE_CLOSE.timeout) return "unresponsive";
+  if (last.code === RUNNER_STOPPED_CLOSE) return "stopped";
+  return "dropped";
+}
 
 /** The pause in force now (a past `until` is over); null when not paused. */
 export function machinePause(
@@ -302,7 +354,7 @@ export interface DrivingPerson {
   /** `own_computers`: the whole computer of an agent they own, or of one they paired. */
   own: boolean;
   owner: boolean;
-  /** `manage_agents`: drives it on its owner's plan too. */
+  /** Manages the agent (`managesAgent`, ADR 0085 addendum of 2026-11-17): drives it on its owner's plan too. */
   manages?: boolean;
   /** `control_browsers`: told `role` rather than `not_allowed`. */
   browsers?: boolean;
@@ -374,10 +426,9 @@ export async function computerDriving(db: Database, userId: string, orgId: strin
   const [agent] = await db
     .select({
       machineId: agents.machineId,
-      owner: agents.ownerUserId,
-      brain: agents.brain,
       account: agents.brainAccountId,
       builtin: agents.builtin,
+      ...REACH_COLUMNS,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
@@ -396,8 +447,8 @@ export async function computerDriving(db: Database, userId: string, orgId: strin
     userId,
     admin: can(membership, "control_computers"),
     own: can(membership, "own_computers"),
-    owner: agent.owner === userId,
-    manages: can(membership, "manage_agents"),
+    owner: agent.ownerUserId === userId,
+    manages: managesAgent(agent, userId, membership),
     browsers: can(membership, "control_browsers"),
   };
   // The shared seat is driven like any agent's computer, by the rule above. Its OS user never holds a plan's sign-in:
@@ -434,13 +485,15 @@ export async function computerDrivers(db: Database, orgId: string, agentId: stri
   if (!agent || !machine) return [];
   const signIn = !home && lentAccount(agent) !== null;
   const named = [agent.owner, machine.pairedByUserId].filter((id): id is string => !!id);
-  // Who may drive it (`control_computers`, `own_computers`, ADR 0085), read once per member, and the people named above.
+  // Who may drive it (`control_computers`, `own_computers`, ADR 0085), read once per member, and the people named above;
+  // `manages`: who manages this agent (`managesAgentSql`, ADR 0085 addendum of 2026-11-17).
   const everyone = await db
     .select({
       userId: organizationMembers.userId,
       admin: maySql(orgId, organizationMembers.userId, "control_computers"),
       own: maySql(orgId, organizationMembers.userId, "own_computers"),
-      manages: maySql(orgId, organizationMembers.userId, "manage_agents"),
+      manages: sql<boolean>`exists (select 1 from ${agents} ag where ag.id = ${agentId}::uuid
+        and ag.org_id = ${orgId}::uuid and ${managesAgentSql("ag", sql`${organizationMembers.userId}`)})`,
     })
     .from(organizationMembers)
     .where(eq(organizationMembers.orgId, orgId))
@@ -473,7 +526,13 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
   );
   const using = ids.length
     ? await db
-        .select({ id: agents.id, name: agents.name, handle: agents.handle, machineId: agents.machineId })
+        .select({
+          id: agents.id,
+          name: agents.name,
+          handle: agents.handle,
+          machineId: agents.machineId,
+          listed: listsAgentSql("agents", sql`${actorId}::text`, membership),
+        })
         .from(agents)
         .where(and(eq(agents.orgId, orgId), inArray(agents.machineId, ids), isNull(agents.archivedAt)))
         // The agents' order everywhere else (the sidebar, the team): who came first.
@@ -490,7 +549,7 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
           .from(agents)
           .where(and(eq(agents.orgId, orgId), eq(agents.builtin, RIGHT_HAND), isNull(agents.archivedAt)))
       : [];
-  if (rightHand && homeRow) using.push({ ...rightHand, machineId: homeRow.id });
+  if (rightHand && homeRow) using.push({ ...rightHand, machineId: homeRow.id, listed: true });
   // Its shared seat there is opened like any agent's computer, by the admins of computers and its owner
   // (`computerDriving` with `shared`): only they are shown it.
   const sharedSeat =
@@ -502,14 +561,16 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
     const pause = machinePause(m, now);
     // The workspace's own computer (ADR 0056 §10) is a service people use, not a box they look into.
     const managed = m.kind === "managed";
+    const online = shownOnline(m, now);
     return {
       id: m.id,
       name: m.name,
       /** `connected` (a person paired it), `host` (the server's own) or `managed` (the workspace's, never removed here). */
       kind: m.kind,
-      online: machineOnline(m, now),
-      /** The workspace's own computer is asleep in standby (ADR 0161): it wakes when wanted, nothing is wrong. */
-      standby: inStandby(m),
+      online,
+      offlineCause: offlineCause(m, online),
+      /** The workspace's own computer is asleep in standby (ADR 0161) and wakes as it should: nothing is wrong. */
+      standby: shownStandby(m, now),
       networkTransition: managed ? m.networkTransition : null,
       /** The workspace's own computer's agents wait for their way out, as the operator says: a line, never an error. */
       egressWaiting: managed && machineOnline(m, now) && m.egressWaitingAt !== null,
@@ -548,7 +609,10 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
       /** The coding CLIs there that can't start, with their own error line; admins and the pairer only. */
       cliErrors: (admin || mine) && !managed ? (m.executors?.broken ?? null) : null,
       pairedBy: m.pairedByUserId ? { id: m.pairedByUserId, name: pairedByName ?? "" } : null,
-      agents: using.filter((a) => a.machineId === m.id).map((a) => ({ id: a.id, name: a.name, handle: a.handle })),
+      // A private agent stays out for whom it is unlisted (`listsAgentTo`), but not on the computer of who paired it.
+      agents: using
+        .filter((a) => a.machineId === m.id && (a.listed || mine))
+        .map((a) => ({ id: a.id, name: a.name, handle: a.handle })),
       /**
        * The right hand's id where this computer holds its shared seat (ADR 0175) and this person may open it, as they
        * may any agent's computer here; null otherwise.
@@ -702,13 +766,15 @@ export async function machineAgents(db: Database, orgId: string, machineId: stri
               sql`exists (select 1 from ${schema.rightHandBrains} rb join ${schema.machineAccounts} ma
                 on ma.org_id = rb.org_id and ma.id = rb.brain_account_id
                 where rb.org_id = ${agents.orgId} and ma.machine_id = ${machineId}::uuid)`,
+              sql`exists (select 1 from ${schema.rightHandBrains} rb
+                where rb.org_id = ${agents.orgId} and rb.machine_id = ${machineId}::uuid)`,
             ),
           ),
         ),
       ),
     )
     .orderBy(agents.createdAt);
-  const personal = rows.some((a) => a.builtin === RIGHT_HAND)
+  const personal: { id: string }[] = rows.some((a) => a.builtin === RIGHT_HAND)
     ? await db
         .select({ id: schema.rightHandBrains.brainAccountId })
         .from(schema.rightHandBrains)
@@ -720,6 +786,7 @@ export async function machineAgents(db: Database, orgId: string, machineId: stri
           ),
         )
         .where(and(eq(schema.rightHandBrains.orgId, orgId), eq(schema.machineAccounts.machineId, machineId)))
+        .then((rows) => rows.flatMap((r) => (r.id ? [{ id: r.id }] : [])))
     : [];
   const listed = rows.map((a): MachineAgent => {
     const own = a.builtin === RIGHT_HAND ? lentAccount(a) : null;
@@ -880,6 +947,7 @@ export async function detachMachine(tx: Executor, machine: Pick<MachineRow, "id"
       connectedReplica: null,
       // A managed computer issued again comes back on this row, not asleep (ADR 0161), its agents waiting for nothing.
       standbyAt: null,
+      wakeWantedAt: null,
       egressWaitingAt: null,
       previousAgentIds: ids,
       updatedAt: now,
@@ -924,7 +992,13 @@ export async function announceRemovedMachine(
       event: { type: "agent.computer", agentId, target: { kind: "none" } },
     });
   }
+  // Lazy: usage-pause's graph reaches task-manager while agent-work, which imports this module's graph, is loading.
+  const { wakeAgentsBrainWaits } = await import("./usage-pause");
+  await wakeAgentsBrainWaits(deps, orgId, freed);
 }
+
+/** How long after a computer move its agent's waits are woken (`setAgentComputerTarget`). */
+export const TARGET_WAKE_DELAY_MS = 10_000;
 
 /** Which computer an agent uses (`GET …/computer` `target`). */
 export type ComputerTarget = { kind: "none" } | { kind: "machine"; machineId: string; name: string; online: boolean };
@@ -934,7 +1008,7 @@ export async function computerTarget(db: Database, orgId: string, agentId: strin
   if (!agent?.machineId) return { kind: "none" };
   const machine = await getMachine(db, orgId, agent.machineId);
   if (!machine) return { kind: "none" };
-  return { kind: "machine", machineId: machine.id, name: machine.name, online: machineOnline(machine) };
+  return { kind: "machine", machineId: machine.id, name: machine.name, online: shownOnline(machine) };
 }
 
 let workspaceComputers = false;
@@ -951,9 +1025,9 @@ export function setWorkspaceComputers(on: boolean) {
 export const mayBeHome = (m: Pick<MachineRow, "kind">) => !workspaceComputers || m.kind !== "connected";
 
 /**
- * Points an agent at a connected machine, or at none with null. An admin (`manage_agents`) may; so may the
- * agent's owner when they paired that machine or it is the workspace's own (leaving it with none only needs
- * the owner). Never at a brought computer where workspaces have their own (`mayBeHome`).
+ * Points an agent at a connected machine, or at none with null. Who manages it (`managesAgent`, ADR 0085 addendum of
+ * 2026-11-17) may; so may the agent's owner when they paired that machine or it is the workspace's own (leaving it with
+ * none only needs the owner). Never at a brought computer where workspaces have their own (`mayBeHome`).
  */
 export async function setAgentComputerTarget(
   deps: Pick<MachineDeps, "db" | "pubsub">,
@@ -961,12 +1035,14 @@ export async function setAgentComputerTarget(
   orgId: string,
   agentId: string,
   machineId: string | null,
+  /** false: the caller moves its waiting runs itself (`moveAgentsFromMachine`), or `setAgentBrain` follows. */
+  options: { wakeWaits?: boolean } = {},
 ): Promise<ComputerTarget> {
   const membership = await requirePermission(deps.db, actorId, orgId, "read");
   const agent = await getAgent(deps.db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
   if (machineId && isRightHand(agent)) throw rightHandPermanent("given a computer");
-  const admin = can(membership, "manage_agents");
+  const admin = managesAgent(agent, actorId, membership);
   const machine = machineId ? await getMachine(deps.db, orgId, machineId) : null;
   if (machineId && !machine) throw new NotFoundError("Computer not found", "machine.not_found");
   if (machine && !mayBeHome(machine)) {
@@ -1006,7 +1082,7 @@ export async function setAgentComputerTarget(
     details: { from: agent.machineId, to: machine?.id ?? null, name: machine?.name ?? null },
   });
   const target: ComputerTarget = machine
-    ? { kind: "machine", machineId: machine.id, name: machine.name, online: machineOnline(machine) }
+    ? { kind: "machine", machineId: machine.id, name: machine.name, online: shownOnline(machine) }
     : { kind: "none" };
   await publishOrgEvent(deps.pubsub, {
     type: "org.broadcast",
@@ -1015,5 +1091,11 @@ export async function setAgentComputerTarget(
   });
   // The machine it left and the one it joined list their agents again (protocol 9).
   await publishMachineAgentsChanged(deps.pubsub, orgId);
+  // Later than at once: an account on the new computer is saved next (`setAgentBrain`), and a run claimed between the
+  // two would find no sign-in there. That save's wake shares the job's dedupe key, so the job keeps this later time.
+  if (moved && options.wakeWaits !== false) {
+    const { wakeAgentsBrainWaits } = await import("./usage-pause");
+    await wakeAgentsBrainWaits(deps, orgId, [agentId], { delayMs: TARGET_WAKE_DELAY_MS });
+  }
   return target;
 }

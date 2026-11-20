@@ -175,6 +175,119 @@ export const extraIcons = {
     ["rect", { x: "3", y: "4", width: "14", height: "12", rx: "2" }],
     ["path", { d: "M3 7.5h14" }],
   ],
+  /** Live files (ADR 0196): a spreadsheet, a grid of cells under its header row. */
+  spreadsheet: [
+    ["rect", { x: "3", y: "3.5", width: "14", height: "13", rx: "2" }],
+    ["path", { d: "M3 7.5h14M3 12h14M7.5 3.5v13M12.25 7.5v9" }],
+  ],
+  /** Live files: a presentation, a slide on its stand. */
+  slides: [
+    ["rect", { x: "2.5", y: "3.5", width: "15", height: "10", rx: "1.75" }],
+    ["path", { d: "M10 13.5v3M7 16.5h6M6 7.25h5M6 10h8" }],
+  ],
+  /** Live files: a canvas, a board with a round and a square shape on it. */
+  canvas: [
+    ["rect", { x: "3", y: "3", width: "14", height: "14", rx: "2.5" }],
+    ["circle", { cx: "7.75", cy: "8", r: "2" }],
+    ["rect", { x: "10.75", y: "11", width: "3.75", height: "3.5", rx: "0.75" }],
+  ],
+  /** Live files' editors (ADR 0196): a canvas's frame tool, the lines that cross at its corners. */
+  frame: [["path", { d: "M6.5 3v14M13.5 3v14M3 6.5h14M3 13.5h14" }]],
+  /** A canvas's shape tool: a square and a circle. */
+  shape: [
+    ["rect", { x: "3", y: "8", width: "8.5", height: "8.5", rx: "1.5" }],
+    ["path", { d: "M11.5 11.4a4.5 4.5 0 1 0-3.4-3.4" }],
+  ],
+  /** A text tool: a T. */
+  textTool: [["path", { d: "M4.5 6V4.5h11V6M10 4.5v11M7.5 15.5h5" }]],
+  /** The select tool: the classic arrow pointer. */
+  pointerTool: [["path", { d: "M5.5 3.5v12.2l3.2-3 2.2 4.8 2-.9-2.1-4.7h4.4z" }]],
+  /** The hand: drag the view around. */
+  hand: [
+    [
+      "path",
+      {
+        d: "M7 10.5V5.25a1.25 1.25 0 0 1 2.5 0V9.5M9.5 9V4a1.25 1.25 0 0 1 2.5 0v5M12 9.5V5.5a1.25 1.25 0 0 1 2.5 0v6c0 3.2-2.1 5.5-5.2 5.5-2 0-3.3-.9-4.4-2.5l-1.6-2.5a1.2 1.2 0 0 1 2-1.4L7 12",
+      },
+    ],
+  ],
+  /** A formula: fx. */
+  formula: [["path", { d: "M9.5 4.5c-1.7-.5-2.9.2-3.2 1.9L4.7 15.5M4.25 8.5h4.5M11 9l4.5 6.5M15.5 9 11 15.5" }]],
+  /** A spreadsheet's functions (Σ): sum and the like. */
+  sigma: [["path", { d: "M14.5 4.5h-9l5 5.5-5 5.5h9" }]],
+  /** Text aligned to the left, the center, the right. */
+  alignLeft: [["path", { d: "M3.5 5h13M3.5 8.33h8M3.5 11.67h13M3.5 15h8" }]],
+  alignCenter: [["path", { d: "M3.5 5h13M6 8.33h8M3.5 11.67h13M6 15h8" }]],
+  alignRight: [["path", { d: "M3.5 5h13M8.5 8.33h8M3.5 11.67h13M8.5 15h8" }]],
+  /** Zoom in and out: a lens with a plus or a minus. */
+  zoomIn: [
+    ["circle", { cx: "8.75", cy: "8.75", r: "5.25" }],
+    ["path", { d: "m12.5 12.5 4 4M8.75 6.5v4.5M6.5 8.75H11" }],
+  ],
+  zoomOut: [
+    ["circle", { cx: "8.75", cy: "8.75", r: "5.25" }],
+    ["path", { d: "m12.5 12.5 4 4M6.5 8.75H11" }],
+  ],
+  /** Something an AI makes (Gerar imagem): a four-pointed spark and a small one. */
+  sparkle: [
+    ["path", { d: "M9 4c.4 3.2 1.8 4.6 5 5-3.2.4-4.6 1.8-5 5-.4-3.2-1.8-4.6-5-5 3.2-.4 4.6-1.8 5-5z" }],
+    ["path", { d: "M15 3v3M13.5 4.5h3M15.5 14v2.5M14.25 15.25h2.5" }],
+  ],
+  /** Present a deck: a screen on its stand with a play mark. */
+  present: [
+    ["rect", { x: "2.5", y: "3.5", width: "15", height: "10", rx: "1.75" }],
+    ["path", { d: "M10 13.5v3M7 16.5h6M8.5 6.5v4l3.25-2z" }],
+  ],
+  /** Follow someone in a file: a pointer going ahead, the lines it leaves behind. */
+  follow: [["path", { d: "M9 4v10.2l2.6-2.4 1.8 4 1.7-.8-1.8-3.9h3.6zM3 15.5h3M3.5 12h2.5M4.5 8.5h2" }]],
+  /** A spreadsheet's borders: a cell's outline, the lines inside it dotted. */
+  borders: [
+    ["rect", { x: "3.5", y: "3.5", width: "13", height: "13", rx: "1.5" }],
+    ["path", { d: "M10 6.75v.01M10 10v.01M10 13.25v.01M6.75 10h.01M13.25 10h.01" }],
+  ],
+  /** Merge cells: two arrows meeting between two walls. */
+  merge: [["path", { d: "M3.5 4v12M16.5 4v12M6 10h3M14 10h-3M7.25 8l2 2-2 2M12.75 8l-2 2 2 2" }]],
+  /** Freeze rows or columns: a snowflake. */
+  freeze: [["path", { d: "M10 3v14M3.9 6.5l12.2 7M3.9 13.5l12.2-7M8.4 3.9 10 5.4l1.6-1.5M8.4 16.1 10 14.6l1.6 1.5" }]],
+  /** Wrap text: a line that turns back to the next one. */
+  wrap: [["path", { d: "M3.5 5h13M3.5 10h10.25a2.5 2.5 0 0 1 0 5H11M12.75 13.25 11 15l1.75 1.75M3.5 15h4" }]],
+  /** Sort A to Z and Z to A: an arrow down beside bars that grow or shrink. */
+  sortAsc: [["path", { d: "M5.5 4v12M3.25 13.75 5.5 16l2.25-2.25M10.5 5h3M10.5 10h4.5M10.5 15h6" }]],
+  sortDesc: [["path", { d: "M5.5 4v12M3.25 13.75 5.5 16l2.25-2.25M10.5 5h6M10.5 10h4.5M10.5 15h3" }]],
+  /** A cell's fill: a paint bucket and its drop. */
+  fillColor: [
+    ["path", { d: "M3.9 9.6 9 4.5l5.5 5.5-5 5a1 1 0 0 1-1.4 0L3.9 11a1 1 0 0 1 0-1.4zM4.25 10.25h10" }],
+    ["path", { d: "M16.25 12.5c.75 1 1.15 1.7 1.15 2.2a1.15 1.15 0 0 1-2.3 0c0-.5.4-1.2 1.15-2.2z" }],
+  ],
+  /** Text color: an A. */
+  textColor: [["path", { d: "M5.5 15 10 4l4.5 11M7.2 11h5.6" }]],
+  /** A number format: 1 2 3. */
+  numberFormat: [
+    [
+      "path",
+      {
+        d: "M3.25 7.5 4.75 6.5v7M7.5 8a1.5 1.5 0 1 1 2.6 1L7.5 13.5h3M12.75 6.75h2.75l-1.5 2.25a1.85 1.85 0 1 1-1.35 3.35",
+      },
+    ],
+  ],
+  /** More or fewer decimal places: a point and a zero, then a plus or a minus. */
+  decimalsMore: [
+    ["rect", { x: "5.75", y: "6", width: "4", height: "8", rx: "2" }],
+    ["path", { d: "M3.25 14v.01M13.75 7.75v4.5M11.5 10H16" }],
+  ],
+  decimalsLess: [
+    ["rect", { x: "5.75", y: "6", width: "4", height: "8", rx: "2" }],
+    ["path", { d: "M3.25 14v.01M11.5 10H16" }],
+  ],
+  /** A canvas's arrow tool: a line with its head. */
+  arrowTool: [["path", { d: "m4.5 15.5 11-11M9 4.5h6.5V11" }]],
+  /** A canvas's note tool: a sticky note with its corner folded. */
+  sticky: [
+    ["path", { d: "M5.5 3.5h9a2 2 0 0 1 2 2V12l-4.5 4.5h-6.5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z" }],
+    ["path", { d: "M16.5 12h-3a1.5 1.5 0 0 0-1.5 1.5v3" }],
+  ],
+  /** Underline: a U on its line. */
+  underline: [["path", { d: "M6 3.5v6a4 4 0 0 0 8 0v-6M5 16.5h10" }]],
   /** Sidebar: Rotinas (clock with a refresh arrow). */
   routines: [
     ["path", { d: "M16 10a6 6 0 1 1-1.8-4.3" }],
@@ -449,6 +562,8 @@ export const extraIcons = {
   plug: [["path", { d: "M7.5 3v4M12.5 3v4M5 7h10v2.5a5 5 0 0 1-10 0zM10 14.5V17" }]],
   /** Criar agente: "Voltar ao original". */
   undo: [["path", { d: "M7.5 11.5 3.5 7.5l4-4M3.5 7.5h8a5 5 0 0 1 0 10H9" }]],
+  /** Live files: redo, undo's mirror. */
+  redo: [["path", { d: "M12.5 11.5 16.5 7.5l-4-4M16.5 7.5h-8a5 5 0 0 0 0 10H11" }]],
   /** Criar agente: go somewhere (a channel). */
   arrowRight: [["path", { d: "M4 10h12M11 5l5 5-5 5" }]],
   /** Drive: grid view. */
@@ -577,4 +692,69 @@ export const extraIcons = {
     ["path", { d: "M4 5v10c0 1.24 2.69 2.25 6 2.25s6-1.01 6-2.25V5" }],
     ["path", { d: "M4 10c0 1.24 2.69 2.25 6 2.25s6-1.01 6-2.25" }],
   ],
+  /** Live files' text (ADR 0196): indent, the lines moved in with an arrow pointing in. */
+  indent: [
+    ["path", { d: "M3.5 5h13M9.5 8.33h7M9.5 11.67h7M3.5 15h13" }],
+    ["path", { d: "m3.5 7.75 2.5 2.25-2.5 2.25" }],
+  ],
+  /** Outdent: the same lines, the arrow pointing out. */
+  outdent: [
+    ["path", { d: "M3.5 5h13M9.5 8.33h7M9.5 11.67h7M3.5 15h13" }],
+    ["path", { d: "M6 7.75 3.5 10 6 12.25" }],
+  ],
+  /** A slide's elements (ADR 0196): bring to front, the whole square over the one behind it. */
+  bringFront: [
+    ["rect", { x: "7", y: "7", width: "9.5", height: "9.5", rx: "1.75" }],
+    ["path", { d: "M13 7V4.75c0-.69-.56-1.25-1.25-1.25h-7c-.69 0-1.25.56-1.25 1.25v7c0 .69.56 1.25 1.25 1.25H7" }],
+  ],
+  /** Send to back: the whole square in front, the chosen one behind it. */
+  sendBack: [
+    ["rect", { x: "3.5", y: "3.5", width: "9.5", height: "9.5", rx: "1.75" }],
+    ["path", { d: "M13 7h2.25c.69 0 1.25.56 1.25 1.25v7c0 .69-.56 1.25-1.25 1.25h-7c-.69 0-1.25-.56-1.25-1.25V13" }],
+  ],
+  /** A canvas's forms (ADR 0196 §2): a rectangle. */
+  rectangle: [["rect", { x: "3.5", y: "5", width: "13", height: "10", rx: "1.5" }]],
+  /** An ellipse. */
+  ellipse: [["path", { d: "M3.25 10a6.75 5.75 0 1 0 13.5 0a6.75 5.75 0 1 0-13.5 0z" }]],
+  /** A diamond. */
+  diamond: [["path", { d: "M10 3.25 16.75 10 10 16.75 3.25 10z" }]],
+  /** A triangle. */
+  triangle: [["path", { d: "M10 4.25 16.5 15.5h-13z" }]],
+  /** A star. */
+  star: [["path", { d: "m10 3.5 1.95 4.05 4.45.55-3.3 3.05.88 4.4L10 13.35l-3.98 2.2.88-4.4-3.3-3.05 4.45-.55z" }]],
+  /** A line with no heads. */
+  line: [["path", { d: "M4.5 15.5 15.5 4.5" }]],
+  /** An arrow with a head at each end. */
+  arrowBoth: [["path", { d: "m4.5 15.5 11-11M9 4.5h6.5V11M11 15.5H4.5V9" }]],
+  /** An arrow with its head at its start. */
+  arrowStart: [["path", { d: "m4.5 15.5 11-11M11 15.5H4.5V9" }]],
+  /** An arrow's route: a curve. */
+  curve: [
+    ["path", { d: "M4 15.5C5.5 8.5 9.5 5 15.5 4.75" }],
+    ["path", { d: "m12.75 2.75 2.9 2-2.4 2.6" }],
+  ],
+  /** An arrow's route: right angles. */
+  elbow: [
+    ["path", { d: "M4 15.5h6v-11h5.5" }],
+    ["path", { d: "m13 2.25 2.75 2.25L13 6.75" }],
+  ],
+  /** A dashed line. */
+  dashed: [["path", { d: "M3.5 16.5 5.5 14.5M8 12l2-2M12.5 7.5l2-2" }]],
+  /** The pen: a stroke drawn by hand. */
+  pen: [
+    ["path", { d: "M4 16.25 5 12.4l8.4-8.4a1.9 1.9 0 0 1 2.7 2.7L7.7 15.1z" }],
+    ["path", { d: "m12 5.4 2.7 2.7" }],
+  ],
+  /** The highlighter: a wide, see-through stroke. */
+  marker: [
+    ["path", { d: "m6.5 13.5 7.4-7.4a1.6 1.6 0 0 1 2.3 2.3L8.8 15.8" }],
+    ["path", { d: "m6.5 13.5-1.2 3.2 3.5-.9" }],
+    ["path", { d: "M3 17h5" }],
+  ],
+  /** Crop a picture: the two corners of its frame. */
+  crop: [["path", { d: "M6 2.75v11.25h11.25M2.75 6H14v11.25" }]],
+  /** A rectangle's rounded corners. */
+  corners: [["path", { d: "M4 16V9a5 5 0 0 1 5-5h7" }]],
+  /** A comment pinned to a spot: a speech bubble with its tail at the spot. */
+  comment: [["path", { d: "M10 3.5a6 6 0 0 1 0 12H4.5V10a6.5 6.5 0 0 1 5.5-6.5z" }]],
 } satisfies Record<string, IconShape[]>;

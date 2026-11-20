@@ -91,13 +91,15 @@ export async function digestWaitingOn(db: Database, orgId: string, userId: strin
     )
     .orderBy(asc(approvals.createdAt))
     .limit(200);
-  // Who is told depends on these alone, and most of a person's approvals share them.
+  // Who is told depends on these alone, and most of a person's approvals share them. An access request goes to who
+  // manages its own agent (`approverIds`, ADR 0085 addendum of 2026-11-17): its agent is part of what it depends on.
   const toldOf = new Map<string, Promise<string[]>>();
   const mine: string[] = [];
   for (const row of rows) {
     const key = JSON.stringify([
       decidingKeys(row),
       adminsDecide(row),
+      adminsDecide(row) ? row.agentId : null,
       row.ownerUserId,
       row.approvers,
       row.requestedByUserId,

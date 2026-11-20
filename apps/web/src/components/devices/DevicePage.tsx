@@ -23,6 +23,8 @@ import {
   Card,
   CardHeader,
   Chip,
+  codeAndBold,
+  Disclosure,
   EmptyState,
   Icon,
   List,
@@ -90,7 +92,7 @@ function useBackToList() {
     void navigate({ to: "/org/$orgId/settings/$section", params: { orgId: org.id, section: "devices" }, search: {} });
 }
 
-/** The header card's top: the 96 portrait, the name with its rename pencil, chips (whose, where), the menu. */
+/** The header card's top: the 96 portrait, the name with its rename pencil, chips (whose, its state, where), its actions. */
 function Head({
   device,
   chips,
@@ -142,7 +144,7 @@ function OwnerChip({ userId }: { userId: string | null }) {
   );
 }
 
-/** The state, its reason in words, and its one action. */
+/** Under the header's chips: the state's reason in words and its one action; nothing when the pill says it all. */
 function StatusLine({
   status,
   host,
@@ -157,17 +159,17 @@ function StatusLine({
   hostOs?: string;
   action?: ReactNode;
   ios?: string | null;
-  /** In place of the status's own sentence. */
+  /** In place of the status's own sentence, as typed (it carries a person's name). */
   text?: string | null;
 }) {
   const { t, i18n } = useTranslation();
   const sentence = text ?? statusSentence(t, i18n.language, status, { host, hostOs, ios });
   const label = status.kind === "in_use" && status.label ? status.label : null;
+  if (!sentence && !action) return null;
   return (
     <div className="dv-statusline" data-status={statusLook(status)} role="status">
-      <StatusPill status={status} />
       <span className="dv-statusline__text">
-        {sentence}
+        {text ?? (sentence && codeAndBold(sentence, "cb", [host]))}
         {label && <small> · {label}</small>}
       </span>
       {action}
@@ -199,17 +201,25 @@ function PauseControl({ machine, paused }: { machine: Machine; paused: boolean }
         onError: (err) => toast.show(errorText(t, err), "error"),
       },
     );
+  const words = t(paused ? "machines.remotePause.resume" : "machines.remotePause.button");
   if (!machine.remotePause) {
     return (
-      <Button size="sm" icon={paused ? "play" : "pause"} disabled>
-        {t(paused ? "machines.remotePause.resume" : "machines.remotePause.button")}
+      <Button size="sm" icon={paused ? "play" : "pause"} disabled className="dv-pausebtn" aria-label={words}>
+        {words}
       </Button>
     );
   }
   if (paused) {
     return (
-      <Button size="sm" icon="play" loading={pause.isPending} onClick={() => set("resume")}>
-        {t("machines.remotePause.resume")}
+      <Button
+        size="sm"
+        icon="play"
+        loading={pause.isPending}
+        onClick={() => set("resume")}
+        className="dv-pausebtn"
+        aria-label={words}
+      >
+        {words}
       </Button>
     );
   }
@@ -219,8 +229,8 @@ function PauseControl({ machine, paused }: { machine: Machine; paused: boolean }
       align="end"
       label={label}
       trigger={
-        <Button size="sm" icon="pause" loading={pause.isPending}>
-          {t("machines.remotePause.button")}
+        <Button size="sm" icon="pause" loading={pause.isPending} className="dv-pausebtn" aria-label={words}>
+          {words}
         </Button>
       }
     >
@@ -297,7 +307,11 @@ function ComputerPage({ machineId }: { machineId: string }) {
     machine && isPaused(machine)
       ? { kind: "paused", until: machine.paused?.until ?? null }
       : machine && !machine.online && d.status.kind !== "offline"
-        ? { kind: "offline", lastSeenAt: machine.lastSeenAt }
+        ? {
+            kind: "offline",
+            lastSeenAt: machine.lastSeenAt,
+            ...(machine.offlineCause ? { cause: machine.offlineCause } : {}),
+          }
         : d.status;
   const owner = d.ownerUserId === me.user.id;
   const admin = can(org, "configure");
@@ -312,65 +326,85 @@ function ComputerPage({ machineId }: { machineId: string }) {
   // This server's own computer stops being used here (and can be again), it isn't removed.
   const host = d.machineKind === "host";
   const removeWords = host ? t("machines.host.stop") : t("devices.remove");
+  // At a glance its system (and when it was last seen while offline); its size, toolchains, way out and folder are
+  // behind "Detalhes".
   const facts = [
     { label: t("devices.facts.system"), value: osName(t, d.os) },
-    ...(d.cpus ? [{ label: t("devices.facts.cpu"), value: String(d.cpus) }] : []),
-    ...(d.memoryGb ? [{ label: t("devices.facts.memory"), value: t("devices.memory", { gb: d.memoryGb }) }] : []),
     ...(d.status.kind === "offline" && d.lastSeenAt
       ? [{ label: t("devices.facts.lastSeen"), value: clockAt(i18n.language, d.lastSeenAt) }]
       : []),
+  ];
+  const more = [
+    ...(d.cpus ? [{ label: t("devices.facts.cpu"), value: String(d.cpus) }] : []),
+    ...(d.memoryGb ? [{ label: t("devices.facts.memory"), value: t("devices.memory", { gb: d.memoryGb }) }] : []),
     ...(Object.keys(d.toolchains).length > 0
       ? [{ label: t("devices.facts.toolchains"), value: <Toolchains tools={d.toolchains} />, wide: true }]
       : []),
   ];
+  const extra = Boolean(
+    machine &&
+      ((machine.workspace && machine.mode !== "system") ||
+        (machine.kind === "managed" && (machine.networkTransition || (machine.online && machine.egress?.ip)))),
+  );
   return (
     <>
       <BackToDevices />
       <Card aria-labelledby="dv-page-title">
         <Head
           device={d}
-          chips={<OwnerChip userId={d.belongsToWorkspace ? null : d.ownerUserId} />}
+          chips={
+            <>
+              <OwnerChip userId={d.belongsToWorkspace ? null : d.ownerUserId} />
+              <StatusPill status={status} />
+            </>
+          }
           onRename={d.mayManage ? () => setRenaming(target) : undefined}
           menu={
-            d.mayManage && (
-              <Menu
-                align="end"
-                label={t("devices.menu", { name: d.name })}
-                trigger={
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    iconOnly
-                    icon="more"
-                    aria-label={t("devices.menu", { name: d.name })}
-                  />
-                }
-              >
-                <MenuItem icon="edit" onSelect={() => setRenaming(target)}>
-                  {t("devices.rename")}
-                </MenuItem>
-                <MenuSeparator />
-                <MenuItem icon={host ? "block" : "trash"} danger onSelect={() => setRemoving(target)}>
-                  {removeWords}
-                </MenuItem>
-              </Menu>
+            (pausable || d.mayManage) && (
+              <span className="row dv-headacts">
+                {pausable && <PauseControl machine={pausable} paused={status.kind === "paused"} />}
+                {d.mayManage && (
+                  <Menu
+                    align="end"
+                    label={t("devices.menu", { name: d.name })}
+                    trigger={
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        iconOnly
+                        icon="more"
+                        aria-label={t("devices.menu", { name: d.name })}
+                      />
+                    }
+                  >
+                    <MenuItem icon="edit" onSelect={() => setRenaming(target)}>
+                      {t("devices.rename")}
+                    </MenuItem>
+                    <MenuSeparator />
+                    <MenuItem icon={host ? "block" : "trash"} danger onSelect={() => setRemoving(target)}>
+                      {removeWords}
+                    </MenuItem>
+                  </Menu>
+                )}
+              </span>
             )
           }
         />
-        <StatusLine
-          status={status}
-          text={pausedFromApps}
-          action={pausable && <PauseControl machine={pausable} paused={status.kind === "paused"} />}
-        />
+        <StatusLine status={status} text={pausedFromApps} />
         {pausable && !pausable.remotePause && <span className="small muted">{t("machines.remotePause.outdated")}</span>}
         <Facts facts={facts} />
         {status.kind === "paused" && !pausedFromApps && <span className="small muted">{t("machines.pausedHint")}</span>}
-        {machine && <MachineFactsExtra machine={machine} />}
-        {d.systemMode ? (
-          <p className="ac-setnote ac-iconline">
-            <Icon name="code" size={14} />
-            <span>{t("machines.agentUsers")}</span>
-          </p>
+        {more.length > 0 || extra || d.systemMode ? (
+          <Disclosure summary={t("common.details")}>
+            {more.length > 0 && <Facts facts={more} />}
+            {machine && <MachineFactsExtra machine={machine} />}
+            {d.systemMode ? (
+              <p className="ac-setnote ac-iconline">
+                <Icon name="code" size={14} />
+                <span>{t("machines.agentUsers")}</span>
+              </p>
+            ) : null}
+          </Disclosure>
         ) : null}
         {machine && <MachineAgents machine={machine} />}
       </Card>
@@ -576,6 +610,7 @@ function PhonePage({ phoneId }: { phoneId: string }) {
           chips={
             <>
               <OwnerChip userId={p.ownerUserId} />
+              <StatusPill status={p.status} />
               <Link
                 to="/org/$orgId/settings/devices/$deviceId"
                 params={{ orgId: org.id, deviceId: host.id }}

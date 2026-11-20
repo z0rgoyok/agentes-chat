@@ -234,12 +234,13 @@ export function normalizeSubject(subject: string) {
   return [...new Set(wordList(subject))].sort().join(" ").slice(0, 200);
 }
 
-const words = (t: string) => new Set(normalizeSubject(t).split(" ").filter(Boolean));
+/** The word set `similarity` compares: build it once to compare one text with many. */
+export const wordSet = (t: string) => new Set(normalizeSubject(t).split(" ").filter(Boolean));
 
 /** Jaccard similarity of the word sets: ≥ 0.8 counts as the same item. */
-export function similarity(a: string, b: string) {
-  const wa = words(a);
-  const wb = words(b);
+export const similarity = (a: string, b: string) => wordSetSimilarity(wordSet(a), wordSet(b));
+
+export function wordSetSimilarity(wa: Set<string>, wb: Set<string>) {
   if (wa.size === 0 && wb.size === 0) return 1;
   let inter = 0;
   for (const w of wa) if (wb.has(w)) inter++;
@@ -623,9 +624,16 @@ export const itemVisibleIn = (item: Pick<ContextItem, "channelIds">, visible: re
 /**
  * Every version of an agent's items a person may see (archived and superseded
  * included), with the channels they read, for "What Ada knows": the same rule
- * as `listContextItems`, so an item learned in a DM or private channel stays there.
+ * as `listContextItems`, so an item learned in a DM or private channel stays there. `current`: without the versions
+ * a newer one replaced, for a list that shows only what stands (they pile up with everything the agent relearns).
  */
-export async function listAgentMemoryRows(db: Database, actorId: string, orgId: string, agentId: string) {
+export async function listAgentMemoryRows(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  agentId: string,
+  options: { current?: boolean } = {},
+) {
   const membership = await requirePermission(db, actorId, orgId, "read");
   const [visible, agent] = await Promise.all([userVisibleChannels(db, orgId, actorId), getAgent(db, orgId, agentId)]);
   const rows = await db
@@ -635,6 +643,7 @@ export async function listAgentMemoryRows(db: Database, actorId: string, orgId: 
       and(
         eq(contextItems.orgId, orgId),
         eq(contextItems.agentId, agentId),
+        options.current ? isNull(contextItems.supersededBy) : undefined,
         preferencesSeenBy(membership, actorId),
         arrayContained(contextItems.channelIds, visible),
       ),

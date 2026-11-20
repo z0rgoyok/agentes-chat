@@ -1,4 +1,5 @@
 import { useAgentDetail } from "@agenteschat/client";
+import { opensDm } from "@agenteschat/client/lib/audience";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { type AgentColor, Button, Icon, Menu, MenuItem } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -9,6 +10,7 @@ import { NoAiChip } from "@/components/NoAi";
 import { useOrg } from "@/components/org-context";
 import { AgentCover } from "@/components/Sky";
 import { UsageQueueChip } from "@/components/UsageQueue";
+import { ownsOrManages } from "@/lib/agent-edit";
 import { useToast } from "@/lib/toast";
 import { useStreams } from "@/realtime/context";
 import { useAgentEdit } from "./context";
@@ -76,7 +78,9 @@ export function AgentHero({
         <div className="agp-cover" data-busy={busy || undefined}>
           <AgentCover color={draft.look.color as AgentColor} busy={busy} clear={() => [face.current, acts.current]} />
           <div className="agp-cover__acts" ref={acts}>
-            {!panel && (
+            {/* Its DM, where the server opens it: someone its "Who can edit" names reaches its page from Team without
+                talking to it (ADR 0085 addendum of 2026-11-17). */}
+            {!panel && opensDm(agent) && (
               // The same glass as "…" beside it: a solid button on the light cover read as a washed-out slab.
               <Button asChild size="sm" className="agp-chat agp-glass">
                 <Link to="/org/$orgId/dm/agent/$agentId" params={{ orgId: org.id, agentId: agent.id }}>
@@ -116,7 +120,7 @@ export function AgentHero({
               <MenuItem icon="book" onSelect={() => goTo("memory")}>
                 {t("agent.viewMemory")}
               </MenuItem>
-              {viewer !== "member" && (
+              {ownsOrManages(viewer) && (
                 <MenuItem icon="routines" onSelect={() => goTo("activity")}>
                   {t("agent.viewRuns")}
                 </MenuItem>

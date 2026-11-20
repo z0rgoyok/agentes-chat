@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
+import { isConfidential } from "./confidential";
 import { getChannelCached } from "./context";
 import { type ContextDeps, isTrustedMessage, resolveSummaryModel } from "./context/summaries";
 import { publishChannelEvent } from "./events";
@@ -181,7 +182,8 @@ export async function nameConversation(
     .select()
     .from(messages)
     .where(and(eq(messages.orgId, input.orgId), eq(messages.id, input.rootId), isNull(messages.deletedAt)));
-  if (!root) return null;
+  // A confidential thread (ADR 0190) gets no name from a model: a title is read outside the thread.
+  if (!root || isConfidential(root.meta)) return null;
   const { text } = await conversationLines(deps.db, input.orgId, root, true);
   const about = { agentId: input.agentId, runId: input.runId };
   return cleanAssessedTitle((await askAssessment(deps, input.orgId, text, about))?.title);
@@ -197,10 +199,10 @@ export async function assessThread(
     .select()
     .from(messages)
     .where(and(eq(messages.orgId, orgId), eq(messages.id, threadRootId), isNull(messages.deletedAt)));
-  if (!root || root.threadId) return null;
+  if (!root || root.threadId || isConfidential(root.meta)) return null;
   const channel = await getChannelCached(db, orgId, root.channelId);
-  // A task's conversation is titled by its task (ADR 0145).
-  if (!channel || channel.kind === "task") return null;
+  // A task's conversation is titled by its task (ADR 0145), a live file's by its file (ADR 0199).
+  if (!channel || channel.kind === "task" || channel.kind === "file") return null;
   const [row] = await db
     .select()
     .from(threads)

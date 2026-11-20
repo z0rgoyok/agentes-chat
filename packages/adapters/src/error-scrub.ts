@@ -62,6 +62,69 @@ export function urlPattern(url: string): string {
   }
 }
 
+/** A URL as its origin alone (`https://example.com`), or null when it isn't one. */
+export function urlOrigin(url: string): string | null {
+  try {
+    const { protocol, host } = new URL(url);
+    return host ? `${protocol}//${host}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A bracketed IPv6 host (`http://[::1]:3000/…`) is part of the URL, so its path is cut too. */
+const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/(?:[^\s"'<>()[\]{}@/]*@)?(?:\[[\w:.%-]*\])?[^\s"'<>()[\]{}]*/gi;
+const URL_HEAD = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?(?:\[[^\]]*\]|[^/?#:]*)(?::\d+)?/i;
+/** Hosts named only on a local network (`someones-laptop.local`): a person's or a computer's name. */
+const LOCAL_HOST = /\b[\w-]+(?:\.[\w-]+)*\.(?:local|lan|internal|home\.arpa)\b/gi;
+/**
+ * Home folders on macOS, Linux and Windows (both slashes), and Windows' variable for one. A Windows account name may
+ * hold spaces (`C:\\Users\\Jane Doe\\…`): taken whole when a separator follows it.
+ */
+const HOME_PATHS =
+  /(?:\/Users\/|\/home\/|[A-Za-z]:[\\/]+Users[\\/]+)(?:[^\\/\s"']+(?: [^\\/\s"']+)*(?=[\\/])|[^\\/\s"']+)|%USERPROFILE%/gi;
+/** A cookie header's value, whatever its cookies are called. */
+const COOKIE_HEADER = /\b((?:set-)?cookie["']?\s*[:=]\s*)[^\r\n]+/gi;
+/** What a log line may keep at most: longer ones are cut. */
+export const LOG_LINE_MAX = 1000;
+/** Labels a sender's known values (`scrubLogLine`'s `known`) become. */
+export type KnownLabel = "server" | "computer" | "workspace" | "agent" | "person";
+
+/**
+ * One log line a person chose to send (a problem report): `scrubText`, then each URL as its origin with `/…` for any
+ * path, home folders as `~`, every `known` value as its label (`[computer]`), cut to `LOG_LINE_MAX`. Scrubbing a
+ * scrubbed line gives the same line.
+ */
+export function scrubLogLine(line: string, known: ReadonlyArray<readonly [value: string, label: KnownLabel]> = []) {
+  // Longest first: a machine called "box" never eats part of "box-2".
+  const values = [...known].filter(([v]) => v.trim().length >= 3).sort((a, b) => b[0].length - a[0].length);
+  const label = (text: string, which: typeof values) =>
+    which.reduce((out, [value, name]) => out.split(value).join(`[${name}]`), text);
+  // Names before the masks (a home folder may hold what reads as a token). URLs are cut before `scrubText`, so a
+  // password in one (`postgres://user:p!ss@host`) goes with its credentials, not in part through the email mask; the
+  // server's host is labeled after.
+  const out = label(
+    scrubText(
+      label(
+        line,
+        values.filter(([, name]) => name !== "server"),
+      )
+        .replace(COOKIE_HEADER, "$1***")
+        .replace(URL_IN_TEXT, (url) => {
+          // A host a known name became (`[computer].local`) no longer parses: its scheme and host by pattern then.
+          const head = urlOrigin(url) ?? URL_HEAD.exec(url)?.[0];
+          if (!head) return url;
+          const origin = head.replace(/\/\/[^/?#@]*@/, "//");
+          return url.length > origin.length && url.slice(origin.length) !== "/" ? `${origin}/…` : origin;
+        }),
+    )
+      .replace(LOCAL_HOST, "[host]")
+      .replace(HOME_PATHS, "~"),
+    values,
+  );
+  return out.length > LOG_LINE_MAX ? out.slice(0, LOG_LINE_MAX) : out;
+}
+
 /** A breadcrumb's data a report keeps: where a request or a navigation went and how it ended, never what it carried. */
 const CRUMB_DATA = ["method", "status_code", "url", "from", "to"] as const;
 

@@ -530,6 +530,10 @@ test("a system-mode runner (root) without workers does no agent work; machine-le
     "cli.install",
     // Opening Xcode on the Mac, beside its fix (listed in `MACHINE_OPS` order).
     "xcode.open",
+    // Repairing an iPhone's test helper is the phones' process's, beside their locks.
+    "phone.repair",
+    // A problem report reads the runner's own log and state: root's.
+    "report.collect",
   ]);
   const install = { op: "cli.install", action: "start", tool: "claude" } as unknown as MachineRequest;
   const installer = { ...ctx, cliInstall: () => ({ install: { tool: "claude" as const, state: "running" as const } }) };
@@ -749,9 +753,9 @@ test.if(posix)(
     expect(r.out).toBe(
       `${head}◒  Installing the packages for the agents' isolation\n◇  The packages for the agents' isolation\n`,
     );
-    // nft for the loopback guard (system mode won't start without it), ss for the bind check. Chrome's libraries
-    // come with Google Chrome's own package.
-    expect(ISOLATION_APT_PACKAGES).toEqual(["nftables", "iproute2"]);
+    // nft for the loopback guard (system mode won't start without it), ss for the bind check, setfacl for the shared
+    // folder and the cached repositories. Chrome's libraries come with Google Chrome's own package.
+    expect(ISOLATION_APT_PACKAGES).toEqual(["nftables", "iproute2", "acl"]);
     expect(r.calls).toBe(update + install(ISOLATION_APT_PACKAGES));
 
     // With --desktop: one install with the screens' packages too.

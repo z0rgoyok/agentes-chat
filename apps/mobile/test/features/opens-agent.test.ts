@@ -7,7 +7,7 @@ const FEATURES = join(import.meta.dir, "../../src/features");
 test("an agent's picture opens its profile on the surfaces about it", () => {
   for (const file of [
     "chat/ChannelMembers.tsx",
-    "chat/ChatScreen.tsx",
+    "chat/screen/useConversationActions.tsx",
     "right-hand/Intro.tsx",
     "task-manager/TaskManagerScreen.tsx",
     "task-manager/AgentTasksScreen.tsx",

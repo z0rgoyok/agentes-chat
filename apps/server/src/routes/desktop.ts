@@ -1,4 +1,5 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { withoutTrailingSlashes } from "../../runner/install-script";
 import { requestLimitIp } from "../http/client-ip";
 import { apiError, errorResponse } from "../http/errors";
 import { type AppDeps, json } from "./app/context";
@@ -329,7 +330,7 @@ const Latest = z
 export function registerDesktopRoutes(api: OpenAPIHono, deps: AppDeps, releases: DesktopReleases) {
   const { rateLimiter } = deps.adapters;
   // Download links are on `PUBLIC_URL`, whatever address a request came in on.
-  const base = deps.config.PUBLIC_URL.replace(/\/+$/, "");
+  const base = withoutTrailingSlashes(deps.config.PUBLIC_URL);
 
   // The desktop app's web view (origin `tauri://localhost`) reads it with fetch: public data, no credentials.
   api.use("/desktop/latest", async (c, next) => {

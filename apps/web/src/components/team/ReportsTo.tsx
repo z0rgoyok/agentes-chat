@@ -1,9 +1,9 @@
 import type { AgentLineChange, TeamAgent } from "@agenteschat/client";
 import { useSetAgentLines, useTeam } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { can } from "@agenteschat/client/lib/permissions";
 import { rightHandOf } from "@agenteschat/client/lib/right-hand";
-import { mayReportTo, reportsOf, supervisorOf } from "@agenteschat/client/lib/team-views";
+import { mayReportTo, mayUndoLines, reportsOf, supervisorOf } from "@agenteschat/client/lib/team-views";
 import { Field, Icon, MenuRadioGroup, Select } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -16,8 +16,11 @@ import "@/pages/team.css";
 const NOBODY = "";
 
 /**
- * Responde a (ADR 0148 addendum): sets who agents report to at once, for who manages agents, and says so with
- * Desfazer (the same call with what they were). `said`: the toast's words; absent, one agent's line by name.
+ * Responde a (ADR 0148 addendum): sets who agents report to at once, for who manages each of them (`setReportsTo`, ADR
+ * 0085 addendum of 2026-11-17), and says so with Undo (the same call with what they were) when each agent goes back
+ * under nobody or an agent I manage (`mayUndoLines`): putting one back under someone's private agent would be refused.
+ * `said`: the toast's words; absent, one agent's line by name. Every way Team and the agent's page change a line goes
+ * through here.
  */
 export function useSetReportsTo() {
   const { t } = useTranslation();
@@ -37,20 +40,40 @@ export function useSetReportsTo() {
           (one?.reportsToAgentId
             ? t("team.reportsTo.done", { agent: nameOf(one.agentId), to: nameOf(one.reportsToAgentId) })
             : t("team.reportsTo.cleared", { agent: nameOf(one?.agentId ?? null) }));
-        toast.show(words, "info", {
-          label: t("agentGroups.undo"),
-          run: () => set.mutate(previous, { onError: (e) => toast.show(errorText(t, e), "error") }),
-        });
+        toast.show(
+          words,
+          "info",
+          mayUndoLines(previous, dir.agents)
+            ? {
+                label: t("agentGroups.undo"),
+                run: () => set.mutate(previous, { onError: (e) => toast.show(errorText(t, e), "error") }),
+              }
+            : undefined,
+        );
       },
     });
 }
 
-/** The agents `agent` may report to, as the chart sees it: not Lodi (`lodiId`), not itself, not into its own line. */
-export const supervisorChoices = (agent: Pick<TeamAgent, "id">, team: readonly TeamAgent[], lodiId?: string) =>
-  team.filter((a) => a.id !== lodiId && a.id !== agent.id && mayReportTo(team, agent.id, a.id));
+/**
+ * The agents `agent` may report to, as the chart sees it: not Lodi (`lodiId`), not itself, not into its own line, and
+ * only ones the person manages (putting an agent under another changes that one too, ADR 0085 addendum of
+ * 2026-11-17), its current supervisor kept so the picker still names it.
+ */
+export const supervisorChoices = (
+  agent: Pick<TeamAgent, "id" | "reportsToAgentId">,
+  team: readonly TeamAgent[],
+  lodiId?: string,
+) =>
+  team.filter(
+    (a) =>
+      a.id !== lodiId &&
+      a.id !== agent.id &&
+      mayReportTo(team, agent.id, a.id) &&
+      (a.canManage === true || a.id === agent.reportsToAgentId),
+  );
 
 /**
- * "Responde a": a picker of agents, empty by default, applied at once with Desfazer. Who doesn't manage agents reads
+ * "Responde a": a picker of agents, empty by default, applied at once with Desfazer. Who doesn't manage the agent reads
  * the name. The line under it says it grants nothing.
  */
 export function ReportsToField({ agentId, id }: { agentId: string; id: string }) {
@@ -62,7 +85,8 @@ export function ReportsToField({ agentId, id }: { agentId: string; id: string })
   const agent = team.find((a) => a.id === agentId);
   if (!agent || agent.id === lodiId) return null;
   const current = supervisorOf(agent, team);
-  const manages = can(org, "manage_agents");
+  // Who manages this agent (ADR 0085 addendum of 2026-11-17).
+  const manages = managesAgent(agent);
   if (!manages && !current) return null;
   return (
     <div className="agp-field">

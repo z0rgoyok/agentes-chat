@@ -97,9 +97,12 @@ const ERRORS_KEPT = 5;
 const errors: string[] = [];
 let watching = false;
 
+/** A browser notice, not a fault: a layout read inside a ResizeObserver callback (`flushSync` in `useOverflows`). */
+const RESIZE_LOOP = "ResizeObserver loop completed with undelivered notifications.";
+
 const keep = (what: unknown) => {
   const text = what instanceof Error ? `${what.name}: ${what.message}` : String(what ?? "");
-  if (!text) return;
+  if (!text || text === RESIZE_LOOP) return;
   errors.push(`${new Date().toISOString().slice(11, 19)} ${squeeze(text).replace(/\n/g, " ").slice(0, 200)}`);
   if (errors.length > ERRORS_KEPT) errors.shift();
 };

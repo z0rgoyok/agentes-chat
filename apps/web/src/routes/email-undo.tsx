@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { EmailUndoPage } from "@/pages/EmailUndoPage";
+import { EmailUndoPage, SurfaceUndoPage } from "@/pages/EmailUndoPage";
 
-/** Where the notice to an account's old address lands: “This wasn't me” (`?token=`). */
+/**
+ * Where an email's undo lands (`?token=`): the notice to an account's old address (“This wasn't me”), or with
+ * `kind=surface` the one that says a chat app was linked (ADR 0187).
+ */
 export const Route = createFileRoute("/email-undo")({
-  validateSearch: (search: Record<string, unknown>): { token?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { token?: string; kind?: "surface" } => ({
     token: typeof search.token === "string" ? search.token : undefined,
+    kind: search.kind === "surface" ? "surface" : undefined,
   }),
   component: function EmailUndo() {
-    const { token } = Route.useSearch();
-    return <EmailUndoPage token={token} />;
+    const { token, kind } = Route.useSearch();
+    return kind === "surface" ? <SurfaceUndoPage token={token} /> : <EmailUndoPage token={token} />;
   },
 });

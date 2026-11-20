@@ -1,5 +1,5 @@
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { PixelOrbit } from "@/agent/PixelOrbit";
@@ -17,7 +17,7 @@ const MAX_SIDE = 300;
  * the conversation's background), the pixel orbit and "Criando a imagem…", until the reply takes its place with the
  * picture. Its image tool says nothing until it is done, so it shows no progress.
  */
-export function ImageMaking({ color }: { color: AgentColorName }) {
+export const ImageMaking = memo(function ImageMaking({ color }: { color: AgentColorName }) {
   const { t } = useTranslation();
   const c = useColors();
   const [width, setWidth] = useState(0);
@@ -40,7 +40,7 @@ export function ImageMaking({ color }: { color: AgentColorName }) {
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { alignSelf: "stretch" },

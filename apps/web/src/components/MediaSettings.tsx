@@ -1,5 +1,6 @@
 import type { Agent, AgentMediaLevel, GifRating, OrgSettings } from "@agenteschat/client";
 import { useAgents, useSettings, useUpdateAgent, useUpdateSettings } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { shownMediaSettings } from "@agenteschat/client/lib/media";
 import { can } from "@agenteschat/client/lib/permissions";
 import { Card, CardFooter, CardHeader, Segmented, Switch } from "@agenteschat/ui";
@@ -136,7 +137,7 @@ export function MediaSettingsSection() {
 }
 
 /**
- * One agent's own switch: whoever edits agents changes it. It counts at any level: at Nunca the agent sends none on
+ * One agent's own switch: who manages that agent (`managesAgent`) changes it. It counts at any level: at Nunca the agent sends none on
  * its own, and still sends one when asked while it is on.
  */
 function AgentMediaRow({ agent }: { agent: Agent }) {
@@ -156,7 +157,7 @@ function AgentMediaRow({ agent }: { agent: Agent }) {
         <Switch
           checked={asked ?? saved}
           onCheckedChange={(next) => update.mutate({ mediaReplies: next })}
-          disabled={!can(org, "manage_agents")}
+          disabled={!managesAgent(agent)}
           aria-label={t("settings.media.agentOn", { name: agent.name })}
           aria-describedby={agent.role ? `${id}-help` : undefined}
         />

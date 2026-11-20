@@ -7,7 +7,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { AppProvider } from "../src/app";
-import type { Tailnet } from "../src/control/local-server";
+import type { LocalServerStatus, Tailnet } from "../src/control/local-server";
 import { DesktopStore } from "../src/control/store";
 import type { UpdateCheck } from "../src/hooks";
 import { createFakeHost, type FakeHost, type HereOptions, type Scenario } from "../src/host/fake";
@@ -606,8 +606,8 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       async (el, host) => {
         expect(el.querySelector(".dk-phead .dk-lead")).toBeNull();
         // The license's attribution and legal notices, always at the end.
-        expect(el.textContent).toContain("Based on agentes.chat by Codari Global, LLC");
-        expect(el.textContent).toContain("Copyright © 2026 Codari Global, LLC and contributors");
+        expect(el.textContent).toContain("Based on agentes.chat by AGENTESCHAT, LLC");
+        expect(el.textContent).toContain("Copyright © 2026 AGENTESCHAT, LLC and contributors");
         const acts = el.querySelector(".dk-ver__acts") as HTMLElement;
         expect(acts.textContent).toBe("Update and reopen");
         host.installUpdate = async () => false;
@@ -618,7 +618,7 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
     );
   });
 
-  test("Updates: on Linux, the system details to copy; elsewhere no such row", async () => {
+  test("Updates: the system details to copy, on every system", async () => {
     const update: UpdateCheck = {
       state: { latest: null, available: false, required: false },
       checkedAt: null,
@@ -642,7 +642,8 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
           const row = [...el.querySelectorAll(".dk-crow")].find(
             (r) => r.querySelector(".dk-crow__title")?.textContent === "System details",
           ) as HTMLElement;
-          const line = "Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · Intel (i915) · CPU · AppImage";
+          const line =
+            "agentes.chat 0.6.0 · Linux · Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · Intel (i915) · CPU (chosen) · AppImage";
           expect(row.querySelector("small")?.textContent).toBe(line);
           await act(async () => (row.querySelector("button") as HTMLButtonElement).click());
           await until(() => copied.length > 0);
@@ -652,9 +653,9 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       await pane(
         "selfhost",
         <Updates update={update} />,
-        (el) => rows(el).some((r) => r.title === "Install updates by itself, at night"),
+        (el) => rows(el).some((r) => r.title === "System details"),
         (el) => {
-          expect(rows(el).map((r) => r.title)).not.toContain("System details");
+          expect(row(el, "System details")?.line).toBe("agentes.chat 0.6.0 · macOS 15.5");
         },
       );
     } finally {
@@ -697,5 +698,180 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
         await until(() => el.textContent?.includes("Download version 9.9.9"));
       },
     );
+  });
+});
+
+describe("Preferences › General: Compatibility mode (Linux)", () => {
+  const compatRow = (el: HTMLElement) => row(el, "Compatibility mode");
+  const toast = () => document.querySelector(".dk-toast");
+
+  test("only on Linux, on by default, its explanation behind ⓘ; a change says it takes effect on reopening", () =>
+    pane(
+      "linux",
+      <General />,
+      (el) => compatRow(el) && !el.querySelector<HTMLButtonElement>("#compat")?.disabled,
+      async (el, host) => {
+        expect(compatRow(el)).toEqual({
+          title: "Compatibility mode",
+          hint: "Draws the window without the graphics card. It's slower but works on any computer. Use it if the window goes black, gets cut off or freezes.",
+          switch:
+            "Draws the window without the graphics card. It's slower but works on any computer. Use it if the window goes black, gets cut off or freezes.",
+          line: null,
+        });
+        const chosen: boolean[] = [];
+        let reopened = 0;
+        let save = () => {};
+        host.setCompatMode = (on) =>
+          new Promise<void>((done) => {
+            chosen.push(on);
+            save = done;
+          });
+        host.reopen = async () => {
+          reopened++;
+        };
+        const sw = el.querySelector<HTMLButtonElement>("#compat") as HTMLButtonElement;
+        expect(sw.getAttribute("aria-checked")).toBe("true");
+        await act(async () => sw.click());
+        // Saving: the switch waits for it.
+        expect(chosen).toEqual([false]);
+        expect(sw.disabled).toBe(true);
+        await act(async () => save());
+        await until(() => !sw.disabled);
+        expect(sw.getAttribute("aria-checked")).toBe("false");
+        expect(toast()?.textContent).toBe("Takes effect when the app reopens.Reopen now");
+        await act(async () => buttonIn(toast() as HTMLElement, "Reopen now")?.click());
+        expect(reopened).toBe(1);
+      },
+    ));
+
+  test("a switch that couldn't be saved goes back, and says so", () =>
+    pane(
+      "linux",
+      <General />,
+      (el) => compatRow(el) && !el.querySelector<HTMLButtonElement>("#compat")?.disabled,
+      async (el, host) => {
+        host.setCompatMode = async () => {
+          throw new Error("read-only");
+        };
+        const sw = el.querySelector<HTMLButtonElement>("#compat") as HTMLButtonElement;
+        await act(async () => sw.click());
+        await until(() => !sw.disabled);
+        expect(sw.getAttribute("aria-checked")).toBe("true");
+        expect(toast()?.textContent).toBe("Something went wrong. Try again.");
+      },
+    ));
+
+  test("after an opening with the graphics card that never painted: on again, said once, with the way back", () =>
+    pane(
+      "linux",
+      <General />,
+      () => toast()?.textContent?.includes("compatibility mode"),
+      async (el, host) => {
+        expect(el.querySelector("#compat")?.getAttribute("aria-checked")).toBe("true");
+        expect(toast()?.textContent).toBe(
+          "The window didn't open with the graphics card, so it opened in compatibility mode.Try the graphics card again",
+        );
+        const chosen: boolean[] = [];
+        let reopened = 0;
+        host.setCompatMode = async (on) => void chosen.push(on);
+        host.reopen = async () => {
+          reopened++;
+        };
+        await act(async () => buttonIn(toast() as HTMLElement, "Try the graphics card again")?.click());
+        await until(() => reopened === 1);
+        expect(chosen).toEqual([false]);
+      },
+      { host: (h) => (h.compat = { on: true, fellBack: true, own: false }) },
+    ));
+
+  test("the fallback's way back asks first when agentes.chat starts running here after the window opened", () => {
+    let said: ((status: LocalServerStatus) => void) | undefined;
+    return pane(
+      "linux",
+      <General />,
+      () => toast()?.textContent?.includes("compatibility mode"),
+      async (_el, host) => {
+        let reopened = 0;
+        host.setCompatMode = async () => {};
+        host.reopen = async () => {
+          reopened++;
+        };
+        const status = await host.localServer();
+        await act(async () => said?.({ ...status, run: true }));
+        await act(async () => buttonIn(toast() as HTMLElement, "Try the graphics card again")?.click());
+        await until(() => document.querySelector('[role="dialog"]'));
+        const dialog = document.querySelector('[role="dialog"]')?.textContent;
+        expect(dialog).toContain("Reopen agentes.chat?");
+        expect(dialog).toContain("agentes.chat stops on this computer: nobody can use it");
+        expect(reopened).toBe(0);
+      },
+      {
+        host: (h) => {
+          h.compat = { on: true, fellBack: true, own: false };
+          h.onLocalServer = (cb) => {
+            said = cb;
+            return () => {};
+          };
+        },
+      },
+    );
+  });
+
+  test("Reopen now asks first while agents work here, and waits while the app reopens", () =>
+    pane(
+      "selfhost",
+      <General />,
+      // Agents work here once this computer's name shows.
+      (el) => row(el, "Name") && compatRow(el) && !el.querySelector<HTMLButtonElement>("#compat")?.disabled,
+      async (el, host) => {
+        let reopened = 0;
+        host.reopen = () => {
+          reopened++;
+          return new Promise<void>(() => {});
+        };
+        await act(async () => el.querySelector<HTMLButtonElement>("#compat")?.click());
+        await until(() => buttonIn(toast() as HTMLElement, "Reopen now"));
+        await act(async () => buttonIn(toast() as HTMLElement, "Reopen now")?.click());
+        await until(() => document.querySelector('[role="dialog"]'));
+        const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(dialog.textContent).toContain("Reopen agentes.chat?");
+        expect(dialog.textContent).toContain("Agents can't use this computer until the app opens again.");
+        expect(reopened).toBe(0);
+        await act(async () => buttonIn(dialog, "Reopen now")?.click());
+        expect(reopened).toBe(1);
+        expect((buttonIn(dialog, "Cancel") as HTMLButtonElement).disabled).toBe(true);
+        expect((buttonIn(dialog, "Reopen now") as HTMLButtonElement).disabled).toBe(true);
+      },
+      { host: (h) => Object.assign(h, { platform: "linux" }) },
+    ));
+
+  test("the system's own WEBKIT_DISABLE_DMABUF_RENDERER decides: the switch shows it, can't change it, and its ⓘ says why", () =>
+    pane(
+      "linux",
+      <General />,
+      (el) => compatRow(el)?.hint?.includes("decides this now"),
+      (el) => {
+        const desc =
+          "Draws the window without the graphics card. It's slower but works on any computer. Use it if the window goes black, gets cut off or freezes.";
+        expect(compatRow(el)?.hint).toBe(
+          `${desc} WEBKIT_DISABLE_DMABUF_RENDERER decides this now. To choose here, quit the app and open it without that variable.`,
+        );
+        const sw = el.querySelector<HTMLButtonElement>("#compat") as HTMLButtonElement;
+        expect(sw.getAttribute("aria-checked")).toBe("false");
+        expect(sw.disabled).toBe(true);
+      },
+      { host: (h) => (h.compat = { on: false, fellBack: false, own: true }) },
+    ));
+
+  test("not on a Mac or Windows", async () => {
+    for (const scenario of ["selfhost", "windows"] as const)
+      await pane(
+        scenario,
+        <General />,
+        (el) => row(el, "Language"),
+        (el) => {
+          expect(compatRow(el)).toBeUndefined();
+        },
+      );
   });
 });
