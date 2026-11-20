@@ -63,9 +63,9 @@ describe("the sign-in page", () => {
     expect(document.querySelector(".auth__powered")).toBeNull();
   });
 
-  test("anywhere else: exactly as before", async () => {
+  test("on the primary host: the Tich Rooms name and the regular sign-in options", async () => {
     await signInPage(null);
-    expect(screen().getByRole("img", { name: "agentes" })).toBeTruthy();
+    expect(document.querySelector(".auth__logo")?.textContent).toBe("Tich Rooms");
     expect(document.querySelector(".auth--host, .auth__powered")).toBeNull();
     expect(screen().getByRole("button", { name: /Continuar com GitHub/ })).toBeTruthy();
     expect(agentVar()).toBe("");
