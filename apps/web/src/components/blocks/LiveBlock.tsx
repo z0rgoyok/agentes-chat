@@ -17,7 +17,7 @@ import { formatTime } from "@agenteschat/client/lib/format";
 import { PAGE_SANDBOX } from "@agenteschat/client/lib/isolated-page";
 import { Button, Menu, MenuItem, Spinner } from "@agenteschat/ui";
 import { chartRamp } from "@agenteschat/ui/sky/chart";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePageUrl } from "@/components/artifacts/HtmlFrame";
 import { useArtifactViewer } from "@/components/artifacts/viewer-context";
@@ -67,10 +67,8 @@ function loadFontFace() {
 
 /** Close to the viewport, with room to spare: a long conversation keeps only the frames near what is on screen. */
 function useNearScreen<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
   const [near, setNear] = useState(typeof IntersectionObserver !== "function");
-  useEffect(() => {
-    const el = ref.current;
+  const ref = useCallback((el: T | null) => {
     if (!el || typeof IntersectionObserver !== "function") return;
     const seen = new IntersectionObserver(([e]) => setNear(e?.isIntersecting ?? true), { rootMargin: "600px 0px" });
     seen.observe(el);
