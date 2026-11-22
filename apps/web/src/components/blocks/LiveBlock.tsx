@@ -27,6 +27,7 @@ import { CardSky, colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useReveal } from "@/hooks/useReveal";
 import { useDarkTheme } from "@/lib/grow";
+import { STORAGE_KEYS, sessionStore } from "@/lib/storage";
 import { useToast } from "@/lib/toast";
 import { SpecBlock } from "./SpecBlock";
 import "./blocks.css";
@@ -37,16 +38,26 @@ import "./blocks.css";
  */
 const INLINE_HEIGHT = 420;
 
-type Kept = { height?: number; open?: boolean; sent?: { text: string; at: string }; run?: boolean };
+type Disclosure = { open?: boolean; run?: boolean; sections?: Record<string, boolean> };
+type Kept = Disclosure & { height?: number; sent?: { text: string; at: string } };
+
+function readDisclosure(key: string): Disclosure {
+  try {
+    const value = JSON.parse(sessionStore.get(key) ?? "{}");
+    return { run: value.run === true, open: value.open === true, sections: value.sections ?? {} };
+  } catch {
+    return {};
+  }
+}
 /**
  * What stays when a frame goes away (scrolled out, opened big). Its state is everyone's and lives on the server
  * (`useSharedBlock`); this is only how tall it was, whether it was shown whole and what this person sent from it.
  */
 const kept = new Map<string, Kept>();
-const keptOf = (key: string): Kept => {
+const keptOf = (key: string, restore = false): Kept => {
   const found = kept.get(key);
   if (found) return found;
-  const fresh: Kept = {};
+  const fresh: Kept = restore ? readDisclosure(key) : {};
   kept.set(key, fresh);
   return fresh;
 };
@@ -80,7 +91,8 @@ function useNearScreen<T extends HTMLElement>() {
 
 /** The sandboxed frame: the page, how tall it says it is, what it proposes. */
 function BlockFrame({
-  blockKey,
+  heightKey,
+  disclosures,
   html,
   title,
   color,
@@ -90,7 +102,8 @@ function BlockFrame({
   onEvent,
   onFailed,
 }: {
-  blockKey: string;
+  heightKey: string;
+  disclosures?: Record<string, boolean>;
   html: string;
   title: string;
   color: Parameters<typeof chartRamp>[0];
@@ -107,7 +120,7 @@ function BlockFrame({
   const frame = useRef<HTMLIFrameElement>(null);
   const [face, setFace] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [height, setHeight] = useState(keptOf(blockKey).height ?? 0);
+  const [height, setHeight] = useState(keptOf(heightKey).height ?? 0);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const sharedRef = useRef(shared);
@@ -135,9 +148,10 @@ function BlockFrame({
       state: sharedRef.current?.state,
       who: sharedRef.current?.who,
       fontFace: face,
+      disclosures,
     };
     return blockPage(html, host);
-  }, [face, html, blockKey]);
+  }, [face, html, heightKey]);
 
   const { url, failed } = usePageUrl(page ?? "", ready);
   useEffect(() => {
@@ -155,14 +169,14 @@ function BlockFrame({
         if (sharedRef.current) frame.current.contentWindow?.postMessage(sharedRef.current, "*");
       }
       if (event.type === "height") {
-        keptOf(blockKey).height = event.height;
+        keptOf(heightKey).height = event.height;
         setHeight(event.height);
       }
       onEventRef.current(event);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [blockKey]);
+  }, [heightKey]);
 
   useEffect(() => {
     frame.current?.contentWindow?.postMessage({ theme: dark ? "dark" : "light" }, "*");
@@ -212,17 +226,23 @@ export function LiveBlock({
   rememberOpen?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const agent = dir.anyAgent(agentId);
   const blockKey = `${id}@${version}`;
-  // The extension can retain disclosure across versions. Frame size and replies still belong to one version.
-  const disclosure = keptOf(rememberOpen ? id : blockKey);
+  const disclosureKey = rememberOpen ? `${STORAGE_KEYS.blockDisclosure}.${me.user.id}.${org.id}.${id}` : blockKey;
+  const disclosure = keptOf(disclosureKey, rememberOpen);
+  const saveDisclosure = () => {
+    if (rememberOpen) {
+      const { run, open, sections } = disclosure;
+      sessionStore.set(disclosureKey, JSON.stringify({ run, open, sections }));
+    }
+  };
   const { ref, near } = useNearScreen<HTMLDivElement>();
   const [draft, setDraft] = useState<Extract<BlockEvent, { type: "draft" }> | null>(null);
   const [broken, setBroken] = useState(false);
   const [sent, setSent] = useState(keptOf(blockKey).sent ?? null);
-  const [height, setHeight] = useState(keptOf(blockKey).height ?? 0);
+  const [height, setHeight] = useState(disclosure.height ?? 0);
   const [open, setOpen] = useState(disclosure.open ?? false);
   const shown = useRef<HTMLDivElement>(null);
   const reveal = useReveal(shown, open);
@@ -233,6 +253,7 @@ export function LiveBlock({
   const openWhole = () => {
     reveal();
     disclosure.open = true;
+    saveDisclosure();
     setOpen(true);
   };
   const reply = useBlockReply(org.id, id);
@@ -247,6 +268,13 @@ export function LiveBlock({
 
   const onEvent = (e: BlockEvent) => {
     if (e.type === "height") setHeight(e.height);
+    if (rememberOpen && e.type === "disclosure") {
+      const sections = disclosure.sections ?? {};
+      if (Object.keys(sections).length < 128 || Object.hasOwn(sections, e.key)) {
+        disclosure.sections = { ...sections, [e.key]: e.open };
+        saveDisclosure();
+      }
+    }
     if (e.type === "state") shared.fromPage(e.state, e.used);
     if (e.type === "draw") void shared.draw(e.name, e.options);
     if (e.type !== "draft") return;
@@ -279,6 +307,7 @@ export function LiveBlock({
           size="sm"
           onClick={() => {
             disclosure.run = true;
+            saveDisclosure();
             setRun(true);
           }}
         >
@@ -313,7 +342,8 @@ export function LiveBlock({
       >
         {(near || big) && shared.loaded ? (
           <BlockFrame
-            blockKey={blockKey}
+            heightKey={disclosureKey}
+            disclosures={rememberOpen ? (disclosure.sections ?? {}) : undefined}
             html={html}
             title={title}
             color={colorOf(agent)}
@@ -324,7 +354,7 @@ export function LiveBlock({
             onFailed={() => setBroken(true)}
           />
         ) : (
-          <div className="live-block__room" style={{ height: big ? (keptOf(blockKey).height ?? 120) : "100%" }} />
+          <div className="live-block__room" style={{ height: big ? (disclosure.height ?? 120) : "100%" }} />
         )}
       </div>
       {tall && !open && (
@@ -383,7 +413,7 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const viewer = useArtifactViewer();
-  const query = useArtifact(org.id, id, version, i18n.language);
+  const query = useArtifact(org.id, id, version, i18n.language, true);
   const keep = useKeepBlock(org.id, id);
   const toast = useToast();
   const a = query.data;
@@ -443,7 +473,7 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
           rememberOpen={a.rememberBlockOpen}
         />
       )}
-      <BlockActionButtons block={a} />
+      {!query.isPlaceholderData && <BlockActionButtons block={a} />}
     </section>
   );
 }

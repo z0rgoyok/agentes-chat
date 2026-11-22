@@ -44,7 +44,7 @@ export function ArtifactCard({ artifact: ref }: { artifact: ArtifactRef }) {
   const download = useArtifactDownload();
   const share = useFileShare();
   const remove = useDeleteArtifact();
-  const query = useArtifact(org.id, ref.deleted ? null : ref.id, ref.version);
+  const query = useArtifact(org.id, ref.deleted ? null : ref.id, ref.version, undefined, true);
   const a = query.data;
   // Deleted (to the trash): a quiet placeholder, never a broken card.
   if (ref.deleted) {
@@ -64,7 +64,7 @@ export function ArtifactCard({ artifact: ref }: { artifact: ArtifactRef }) {
   }
   if (!a) return <LoadingTile title={ref.title} ratio={pictureRatio(ref)} />;
   // What lives in the conversation isn't a file: the thing itself, not a tile that opens it (ADR 0113).
-  if (a.kind === "block") return <LiveBlockCard id={a.id} version={a.shownVersion} />;
+  if (a.kind === "block") return <LiveBlockCard id={a.id} version={ref.version ?? a.shownVersion} />;
   if (a.kind === "poll") return <PollCard id={a.id} version={a.shownVersion} />;
   if (a.kind === "choices") return <ChoicesCard id={a.id} version={a.shownVersion} />;
   const open = () => viewer.open(a.id, a.shownVersion < a.version ? a.shownVersion : undefined);

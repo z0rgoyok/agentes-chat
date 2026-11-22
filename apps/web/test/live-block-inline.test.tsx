@@ -67,15 +67,19 @@ test("a card that was opened stays open when a trusted revision replaces it", as
   const [first] = await api.artifacts.list(ORG_ID);
   if (!first) throw new Error("missing fixture");
   const file = await api.artifacts.get(ORG_ID, first.id);
-  api.artifacts.get = async (_org, id, version) => ({
-    ...file,
-    id,
-    kind: "block",
-    content: { kind: "block", html: `<p>Revision ${version}</p>` },
-    shownVersion: version ?? 1,
-    title: `Revision ${version}`,
-    ...(id === file.id ? { rememberBlockOpen: true as const } : {}),
-  });
+  const delayed = Promise.withResolvers<void>();
+  api.artifacts.get = async (_org, id, version) => {
+    if (id === file.id && version === 2) await delayed.promise;
+    return {
+      ...file,
+      id,
+      kind: "block",
+      content: { kind: "block", html: `<p>Revision ${version}</p>` },
+      shownVersion: version ?? 1,
+      title: `Revision ${version}`,
+      ...(id === file.id ? { rememberBlockOpen: true as const } : {}),
+    };
+  };
   function Card({ id }: { id: string }) {
     const [version, setVersion] = useState(1);
     return (
@@ -95,6 +99,9 @@ test("a card that was opened stays open when a trusted revision replaces it", as
     await screen().findByTitle("Revision 1");
 
     update();
+    await settle();
+    expect(screen().queryByTitle("Revision 1")?.tagName).toBe("IFRAME");
+    delayed.resolve();
     await screen().findByText("Revision 2");
     expect(screen().queryByRole("button", { name: "Abrir bloco" }) !== null).toBe(false);
     await screen().findByTitle("Revision 2");

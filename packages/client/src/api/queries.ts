@@ -4117,12 +4117,26 @@ export const useArtifactTrash = (orgId: string) => {
   });
 };
 
-export const useArtifact = (orgId: string, id: string | null, version?: number, locale?: string) => {
+export const useArtifact = (
+  orgId: string,
+  id: string | null,
+  version?: number,
+  locale?: string,
+  retainBlock = false,
+) => {
   const api = useApi();
   const key = keys.artifact(orgId, id ?? "", version);
   return useQuery({
     queryKey: locale ? [...key, locale] : key,
     queryFn: () => api.artifacts.get(orgId, id ?? "", version, locale),
+    placeholderData: retainBlock
+      ? (previous, query) =>
+          previous?.rememberBlockOpen &&
+          previous.id === id &&
+          key.slice(0, -1).every((part, i) => part === query?.queryKey[i])
+            ? previous
+            : undefined
+      : undefined,
     enabled: Boolean(id),
     // Old versions never change.
     staleTime: version ? Number.POSITIVE_INFINITY : 0,
