@@ -31,6 +31,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { BlockActionButtons } from "@/components/blocks/LiveBlock";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useMatchMedia } from "@/hooks/useMatchMedia";
@@ -433,6 +434,7 @@ export function ArtifactViewer({
                 onSwipe={many ? move : undefined}
               />
             )}
+            {a.kind === "block" && <BlockActionButtons block={a} />}
             {next && (
               <Button
                 ref={nextRef}

@@ -48,6 +48,7 @@ import { createLogger } from "../src/logger";
 import { createMachineSockets } from "../src/realtime/machines";
 import { createStreamSockets } from "../src/realtime/streams";
 import { createRealtime, type SocketData } from "../src/realtime/ws";
+import type { BlockActions } from "../src/routes/app/extras";
 
 export const ORIGIN = "http://localhost:3000";
 
@@ -66,6 +67,7 @@ export const TEST_SCHEDULES: FakeScheduleAnswers = {
  */
 export async function createTestServer(
   options: {
+    blockActions?: BlockActions;
     env?: Record<string, string>;
     reply?: Parameters<typeof createFakeProvider>[0];
     toolSources?: ToolSource[];
@@ -226,6 +228,7 @@ export async function createTestServer(
         embed: engine.gateway.embed,
         storage: engine.storage,
         artifacts: engine.artifacts,
+        blockActions: options.blockActions,
         context: engine.context,
         sandbox: engine.sandbox,
         gitProxy: engine.gitProxy,

@@ -1511,6 +1511,8 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         request<ArtifactPage>(`${org(orgId)}/artifacts`, { query: { ...artifactQuery(filters), cursor } }),
       get: (orgId, id, version) =>
         request<ArtifactDetail>(`${org(orgId)}/artifacts/${enc(id)}`, { query: { version } }),
+      invokeBlockAction: (orgId, id, version, actionId) =>
+        request<void>(`${org(orgId)}/blocks/${enc(id)}/actions`, { json: { version, actionId } }),
       keep: (orgId, id) => request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}/keep`, { method: "POST" }),
       reply: (orgId, id, text, clientId) =>
         request<{ id: string }>(`${org(orgId)}/artifacts/${enc(id)}/reply`, {

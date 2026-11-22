@@ -3773,6 +3773,8 @@ export interface ArtifactVersion {
 
 /** An artifact at one version, with its content. */
 export interface ArtifactDetail extends Artifact {
+  /** Actions available to this person on the current block version. */
+  blockActions?: { id: string; label: string }[];
   /** The version shown (may be older than `version`). */
   shownVersion: number;
   content: ArtifactContent;

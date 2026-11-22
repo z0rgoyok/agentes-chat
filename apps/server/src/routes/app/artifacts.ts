@@ -258,6 +258,7 @@ const Choices = z
   .openapi("Choices");
 
 const ArtifactDetail = Artifact.extend({
+  blockActions: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   shownVersion: z.number(),
   content: Content,
   versioned: z.boolean().openapi({
@@ -495,10 +496,16 @@ export function artifactRoutes(deps: AppDeps) {
       const { orgId, artifactId } = c.req.valid("param");
       const { version } = c.req.valid("query");
       const userId = c.get("user").id;
-      return c.json(
-        await withFacts(userId, orgId, await getArtifact(artifacts(), person(userId), orgId, artifactId, version)),
-        200,
+      const file = await withFacts(
+        userId,
+        orgId,
+        await getArtifact(artifacts(), person(userId), orgId, artifactId, version),
       );
+      const actions = deps.extras?.blockActions;
+      if (actions && file.kind === "block" && file.shownVersion === file.version) {
+        return c.json({ ...file, blockActions: await actions.list({ orgId, artifactId, userId }) }, 200);
+      }
+      return c.json(file, 200);
     },
   );
 
@@ -678,6 +685,36 @@ export function artifactRoutes(deps: AppDeps) {
       );
       deps.wakeWorkers?.();
       return c.json({ id: message.id }, 201);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/blocks/{artifactId}/actions",
+      tags,
+      security,
+      summary: "Perform a server-provided action on the block currently shown",
+      request: {
+        params: ArtifactParams,
+        body: body(z.object({ actionId: z.string().min(1).max(256), version: z.number().int().positive() })),
+      },
+      responses: { ...noContent, ...errors },
+    }),
+    async (c) => {
+      const { orgId, artifactId } = c.req.valid("param");
+      const { actionId, version } = c.req.valid("json");
+      const userId = c.get("user").id;
+      const file = await getArtifact(artifacts(), person(userId), orgId, artifactId);
+      const actions = deps.extras?.blockActions;
+      if (file.kind !== "block" || !actions) return apiError(c, 404, "not_found", "No actions for this block");
+      if (file.version !== version) return apiError(c, 409, "conflict", "The block has changed");
+      const context = { orgId, artifactId, userId };
+      if (!(await actions.list(context)).some((action) => action.id === actionId)) {
+        return apiError(c, 409, "conflict", "This action is no longer available");
+      }
+      await actions.invoke({ ...context, actionId });
+      return c.body(null, 204);
     },
   );
 

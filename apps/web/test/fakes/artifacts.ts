@@ -239,6 +239,7 @@ export function createMockArtifacts(
       };
     },
     get: async (orgId, id, version) => detail(orgId, await find(orgId, id), version),
+    invokeBlockAction: async () => {},
     keep: async (orgId, id) => {
       const s = await find(orgId, id);
       s.meta.inDrive = true;

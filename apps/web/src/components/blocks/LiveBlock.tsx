@@ -1,4 +1,12 @@
-import { type BlockChange, useArtifact, useBlockReply, useKeepBlock, useSharedBlock } from "@agenteschat/client";
+import {
+  type ArtifactDetail,
+  type BlockChange,
+  useArtifact,
+  useBlockAction,
+  useBlockReply,
+  useKeepBlock,
+  useSharedBlock,
+} from "@agenteschat/client";
 import {
   type BlockEvent,
   type BlockHost,
@@ -349,6 +357,22 @@ export function LiveBlock({
   );
 }
 
+/** Trusted controls stay outside both the sandboxed page and the agent-authored block spec. */
+export function BlockActionButtons({ block }: { block: ArtifactDetail }) {
+  const { org } = useOrg();
+  const action = useBlockAction(org.id, block.id, block.shownVersion);
+  if (!block.blockActions?.length) return null;
+  return (
+    <div className="live-block__foot">
+      {block.blockActions.map(({ id, label }) => (
+        <Button key={id} size="sm" disabled={action.isPending} onClick={() => action.mutate(id)}>
+          {label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 /** A block on its message: the agent's card, its title, and the block itself. */
 export function LiveBlockCard({ id, version }: { id: string; version?: number }) {
   const { t } = useTranslation();
@@ -407,6 +431,7 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
       ) : (
         <LiveBlock id={a.id} version={a.shownVersion} title={a.title} html={a.content.html ?? ""} agentId={agentId} />
       )}
+      <BlockActionButtons block={a} />
     </section>
   );
 }

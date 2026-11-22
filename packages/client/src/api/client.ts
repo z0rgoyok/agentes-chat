@@ -1780,6 +1780,7 @@ export interface ApiClient {
     /** One artifact at `version` (default: latest), with content. */
     get(orgId: string, id: string, version?: number): Promise<ArtifactDetail>;
     /** Keeps a block in the Drive (ADR 0113). */
+    invokeBlockAction(orgId: string, id: string, version: number, actionId: string): Promise<void>;
     keep(orgId: string, id: string): Promise<Artifact>;
     /** Sends what a person picked in a block to the agent that made it, as their own message. */
     reply(orgId: string, id: string, text: string, clientId: string): Promise<{ id: string }>;

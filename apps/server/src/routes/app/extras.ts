@@ -19,6 +19,19 @@ import type {
   VoiceDeps,
 } from "@agenteschat/engine";
 
+export interface BlockActionContext {
+  orgId: string;
+  userId: string;
+  artifactId: string;
+}
+
+/** Actions offered by a trusted server extension to the signed-in person viewing a live block. */
+export interface BlockActions {
+  list(input: BlockActionContext): Promise<{ id: string; label: string }[]>;
+  /** Authorize the person and validate the action against current application state before applying it. */
+  invoke(input: BlockActionContext & { actionId: string }): Promise<void>;
+}
+
 /**
  * Backend services the app API needs beyond the core deps (owned by the
  * backend; extended per phase). Everything is optional so tests and the web
@@ -38,6 +51,7 @@ export interface AppExtras {
   /** Org storage settings and the blob resolver (Drive, artifacts). */
   storage?: StorageDeps;
   artifacts?: ArtifactDeps;
+  blockActions?: BlockActions | undefined;
   /** Agents' computers (ADR 0025): the machine hub, Run code settings and git; null/absent = none on this server. */
   sandbox?: SandboxDeps | null;
   /** The git proxy for agents' computers (ADR 0024); absent = off. */

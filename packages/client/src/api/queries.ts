@@ -4169,6 +4169,15 @@ export const useAnswerChoices = (orgId: string, id: string) => {
   });
 };
 
+export const useBlockAction = (orgId: string, id: string, version: number) => {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (actionId: string) => api.artifacts.invokeBlockAction(orgId, id, version, actionId),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.artifact(orgId, id).slice(0, -1) }),
+  });
+};
+
 export const useKeepBlock = (orgId: string, id: string) => {
   const api = useApi();
   const qc = useQueryClient();

@@ -98,6 +98,7 @@ import { apnsKeyGaps, directPushSenders, phonePushMode, relayServeSender } from 
 import { createMachineSockets } from "./realtime/machines";
 import { createStreamSockets } from "./realtime/streams";
 import { createRealtime, type SocketData } from "./realtime/ws";
+import type { BlockActions } from "./routes/app/extras";
 import { workerHealth } from "./routes/health";
 import { startTelemetry } from "./telemetry";
 import { releaseOf, version } from "./version";
@@ -117,6 +118,8 @@ const EXIT_FLUSH_MS = 2_000;
 export interface StartOptions {
   edition: Edition;
   modules?: AgentesModule[];
+  /** Native actions below a live block, available only through the signed-in person API. */
+  blockActions?(ctx: ModuleContext): BlockActions;
   /** Extra tools for agent runs, using the same gateway and run context as built-in tools. */
   toolSources?(ctx: ModuleContext): NonNullable<EngineOptions["toolSources"]>;
   /**
@@ -191,7 +194,7 @@ export async function startServer(options: StartOptions) {
 
 /** Everything of the boot after the config, so `startServer` can report what fails in it. */
 async function boot(
-  { edition, modules = [], ownHostsOnly = false, toolSources }: StartOptions,
+  { edition, modules = [], ownHostsOnly = false, toolSources, blockActions }: StartOptions,
   config: Config,
   log: Logger,
   release: string,
@@ -542,6 +545,7 @@ async function boot(
         embed: engine.gateway.embed,
         storage: engine.storage,
         artifacts: engine.artifacts,
+        blockActions: blockActions?.(ctx),
         context: engine.context,
         sandbox: engine.sandbox,
         browserLive: engine.browserLive,
