@@ -258,6 +258,7 @@ const Choices = z
   .openapi("Choices");
 
 const ArtifactDetail = Artifact.extend({
+  rememberBlockOpen: z.literal(true).optional(),
   blockActions: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   shownVersion: z.number(),
   content: Content,
@@ -507,9 +508,17 @@ export function artifactRoutes(deps: AppDeps) {
       const actions = deps.extras?.blockActions;
       if (actions && file.kind === "block") {
         const reader = { orgId, artifactId, userId, ...(locale ? { locale } : {}) };
-        const content = await actions.localize?.({ ...reader, version: file.shownVersion });
+        const presentation = await actions.localize?.({ ...reader, version: file.shownVersion });
         const blockActions = file.shownVersion === file.version ? await actions.list(reader) : undefined;
-        return c.json({ ...file, content: content ?? file.content, ...(blockActions ? { blockActions } : {}) }, 200);
+        return c.json(
+          {
+            ...file,
+            content: presentation?.content ?? file.content,
+            ...(presentation?.rememberOpen && presentation.content.html ? { rememberBlockOpen: true as const } : {}),
+            ...(blockActions ? { blockActions } : {}),
+          },
+          200,
+        );
       }
       return c.json(file, 200);
     },

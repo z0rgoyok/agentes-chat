@@ -201,6 +201,7 @@ export function LiveBlock({
   html,
   agentId,
   big = false,
+  rememberOpen = false,
 }: {
   id: string;
   version: number;
@@ -208,27 +209,30 @@ export function LiveBlock({
   html: string;
   agentId: string;
   big?: boolean;
+  rememberOpen?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const agent = dir.anyAgent(agentId);
   const blockKey = `${id}@${version}`;
+  // The extension can retain disclosure across versions. Frame size and replies still belong to one version.
+  const disclosure = keptOf(rememberOpen ? id : blockKey);
   const { ref, near } = useNearScreen<HTMLDivElement>();
   const [draft, setDraft] = useState<Extract<BlockEvent, { type: "draft" }> | null>(null);
   const [broken, setBroken] = useState(false);
   const [sent, setSent] = useState(keptOf(blockKey).sent ?? null);
   const [height, setHeight] = useState(keptOf(blockKey).height ?? 0);
-  const [open, setOpen] = useState(keptOf(blockKey).open ?? false);
+  const [open, setOpen] = useState(disclosure.open ?? false);
   const shown = useRef<HTMLDivElement>(null);
   const reveal = useReveal(shown, open);
-  const [run, setRun] = useState(big || (keptOf(blockKey).run ?? false));
+  const [run, setRun] = useState(big || (disclosure.run ?? false));
   const changedAt = useRef(0);
   // Taller than the card: cut with a fade, "Ver mais" under it, which opens it whole for good.
   const tall = !big && height > INLINE_HEIGHT;
   const openWhole = () => {
     reveal();
-    keptOf(blockKey).open = true;
+    disclosure.open = true;
     setOpen(true);
   };
   const reply = useBlockReply(org.id, id);
@@ -274,7 +278,7 @@ export function LiveBlock({
         <Button
           size="sm"
           onClick={() => {
-            keptOf(blockKey).run = true;
+            disclosure.run = true;
             setRun(true);
           }}
         >
@@ -429,7 +433,15 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
       {a.content.spec ? (
         <SpecBlock id={a.id} version={a.shownVersion} spec={a.content.spec} agentId={agentId} />
       ) : (
-        <LiveBlock id={a.id} version={a.shownVersion} title={a.title} html={a.content.html ?? ""} agentId={agentId} />
+        <LiveBlock
+          key={`${a.id}@${a.shownVersion}`}
+          id={a.id}
+          version={a.shownVersion}
+          title={a.title}
+          html={a.content.html ?? ""}
+          agentId={agentId}
+          rememberOpen={a.rememberBlockOpen}
+        />
       )}
       <BlockActionButtons block={a} />
     </section>

@@ -4,6 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { cleanup, fireEvent } from "@testing-library/react";
+import { useState } from "react";
 import { ArtifactViewerProvider } from "@/components/artifacts/ArtifactViewer";
 import { LiveBlock, LiveBlockCard } from "@/components/blocks/LiveBlock";
 import { ADA_ID, createFakeApi, ORG_ID } from "./fake-api";
@@ -57,5 +58,58 @@ test("the person's action is available on the inline card before its HTML runs",
     expect(screen().queryByRole("button", { name: "Accept report" })).toBeNull();
   } finally {
     cleanup();
+  }
+});
+
+test("a card that was opened stays open when a trusted revision replaces it", async () => {
+  const restore = onScreen("*");
+  const api = createFakeApi();
+  const [first] = await api.artifacts.list(ORG_ID);
+  if (!first) throw new Error("missing fixture");
+  const file = await api.artifacts.get(ORG_ID, first.id);
+  api.artifacts.get = async (_org, id, version) => ({
+    ...file,
+    id,
+    kind: "block",
+    content: { kind: "block", html: `<p>Revision ${version}</p>` },
+    shownVersion: version ?? 1,
+    title: `Revision ${version}`,
+    ...(id === file.id ? { rememberBlockOpen: true as const } : {}),
+  });
+  function Card({ id }: { id: string }) {
+    const [version, setVersion] = useState(1);
+    return (
+      <ArtifactViewerProvider>
+        <button type="button" onClick={() => setVersion(2)}>
+          Update card
+        </button>
+        <LiveBlockCard id={id} version={version} />
+      </ArtifactViewerProvider>
+    );
+  }
+  const update = () => fireEvent.click(screen().getByRole("button", { name: "Update card" }));
+  const open = () => screen().findByRole("button", { name: "Abrir bloco" });
+  try {
+    await renderPage(<Card id={file.id} />, { api, org: true });
+    fireEvent.click(await open());
+    await screen().findByTitle("Revision 1");
+
+    update();
+    await screen().findByText("Revision 2");
+    expect(screen().queryByRole("button", { name: "Abrir bloco" }) !== null).toBe(false);
+    await screen().findByTitle("Revision 2");
+
+    cleanup();
+    await renderPage(<Card id="another-block" />, { api, org: true });
+    fireEvent.click(await open());
+    await screen().findByTitle("Revision 1");
+
+    update();
+    await screen().findByText("Revision 2");
+    await screen().findByRole("button", { name: "Abrir bloco" });
+    expect(screen().queryByTitle("Revision 2")).toBeNull();
+  } finally {
+    cleanup();
+    restore();
   }
 });

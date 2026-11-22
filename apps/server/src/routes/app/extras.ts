@@ -30,9 +30,14 @@ export interface BlockActionContext {
 /** Actions offered by a trusted server extension to the signed-in person viewing a live block. */
 export interface BlockActions {
   /** Render the requested immutable version for the reader when this extension owns its content. */
-  localize?(
-    input: BlockActionContext & { version: number },
-  ): Promise<Extract<ArtifactContent, { kind: "block" }> | undefined>;
+  localize?(input: BlockActionContext & { version: number }): Promise<
+    | {
+        content: Extract<ArtifactContent, { kind: "block" }>;
+        /** Only for extension-rendered HTML whose execution consent can span revisions. */
+        rememberOpen?: boolean;
+      }
+    | undefined
+  >;
   list(input: BlockActionContext): Promise<{ id: string; label: string }[]>;
   /** Authorize the person and validate the action against current application state before applying it. */
   invoke(input: BlockActionContext & { actionId: string }): Promise<void>;
