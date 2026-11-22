@@ -89,7 +89,7 @@ import { type AgentesModule, type Edition, type ModuleContext, resolveAdapters }
 import { createModelProviders, enableOpenRouterModels } from "@agenteschat/providers";
 import { createApp } from "./app";
 import { createAuth } from "./auth";
-import { buildEngine } from "./engine";
+import { buildEngine, type EngineOptions } from "./engine";
 import { startFreezeWatch } from "./freeze-watch";
 import { checkHumanCheckAtBoot, createHumanCheck } from "./http/human-check";
 import { createLogger, type Logger } from "./logger";
@@ -117,6 +117,8 @@ const EXIT_FLUSH_MS = 2_000;
 export interface StartOptions {
   edition: Edition;
   modules?: AgentesModule[];
+  /** Extra tools for agent runs, using the same gateway and run context as built-in tools. */
+  toolSources?(ctx: ModuleContext): NonNullable<EngineOptions["toolSources"]>;
   /**
    * Answer only requests addressed to this server's own names (`127.0.0.1:<PORT>`, `localhost:<PORT>`
    * and `PUBLIC_URL`'s host), with a 421 for any other: native mode listens on loopback, where a web
@@ -189,7 +191,7 @@ export async function startServer(options: StartOptions) {
 
 /** Everything of the boot after the config, so `startServer` can report what fails in it. */
 async function boot(
-  { edition, modules = [], ownHostsOnly = false }: StartOptions,
+  { edition, modules = [], ownHostsOnly = false, toolSources }: StartOptions,
   config: Config,
   log: Logger,
   release: string,
@@ -402,6 +404,7 @@ async function boot(
     log.warn("emails' pictures not found: they won't show", { dir: join(webDir, "email"), missing });
   }
   const engine = buildEngine({
+    toolSources: toolSources?.(ctx),
     db: database.db,
     config,
     adapters,
