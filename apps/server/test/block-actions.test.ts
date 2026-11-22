@@ -9,6 +9,8 @@ test("a person's session and access to the current block authorize its registere
   const server = await createTestServer({
     env: { ALLOW_SIGNUP: "true" },
     blockActions: {
+      localize: async ({ locale, version }) =>
+        locale === "de" && version === 1 ? { kind: "block", html: "<p>Ergebnis</p>" } : undefined,
       list: async (input) => {
         listed.push(input);
         return [{ id: "item-42", label: "Accept" }];
@@ -38,6 +40,9 @@ test("a person's session and access to the current block authorize its registere
     expect(calls).toHaveLength(0);
     expect(await (await owner(`${org}/artifacts/${card.id}`)).json()).toMatchObject({
       blockActions: [{ id: "item-42", label: "Accept" }],
+    });
+    expect(await (await owner(`${org}/artifacts/${card.id}?locale=de&version=1`)).json()).toMatchObject({
+      content: { kind: "block", html: "<p>Ergebnis</p>" },
     });
     expect((await owner(endpoint, { json })).status).toBe(204);
     expect(calls).toEqual([{ orgId, artifactId: card.id, userId: user.id, actionId: "item-42" }]);

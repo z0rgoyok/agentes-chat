@@ -4117,11 +4117,12 @@ export const useArtifactTrash = (orgId: string) => {
   });
 };
 
-export const useArtifact = (orgId: string, id: string | null, version?: number) => {
+export const useArtifact = (orgId: string, id: string | null, version?: number, locale?: string) => {
   const api = useApi();
+  const key = keys.artifact(orgId, id ?? "", version);
   return useQuery({
-    queryKey: keys.artifact(orgId, id ?? "", version),
-    queryFn: () => api.artifacts.get(orgId, id ?? "", version),
+    queryKey: locale ? [...key, locale] : key,
+    queryFn: () => api.artifacts.get(orgId, id ?? "", version, locale),
     enabled: Boolean(id),
     // Old versions never change.
     staleTime: version ? Number.POSITIVE_INFINITY : 0,

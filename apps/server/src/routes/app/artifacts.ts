@@ -267,7 +267,10 @@ const ArtifactDetail = Artifact.extend({
 }).openapi("ArtifactDetail");
 
 const ArtifactParams = OrgParams.extend({ artifactId: z.uuid() });
-const VersionQuery = z.object({ version: z.coerce.number().int().min(1).optional() });
+const VersionQuery = z.object({
+  version: z.coerce.number().int().min(1).optional(),
+  locale: z.string().max(64).optional(),
+});
 
 /**
  * The Drive: files people and agents make (documents, tables, diffs, HTML
@@ -494,7 +497,7 @@ export function artifactRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, artifactId } = c.req.valid("param");
-      const { version } = c.req.valid("query");
+      const { version, locale } = c.req.valid("query");
       const userId = c.get("user").id;
       const file = await withFacts(
         userId,
@@ -502,8 +505,11 @@ export function artifactRoutes(deps: AppDeps) {
         await getArtifact(artifacts(), person(userId), orgId, artifactId, version),
       );
       const actions = deps.extras?.blockActions;
-      if (actions && file.kind === "block" && file.shownVersion === file.version) {
-        return c.json({ ...file, blockActions: await actions.list({ orgId, artifactId, userId }) }, 200);
+      if (actions && file.kind === "block") {
+        const reader = { orgId, artifactId, userId, ...(locale ? { locale } : {}) };
+        const content = await actions.localize?.({ ...reader, version: file.shownVersion });
+        const blockActions = file.shownVersion === file.version ? await actions.list(reader) : undefined;
+        return c.json({ ...file, content: content ?? file.content, ...(blockActions ? { blockActions } : {}) }, 200);
       }
       return c.json(file, 200);
     },

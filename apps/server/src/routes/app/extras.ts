@@ -1,5 +1,6 @@
 import type { PushSender } from "@agenteschat/adapters";
 import type {
+  ArtifactContent,
   ArtifactDeps,
   BrowserLive,
   ContextDeps,
@@ -23,10 +24,15 @@ export interface BlockActionContext {
   orgId: string;
   userId: string;
   artifactId: string;
+  locale?: string;
 }
 
 /** Actions offered by a trusted server extension to the signed-in person viewing a live block. */
 export interface BlockActions {
+  /** Render the requested immutable version for the reader when this extension owns its content. */
+  localize?(
+    input: BlockActionContext & { version: number },
+  ): Promise<Extract<ArtifactContent, { kind: "block" }> | undefined>;
   list(input: BlockActionContext): Promise<{ id: string; label: string }[]>;
   /** Authorize the person and validate the action against current application state before applying it. */
   invoke(input: BlockActionContext & { actionId: string }): Promise<void>;

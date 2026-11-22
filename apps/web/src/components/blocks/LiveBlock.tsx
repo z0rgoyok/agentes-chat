@@ -375,11 +375,11 @@ export function BlockActionButtons({ block }: { block: ArtifactDetail }) {
 
 /** A block on its message: the agent's card, its title, and the block itself. */
 export function LiveBlockCard({ id, version }: { id: string; version?: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const viewer = useArtifactViewer();
-  const query = useArtifact(org.id, id, version);
+  const query = useArtifact(org.id, id, version, i18n.language);
   const keep = useKeepBlock(org.id, id);
   const toast = useToast();
   const a = query.data;

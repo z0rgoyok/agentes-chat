@@ -157,7 +157,9 @@ export function ArtifactViewer({
   const toast = useToast();
   const authorName = useAuthorName();
   const channels = useChannels(org.id);
-  const query = useArtifact(org.id, id, version);
+  const original = useArtifact(org.id, id, version);
+  const localizedBlock = useArtifact(org.id, original.data?.kind === "block" ? id : null, version, i18n.language);
+  const query = original.data?.kind === "block" ? localizedBlock : original;
   const [editing, setEditing] = useState(false);
   const remover = useDeleteArtifact(onClose);
   const a = query.data;

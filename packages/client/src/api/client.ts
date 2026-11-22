@@ -1778,7 +1778,7 @@ export interface ApiClient {
     /** One page of what the viewer can see (`cursor`: the page before's `nextCursor`), the first with counts. */
     page(orgId: string, filters?: ArtifactFilters, cursor?: string): Promise<ArtifactPage>;
     /** One artifact at `version` (default: latest), with content. */
-    get(orgId: string, id: string, version?: number): Promise<ArtifactDetail>;
+    get(orgId: string, id: string, version?: number, locale?: string): Promise<ArtifactDetail>;
     /** Keeps a block in the Drive (ADR 0113). */
     invokeBlockAction(orgId: string, id: string, version: number, actionId: string): Promise<void>;
     keep(orgId: string, id: string): Promise<Artifact>;
