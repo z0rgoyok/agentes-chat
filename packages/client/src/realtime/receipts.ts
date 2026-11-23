@@ -393,6 +393,22 @@ export function applyReceiptEvent(
       const moved = Boolean(event.agentId && state[event.messageId]?.runOf?.[event.agentId] !== event.runId);
       return event.agentId ? set(linked, event.messageId, event.agentId, phase, moved) : linked;
     }
+    case "agent.run.released": {
+      // Not for that agent after all (the triage): it saw it, and its run's news is no longer this message's.
+      const base = state[event.messageId];
+      if (!base) return state;
+      const runOf = base.runOf?.[event.agentId] === event.runId ? { ...base.runOf } : base.runOf;
+      if (runOf && runOf !== base.runOf) delete runOf[event.agentId];
+      const unlinked = {
+        ...state,
+        [event.messageId]: {
+          ...base,
+          ...(base.runs ? { runs: base.runs.filter((r) => r !== event.runId) } : {}),
+          ...(runOf ? { runOf } : {}),
+        },
+      };
+      return set(unlinked, event.messageId, event.agentId, "seen", true);
+    }
     case "agent.run":
       return setForRun(
         state,
@@ -426,7 +442,8 @@ export function applyReceiptEvent(
     case "message.created": {
       const m = event.message;
       // An agent's sticker after its reply (ADR 0091) answers nobody: a newer message's receipt stays. Neither does its
-      // note that it still waits for its computer, or for its plan or budget, or why it didn't answer.
+      // note that it still waits for its computer, or for its plan or budget, or why it didn't answer, nor the line it
+      // says before slow work (`meta.sayNow`, ADR 0207): its reply comes after it.
       if (
         m?.author?.type === "agent" &&
         m.author.id &&
@@ -434,6 +451,7 @@ export function applyReceiptEvent(
         !m.meta?.approvalId &&
         !m.meta?.brainUnavailable &&
         !m.meta?.usageWait &&
+        !m.meta?.sayNow &&
         !isMediaAfterReply(m.meta)
       ) {
         return setForRun(state, m.agentRunId, m.threadId, m.author.id, "handled");

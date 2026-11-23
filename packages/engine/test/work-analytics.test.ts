@@ -98,23 +98,25 @@ beforeAll(async () => {
   await db
     .update(schema.agentRuns)
     .set({
+      // Read from the column only: the transcript's older copy is never decompressed for analytics.
       transcript: {
-        profiles: [
-          {
-            stages: [
-              { stage: "claim", ms: 10, queries: 1 },
-              { stage: "context", ms: 200, queries: 5 },
-              { stage: "model#1", ms: 3000, queries: 0 },
-              { stage: "model#2", ms: 1000, queries: 0 },
-            ],
-            total: { ms: 4210, queries: 6 },
-            brain: [
-              { warm: false, initMs: 4000, firstEventMs: 6000 },
-              { warm: true, firstEventMs: 800 },
-            ],
-          },
-        ],
+        profiles: [{ stages: [{ stage: "transcript", ms: 1, queries: 0 }], total: { ms: 1, queries: 0 } }],
       },
+      profiles: [
+        {
+          stages: [
+            { stage: "claim", ms: 10, queries: 1 },
+            { stage: "context", ms: 200, queries: 5 },
+            { stage: "model#1", ms: 3000, queries: 0 },
+            { stage: "model#2", ms: 1000, queries: 0 },
+          ],
+          total: { ms: 4210, queries: 6 },
+          brain: [
+            { warm: false, initMs: 4000, firstEventMs: 6000 },
+            { warm: true, firstEventMs: 800 },
+          ],
+        },
+      ],
     })
     .where(eq(schema.agentRuns.id, answered.id));
   // Agent to agent, three times: another agent's message, a reply two hops deep, and another agent's answer

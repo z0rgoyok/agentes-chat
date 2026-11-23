@@ -352,6 +352,53 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   }
 }
 
+/* A registered host's look (ADR 0194). Its lockup stays in the flow, clear of the language on the right, so a long name
+   wraps above the column, never over it: under a one-line lockup the column still starts 96 from the top (80 on a
+   phone). */
+.auth--host {
+  flex-direction: column;
+  align-items: center;
+  padding-top: 24px;
+}
+.auth--host .auth__logo {
+  position: static;
+  align-self: stretch;
+  padding: 0 192px 44px 12px;
+}
+.auth__host-logo {
+  display: block;
+  height: 28px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+}
+.auth__host-name {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* "Powered by agentes.chat": one quiet line under the form. */
+.auth__powered {
+  margin: var(--space-8) 0 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--faint);
+  text-align: center;
+}
+.auth__powered .ac-link {
+  color: inherit;
+}
+@media (max-width: 560px) {
+  .auth--host .auth__logo {
+    padding: 0 184px 28px 0;
+  }
+}
+
 /* The line under every sign-in: which server it signs in to (ADR 0158), the place in the ink, then Trocar. */
 .auth__place {
   display: flex;
@@ -396,6 +443,7 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   font-weight: 700;
   letter-spacing: -0.01em;
   text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 .auth__notice > p {
   margin: calc(-1 * var(--space-2)) 0 var(--space-1);
@@ -403,4 +451,6 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   line-height: 22px;
   color: var(--muted);
   text-wrap: pretty;
+  /* A name with no spaces (an address, a workspace's name) breaks where it must, never past the column. */
+  overflow-wrap: anywhere;
 }

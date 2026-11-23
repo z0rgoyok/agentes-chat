@@ -98,6 +98,8 @@ export class ControlServer {
         return d.orgLogo();
       case "diagnostics":
         return { text: d.diagnostics() };
+      case "report":
+        return d.reportParts();
       case "access.get":
         return d.access();
       case "folders.add":
@@ -142,6 +144,8 @@ export class ControlServer {
         return d.cliInstaller().handle(m);
       case "iphone.look":
         return d.iphoneLook();
+      case "iphone.repair":
+        return d.iphoneRepair(str(m.serial));
       case "shutdown":
         return { stopping: true };
       default:

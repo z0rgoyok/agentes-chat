@@ -33,6 +33,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode;
 }
 
+/** Plain words, which a narrow place cuts with an ellipsis (`.ac-btn__label`); any element is left as it is written. */
+const isWords = (children: ReactNode) =>
+  (Array.isArray(children) ? children : [children]).every((c) => typeof c === "string" || typeof c === "number") &&
+  children !== "";
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = "default",
@@ -91,7 +96,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     >
       {/* The label stays (invisible) while loading, so the width never changes. */}
       {leading && <Icon name={leading} />}
-      {(!iconOnly || !leading) && children}
+      {(!iconOnly || !leading) && (isWords(children) ? <span className="ac-btn__label">{children}</span> : children)}
       {!iconOnly && kbd && kbd.length > 0 && (
         <span className="ac-btn__kbd" aria-hidden="true">
           {kbd.map((k) => (

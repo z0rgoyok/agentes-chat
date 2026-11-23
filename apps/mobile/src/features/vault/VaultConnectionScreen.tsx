@@ -1,12 +1,13 @@
 import { useDeleteVaultConnection, useSyncVaultConnection, useVault } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
+import { StyleSheet, View } from "react-native";
+import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, SkeletonList, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
 import { confirmAction, Gap, SettingsPage } from "../settings/parts";
-import { useColors, useNow, useOrgId } from "../shared/hooks";
+import { LoadFailed } from "../shared/FirstUse";
+import { useNow, useOrgId } from "../shared/hooks";
 import { goBack, successHaptic } from "../shared/parts";
 import { accessSentence, agentsSummary, connectionLine, connectionState, peopleSummary, vaultHref } from "./logic";
 import { useVaultNames } from "./parts";
@@ -17,7 +18,6 @@ import { useVaultNames } from "./parts";
  */
 export function VaultConnectionScreen({ id }: { id: string }) {
   const { t, i18n } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const toast = useToast();
   const names = useVaultNames();
@@ -29,12 +29,15 @@ export function VaultConnectionScreen({ id }: { id: string }) {
   if (!conn) {
     return (
       <SettingsPage title={t("settings.section.vault")}>
-        {vault.isError || vault.isSuccess ? (
+        {vault.isError ? (
+          <LoadFailed onRetry={() => void vault.refetch()} />
+        ) : vault.isSuccess && !vault.isFetching ? (
+          // Gone only once the Vault is read again: a connection just made opens here while the Vault refetches.
           <View style={styles.note}>
-            <Note icon="x">{vault.isError ? t("common.loadFailed") : t("mobile.vault.connection.gone")}</Note>
+            <Note icon="x">{t("mobile.vault.connection.gone")}</Note>
           </View>
         ) : (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={4} />
         )}
       </SettingsPage>
     );
@@ -150,5 +153,4 @@ export function VaultConnectionScreen({ id }: { id: string }) {
 
 const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
-  loading: { marginVertical: 16 },
 });

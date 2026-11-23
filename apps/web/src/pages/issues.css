@@ -616,6 +616,60 @@ html:not([data-pointer]) .issue-card:focus-visible {
 .ac-who + .issue-card__state {
   margin-inline-start: calc(var(--space-2) - 0.2em);
 }
+/*
+ * Several people and agents: their faces alone, overlapping, then "+N". One box in the line of words, on the capitals
+ * as a single face is (layout containment gives it no baseline of its own, so its bottom edge is what the offset
+ * moves), with the state after it on the same line. Nothing here clips: the rings and a working face's motion show
+ * whole.
+ */
+.issue-faces {
+  --faces-size: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  contain: layout;
+  height: var(--faces-size);
+  vertical-align: calc(var(--cap-top) - var(--cap-mid) - var(--faces-size) / 2);
+  white-space: nowrap;
+}
+.issue-faces[data-size="xs"] {
+  --faces-size: 18px;
+}
+.issue-faces > .ac-avatar-stack {
+  display: inline-flex;
+  flex: none;
+}
+/* The overlap is the stack's own wherever it sits: a field's button pulls a lone face toward its edge (`.ac-props`),
+   which would spread these apart. Initials fill their tile, so the face after one starts past it, as in the kit. */
+.issue-faces .ac-avatar-stack > .ac-avatar {
+  margin-inline-start: 0;
+}
+.issue-faces .ac-avatar-stack > .ac-avatar + .ac-avatar {
+  margin-inline-start: -6px;
+}
+.issue-faces .ac-avatar-stack > .ac-avatar[data-kind="person"]:not(:has(img)) + .ac-avatar {
+  margin-inline-start: 0;
+}
+/* Each face is cut out of what it stands on: the card's own face, a field's. */
+.issue-card {
+  --stack-ring: var(--raised);
+}
+.ac-props .ac-btn:has(> .issue-faces) {
+  --stack-ring: var(--field-bg);
+}
+/* The agent at work stands in front of the faces beside it: the next one's ring cut into it otherwise. */
+.issue-faces .issue-faces__working {
+  z-index: var(--z-raised);
+}
+.issue-faces__more {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.issue-faces + .issue-card__state {
+  margin-inline-start: var(--space-2);
+}
 .issue-card__state > .ac-icon {
   margin-inline-end: var(--space-1);
 }
@@ -630,6 +684,16 @@ html:not([data-pointer]) .issue-card:focus-visible {
 }
 
 /* ── List ───────────────────────────────────────────────────────────────── */
+/*
+ * The list is one table: a band of column names, then each group as a band across it and its tasks as rows, flat, a
+ * hairline under each. On a phone the rows stack as cards (the last block of this sheet). The frame ends the page
+ * (`.page-split`, over-pages.css): where the page fills the window the table takes the height under the toolbar and
+ * scrolls there, both ways.
+ */
+.issue-tableframe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
 .issues-group {
   display: flex;
   flex-direction: column;
@@ -637,42 +701,15 @@ html:not([data-pointer]) .issue-card:focus-visible {
 .issues-group__col {
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-section);
   transition: background-color 0.18s;
 }
 .issues-group__col.is-over {
   background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
-.issues-group__col + .issues-group__col {
-  margin-top: 6px;
-}
-/* A column's name inside its stage (customized board only): its group stands apart from the one above. */
-.issues-group__col + .issues-group__col:has(> .ac-grouphead) {
-  margin-top: var(--space-4);
-}
 .issue-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: var(--radius-section);
-  background: var(--raised);
-  box-shadow: var(--e1), var(--top);
-  overflow: hidden;
-}
-.issue-list li + li {
-  border-top: 1px solid var(--line);
-}
-/* The list clips its rows at its rounded corners: the first and last rows take them, so a picked or focused row's
-   ring is drawn whole there, not cut square. */
-.issue-list > li:first-child,
-.issue-list > li:first-child > .issue-list__row {
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
-}
-.issue-list > li:last-child,
-.issue-list > li:last-child > .issue-list__row {
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
 }
 .issue-list__row {
   position: relative;
@@ -681,7 +718,7 @@ html:not([data-pointer]) .issue-card:focus-visible {
      title keeps the rest. In the list it is a row of the table below. */
   grid-template-columns: 52px minmax(0, 1fr) fit-content(40%) minmax(0, 200px);
   grid-template-areas: "num title facts who";
-  /* On one line of words: a part that wraps (a long title, a stopped run's reason) grows down from it. */
+  /* On one line of words: a part that wraps (a stopped run's reason) grows down from it. */
   align-items: baseline;
   gap: 4px 16px;
   padding: 12px 14px;
@@ -690,10 +727,10 @@ html:not([data-pointer]) .issue-card:focus-visible {
   transition: background 0.12s;
 }
 .issue-list__row:hover {
-  background: color-mix(in srgb, var(--sunken) 45%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 .issue-list__row.is-on {
-  background: color-mix(in srgb, var(--sunken) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 html:not([data-pointer]) .issue-list__row:focus-visible {
   outline: none;
@@ -732,26 +769,39 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
   white-space: nowrap;
 }
 /*
- * The list as a table, wider than a phone: one grid for the whole list, which every group, list and row hands down
- * (subgrid), so a fact stands in the same column in every row of every group. A column is as wide as what it holds
- * (names up to a width, then "…") and takes no room when no row has it; the title keeps the rest, on two lines at
- * most. With less room than the columns and a title's least need, the table scrolls sideways.
+ * The table, wider than a phone: one grid for the whole list, which every group, list and row hands down (subgrid), so
+ * a fact stands in the same column in every row of every group. Each column has a width (`--col-<name>`, set by
+ * IssuesPage: its own, or the one the person dragged it to; 0 when "Display" turns it off), the same whatever the
+ * tasks hold; the title takes the room left over, never under its least. With less room than that, the table scrolls
+ * sideways.
  */
 @media (min-width: 721px) {
+  /* The table scrolls in this box both ways, so its column names can stay at the top (a box that scrolls sideways
+     only would hold them still against itself, not against the page). Where the page scrolls instead (a short or a
+     narrow window) it is shorter than the window by the page's foot room (96) and the frame around the work area, so
+     the page scrolled to its end still shows the table whole, names at its top. As the board, it runs out to the work
+     area's edges, its first column on the page's line. */
+  .issue-tablewrap {
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior-x: contain;
+    max-height: calc(100dvh - 160px);
+    margin: 0 calc(-1 * var(--page-x));
+    padding: 0 var(--page-x);
+    scroll-padding-inline: var(--page-x);
+  }
   .issue-table {
+    position: relative;
+    isolation: isolate;
     display: grid;
     grid-template-columns:
-      [num] minmax(52px, auto) [title] minmax(200px, 1fr) [project] auto [label] auto [labels] auto [priority] auto
-      [due] auto [criteria] auto [pr] auto [github] auto [talk] auto [who] auto [end];
-    /* The groups' 24 between rows only: the columns stand apart by their cells' own room, so one no row has takes
-       none. */
-    column-gap: 0;
-    overflow-x: auto;
-    /* As the board: the scroller runs out to the work area's edges, its first column on the page's line, so what
-       slides goes under those edges (and the lists' shadows have room inside it). */
-    margin: -2px calc(-1 * var(--page-x));
-    padding: 2px var(--page-x);
-    scroll-padding-inline: var(--page-x);
+      [num] minmax(52px, auto) [title] var(--col-title) [project] var(--col-project) [label] var(--col-label)
+      [priority] var(--col-priority) [due] var(--col-due) [criteria] var(--col-criteria)
+      [pullRequest] var(--col-pullRequest) [assignee] var(--col-assignee) [fill] var(--col-fill) [end];
+    gap: 0;
+    /* As wide as its columns, the title at its least, or as the page when that is wider. */
+    width: max-content;
+    min-width: 100%;
   }
   .issue-table > *,
   .issue-table :is(.issues-group, .issues-group__col, .issue-list) > *,
@@ -774,11 +824,35 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
   .issue-table .issue-list > li[data-slot][hidden] {
     display: none;
   }
-  /* The column names, on the rows' own columns: the list's hairline and the row's side room stand at its ends too. */
+  /* The hairline at a column's start, down the whole table: over the rows, under the groups' bands. Its place is the
+     column's grid line (set on it by IssuesPage). */
+  .issue-table > :is(.issue-table__rule, .issue-table__guide) {
+    position: absolute;
+    z-index: var(--z-raised);
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 1px;
+    background: var(--line);
+    pointer-events: none;
+  }
+  /* While a column's end moves: an ink line down the table at that end. Under the bands, as the hairlines are, so it
+     never crosses a group's name. */
+  .issue-table > .issue-table__guide {
+    inset-inline: auto -1px;
+    width: 2px;
+    background: var(--ink);
+  }
+  .issue-table > .issue-table__guide[hidden] {
+    display: none;
+  }
+  /* The column names: a band that stays at the top while the rows go under it, so it is filled. */
   .issue-table__head {
-    align-items: baseline;
-    margin-bottom: -12px;
-    padding: 0 14px;
+    position: sticky;
+    top: 0;
+    z-index: calc(var(--z-lifted) + 1);
+    padding-inline-start: 14px;
+    border-block: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 3%, var(--surface));
     font-size: 12px;
     line-height: 20px;
     font-weight: 600;
@@ -786,17 +860,23 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
     white-space: nowrap;
   }
   .issue-table__head > [data-column] {
-    margin-inline-start: 16px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding: 8px 8px 8px 12px;
+    border-inline-start: 1px solid var(--line);
   }
   .issue-table__head > [data-column="title"] {
     grid-column: title;
-    margin-inline-start: 0;
+    padding-inline-start: 0;
+    border-inline-start: 0;
   }
   .issue-table__head > [data-column="project"] {
     grid-column: project;
   }
   .issue-table__head > [data-column="label"] {
-    grid-column: label / priority;
+    grid-column: label;
   }
   .issue-table__head > [data-column="priority"] {
     grid-column: priority;
@@ -807,69 +887,106 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
   .issue-table__head > [data-column="criteria"] {
     grid-column: criteria;
   }
-  .issue-table__head > [data-column="github"] {
-    grid-column: pr / talk;
+  .issue-table__head > [data-column="pullRequest"] {
+    grid-column: pullRequest;
   }
-  .issue-table__head > [data-column="who"] {
-    grid-column: who;
+  .issue-table__head > [data-column="assignee"] {
+    grid-column: assignee;
   }
-  /* No named areas here: a cell's column is the table's line of its name. */
+  /* A group: a band across the table, its fold button, icon, name and count on it, its rows right under it. Filled, so
+     the columns' hairlines stop at it. */
+  .issue-table .ac-grouphead {
+    position: relative;
+    z-index: var(--z-lifted);
+    margin: 0;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  }
+  /* A column's name inside its stage (customized board only): a lighter band, a step in. */
+  .issue-table .issues-group__col > .ac-grouphead {
+    padding-inline-start: 36px;
+    background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+  }
+  .issue-table .issue-list > li[data-slot],
+  .issue-table .issue-list__drop {
+    border-bottom: 1px solid var(--line);
+  }
+  /* No named areas here: a cell's column is the table's line of its name. The row's start room stands in the
+     number's column; a cell keeps its own room from its column's hairlines. */
   .issue-table .issue-list__row {
     grid-template-areas: none;
     gap: 0;
+    padding: 10px 0 10px 14px;
   }
   .issue-table .issue-list__num {
     grid-area: auto;
     grid-column: num;
+    grid-row: 1;
     padding-inline-end: 8px;
     white-space: nowrap;
   }
+  /* One line, ending in "…". No width of its own (`width: 0`), so a long title never widens its column; it fills the
+     column through its least width. */
   .issue-table .issue-list__title {
     grid-area: auto;
     grid-column: title;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    grid-row: 1;
+    display: block;
+    width: 0;
+    min-width: calc(100% - 12px);
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
-  /* The facts are the row's own cells. */
+  /* The conversation's count stands at the title column's end: the title stops before it. */
+  .issue-table .issue-list__row:has([data-fact="talk"]) > .issue-list__title {
+    min-width: calc(100% - 72px);
+  }
+  /* The facts are the row's own cells: each on one line inside its column, ending in "…" when it does not fit. */
   .issue-table .issue-list__row > .issue-card__facts {
     display: contents;
   }
   .issue-table .issue-card__facts > .ac-factline__fact {
     grid-row: 1;
     justify-self: start;
-    margin-inline-start: 16px;
-    /* Its words' own width, on one line: its column is never narrower than it (the table scrolls instead). */
-    width: max-content;
-    max-width: none;
+    display: block;
+    min-width: 0;
+    max-width: calc(100% - 20px);
+    margin-inline-start: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     overflow-wrap: normal;
   }
-  .issue-table .issue-card__facts > :is([data-fact="project"], [data-fact="label"], [data-fact="github"]) {
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .issue-table .issue-card__facts > [data-fact="number"] {
+    display: none;
   }
-  /* A name with its mark, as one line of words that can end in "…": the mark sits in the line, on its middle. */
-  .issue-table .issue-card__facts > :is([data-fact="project"], [data-fact="github"]) {
-    display: block;
-  }
-  .issue-table .issue-card__facts > :is([data-fact="project"], [data-fact="github"]) > :is(svg, .ac-colordot) {
+  /* A mark with its words, as one line that can end in "…": the mark sits in the line, on its middle. */
+  .issue-table .issue-card__facts > .ac-factline__fact > :is(svg, .ac-colordot) {
     margin-inline-end: var(--space-1);
     vertical-align: -2px;
   }
+  .issue-table .issue-card__facts > [data-fact="talk"] {
+    grid-column: title;
+    justify-self: end;
+    max-width: 52px;
+    margin-inline: 0 12px;
+  }
   .issue-table .issue-card__facts > [data-fact="project"] {
     grid-column: project;
-    max-width: 140px;
   }
-  .issue-table .issue-card__facts > [data-fact="label"] {
+  .issue-table .issue-card__facts > :is([data-fact="label"], [data-fact="labels"]) {
     grid-column: label;
-    max-width: 120px;
   }
-  /* "+2" belongs to the label before it. */
+  /* "+2" stands at the column's end, the first label stopping before it. */
   .issue-table .issue-card__facts > [data-fact="labels"] {
-    grid-column: labels;
-    margin-inline-start: 6px;
+    justify-self: end;
+    margin-inline: 0 8px;
+  }
+  .issue-table .issue-card__facts:has(> [data-fact="labels"]) > [data-fact="label"] {
+    max-width: calc(100% - 56px);
   }
   .issue-table .issue-card__facts > [data-fact="priority"] {
     grid-column: priority;
@@ -880,23 +997,19 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
   .issue-table .issue-card__facts > [data-fact="criteria"] {
     grid-column: criteria;
   }
-  .issue-table .issue-card__facts > [data-fact="pr"] {
-    grid-column: pr;
+  .issue-table .issue-card__facts > :is([data-fact="pr"], [data-fact="github"]) {
+    grid-column: pullRequest;
   }
-  .issue-table .issue-card__facts > [data-fact="github"] {
-    grid-column: github;
-    max-width: 168px;
-  }
-  .issue-table .issue-card__facts > [data-fact="talk"] {
-    grid-column: talk;
+  /* One line holds one of them: with a pull request, the cell says it and the task itself keeps the link. */
+  .issue-table .issue-card__facts:has(> [data-fact="pr"]) > [data-fact="github"] {
+    display: none;
   }
   .issue-table .issue-list__row > .issue-card__who {
     grid-area: auto;
-    grid-column: who;
+    grid-column: assignee;
     grid-row: 1;
-    margin-inline-start: 16px;
-    width: max-content;
-    max-width: 220px;
+    min-width: 0;
+    margin-inline: 12px 8px;
   }
   /* The name on one line, ending in "…"; the state under or after it, on two lines at most. */
   .issue-table .issue-card__who > .ac-who {
@@ -917,11 +1030,24 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
     margin-inline-start: 0;
   }
 }
+/* Where the page fills the window (`.page-split`, over-pages.css) the table has the height under the toolbar, whole. */
+@media (min-width: 941px) and (min-height: 560px) {
+  .issue-tablewrap {
+    max-height: none;
+  }
+}
+/* A column's name: one line, ending in "…" in a column dragged narrower than it. */
+.issue-table__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A column's name that orders the list: quiet words, its arrow only while that order is on. */
 .issue-table__sort {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -934,6 +1060,7 @@ html:not([data-pointer]) .issue-list__row:focus-visible {
   color: var(--ink);
 }
 .issue-table__sort > .ac-icon {
+  flex: none;
   visibility: hidden;
 }
 .issue-table__sort[aria-pressed="true"] > .ac-icon {
@@ -943,6 +1070,56 @@ html:not([data-pointer]) .issue-table__sort:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
+}
+/*
+ * The handle at a column name's end, across the hairline between two columns: dragged, it sizes the column. Nothing
+ * shows until the pointer is on it; then a short ink bar, whole while it moves or holds the keyboard. Ink, never the
+ * agents' color. It takes the touch for itself (`touch-action`), so a finger on it sizes the column instead of
+ * scrolling the table.
+ */
+.issue-table__grip {
+  position: absolute;
+  z-index: var(--z-raised);
+  inset-block: 0;
+  inset-inline-end: -5px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.issue-table__grip::after {
+  content: "";
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 3px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  transition: background-color 0.12s;
+}
+.issue-table__grip:hover::after {
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+.issue-table__grip:active::after {
+  background: var(--ink);
+}
+html:not([data-pointer]) .issue-table__grip:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+html:not([data-pointer]) .issue-table__grip:focus-visible::after {
+  background: var(--ink);
+}
+/* Under a finger there is no hover to find it by: the bar always shows, faint, in a wider place to press. */
+@media (hover: none) {
+  .issue-table__grip {
+    inset-inline-end: -10px;
+    width: 20px;
+  }
+  .issue-table__grip::after {
+    inset-inline-start: 8px;
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
+  }
 }
 /* A folded group: its name and count, no rows; still where a card can be dropped (its `[data-col]`). */
 .issues-group__col > .issue-list.issue-list--folded {
@@ -994,8 +1171,12 @@ body.issues-dragging * {
   background: var(--raised);
   box-shadow: var(--e3);
 }
+/* A row's copy is a card of its own, whatever the list it left looks like. */
 .issue-ghost > .issue-list {
+  border-radius: var(--radius-section);
+  background: var(--raised);
   box-shadow: var(--e3);
+  overflow: hidden;
 }
 /* Where it would land: a well in fine pixels, the card's size and corners. */
 .issue-spot {
@@ -1602,8 +1783,42 @@ html:not([data-pointer]) .issue-ask__other:focus-visible {
   .issues-col {
     scroll-snap-align: start;
   }
-  .issue-table__head {
+  /* No table on a phone: each group is a card of rows under its name, the groups 24 apart. */
+  .issue-table__head,
+  .issue-table__rule,
+  .issue-table__guide {
     display: none;
+  }
+  .issues-group__col {
+    border-radius: var(--radius-section);
+  }
+  .issues-group__col + .issues-group__col {
+    margin-top: 6px;
+  }
+  /* A column's name inside its stage (customized board only): its group stands apart from the one above. */
+  .issues-group__col + .issues-group__col:has(> .ac-grouphead) {
+    margin-top: var(--space-4);
+  }
+  .issue-list {
+    border-radius: var(--radius-section);
+    background: var(--raised);
+    box-shadow: var(--e1), var(--top);
+    overflow: hidden;
+  }
+  .issue-list li + li {
+    border-top: 1px solid var(--line);
+  }
+  /* The list clips its rows at its rounded corners: the first and last rows take them, so a picked or focused row's
+     ring is drawn whole there, not cut square. */
+  .issue-list > li:first-child,
+  .issue-list > li:first-child > .issue-list__row {
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+  }
+  .issue-list > li:last-child,
+  .issue-list > li:last-child > .issue-list__row {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
   }
   /* Stacked as a card: the title, its facts with the number among them, who has it. */
   .issue-list__row {
@@ -2192,4 +2407,52 @@ html:not([data-pointer]) .task-talk__summary:focus-visible {
   gap: 6px;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+/* A task another agent handed over: who handed it, in the card's facts and after a row's title. */
+.ac-factline__fact[data-fact="handed"] > .ac-avatar,
+.issue-list__from > .ac-avatar {
+  flex: none;
+  margin-inline: 2px;
+  vertical-align: -3px;
+}
+.issue-list__title > .issue-list__from {
+  margin-inline-start: var(--space-2);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+/* What came of finished handed work: its report's first line, under the facts. */
+.issue-card__result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink2);
+  overflow-wrap: anywhere;
+}
+.issue-card__result > .ac-icon {
+  flex: none;
+  margin-block-start: 3px;
+  color: var(--ok);
+}
+.issue-work__result,
+.issue-work__ask {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.issue-work__result {
+  color: var(--ink2);
+}
+.issue-work__ask {
+  color: var(--ink);
+}
+/* A card's lone primary action is full width on a phone. */
+@media (max-width: 640px) {
+  .issue-work__actions > .ac-btn {
+    flex: 1;
+  }
 }

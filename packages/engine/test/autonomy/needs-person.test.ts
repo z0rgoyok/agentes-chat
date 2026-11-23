@@ -197,6 +197,31 @@ describe("a step that needs the person is never a blocker", () => {
     expect(untriedNudge([], [])).toContain("Look in the workspace first");
   });
 
+  test("the turn-end judge reads its background work: a promise about what that work brings is kept by it", async () => {
+    const { judge, asked } = capture();
+    const turn = {
+      orgId: "o",
+      agentId: "a",
+      runId: "r",
+      request: "como está indo?",
+      reply: "Está em andamento. Te mando o relatório assim que terminar.",
+      means: [],
+      tried: [],
+      runKind: "conversation" as const,
+    };
+    await continuationVerdict(judge, { ...turn, backgroundWork: ["Relatório de custos do trimestre"] });
+    await continuationVerdict(judge, turn);
+    const [beside, alone] = asked as unknown as {
+      state: Record<string, unknown>;
+      questions: Record<string, { criteria: Record<string, string> }>;
+    }[];
+    expect(beside?.state.background_work).toEqual(["Relatório de custos do trimestre"]);
+    expect(alone?.state).not.toHaveProperty("background_work");
+    const criteria = beside?.questions.verdict?.criteria ?? {};
+    expect(criteria.continue).toContain("A promise about what its `background_work` will bring is kept by that work");
+    expect(criteria.done).toContain("that work posts it here by itself: done");
+  });
+
   test("the question check: a way to do the request, however it is worded, is no optional offer", async () => {
     const { judge, asked } = capture();
     await askVerdict(judge, {

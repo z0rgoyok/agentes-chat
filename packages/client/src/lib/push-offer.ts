@@ -58,7 +58,14 @@ export function pushAskAt(
   if (s.held || !last || last.local || last.author.type !== "agent") return null;
   const state = { permission: s.permission, turnedOff: s.turnedOff, offers: s.offers };
   if (pushOfferDue(state, "approval") && s.waitsOnMe(last)) return { messageId: last.id, moment: "approval" };
-  if (!pushOfferDue(state, "answer") || last.meta?.greeting || last.meta?.actionCard || last.meta?.approvalId)
+  // The line an agent says before slow work (`say_now`, ADR 0207) isn't the answer: the offer waits for the reply.
+  if (
+    !pushOfferDue(state, "answer") ||
+    last.meta?.greeting ||
+    last.meta?.actionCard ||
+    last.meta?.approvalId ||
+    last.meta?.sayNow
+  )
     return null;
   const wrote = messages.some((m) => m.author.type === "person" && m.author.id === meId);
   return wrote ? { messageId: last.id, moment: "answer" } : null;

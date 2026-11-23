@@ -12,18 +12,27 @@
   aspect-ratio: 1280 / 900;
   max-height: 560px;
   margin: 0 auto;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--screen-bg);
   box-shadow: var(--e2);
 }
 /*
- * noVNC sets its canvas's cursor inline, to the screen's own pointer or to none where the screen draws none: watching,
- * the person's own pointer stays over it, so it never looks like they're in control.
+ * noVNC sets its canvas's cursor inline, to the screen's own pointer or to none: the agents' desktops draw none
+ * (`-nocursor`, ADR 0040 §7.2), so over the screen the person's own pointer stays, watching or in control. Watching,
+ * the agent's cursor is drawn apart (`AgentCursor`).
  */
-.dsk-screen:not(.is-control) canvas {
+.dsk-screen canvas {
   /* biome-ignore lint/complexity/noImportantStyles: only !important outranks the inline style noVNC sets */
   cursor: default !important;
+}
+/*
+ * Where a click asks to take control (the stage takes clicks then, `useAskControl`): a hand, never an arrow, which over
+ * the picture reads as a pointer of the computer's own standing still beside the agent's cursor.
+ */
+.dsk-stage[tabindex] .dsk-screen:not(.is-control) canvas {
+  /* biome-ignore lint/complexity/noImportantStyles: only !important outranks the inline style noVNC sets */
+  cursor: pointer !important;
 }
 /* The last picture, held over the next connection while a hand back or control opens it (`holdPicture`). */
 .dsk-screen > .dsk-still {

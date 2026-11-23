@@ -4,6 +4,17 @@ import { holdsText } from "@/lib/keys";
 /** What takes Esc before any panel. */
 const LAYERS = '[role="dialog"], [role="menu"], [role="listbox"], dialog[open], [data-esc-layer]';
 
+/**
+ * Something nearer than a panel has a use for this Esc: a dialog, menu or picker open, anything `data-esc-layer`, a
+ * field holding text (unless `data-esc-free`) or one marked `data-esc-own`. A panel that closes on Esc only from
+ * inside itself (a live file's conversation beside the file, ADR 0199) asks this too.
+ */
+export function nearerEsc(e: KeyboardEvent): boolean {
+  if (document.querySelector(LAYERS)) return true;
+  const from = e.target instanceof Element ? e.target : null;
+  return Boolean(from?.closest("[data-esc-own]") || (holdsText(from) && !from?.closest("[data-esc-free]")));
+}
+
 /** The panels open now, the newest last: Esc closes that one alone (a panel can open over another). */
 const open: object[] = [];
 
@@ -28,9 +39,7 @@ export function useEscClose(close: (() => void) | undefined) {
     open.push(me);
     let escaped = false;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || open.at(-1) !== me || document.querySelector(LAYERS)) return;
-      const from = e.target instanceof Element ? e.target : null;
-      if (from?.closest("[data-esc-own]") || (holdsText(from) && !from?.closest("[data-esc-free]"))) return;
+      if (e.key !== "Escape" || e.defaultPrevented || open.at(-1) !== me || nearerEsc(e)) return;
       e.preventDefault();
       escaped = true;
       latest.current?.();

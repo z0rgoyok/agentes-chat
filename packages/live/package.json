@@ -1,0 +1,36 @@
+{
+  "name": "@agenteschat/live",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./awareness": "./src/awareness.ts",
+    "./canvas": "./src/canvas/index.ts",
+    "./document": "./src/document/index.ts",
+    "./office": "./src/office.ts",
+    "./protocol": "./src/protocol.ts",
+    "./rich": "./src/rich/index.ts",
+    "./slides": "./src/slides/index.ts",
+    "./spreadsheet": "./src/spreadsheet/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "fractional-indexing": "4.0.0",
+    "lib0": "0.2.120",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "prosemirror-model": "1.25.13",
+    "prosemirror-state": "1.4.4",
+    "prosemirror-transform": "1.12.6",
+    "prosemirror-view": "1.42.9",
+    "y-prosemirror": "1.3.7"
+  },
+  "license": "AGPL-3.0-only"
+}

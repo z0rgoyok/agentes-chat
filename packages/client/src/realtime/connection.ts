@@ -53,11 +53,15 @@ export const BROWSER_FRAMES_RENEW_MS = [1000, 2000, 4000];
 
 export type ConnectionStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
-/** The part of the browser WebSocket we use (tests pass a fake). */
+/**
+ * The part of the browser WebSocket we use (tests pass a fake). Text frames here; bytes too on the sockets that carry
+ * them (a watched browser's frames, a live file's sync, ADR 0196 §3), which set `binaryType` to "arraybuffer".
+ */
 export interface SocketLike {
   readonly readyState: number;
-  send(data: string): void;
+  send(data: string | ArrayBufferLike | Uint8Array): void;
   close(code?: number, reason?: string): void;
+  binaryType?: string;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
   onclose: ((ev: { code: number }) => void) | null;

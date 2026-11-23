@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
+import { PAINT_ATTRS } from "../theme";
 
 const subscribeTheme = (onChange: () => void) => {
   const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: PAINT_ATTRS });
   return () => observer.disconnect();
 };
 

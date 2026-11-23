@@ -149,7 +149,7 @@ export function registerWaitlist(api: OpenAPIHono, deps: AppDeps) {
     if (!(await rateLimiter.consume(`waitlist:${ip}`, JOIN_PER_IP)).allowed)
       return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
     // Before the total, so refused bots don't spend it.
-    const refused = await humanCheckRefusal(humanCheck, c.req.raw.headers, "waitlist", config.TRUSTED_PROXIES);
+    const refused = await humanCheckRefusal(humanCheck, deps.db, c.req.raw.headers, "waitlist", config.TRUSTED_PROXIES);
     if (refused) return apiError(c, 403, refused.code, refused.message);
     const { email, locale } = c.req.valid("json");
     if (!(await rateLimiter.consume("waitlist:all", JOIN_TOTAL)).allowed)
@@ -177,7 +177,7 @@ export function registerWaitlist(api: OpenAPIHono, deps: AppDeps) {
     const ip = requestLimitIp(c.req.raw.headers, config.TRUSTED_PROXIES);
     if (!(await rateLimiter.consume(`partner-waitlist:${ip}`, JOIN_PER_IP)).allowed)
       return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
-    const refused = await humanCheckRefusal(humanCheck, c.req.raw.headers, "waitlist", config.TRUSTED_PROXIES);
+    const refused = await humanCheckRefusal(humanCheck, deps.db, c.req.raw.headers, "waitlist", config.TRUSTED_PROXIES);
     if (refused) return apiError(c, 403, refused.code, refused.message);
     if (!(await rateLimiter.consume("partner-waitlist:all", JOIN_TOTAL)).allowed)
       return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");

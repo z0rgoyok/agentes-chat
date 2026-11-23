@@ -16,15 +16,27 @@ import {
   pasteEvents,
 } from "@agenteschat/client";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { openRefusalKey } from "@agenteschat/client/lib/sites";
+import { openRefusalKey, siteName } from "@agenteschat/client/lib/sites";
+import { type AgentColorName, gradientOf, mixHex } from "@agenteschat/ui/agent/engine";
 import * as Clipboard from "expo-clipboard";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image as SiteImage } from "expo-image";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Image, type LayoutChangeEvent, Pressable, StyleSheet, TextInput, View } from "react-native";
+import {
+  Image,
+  type LayoutChangeEvent,
+  Text as RNText,
+  type StyleProp,
+  StyleSheet,
+  TextInput,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { GestureDetector, GestureStateManager, type TouchData, useManualGesture } from "react-native-gesture-handler";
 import { useDerivedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { fieldText, Icon, Locked, Text } from "@/ui";
+import { fieldText, Icon, Locked, PictureEdge, PressScale, Text } from "@/ui";
+import { withAlpha } from "@/ui/palette";
 import { AgentPointer } from "../computer/AgentPointer";
 import { useColors, useConnection } from "../shared/hooks";
 import { tapHaptic, useSurface } from "../shared/parts";
@@ -43,12 +55,15 @@ export function FrameView({
   enabled,
   onInput,
   cursor,
+  edge,
 }: {
   frame: BrowserFrame;
   enabled: boolean;
   onInput: (events: BrowserInputEvent[]) => void;
   /** The agent's cursor over its page (null `pointer`: none, as while someone is in control). */
   cursor?: { agentId: string; name: string; color: string | undefined; pointer: CountedPointer | null };
+  /** The radius of the box that clips the picture: its hairline, over the picture and under the cursor. */
+  edge?: number;
 }) {
   const { t } = useTranslation();
   const raised = useSurface("e2");
@@ -123,6 +138,7 @@ export function FrameView({
           resizeMode="contain"
           fadeDuration={0}
         />
+        {edge === undefined ? null : <PictureEdge radius={edge} />}
         {cursor ? <AgentPointer {...cursor} view={pointerView} /> : null}
         {sliding ? (
           <View pointerEvents="none" style={styles.hintRow}>
@@ -178,46 +194,49 @@ export function TypeBar({
     onText(text);
     edit("");
   };
-  const key = (k: LiveKey) => {
-    tapHaptic();
-    onKey(k);
-  };
   /** Colar: what the person copied, into the page's focused field as it is (the field's own paste waits for Send). */
   const paste = async () => {
-    tapHaptic();
     const copied = await Clipboard.getStringAsync().catch(() => "");
     if (copied) onText(copied);
   };
   const tool = (on: boolean) => [styles.tool, { backgroundColor: on ? c.sunken : "transparent" }];
+  // The keycaps press as the agent's screen's do (`PressScale`, its haptic included).
+  const cap = [styles.keyCap, { backgroundColor: c.sunken }];
   return (
     <View style={styles.typeWrap}>
       {keys ? (
         <View style={styles.keys} accessibilityLabel={t("mobile.browser.live.keys")}>
           {LIVE_KEYS.map((k) => (
-            <Pressable
+            <PressScale
               key={k}
-              onPress={() => key(k)}
+              to={0.92}
+              fill={false}
+              onPress={() => onKey(k)}
               accessibilityRole="button"
               accessibilityLabel={t(`mobile.browser.live.key.${k}`)}
               hitSlop={KEY_SLOP}
-              style={({ pressed }) => [styles.keyCap, { backgroundColor: c.sunken }, pressed && styles.pressed]}
+              style={cap}
+              contentStyle={styles.keyCapIn}
             >
               <Text variant="footnote" tone="ink2" style={styles.medium}>
                 {KEYCAP[k]}
               </Text>
-            </Pressable>
+            </PressScale>
           ))}
-          <Pressable
+          <PressScale
+            to={0.92}
+            fill={false}
             onPress={() => void paste()}
             accessibilityRole="button"
             accessibilityLabel={t("mobile.browser.live.pasteHint")}
             hitSlop={KEY_SLOP}
-            style={({ pressed }) => [styles.keyCap, { backgroundColor: c.sunken }, pressed && styles.pressed]}
+            style={cap}
+            contentStyle={styles.keyCapIn}
           >
             <Text variant="footnote" tone="ink2" style={styles.medium}>
               {t("mobile.browser.live.paste")}
             </Text>
-          </Pressable>
+          </PressScale>
         </View>
       ) : null}
       <View style={[styles.field, { backgroundColor: c.raised, borderColor: c.line }]}>
@@ -241,35 +260,41 @@ export function TypeBar({
           onSubmitEditing={send}
           submitBehavior="submit"
         />
-        <Pressable
+        <PressScale
+          to={0.9}
           onPress={() => setSecret((s) => !s)}
           accessibilityRole="switch"
           accessibilityState={{ checked: secret }}
           accessibilityLabel={secret ? t("mobile.browser.live.secureOn") : t("mobile.browser.live.secureOff")}
           hitSlop={4}
-          style={({ pressed }) => tool(secret || pressed)}
+          style={tool(secret)}
+          contentStyle={styles.center}
         >
           <Icon name="lock" size={18} color={secret ? c.ink : c.muted} />
-        </Pressable>
-        <Pressable
+        </PressScale>
+        <PressScale
+          to={0.9}
           onPress={() => setKeys((k) => !k)}
           accessibilityRole="button"
           accessibilityState={{ expanded: keys }}
           accessibilityLabel={t("mobile.browser.live.keys")}
           hitSlop={4}
-          style={({ pressed }) => tool(keys || pressed)}
+          style={tool(keys)}
+          contentStyle={styles.center}
         >
           <Icon name="keyboard" size={18} color={keys ? c.ink : c.muted} />
-        </Pressable>
-        <Pressable
+        </PressScale>
+        <PressScale
+          to={0.9}
           onPress={send}
           disabled={!text}
           accessibilityRole="button"
           accessibilityLabel={t("mobile.browser.live.send")}
-          style={({ pressed }) => [styles.send, { backgroundColor: c.ink, opacity: !text ? 0.35 : pressed ? 0.8 : 1 }]}
+          style={[styles.send, { backgroundColor: c.ink, opacity: text ? 1 : 0.35 }]}
+          contentStyle={styles.center}
         >
           <Icon name="send" size={18} color={c.bg} />
-        </Pressable>
+        </PressScale>
       </View>
     </View>
   );
@@ -344,18 +369,17 @@ export function AddressBar({
             returnKeyType="go"
             onSubmitEditing={() => void go()}
           />
-          <Pressable
+          <PressScale
+            to={0.9}
             onPress={() => void go()}
             disabled={!ready}
             accessibilityRole="button"
             accessibilityLabel={t("browser.inCard.go")}
-            style={({ pressed }) => [
-              styles.send,
-              { backgroundColor: c.ink, opacity: !ready ? 0.35 : pressed ? 0.8 : 1 },
-            ]}
+            style={[styles.send, { backgroundColor: c.ink, opacity: ready ? 1 : 0.35 }]}
+            contentStyle={styles.center}
           >
             <Icon name="right" size={18} color={c.bg} />
-          </Pressable>
+          </PressScale>
         </View>
       </Locked>
       {error ? (
@@ -366,6 +390,71 @@ export function AddressBar({
     </View>
   );
 }
+
+/** A site's paper and letter, the same in both themes (the web's `--site-paper`, `--site-ink`). */
+export const SITE_PAPER = "#ffffff";
+const SITE_INK = "#111111";
+/** A plain host ("example.com", "localhost:3000"): only those get their icon asked for. */
+const PLAIN_HOST = /^[a-z0-9.-]+(:\d+)?$/i;
+
+/**
+ * A site's own icon (its `/favicon.ico`), or its first letter when it has none or `letterOnly` (an app on the desktop):
+ * one 18-point tile either way, so the line never shifts (the web's `SiteIcon`). Decorative: the words beside name it.
+ */
+export function SiteIcon({ host, letterOnly = false }: { host: string; letterOnly?: boolean }) {
+  const c = useColors();
+  // Keyed by the host it failed for: a new site gets a new try with nothing to reset.
+  const [failed, setFailed] = useState<string | null>(null);
+  const letter = siteName(host).charAt(0);
+  const plain = letterOnly || failed === host || !PLAIN_HOST.test(host);
+  return (
+    <View
+      style={[styles.siteIcon, { borderColor: c.line2 }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {plain ? (
+        <RNText style={styles.siteLetter} allowFontScaling={false}>
+          {letter}
+        </RNText>
+      ) : (
+        <SiteImage
+          source={{ uri: `https://${host}/favicon.ico` }}
+          style={styles.favicon}
+          contentFit="contain"
+          onError={() => setFailed(host)}
+        />
+      )}
+    </View>
+  );
+}
+
+/**
+ * The agent's frame closed into its top (the web's `brw-mf-end`): a light band of the agent's color, the size of the
+ * tools block beside it, with the cut corner. After the run it holds where it browsed; after Stop, that it stopped.
+ */
+export function EndBand({
+  color,
+  style,
+  children,
+}: {
+  color: AgentColorName;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const c = useColors();
+  const [top] = gradientOf(color);
+  return (
+    <View
+      style={[styles.band, { backgroundColor: mixHex(c.raised, top, 0.14), borderColor: withAlpha(top, 0.25) }, style]}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** The band's corners, the tools block's (`ToolBlock`): 14 round, the bottom left cut to 6. */
+export const BAND = { radius: 14, cut: 6, inset: 5 } as const;
 
 export interface LiveState {
   frame: BrowserFrame | null;
@@ -386,6 +475,8 @@ export interface LiveState {
   lost: { words: NonNullable<ReturnType<typeof inputProblem>> } | null;
   /** Where the agent's pointer last went on the page; `n` counts its gestures. */
   pointer: CountedPointer | null;
+  /** How the browser ended (cleared by the next frame): Stop says who and when. */
+  endedBy: { reason: "stopped" | "closed" | "error"; userId?: string; at?: string } | null;
 }
 
 /**
@@ -406,6 +497,7 @@ export function useLiveConnection(agentId: string, enabled: boolean, maxFps?: nu
   const [online, setOnline] = useState(false);
   const [lost, setLost] = useState<LiveState["lost"]>(null);
   const [pointer, setPointer] = useState<CountedPointer | null>(null);
+  const [endedBy, setEndedBy] = useState<LiveState["endedBy"]>(null);
   const liveRef = useRef<ReturnType<typeof createBrowserLiveConnection> | null>(null);
   // The rate when the watch starts; a change later goes through `setMaxFps` (never a new watch).
   const fps = useRef(maxFps);
@@ -422,6 +514,7 @@ export function useLiveConnection(agentId: string, enabled: boolean, maxFps?: nu
       maxFps: fps.current,
       onFrame: (f) => {
         setUnavailable(null);
+        setEndedBy(null);
         setFrame(f);
       },
       onStatus: (st) => {
@@ -438,7 +531,11 @@ export function useLiveConnection(agentId: string, enabled: boolean, maxFps?: nu
         setUnavailable(reason);
         setMessage(words ?? null);
       },
-      onEnded: () => setUnavailable("ended"),
+      onEnded: (reason, _words, by) => {
+        setUnavailable("ended");
+        // A stop says who; a later "closed" from the same stop keeps it.
+        setEndedBy((was) => (reason === "stopped" || was?.reason !== "stopped" ? { reason, ...by } : was));
+      },
       onError: (code) => {
         if (code === "forbidden" || code === "not_found") setUnavailable("forbidden");
         else if (code === "too_many_browsers") setUnavailable("tooMany");
@@ -472,6 +569,7 @@ export function useLiveConnection(agentId: string, enabled: boolean, maxFps?: nu
       setHandoff(undefined);
       setHidden(false);
       setPointer(null);
+      setEndedBy(null);
     };
   }, [connection, agentId, enabled]);
 
@@ -483,7 +581,20 @@ export function useLiveConnection(agentId: string, enabled: boolean, maxFps?: nu
     liveRef.current?.sendInput(events);
   }, []);
   const retry = useCallback(() => liveRef.current?.retry(), []);
-  return { frame, unavailable, message, controllerUserId, handoff, hidden, sendInput, retry, online, lost, pointer };
+  return {
+    frame,
+    unavailable,
+    message,
+    controllerUserId,
+    handoff,
+    hidden,
+    sendInput,
+    retry,
+    online,
+    lost,
+    pointer,
+    endedBy,
+  };
 }
 
 /** The field's height and its round buttons: the send button sits concentric in its pill end. */
@@ -510,16 +621,31 @@ const styles = StyleSheet.create({
     minHeight: FIELD,
   },
   input: { flex: 1, paddingVertical: 10 },
-  tool: { width: FIELD_BUTTON, height: FIELD_BUTTON, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  send: {
-    width: FIELD_BUTTON,
-    height: FIELD_BUTTON,
-    borderRadius: FIELD_BUTTON / 2,
+  tool: { width: FIELD_BUTTON, height: FIELD_BUTTON, borderRadius: 10 },
+  send: { width: FIELD_BUTTON, height: FIELD_BUTTON, borderRadius: FIELD_BUTTON / 2, marginLeft: 2 },
+  // What a sized button holds, in its middle.
+  center: { alignItems: "center", justifyContent: "center" },
+  keys: { flexDirection: "row", gap: 6, justifyContent: "flex-end" },
+  keyCap: { borderRadius: 10 },
+  keyCapIn: { minWidth: 44, alignItems: "center", paddingVertical: 8, paddingHorizontal: 8 },
+  siteIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: SITE_PAPER,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 2,
+    overflow: "hidden",
   },
-  keys: { flexDirection: "row", gap: 6, justifyContent: "flex-end" },
-  keyCap: { minWidth: 44, alignItems: "center", paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10 },
-  pressed: { opacity: 0.6 },
+  favicon: { width: 14, height: 14 },
+  siteLetter: { color: SITE_INK, fontSize: 10, lineHeight: 12, fontWeight: "700", textTransform: "uppercase" },
+  band: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderTopLeftRadius: BAND.radius,
+    borderTopRightRadius: BAND.radius,
+    borderBottomRightRadius: BAND.radius,
+    borderBottomLeftRadius: BAND.cut,
+    overflow: "hidden",
+  },
 });

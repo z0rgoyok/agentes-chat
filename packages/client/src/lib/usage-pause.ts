@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { CatchUpClosed } from "../api/types";
+import type { CatchUpClosed, UsageQueue } from "../api/types";
 import { timeAgo } from "./format";
 import { usageWhen } from "./plan-usage";
 
@@ -76,6 +76,29 @@ export function usagePauseText(t: TFunction, locale: string, card: UsagePauseCar
         : say("usageCard.lineUnknown", {});
   return { title, line };
 }
+
+/**
+ * "As 3 contas do Claude chegaram ao limite. Respondo às 14:00, quando a primeira renovar.": a plan's line with every
+ * account of the order at its limit (`UsageQueue.chain`, ADR 0041 §6), in the words of the agent's note. Null for any
+ * other line.
+ */
+export function chainWaitText(
+  t: TFunction,
+  locale: string | undefined,
+  queue: Pick<UsageQueue, "plan" | "resetsAt" | "chain">,
+  now = new Date(),
+): string | null {
+  if (!queue.chain || !queue.plan) return null;
+  const say = t as unknown as (key: string, o: Record<string, unknown>) => string;
+  const words = { accounts: String(queue.chain), plan: queue.plan };
+  return queue.resetsAt
+    ? say("chat.body.plan_limit_all_wait", { ...words, when: usageWhen(t, locale, queue.resetsAt, now) })
+    : say("chat.body.plan_limit_all_wait_unknown", words);
+}
+
+/** "A conta Trabalho chegou ao limite. Sigo na conta Pessoal.": a run that went on with the next account (ADR 0041 §6). */
+export const accountMovedText = (t: TFunction, move: { from: string; to: string }) =>
+  (t as unknown as (key: string, o: Record<string, unknown>) => string)("chat.body.plan_account_moved", move);
 
 /**
  * Continuar agora and "Don't run it" are for the person behind the work, the agent's owner or an admin (the server's
@@ -184,6 +207,8 @@ export const closedNoteText = (t: TFunction, closed: CatchUpClosed) =>
 const PLAN_LIMIT_NOTES = new Set([
   "plan_limit_wait",
   "plan_limit_wait_unknown",
+  "plan_limit_all_wait",
+  "plan_limit_all_wait_unknown",
   "plan_limit_cut",
   "plan_limit_cut_unknown",
 ]);

@@ -55,14 +55,20 @@ test("Sua IA is one row that opens its choice: what answers me, by its logo and 
   expect(screen).toContain("openConnectAi({ agentId: agent.id })");
   // On the right hand's profile, and first in its settings, under "Só para você".
   expect(profile).toContain("<RightHandMine agent={agent} />");
-  const mine = screen.indexOf('<GroupTitle>{t("rightHand.settings.groupMine")}</GroupTitle>');
-  const workspace = screen.indexOf('{t("rightHand.settings.groupWorkspace")}</GroupTitle>');
+  // The screen's groups by their names, each the standard section header over its lists (never a title drawn by hand).
+  const mine = screen.indexOf('<SectionHeader title={t("rightHand.settings.groupMine")} />');
+  const workspace = screen.indexOf(
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the screen's source
+    'title={`${t("rightHand.settings.groupWorkspace")} · ${t("rightHand.settings.groupAdmins")}`}',
+  );
+  expect(screen).not.toContain("function GroupTitle(");
   expect(mine).toBeGreaterThan(-1);
   expect(screen.indexOf("<RightHandMine agent={agent} />")).toBeGreaterThan(mine);
   expect(screen.indexOf("<RightHandApprovalsGroup />")).toBeGreaterThan(mine);
   expect(screen.indexOf("<RightHandApprovalsGroup />")).toBeLessThan(workspace);
-  // The workspace's group is only for who manages agents, and the settings open for everyone from the profile.
-  expect(screen.slice(mine, workspace)).toContain('{can(org, "manage_agents") ? (');
+  // The workspace's group is only for who manages it (the server's `canManage`), and the settings open for everyone
+  // from the profile.
+  expect(screen.slice(mine, workspace)).toContain("{managesAgent(agent) ? (");
   expect(profile).toContain(
     '? { action: { label: t("rightHand.profile.configure"), onPress: openRightHandSettings } }',
   );
@@ -94,8 +100,10 @@ test("Lodi's settings: the workspace's plan has no lending switch, since a plan 
   // On a plan, its model is the row under it (as the key's model is), saved as the workspace's.
   expect(screen).toContain('onPress={() => openAgentModel(agent.id, "workspace")}');
   const model = readFileSync(join(import.meta.dir, "../../src/features/ai/AgentAiScreen.tsx"), "utf8");
+  const saves = readFileSync(join(import.meta.dir, "../../src/features/ai/useSaveBrain.ts"), "utf8");
   expect(model).toContain("const brain = useAgentBrain(orgId, agentId, true, false, scope);");
-  expect(model).toContain("api.agents.setBrain(orgId, agentId, { ...(scope ? { scope } : {}), ...input })");
+  expect(model).toContain("const { pending, save } = useSaveBrain(agentId, scope);");
+  expect(saves).toContain("api.agents.setBrain(orgId, agentId, { ...(scope ? { scope } : {}), ...input })");
   expect(screen).not.toContain("noAi.rightHand.useKey");
   expect(screen).not.toContain("workspacePlan");
   // Any plan's CLI: Claude Code's, Codex's, Cursor's, OpenCode's, Grok Build's or the Antigravity CLI's.
@@ -109,4 +117,26 @@ test("Connect is everyone's for Lodi, and its own AI has no Atende outras pessoa
   const steps = source("ConnectAiSteps.tsx");
   expect(steps).toContain('gates.view?.scope === "mine" ? null : (');
   expect(steps).toContain('t("noAi.lockedOwner")');
+});
+
+test("another AI answered for its plan: a quiet pill with Change, and its dimmed plans with why (ADR 0137 §7, amended)", () => {
+  const card = source("NoAiCard.tsx");
+  // The stand-in line: neutral (never `waiting`), its words in the reader's language, Change opens its settings.
+  expect(card).toContain("if (card.standIn) return <StandInLine standIn={card.standIn} />;");
+  expect(card).toContain("t(standInKey(standIn.why), { via: standIn.via, plan: standIn.plan })");
+  expect(card).toContain('router.push("/settings/right-hand" as never)');
+  const row = readFileSync(join(import.meta.dir, "../../src/features/chat/MessageRow.tsx"), "utf8");
+  expect(row).toContain('isStandInLine(meta) ? ""');
+  const screen = readFileSync(join(import.meta.dir, "../../src/features/right-hand/SettingsScreen.tsx"), "utf8");
+  expect(screen).toContain("rightHandUnusable(aiAccounts, view?.account)");
+  expect(screen).toContain('t("rightHand.unusable.title", g)');
+  expect(screen).toContain('t("rightHand.unusable.computerOnly"');
+  // The way out is the workspace's computers, for who may connect one: no button of Lodi's own.
+  expect(screen).toContain('can(org, "pair_computers") && edition !== "cloud" && cant.some((u) => u.why === "away")');
+  expect(`${card}${screen}`).not.toContain("Give Lodi a computer");
+});
+
+test("the workspace's plan choice and its plans it can't think with now list each account once, as on the web", () => {
+  const screen = readFileSync(join(import.meta.dir, "../../src/features/right-hand/SettingsScreen.tsx"), "utf8");
+  expect(screen).toContain("const listed = accountChoices(");
 });

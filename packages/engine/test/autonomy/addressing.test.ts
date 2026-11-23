@@ -188,13 +188,17 @@ scenario("S10a", "a thanks an agent is sure needs nothing wakes nobody", async (
   await assertInvariants(w);
 });
 
-scenario("S10b", "a thanks the judge is unsure of wakes the agent once, it passes and posts nothing", async () => {
-  const w = await thanks(0.3, 0.7);
-  expect(await w.runs("theo")).toHaveLength(1);
-  expect(await w.posts("theo")).toEqual([]);
-  expect(await w.runs()).toHaveLength(2);
-  await assertInvariants(w);
-});
+scenario(
+  "S10b",
+  "a thanks the judge leans on as a handover wakes the agent once, it passes and posts nothing",
+  async () => {
+    const w = await thanks(0.65, 0.35);
+    expect(await w.runs("theo")).toHaveLength(1);
+    expect(await w.posts("theo")).toEqual([]);
+    expect(await w.runs()).toHaveLength(2);
+    await assertInvariants(w);
+  },
+);
 
 scenario("S10c", "polite agents whose mention judge is down don't thank each other in a loop", async () => {
   const w = await world({
@@ -239,7 +243,7 @@ scenario(
 scenario("S12", "a handover by mention wakes the agent, and it can act on it", async () => {
   const w = await world({
     agents: ["otto", "caio"],
-    judge: { mention: { caio: { handoff: 0.42, needsNothing: 0.42 } } },
+    judge: { mention: { caio: { handoff: 0.6, needsNothing: 0.35 } } },
     setup: { toolSources: [openPullRequestTool()] },
     script: {
       otto: [{ text: "@caio, assume o #225 a partir do gate e abre o PR" }],

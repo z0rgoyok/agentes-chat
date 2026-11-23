@@ -35,6 +35,9 @@ test("a failed run's reason: a CLI's failed turn is its CLI's, the computer's ow
   // A Codex turn on a Windows computer where MXC can't hold its commands: its own words, never the bare code.
   expect(runErrorDetail("windows_sandbox")).toEqual({ errorCode: "run.windows_sandbox" });
   expect(routineFailureCode("account_missing")).toBe("account_missing");
+  // A computer whose disk is full: its own words and way out, in a routine's ledger too.
+  expect(runErrorDetail("disk_full")).toEqual({ errorCode: "run.disk_full" });
+  expect(routineFailureCode("disk_full")).toBe("disk_full");
   for (const error of ["Stopped after an error: duplicate key value", "Stopped after an error that kept repeating."]) {
     expect(runErrorDetail(error)).toEqual({ errorCode: "run.our_error" });
     expect(routineFailureCode(error)).toBe("our_error");

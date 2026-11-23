@@ -1,6 +1,6 @@
 import type { AccountLoginStart, AccountLoginStatus, MachineAccount, MachineAccountKind } from "@agenteschat/client";
 import { keys, useAccountLogin, useAiAccounts, useApi } from "@agenteschat/client";
-import { accountTitle, reusableAccount, signInOf } from "@agenteschat/client/lib/ai-accounts";
+import { accountInLine, accountTitle, reusableAccount, signInOf } from "@agenteschat/client/lib/ai-accounts";
 import { knownErrorText } from "@agenteschat/client/lib/errors";
 import {
   beginLogin,
@@ -15,7 +15,7 @@ import {
   otherThanHint,
 } from "@agenteschat/client/lib/machines";
 import { GEMINI_ENTERPRISE_PROVIDER, planKeyFits, signInKey } from "@agenteschat/client/lib/plans";
-import { accountCodeAad, sealSecret } from "@agenteschat/client/lib/secret-box";
+import { accountCodeAad, INSECURE_CONTEXT, sealSecret } from "@agenteschat/client/lib/secret-box";
 import { AffixInput, Button, cx, Icon, InfoHint, Locked, ProviderLogo, SettingNote, SwapLabel } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -142,7 +142,7 @@ export function AddAccount(props: AddAccountProps) {
   }, [reuse, offers, ai.isPending, ai.data, props.machineId, props.kind, props.provider]);
   if (reuse === undefined) return <Icon name="spinner" size={14} />;
   const chosen = reuse ? (pick ?? (signInOf(reuse) === "signed_out" ? "again" : undefined)) : "new";
-  const label = reuse ? accountTitle(reuse) : "";
+  const label = reuse ? accountInLine(t, reuse) : "";
   const another = (
     <Button size="sm" onClick={() => setPick("new")}>
       {t("connectAi.another")}
@@ -319,7 +319,7 @@ function AddAccountFlow({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   // The code or key didn't go: the computer away for now (`loginReadPasses`), or refused.
-  const [sendFailed, setSendFailed] = useState<"away" | "refused" | null>(null);
+  const [sendFailed, setSendFailed] = useState<"away" | "refused" | "insecure" | null>(null);
   const [pasteFailed, setPasteFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   // "Copy link": the sign-in's link on its way to the clipboard (it may begin the sign-in first), then copied.
@@ -489,7 +489,13 @@ function AddAccountFlow({
       onSent?.();
     } catch (error) {
       // Never sent again by itself: a call that got no answer may have reached the computer.
-      setSendFailed(loginReadPasses(error) ? "away" : "refused");
+      setSendFailed(
+        (error as { code?: string }).code === INSECURE_CONTEXT
+          ? "insecure"
+          : loginReadPasses(error)
+            ? "away"
+            : "refused",
+      );
     } finally {
       setSending(false);
     }
@@ -626,11 +632,13 @@ function AddAccountFlow({
       {pasteFailed && <SettingNote icon="alert">{t("aiAccounts.add.pasteFailed")}</SettingNote>}
       {sendFailed && (
         <SettingNote icon="alert">
-          {sendFailed === "away"
-            ? t("agentPage.work.brain.add.startFailed", { computer })
-            : plan
-              ? t("aiAccounts.add.keySendFailed")
-              : t("agentPage.work.brain.add.sendFailed")}
+          {sendFailed === "insecure"
+            ? t("secret.insecureContext")
+            : sendFailed === "away"
+              ? t("agentPage.work.brain.add.startFailed", { computer })
+              : plan
+                ? t("aiAccounts.add.keySendFailed")
+                : t("agentPage.work.brain.add.sendFailed")}
         </SettingNote>
       )}
     </>
@@ -652,7 +660,7 @@ function AddAccountFlow({
           ? plan
             ? t("aiAccounts.add.duplicateKey", { account: shown.duplicate.label })
             : t(`agentPage.work.brain.add.duplicate.${kind}`, {
-                account: shown.duplicate.account?.email ?? shown.duplicate.label,
+                account: shown.duplicate.account ? accountInLine(t, shown.duplicate.account) : shown.duplicate.label,
               })
           : notShared
             ? t("agentPage.work.brain.add.geminiNotShared", { computer })
@@ -977,7 +985,7 @@ function AddAccountFlow({
             {instead && (
               <Button onClick={instead.use}>
                 <span className="ai-panel__use">
-                  {t("connectAi.useAnyway", { email: instead.account.email ?? instead.account.label })}
+                  {t("connectAi.useAnyway", { email: accountTitle(t, instead.account) })}
                 </span>
               </Button>
             )}
@@ -1008,7 +1016,7 @@ function AddAccountFlow({
               {retry}
               <Button size="sm" onClick={instead.use}>
                 <span className="ai-panel__use">
-                  {t("connectAi.useAnyway", { email: instead.account.email ?? instead.account.label })}
+                  {t("connectAi.useAnyway", { email: accountTitle(t, instead.account) })}
                 </span>
               </Button>
             </span>

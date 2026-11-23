@@ -15,6 +15,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
+import type { LiveMode } from "@agenteschat/live/protocol";
 import {
   type BlockSpec,
   BlockSpecError,
@@ -22,10 +23,12 @@ import {
   dryRunBlock,
   parseBlockSpec,
 } from "@agenteschat/ui/blocks/spec";
+import * as Y from "yjs";
 import { type AgentsDmReads, agentsDmReads, readerOfRun } from "./agents-dm-reads";
 import { recordAudit } from "./audit";
 import { runAuthorityById, runPerson, UUID } from "./authority";
 import { routineBriefOfRun } from "./background";
+import { threadIsConfidential } from "./confidential";
 import { answersAgentsOnly, peopleSee } from "./consultations";
 import { isAgentOnlyDm, openDm } from "./dms";
 import { markdownToDocx } from "./docx";
@@ -34,6 +37,21 @@ import { publishChannelEvent, publishListChanged } from "./events";
 import { MODEL_FILE_READ_BYTES, type ModelFile, readForModel, tooBigToReadNote, transcriptKey } from "./file-reader";
 import { formatBytes, tableToCsv } from "./format";
 import { imageSize } from "./image-size";
+import { originOfActor } from "./live/access";
+import { type FileConversationSummary, fileConversationSummaries } from "./live/conversation";
+import { documentExport } from "./live/document-export";
+import {
+  documentFromMarkdown,
+  LIVE_SNAPSHOT_TYPE,
+  type LiveContent,
+  liveContentOf,
+  liveExcerpt,
+  liveProblems,
+  overLimit,
+  snapshotContent,
+  versionDoc,
+} from "./live/preview";
+import { docOf, liveDocMeta, loadStored, toB64 } from "./live/store";
 
 export { tableToCsv };
 
@@ -44,12 +62,14 @@ import { markdownToPdf } from "./pdf";
 import { maySql } from "./permissions";
 import { routineCreatorOf } from "./requester";
 import { agentSearchChannels, enqueueIndex, registerDocumentBuilder } from "./search";
-import { accountInUse } from "./standing";
+import { accountInUse, closedRefusal, readRefusal } from "./standing";
 import {
   AUDIENCE_MAX,
   adminChannelSql,
   artifactCol,
   channelReaderSql,
+  driveKeeperSql,
+  fileConversationReaderSql,
   fileSeenSql,
   fileSharedSql,
   taskReaderSql,
@@ -57,7 +77,17 @@ import {
 
 const { artifacts, artifactVersions, channels, channelMembers } = schema;
 
-export type ArtifactKind = "document" | "table" | "diff" | "html" | "diagram" | "file" | "block" | "poll" | "choices";
+export type ArtifactKind =
+  | "document"
+  | "table"
+  | "diff"
+  | "html"
+  | "diagram"
+  | "file"
+  | "block"
+  | "poll"
+  | "choices"
+  | LiveArtifactKind;
 export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   "document",
   "table",
@@ -68,15 +98,45 @@ export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   "block",
   "poll",
   "choices",
+  "spreadsheet",
+  "slides",
+  "canvas",
 ];
 /**
  * What lives in a conversation and not in the Drive (ADR 0113, 0124): made only through `show_block`, `start_poll`
  * and `ask_choices`, never by `create_artifact` or a person.
  */
 export type ConversationKind = "block" | "poll" | "choices";
+/**
+ * Live files (ADR 0196): one Yjs document people and agents change together, through a socket or the agents' own
+ * tools, never by saving whole content (`updateArtifact` refuses them). Each version is a snapshot of the document.
+ */
+export type LiveArtifactKind = "spreadsheet" | "slides" | "canvas" | "document";
+export const LIVE_ARTIFACT_KINDS: readonly LiveArtifactKind[] = ["spreadsheet", "slides", "canvas", "document"];
+export const isLiveArtifactKind = (kind: string): kind is LiveArtifactKind =>
+  (LIVE_ARTIFACT_KINDS as readonly string[]).includes(kind);
+/** The agents' tools for each live kind, for a refusal that says which one to use instead. */
+const LIVE_TOOLS: Record<LiveArtifactKind, { create: string; read: string; edit: string }> = {
+  spreadsheet: { create: "create_spreadsheet", read: "read_spreadsheet", edit: "edit_spreadsheet" },
+  slides: { create: "create_presentation", read: "read_presentation", edit: "edit_presentation" },
+  canvas: { create: "create_canvas", read: "read_canvas", edit: "edit_canvas" },
+  // A document is made from Markdown with the tool agents already know (ADR 0200).
+  document: { create: "create_artifact", read: "read_document", edit: "edit_document" },
+};
+/**
+ * What an agent is told of a live file where a tool shows it no whole (`read_artifact`): the tools that read and
+ * change it.
+ */
+export const liveFileHint = (kind: LiveArtifactKind) =>
+  `This is a live ${kind === "slides" ? "presentation" : kind}, changed together by people and agents: read it with ${LIVE_TOOLS[kind].read} and change it with ${LIVE_TOOLS[kind].edit}.`;
+/** Whole content for a live file: refused, with the tools that change one. */
+const liveOnly = (kind: LiveArtifactKind) =>
+  new ValidationError(
+    `This is a live ${kind === "slides" ? "presentation" : kind}: it changes only through its own tools (${LIVE_TOOLS[kind].create}, ${LIVE_TOOLS[kind].read}, ${LIVE_TOOLS[kind].edit}), never as whole content.`,
+    "artifact.live_only",
+  );
 /** Kinds made from content (JSON); `file` is made only from bytes (`createFileArtifact`, ADR 0025). */
-export const TEXT_ARTIFACT_KINDS: readonly Exclude<ArtifactKind, "file" | ConversationKind>[] = [
-  "document",
+export const TEXT_ARTIFACT_KINDS: readonly Exclude<ArtifactKind, "file" | ConversationKind | LiveArtifactKind>[] = [
   "table",
   "diff",
   "html",
@@ -97,7 +157,6 @@ export interface FileContent {
 }
 
 export type ArtifactContent =
-  | { kind: "document"; markdown: string }
   | { kind: "table"; columns: string[]; rows: string[][] }
   | { kind: "diff"; files: { path: string; patch: string }[] }
   | { kind: "diagram"; mermaid: string }
@@ -109,7 +168,12 @@ export type ArtifactContent =
   | { kind: "block"; spec?: BlockSpec; html?: string; subtitle?: string }
   | { kind: "poll"; question: string; options: string[]; multiple: boolean }
   | { kind: "choices"; questions: ChoiceQuestion[] }
-  | FileContent;
+  | FileContent
+  /**
+   * A live file (ADR 0196 §7): its preview (the top-left cells, the first slide, the canvas's first shapes, a
+   * document's first blocks; a document also its Markdown, ADR 0200).
+   */
+  | LiveContent;
 
 /**
  * One question of a choice card (ADR 0124): its options are shown as A, B, C…, and after them "Outra resposta", a
@@ -142,7 +206,9 @@ export function choicesText(questions: ChoiceQuestion[]): string {
     .join("\n\n");
 }
 
-type TextContent = Exclude<ArtifactContent, FileContent>;
+type TextContent = Exclude<ArtifactContent, FileContent | LiveContent>;
+
+const isLiveContent = (content: ArtifactContent): content is LiveContent => isLiveArtifactKind(content.kind);
 
 export interface ArtifactAuthor {
   type: "agent" | "person";
@@ -169,6 +235,8 @@ export interface ArtifactView {
   inDrive: boolean;
   /** Who sees it past its conversation (ADR 0157). */
   sharing: FileSharing;
+  /** The Drive folder it is in; null = the Drive's top level. */
+  folderId: string | null;
 }
 
 /**
@@ -265,11 +333,10 @@ export function validateContent(raw: unknown): TextContent {
   const c = (raw ?? {}) as Record<string, unknown>;
   const tooBig = (what: string) => new ValidationError(`${what} is too large`);
   switch (c.kind) {
-    case "document": {
-      if (typeof c.markdown !== "string") throw new ValidationError("document needs markdown");
-      if (bytes(c.markdown) > ARTIFACT_LIMITS.documentBytes) throw tooBig("document");
-      return { kind: "document", markdown: c.markdown };
-    }
+    case "document":
+      // A live file made from Markdown (`createArtifact`, ADR 0200): checked here, never stored as text.
+      documentMarkdown(c);
+      throw liveOnly("document");
     case "html": {
       if (typeof c.html !== "string") throw new ValidationError("html needs html");
       if (bytes(c.html) > ARTIFACT_LIMITS.htmlBytes) throw tooBig("html page");
@@ -368,17 +435,26 @@ export function validateContent(raw: unknown): TextContent {
     }
     case "file":
       throw new ValidationError("files are uploaded as bytes (upload_file, or an upload in the Drive), not as content");
+    case "spreadsheet":
+    case "slides":
+    case "canvas":
+      throw liveOnly(c.kind as LiveArtifactKind);
     default:
       throw new ValidationError(`kind must be one of ${TEXT_ARTIFACT_KINDS.join(", ")}`);
   }
 }
 
-/** How each kind is stored: documents, pages and diagrams as text; tables and diffs as JSON. */
+/** A document's Markdown as `create_artifact` and people send it (ADR 0200): there, and not too large. */
+function documentMarkdown(c: Record<string, unknown>): string {
+  if (typeof c.markdown !== "string") throw new ValidationError("document needs markdown");
+  if (bytes(c.markdown) > ARTIFACT_LIMITS.documentBytes) throw new ValidationError("document is too large");
+  return c.markdown;
+}
+
+/** How each kind is stored: pages and diagrams as text; tables and diffs as JSON. */
 function encode(content: TextContent): { body: Uint8Array; contentType: string } {
   const text = (s: string, contentType: string) => ({ body: new TextEncoder().encode(s), contentType });
   switch (content.kind) {
-    case "document":
-      return text(content.markdown, "text/markdown; charset=utf-8");
     case "html":
       return text(content.html, "text/html; charset=utf-8");
     case "block":
@@ -402,11 +478,9 @@ function encode(content: TextContent): { body: Uint8Array; contentType: string }
   }
 }
 
-function decode(kind: Exclude<ArtifactKind, "file">, body: Uint8Array): TextContent {
+function decode(kind: Exclude<ArtifactKind, "file" | LiveArtifactKind>, body: Uint8Array): TextContent {
   const s = new TextDecoder().decode(body);
   switch (kind) {
-    case "document":
-      return { kind, markdown: s };
     case "html":
       return { kind, html: s };
     case "block":
@@ -436,6 +510,10 @@ const EXTENSIONS: Record<ArtifactKind, string> = {
   block: "json",
   poll: "json",
   choices: "json",
+  // What a live file downloads as when no format is asked (ADR 0198): its export.
+  spreadsheet: "xlsx",
+  slides: "pptx",
+  canvas: "json",
 };
 
 // ── Files (ADR 0025) ─────────────────────────────────────────────────────────
@@ -631,27 +709,53 @@ const storedFileContent = (
   return fileContent(v, wantsFileText(v) ? body : null);
 };
 
-/** Plain text for search: what a person would look for in the file (a `file`: its name only). */
+/**
+ * Plain text for search: what a person would look for in the file (a `file`: its name only). A live file's comes from
+ * its whole document (`liveExcerpt`), never its preview: written when it is made, compacted or checkpointed.
+ */
 function excerptOf(content: ArtifactContent): string {
+  if (isLiveContent(content)) return "";
   const s =
     content.kind === "file"
       ? content.name
-      : content.kind === "document"
-        ? content.markdown
-        : content.kind === "block" && content.spec
-          ? blockSpecText(content.spec)
-          : content.kind === "html" || content.kind === "block"
-            ? (content.html ?? "").replace(/<[^>]+>/g, " ")
-            : content.kind === "poll"
-              ? [content.question, ...content.options].join("\n")
-              : content.kind === "choices"
-                ? choicesText(content.questions)
-                : content.kind === "diagram"
-                  ? content.mermaid
-                  : content.kind === "table"
-                    ? [content.columns.join(" "), ...content.rows.map((r) => r.join(" "))].join("\n")
-                    : content.files.map((f) => f.path).join("\n");
+      : content.kind === "block" && content.spec
+        ? blockSpecText(content.spec)
+        : content.kind === "html" || content.kind === "block"
+          ? tagsAsSpaces(content.html ?? "")
+          : content.kind === "poll"
+            ? [content.question, ...content.options].join("\n")
+            : content.kind === "choices"
+              ? choicesText(content.questions)
+              : content.kind === "diagram"
+                ? content.mermaid
+                : content.kind === "table"
+                  ? [content.columns.join(" "), ...content.rows.map((r) => r.join(" "))].join("\n")
+                  : content.files.map((f) => f.path).join("\n");
   return s.replace(/\s+/g, " ").trim().slice(0, 20_000);
+}
+
+/**
+ * `html` with each tag (a `<`, at least one character, then the first `>`) as a space, as `/<[^>]+>/g` makes it. By
+ * index: that pattern reads the rest of the text again from each `<` that no `>` follows, quadratic in its length.
+ */
+function tagsAsSpaces(html: string): string {
+  let out = "";
+  let from = 0;
+  let at = html.indexOf("<");
+  while (at >= 0) {
+    const end = html.indexOf(">", at + 1);
+    // No `>` after this `<`: none after a later one either.
+    if (end < 0) break;
+    if (end === at + 1) {
+      // `<>` is no tag.
+      at = html.indexOf("<", end);
+      continue;
+    }
+    out += `${html.slice(from, at)} `;
+    from = end + 1;
+    at = html.indexOf("<", from);
+  }
+  return out + html.slice(from);
 }
 
 /** A Markdown table (for PDF export of tables). */
@@ -687,8 +791,15 @@ function runSharedSql(personId: string | null, channelId: string) {
   ) as SQL;
 }
 
-/** What decides who reads a file: where it lives and its sharing (absent for a conversation alone, as `placeNew` asks). */
-type Readable = Pick<ArtifactRow, "channelId"> & Partial<Pick<ArtifactRow, "share" | "shareUserIds" | "shareRoleIds">>;
+/**
+ * What decides who reads a file: where it lives (a file of the Drive itself, with its maker), its sharing, and for an
+ * agent its own conversation (ADR 0199).
+ */
+type Readable = Pick<ArtifactRow, ReadsBy> & Partial<Pick<ArtifactRow, "conversationChannelId">>;
+type ReadsBy = "channelId" | "share" | "shareUserIds" | "shareRoleIds" | "createdByType" | "createdById";
+
+const CONVERSATION_ALONE: FileSharing = { mode: "conversation", userIds: [], roleIds: [] };
+const SHARED_WITH_EVERYONE: FileSharing = { mode: "everyone", userIds: [], roleIds: [] };
 
 const sharingOf = (a: Pick<ArtifactRow, "share" | "shareUserIds" | "shareRoleIds">): FileSharing => ({
   mode: a.share,
@@ -696,11 +807,38 @@ const sharingOf = (a: Pick<ArtifactRow, "share" | "shareUserIds" | "shareRoleIds
   roleIds: a.share === "people" ? a.shareRoleIds : [],
 });
 
-/** Whether a person reads a file: where it lives (`readsWhereItLives`), or through its sharing (ADR 0157). */
+/**
+ * Whether a person reads a file: where it lives (`readsWhereItLives`; a file of the Drive itself, its maker and
+ * administrators), or through its sharing (ADR 0157). Mirrors `fileSeenSql`.
+ */
 async function personCanRead(db: Database, userId: string, orgId: string, a: Readable) {
-  if (!a.channelId || a.share === "everyone" || (a.share === "people" && a.shareUserIds?.includes(userId))) return true;
-  if (await readsWhereItLives(db, userId, orgId, a.channelId)) return true;
-  return a.share === "people" && sharedByRole(db, userId, orgId, a.shareRoleIds ?? []);
+  if (a.share === "everyone" || (a.share === "people" && a.shareUserIds.includes(userId))) return true;
+  if (a.channelId ? await readsWhereItLives(db, userId, orgId, a.channelId) : madeByPerson(a, userId)) return true;
+  // A list's roles, and administrators, who always see a list and a file of the Drive itself.
+  const roles = a.share === "people" ? a.shareRoleIds : [];
+  return (a.share === "people" || !a.channelId) && sharedByRole(db, userId, orgId, roles);
+}
+
+/** Whether a person reads the file where it lives: its conversation, or keeping a file of the Drive itself. */
+const readsItThere = (db: Database, userId: string, orgId: string, a: Readable) =>
+  a.channelId ? readsWhereItLives(db, userId, orgId, a.channelId) : keepsDriveFile(db, userId, orgId, a);
+
+/** The person made the file. */
+const madeByPerson = (a: Pick<ArtifactRow, "createdByType" | "createdById">, userId: string) =>
+  a.createdByType === "person" && a.createdById === userId;
+
+/**
+ * Whether a person keeps a file of the Drive itself (no conversation), which lives with its maker (ADR 0157,
+ * amendment 2026-11-17): they and administrators read it whatever its sharing, and change who else sees it.
+ * Mirrors `driveKeeperSql`.
+ */
+async function keepsDriveFile(
+  db: Database,
+  userId: string,
+  orgId: string,
+  a: Pick<ArtifactRow, "createdByType" | "createdById">,
+) {
+  return madeByPerson(a, userId) || sharedByRole(db, userId, orgId, []);
 }
 
 /** Whether a people list's roles reach this person: one they hold, or administrator, who always sees a list. */
@@ -725,7 +863,7 @@ async function sharedWith(db: Database, userId: string, ids: string[]) {
 
 /**
  * Whether a person reads a conversation's files: a member, anyone for a public channel, an administrator for any
- * channel, whoever sees the task of a task's conversation.
+ * channel, whoever sees the task of a task's conversation, whoever reads the file of a live file's conversation.
  */
 async function readsWhereItLives(db: Database, userId: string, orgId: string, channelId: string) {
   const [row] = await db
@@ -735,6 +873,8 @@ async function readsWhereItLives(db: Database, userId: string, orgId: string, ch
       memberId: channelMembers.id,
       // A task's conversation: whoever sees the task (ADR 0145).
       taskReader: taskReaderSql(sql`${channels.id}`, sql`${userId}::text`),
+      // A live file's conversation: whoever reads the file (ADR 0199).
+      fileReader: sql<boolean>`${channels.kind} = 'file' and ${fileConversationReaderSql(sql`${channels.id}`, sql`${userId}::text`)}`,
       admin: sql<boolean>`${adminChannelSql(sql`${orgId}::uuid`, sql`${userId}::text`)}`,
     })
     .from(channels)
@@ -742,6 +882,7 @@ async function readsWhereItLives(db: Database, userId: string, orgId: string, ch
     .where(and(eq(channels.id, channelId), eq(channels.orgId, orgId)));
   if (!row) return false;
   if (row.kind === "task") return row.taskReader === true || String(row.taskReader) === "t";
+  if (row.kind === "file") return row.fileReader === true || String(row.fileReader) === "t";
   return (
     row.memberId !== null ||
     (row.visibility === "public" && row.kind === "channel") ||
@@ -750,7 +891,10 @@ async function readsWhereItLives(db: Database, userId: string, orgId: string, ch
   );
 }
 
-/** The channels whose files this person may read: those they belong to, public channels, tasks they see, and for an administrator every channel. */
+/**
+ * The channels whose files this person may read: those they belong to, public channels, tasks they see, the
+ * conversations of live files they read, and for an administrator every channel.
+ */
 async function personReadableChannels(db: Database, userId: string, orgId: string): Promise<string[]> {
   const member = and(eq(channelMembers.channelId, channels.id), eq(channelMembers.userId, userId));
   const open = and(eq(channels.visibility, "public"), eq(channels.kind, "channel"));
@@ -765,6 +909,7 @@ async function personReadableChannels(db: Database, userId: string, orgId: strin
           sql`${channelMembers.id} is not null`,
           open,
           and(eq(channels.kind, "task"), taskReaderSql(sql`${channels.id}`, sql`${userId}::text`)),
+          and(eq(channels.kind, "file"), fileConversationReaderSql(sql`${channels.id}`, sql`${userId}::text`)),
           adminChannelSql(sql`${orgId}::uuid`, sql`${userId}::text`),
         ),
       ),
@@ -818,17 +963,21 @@ async function ownRoomFile(db: Database, actor: Extract<ArtifactActor, { type: "
 }
 
 /**
- * An agent's own reach, what `listArtifacts` lists and what it may change: org-wide files, its run's conversation and
- * public channels it is in (in the agents' DM, only those made for the same person), the conversations it shares
- * with the person behind the run, and what its room saved elsewhere.
+ * An agent's own reach, what `listArtifacts` lists and what it may change: the Drive's files shared with everyone and
+ * those it made there (a file of the Drive itself lives with its maker, ADR 0157 amendment 2026-11-17), its run's
+ * conversation and public channels it is in (in the agents' DM, only those made for the same person), the
+ * conversations it shares with the person behind the run, what its room saved elsewhere, and the live file whose own
+ * conversation its run is in (ADR 0199: only agents that may work on the file are members there, `admitFileAgents`).
  */
 async function agentReaches(
   db: Database,
   actor: Extract<ArtifactActor, { type: "agent" }>,
   orgId: string,
-  a: Pick<ArtifactRow, "id" | "channelId">,
+  a: Pick<ArtifactRow, "id" | "channelId" | "share" | "createdByType" | "createdById"> &
+    Partial<Pick<ArtifactRow, "conversationChannelId">>,
 ) {
-  if (!a.channelId) return true;
+  if (a.conversationChannelId && a.conversationChannelId === actor.channelId) return true;
+  if (!a.channelId) return a.share === "everyone" || (a.createdByType === "agent" && a.createdById === actor.agentId);
   if (!(await agentSearchChannels(db, orgId, actor.agentId, actor.channelId, { files: true })).includes(a.channelId)) {
     const person = await runPerson(db, orgId, actor.runId ?? undefined);
     if (person !== null && (await requesterSharedChannels(db, orgId, actor.agentId, person)).includes(a.channelId))
@@ -856,11 +1005,11 @@ async function runReachesShared(db: Database, channelId: string, person: string 
  */
 async function canRead(db: Database, actor: ArtifactActor, orgId: string, a: Pick<ArtifactRow, "id"> & Readable) {
   if (actor.type === "person") return personCanRead(db, actor.userId, orgId, a);
-  if (!a.channelId || (await agentReaches(db, actor, orgId, { id: a.id, channelId: a.channelId }))) return true;
+  if (await agentReaches(db, actor, orgId, a)) return true;
   const person = await runPerson(db, orgId, actor.runId ?? undefined);
-  if (person !== null && (await readsWhereItLives(db, person, orgId, a.channelId))) return true;
+  if (person !== null && (await readsItThere(db, person, orgId, a))) return true;
   if (await runReachesShared(db, actor.channelId, person, a.id)) return true;
-  if (person === null) return false;
+  if (person === null || !a.channelId) return false;
   const dm = await agentsDmReads(db, orgId, a.channelId, () => Promise.resolve(person));
   return dm !== null && madeForSamePerson(db, dm, a.id);
 }
@@ -890,11 +1039,12 @@ function view(a: ArtifactRow, canEdit: boolean): ArtifactView {
     untrusted: a.untrusted,
     inDrive: a.inDrive,
     sharing: sharingOf(a),
+    folderId: a.folderId,
   };
 }
 
-/** People save new versions of documents and tables (editor) and of files (an upload). */
-const editableKind = (kind: ArtifactKind) => kind === "document" || kind === "table" || kind === "file";
+/** People save new versions of tables (editor) and of files (an upload); documents are live files (ADR 0200). */
+const editableKind = (kind: ArtifactKind) => kind === "table" || kind === "file";
 
 async function loadArtifact(db: Database, orgId: string, id: string) {
   // A model can send any 36 characters: Postgres would answer with an error about the uuid type.
@@ -913,7 +1063,7 @@ async function loadArtifact(db: Database, orgId: string, id: string) {
 async function agentRefusal(db: Database, actor: Extract<ArtifactActor, { type: "agent" }>, orgId: string, id: string) {
   const [gone] = UUID.test(id)
     ? await db
-        .select({ id: artifacts.id, channelId: artifacts.channelId })
+        .select()
         .from(artifacts)
         .where(and(eq(artifacts.id, id), eq(artifacts.orgId, orgId), sql`${artifacts.deletedAt} is not null`))
     : [];
@@ -924,7 +1074,7 @@ async function agentRefusal(db: Database, actor: Extract<ArtifactActor, { type: 
   }
   const nobody = (await runPerson(db, orgId, actor.runId ?? undefined))
     ? ""
-    : " Nobody is behind this run, so you only reach this conversation, public channels you are in and the Drive.";
+    : " Nobody is behind this run, so you only reach this conversation, public channels you are in and what the whole workspace sees in the Drive.";
   return new NotFoundError(
     `File not found: ${id} is no file you can open from here. The id may be wrong, or the file is in a conversation out of your reach.${nobody} Copy the whole id from list_artifacts or an "(attached files: …)" line, never from memory. If that isn't it, say so and ask someone who sees the file to attach it here or put it in the Drive. This id won't work again.`,
   );
@@ -939,12 +1089,22 @@ async function readable(deps: ArtifactDeps, actor: ArtifactActor, orgId: string,
   throw new NotFoundError("Artifact not found");
 }
 
+/**
+ * Why an agent reads a file it may not change (`agentReaches`): a conversation it isn't in, or a file of the Drive
+ * itself not shared with everyone (ADR 0157, amendment 2026-11-17), which a person asks it about in the file's own
+ * conversation.
+ */
+const outOfReach = (a: Pick<ArtifactRow, "channelId">) =>
+  a.channelId
+    ? "it is in a conversation you aren't in"
+    : "it is in the Drive, not shared with the whole workspace (who sees it may mention you in its conversation)";
+
 /** `readable` to save a version: reading follows the person behind the run, changing a file only the agent's own reach. */
 async function writable(deps: ArtifactDeps, actor: ArtifactActor, orgId: string, id: string) {
   const a = await readable(deps, actor, orgId, id);
   if (actor.type === "agent" && !(await agentReaches(deps.db, actor, orgId, a))) {
     throw new ForbiddenError(
-      "You can read this file but not change it: it is in a conversation you aren't in. Save your version as a new file with create_artifact.",
+      `You can read this file but not change it: ${outOfReach(a)}. Save your version as a new file with create_artifact.`,
     );
   }
   return a;
@@ -986,7 +1146,7 @@ async function placeNew(
   db: Database,
   actor: ArtifactActor,
   orgId: string,
-  input: { title: string; channelId?: string | null; threadId?: string | null },
+  input: { title: string; channelId?: string | null; threadId?: string | null; folderId?: string | null },
 ) {
   const membership = await requireMember(db, actor, orgId);
   if (membership && !can(membership, "upload_files")) throw new ForbiddenError();
@@ -997,7 +1157,20 @@ async function placeNew(
   if (channelId && actor.type === "person" && !(await readsWhereItLives(db, actor.userId, orgId, channelId))) {
     throw new NotFoundError("Channel not found");
   }
-  return { title, channelId, threadId };
+  const folderId = input.folderId ? await folderInOrg(db, orgId, input.folderId) : null;
+  return { title, channelId, threadId, folderId };
+}
+
+/** A folder id of this workspace, or "not found". */
+async function folderInOrg(db: Database, orgId: string, folderId: string) {
+  const [f] = UUID.test(folderId)
+    ? await db
+        .select({ id: schema.driveFolders.id })
+        .from(schema.driveFolders)
+        .where(and(eq(schema.driveFolders.orgId, orgId), eq(schema.driveFolders.id, folderId)))
+    : [];
+  if (!f) throw new NotFoundError("Folder not found");
+  return f.id;
 }
 
 /**
@@ -1010,7 +1183,7 @@ async function placeFile(
   db: Database,
   actor: ArtifactActor,
   orgId: string,
-  input: { title: string; channelId?: string | null; threadId?: string | null },
+  input: { title: string; channelId?: string | null; threadId?: string | null; folderId?: string | null },
 ) {
   const place = await placeNew(db, actor, orgId, input);
   if (actor.type !== "agent" || !actor.runId) return place;
@@ -1036,6 +1209,7 @@ async function insertArtifact(
     title: string;
     channelId: string | null;
     threadId: string | null;
+    folderId?: string | null;
     untrusted: boolean;
     /** False for what lives only in its conversation (ADR 0113): out of the Drive and of search. */
     inDrive?: boolean;
@@ -1044,10 +1218,20 @@ async function insertArtifact(
     note?: string | null;
     /** Whose file it is, when not the actor's (an imported agent's own files); the audit keeps the actor. */
     author?: ArtifactAuthor;
+    /** Its id, chosen before (a live file's pictures are stored under it first). */
+    id?: string;
+    /** More rows of the same file, in the same transaction (a live file's document and pictures, ADR 0196). */
+    inTx?: (tx: Executor, row: ArtifactRow) => Promise<void>;
+    /**
+     * Who else sees it (ADR 0157): by default its conversation alone, and a file of the Drive itself the whole
+     * workspace (amendment 2026-11-17). A copy of a Drive file takes the original's, so it reaches nobody more.
+     */
+    sharing?: FileSharing;
   },
 ) {
   const { db } = deps;
-  const id = Bun.randomUUIDv7();
+  const id = input.id ?? Bun.randomUUIDv7();
+  const sharing = input.sharing ?? (input.channelId ? CONVERSATION_ALONE : SHARED_WITH_EVERYONE);
   const blob = await writeBlob(deps, orgId, id, 1, input.stored);
   const author = input.author ?? authorOf(actor);
   const row = await db.transaction(async (tx) => {
@@ -1060,9 +1244,13 @@ async function insertArtifact(
         title: input.title,
         channelId: input.channelId,
         threadId: input.threadId,
+        folderId: input.folderId ?? null,
         untrusted: input.untrusted,
         inDrive: input.inDrive ?? true,
         excerpt: input.excerpt,
+        share: sharing.mode,
+        shareUserIds: sharing.userIds,
+        shareRoleIds: sharing.roleIds,
         currentVersion: 1,
         createdByType: author.type,
         createdById: author.id,
@@ -1088,6 +1276,7 @@ async function insertArtifact(
       authorId: author.id,
       runId: actor.type === "agent" ? (actor.runId ?? null) : null,
     });
+    await input.inTx?.(tx, a);
     if (input.inDrive !== false) await enqueueIndex(tx, { orgId, kind: "file", sourceId: id });
     await recordAudit(tx, {
       orgId,
@@ -1112,7 +1301,14 @@ export async function insertVersion(
   actor: ArtifactActor,
   orgId: string,
   current: ArtifactRow,
-  input: { stored: Stored; excerpt: string; note?: string | null; title?: string },
+  input: {
+    stored: Stored;
+    excerpt: string;
+    note?: string | null;
+    title?: string;
+    /** More rows in the same transaction (a live file's checkpoint mark, ADR 0196 §7). */
+    inTx?: (tx: Executor) => Promise<void>;
+  },
 ) {
   const { db } = deps;
   const artifactId = current.id;
@@ -1152,6 +1348,7 @@ export async function insertVersion(
       authorId: author.id,
       runId: actor.type === "agent" ? (actor.runId ?? null) : null,
     });
+    await input.inTx?.(tx);
     await enqueueIndex(tx, { orgId, kind: "file", sourceId: artifactId });
     await recordAudit(tx, {
       orgId,
@@ -1180,8 +1377,18 @@ export async function createArtifact(
   deps: ArtifactDeps,
   actor: ArtifactActor,
   orgId: string,
-  input: { title: string; content: unknown; channelId?: string | null; threadId?: string | null },
+  input: {
+    title: string;
+    content: unknown;
+    channelId?: string | null;
+    threadId?: string | null;
+    folderId?: string | null;
+    /** Version 1's note (where it came from, ADR 0198). */
+    note?: string | null;
+  },
 ): Promise<ArtifactDetailView> {
+  const raw = (input.content ?? {}) as Record<string, unknown>;
+  if (raw.kind === "document") return createDocument(deps, actor, orgId, { ...input, markdown: documentMarkdown(raw) });
   const place = await placeFile(deps.db, actor, orgId, input);
   const content = validateContent(input.content);
   const { artifact } = await insertArtifact(deps, actor, orgId, {
@@ -1190,8 +1397,47 @@ export async function createArtifact(
     untrusted: content.kind === "html",
     excerpt: excerptOf(content),
     stored: encode(content),
+    note: input.note ?? null,
   });
   return detail(artifact, 1, content);
+}
+
+/**
+ * A document from Markdown (ADR 0200): a live file people and agents then edit together, made where `createArtifact`
+ * makes any file. Refused past the documents' limits, as a live file is.
+ */
+async function createDocument(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  input: {
+    title: string;
+    markdown: string;
+    channelId?: string | null;
+    threadId?: string | null;
+    folderId?: string | null;
+    note?: string | null;
+  },
+): Promise<ArtifactDetailView> {
+  const doc = documentFromMarkdown(input.markdown, originOfActor(actor));
+  try {
+    const over = overLimit(doc, "document");
+    if (over) throw new ValidationError(`The file would be too large (${over})`, "live.too_large", { limit: over });
+    const problems = liveProblems(doc);
+    if (problems.length > 0) throw new ValidationError(`The file can't be made: ${problems[0]}`);
+    const artifact = await insertLiveArtifact(deps, actor, orgId, {
+      kind: "document",
+      title: input.title,
+      channelId: input.channelId,
+      threadId: input.threadId,
+      folderId: input.folderId,
+      doc,
+      note: input.note ?? null,
+    });
+    return detail(artifact, 1, liveContentOf(doc, "document"));
+  } finally {
+    doc.destroy();
+  }
 }
 
 /**
@@ -1256,6 +1502,7 @@ export async function updateArtifact(
   if (current.kind === "file") {
     throw new ValidationError("this artifact is an uploaded file: send a new version of the file instead");
   }
+  if (isLiveArtifactKind(current.kind)) throw liveOnly(current.kind);
   const content = validateContent(input.content);
   if (content.kind !== current.kind) throw new ValidationError(`this artifact is a ${current.kind}`);
   if (actor.type === "person" && !editableKind(current.kind)) {
@@ -1300,6 +1547,7 @@ export async function createFileArtifact(
     contentType?: string | null;
     channelId?: string | null;
     threadId?: string | null;
+    folderId?: string | null;
     note?: string | null;
     author?: ArtifactAuthor;
     /** What a tool brought back for the agent to work on, not saved for anyone: it stays in the run's conversation. */
@@ -1404,8 +1652,9 @@ async function sharedDriveRefusal(
 }
 
 /**
- * `shared_drive`: the file leaves its conversation for the workspace's shared Drive (no channel), so everyone there
- * sees it (`sharedDriveRefusal`). Links and cards keep working, since it is the same file.
+ * `shared_drive`: the file leaves its conversation for the workspace's shared Drive (no channel), shared with
+ * everyone there (`sharedDriveRefusal`; ADR 0157, amendment 2026-11-17). Links and cards keep working, since it is
+ * the same file.
  */
 export async function moveToSharedDrive(
   deps: ArtifactDeps,
@@ -1421,7 +1670,7 @@ export async function moveToSharedDrive(
   const row = await deps.db.transaction(async (tx) => {
     const [moved] = await tx
       .update(artifacts)
-      .set({ channelId: null, threadId: null })
+      .set({ channelId: null, threadId: null, share: "everyone", shareUserIds: [], shareRoleIds: [] })
       .where(and(eq(artifacts.id, a.id), eq(artifacts.orgId, orgId)))
       .returning();
     if (!moved) throw new NotFoundError("Artifact not found");
@@ -1453,11 +1702,24 @@ export async function fileReach(db: Database, orgId: string, artifactId: string,
       share: artifacts.share,
       userIds: artifacts.shareUserIds,
       roleIds: artifacts.shareRoleIds,
+      createdByType: artifacts.createdByType,
+      createdById: artifacts.createdById,
     })
     .from(artifacts)
     .leftJoin(channels, eq(channels.id, artifacts.channelId))
     .where(and(eq(artifacts.id, artifactId), eq(artifacts.orgId, orgId)));
-  if (!a?.channelId) return "It is in the workspace's shared Drive: everyone in the workspace sees it.";
+  if (!a || (!a.channelId && a.share === "everyone")) {
+    return "It is in the workspace's shared Drive: everyone in the workspace sees it.";
+  }
+  if (!a.channelId) {
+    // A file of the Drive itself lives with its maker (ADR 0157, amendment 2026-11-17).
+    const maker = await makerName(db, orgId, a.createdByType, a.createdById);
+    const who =
+      a.share === "people"
+        ? `${maker}, ${await sharedList(db, orgId, a.userIds, a.roleIds)}`
+        : `${maker} and administrators`;
+    return `It is in the Drive, not shared with the whole workspace: only ${who} see it.`;
+  }
   if (a.share === "everyone") return "It was shared with the whole workspace: everyone in the workspace sees it.";
   const notShared = `in the Drive's private section, not in the shared Drive. ${hint}`.trimEnd();
   if (a.share === "people") {
@@ -1477,6 +1739,21 @@ export async function fileReach(db: Database, orgId: string, artifactId: string,
   return `No person sees it: it is in a conversation between agents, not in the shared Drive. Don't say it is saved for people. ${hint}`.trimEnd();
 }
 
+/** Who made a file, for `fileReach`: a person's name, an agent's handle. */
+async function makerName(db: Database, orgId: string, type: string, id: string) {
+  if (type === "agent") {
+    const [agent] = UUID.test(id)
+      ? await db
+          .select({ handle: schema.agents.handle })
+          .from(schema.agents)
+          .where(and(eq(schema.agents.orgId, orgId), eq(schema.agents.id, id)))
+      : [];
+    return agent ? `@${agent.handle}` : "the agent that made it";
+  }
+  const [person] = await db.select({ name: schema.users.name }).from(schema.users).where(eq(schema.users.id, id));
+  return person?.name ?? "the person who made it";
+}
+
 /** Who a people list adds, for `fileReach`: "Ana, the role Finance and administrators". */
 async function sharedList(db: Database, orgId: string, userIds: string[], roleIds: string[]) {
   const [people, roles] = await Promise.all([
@@ -1494,7 +1771,10 @@ async function sharedList(db: Database, orgId: string, userIds: string[], roleId
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
-/** The Drive files a run saved, as a message carries them, of those the people of `channelId` see (or everyone does). */
+/**
+ * The Drive files a run saved, as a message carries them, of those the people of `channelId` see (or everyone does: a
+ * file of the Drive itself only when shared with everyone, ADR 0157 amendment 2026-11-17).
+ */
 export function filesOfRun(db: Executor, orgId: string, runId: string, channelId: string) {
   return db
     .selectDistinct({ id: artifacts.id, version: artifacts.currentVersion, title: artifacts.title })
@@ -1506,7 +1786,7 @@ export function filesOfRun(db: Executor, orgId: string, runId: string, channelId
         eq(artifactVersions.runId, runId),
         isNull(artifacts.deletedAt),
         eq(artifacts.inDrive, true),
-        or(isNull(artifacts.channelId), eq(artifacts.channelId, channelId)),
+        or(and(isNull(artifacts.channelId), eq(artifacts.share, "everyone")), eq(artifacts.channelId, channelId)),
       ),
     );
 }
@@ -1534,6 +1814,8 @@ async function readVersion(deps: ArtifactDeps, a: ArtifactRow, v: VersionRow) {
 /** A version's content: decoded text kinds; a `file`'s metadata (its bytes read only for a small text file). */
 async function contentOf(deps: ArtifactDeps, a: ArtifactRow, v: VersionRow): Promise<ArtifactContent> {
   if (a.kind === "file") return fileContent(v, wantsFileText(v) ? (await readVersion(deps, a, v)).body : null);
+  // A live file's version is a snapshot of its document: its preview, as the head's (ADR 0196 §7).
+  if (isLiveArtifactKind(a.kind)) return snapshotContent(a.kind, (await readVersion(deps, a, v)).body, v.contentType);
   return decode(a.kind, (await readVersion(deps, a, v)).body);
 }
 
@@ -1653,8 +1935,42 @@ export async function getArtifact(
   version?: number,
 ): Promise<ArtifactDetailView> {
   const a = await readable(deps, actor, orgId, artifactId);
+  // A live file without a version asked: its head, newer than any version (ADR 0196 §7).
+  if (version === undefined && isLiveArtifactKind(a.kind)) {
+    const head = await liveHeadContent(deps, a, a.kind);
+    if (head) return detail(view(a, editableKind(a.kind)), a.currentVersion, head);
+  }
   const v = await versionRow(deps.db, a, version);
   return detail(view(a, editableKind(a.kind)), v.version, await contentOf(deps, a, v));
+}
+
+/**
+ * A live file's head as cards draw it: the preview its last compaction kept, or, before the first one, made from the
+ * head itself (and kept). Null when it has no live document (its latest version stands in).
+ */
+async function liveHeadContent(
+  deps: ArtifactDeps,
+  a: ArtifactRow,
+  kind: LiveArtifactKind,
+): Promise<LiveContent | null> {
+  const row = await liveDocMeta(deps.db, a.orgId, a.id);
+  if (!row) return null;
+  // A document's content also carries its whole Markdown (ADR 0200), so it is read from the head every time.
+  if (row.preview && kind !== "document") return { kind, preview: row.preview } as unknown as LiveContent;
+  const stored = await loadStored(deps.db, a.orgId, a.id);
+  if (!stored) return null;
+  const doc = docOf(stored.state, stored.changes);
+  try {
+    const content = liveContentOf(doc, kind);
+    if (row.preview) return content;
+    await deps.db
+      .update(schema.liveDocs)
+      .set({ preview: content.preview as unknown as Record<string, unknown> })
+      .where(eq(schema.liveDocs.artifactId, a.id));
+    return content;
+  } finally {
+    doc.destroy();
+  }
 }
 
 /** What a file's pill in a text shows (`idRef`): its name and type, only for a person who may read it; else null. */
@@ -1712,6 +2028,8 @@ export interface ArtifactFilters {
   since?: Date;
   /** Agents: also the conversations this person shares with the agent (see `requesterSharedChannels`). */
   requesterUserId?: string | null;
+  /** In this Drive folder; null = at the Drive's top level; absent = anywhere. */
+  folderId?: string | null;
 }
 
 export type ArtifactSort = "recent" | "name" | "kind";
@@ -1720,7 +2038,7 @@ export type ArtifactSort = "recent" | "name" | "kind";
 export const ARTIFACT_PAGE_MAX = 200;
 
 /** The order of `sort: "kind"`, as the apps list the kinds (mirror of `ARTIFACT_KINDS` in `@agenteschat/client`). */
-const KIND_ORDER = ["document", "table", "diff", "diagram", "html", "file"];
+const KIND_ORDER = ["document", "spreadsheet", "slides", "canvas", "table", "diff", "diagram", "html", "file"];
 
 /** The files the actor can see that pass `filters` (all but the kinds), as SQL, and what an agent's DM reads. */
 async function artifactScope(db: Database, actor: ArtifactActor, orgId: string, filters: ArtifactFilters) {
@@ -1730,8 +2048,16 @@ async function artifactScope(db: Database, actor: ArtifactActor, orgId: string, 
   let ownRoom: SQL | undefined;
   // What a file's sharing adds (ADR 0157).
   let widened: SQL;
+  // The Drive's own files they read where they live (ADR 0157, amendment 2026-11-17).
+  let drive: SQL | undefined;
   if (actor.type === "agent") {
     widened = runSharedSql(filters.requesterUserId ?? null, actor.channelId);
+    drive = or(
+      eq(artifacts.share, "everyone"),
+      and(eq(artifacts.createdByType, "agent"), eq(artifacts.createdById, actor.agentId)),
+      // The live file whose own conversation the run is in (`agentReaches`).
+      eq(artifacts.conversationChannelId, actor.channelId),
+    );
     dm = await agentsDmReads(db, orgId, actor.channelId, () => readerOfRun(db, orgId, actor.runId));
     visible = await agentSearchChannels(db, orgId, actor.agentId, actor.channelId, { files: true });
     if (await agentRoom(db, orgId, actor.channelId)) ownRoom = madeInRoomSql(actor.channelId);
@@ -1746,6 +2072,7 @@ async function artifactScope(db: Database, actor: ArtifactActor, orgId: string, 
   } else {
     visible = await personReadableChannels(db, actor.userId, orgId);
     widened = fileSharedSql(sql`${actor.userId}::text`);
+    drive = driveKeeperSql(sql`${actor.userId}::text`);
   }
   const q = filters.q?.trim();
   const madeBy = (a: ArtifactAuthor) => and(eq(artifacts.createdByType, a.type), eq(artifacts.createdById, a.id));
@@ -1754,11 +2081,16 @@ async function artifactScope(db: Database, actor: ArtifactActor, orgId: string, 
     isNull(artifacts.deletedAt),
     eq(artifacts.inDrive, true),
     or(
-      isNull(artifacts.channelId),
+      and(isNull(artifacts.channelId), drive),
       visible.length > 0 ? inArray(artifacts.channelId, visible) : undefined,
       ownRoom,
       widened,
     ),
+    filters.folderId === null
+      ? isNull(artifacts.folderId)
+      : filters.folderId
+        ? eq(artifacts.folderId, filters.folderId)
+        : undefined,
     filters.channelId ? eq(artifacts.channelId, filters.channelId) : undefined,
     filters.channelIds?.length ? inArray(artifacts.channelId, filters.channelIds) : undefined,
     filters.since ? gte(artifacts.updatedAt, filters.since) : undefined,
@@ -1954,19 +2286,24 @@ export async function shareArtifact(
         .where(and(eq(channels.id, a.channelId), eq(channels.orgId, orgId)))
     : [];
   const openHere =
-    !a.channelId ||
-    a.channelId === actor.channelId ||
+    (a.channelId !== null && a.channelId === actor.channelId) ||
     a.share === "everyone" ||
     (origin?.kind === "channel" && origin.visibility === "public");
   if (!openHere) {
     // From a DM or a private channel: the requester and the agent must both be in it. Reading for a person is no
-    // reason to carry a file into another audience.
+    // reason to carry a file into another audience. From the Drive itself, not shared with everyone: its maker asks
+    // (ADR 0157, amendment 2026-11-17).
     const requester = input.requesterUserId;
-    const dm = requester ? await agentsDmReads(db, orgId, a.channelId as string, async () => requester) : null;
+    const where = a.channelId;
+    const dm = requester && where ? await agentsDmReads(db, orgId, where, async () => requester) : null;
+    const theirs =
+      requester !== null &&
+      (where
+        ? (await requesterSharedChannels(db, orgId, actor.agentId, requester)).includes(where)
+        : madeByPerson(a, requester));
     const allowed =
-      (input.alsoFrom != null && (a.channelId === input.alsoFrom || (await madeInRoom(db, a.id, input.alsoFrom)))) ||
-      (requester !== null &&
-        (await requesterSharedChannels(db, orgId, actor.agentId, requester)).includes(a.channelId as string)) ||
+      (input.alsoFrom != null && (where === input.alsoFrom || (await madeInRoom(db, a.id, input.alsoFrom)))) ||
+      theirs ||
       // No person is in the agents' DM: what a teammate made there for the person asking is theirs to have, unless
       // that teammate may only answer agents (`answersAgentsOnly`).
       (dm !== null && (await madeForSamePerson(db, dm, a.id)) && !(await madeForAgentsOnly(db, orgId, a.id)));
@@ -1975,17 +2312,23 @@ export async function shareArtifact(
   let shared: ArtifactView = view(a, editableKind(a.kind));
   let copied = false;
   if (!openHere) {
-    const v = await versionRow(db, a, undefined);
-    const body = (await readVersion(deps, a, v)).body;
-    shared =
-      a.kind === "file"
-        ? await createFileArtifact(deps, actor, orgId, {
-            title: a.title,
-            name: v.fileName ?? "file",
-            bytes: body,
-            contentType: v.contentType,
-          })
-        : await createArtifact(deps, actor, orgId, { title: a.title, content: decode(a.kind, body) });
+    const kind = a.kind;
+    if (isLiveArtifactKind(kind)) {
+      // A live file is copied whole: its document at its head and its pictures (ADR 0196 §8).
+      shared = await copyLiveArtifact(deps, actor, orgId, a, kind, {});
+    } else {
+      const v = await versionRow(db, a, undefined);
+      const body = (await readVersion(deps, a, v)).body;
+      shared =
+        kind === "file"
+          ? await createFileArtifact(deps, actor, orgId, {
+              title: a.title,
+              name: v.fileName ?? "file",
+              bytes: body,
+              contentType: v.contentType,
+            })
+          : await createArtifact(deps, actor, orgId, { title: a.title, content: decode(kind, body) });
+    }
     copied = true;
   }
   await recordAudit(db, {
@@ -2148,9 +2491,12 @@ export interface PersonArtifactFacts {
   audience: ArtifactAudience;
   /**
    * They may change its sharing (`setFileSharing`): it lives in a conversation not everyone reads, and they read it
-   * there. False for what the whole workspace sees already.
+   * there; or it is a file of the Drive itself, and they made it or are an administrator (ADR 0157, amendment
+   * 2026-11-17). False for what a public channel holds.
    */
   canShare: boolean;
+  /** A live file's conversation (ADR 0199) once someone opened or wrote in it; null otherwise. */
+  conversation: FileConversationSummary | null;
 }
 
 export async function withPersonFacts<T extends Pick<ArtifactView, "id" | "channelId" | "createdBy" | "inDrive">>(
@@ -2161,7 +2507,7 @@ export async function withPersonFacts<T extends Pick<ArtifactView, "id" | "chann
 ): Promise<(T & PersonArtifactFacts)[]> {
   if (list.length === 0) return [];
   const channelIds = [...new Set(list.flatMap((a) => (a.channelId ? [a.channelId] : [])))];
-  const [deletable, chans] = await Promise.all([
+  const [deletable, chans, conversations] = await Promise.all([
     deletableIds(
       db,
       userId,
@@ -2174,6 +2520,11 @@ export async function withPersonFacts<T extends Pick<ArtifactView, "id" | "chann
           .from(channels)
           .where(and(eq(channels.orgId, orgId), inArray(channels.id, channelIds)))
       : Promise.resolve([]),
+    fileConversationSummaries(
+      db,
+      orgId,
+      list.map((a) => a.id),
+    ),
   ]);
   const dmIds = chans.filter((c) => c.kind === "dm").map((c) => c.id);
   const dmMembers = dmIds.length
@@ -2214,6 +2565,10 @@ export async function withPersonFacts<T extends Pick<ArtifactView, "id" | "chann
       : Promise.resolve([]),
   ]);
   const live = new Set([...liveAgents, ...livePeople].map((r) => r.id));
+  // The Drive's own files: whoever made one and administrators change who sees it (`setFileSharing`).
+  const mine = (a: T) => a.createdBy.type === "person" && a.createdBy.id === userId;
+  const admin = list.some((a) => a.inDrive && !a.channelId && !mine(a)) && (await sharedByRole(db, userId, orgId, []));
+  const keeps = (a: T) => mine(a) || admin;
   const closed = new Set(chans.filter((c) => c.kind !== "channel" || c.visibility !== "public").map((c) => c.id));
   const readsThere = closed.size ? new Set(await personReadableChannels(db, userId, orgId)) : closed;
   // Shared with them from a conversation they don't read (ADR 0157): what's said is never "you and …", and there's no
@@ -2247,7 +2602,8 @@ export async function withPersonFacts<T extends Pick<ArtifactView, "id" | "chann
     // What lives in its conversation was never in the Drive, so it has no trash to go to (ADR 0113).
     canDelete: a.inDrive && deletable.has(a.id),
     audience: a.channelId ? (audience.get(a.channelId) ?? { kind: "dm", with: null }) : { kind: "workspace" },
-    canShare: a.inDrive && a.channelId !== null && closed.has(a.channelId) && readsThere.has(a.channelId),
+    canShare: a.inDrive && (a.channelId ? closed.has(a.channelId) && readsThere.has(a.channelId) : keeps(a)),
+    conversation: conversations.get(a.id) ?? null,
   }));
 }
 
@@ -2304,8 +2660,9 @@ async function cleanSharing(db: Database, orgId: string, input: Partial<FileShar
 /**
  * "Compartilhar" (ADR 0157): who sees a file on top of the conversation it lives in. Whoever reads it there may change
  * it (a DM's participants, a channel's members and administrators, whoever sees a task for its conversation); someone
- * it was shared with may not. A file the whole workspace sees already (the shared Drive, a public channel) has nothing
- * to widen. Audited, and its conversation hears of it.
+ * it was shared with may not. A file of the Drive itself lives with its maker (amendment 2026-11-17): `conversation`
+ * is its maker alone, and its maker and administrators change it. A public channel's file has nothing to widen.
+ * Audited; its conversation and the workspace's Drive lists hear of it.
  */
 export async function setFileSharing(
   deps: ArtifactDeps,
@@ -2323,12 +2680,14 @@ export async function setFileSharing(
         .from(channels)
         .where(eq(channels.id, a.channelId))
     : [];
-  if (!a.channelId || (where?.kind === "channel" && where.visibility === "public")) {
+  if (where?.kind === "channel" && where.visibility === "public") {
     throw new ValidationError("Everyone in the workspace sees this file already", "artifact.sharing_open");
   }
-  if (!(await readsWhereItLives(db, userId, orgId, a.channelId))) {
+  if (!(await readsItThere(db, userId, orgId, a))) {
     throw new ForbiddenError(
-      "Only who is in the conversation the file is in changes who sees it",
+      a.channelId
+        ? "Only who is in the conversation the file is in changes who sees it"
+        : "Only who made the file and administrators change who sees it",
       "artifact.sharing_forbidden",
     );
   }
@@ -2352,7 +2711,97 @@ export async function setFileSharing(
     return saved;
   });
   const artifact = view(row, editableKind(row.kind));
-  await publishChannelEvent(deps.pubsub, { type: "artifact.updated", channelId: a.channelId, artifact });
+  if (a.channelId) {
+    await publishChannelEvent(deps.pubsub, { type: "artifact.updated", channelId: a.channelId, artifact });
+  }
+  // Who sees it changed: the Drive lists, and the open pages of a file of the Drive itself, read it again.
+  await publishListChanged(deps.pubsub, orgId, "artifacts");
+  return artifact;
+}
+
+/**
+ * Who may arrange a file in the Drive (a folder, its name): a person who reads it and adds to the Drive, an agent where
+ * it may change the file (`writable`). Only Drive files: what lives in a conversation has no place in a folder.
+ */
+async function arrangeable(deps: ArtifactDeps, actor: ArtifactActor, orgId: string, id: string) {
+  const a = await writable(deps, actor, orgId, id);
+  if (actor.type === "person" && !(await addsToDrive(deps.db, orgId, actor.userId))) throw new ForbiddenError();
+  if (!a.inDrive) throw new ValidationError(`a ${a.kind} lives in its conversation`, "artifact.not_in_drive");
+  return a;
+}
+
+/** Puts files in a Drive folder (null: the top level). A folder never changes who sees a file. Returns how many moved. */
+export async function moveArtifacts(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  ids: string[],
+  folderId: string | null,
+) {
+  const target = folderId ? await folderInOrg(deps.db, orgId, folderId) : null;
+  const files = [];
+  for (const id of new Set(ids)) files.push(await arrangeable(deps, actor, orgId, id));
+  const moving = files.filter((a) => a.folderId !== target);
+  if (moving.length === 0) return 0;
+  await deps.db.transaction(async (tx) => {
+    await tx
+      .update(artifacts)
+      .set({ folderId: target })
+      .where(
+        and(
+          eq(artifacts.orgId, orgId),
+          inArray(
+            artifacts.id,
+            moving.map((a) => a.id),
+          ),
+        ),
+      );
+    await recordAudit(tx, {
+      orgId,
+      actor: authorOf(actor),
+      action: "artifact.moved_to_folder",
+      target: { type: "drive_folder", id: target },
+      details: { artifactIds: moving.map((a) => a.id) },
+    });
+  });
+  await publishListChanged(deps.pubsub, orgId, "artifacts");
+  return moving.length;
+}
+
+/** Renames a Drive file: its title only, no new version. */
+export async function renameArtifact(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  artifactId: string,
+  rawTitle: string,
+): Promise<ArtifactView> {
+  const a = await arrangeable(deps, actor, orgId, artifactId);
+  const title = rawTitle.trim().slice(0, ARTIFACT_LIMITS.titleChars);
+  if (!title) throw new ValidationError("title is required");
+  if (title === a.title) return view(a, editableKind(a.kind));
+  const row = await deps.db.transaction(async (tx) => {
+    const [saved] = await tx
+      .update(artifacts)
+      .set({ title })
+      .where(and(eq(artifacts.id, a.id), eq(artifacts.orgId, orgId)))
+      .returning();
+    if (!saved) throw new NotFoundError("Artifact not found");
+    await enqueueIndex(tx, { orgId, kind: "file", sourceId: a.id });
+    await recordAudit(tx, {
+      orgId,
+      actor: authorOf(actor),
+      action: "artifact.renamed",
+      target: { type: "artifact", id: a.id },
+      details: { from: a.title, title },
+    });
+    return saved;
+  });
+  const artifact = view(row, editableKind(row.kind));
+  if (row.channelId) {
+    await publishChannelEvent(deps.pubsub, { type: "artifact.updated", channelId: row.channelId, artifact });
+  }
+  await publishListChanged(deps.pubsub, orgId, "artifacts");
   return artifact;
 }
 
@@ -2435,12 +2884,12 @@ export async function listDeletedArtifacts(
     userId,
     rows.filter((a) => a.share !== "conversation").map((a) => a.id),
   );
-  const deletable = await deletableIds(
-    db,
-    userId,
-    orgId,
-    rows.filter((a) => !a.channelId || readable.has(a.channelId) || sharedIds.has(a.id)),
-  );
+  // A file of the Drive itself: its maker's and administrators' (ADR 0157, amendment 2026-11-17).
+  const othersDrive = rows.some((a) => !a.channelId && !madeByPerson(a, userId));
+  const admin = othersDrive && (await sharedByRole(db, userId, orgId, []));
+  const reads = (a: ArtifactRow) =>
+    (a.channelId ? readable.has(a.channelId) : admin || madeByPerson(a, userId)) || sharedIds.has(a.id);
+  const deletable = await deletableIds(db, userId, orgId, rows.filter(reads));
   const out: TrashedArtifactView[] = [];
   for (const a of rows) {
     if (!deletable.has(a.id)) continue;
@@ -2474,7 +2923,7 @@ export async function restoreArtifact(deps: ArtifactDeps, userId: string, orgId:
     .select({ bytes: sql<string>`coalesce(sum(${artifactVersions.size}), 0)` })
     .from(artifactVersions)
     .where(and(eq(artifactVersions.artifactId, a.id), isNull(artifactVersions.storageConfigId)));
-  const bytes = Number(kept?.bytes ?? 0);
+  const bytes = Number(kept?.bytes ?? 0) + (isLiveArtifactKind(a.kind) ? await liveKeptBytes(deps.db, a.id) : 0);
   if (bytes > 0) await assertStorageRoom(deps.db, orgId, bytes, { daily: false });
   const [row] = await deps.db.transaction(async (tx) => {
     // Conditional: a "delete for good" that committed since the read above wins.
@@ -2512,18 +2961,34 @@ async function dropVersions(deps: ArtifactDeps, list: { version: VersionRow; org
 
 /**
  * Job: files deleted more than 30 days ago lose their contents (every
- * version's blob and row). The artifact row stays as a tombstone, so old
+ * version's blob and row, and a live file's document and pictures). The artifact row stays as a tombstone, so old
  * messages can still say "File removed" with its title.
  */
 export async function purgeDeletedArtifacts(deps: ArtifactDeps, now = new Date()) {
   const cutoff = new Date(now.getTime() - ARTIFACT_TRASH_DAYS * 86_400_000);
+  const gone = sql`${artifacts.deletedAt} < ${cutoff.toISOString()}::timestamptz`;
   const versions = await deps.db
     .select({ version: artifactVersions, orgId: artifacts.orgId })
     .from(artifactVersions)
     .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
-    .where(sql`${artifacts.deletedAt} is not null and ${artifacts.deletedAt} < ${cutoff.toISOString()}::timestamptz`)
+    .where(gone)
     .limit(500);
-  return dropVersions(deps, versions);
+  const live = await deps.db
+    .select({ id: artifacts.id, orgId: artifacts.orgId })
+    .from(artifacts)
+    .where(
+      and(
+        gone,
+        inArray(artifacts.kind, [...LIVE_ARTIFACT_KINDS]),
+        or(
+          sql`exists (select 1 from ${schema.liveDocs} where ${schema.liveDocs.artifactId} = ${artifacts.id})`,
+          sql`exists (select 1 from ${schema.liveAssets} where ${schema.liveAssets.artifactId} = ${artifacts.id})`,
+        ),
+      ),
+    )
+    .limit(100);
+  for (const file of live) await dropLiveContent(deps, file.orgId, file.id);
+  return (await dropVersions(deps, versions)) + live.length;
 }
 
 /**
@@ -2563,6 +3028,7 @@ export async function purgeArtifactNow(deps: ArtifactDeps, userId: string, orgId
     .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
     .where(eq(artifactVersions.artifactId, a.id));
   await dropVersions(deps, versions);
+  if (isLiveArtifactKind(a.kind)) await dropLiveContent(deps, orgId, a.id);
   await publishListChanged(deps.pubsub, orgId, "artifacts");
 }
 
@@ -2634,6 +3100,12 @@ export async function artifactDownload(
 ): Promise<{ url: string; expiresAt: string }> {
   const a = await readable(deps, { type: "person", userId }, orgId, artifactId);
   const v = await versionRow(deps.db, a, version);
+  if (isLiveArtifactKind(a.kind)) {
+    // A version holds the document, not what it downloads as: the export is made by our own endpoint (ADR 0198).
+    const at = version === undefined ? "" : `?version=${v.version}`;
+    const url = `/api/app/organizations/${orgId}/artifacts/${artifactId}/file${at}`;
+    return { url, expiresAt: new Date(Date.now() + DOWNLOAD_URL_TTL_SECONDS * 1000).toISOString() };
+  }
   const store = await deps.blobs.forConfig(orgId, v.storageConfigId);
   const filename =
     a.kind === "file"
@@ -2654,10 +3126,11 @@ export async function artifactFile(
   userId: string,
   orgId: string,
   artifactId: string,
-  options: { version?: number; format?: "csv" | "patch" | "pdf" | "docx" } = {},
+  options: { version?: number; format?: ArtifactFileFormat } = {},
 ): Promise<{ body: Uint8Array; contentType: string; filename: string }> {
   const a = await readable(deps, { type: "person", userId }, orgId, artifactId);
   const v = await versionRow(deps.db, a, options.version);
+  if (isLiveArtifactKind(a.kind)) return liveFile(deps, a, a.kind, v, options);
   if (a.kind === "file") {
     // Uploaded files download as they are: original bytes, name and type.
     if (options.format) {
@@ -2678,12 +3151,8 @@ export async function artifactFile(
     return { body, contentType: "text/csv; charset=utf-8", filename: fileName(a, v.version, "csv") };
   }
   if (options.format === "pdf" || options.format === "docx") {
-    const markdown =
-      content.kind === "document"
-        ? content.markdown
-        : content.kind === "table"
-          ? tableToMarkdown(content.columns, content.rows)
-          : null;
+    // A document's are its live file's (`liveFile`, ADR 0200); here, a table's.
+    const markdown = content.kind === "table" ? tableToMarkdown(content.columns, content.rows) : null;
     if (markdown === null)
       throw new ValidationError(
         `${options.format.toUpperCase()} export is for documents and tables`,
@@ -2699,6 +3168,12 @@ export async function artifactFile(
     const body = markdownToPdf(markdown, { title: a.title });
     return { body, contentType: "application/pdf", filename: fileName(a, v.version, "pdf") };
   }
+  if (options.format === "xlsx" || options.format === "pptx" || options.format === "json" || options.format === "md") {
+    throw new ValidationError(
+      `${options.format.toUpperCase()} export is for live files`,
+      "artifact.format_unavailable",
+    );
+  }
   if (options.format === "patch") {
     if (content.kind !== "diff") throw new ValidationError("Patch export is for diffs", "artifact.format_unavailable");
     const body = new TextEncoder().encode(diffToPatch(content.files));
@@ -2707,10 +3182,572 @@ export async function artifactFile(
   return { body: object.body, contentType: object.contentType, filename: fileName(a, v.version, EXTENSIONS[a.kind]) };
 }
 
+// ── Live files (ADR 0196) ────────────────────────────────────────────────────
+
+/** What `artifactFile` makes: tables' CSV, diffs' patch, PDF and docx, and live files' exports (ADR 0198, 0200). */
+export type ArtifactFileFormat = "csv" | "patch" | "pdf" | "docx" | "xlsx" | "pptx" | "json" | "md";
+
+/** A live file as it downloads (ADR 0198). */
+export interface LiveExport {
+  body: Uint8Array;
+  contentType: string;
+  /** The file name's extension: `xlsx`, `csv`, `pptx`, `pdf`, `json`. */
+  ext: string;
+}
+
+/**
+ * Turns a live document into a download; `format` null: the kind's own (a spreadsheet's xlsx, a presentation's pptx).
+ * Set at boot by what writes those formats (`setLiveExporter`), so the Drive imports none of them.
+ */
+export type LiveExporter = (input: {
+  deps: ArtifactDeps;
+  artifact: ArtifactRow;
+  kind: LiveArtifactKind;
+  doc: Y.Doc;
+  format: ArtifactFileFormat | null;
+}) => Promise<LiveExport>;
+
+let liveExporter: LiveExporter | null = null;
+
+/** What makes live files' downloads (ADR 0198); without one only a canvas downloads, as its JSON. */
+export function setLiveExporter(exporter: LiveExporter | null) {
+  liveExporter = exporter;
+}
+
+/** A live file's document at its head, or at its latest version when it has no live document (never one made here). */
+async function liveHeadDoc(deps: ArtifactDeps, a: ArtifactRow): Promise<Y.Doc> {
+  const stored = await loadStored(deps.db, a.orgId, a.id);
+  if (stored) return docOf(stored.state, stored.changes);
+  const v = await versionRow(deps.db, a);
+  return versionDoc(a.kind as LiveArtifactKind, (await readVersion(deps, a, v)).body, v.contentType);
+}
+
+/** A live file's download: its head (no version asked) or a version's snapshot, as the exporter writes it. */
+async function liveFile(
+  deps: ArtifactDeps,
+  a: ArtifactRow,
+  kind: LiveArtifactKind,
+  v: VersionRow,
+  options: { version?: number; format?: ArtifactFileFormat },
+): Promise<{ body: Uint8Array; contentType: string; filename: string }> {
+  const doc =
+    options.version === undefined
+      ? await liveHeadDoc(deps, a)
+      : versionDoc(kind, (await readVersion(deps, a, v)).body, v.contentType);
+  try {
+    const format = options.format ?? null;
+    if (kind === "document") {
+      // Written here, with or without the Office exporter (ADR 0200).
+      const out = await documentExport(deps, a, doc, format);
+      return { body: out.body, contentType: out.contentType, filename: fileName(a, v.version, out.ext) };
+    }
+    if (liveExporter) {
+      const out = await liveExporter({ deps, artifact: a, kind, doc, format });
+      return { body: out.body, contentType: out.contentType, filename: fileName(a, v.version, out.ext) };
+    }
+    if (kind === "canvas" && (format === null || format === "json")) {
+      const body = new TextEncoder().encode(JSON.stringify(doc.toJSON()));
+      return { body, contentType: "application/json", filename: fileName(a, v.version, "json") };
+    }
+    const asked = (format ?? EXTENSIONS[kind]).toUpperCase();
+    throw new ValidationError(`${asked} export is not available on this server`, "artifact.format_unavailable");
+  } finally {
+    doc.destroy();
+  }
+}
+
+/** How a live file opens for someone (ADR 0196 §1). */
+export interface LiveFileAccess {
+  /** Its row, deleted ones included (in the trash it opens read-only). */
+  artifact: ArtifactRow;
+  kind: LiveArtifactKind;
+  /** `edit`, or `view`: in the trash, a workspace being deleted, or (an agent) out of its reach to change. */
+  mode: LiveMode;
+}
+
+/**
+ * Whether `actor` may open this live file, and how (ADR 0196 §1): null when it isn't a live file they read (a wrong
+ * id, another kind, out of their reach, gone from the trash), since every refusal of a file reads as "not found".
+ * People change what they read (`writable` is `readable` for them, ADR 0157), except in the trash and while the
+ * workspace is being deleted; agents change what they reach (`agentReaches`) and only read the rest. Only a person
+ * who still reads it opens one in the trash.
+ */
+export async function liveFileAccess(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+): Promise<LiveFileAccess | null> {
+  if (!UUID.test(fileId) || !UUID.test(orgId)) return null;
+  const { db } = deps;
+  let closed = false;
+  if (actor.type === "person") {
+    const membership = await getMembership(db, actor.userId, orgId);
+    if (!membership || readRefusal(membership.standing)) return null;
+    closed = closedRefusal(membership.standing) !== null;
+  }
+  const [a] = await db
+    .select()
+    .from(artifacts)
+    .where(and(eq(artifacts.id, fileId), eq(artifacts.orgId, orgId)));
+  const kind = a?.kind;
+  if (!a || !kind || !isLiveArtifactKind(kind)) return null;
+  if (a.deletedAt) {
+    if (actor.type !== "person" || purgeAt(a.deletedAt).getTime() <= Date.now()) return null;
+    return (await personCanRead(db, actor.userId, orgId, a)) ? { artifact: a, kind, mode: "view" } : null;
+  }
+  if (!(await canRead(db, actor, orgId, a))) return null;
+  if (actor.type === "agent") {
+    return { artifact: a, kind, mode: (await agentReaches(db, actor, orgId, a)) ? "edit" : "view" };
+  }
+  return { artifact: a, kind, mode: closed ? "view" : "edit" };
+}
+
+/**
+ * `liveFileAccess` for a tool or a route acting on the file, refused as `readable` and `writable` refuse (an agent
+ * hears what to do instead): not found, not a live file, or (`write`) not one this actor may change now.
+ */
+export async function requireLiveFile(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  options: { write?: boolean } = {},
+): Promise<LiveFileAccess> {
+  const access = await liveFileAccess(deps, actor, orgId, fileId);
+  if (!access) {
+    // Not one they read (the right refusal, an agent's with what to do), or one they read of another kind.
+    const a = await readable(deps, actor, orgId, fileId);
+    if (actor.type === "agent") {
+      throw new ValidationError(
+        `This file is a ${a.kind}, not a spreadsheet, presentation, canvas or document: read or change it with read_artifact and update_artifact.`,
+      );
+    }
+    throw new NotFoundError("Artifact not found", "artifact.not_found");
+  }
+  if (!options.write || access.mode === "edit") return access;
+  if (actor.type === "agent") {
+    throw new ForbiddenError(
+      `You can read this file but not change it: ${outOfReach(access.artifact)}. Make your own with ${LIVE_TOOLS[access.kind].create} instead.`,
+    );
+  }
+  throw new ConflictError(
+    access.artifact.deletedAt
+      ? "This file is in the trash: restore it to change it"
+      : "The workspace is being deleted: its files can only be read",
+    "live.read_only",
+  );
+}
+
+/** A live file's version as its snapshot (the Yjs state), as a restore writes it back. No access check: the caller's. */
+export async function liveSnapshotOf(deps: ArtifactDeps, orgId: string, fileId: string, version: number) {
+  const a = await loadArtifact(deps.db, orgId, fileId);
+  if (!a || !isLiveArtifactKind(a.kind)) throw new NotFoundError("Artifact not found", "artifact.not_found");
+  const v = await versionRow(deps.db, a, version);
+  if (v.contentType !== LIVE_SNAPSHOT_TYPE) {
+    // A document saved as Markdown before documents were live files: that Markdown as a document (ADR 0200).
+    if (a.kind === "document") {
+      const doc = versionDoc(a.kind, (await readVersion(deps, a, v)).body, v.contentType);
+      try {
+        return Y.encodeStateAsUpdate(doc);
+      } finally {
+        doc.destroy();
+      }
+    }
+    throw new NotFoundError("Version not found", "artifact.version_not_found", { latest: a.currentVersion });
+  }
+  return (await readVersion(deps, a, v)).body;
+}
+
+/**
+ * Gives a document saved as Markdown before documents were live files (ADR 0200) its live document: made from its
+ * latest version, as `createArtifact` makes one, and stored once (whoever gets there first; the others read theirs).
+ * False for anything else (no such file, another kind, one that has its live document already).
+ */
+export async function adoptMarkdownDocument(deps: ArtifactDeps, orgId: string, fileId: string): Promise<boolean> {
+  const a = await loadArtifact(deps.db, orgId, fileId);
+  if (a?.kind !== "document" || (await liveDocMeta(deps.db, orgId, fileId))) return false;
+  const v = await versionRow(deps.db, a);
+  const doc = versionDoc("document", (await readVersion(deps, a, v)).body, v.contentType);
+  try {
+    const state = Y.encodeStateAsUpdate(doc);
+    const at = new Date();
+    await deps.db
+      .insert(schema.liveDocs)
+      .values({
+        artifactId: a.id,
+        orgId,
+        kind: "document",
+        state: toB64(state),
+        stateBytes: state.byteLength,
+        preview: liveContentOf(doc, "document").preview as unknown as Record<string, unknown>,
+        editedAt: at,
+        checkpointAt: at,
+        createdAt: at,
+        updatedAt: at,
+      })
+      .onConflictDoNothing();
+    return true;
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * Stores a picture of a live file where the workspace keeps its files, refused past its storage limits like any
+ * version (`writeBlob`, ADR 0196 §8). Under the file's own key prefix, so a workspace's deletion takes it too.
+ */
+export async function writeLiveAssetBlob(
+  deps: ArtifactDeps,
+  orgId: string,
+  fileId: string,
+  assetId: string,
+  body: Uint8Array,
+  contentType: string,
+) {
+  const location = await deps.blobs.forOrg(orgId);
+  if (location.storageConfigId === null) await assertStorageRoom(deps.db, orgId, body.byteLength);
+  const key = `${location.prefix}artifacts/${fileId}/assets/${assetId}-${Bun.randomUUIDv7()}`;
+  await location.store.put(key, body, { contentType });
+  return { storageConfigId: location.storageConfigId, key };
+}
+
+/**
+ * Copies a live file's pictures to another, keeping their ids (the copied document points at them): blobs first,
+ * rows for the caller's transaction. A picture missing from storage is left out (the copy draws its placeholder).
+ */
+async function copyLiveAssets(deps: ArtifactDeps, orgId: string, fromId: string, toId: string) {
+  const rows = await deps.db.select().from(schema.liveAssets).where(eq(schema.liveAssets.artifactId, fromId));
+  if (rows.length === 0) return [];
+  const location = await deps.blobs.forOrg(orgId);
+  const total = rows.reduce((n, r) => n + r.size, 0);
+  if (location.storageConfigId === null) await assertStorageRoom(deps.db, orgId, total);
+  const copies: (typeof schema.liveAssets.$inferInsert)[] = [];
+  for (const r of rows) {
+    const source = await deps.blobs.forConfig(orgId, r.storageConfigId).catch(() => null);
+    const object = await source?.get(r.blobKey).catch(() => null);
+    if (!object) continue;
+    const key = `${location.prefix}artifacts/${toId}/assets/${r.id}-${Bun.randomUUIDv7()}`;
+    await location.store.put(key, object.body, { contentType: r.contentType });
+    copies.push({
+      id: r.id,
+      orgId,
+      artifactId: toId,
+      storageConfigId: location.storageConfigId,
+      blobKey: key,
+      contentType: r.contentType,
+      size: r.size,
+      sha256: r.sha256,
+      width: r.width,
+      height: r.height,
+      source: "copied",
+      origin: r.origin,
+      createdByType: r.createdByType,
+      createdById: r.createdById,
+      runId: r.runId,
+    });
+  }
+  return copies;
+}
+
+/** A picture a new live file starts with: its id (what the document names), bytes and what they are. */
+export interface LivePicture {
+  id: string;
+  bytes: Uint8Array;
+  contentType: string;
+  width: number | null;
+  height: number | null;
+}
+
+/** A new live file's own pictures (an imported deck's, ADR 0198): blobs first, rows for the caller's transaction. */
+async function storeLivePictures(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  pictures: readonly LivePicture[],
+) {
+  const location = await deps.blobs.forOrg(orgId);
+  const total = pictures.reduce((n, p) => n + p.bytes.byteLength, 0);
+  if (location.storageConfigId === null) await assertStorageRoom(deps.db, orgId, total);
+  const by = actor.type === "person" ? { type: "person", id: actor.userId } : { type: "agent", id: actor.agentId };
+  const runId = actor.type === "agent" && actor.runId && UUID.test(actor.runId) ? actor.runId : null;
+  const rows: (typeof schema.liveAssets.$inferInsert)[] = [];
+  for (const p of pictures) {
+    const key = `${location.prefix}artifacts/${fileId}/assets/${p.id}-${Bun.randomUUIDv7()}`;
+    await location.store.put(key, p.bytes, { contentType: p.contentType });
+    rows.push({
+      id: p.id,
+      orgId,
+      artifactId: fileId,
+      storageConfigId: location.storageConfigId,
+      blobKey: key,
+      contentType: p.contentType,
+      size: p.bytes.byteLength,
+      sha256: sha256Hex(p.bytes),
+      width: p.width,
+      height: p.height,
+      source: "imported",
+      createdByType: by.type,
+      createdById: by.id,
+      runId,
+    });
+  }
+  return rows;
+}
+
+/**
+ * A new live file (ADR 0196 §7): placed like any Drive file (`placeFile`), version 1 a snapshot of `doc`, its
+ * `live_docs` row the same state with its preview, and (a copy) the pictures of `assetsFrom`, all in the artifact's
+ * transaction. The caller made the document and checked it.
+ */
+export async function insertLiveArtifact(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  input: {
+    kind: LiveArtifactKind;
+    title: string;
+    channelId?: string | null;
+    threadId?: string | null;
+    folderId?: string | null;
+    doc: Y.Doc;
+    note?: string | null;
+    /** A live file of this workspace whose pictures the new one takes (its copy). */
+    assetsFrom?: string | null;
+    /** Pictures it starts with, under the ids its document names (an imported deck's, ADR 0198). */
+    pictures?: readonly LivePicture[];
+    /** Who else sees it, when not the default of where it is placed (`insertArtifact`). */
+    sharing?: FileSharing;
+  },
+): Promise<ArtifactView> {
+  const place = await placeFile(deps.db, actor, orgId, input);
+  const id = Bun.randomUUIDv7();
+  const state = Y.encodeStateAsUpdate(input.doc);
+  const content = liveContentOf(input.doc, input.kind);
+  const assets: (typeof schema.liveAssets.$inferInsert)[] = input.assetsFrom
+    ? await copyLiveAssets(deps, orgId, input.assetsFrom, id)
+    : [];
+  if (input.pictures?.length) assets.push(...(await storeLivePictures(deps, actor, orgId, id, input.pictures)));
+  const at = new Date();
+  const { artifact } = await insertArtifact(deps, actor, orgId, {
+    ...place,
+    id,
+    kind: input.kind,
+    untrusted: false,
+    excerpt: liveExcerpt(input.doc),
+    stored: { body: state, contentType: LIVE_SNAPSHOT_TYPE },
+    note: input.note,
+    // Placed where it was asked (an agent's run lands in its own conversation): a sharing only for that place.
+    sharing: (place.channelId ?? null) === (input.channelId ?? null) ? input.sharing : undefined,
+    inTx: async (tx) => {
+      await tx.insert(schema.liveDocs).values({
+        artifactId: id,
+        orgId,
+        kind: input.kind,
+        state: toB64(state),
+        stateBytes: state.byteLength,
+        preview: content.preview as unknown as Record<string, unknown>,
+        editedAt: at,
+        checkpointAt: at,
+        createdAt: at,
+        updatedAt: at,
+      });
+      if (assets.length > 0) await tx.insert(schema.liveAssets).values(assets);
+    },
+  });
+  return artifact;
+}
+
+/** A copy of a live file at its head, with its pictures (`shareArtifact`, Duplicate), placed for `actor`. */
+export async function copyLiveArtifact(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  a: ArtifactRow,
+  kind: LiveArtifactKind,
+  input: {
+    title?: string;
+    channelId?: string | null;
+    threadId?: string | null;
+    note?: string | null;
+    sharing?: FileSharing;
+  },
+): Promise<ArtifactView> {
+  const doc = await liveHeadDoc(deps, a);
+  try {
+    return await insertLiveArtifact(deps, actor, orgId, {
+      kind,
+      title: input.title ?? a.title,
+      channelId: input.channelId,
+      threadId: input.threadId,
+      doc,
+      note: input.note,
+      assetsFrom: a.id,
+      sharing: input.sharing,
+    });
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * Renames a live file from its page (ADR 0196 §9): the title only, never its document, so no version is written.
+ * Whoever may change the file may rename it; a file read-only now (in the trash, its workspace closing) can't be.
+ */
+export async function renameLiveFile(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  title: string,
+): Promise<ArtifactView> {
+  const access = await requireLiveFile(deps, actor, orgId, fileId, { write: true });
+  const name = title.trim().slice(0, ARTIFACT_LIMITS.titleChars);
+  if (!name) throw new ValidationError("title is required");
+  const was = access.artifact;
+  if (name === was.title) return view(was, editableKind(was.kind));
+  const author = authorOf(actor);
+  const row = await deps.db.transaction(async (tx) => {
+    const [saved] = await tx
+      .update(artifacts)
+      .set({ title: name, updatedByType: author.type, updatedById: author.id, updatedAt: new Date() })
+      .where(and(eq(artifacts.id, fileId), eq(artifacts.orgId, orgId), isNull(artifacts.deletedAt)))
+      .returning();
+    if (!saved) throw new NotFoundError("Artifact not found", "artifact.not_found");
+    await enqueueIndex(tx, { orgId, kind: "file", sourceId: fileId });
+    await recordAudit(tx, {
+      orgId,
+      actor: author,
+      action: "artifact.renamed",
+      target: { type: "artifact", id: fileId },
+      details: { from: was.title, to: name },
+    });
+    return saved;
+  });
+  const artifact = view(row, editableKind(row.kind));
+  if (row.channelId) {
+    await publishChannelEvent(deps.pubsub, { type: "artifact.updated", channelId: row.channelId, artifact });
+  }
+  if (row.inDrive) await publishListChanged(deps.pubsub, orgId, "artifacts");
+  return artifact;
+}
+
+/**
+ * Duplicate, from a live file's page: a copy at its head with its pictures, beside it (the same conversation and
+ * thread), never anywhere more people see. Someone the file was shared with who doesn't read its conversation gets
+ * "not found" for that place, as when making a file there. A file of the Drive itself keeps its sharing on the copy
+ * (ADR 0157, amendment 2026-11-17), whose maker is who copied it.
+ */
+export async function duplicateLiveFile(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  input: { title?: string } = {},
+): Promise<ArtifactView> {
+  const access = await requireLiveFile(deps, actor, orgId, fileId);
+  const a = access.artifact;
+  if (a.deletedAt) throw new ConflictError("This file is in the trash: restore it to copy it", "live.read_only");
+  return copyLiveArtifact(deps, actor, orgId, a, access.kind, {
+    title: input.title?.trim() || a.title,
+    channelId: a.channelId,
+    threadId: a.threadId,
+    sharing: a.channelId ? undefined : sharingOf(a),
+  });
+}
+
+/**
+ * A live file's row after its document changed (compaction, ADR 0196 §4): its search text, and when and by whom it
+ * was last changed, for the Drive's order and "last edited by". The time moves at most once a minute: each move has
+ * every viewer of its conversation fetch the file again.
+ */
+export async function touchLiveArtifact(
+  deps: ArtifactDeps,
+  orgId: string,
+  fileId: string,
+  input: { excerpt: string; editedAt: Date | null; by: ArtifactAuthor | null; now: Date },
+) {
+  const a = await loadArtifact(deps.db, orgId, fileId);
+  if (!a) return;
+  const edited = input.editedAt;
+  const bump = edited !== null && edited > a.updatedAt && input.now.getTime() - a.updatedAt.getTime() >= 60_000;
+  const retext = input.excerpt !== a.excerpt;
+  if (!bump && !retext) return;
+  const row = await deps.db.transaction(async (tx) => {
+    const [saved] = await tx
+      .update(artifacts)
+      .set({
+        excerpt: input.excerpt,
+        ...(bump ? { updatedAt: edited } : {}),
+        ...(bump && input.by ? { updatedByType: input.by.type, updatedById: input.by.id } : {}),
+      })
+      .where(and(eq(artifacts.id, a.id), isNull(artifacts.deletedAt)))
+      .returning();
+    if (saved && retext) await enqueueIndex(tx, { orgId, kind: "file", sourceId: a.id });
+    return saved;
+  });
+  if (!row || !bump) return;
+  const artifact = view(row, editableKind(row.kind));
+  if (row.channelId) {
+    await publishChannelEvent(deps.pubsub, { type: "artifact.updated", channelId: row.channelId, artifact });
+  }
+  if (row.inDrive) await publishListChanged(deps.pubsub, orgId, "artifacts");
+}
+
+/**
+ * A live file's preview was drawn again (ADR 0196 §7): the conversation it lives in hears `artifact.updated`, so the
+ * cards there read the file again and draw what it holds now. Its "last edited" stays `touchLiveArtifact`'s.
+ */
+export async function announceLivePreview(deps: ArtifactDeps, orgId: string, fileId: string) {
+  const row = await loadArtifact(deps.db, orgId, fileId);
+  if (!row?.channelId) return;
+  await publishChannelEvent(deps.pubsub, {
+    type: "artifact.updated",
+    channelId: row.channelId,
+    artifact: view(row, editableKind(row.kind)),
+  });
+}
+
+/** What a live file keeps on this server's storage besides its versions: its pictures there and its document. */
+async function liveKeptBytes(db: Database, fileId: string) {
+  const [[assets], [doc]] = await Promise.all([
+    db
+      .select({ bytes: sql<string>`coalesce(sum(${schema.liveAssets.size}), 0)` })
+      .from(schema.liveAssets)
+      .where(and(eq(schema.liveAssets.artifactId, fileId), isNull(schema.liveAssets.storageConfigId))),
+    db
+      .select({ bytes: schema.liveDocs.stateBytes })
+      .from(schema.liveDocs)
+      .where(eq(schema.liveDocs.artifactId, fileId)),
+  ]);
+  return Number(assets?.bytes ?? 0) + (doc?.bytes ?? 0);
+}
+
+/** Removes a live file's document, its changes, its picture requests and its pictures (blobs first); the row stays. */
+async function dropLiveContent(deps: ArtifactDeps, orgId: string, fileId: string) {
+  const assets = await deps.db
+    .select({ storageConfigId: schema.liveAssets.storageConfigId, blobKey: schema.liveAssets.blobKey })
+    .from(schema.liveAssets)
+    .where(eq(schema.liveAssets.artifactId, fileId));
+  for (const asset of assets) {
+    const store = await deps.blobs.forConfig(orgId, asset.storageConfigId).catch(() => null);
+    await store?.delete(asset.blobKey).catch(() => undefined);
+  }
+  await deps.db.transaction(async (tx) => {
+    await tx.delete(schema.liveAssets).where(eq(schema.liveAssets.artifactId, fileId));
+    await tx.delete(schema.liveImageRequests).where(eq(schema.liveImageRequests.artifactId, fileId));
+    await tx.delete(schema.liveDocUpdates).where(eq(schema.liveDocUpdates.artifactId, fileId));
+    await tx.delete(schema.liveDocs).where(eq(schema.liveDocs.artifactId, fileId));
+  });
+}
+
 /**
  * Search: title and excerpt, visible like the channel it came from (shared with people too: its conversation and its
- * agents keep finding it); shared with the workspace, the whole org. Who it's shared with finds it by its own id
- * (`visibleFileScopes`), which only `searchForUser` passes.
+ * agents keep finding it); shared with the workspace, the whole org. A file of the Drive itself not shared with
+ * everyone takes its own id as its scope, which no conversation is (ADR 0157, amendment 2026-11-17). Who it's shared
+ * with, and a Drive file's maker and administrators, find it by its own id (`visibleFileScopes`), which only
+ * `searchForUser` passes.
  */
 registerDocumentBuilder("file", async (db, orgId, id) => {
   const [a] = await db
@@ -2718,11 +3755,13 @@ registerDocumentBuilder("file", async (db, orgId, id) => {
     .from(artifacts)
     .where(and(eq(artifacts.id, id), eq(artifacts.orgId, orgId)));
   if (!a || a.deletedAt) return null;
+  // A block or a poll a run showed in a confidential thread (ADR 0190): what its agent typed stays in that thread.
+  if (a.threadId && (await threadIsConfidential(db, orgId, a.threadId))) return null;
   return {
     orgId,
     kind: "file",
     sourceId: a.id,
-    channelIds: a.share === "everyone" || !a.channelId ? [] : [a.channelId],
+    channelIds: a.share === "everyone" ? [] : [a.channelId ?? a.id],
     title: a.title,
     body: a.excerpt,
     createdAt: a.createdAt,

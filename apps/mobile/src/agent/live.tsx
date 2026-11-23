@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { frameClock } from "./clock";
 
 /**
@@ -14,6 +14,65 @@ export function LivePause({ paused, children }: { paused: boolean; children?: Re
 }
 
 export const useLivePaused = () => useContext(PausedContext);
+
+/** A glide starts right after the finger lifts: the hold waits this long before letting go. */
+const SETTLE_MS = 150;
+
+/**
+ * Living things hold still while a list moves (`frameClock.hold`): the faces' frames are work on the same thread that
+ * places the rows. `hold` when a drag or a glide starts, `settle` when it ends.
+ */
+export function useStillWhileScrolling() {
+  const release = useRef<(() => void) | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hold = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (!release.current) release.current = frameClock.hold();
+  }, []);
+  const settle = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      release.current?.();
+      release.current = null;
+    }, SETTLE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      release.current?.();
+      release.current = null;
+    },
+    [],
+  );
+  return { hold, settle };
+}
+
+/** The longest a screen's slide holds the clock, in case its end is never told. */
+const SLIDE_HOLD_MAX_MS = 900;
+let slideRelease: (() => void) | null = null;
+let slideTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Living things hold still while a screen slides in or out (`transitionStart` → `transitionEnd` of a stack): the new
+ * screen's first render and the slide get the thread to themselves.
+ */
+export const slideListeners = {
+  transitionStart: () => {
+    if (!slideRelease) slideRelease = frameClock.hold();
+    if (slideTimer) clearTimeout(slideTimer);
+    slideTimer = setTimeout(slideEnd, SLIDE_HOLD_MAX_MS);
+  },
+  transitionEnd: () => slideEnd(),
+};
+
+function slideEnd() {
+  if (slideTimer) clearTimeout(slideTimer);
+  slideTimer = null;
+  slideRelease?.();
+  slideRelease = null;
+}
 
 /**
  * The shared clock's time in seconds, updating ~25 times a second while `active` (and not paused);

@@ -12,12 +12,13 @@ describe("legacy routes", () => {
   });
 
   test("Conversas is the app's `/` and no redirect shadows a real route", () => {
-    expect(existsSync(join(APP, "(app)", "(tabs)", "(chats)", "index.tsx"))).toBe(true);
+    expect(existsSync(join(APP, "(app)", "(main)", "(tabs)", "(chats)", "index.tsx"))).toBe(true);
     for (const r of LEGACY_REDIRECTS) {
       const name = r.source.slice(1);
       expect(existsSync(join(APP, `${name}.tsx`))).toBe(false);
       expect(existsSync(join(APP, "(app)", `${name}.tsx`))).toBe(false);
-      expect(existsSync(join(APP, "(app)", "(tabs)", name))).toBe(false);
+      expect(existsSync(join(APP, "(app)", "(main)", `${name}.tsx`))).toBe(false);
+      expect(existsSync(join(APP, "(app)", "(main)", "(tabs)", name))).toBe(false);
     }
   });
 

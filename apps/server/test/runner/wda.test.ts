@@ -11,17 +11,21 @@ import {
   buildArgs,
   certificatesOf,
   downloadPinned,
+  HELPER_RECOVERIES,
   HelperGone,
   HelperSlow,
   helperBundleId,
   helperReason,
   IosHelper,
+  type IosScreen,
   mjpegStream,
   parseXcodeTeams,
   profileExpiry,
   profileTeam,
   RENEW_BEFORE_MS,
   RETRY_MS,
+  recoveringScreen,
+  STUCK_AFTER,
   subjectTeam,
   teamLabel,
   validIdentities,
@@ -217,7 +221,7 @@ test("a helper that stops answering is dropped and started again; one that is sl
   const refused = await c.tap(1, 2).catch((e: RunnerError) => e);
   expect(refused).toMatchObject({
     code: "phone_not_ready",
-    message: expect.stringContaining("refused the test helper"),
+    message: expect.stringContaining("Screen capture works, but iOS refuses the test helper's taps"),
   });
   expect(gone).toEqual(["ui_not_authorized"]);
   // A stopped flow stops its calls at once.
@@ -228,6 +232,75 @@ test("a helper that stops answering is dropped and started again; one that is sl
   server.stop(true);
   expect(await c.call("GET", "/status").catch((e) => e)).toBeInstanceOf(HelperGone);
   expect(gone).toEqual(["ui_not_authorized", null]);
+});
+
+test("session calls that time out in a row while /status answers: stuck, dropped; a refusal heard says so to every call", async () => {
+  let hang = true;
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/session") return Response.json({ sessionId: "s1" });
+      if (url.pathname === "/status") return Response.json({ value: { ready: true } });
+      if (hang) await Bun.sleep(5000);
+      return Response.json({ value: { width: 390, height: 844 } });
+    },
+  });
+  closers.push(() => server.stop(true));
+  const gone: (string | null)[] = [];
+  let acted = 0;
+  const c = new WdaClient(`http://127.0.0.1:${server.port}`, fetch, {
+    onGone: (r) => gone.push(r),
+    onActed: () => acted++,
+  });
+  const ask = () => c.call("GET", "/window/size", undefined, { session: true, timeoutMs: 100 }).catch((e) => e);
+  // Slow, then slow again: asked again. A call outside the session (a screenshot) doesn't count.
+  for (let i = 1; i < STUCK_AFTER; i++) expect(await ask()).toBeInstanceOf(HelperSlow);
+  expect(await c.call("GET", "/screenshot", undefined, { timeoutMs: 100 }).catch((e) => e)).toBeInstanceOf(HelperSlow);
+  expect(gone).toEqual([]);
+  // The last one in a row: stuck, dropped, and why in words.
+  const stuck = (await ask()) as Error;
+  expect(stuck).toBeInstanceOf(HelperGone);
+  expect(stuck.message).toContain("stopped carrying out actions");
+  expect(stuck.message).toContain("no terminal access is needed");
+  expect(gone).toEqual([null]);
+  // One that works starts the count again, and says the helper may act.
+  hang = false;
+  expect(await c.windowSize()).toEqual({ width: 390, height: 844 });
+  expect(acted).toBe(1);
+  hang = true;
+  for (let i = 1; i < STUCK_AFTER; i++) expect(await ask()).toBeInstanceOf(HelperSlow);
+  expect(gone).toEqual([null]);
+  // Its output said iOS refuses UI testing: every call says so at once, scoped copies too.
+  c.refuse("ui_not_authorized");
+  const refused = await c
+    .scoped(new AbortController().signal)
+    .tap(1, 2)
+    .catch((e: RunnerError) => e);
+  expect(refused).toMatchObject({ code: "phone_not_ready", message: expect.stringContaining("Enable UI Automation") });
+});
+
+test("a flow's screen starts a fresh helper after one that died or got stuck, a bounded number of times", async () => {
+  let gets = 0;
+  const dead = { windowSize: () => Promise.reject(new HelperGone("gone")) } as unknown as IosScreen;
+  const screen = recoveringScreen(async () => {
+    gets++;
+    return dead;
+  });
+  expect(await screen.windowSize().catch((e) => e)).toBeInstanceOf(HelperGone);
+  expect(gets).toBe(HELPER_RECOVERIES + 1);
+  // A refusal isn't the helper dying: no fresh one.
+  gets = 0;
+  const refusing = recoveringScreen(async () => {
+    gets++;
+    return {
+      ...dead,
+      windowSize: () => Promise.reject(Object.assign(new Error("refused"), { code: "phone_not_ready" })),
+    };
+  });
+  await refusing.windowSize().catch(() => undefined);
+  expect(gets).toBe(1);
 });
 
 test("a pinned download is used only when its checksum is the pinned one", async () => {
@@ -345,6 +418,9 @@ async function mac(state: Record<string, unknown> = {}) {
   mkdirSync(bin);
   const xcrun = path.join(bin, "xcrun");
   writeFileSync(xcrun, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" xcrun "$@"\n`, { mode: 0o755 });
+  writeFileSync(path.join(bin, "pkill"), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" pkill "$@"\n`, {
+    mode: 0o755,
+  });
   mkdirSync(
     path.join(root, ".agentes-runner", "wda", "src", `WebDriverAgent-${WDA_VERSION}`, "WebDriverAgent.xcodeproj"),
     {
@@ -564,6 +640,60 @@ test("a real iPhone's helper waits on the person: no Apple Account, UI Automatio
     state: "needs_you",
     reason: "team_limit",
   });
+});
+
+test("iOS refusing UI testing: heard live, kept on the checklist until an action works, checked again, repaired", async () => {
+  const m = await mac();
+  expect(await m.settle(null)).toBe(null);
+  // The setup check acted once on the phone, under a session (it may still be on its way when the checklist clears).
+  const acted = () => m.calls().some((c) => c[0] === "wda" && c[2] === "/session/s1/window/size");
+  for (let i = 0; i < 600 && !acted(); i++) await Bun.sleep(25);
+  expect(acted()).toBe(true);
+  // The helper prints Code=41 and its call never answers: heard, dropped, and the call says why.
+  const code41 =
+    'Error Domain=com.apple.dt.XCTDaemonErrorDomain Code=41 "Not authorized for performing UI testing actions."\n';
+  m.setState({ wdaSay: code41 });
+  const up = await m.helper.run("device", IPHONE, m.xcrun);
+  expect(await up.client.windowSize().catch((e: RunnerError) => [e.code, e.message.slice(0, 22)])).toEqual([
+    "phone_not_ready",
+    "Screen capture works, ",
+  ]);
+  expect(m.helper.need(IPHONE, m.xcrun)).toEqual({ state: "needs_you", reason: "ui_not_authorized" });
+  expect(m.logged.some((l) => l.includes("iOS refused UI testing"))).toBe(true);
+  // Started again, it answers /status: still refused on the checklist, until a call under its session works.
+  m.setState({});
+  const again = await m.helper.run("device", IPHONE, m.xcrun);
+  expect(again).not.toBe(up);
+  expect((await again.client.screenshot()).subarray(1, 4).toString()).toBe("PNG");
+  expect(m.helper.need(IPHONE, m.xcrun)).toEqual({ state: "needs_you", reason: "ui_not_authorized" });
+  await again.client.windowSize();
+  expect(m.helper.need(IPHONE, m.xcrun)).toBe(null);
+  m.helper.stop(IPHONE);
+  // The setup check finds it refused by its own action; Check again runs it at once, not after the wait.
+  m.setState({
+    wdaRefuse:
+      'Error Domain=com.apple.dt.XCTDaemonErrorDomain Code=41 "Not authorized for performing UI testing actions."',
+  });
+  const meta = path.join(m.root, ".agentes-runner", "wda", IPHONE, "meta.json");
+  const { checkedAt: _checked, ...unchecked } = m.meta();
+  writeFileSync(meta, JSON.stringify(unchecked));
+  expect(await m.settle({ state: "needs_you", reason: "ui_not_authorized" })).toEqual({
+    state: "needs_you",
+    reason: "ui_not_authorized",
+  });
+  m.setState({});
+  m.helper.recheck(IPHONE);
+  expect(await m.settle(null)).toBe(null);
+  // Repair: the helper and its leftovers stopped, its build forgotten, built again with this Xcode and checked.
+  const builds = () => m.calls().filter((c) => c[2] === "build-for-testing").length;
+  const before = builds();
+  await m.helper.run("device", IPHONE, m.xcrun);
+  await m.helper.repair(IPHONE);
+  expect(existsSync(meta)).toBe(false);
+  expect(m.calls().find((c) => c[0] === "pkill")).toEqual(["pkill", "-f", `test-without-building.*id=${IPHONE}`]);
+  expect(m.helper.need(IPHONE, m.xcrun)).toEqual({ state: "preparing", reason: "helper_missing" });
+  expect(await m.settle(null)).toBe(null);
+  expect(builds()).toBe(before + 1);
 });
 
 test("the Mac's screen locked: no signing build until it's unlocked; a helper that dies says why, and starts again", async () => {

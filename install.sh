@@ -640,7 +640,13 @@ t_init() {
         *) case ${TERM:-} in *256color*) T_DEPTH=256 ;; *) T_DEPTH=16 ;; esac ;;
       esac
     fi
-    T_COLS=$( (stty size </dev/tty | cut -d ' ' -f 2) 2>/dev/null) || :
+    # tput only reads the terminal. uutils' stty (Ubuntu 26.04) writes it back even for `size`, and a write from
+    # outside the foreground stops the installer for good: `curl ... | sudo sh` under sudo-rs runs it there.
+    if command -v tput >/dev/null 2>&1; then
+      { T_COLS=$(tput cols <&4 2>/dev/null) || :; } 4<&"$T_FD"
+    else
+      T_COLS=$( (stty size </dev/tty | cut -d ' ' -f 2) 2>/dev/null) || :
+    fi
   fi
   case $T_COLS in '' | *[!0-9]*) T_COLS=80 ;; esac
   if [ "$T_COLS" -gt 80 ]; then T_COLS=80; fi

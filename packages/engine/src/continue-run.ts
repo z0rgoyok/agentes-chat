@@ -88,8 +88,11 @@ export async function continueRun(
   if (skipped && !(Date.now() - Date.parse(ended.closed?.at ?? "") < ANSWER_ANYWAY_MS)) throw notContinuable();
 
   // The new run answers where the stopped reply is: its thread, or (flat: a DM) the reply itself. Long work (ADR 0121)
-  // goes on in its own thread, as the same work.
-  const threadRootId = (work ? updatesThreadOf(work) : null) ?? reply.threadId ?? reply.id;
+  // goes on in its own thread, as the same work; a handed one where it was handed the work, not where it reports.
+  const threadRootId =
+    work?.how === "handed"
+      ? stopped.threadRootId
+      : ((work ? updatesThreadOf(work) : null) ?? reply.threadId ?? reply.id);
   const roots = [...new Set([stopped.threadRootId, threadRootId])];
   // A DM is one conversation; a channel's are its threads.
   const inConversation = row.channelKind === "dm" ? undefined : inArray(agentRuns.threadRootId, roots);
@@ -297,7 +300,7 @@ export async function restartAfterStopAndSend(
   const candidates = [...(stopped?.pendingMessageIds ?? []), ...(reply.read ? [reply.read] : [])];
   if (!stopped || !by || candidates.length === 0) return null;
   // A model brain reads a "Parar e mandar" mid-task (its call is cut); only a computer brain is restarted.
-  // The brain the stopped run thought with (a fallback ran on the model brain), the agent's before its first turn.
+  // The brain the stopped run thought with (a mission's may differ), the agent's before its first turn.
   const [agent] = await db.select({ brain: agents.brain }).from(agents).where(eq(agents.id, stopped.agentId));
   if (!agent || runBrainOf(stopped, agent) === "model") return null;
   const [said] = await db

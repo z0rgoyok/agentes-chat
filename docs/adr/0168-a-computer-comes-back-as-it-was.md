@@ -24,10 +24,11 @@ Some of it already comes back:
 - a run cut mid-turn waits for its computer and sends the turn again when it is back (`waitForDroppedComputer` in the
   executor), told what it had done already;
 - a Claude Code background task resumes its session in its folder (`settleInterruptedTask`, ADR 0029);
-- Chrome opens the tabs of its last session from the agent's profile (`--restore-last-session`), which travels with
-  the agent's home. The runner closes its Chromes when it stops, and a Chrome sent `SIGTERM` by its scope's stop shuts
-  down cleanly too, so its session files are whole. A start no longer hands a start page to a Chrome still on the
-  profile, so restarts don't pile them up (fix/busy-tabs-terminals);
+- Chrome opens the agent's tidy tabs again: the runner records them in its profile with the computer's boot
+  (`recordTabs`: web pages, each once, 8 at most, never a popup or a tab a person opened), and the first start on
+  another boot passes them on Chrome's command line (`reopenedTabs`). A Chrome the runner had closed itself (idle,
+  stopped) forgets them, like a desktop that ended while the runner ran. Chrome's own saved session
+  (`Default/Sessions`) is still deleted before every start, so `--restore-last-session` keeps only session cookies;
 - the desktop's Terminals: each desktop keeps what is open on it beside its state (`<id8>.open`, `recordOpen`, at each
   sweep), and a desktop that a restart or a move ended opens its Terminals again at its next start, as new shells in
   the same folders, each saying why (fix/busy-tabs-terminals). That record and its `reopen` are the one place this ADR

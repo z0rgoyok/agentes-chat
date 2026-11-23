@@ -15,7 +15,17 @@ import {
 } from "@agenteschat/client";
 import { type Level, levelsOf, resourcesOf } from "@agenteschat/client/lib/access-levels";
 import { groupOf, NO_GROUP } from "@agenteschat/client/lib/agent-groups";
-import { audienceOf, audiencePatch, seesDetails } from "@agenteschat/client/lib/audience";
+import {
+  audienceOf,
+  audiencePatch,
+  type EditorsValue,
+  editorsPatch,
+  editorsSummary,
+  editorsValueOf,
+  editsAgent,
+  managesAgent,
+  seesDetails,
+} from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { joinNames } from "@agenteschat/client/lib/format";
@@ -72,6 +82,7 @@ import {
   type Field,
   type Look,
   lineChanges,
+  ownsOrManages,
   PERSONAL_AGENT_TABS,
   revertKey,
   type Saved,
@@ -191,8 +202,16 @@ function AgentProfile({
   const toast = useToast();
   const navigate = useNavigate();
   const dir = useDirectory(org.id);
-  const admin = can(org, "manage_agents");
-  const viewer: Viewer = admin ? "admin" : agent.ownerUserId === me.user.id ? "owner" : "member";
+  // Per agent (ADR 0085 addendum of 2026-11-17): "Editar agentes" (`manage_agents`) reaches only some agents, and an
+  // agent's "Quem pode editar" lets more people edit how it works.
+  const admin = managesAgent(agent);
+  const viewer: Viewer = admin
+    ? "admin"
+    : agent.ownerUserId === me.user.id
+      ? "owner"
+      : editsAgent(agent)
+        ? "editor"
+        : "member";
   // A personal workspace's page (ADR 0159 §3): a shorter bar, the hard parts in Advanced; every address still works.
   const personal = isPersonal(org);
   // The right hand's page (ADR 0137): its settings, what it may use and what it keeps for the viewer. Its
@@ -209,7 +228,7 @@ function AgentProfile({
   const groups = useAgentGroups(org.id);
   const library = useAgentSkills(org.id, agent.id);
   const proposals = useProposals(org.id);
-  const runs = useRuns(org.id, agent.id, viewer !== "member");
+  const runs = useRuns(org.id, agent.id, ownsOrManages(viewer));
   const visible = useVisibleChannels();
   const items = useConnectedById();
   const update = useUpdateAgent(org.id, agent.id);
@@ -248,6 +267,7 @@ function AgentProfile({
       budget: admin && d ? (d.monthlyBudgetUsd ?? null) : undefined,
       owner: agent.ownerUserId ?? NO_OWNER,
       audience: audienceOf(agent),
+      editors: editorsValueOf(agent),
       levels: access.data ? levelsOf(access.data) : undefined,
       repos: repos.data ? repoChoiceOf(repos.data) : undefined,
       skills: library.data ? sortIds(library.data.filter((s) => s.enabled).map((s) => s.id)) : undefined,
@@ -274,6 +294,7 @@ function AgentProfile({
         : new Intl.NumberFormat(i18n.language, { useGrouping: false, maximumFractionDigits: 2 }).format(saved.budget)),
     owner: edits.owner ?? saved.owner,
     audience: edits.audience ?? saved.audience,
+    editors: edits.editors ?? saved.editors ?? editorsValueOf(agent),
     levels: { ...(saved.levels ?? {}), ...(edits.levels ?? {}) },
     repos: edits.repos ?? saved.repos,
     skills: edits.skills ?? saved.skills,
@@ -303,6 +324,14 @@ function AgentProfile({
     const names = [...roles, ...ids.map(first)];
     return names.length ? joinNames(names, t) : t("audience.summary.nobody");
   };
+  // "Quem pode editar" as its row on the overview says it, with the owner it has then.
+  const editorsText = (e: EditorsValue | undefined, owner: string) =>
+    editorsSummary(
+      t,
+      { name: agent.name, ownerUserId: owner === NO_OWNER ? null : owner, editors: e && editorsPatch(e) },
+      (id) => dir.memberById.get(id)?.name,
+      dir.roleName,
+    );
   const budgetText = (amount: number | null) =>
     amount === null
       ? settings.data?.defaultAgentBudgetUsd === undefined
@@ -409,6 +438,13 @@ function AgentProfile({
           was: audienceText(saved.audience, saved.owner),
           now: audienceText(draft.audience, draft.owner),
         };
+      case "editors":
+        return {
+          ...base,
+          label: label("editors"),
+          was: editorsText(saved.editors, saved.owner),
+          now: editorsText(draft.editors, draft.owner),
+        };
       case "channels":
         return {
           ...base,
@@ -428,7 +464,8 @@ function AgentProfile({
   const errors = {
     name: fields.has("name") && !draft.name.trim() ? t("newAgent.errors.nameRequired") : undefined,
     handle: fields.has("handle")
-      ? (handleProblemText(t, draft.handle, takenHandles(dir.agents, dir.members, agent.id)) ?? undefined)
+      ? (handleProblemText(t, draft.handle, takenHandles([...dir.agentById.values()], dir.members, agent.id)) ??
+        undefined)
       : undefined,
     budget: edits.budget !== undefined && readBudget(edits.budget).invalid ? t("agent.budgetInvalid") : undefined,
     audience:
@@ -497,7 +534,7 @@ function AgentProfile({
       failed = true;
       if (silent) toast.show(errorText(t, e), "error");
     };
-    // 1. The agent itself: one PATCH (the owner may send only the look and the audience).
+    // 1. The agent itself: one PATCH (who doesn't manage it sends only what `canEdit` lets them change).
     const patch: Partial<AgentInput> = {};
     const patchFields: Field[] = [];
     const put = <K extends keyof typeof patch>(field: Field, k: K, v: (typeof patch)[K]) => {
@@ -515,6 +552,8 @@ function AgentProfile({
     if (fields.has("audience")) {
       put("audience", "audience", audiencePatch(draft.audience));
     }
+    // "Quem pode editar": the whole lists, empty under "owner" (ADR 0085 addendum of 2026-11-17).
+    if (fields.has("editors")) put("editors", "editors", editorsPatch(draft.editors));
     if (fields.has("look")) put("look", "appearance", normalizeAppearance(draft.look));
     if (patchFields.length > 0) {
       try {
@@ -686,8 +725,9 @@ function AgentProfile({
   /* ---------- Tabs ---------- */
 
   const pending = pendingOnAgent(proposals.data ?? [], agent.id).length;
-  const failures =
-    viewer === "member" ? 0 : (runs.data ?? []).filter((r) => r.status === "failed" && thisMonth(r.createdAt)).length;
+  const failures = !ownsOrManages(viewer)
+    ? 0
+    : (runs.data ?? []).filter((r) => r.status === "failed" && thisMonth(r.createdAt)).length;
   const tabLabel = (id: AgentTab): ReactNode => {
     const n = changes.filter((c) => c.tab === id).length;
     let badge: ReactNode = null;

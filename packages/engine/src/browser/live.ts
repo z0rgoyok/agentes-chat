@@ -16,7 +16,7 @@ import { and, eq, inArray, schema } from "@agenteschat/db";
 import { getAgentCached } from "../agents";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { type MachineHub, MachineRequestError } from "../machine-hub";
-import { getMachineById, machineOnline } from "../machines";
+import { getMachineById, shownOnline } from "../machines";
 import { isRightHand } from "../right-hand";
 import type { ClaimedStream, StreamSocket } from "../streams";
 import {
@@ -183,7 +183,7 @@ export function createMemoryStreamRelay(): StreamRelay {
 export type BrowserLiveMessage =
   | BrowserFrameMessage
   /** Where the agent's pointer goes on the page, as its gesture starts (ADR 0040 §7.2): the apps draw its cursor. */
-  | ({ type: "browser.pointer"; agentId: string } & AgentPointer)
+  | ({ type: "browser.pointer"; agentId: string; replay?: true } & AgentPointer)
   /**
    * Who is in control and the open handoff, on watch and whenever it changes.
    * `hidden`: someone else is in control, so this viewer gets no frames until
@@ -297,6 +297,8 @@ interface AgentLive {
    * is no longer hidden) sees the page at once, since a page that isn't repainting sends none.
    */
   frame: BrowserFrameMessage | null;
+  /** The agent's last pointer on the running stream's page, in memory only: sent once to a viewer who joins. */
+  pointer: Extract<BrowserLiveMessage, { type: "browser.pointer" }> | null;
   /** The person in control left: control ends when this fires, unless they come back. */
   grace: ReturnType<typeof setTimeout> | null;
   /** Stream changes run one after the other (a start never races a mode change or a stop). */
@@ -594,6 +596,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
     if (state.mode === null || mode === null) {
       state.page = null;
       state.frame = null;
+      state.pointer = null;
       state.viewSeq = null;
     }
     const fresh = state.mode === null;
@@ -643,6 +646,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
           state.mode = null;
           state.page = null;
           state.frame = null;
+          state.pointer = null;
         }
         return syncNow(agentId, state, false);
       })
@@ -682,6 +686,8 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
     if (state.mode === null || !state.frame || hiddenFrom(state, viewer.userId)) return;
     try {
       viewer.send(state.frame);
+      // Where the agent's pointer rests, said as one from before: the apps place it there, never replay it.
+      if (state.pointer) viewer.send({ ...state.pointer, replay: true });
     } catch {}
   };
 
@@ -967,7 +973,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
       if (!deps.hub.isLocal(machineId)) {
         // Held by another replica (or not connected): frames only flow where the socket is.
         const machine = await getMachineById(deps.db, machineId);
-        const online = machine && !machine.deletedAt && machineOnline(machine);
+        const online = machine && shownOnline(machine);
         viewer.send({ type: "browser.unavailable", agentId, reason: online ? "reconnecting" : "offline" });
         return { stop: () => {}, streaming: false };
       }
@@ -994,6 +1000,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
           shared: null,
           page: null,
           frame: null,
+          pointer: null,
           grace: null,
           syncing: Promise.resolve(),
           stopTimer: null,
@@ -1302,6 +1309,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
         const state = live.get(frame.agentId);
         // Only from the agent's own computer, while its page shows.
         if (!state || state.machineId !== machineId || state.mode === null) return;
+        state.pointer = frame;
         for (const v of state.viewers) {
           // A page hidden from a viewer says nothing of what happens on it.
           if (hiddenFrom(state, v.userId)) continue;
@@ -1315,6 +1323,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
         if (!state || state.machineId !== machineId) return;
         cancelStop(state);
         state.mode = null;
+        state.pointer = null;
         closeView(state);
         // A restart's own stop: its views keep waiting for the page, it isn't a Parar.
         if (frame.reason === "stopped" && restarting.has(frame.agentId)) return;
@@ -1348,6 +1357,7 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
           if (state.machineId !== machineId) continue;
           cancelStop(state);
           state.mode = null;
+          state.pointer = null;
           closeView(state);
           broadcast(state, { type: "browser.unavailable", agentId, reason: "reconnecting" });
         }

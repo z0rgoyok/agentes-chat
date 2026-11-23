@@ -103,7 +103,8 @@ test("after 30 days the purge job removes every version's contents; restore is n
     .update(schema.artifacts)
     .set({ deletedAt: new Date(Date.now() - 31 * 86_400_000) })
     .where(eq(schema.artifacts.id, file.id));
-  expect(await purgeDeletedArtifacts(f.artifactDeps)).toBe(1);
+  // Its version and its live document (a document is a live file, ADR 0200).
+  expect(await purgeDeletedArtifacts(f.artifactDeps)).toBe(2);
   expect(
     await f.db.select().from(schema.artifactVersions).where(eq(schema.artifactVersions.artifactId, file.id)),
   ).toEqual([]);

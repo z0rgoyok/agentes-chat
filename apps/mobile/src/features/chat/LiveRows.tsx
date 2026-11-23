@@ -27,23 +27,23 @@ import {
   type TextLayoutEvent,
   type TextStyle,
   View,
+  type ViewStyle,
 } from "react-native";
 import Animated, {
+  css,
   Easing,
+  type EntryExitAnimationFunction,
   FadeIn,
   FadeOut,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  ZoomIn,
 } from "react-native-reanimated";
-import { useFrameTime } from "@/agent/live";
-import { Dither } from "@/sky/Dither";
-import { softTones } from "@/sky/math";
-import { CHROME_MAX_SCALE, haptics, Icon, PixelStop, Text, useReducedMotion, useTheme } from "@/ui";
+import { useLivePaused } from "@/agent/live";
+import { loopStyle } from "@/agent/loop";
+import { CHROME_MAX_SCALE, haptics, Icon, PixelStop, Text, TOUCH, useReducedMotion, useTheme } from "@/ui";
 import { AgentFace, AgentWho, Face } from "../shared/Face";
-import { useDirectory, useNow } from "../shared/hooks";
-import { agentLook } from "../shared/logic";
+import { useNow } from "../shared/hooks";
 import {
   awayRun,
   type LineDrawn,
@@ -58,6 +58,7 @@ import {
   turnPhrase,
   workingEntries,
 } from "./logic";
+import { useRowDirectory } from "./row-data";
 import { WaitMark } from "./WaitMark";
 
 /** The runs at work in their browser, one per agent: each gets its browser card. */
@@ -71,12 +72,14 @@ export function browsingRuns(runs: LiveRun[]): LiveRun[] {
 }
 
 /**
- * The working line, as the web's activity bar above the composer (ChannelPage `ActivityBar`,
+ * The working line, saying what the web's activity bar above the composer says (ChannelPage `ActivityBar`,
  * WorkingLine.tsx, `.ac-typing[data-active]`), one for everyone at work here and the one thing that says so while
- * their words wait for their replies (which show whole, once posted): a low glass pill as wide as the box under it
- * whatever it says, with a dithered band sweeping in the first agent's color behind it while agents work; a few small
- * faces, each on a plate and popping in (an agent on its own asking another shows both, with an arrow; three dots
- * first while only people type); one line with names in ink, crossfading whenever it changes ("Theo e mais 2 estão
+ * their words wait for their replies (which show whole, once posted). On the phone it is the conversation's last line,
+ * under its last message and scrolling with it, as a reply on its way (above the composer only while there is no
+ * conversation yet): a bare line on the conversation's ground, as wide as the composer whatever it says (no glass, no
+ * shadow, no band behind it: the faces and the words say it);
+ * a few small faces, each on a plate and popping in (an agent on its own asking another shows both, with an arrow;
+ * three dots first while only people type); one line with names in ink, crossfading whenever it changes ("Theo e mais 2 estão
  * trabalhando · Marina está digitando…"), who records a voice message last, after three bars and their faces ("Rui
  * está gravando áudio…"); the clock of a question that is out. One agent on its own: its face, its step after its
  * name ("escrevendo…" while it writes) with its time right after it ("16 s"), whoever types or records beside it,
@@ -91,6 +94,7 @@ export function WorkingLine({
   onSeeConsult,
   stop,
   rest = null,
+  style,
 }: {
   runs: LiveRun[];
   consults: ConsultWithDetails[];
@@ -107,10 +111,12 @@ export function WorkingLine({
   stop?: { runs: LiveRun[]; onStop: (run: LiveRun) => void } | undefined;
   /** What the line holds while nobody works here: a return (`ReturnLine`). Work comes first. */
   rest?: ReactNode;
+  /** Its room where it is drawn (in the conversation: a turn's gap above it), only while it says something. */
+  style?: StyleProp<ViewStyle>;
 }) {
   const { t, i18n } = useTranslation();
-  const dir = useDirectory();
-  const { colors: c, shadows } = useTheme();
+  const dir = useRowDirectory();
+  const { colors: c } = useTheme();
   const reduced = useReducedMotion();
   const agentName = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const entries = workingEntries(runs, consults, agentName, typing, (id) => dir.memberById.get(id)?.name);
@@ -127,7 +133,6 @@ export function WorkingLine({
   // The one agent it speaks for; a question it asks keeps its own phrase.
   const away = awayRun(entries, runs);
   const step = away && lead && !lead.consult ? barStep(t, away, i18n.language, now) : null;
-  const color = lead ? agentLook(dir.agentById.get(lead.id)).color : null;
   const took = away ? barElapsed(t, entries, runs, now) : null;
   // Who types or records beside that agent, after its time ("· Marina digitando · Rui gravando áudio…"): the names give
   // way first, never what they do.
@@ -175,7 +180,7 @@ export function WorkingLine({
   const consultTime = barConsultTime(i18n.language, asking, now);
   const seeConsult = asking?.id && onSeeConsult ? () => onSeeConsult(asking.id as string) : undefined;
   const pop = reduced ? undefined : FACE_POP;
-  const plate = [styles.tok, { backgroundColor: c.glassSolid }];
+  const plate = [styles.tok, { backgroundColor: c.bg }];
   // The agents at work open the pill with their faces. Who records shows after the words with their mark, and so does
   // who types beside them: their faces come and go with the phrase as it turns, so they don't pop in again at each turn.
   const faces = barFaces(entries);
@@ -196,18 +201,15 @@ export function WorkingLine({
   const openBrowser = browsing && onOpenBrowser ? () => onOpenBrowser(browsing.agentId) : undefined;
   const stopHere = stop?.runs ?? [];
   return (
-    <View style={styles.dock}>
+    <View style={[styles.dock, style]}>
       <Animated.View
         // In and out on an ease-out, under 200 ms: the line is chrome that comes and goes many times a day.
         entering={reduced ? undefined : LINE_IN}
         exiting={reduced ? undefined : LINE_OUT}
-        style={[styles.pill, { backgroundColor: c.glassSolid, boxShadow: `${shadows.e1}, ${shadows.top}` }]}
+        style={styles.pill}
         accessibilityLiveRegion="polite"
       >
-        {color ? (
-          <Dither kind="sweep" tones={softTones(color, c.raised)} pixel={3} style={StyleSheet.absoluteFill} />
-        ) : null}
-        {color || !someoneTypes(entries) || bothAtIt(entries) ? null : <TypingDots color={c.muted} />}
+        {lead || !someoneTypes(entries) || bothAtIt(entries) ? null : <TypingDots color={c.muted} />}
         {faces.length > 0 ? (
           <View style={styles.stack} importantForAccessibility="no-hide-descendants">
             {faces.map((e, i) => {
@@ -301,7 +303,8 @@ export function WorkingLine({
           <Pressable
             onPress={seeConsult}
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+            // A 16-point word about 20 wide: 14 above and below and 12 at its sides make the 44 a finger needs.
+            hitSlop={{ top: (TOUCH - SEE_LINE) / 2, bottom: (TOUCH - SEE_LINE) / 2, left: 12, right: 12 }}
             style={({ pressed }) => [styles.see, pressed && styles.pressed]}
           >
             <Text variant="caption" tone="ink2" maxFontSizeMultiplier={CHROME_MAX_SCALE} style={styles.seeText}>
@@ -320,13 +323,27 @@ export function WorkingLine({
 const LINE_EASE = Easing.bezier(0.23, 1, 0.32, 1);
 const LINE_IN = FadeIn.duration(160).easing(LINE_EASE);
 const LINE_OUT = FadeOut.duration(120).easing(LINE_EASE);
-/** A face popping in on its plate. */
-const FACE_POP = ZoomIn.springify().damping(11).stiffness(320).mass(0.6);
+/** The "View" word's line (caption, 16). */
+const SEE_LINE = 16;
+/**
+ * A face coming in on its plate: from 0.9 and fading, on the line's ease-out, never from nothing (a face growing out of
+ * a point read as a pop, many times a day).
+ */
+const FACE_POP: EntryExitAnimationFunction = () => {
+  "worklet";
+  return {
+    initialValues: { opacity: 0, transform: [{ scale: 0.9 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 160, easing: LINE_EASE }),
+      transform: [{ scale: withTiming(1, { duration: 160, easing: LINE_EASE }) }],
+    },
+  };
+};
 
 /**
- * "Parar": last in the requests' line's pill after a thin rule (while it takes the working line's place), or at the
- * end of the agent's live row (`place="row"`, no rule). One tap stops the agent, nothing asked, and "Parando…" while
- * it stops (in the row only its spinner, so the line keeps its width). 24 points drawn, 44 to the finger.
+ * "Parar": last in the requests' line's pill after a thin rule (while it takes the working line's place), or written
+ * out at the end of the working line (`place="word"`). One tap stops the agent, nothing asked, and "Parando…" while it
+ * stops. 24 points drawn, 44 to the finger.
  */
 export function LineStop({
   runs,
@@ -336,13 +353,13 @@ export function LineStop({
 }: {
   runs: LiveRun[];
   onStop: (run: LiveRun) => void;
-  /** The thin rule before it (left out after "Ver", which has its own, and in the row). */
+  /** The thin rule before it (left out after "Ver", which has its own). */
   rule?: boolean;
   /** `word`: "Parar" written out, at the end of the working line (one word for every run it stops). */
-  place?: "line" | "row" | "word";
+  place?: "line" | "word";
 }) {
   const { t } = useTranslation();
-  const dir = useDirectory();
+  const dir = useRowDirectory();
   const c = useTheme().colors;
   if (runs.length === 0) return null;
   const nameOf = (run: LiveRun) => dir.agentById.get(run.agentId)?.name ?? t("channel.unknownAgent");
@@ -386,25 +403,16 @@ export function LineStop({
       </>
     );
   }
-  const inRow = place === "row";
-  const shape = inRow ? styles.rowStop : styles.stop;
   return (
     <>
       {rule ? <View style={[styles.sep, { backgroundColor: c.line }]} /> : null}
       {runs.map((r) =>
         r.stopping ? (
-          <View
-            key={r.runId}
-            style={inRow ? styles.rowStop : styles.stopping}
-            accessible
-            accessibilityLabel={t("run.stopping")}
-          >
+          <View key={r.runId} style={styles.stopping} accessible accessibilityLabel={t("run.stopping")}>
             <ActivityIndicator size="small" color={c.muted} />
-            {inRow ? null : (
-              <Text variant="caption" tone="muted">
-                {t("run.stopping")}
-              </Text>
-            )}
+            <Text variant="caption" tone="muted">
+              {t("run.stopping")}
+            </Text>
           </View>
         ) : (
           <Pressable
@@ -413,7 +421,7 @@ export function LineStop({
             accessibilityRole="button"
             accessibilityLabel={`${t("run.stop")} · ${nameOf(r)}`}
             hitSlop={10}
-            style={({ pressed }) => [shape, pressed && { backgroundColor: `${c.danger}1F` }]}
+            style={({ pressed }) => [styles.stop, pressed && { backgroundColor: `${c.danger}1F` }]}
           >
             {({ pressed }) => <PixelStop size={11} color={pressed ? c.danger : c.muted} />}
           </Pressable>
@@ -567,69 +575,82 @@ function BarWords({
   );
 }
 
+/** One round of the typing dots and of the recording bars. */
+const MARK_ROUND_MS = 1200;
+/** A bar at rest: a third of its height. */
+const BAR_LOW = 0.34;
+/** A bar's round: tallest at 40% of it, low again by 80% (the web's `.ac-typing__bars`). */
+const BAR_ROUND = css.keyframes({
+  0: { transform: [{ scaleY: BAR_LOW }] },
+  0.4: { transform: [{ scaleY: 1 }] },
+  0.8: { transform: [{ scaleY: BAR_LOW }] },
+  1: { transform: [{ scaleY: BAR_LOW }] },
+});
+/** A dot's round: up and bright at 30% of it, back down by 60% (the web's `.ac-typing__dots`). */
+const DOT_ROUND = css.keyframes({
+  0: { opacity: 0.4, transform: [{ translateY: 0 }] },
+  0.3: { opacity: 1, transform: [{ translateY: -2 }] },
+  0.6: { opacity: 0.4, transform: [{ translateY: 0 }] },
+  1: { opacity: 0.4, transform: [{ translateY: 0 }] },
+});
+/**
+ * Mark `i` of a row trails the one before it by `lag` ms. The delay is negative (a round earlier), so every mark starts
+ * at once, already that far into its round: none sits still at mount waiting for its turn.
+ */
+const trailing = (i: number, lag: number) => i * lag - MARK_ROUND_MS;
+
 /**
  * Three bars rising and falling in turn while someone records a voice message (the web's `.ac-typing__bars`), where
- * the dots are for typing; still with Reduce Motion.
+ * the dots are for typing. They loop on the UI thread (a CSS animation: no render per frame while someone records),
+ * hold while the screen isn't showing (`LivePause`), and stand still with Reduce Motion.
  */
 function RecordingBars({ color }: { color: string }) {
   const reduced = useReducedMotion();
-  const t = useFrameTime(!reduced, 0);
+  const paused = useLivePaused();
   return (
     <View style={styles.bars} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {[0.34, 0.75, 0.5].map((still, i) => {
-        // A 1.2 s round, each bar 0.2 s after the one before: tallest at 40% of its round.
-        const at = (((t - i * 0.2) % 1.2) + 1.2) % 1.2;
-        const up = Math.max(0, 1 - Math.abs(at / 1.2 - 0.4) / 0.4);
-        return (
-          <View
-            key={still}
-            style={[
-              styles.bar,
-              { backgroundColor: color, transform: [{ scaleY: reduced ? still : 0.34 + 0.66 * up }] },
-            ]}
-          />
-        );
-      })}
+      {[0.34, 0.75, 0.5].map((still, i) => (
+        <Animated.View
+          key={still}
+          style={[
+            styles.bar,
+            { backgroundColor: color, transform: [{ scaleY: reduced ? still : BAR_LOW }] },
+            // Each bar 0.2 s after the one before.
+            reduced ? null : loopStyle(BAR_ROUND, MARK_ROUND_MS, "linear", trailing(i, 200), paused),
+          ]}
+        />
+      ))}
     </View>
   );
 }
 
-/** Three dots rising in turn while only people type (the web's `.ac-typing__dots`); still with Reduce Motion. */
+/**
+ * Three dots rising in turn while only people type (the web's `.ac-typing__dots`), on the UI thread as the bars are;
+ * still with Reduce Motion.
+ */
 function TypingDots({ color }: { color: string }) {
   const reduced = useReducedMotion();
-  const t = useFrameTime(!reduced, 0);
+  const paused = useLivePaused();
   return (
     <View style={styles.dots} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {[0, 1, 2].map((i) => {
-        // A 1.2 s round, each dot 0.15 s after the one before: up and bright at 30% of its round.
-        const at = (((t - i * 0.15) % 1.2) + 1.2) % 1.2;
-        const up = reduced ? 0 : Math.max(0, 1 - Math.abs(at / 1.2 - 0.3) / 0.3);
-        return (
-          <View
-            key={i}
-            style={[
-              styles.dot,
-              { backgroundColor: color, opacity: 0.4 + 0.6 * up, transform: [{ translateY: -2 * up }] },
-            ]}
-          />
-        );
-      })}
+      {[0, 1, 2].map((i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.dot,
+            { backgroundColor: color, opacity: 0.4 },
+            // Each dot 0.15 s after the one before.
+            reduced ? null : loopStyle(DOT_ROUND, MARK_ROUND_MS, "linear", trailing(i, 150), paused),
+          ]}
+        />
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // A stop at a row's end never raises the line it ends (24 points drawn in a 16-point line).
-  rowStop: {
-    width: 24,
-    height: 24,
-    marginVertical: -4,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   // As wide as the box under it, its edges on the box's, whatever it says: a turning phrase or a face coming and going
-  // never moves its edge.
+  // never moves its edge. Bare, as the return that rests in it (`Returns` `line`).
   dock: { paddingBottom: 6 },
   pill: {
     flexDirection: "row",

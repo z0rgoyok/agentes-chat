@@ -103,3 +103,15 @@
     transition: none;
   }
 }
+/* Send a report's panel (report/panel.ts) over the cover, on a scrim. */
+.cover__report {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 32, 63, 0.45);
+  pointer-events: auto;
+}
+.cover__report:empty {
+  display: none;
+}

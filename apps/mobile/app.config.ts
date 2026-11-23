@@ -1,4 +1,5 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
+import versions from "./versions.json";
 
 /**
  * The app's Expo config. Builds: the "Android build" and "iOS build" workflows on GitHub Actions, or EAS (see
@@ -14,11 +15,19 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
  * - `IOS_BUNDLE_ID`: the iOS application identifier for a store build. The managed fork uses its own identifier
  *   instead of the upstream one; variants keep their existing identifiers when this is unset.
  * - `IOS_BUILD_NUMBER`: the build's number on iOS, set by the iOS workflow.
+ * - `APP_PLATFORM`: "ios" | "android", set by each build workflow (EAS says it in `EAS_BUILD_PLATFORM`): which of the
+ *   two versions in versions.json the build takes.
  *
  * The New Architecture is the only one since SDK 55, so there is no `newArchEnabled` flag any more
  * (the SDK 58 config type no longer has it). Edge-to-edge on Android is likewise always on.
  */
 const variant = process.env.APP_VARIANT ?? "production";
+/**
+ * The app's version in each store, raised on its own by that store's build workflow (ios.yml, android.yml: `release` =
+ * fix/feature/major, as the desktop app's), so a release of one never moves the other's.
+ */
+const platform = process.env.APP_PLATFORM ?? process.env.EAS_BUILD_PLATFORM;
+const version = platform === "android" ? versions.android : versions.ios;
 const suffix = variant === "production" ? "" : `.${variant}`;
 const iosBundleIdentifier = process.env.IOS_BUNDLE_ID ?? `chat.agentes.app${suffix}`;
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "https://app.agentes.chat";
@@ -54,6 +63,7 @@ export const APP_LINK_PATTERNS = [
   "/org/*/routines",
   "/org/*/search",
   "/org/*/drive",
+  "/org/*/drive/*",
   "/org/*/wiki",
   "/org/*/wiki/*",
   "/org/*/members",
@@ -105,12 +115,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: variant === "production" ? "Tich Rooms" : `Tich Rooms ${variant}`,
   slug: "agentes",
   scheme: "agenteschat",
-  version: "0.1.0",
+  version,
   // Upright everywhere (the plugin below); only the agent's screen, in control, lies down (`useSideways`).
   orientation: "default",
-  // The icon the app ships with (ADR 0179); the others a person may pick are added by ./plugins/with-app-icons.
-  // All of them come from packages/ui/scripts/app-icons.mjs.
-  icon: `${ICONS}/night/ios.png`,
+  // The icon the app ships with (ADR 0179): the agent leaning in, Espiando, on the night sky (packages/client's
+  // `PHONE_APP_ICON`); the others a person may pick are added by ./plugins/with-app-icons. All of them come from
+  // packages/ui/scripts/app-icons.mjs.
+  icon: `${ICONS}/peekNight/ios.png`,
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: iosBundleIdentifier,
@@ -118,9 +129,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...(process.env.IOS_BUILD_NUMBER ? { buildNumber: process.env.IOS_BUILD_NUMBER } : {}),
     // Light, dark and tinted (iOS 18).
     icon: {
-      light: `${ICONS}/night/ios.png`,
-      dark: `${ICONS}/night/ios-dark.png`,
-      tinted: `${ICONS}/night/ios-tinted.png`,
+      light: `${ICONS}/peekNight/ios.png`,
+      dark: `${ICONS}/peekNight/ios-dark.png`,
+      tinted: `${ICONS}/peekNight/ios-tinted.png`,
     },
     supportsTablet: false,
     usesAppleSignIn: true,
@@ -136,9 +147,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Two layers (the night sky, the agent), so the launcher's mask and motion cut them like the iOS icon, and the
     // agent alone in one color for Android 13's themed icons.
     adaptiveIcon: {
-      foregroundImage: `${ICONS}/night/android-foreground.png`,
-      backgroundImage: `${ICONS}/night/android-background.png`,
-      monochromeImage: `${ICONS}/night/android-monochrome.png`,
+      foregroundImage: `${ICONS}/peekNight/android-foreground.png`,
+      backgroundImage: `${ICONS}/peekNight/android-background.png`,
+      monochromeImage: `${ICONS}/peekNight/android-monochrome.png`,
       backgroundColor: "#03101f",
     },
     predictiveBackGestureEnabled: false,
@@ -251,7 +262,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // extension takes the app's name and shares its URL scheme; it reaches phones only with a new native build.
       "expo-share-intent",
       {
-        iosShareExtensionName: variant === "production" ? "Tich Rooms" : `Tich Rooms ${variant}`,
+        iosShareExtensionName: variant === "production" ? "Tich Rooms Share" : `Tich Rooms Share ${variant}`,
         iosActivationRules: {
           NSExtensionActivationSupportsText: true,
           NSExtensionActivationSupportsWebURLWithMaxCount: 1,

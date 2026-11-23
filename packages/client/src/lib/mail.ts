@@ -61,6 +61,13 @@ export function choiceOf(account: Pick<MailAccount, "provider" | "preset">): Mai
   return account.preset === "icloud" ? "icloud" : "other";
 }
 
+/** A catalog card's name ("Gmail", "Outro email"). */
+export const mailChoiceName = (t: TFunction, choice: MailChoice) => t(`mail.choice.${choice}.name`);
+
+/** A mailbox's name on a row: its label, else its service's (someone else's comes without either address or label). */
+export const mailboxName = (t: TFunction, account: Pick<MailAccount, "label" | "provider" | "preset">) =>
+  account.label || mailChoiceName(t, choiceOf(account));
+
 /** What to log in with for a preset: the address, or only the part before the @. */
 export function loginOf(preset: Pick<MailPreset, "username"> | null | undefined, address: string): string {
   const a = address.trim();

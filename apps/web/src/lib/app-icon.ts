@@ -60,11 +60,18 @@ export const onAppIconChange = (cb: () => void) => {
   return () => window.removeEventListener(CHANGE_EVENT, cb);
 };
 
+/** A registered host's logo (ADR 0194): the tab's icon wherever this browser kept the default one. */
+let hostIcon: string | null = null;
+
 function show(pick: AppIconPick) {
   current = pick;
   const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
   const href =
-    typeof pick === "string" ? faviconOf(pick) : agentFavicon(pick.agent.look) || faviconOf(DEFAULT_APP_ICON);
+    typeof pick === "string"
+      ? pick === DEFAULT_APP_ICON && hostIcon
+        ? hostIcon
+        : faviconOf(pick)
+      : agentFavicon(pick.agent.look) || faviconOf(DEFAULT_APP_ICON);
   if (link && link.getAttribute("href") !== href) link.setAttribute("href", href);
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
@@ -106,4 +113,10 @@ export function startAppIcon() {
       else if (isAppIcon(icon) && icon !== current) show(icon);
     })
     .catch(() => undefined);
+}
+
+/** On a registered host with a logo: its logo is the tabs' icon unless this browser picked another. */
+export function showHostIcon(url: string) {
+  hostIcon = url;
+  if (!inDesktopApp()) show(current);
 }

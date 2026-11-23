@@ -38,9 +38,15 @@ export type OperatorEventType =
   | "task.finished"
   | "desktop_control.ended"
   | "content.viewed"
+  | "support.requested"
+  | "support.replied"
   | "platform_ai.threshold"
   | "account.failure"
-  | "machine.wake_wanted";
+  | "machine.wake_wanted"
+  | "surface.cap_reached"
+  | "outside_access.granted"
+  | "outside_access.denied"
+  | "outside_access.ended";
 
 export interface OperatorEvent {
   type: OperatorEventType;
@@ -67,13 +73,37 @@ export async function recordOperatorEvent(db: Executor, ...events: OperatorEvent
   if (enabled && events.length > 0) await insertEvents(db, events);
 }
 
-/** `content.viewed`, whether events are on or not: content never leaves through the operator API without it. */
+/**
+ * `content.viewed`, whether events are on or not: content never leaves through the operator API without it. Beside
+ * what was read, why and by whom, a read may say more of itself in facts (a purpose, the ids of what proves it).
+ */
 export async function recordContentViewed(
   db: Executor,
-  view: { orgId: string; ref: string; reason: string; operator: string },
+  view: { orgId: string; ref: string; reason: string; operator: string; [fact: string]: unknown },
 ) {
   const { orgId, ...data } = view;
   await insertEvents(db, [{ type: "content.viewed", orgId, data }]);
+}
+
+/**
+ * `support.replied`, whether events are on or not: the replies a request and a day may have are counted from these.
+ * Which sentence was sent or the word `text`, and how long the operator's own words were, never the words.
+ */
+export async function recordSupportReplied(
+  db: Executor,
+  reply: {
+    orgId: string;
+    /** The member answered. */
+    userId: string;
+    requestId: string;
+    template: string;
+    chars: number;
+    assistedByAi: boolean;
+    operator: string;
+  },
+) {
+  const { orgId, userId, ...data } = reply;
+  await insertEvents(db, [{ type: "support.replied", orgId, userId, data }]);
 }
 
 /** `user.signed_up`, from a new sign-in method: the account's first one is its sign-up, later ones are links. */

@@ -31,7 +31,10 @@ describe("Fixadas", () => {
   test("× (unpin) shows only to who may post, as on the web", () => {
     const sheet = readFileSync(join(import.meta.dir, "../../src/features/chat/PinsSheet.tsx"), "utf8");
     expect(sheet).toContain('const mayUnpin = can(org, "post")');
-    expect(sheet).toMatch(/\{mayUnpin \? \(\s*<IconButton icon="x"/);
+    // The grouped row's own × (`remove`), in the list the sheets share.
+    expect(sheet).toMatch(
+      /mayUnpin\s*\?\s*\{\s*remove:\s*\{\s*label: t\("mobile\.pins\.unpinOf", \{ name \}\),\s*onPress: \(\) => unpin\(p\)/,
+    );
   });
 
   test("the latest pin first, one entry per message", () => {

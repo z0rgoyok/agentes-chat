@@ -1,6 +1,7 @@
-import { ACCOUNT_KINDS, PROVIDER_FAILURE_CAUSES } from "@agenteschat/adapters";
+import { ACCOUNT_KINDS, PLAN_WINDOW_KINDS, PROVIDER_FAILURE_CAUSES } from "@agenteschat/adapters";
 import {
   AI_ACCOUNT_STATUSES,
+  AI_ACCOUNT_WINDOWS_MAX,
   AI_ACCOUNTS_RECENT_FAILURES,
   ANALYTICS_LIST_MAX,
   ANALYTICS_MAX_DAYS,
@@ -11,7 +12,11 @@ import {
   operatorConnectorAnalytics,
   operatorListAiAccounts,
   operatorOrgWorkAnalytics,
+  operatorRunTimings,
   operatorWorkAnalytics,
+  RUN_TIMINGS_FLEET_MAX_DAYS,
+  RUN_TIMINGS_MAX_DAYS,
+  RUN_TIMINGS_ROWS_MAX,
   WORK_ANALYTICS_HOURLY_DAYS,
   WORK_ANALYTICS_MAX_DAYS,
 } from "@agenteschat/engine";
@@ -287,7 +292,7 @@ const workTotals = z.object({
       z.object({
         cause: z.string().openapi({
           description:
-            "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `offline`, `standby`, …) or `provider_outage`. Ignore values you don't know.",
+            "`brain_unavailable:<code>` (a wait for its computer: `busy` for room, `machine_offline`, `machine_paused`, …) or `provider_outage`. A wait for room names the gate that held it when it began: `busy:line` (another run ahead), `busy:sign_in` (its plan sign-in at its cap), `busy:spacing` (agents' turns start seconds apart), `busy:memory` (the computer refused it for room); plain `busy` before these were kept. Ignore values you don't know.",
         }),
         waits: Count,
         medianSec: z.number().int().nullable(),
@@ -348,6 +353,97 @@ const OrgWorkAnalytics = z
     }),
   })
   .openapi("OperatorOrgWorkAnalytics");
+
+const TimingsQuery = z.object({
+  from: z.string().openapi({
+    description: "An ISO 8601 instant: runs created at or after it.",
+    example: "2026-10-30T00:00:00Z",
+  }),
+  to: z.string().openapi({
+    description: `An ISO 8601 instant: runs created before it. After \`from\`, at most ${RUN_TIMINGS_FLEET_MAX_DAYS} days apart across workspaces and ${RUN_TIMINGS_MAX_DAYS} with \`orgId\`. Else 400 \`analytics.range\`.`,
+    example: "2026-10-31T00:00:00Z",
+  }),
+  orgId: z.uuid().optional().openapi({ description: "Only this workspace's runs." }),
+  agentId: z.uuid().optional().openapi({ description: "Only this agent's runs. Only with `orgId`." }),
+  by: z.enum(["brain", "model"]).default("brain").openapi({
+    description: "`brain`: a row per brain. `model`: a row per brain and model.",
+  }),
+});
+const Ms = z.number().int().nullable();
+const TimingsGroup = {
+  brain: z.string().nullable().openapi({
+    description:
+      "What the runs thought with: `model` (a provider's API) or a coding CLI. `other`: none the server knows. Null: runs that had no turn yet.",
+  }),
+  model: z.string().nullable().openapi({
+    description: "With `by=model`: the model of the run's latest turn, null when it had none. Else always null.",
+  }),
+};
+const RunTimings = z
+  .object({
+    from: z.string(),
+    to: z.string(),
+    by: z.enum(["brain", "model"]),
+    runs: Count.openapi({ description: "Runs created in the window, with the filters." }),
+    profiled: Count.openapi({ description: "Of them, the ones that kept at least one claim's stages." }),
+    stages: z
+      .array(
+        z.object({
+          ...TimingsGroup,
+          stage: z.string().openapi({
+            description:
+              "`claim`, `context`, `model` (each turn), `persist`, `events`, `end`… a step inside a stage after it (`context.build`). `other`: a name not shaped like one the server writes.",
+          }),
+          count: Count.openapi({ description: "Stages measured, not runs: a run has one `model` per turn." }),
+          medianMs: Ms,
+          p90Ms: Ms,
+          p99Ms: Ms,
+          maxMs: Ms,
+        }),
+      )
+      .openapi({
+        description: `By brain, then model, then the slowest median first. At most ${RUN_TIMINGS_ROWS_MAX}: the most measured.`,
+      }),
+    stagesMore: z.boolean().openapi({ description: "More stages than were listed." }),
+    computerStarts: z
+      .array(
+        z.object({
+          ...TimingsGroup,
+          turns: Count.openapi({ description: "Turns on a computer that said how they started." }),
+          warm: Count.openapi({ description: "Of them, on a process already open." }),
+          initMedianMs: Ms.openapi({ description: "A new process until it said it was ready." }),
+          initP90Ms: Ms,
+          initP99Ms: Ms,
+          warmFirstEventMedianMs: Ms.openapi({ description: "Turn start to its first event." }),
+          warmFirstEventP90Ms: Ms,
+          warmFirstEventP99Ms: Ms,
+          coldFirstEventMedianMs: Ms,
+          coldFirstEventP90Ms: Ms,
+          coldFirstEventP99Ms: Ms,
+        }),
+      )
+      .openapi({ description: `By brain, then model. At most ${RUN_TIMINGS_ROWS_MAX}: the ones with most turns.` }),
+    waits: z
+      .array(
+        z.object({
+          cause: z.string().openapi({
+            description:
+              "`brain_unavailable:<code>`, a wait for its computer or a sign-in on it, by its code: `busy` for room, `machine_offline`, `not_logged_in`, … `other`: not shaped like one. A wait for room names the gate that held it when it began: `busy:line` (another run ahead), `busy:sign_in` (its plan sign-in at its cap), `busy:spacing` (agents' turns start seconds apart), `busy:memory` (the computer refused it for room); plain `busy` before these were kept. Ignore values you don't know.",
+          }),
+          ...TimingsGroup,
+          waits: Count,
+          runs: Count.openapi({ description: "Distinct runs that waited." }),
+          medianSec: Ms,
+          p90Sec: Ms,
+          p99Sec: Ms,
+          totalSec: Ms,
+        }),
+      )
+      .openapi({
+        description: `The waits for a computer alone (a provider's outage is not among them). By brain, then model, then most waits first, at most ${RUN_TIMINGS_ROWS_MAX}: the most frequent. Each wait lasts until the run's next step, its end, or the earlier of now and \`to\`.`,
+      }),
+  })
+  .openapi("OperatorRunTimings");
 
 const AuthMethodOrUnknown = z.enum(["cli_login", "setup_token", "api_key", "unknown"]).openapi("OperatorAiAuthMethod", {
   description:
@@ -503,6 +599,30 @@ const AiAccountPage = z
         lastFailureAt: z.string().nullable(),
         usageAt: z.string().nullable().openapi({ description: "When its plan's usage was last read." }),
         usageSource: z.string().nullable().openapi({ description: "`turn` or `probe`." }),
+        usage: z
+          .object({
+            limited: z.boolean().openapi({ description: "The plan refused a request for its limit." }),
+            checkedAt: z.string().nullable().openapi({
+              description: "When the server last asked its computer to read a plan stuck at its limit again.",
+            }),
+            windows: z
+              .array(
+                z.object({
+                  kind: z.enum(PLAN_WINDOW_KINDS).openapi({
+                    description: "`other`: a window the list has no word for; never the provider's own name for it.",
+                  }),
+                  usedPercent: z.number().min(0).max(100),
+                  resetsAt: z.string().nullable(),
+                  at: z.string().nullable().openapi({
+                    description:
+                      "When this window was last read, where that is before `usageAt`: a later reading that didn't name it kept the older one. Null: at `usageAt`.",
+                  }),
+                }),
+              )
+              .openapi({ description: `At most ${AI_ACCOUNT_WINDOWS_MAX}.` }),
+          })
+          .nullable()
+          .openapi({ description: "Its plan's windows as its computer last reported them (`usageAt`); null: none." }),
         runnerVersion: z.string().nullable(),
         protocol: z.number().int(),
       }),
@@ -566,6 +686,19 @@ export function registerOperatorAnalytics(api: OpenAPIHono, { db }: OperatorDeps
       responses: { 200: json(OrgWorkAnalytics), 400: errors[400], 401: errors[401] },
     }),
     async (c) => c.json(await operatorOrgWorkAnalytics(db, c.req.valid("param").orgId, c.req.valid("query")), 200),
+  );
+
+  api.openapi(
+    createRoute({
+      method: "get",
+      path: "/analytics/run-timings",
+      tags,
+      summary: "Where the runs' time went: each stage, how computer turns started and the waits, per brain or model",
+      description: `Of the runs created in the window: ${RUN_TIMINGS_FLEET_MAX_DAYS} days at most across workspaces, ${RUN_TIMINGS_MAX_DAYS} in one (\`orgId\`). Counts, times and the server's own words only: no message, no name. An unknown workspace answers with zeros.`,
+      request: { query: TimingsQuery },
+      responses: { 200: json(RunTimings), 400: errors[400], 401: errors[401] },
+    }),
+    async (c) => c.json(await operatorRunTimings(db, c.req.valid("query")), 200),
   );
 
   api.openapi(

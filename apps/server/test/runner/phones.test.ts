@@ -802,6 +802,9 @@ test("an iPhone on iOS 16 is reported as too old, never left out; one newer than
     [{ state: "needs_you", reason: "ui_not_authorized" }, "26.2"],
     [{ state: "preparing", reason: "device_support" }, "27.0"],
     [{ state: "preparing", reason: "helper_missing" }, "26.2"],
+    // The reverse: iOS 27 under an iOS 28 SDK, named only once the helper is stuck the same way.
+    [{ state: "needs_you", reason: "ui_not_authorized" }, "28.0"],
+    [{ state: "preparing", reason: "helper_missing" }, "28.0"],
   ] as const) {
     const s = stuck(need, sdk);
     await s.manager.poll();
@@ -812,6 +815,8 @@ test("an iPhone on iOS 16 is reported as too old, never left out; one newer than
     ["needs_you", "xcode_too_old"],
     ["needs_you", "xcode_too_old"],
     ["preparing", "device_support"],
+    ["preparing", "helper_missing"],
+    ["needs_you", "ios_behind_xcode"],
     ["preparing", "helper_missing"],
   ]);
 });
@@ -874,7 +879,8 @@ test("a real iPhone: install and launch through devicectl, the rest through its 
       },
     },
     {
-      tools: ["adb", "xcrun", "xcode-select", "maestro", "plutil", "ffmpeg"],
+      // A fake pkill: a repair never reaches this machine's own processes.
+      tools: ["adb", "xcrun", "xcode-select", "maestro", "plutil", "ffmpeg", "pkill"],
       ios: (env, root, now) => {
         mkdirSync(
           path.join(root, ".agentes-runner", "wda", "src", `WebDriverAgent-${WDA_VERSION}`, "WebDriverAgent.xcodeproj"),
@@ -986,15 +992,44 @@ test("a real iPhone: install and launch through devicectl, the rest through its 
       wdaRefuse:
         'Error Domain=com.apple.dt.XCTDaemonErrorDomain Code=41 "Not authorized for performing UI testing actions."',
     });
-    const refused = (await r.op(short)) as { passed: boolean; output: string };
-    expect(refused.passed).toBe(false);
-    expect(refused.output).toContain("The iPhone refused the test helper's taps.");
+    // The phone's state, not a failed step: screen capture works, taps don't, and the person's steps.
+    const refused = await r.op(short).catch((e: RunnerError) => e);
+    expect(refused).toMatchObject({ code: "phone_not_ready" });
+    expect((refused as RunnerError).message).toContain("Screen capture works, but iOS refuses the test helper's taps");
+    expect((refused as RunnerError).message).toContain("Nothing needs rebuilding and no terminal access is needed");
+    expect(r.manager.list().find((p) => p.serial === IPHONE)).toMatchObject({
+      state: "needs_you",
+      reason: "ui_not_authorized",
+    });
     await r.manager.poll();
     await r.manager.poll();
     expect(r.manager.list().find((p) => p.serial === IPHONE)).toMatchObject({
       state: "needs_you",
       reason: "ui_not_authorized",
     });
+    // Screenshots still work meanwhile; a flow is refused before it starts the helper.
+    expect(await r.op({ op: "phone.screenshot", ...t })).toMatchObject({ path: expect.any(String) });
+    expect(await errorCode(() => r.op(short))).toBe("phone_not_ready");
+    // Allowed on the iPhone, then Check again: the helper the screenshot left running acts at once, and it's ready.
+    r.setState({ ...ANDROID_STATE, wdaTree: tree });
+    await r.manager.look();
+    for (let i = 0; i < 400 && r.manager.list().find((p) => p.serial === IPHONE)?.state !== "ready"; i++) {
+      await Bun.sleep(25);
+      await r.manager.poll();
+    }
+    expect(r.manager.list().find((p) => p.serial === IPHONE)?.state).toBe("ready");
+    // Repair: answered once the rebuild started, which the phone shows until it's checked again.
+    expect(await r.manager.repair({ serial: IPHONE })).toEqual({ repairing: true });
+    expect(r.manager.list().find((p) => p.serial === IPHONE)).toMatchObject({
+      state: "preparing",
+      reason: "helper_missing",
+    });
+    expect(await errorCode(() => r.manager.repair({ serial: "not-here" }))).toBe("phone_missing");
+    for (let i = 0; i < 400 && r.manager.list().find((p) => p.serial === IPHONE)?.state !== "ready"; i++) {
+      await Bun.sleep(25);
+      await r.manager.poll();
+    }
+    expect(r.manager.list().find((p) => p.serial === IPHONE)?.state).toBe("ready");
     // What needs the person, in words: the developer not trusted.
     r.setState({
       ...ANDROID_STATE,

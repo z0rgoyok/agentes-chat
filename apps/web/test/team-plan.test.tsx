@@ -3,7 +3,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { TeamProposalCard } from "@agenteschat/client";
+import type { FormerAgent, TeamProposalCard } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import {
   createFakeApi,
@@ -11,6 +11,7 @@ import {
   type FakeState,
   fakeMachinesOf,
   LODI_ID,
+  meWithRole,
   ORG_ID,
   seedDm,
   seedState,
@@ -235,6 +236,53 @@ describe("the team card", () => {
     expect(within(dialog).getByRole("region", { name: "#eng" }).textContent).toContain("Ada");
     expect(dialog.textContent).toContain("Bruno");
     expect(dialog.textContent).toContain("Lodi revisa a semana do time");
+  });
+});
+
+describe("Undo on a team someone else made", () => {
+  const IARA_ID = "00000000-0000-4000-8000-0000000000c1";
+  const BIA_ID = "00000000-0000-4000-8000-0000000000c2";
+  /**
+   * João made the team an hour ago: Iara is still here and answers everyone, Bia was archived since. I hold "Edit
+   * agents": undoing archives them all, so I need to manage each, the archived one too (ADR 0085 addendum of
+   * 2026-11-17).
+   */
+  const madeByJoao = (bia: Partial<FormerAgent>) => {
+    const state = lodiDm();
+    meWithRole(state, ["manage_agents"]);
+    state.agents.push({
+      id: IARA_ID,
+      name: "Iara",
+      handle: "iara",
+      role: "Atendimento",
+      instructions: "",
+      model: "auto",
+      ownerUserId: "u-joao",
+      hasCredential: false,
+      monthlyBudgetUsd: null,
+      createdAt: new Date().toISOString(),
+    });
+    state.former = [{ id: BIA_ID, name: "Bia", role: "Dev", appearance: null, deleted: false, ...bia }];
+    const card = state.messages.find((m) => m.id === "m-team")?.meta?.actionCard as TeamProposalCard;
+    Object.assign(card, {
+      state: "created",
+      decidedByUserId: "u-joao",
+      decidedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      created: { agentIds: [IARA_ID, BIA_ID], channelIds: [], routineIds: [], skillIds: [], skipped: [], noAi: [] },
+    });
+    return state;
+  };
+
+  test("only for who manages every agent it made: an archived one by its own, a deleted one reached by the key", async () => {
+    await openDm(madeByJoao({ canManage: false }));
+    expect(screen().queryByRole("button", { name: "Desfazer" })).toBeNull();
+    cleanup();
+    await openDm(madeByJoao({ canManage: true }));
+    expect(button("Desfazer")).toBeTruthy();
+    cleanup();
+    // Deleted since: what's left of it belongs to nobody, which "Edit agents" reaches (ADR 0082).
+    await openDm(madeByJoao({ deleted: true }));
+    expect(button("Desfazer")).toBeTruthy();
   });
 });
 

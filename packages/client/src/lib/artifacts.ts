@@ -1,7 +1,21 @@
 import type { ArtifactContent, ArtifactKind, ArtifactRef } from "../api/types";
+import { isLiveFileKind } from "../live/types";
 
-/** What the Drive filters by: a block or a poll lives in its conversation (ADR 0113). */
-export const ARTIFACT_KINDS: ArtifactKind[] = ["document", "table", "diff", "diagram", "html", "file"];
+/**
+ * What the Drive filters by, in its order (the server's `sort: "kind"` mirrors it): a block or a poll lives in its
+ * conversation (ADR 0113); spreadsheets, presentations and canvases are files like the rest (ADR 0196 §9).
+ */
+export const ARTIFACT_KINDS: ArtifactKind[] = [
+  "document",
+  "spreadsheet",
+  "slides",
+  "canvas",
+  "table",
+  "diff",
+  "diagram",
+  "html",
+  "file",
+];
 
 /** Each kind's design system icon (names from `@agenteschat/ui`'s `IconName`). */
 export const KIND_ICON = {
@@ -14,6 +28,9 @@ export const KIND_ICON = {
   block: "page",
   poll: "check",
   choices: "check",
+  spreadsheet: "spreadsheet",
+  slides: "slides",
+  canvas: "canvas",
 } as const satisfies Record<ArtifactKind, string>;
 
 export const isArtifactKind = (v: unknown): v is ArtifactKind => ARTIFACT_KINDS.includes(v as ArtifactKind);
@@ -21,7 +38,7 @@ export const isArtifactKind = (v: unknown): v is ArtifactKind => ARTIFACT_KINDS.
 /**
  * The whole text a viewer's "Copiar texto" takes: a document's Markdown, an HTML page's source, a diagram's Mermaid,
  * a text file's text (code, JSON, Markdown, HTML…, as the server sends it for a file small enough to show). None for
- * anything else.
+ * anything else: a live file's content is only its card's preview, never its whole text (ADR 0196 §7).
  */
 export function artifactText(content: ArtifactContent): string | undefined {
   if (content.kind === "document") return content.markdown;
@@ -30,14 +47,17 @@ export function artifactText(content: ArtifactContent): string | undefined {
   return content.kind === "file" ? content.text : undefined;
 }
 
-/** `message.meta.artifacts` entries we can show: each file once, at its newest version (where it first came). */
+/**
+ * `message.meta.artifacts` entries we can show: each file once, at its newest version (where it first came). A live
+ * file may come without one (it is drawn as it is now, ADR 0196 §7) when the entry says its kind.
+ */
 export function artifactRefs(meta: Record<string, unknown> | undefined): ArtifactRef[] {
   const list = meta?.artifacts;
   if (!Array.isArray(list)) return [];
   const byId = new Map<string, ArtifactRef>();
   for (const r of list) {
     if (!r || typeof r !== "object" || typeof r.id !== "string") continue;
-    if (typeof r.version !== "number" && r.deleted !== true) continue;
+    if (typeof r.version !== "number" && r.deleted !== true && !isLiveFileKind(r.kind)) continue;
     const seen = byId.get(r.id) as { version?: number } | undefined;
     // Same file again: the newer version wins, in the first one's place.
     if (!seen || (typeof r.version === "number" && r.version >= (seen.version ?? 0))) byId.set(r.id, r as ArtifactRef);
@@ -169,7 +189,8 @@ export function fileName(title: string, content: ArtifactContent | { kind: Artif
       .replace(/^-|-$/g, "")
       .toLowerCase() || "arquivo";
   const ext = {
-    document: "md",
+    // A document is a live file (ADR 0200): it downloads as Word unless another format is asked for.
+    document: "docx",
     table,
     diff: "patch",
     diagram: "mmd",
@@ -177,6 +198,10 @@ export function fileName(title: string, content: ArtifactContent | { kind: Artif
     block: "html",
     poll: "json",
     choices: "json",
+    // A live file downloads as what other apps open (ADR 0198).
+    spreadsheet: "xlsx",
+    slides: "pptx",
+    canvas: "json",
   }[content.kind];
   return `${slug}.${ext}`;
 }

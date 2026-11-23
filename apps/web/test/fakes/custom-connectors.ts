@@ -67,6 +67,8 @@ export function createMockCustomConnectors(
   log: (method: string, ...args: unknown[]) => void = () => {},
   /** An account connected (the backend gives it to every agent). */
   onConnected: (orgId: string, serverId: string) => Promise<void> = async () => {},
+  /** Who is asking: lists hold the team's servers and theirs, and everyone's with `others`, as the backend's do. */
+  meId: () => string | null = () => null,
 ): ApiClient["customConnectors"] & {
   rename(orgId: string, id: string, label: string): CustomServer | null;
 } {
@@ -86,7 +88,8 @@ export function createMockCustomConnectors(
     return s;
   };
   return {
-    list: async (orgId) => clone(list(orgId)),
+    list: async (orgId, options) =>
+      clone(list(orgId).filter((s) => options?.others || !s.ownerUserId || s.ownerUserId === meId())),
     connect: async (orgId, input) => {
       log("customConnectors.connect", orgId, {
         ...input,
@@ -123,6 +126,7 @@ export function createMockCustomConnectors(
         tools: TOOLS.map((t) => tool(t, now)),
         reviewedAt: null,
         createdAt: now.toISOString(),
+        ...(input.personal ? { ownerUserId: meId() } : {}),
       };
       list(orgId).push(server);
       await onConnected(orgId, server.id);

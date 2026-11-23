@@ -1,6 +1,6 @@
 # 0160. The arrival after the onboarding, and feedback by email
 
-- Status: Accepted
+- Status: Accepted. Amended 2026-11-16 (the addendum on support requests: a record that a member asked, and where their words are kept)
 - Date: 2026-11-09
 - Code: web `components/arrival/*` (`Arrival`, `BetaDialog`, `TeamScene`, `ConnectChoices`, `FeedbackDialog`,
   `FeedbackMark`), `components/ConnectAi.tsx` (`ConnectAiRequest.arrival`), `pages/OnboardingPage.tsx`
@@ -203,3 +203,14 @@ Someone on a self-hosted server opened Connect for the team's right hand, the on
 - The right hand alone is the narrow dialog too, named for it: opened for it (`agentId`), from its conversation, or as the only one left without an AI. It is everyone's to connect (ADR 0137 §11) and has no computer, so it is never "all agents". This supersedes "one agent alone (the right hand's own AI among them)" in the plain dialog's list above; the rest of that list stays.
 - A card already picked (`start`) opens on its steps for one agent as for the team, so the onboarding's AI step sends `start` for the right hand alone as well.
 - A plan whose program is switched off on a computer the person connected (`tool_off`, self-host) says what that means (the computer is connected, the program is switched off on it, and it can only be turned on there), then shows the way under the computer's name (`ToolOffSteps`): three plain lines for the app's three clicks (the icon by the clock, Preferences, the switch under Tools), what to look for in bold, the switch drawn at the end of the last one, and on a PC that the icon may be behind the taskbar's arrow. Lines between hairlines, nothing sunken: three small drawings side by side did not fit the narrow dialog. On a computer that may have no app, the command; when the page runs in the app on that very computer, one button to its Tools. The dialog says it waits and changes by itself, which it does, since a computer's switches come back as its own event. The key stays offered under it. The browser's steps on the agent's Work tab are unchanged.
+
+## Addendum (2026-11-16): a feedback from a member is also a record that they asked
+
+A feedback was one email and nothing else: "Nothing is stored beyond the outbox job and the files". Whoever runs the server may now be allowed to read one piece of a workspace's content for a member who asked for help (ADR 0056, the addendum of 2026-11-16), and that needs a record that the member did ask. So a feedback from a member also writes a row.
+
+- **When.** The form (`POST /api/app/feedback`), when the person is a member of the workspace the app named, and a person's own send of a report an agent offered (`decideFeedbackOffer`), each in the transaction that queues the email. A feedback that names no workspace, or one the person is not in, writes none. Neither does anything an agent sends: `send_feedback`, or a report that goes with a reply because the person chose "Always send" (§11, §12).
+- **What, on every server.** `support_requests`: the workspace, the account, how it arrived (`form` or `offer`), the form's own id for it (a retry is one request), the time, and two facts about the thing reported: what kind of thing it was, from a list of four (`message`, `agent_message`, `card`, `other`; the form's own word is never stored), and the reported message's id when it is a message of that workspace. For an offer: the reply it rode on. Ids and listed words: what the form's email already carried, kept as nobody's words.
+- **The words, only where the operator set `OPERATOR_API_REVEAL_TOKEN`.** There the row also keeps what the person wrote and what the thing they reported says, up to 4,000 characters each. Everywhere else, which is every server by default, it keeps neither: of what a person wrote, nothing is stored there, as before. Never the pictures or the video, on any server.
+- **For how long.** The words 90 days, the row a year (a daily sweep). It goes with its workspace or with the person's account. Words kept while the token was set stay their 90 days when it is taken away: the door is closed then, so nothing reads them, and the sweep drops them by their age.
+- **Who reads it.** Nobody in the apps. The operator API lists a workspace's requests without their words, and gives the words only through its reveal door, one at a time, on record, and shown in the workspace's audit log.
+- **What the form says is unchanged**: who reads the feedback. On a server that keeps the words, its operator owes its workspaces that notice (ADR 0056).

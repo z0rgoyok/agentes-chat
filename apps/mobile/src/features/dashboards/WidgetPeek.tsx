@@ -1,5 +1,6 @@
 import { useBuildOnceAi, useRefreshWidget, useRemoveWidget, type Widget, widgetNeedsAi } from "@agenteschat/client";
 import { Link } from "expo-router";
+import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useToast } from "@/ui";
@@ -22,7 +23,7 @@ const PREVIEW_HEIGHT = 360;
  * Tapping the preview opens the widget. Elsewhere (Android) the card just opens it.
  * `board`: the board's route id for Organize (`home` for My Home) and whether it is My Home (Remove's words).
  */
-export function WidgetPeek({
+export const WidgetPeek = memo(function WidgetPeek({
   widget: w,
   canEdit,
   board,
@@ -44,19 +45,23 @@ export function WidgetPeek({
   const remove = useRemoveWidget(orgId);
   useBuildOnceAi(orgId, w, canEdit);
   const href = widgetHref(w.id);
-  const data: WidgetCardData = {
-    title: w.title,
-    kind: w.kind,
-    spec: w.spec,
-    status: w.status,
-    agentId: w.agentId,
-    refreshedAt: w.refreshedAt,
-    schedule: w.schedule,
-    w: compact ? 1 : w.layout.w,
-    h: compact ? 1 : w.layout.h,
-    needsAi: widgetNeedsAi(w),
-    wait: w.wait,
-  };
+  // The card's data, one object while the widget stays.
+  const data = useMemo<WidgetCardData>(
+    () => ({
+      title: w.title,
+      kind: w.kind,
+      spec: w.spec,
+      status: w.status,
+      agentId: w.agentId,
+      refreshedAt: w.refreshedAt,
+      schedule: w.schedule,
+      w: compact ? 1 : w.layout.w,
+      h: compact ? 1 : w.layout.h,
+      needsAi: widgetNeedsAi(w),
+      wait: w.wait,
+    }),
+    [w, compact],
+  );
   if (Platform.OS !== "ios") {
     return <WidgetCard widget={data} compact={compact} onPress={() => router.push(href)} />;
   }
@@ -116,7 +121,7 @@ export function WidgetPeek({
       ) : null}
     </Link>
   );
-}
+});
 
 /**
  * What the long press lifts: the card in a clear box. iOS fills the lifted shape (a rectangle) with the touched

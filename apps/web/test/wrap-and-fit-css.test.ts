@@ -62,8 +62,53 @@ test("on a phone a switch stays beside its words only while they keep 24 charact
   const line = ".settings-row--lead:has(>.settings-row__end>.ac-switch)>.settings-row__text>.settings-row__status";
   expect(last(phone, line, "flex-basis")).toBe("100%");
   expect(last(phone, line, "order")).toBe("1");
+  // With a status and a control that is neither a switch nor one button at its end (a select, a choice of several),
+  // the status goes under the name at the row's width and the control under the status, from the words' edge. One
+  // button keeps the name's line (`settings-row--button`, the next test).
+  const button =
+    ".settings-row--lead:not(.settings-row--open,.settings-row--button,:has(>.settings-row__end>.ac-switch)):has(>.settings-row__end)";
+  expect(last(phone, `${button}>.settings-row__text:has(>.settings-row__status)`, "display")).toBe("contents");
+  expect(last(phone, `${button}>.settings-row__text:has(>.settings-row__status)>:first-child`, "flex")).toBe("24ch");
+  expect(last(phone, `${button}>.settings-row__text>.settings-row__status`, "flex-basis")).toBe("100%");
+  expect(last(phone, `${button}>.settings-row__text>.settings-row__status`, "order")).toBe("1");
+  const end =
+    ".settings-row--lead:not(.settings-row--open,.settings-row--button):has(>.settings-row__text>.settings-row__status)>.settings-row__end:not(:has(>.ac-switch))";
+  expect(last(phone, end, "order")).toBe("2");
   const grids = rules(phone).filter((r) => r.declarations.some(([p, v]) => p === "display" && v === "grid"));
   expect(grids.flatMap((r) => r.selectors).filter((s) => s.includes(".ac-switch"))).toEqual([]);
+});
+
+test("a row that ends in one button keeps it on the name's line at the row's end, at every width, its state under the name", () => {
+  // At every width, not only a phone's: the row wraps, the words' box steps aside so the name and its state are the
+  // row's own items, the name's basis its longest word (it wraps whole words), the state on a line of its own from the
+  // words' edge, the button at the end of the name's line.
+  const row = ".settings-row.settings-row--button";
+  expect(last(top, row, "flex-wrap")).toBe("wrap");
+  expect(last(top, ".settings-row--button>.settings-row__text", "display")).toBe("contents");
+  const name = ".settings-row--button>.settings-row__text>:first-child";
+  expect(last(top, name, "flex")?.split(" ")[0]).toBe("1000");
+  expect(last(top, name, "min-width")).toBe("min-content");
+  expect(last(top, name, "max-width")).toBe("max-content");
+  expect(last(top, ".settings-row--button>.settings-row__text>.settings-row__status", "flex-basis")).toBe("100%");
+  expect(last(top, ".settings-row--button>.settings-row__text>.settings-row__status", "order")).toBe("1");
+  expect(
+    last(
+      top,
+      ".settings-row--lead.settings-row--button>.settings-row__text>.settings-row__status",
+      "padding-left",
+    )?.replace(/\s+/g, ""),
+  ).toBe("calc(28px+var(--space-3))");
+  const end = `${row}>.settings-row__end:not(:has(>.ac-switch))`;
+  expect(last(top, end, "flex")).toBe("1 0 auto");
+  expect(last(top, end, "justify-content")).toBe("flex-end");
+  expect(last(top, end, "padding-left")).toBe("0");
+  // Nothing on a phone or in the agent's narrow panel sends it under the words again (a rule that leaves it out says so
+  // in a `:not()`).
+  const withoutNot = (s: string) => s.replace(/:not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, "");
+  for (const sheet of [atRule(css, "@media (max-width: 760px)"), atRule(css, "@container agp-side (max-width: 479px)")])
+    for (const rule of rules(sheet))
+      if (rule.selectors.some((s) => withoutNot(s).includes(".settings-row--button")))
+        expect(rule.declarations.filter(([p]) => p === "flex-basis" || p === "order")).toEqual([]);
 });
 
 test("a text field of several lines in a settings row keeps its rows: the row's one-line control height spares it", () => {

@@ -5,6 +5,7 @@ import {
   type MachineLoad,
   type MachineRequest,
   parseServerFrame,
+  RUNNER_STOPPED_CLOSE,
   type RunnerFrame,
   type RunnerInfo,
   type ServerFrame,
@@ -14,6 +15,8 @@ import type { McpBridge } from "./mcp";
 
 export const BACKOFF_MIN_MS = 1_000;
 export const BACKOFF_MAX_MS = 60_000;
+/** After the server says it is stopping (close 1001), the first dial goes out at a random point within this. */
+export const SERVER_STOP_SPREAD_MS = 30_000;
 
 /** What a transport tells the connection. */
 export interface SocketHandlers {
@@ -25,7 +28,7 @@ export interface SocketHandlers {
 export interface Socket {
   readonly bufferedAmount?: number;
   send(data: string): void;
-  close(): void;
+  close(code?: number, reason?: string): void;
 }
 
 /** Opens a socket (real WebSocket in the runner, a fake in tests). */
@@ -58,9 +61,9 @@ export const webSocketDial: Dial = (url, handlers) => {
       return ws.bufferedAmount;
     },
     send: (data) => ws.send(data),
-    close: () => {
+    close: (code, reason) => {
       try {
-        ws.close();
+        ws.close(code, reason);
       } catch {
         // already closed
       }
@@ -72,6 +75,11 @@ export const webSocketDial: Dial = (url, handlers) => {
 export function backoffDelay(attempt: number, random: () => number = Math.random): number {
   const base = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.max(0, Math.min(attempt, 10)));
   return Math.min(BACKOFF_MAX_MS, Math.round(base * (0.8 + 0.4 * random())));
+}
+
+/** A restart drops every runner at once: each comes back at its own moment, not all into the new server's start. */
+export function serverStopDelay(random: () => number = Math.random): number {
+  return Math.round(BACKOFF_MIN_MS + random() * (SERVER_STOP_SPREAD_MS - BACKOFF_MIN_MS));
 }
 
 /** Why `run()` ended: the CLI exits with `exitCode`. */
@@ -136,13 +144,15 @@ const SUSPENDED_AFTER_MS = 30_000;
 interface SessionEnd {
   welcomed: boolean;
   outcome?: ConnectionOutcome;
+  /** The server closed it saying it is stopping (1001). */
+  serverStop?: boolean;
 }
 
 /**
  * Keeps one connection to the server: `hello` first, `pong` for each `ping`,
- * requests run concurrently, reconnects with backoff, and reconnects when no
- * ping arrives for two heartbeats. Ends only when the server refuses the
- * runner or `stop()` is called.
+ * requests run concurrently, reconnects with backoff, and reconnects when
+ * nothing arrives from the server for two heartbeats. Ends only when the
+ * server refuses the runner or `stop()` is called.
  */
 export class RunnerConnection {
   private stopped = false;
@@ -191,7 +201,7 @@ export class RunnerConnection {
         continue;
       }
       if (end.welcomed) attempt = 0;
-      const delay = backoffDelay(attempt, this.opts.random);
+      const delay = end.serverStop ? serverStopDelay(this.opts.random) : backoffDelay(attempt, this.opts.random);
       attempt++;
       this.log(`disconnected; reconnecting in ${(delay / 1000).toFixed(1)} s`);
       await this.sleep(delay);
@@ -260,6 +270,7 @@ export class RunnerConnection {
       let welcomed = false;
       let finished = false;
       let outcome: ConnectionOutcome | undefined;
+      let serverStop = false;
       let heartbeatMs = HEARTBEAT_MS;
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       let sentLoad: MachineLoad | null = null;
@@ -301,10 +312,11 @@ export class RunnerConnection {
         runner.close();
         tasks?.detach();
         opts.mcp?.detach();
-        socket?.close();
+        if (this.stopped) socket?.close(RUNNER_STOPPED_CLOSE, "stopped");
+        else socket?.close();
         this.endSession = undefined;
         opts.onState?.("offline");
-        resolve({ welcomed, outcome });
+        resolve({ welcomed, outcome, serverStop });
       };
       const arm = () => {
         if (watchdog) clearTimeout(watchdog);
@@ -333,7 +345,6 @@ export class RunnerConnection {
             observeEgress = frame.observeEgress === true;
             if (typeof frame.heartbeatMs === "number" && frame.heartbeatMs > 0) heartbeatMs = frame.heartbeatMs;
             log(`connected as ${frame.name}`);
-            arm();
             this.live = send;
             opts.onState?.("online");
             opts.onWelcome?.({ machineId: frame.machineId, name: frame.name, heartbeatMs, observeEgress });
@@ -371,7 +382,6 @@ export class RunnerConnection {
             sentLoad = load;
             sentTraffic = traffic;
             sentEgress = egress;
-            arm();
             return;
           }
           case "request": {
@@ -407,9 +417,16 @@ export class RunnerConnection {
             );
           },
           onMessage: (raw) => {
-            if (!finished) onFrame(raw);
+            if (finished) return;
+            try {
+              onFrame(raw);
+            } finally {
+              // Any frame is a sign of life, not only a ping: a busy server's pings may come late behind others.
+              if (!finished) arm();
+            }
           },
           onClose: (code, reason) => {
+            serverStop = code === 1001;
             if (!finished && !welcomed && code !== 1000) {
               log(`could not connect${reason ? ` (${reason})` : code ? ` (code ${code})` : ""}`);
             }

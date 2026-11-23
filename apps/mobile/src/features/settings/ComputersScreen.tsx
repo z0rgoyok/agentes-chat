@@ -8,6 +8,7 @@ import {
   useMachines,
   useSetComputerTarget,
 } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { type NoComputer, setupView } from "@agenteschat/client/lib/computer";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { computerState, machineTitle } from "@agenteschat/client/lib/machines";
@@ -16,16 +17,17 @@ import { helpUrl } from "@agenteschat/client/lib/server";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import type { TFunction } from "i18next";
 import { Trans, useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 import { ComputerPortrait } from "@/computer/ComputerPortrait";
 import { useOrg } from "@/providers/org";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Text, useToast } from "@/ui";
+import { EmptyState, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, SkeletonList, Text, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openPage } from "../ai/parts";
 import { computerIcon } from "../outages/logic";
 import { AgentFace } from "../shared/Face";
-import { useColors, useMeId } from "../shared/hooks";
-import { goBack, successHaptic } from "../shared/parts";
+import { LoadFailed } from "../shared/FirstUse";
+import { useMeId } from "../shared/hooks";
+import { FocusLive, goBack, successHaptic } from "../shared/parts";
 import { type AgentComputerPick, agentComputerPick, NO_COMPUTER, noComputerKey } from "./logic";
 import { Gap, SettingsPage } from "./parts";
 
@@ -47,7 +49,8 @@ function choiceName(t: TFunction, org: OrgSummary | null, pick: AgentComputerPic
 
 /**
  * This server's computer (`HOST_COMPUTER_TOKEN`) when it isn't in the devices list: an admin who stopped it here can
- * use it again; with none, admins read how to make it one, but only while sign-up is closed.
+ * use it again; with none, admins read how to make it one, but only while sign-up is closed. Its portrait holds still
+ * while a screen opened from the list is over it.
  */
 export function HostComputerOff() {
   const { t, i18n } = useTranslation();
@@ -64,7 +67,7 @@ export function HostComputerOff() {
   const missing = host.isSuccess && host.data === null && admin && auth.data?.signupOpen === false;
   if (m || (!off && !missing)) return null;
   return (
-    <>
+    <FocusLive>
       <GroupedHeader>{label}</GroupedHeader>
       {off ? (
         <GroupedList>
@@ -110,20 +113,18 @@ export function HostComputerOff() {
           />
         </GroupedFooter>
       )}
-    </>
+    </FocusLive>
   );
 }
 
 /**
- * "Qual computador cada agente usa": each agent and its computer. Who manages agents picks any; an agent's owner,
- * the ones they connected (the server checks again); a row anyone else can't change only says it.
+ * "Qual computador cada agente usa": each agent and its computer. Who manages the agent (the server's `canManage`)
+ * picks any; its owner, the ones they connected (the server checks again); a row anyone else can't change only says it.
  */
 export function AgentComputers() {
   const { t } = useTranslation();
-  const c = useColors();
   const { orgId, org } = useOrg();
   const meId = useMeId();
-  const admin = can(org, "manage_agents");
   const agents = useAgents(orgId);
   const machines = useMachines(orgId);
   const setupQ = useComputerSetup(orgId);
@@ -133,13 +134,21 @@ export function AgentComputers() {
     <>
       <GroupedHeader>{t("computers.agents.title")}</GroupedHeader>
       {agents.isLoading || machines.isLoading ? (
-        <ActivityIndicator color={c.muted} style={styles.loading} />
+        <SkeletonList rows={3} />
+      ) : agents.isError && !agents.data ? (
+        <LoadFailed onRetry={() => void agents.refetch()} />
       ) : list.length === 0 ? (
         <GroupedFooter>{t("computers.agents.empty")}</GroupedFooter>
       ) : (
         <GroupedList>
           {list.map((a) => {
-            const pick = agentComputerPick({ agent: a, meId, admin, machines: machines.data ?? [], setup });
+            const pick = agentComputerPick({
+              agent: a,
+              meId,
+              admin: managesAgent(a),
+              machines: machines.data ?? [],
+              setup,
+            });
             return (
               <GroupedRow
                 key={a.id}
@@ -168,11 +177,9 @@ export function AgentComputers() {
  */
 export function AgentComputerScreen({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
-  const c = useColors();
   const toast = useToast();
   const { orgId, org } = useOrg();
   const meId = useMeId();
-  const admin = can(org, "manage_agents");
   const agents = useAgents(orgId);
   const machines = useMachines(orgId);
   const setupQ = useComputerSetup(orgId);
@@ -182,11 +189,17 @@ export function AgentComputerScreen({ agentId }: { agentId: string }) {
   if (!agent) {
     return (
       <SettingsPage title={t("computers.agents.title")}>
-        {agents.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
+        {agents.isLoading ? (
+          <SkeletonList rows={3} />
+        ) : agents.isError ? (
+          <LoadFailed onRetry={() => void agents.refetch()} />
+        ) : (
+          <EmptyState size="inline" title={t("common.gone")} />
+        )}
       </SettingsPage>
     );
   }
-  const pick = agentComputerPick({ agent, meId, admin, machines: machines.data ?? [], setup });
+  const pick = agentComputerPick({ agent, meId, admin: managesAgent(agent), machines: machines.data ?? [], setup });
   const choose = (id: string) => {
     if (id === pick.value) {
       goBack();
@@ -238,6 +251,5 @@ export function AgentComputerScreen({ agentId }: { agentId: string }) {
 }
 
 const styles = StyleSheet.create({
-  loading: { marginVertical: 16 },
   link: { textDecorationLine: "underline" },
 });

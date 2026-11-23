@@ -15,8 +15,12 @@ import { isIdHandle } from "@agenteschat/tokens/names";
  * apply are the web's (`@agenteschat/client/lib/import`).
  */
 
-/** Criar agente opened on bringing agents from another app. */
-export const IMPORT_AGENTS_HREF = "/new-agent?import=1";
+/**
+ * Bringing agents from another app: a screen of its own, pushed from Criar agente's first step or from Configurações ›
+ * Importar e exportar; what a read found (the plan) is pushed over it, so the system's back goes from one to the other.
+ */
+export const IMPORT_AGENTS_HREF = "/new-agent/import";
+export const IMPORT_PREVIEW_HREF = "/new-agent/import-preview";
 
 export { isRequestCard } from "@agenteschat/client/lib/import/flow";
 
@@ -133,18 +137,18 @@ export const arrivedAgents = (report: readonly ImportItemResult[]) =>
     .map((i) => i.targetId as string);
 
 /**
- * Where the person lands: one agent's page in place of the create screen, or back down to the agents tab for
- * several (or none).
+ * Where the person lands: one agent's page, opened once the import's screens (and Criar agente's under them) are left,
+ * or back down to the agents tab for several (or none).
  */
 export const landingOf = (
   agentIds: readonly string[],
   { left = false }: { left?: boolean } = {},
-): { href: string; how: "replace" | "dismissTo" } | null =>
+): { href: string; how: "open" | "dismissTo" } | null =>
   // Once the person left the screen mid-apply, moving them would replace wherever they are now.
   left
     ? null
     : agentIds.length === 1
-      ? { href: `/agent/${agentIds[0]}`, how: "replace" }
+      ? { href: `/agent/${agentIds[0]}`, how: "open" }
       : { href: "/agents", how: "dismissTo" };
 
 /** A plan is shown and applied only in the workspace it was planned for (a push can switch workspaces under it). */

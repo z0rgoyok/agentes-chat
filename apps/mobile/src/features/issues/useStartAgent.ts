@@ -17,13 +17,13 @@ export function useStartAgent() {
   const dir = useDirectory();
   const start = useStartAgentOnTask(useOrgId());
   const run = (
-    issue: Pick<Issue, "id" | "number">,
+    issue: Pick<Issue, "id" | "number" | "assignees">,
     agentId: string,
     options: { created?: boolean; done?: string } = {},
     again = false,
   ) => {
     const g = agentGrammar(dir.nameOf({ type: "agent", id: agentId }));
-    start.mutateAsync({ issueId: issue.id, agentId }).then(
+    start.mutateAsync({ issueId: issue.id, agentId, assignees: issue.assignees }).then(
       () => {
         const done = again ? t("issues.asked", g) : options.done;
         if (done) toast({ title: done, agentId });

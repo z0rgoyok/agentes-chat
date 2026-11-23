@@ -256,7 +256,7 @@ export function createMockPlanning(
       boardRank: -n,
       description: "",
       priority: "normal",
-      assignee: null,
+      assignees: [],
       labels: [],
       dueDate: null,
       criteria: [],
@@ -271,17 +271,17 @@ export function createMockPlanning(
       ...over,
     });
     s.issues.push(
-      issue({ title: "Organizar o roadmap do trimestre", status: "done", assignee: agent(3) }),
+      issue({ title: "Organizar o roadmap do trimestre", status: "done", assignees: [agent(3)] }),
       issue({
         title: "Resumo semanal de erros do Sentry no #eng",
         status: "done",
-        assignee: agent(1),
+        assignees: [agent(1)],
         labels: ["ops"],
       }),
       issue({
         title: "Login devolve 401 depois do deploy das 9h",
         status: "in_review",
-        assignee: agent(0),
+        assignees: [agent(0)],
         priority: "high",
         labels: ["bug"],
         dueDate: day(0),
@@ -290,7 +290,7 @@ export function createMockPlanning(
       issue({
         title: "Timeout no agendamento em horários de pico",
         status: "in_progress",
-        assignee: agent(0),
+        assignees: [agent(0)],
         labels: ["bug"],
         dueDate: day(2),
         pullRequests: [{ number: 44, url: "https://github.com/acme/app/pull/44", openedBy: agent(0) }],
@@ -307,12 +307,17 @@ export function createMockPlanning(
           steps: [{ tool: "update_issue", detail: "#129", at: minutesAgo(now, 2) }],
         },
       }),
-      issue({ title: "Revisar textos do onboarding", status: "in_progress", assignee: person(1), labels: ["produto"] }),
+      issue({
+        title: "Revisar textos do onboarding",
+        status: "in_progress",
+        assignees: [person(1)],
+        labels: ["produto"],
+      }),
       issue({
         title: "Confirmação do agendamento por WhatsApp",
         status: "todo",
         priority: "high",
-        assignee: person(1),
+        assignees: [person(1)],
         labels: ["produto", "agendamento"],
         dueDate: day(4),
         description:
@@ -330,7 +335,7 @@ export function createMockPlanning(
       issue({
         title: "Tabela de concorrentes atualizada",
         status: "todo",
-        assignee: agent(2),
+        assignees: [agent(2)],
         labels: ["pesquisa"],
         dueDate: day(10),
       }),
@@ -540,7 +545,7 @@ export function createMockPlanning(
           boardRank: -ctx.now().getTime(),
           priority: input.priority ?? "normal",
           project: s.projects.find((p) => p.id === input.projectId) ?? null,
-          assignee: input.assignee ?? null,
+          assignees: input.assignees ?? [],
           labels: input.labels ?? [],
           dueDate: input.dueDate ?? null,
           criteria: (input.criteria ?? []).map((text) => ({ id: mockId("crit"), text, done: false })),
@@ -616,6 +621,29 @@ export function createMockPlanning(
             text: `mudou o status para ${words[change.status]}`,
           });
         }
+        // As the server does: an event for each one put on the task or taken off it, none for a new order.
+        if (change.assignees) {
+          const same = (a: Actor, b: Actor) => a.type === b.type && a.id === b.id;
+          const next = change.assignees;
+          for (const assignee of next.filter((a) => !i.assignees.some((b) => same(a, b))))
+            await log(orgId, i, {
+              kind: "event",
+              author,
+              event: "assigned",
+              text: "assigned the issue",
+              textCode: "assigned",
+              assignee,
+            });
+          for (const assignee of i.assignees.filter((a) => !next.some((b) => same(a, b))))
+            await log(orgId, i, {
+              kind: "event",
+              author,
+              event: "assigned",
+              text: "removed an assignee",
+              textCode: "unassigned",
+              assignee,
+            });
+        }
         Object.assign(i, change, { updatedAt: ctx.now().toISOString() });
         return clone(i);
       },
@@ -658,7 +686,11 @@ export function createMockPlanning(
       },
       askAgent: async (orgId, id, agentId) => {
         const i = await findIssue(orgId, id);
-        i.assignee = { type: "agent", id: agentId };
+        // As the server does: the agent asked comes first among who has the task, the others stay.
+        i.assignees = [
+          { type: "agent", id: agentId },
+          ...i.assignees.filter((a) => !(a.type === "agent" && a.id === agentId)),
+        ];
         if (i.status !== "in_progress") {
           i.status = "in_progress";
           i.columnId = (await columnsOf(orgId)).columns.find((c) => c.stage === "in_progress")?.id ?? null;
@@ -1037,7 +1069,7 @@ export function createMockPlanning(
               number: i.number,
               title: i.title,
               date: i.dueDate as string,
-              assignee: i.assignee,
+              assignees: i.assignees,
             })),
           proposals: s.proposals.filter((p) => inRange(p.start)),
         });

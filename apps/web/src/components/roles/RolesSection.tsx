@@ -8,6 +8,7 @@ import {
   isEveryone,
   keepsFixedOnTop,
   movedOrder,
+  ownerCandidates,
   peopleWith,
   ROLES_MAX,
   ROLES_SEARCH_FROM,
@@ -885,7 +886,7 @@ function OwnerPage({ data, people }: { data: OrgRoles; people: Person[] }) {
         open={adding}
         onOpenChange={setAdding}
         title={t("rolesPage.addTitle", { name: t("roles.owner") })}
-        candidates={people.filter((p) => p.role !== "owner")}
+        candidates={ownerCandidates(people)}
         emptyText={t("rolesPage.noOneLeft", { name: t("roles.owner") })}
         onAdd={async (ids) => {
           for (const id of ids) await change.mutateAsync({ userId: id, role: "owner" });

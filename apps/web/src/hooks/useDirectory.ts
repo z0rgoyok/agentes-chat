@@ -1,5 +1,5 @@
 import type { Agent, Member, Message } from "@agenteschat/client";
-import { useAgents, useFormerAgents, useMembers, useRoles } from "@agenteschat/client";
+import { useAllAgents, useFormerAgents, useMembers, useRoles } from "@agenteschat/client";
 import { agentsByAnyHandle, formerById } from "@agenteschat/client/lib/directory";
 import { memberRoleColor } from "@agenteschat/client/lib/member-groups";
 import { type AgentColor, agentGradient } from "@agenteschat/ui";
@@ -7,10 +7,13 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { lookOf } from "@/lib/look";
 
-/** People and agents of the organization, by id and handle, for names and avatars. */
+/**
+ * People and agents of the organization, by id and handle, for names and avatars. `agents` is what lists and pickers
+ * offer (`listed`); the lookups also resolve an agent unlisted to me, whose messages and public card still show.
+ */
 export function useDirectory(orgId: string) {
   const { t } = useTranslation();
-  const agents = useAgents(orgId);
+  const agents = useAllAgents(orgId);
   const former = useFormerAgents(orgId);
   const members = useMembers(orgId);
   const roles = useRoles(orgId);
@@ -62,7 +65,7 @@ export function useDirectory(orgId: string) {
       return [deep, top] as const;
     };
     return {
-      agents: agents.data ?? [],
+      agents: (agents.data ?? []).filter((a) => a.listed !== false),
       members: people,
       agentById,
       anyAgent,

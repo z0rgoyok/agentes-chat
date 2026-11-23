@@ -8,7 +8,8 @@ import { toYmd } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { mondayOf } from "@/pages/CalendarPage";
 import { splitCriteria } from "@/pages/IssuesPage";
-import { ADA_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { pinClockInDescribe } from "./clock";
+import { ADA_ID, ATLAS_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { nextCronRun, parseSchedulePhrase } from "./fakes/planning";
 import { renderApp, screen, settle } from "./render";
 
@@ -35,6 +36,17 @@ const go = async (path: string, api = createFakeApi(seedState())) => {
   return { ...r, api };
 };
 const column = (name: string) => screen().getByRole("region", { name });
+/** Opens "Assignee" from its button, ticks or unticks each of `names` in its dialog, and hands the dialog back open. */
+const pickWho = async (from: HTMLElement, names: string[]) => {
+  await click(within(from).getByRole("button", { name: /^Responsável/ }));
+  await settle(2);
+  const picker = screen().getByRole("dialog", { name: "Responsável" });
+  for (const name of names) {
+    await click(within(picker).getByRole("checkbox", { name: new RegExp(`^${name}`) }));
+    await settle(3);
+  }
+  return picker;
+};
 // The title after its number ("#131 Confirmação…" on one row).
 const cardTitles = (el: HTMLElement) =>
   Array.from(el.querySelectorAll(".issue-card__title")).map((x) => x.textContent?.replace(/^#\d+ /, ""));
@@ -91,7 +103,7 @@ describe("Issues (board and list)", () => {
           id: `iss-at-work-${k}`,
           number: 200 + k,
           title: `${name} revisa a integração do agendamento com o calendário da clínica, etapa ${k + 1} de ${names.length}`,
-          assignee: { type: "agent", id: `agent-at-work-${k}` },
+          assignees: [{ type: "agent", id: `agent-at-work-${k}` }],
           pullRequests: [],
           work: {
             ...work,
@@ -236,11 +248,13 @@ describe("Issues (board and list)", () => {
     expect(rows).toHaveLength(7);
     expect(rows[0]?.textContent).toContain("#132");
     expect(rows.find((r) => r.textContent?.includes("#126"))?.textContent).toContain("Feito");
-    // The list is a table: one line of column names, one for each thing some task shown has, and every row's facts
-    // in those columns (issues.css gives each fact its column by `data-fact`).
+    // The list is a table: one line of column names, one for each thing "Display" has on (no task here has a
+    // project, and "Project" still has its column), and every row's facts in those columns (issues.css gives each
+    // fact its column by `data-fact`).
     const list = rows[0]?.closest(".issue-table") as HTMLElement;
     expect([...list.querySelectorAll(".issue-table__head > [data-column]")].map((c) => c.textContent)).toEqual([
       "Tarefa",
+      "Projeto",
       "Rótulo",
       "Prioridade",
       "Prazo",
@@ -270,29 +284,34 @@ describe("Issues (board and list)", () => {
     await act(async () => fireEvent.paste(text, { clipboardData: { files: [print] } }));
     await settle(4);
     expect(within(dialog).getByRole("button", { name: "Remover image.png" })).toBeTruthy();
-    // Who takes it: a small button, each one by their face.
-    const who = within(dialog).getByRole("button", { name: "Responsável" });
-    who.focus();
-    await key(who, "Enter");
-    const leads = within(screen().getByRole("menu"))
-      .getAllByRole("menuitem")
-      .map((o) => {
-        const lead = o.querySelector<HTMLElement | SVGElement>(".ac-menu__leading > *");
-        const kind = lead?.getAttribute("data-kind");
-        return [
-          o.querySelector(".ac-menu__label")?.firstChild?.textContent,
-          kind === "agent" ? lead?.getAttribute("data-accessory") : kind ? lead?.textContent : lead?.style.width,
-        ];
-      });
+    // Who takes it: a small button that opens the people and agents, me first, each one by their face and a box.
+    const picker = await pickWho(dialog, []);
+    const leads = [...picker.querySelectorAll<HTMLElement>(".scope-row")].map((row) => {
+      const face = row.querySelector<HTMLElement>(".ac-avatar");
+      return [
+        row.querySelector(".scope-row__text > span")?.textContent,
+        face?.getAttribute("data-kind") === "agent" ? face.getAttribute("data-accessory") : face?.textContent,
+      ];
+    });
     expect(leads).toEqual([
-      ["Sem responsável", "18px"],
       ["Walter", "W"],
       ["João", "J"],
       ["Ada", "headphones"],
       ["Atlas", "crown"],
     ]);
-    await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Ada" }));
+    expect(picker.textContent).toContain("0 selecionados");
+    // Several can have it: an agent and a person, on top as tokens in the order they were picked.
+    await click(within(picker).getByRole("checkbox", { name: /^Ada/ }));
+    await click(within(picker).getByRole("checkbox", { name: /^João/ }));
     await settle(3);
+    expect(picker.textContent).toContain("2 selecionados");
+    expect(within(picker).getByRole("button", { name: "Remover João" })).toBeTruthy();
+    await click(within(picker).getByRole("button", { name: "Pronto" }));
+    await settle(3);
+    expect(screen().queryByRole("dialog", { name: "Responsável" })).toBeNull();
+    const who = within(dialog).getByRole("button", { name: "Responsável: Ada e João" });
+    expect(within(who).getByRole("img", { name: "Ada e João" }).querySelectorAll(".ac-avatar")).toHaveLength(2);
+    expect(who.lastChild?.textContent).toBe("Ada e João");
     expect(dialog.textContent).toContain("com a descrição, os critérios e os anexos");
     const priority = within(dialog).getByRole("button", { name: "Prioridade: Normal" });
     priority.focus();
@@ -305,10 +324,14 @@ describe("Issues (board and list)", () => {
     // An agent picked at creation starts right away ("Pedir"): in progress.
     expect(cardTitles(column("Em andamento"))).toContain("Exportar agenda em PDF");
     const created = await api.issues.get(ORG_ID, 133);
+    // The first agent picked starts and comes first; the person picked with it has the task too.
     expect(created).toMatchObject({
       description: "Pedido de 18 reviews.",
       priority: "high",
-      assignee: { type: "agent" },
+      assignees: [
+        { type: "agent", id: ADA_ID },
+        { type: "person", id: "u-joao" },
+      ],
     });
     expect(created.criteria.map((c) => c.text)).toEqual(["Botão na agenda", "PDF com o logo da clínica"]);
     expect(created.artifacts).toHaveLength(1);
@@ -331,10 +354,7 @@ describe("Issues (board and list)", () => {
     await click(screen().getByRole("button", { name: "Nova tarefa" }));
     const dialog = screen().getByRole("dialog", { name: "Nova tarefa" });
     await type(within(dialog).getByLabelText("Título"), "Exportar agenda em PDF");
-    const who = within(dialog).getByRole("button", { name: "Responsável" });
-    who.focus();
-    await key(who, "Enter");
-    await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Ada" }));
+    await click(within(await pickWho(dialog, ["Ada"])).getByRole("button", { name: "Pronto" }));
     await settle(3);
     await click(within(dialog).getByRole("button", { name: "Criar tarefa" }));
     await settle(8);
@@ -342,7 +362,7 @@ describe("Issues (board and list)", () => {
     expect(toast().textContent).toContain("Tarefa #133 criada, mas a Ada não começou.");
     expect(toast().textContent).toContain("A Ada só responde a Walter.");
     // It stays hers, waiting in A fazer.
-    expect((await api.issues.get(ORG_ID, 133)).assignee).toEqual({ type: "agent", id: ADA_ID });
+    expect((await api.issues.get(ORG_ID, 133)).assignees).toEqual([{ type: "agent", id: ADA_ID }]);
     await click(within(toast()).getByRole("button", { name: "Pedir de novo" }));
     await settle(8);
     expect(toast().textContent).toContain("Pedido enviado. A Ada trabalha na conversa da tarefa");
@@ -520,7 +540,7 @@ describe("Issue detail", () => {
       "Quem vê",
     ]);
     // A face in Responsável, the stage's mark in Coluna, the priority's in Prioridade.
-    expect(within(strip).getByRole("combobox", { name: "Responsável" }).querySelector(".ac-avatar")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Responsável: João" }).querySelector(".ac-avatar")).toBeTruthy();
     expect(within(strip).getByRole("combobox", { name: "Coluna" }).querySelector(".ac-icon")).toBeTruthy();
     expect(within(strip).getByRole("combobox", { name: "Prioridade" }).querySelector(".ac-icon")).toBeTruthy();
     // Then a hairline, its labels and "GitHub" to link one.
@@ -622,6 +642,57 @@ describe("Issue detail", () => {
     expect((await api.issues.get(ORG_ID, 131)).title).toBe("Confirmação por WhatsApp");
   });
 
+  test("Assignee on the task page: a dialog ticks several, each change saved at once; the button says who", async () => {
+    const { api } = await go("issues/131");
+    const strip = screen().getByRole("group", { name: "Detalhes da tarefa" });
+    const picker = await pickWho(strip, []);
+    // Me too, first: a task is often mine.
+    expect(
+      within(picker)
+        .getByRole("checkbox", { name: /^Walter/ })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(within(picker).getByRole("checkbox", { name: /^João/ }).getAttribute("aria-checked")).toBe("true");
+    expect(picker.textContent).toContain("1 selecionado");
+    // Each tick saves, with the dialog still open.
+    await click(within(picker).getByRole("checkbox", { name: /^Walter/ }));
+    await settle(4);
+    expect((await api.issues.get(ORG_ID, 131)).assignees).toEqual([
+      { type: "person", id: "u-joao" },
+      { type: "person", id: "u-walter" },
+    ]);
+    await click(within(picker).getByRole("checkbox", { name: /^Atlas/ }));
+    await settle(4);
+    expect(picker.textContent).toContain("3 selecionados");
+    // Taken off by its token on top.
+    await click(within(picker).getByRole("button", { name: "Remover João" }));
+    await settle(4);
+    expect((await api.issues.get(ORG_ID, 131)).assignees).toEqual([
+      { type: "person", id: "u-walter" },
+      { type: "agent", id: ATLAS_ID },
+    ]);
+    await click(within(picker).getByRole("button", { name: "Pronto" }));
+    await settle(4);
+    expect(screen().queryByRole("dialog", { name: "Responsável" })).toBeNull();
+    const who = within(strip).getByRole("button", { name: "Responsável: Walter e Atlas" });
+    expect(who.lastChild?.textContent).toBe("Walter e Atlas");
+    expect(within(who).getByRole("img", { name: "Walter e Atlas" })).toBeTruthy();
+    // An agent has it now: nothing offers to ask one.
+    expect(screen().queryByRole("region", { name: "Pedir a um agente" })).toBeNull();
+    // The history names who each change was about.
+    await tab("Histórico");
+    const history = screen().getByRole("region", { name: "Histórico" }).textContent ?? "";
+    expect(history).toContain("Walter atribuiu a tarefa a Atlas");
+    expect(history).toContain("Walter tirou João da tarefa");
+    await tab("Detalhes");
+    // Everyone off: the field's name with the person glyph.
+    const again = await pickWho(strip, ["Walter", "Atlas"]);
+    await click(within(again).getByRole("button", { name: "Pronto" }));
+    await settle(4);
+    expect((await api.issues.get(ORG_ID, 131)).assignees).toEqual([]);
+    expect(within(strip).getByRole("button", { name: "Responsável" }).querySelector(".ac-icon")).toBeTruthy();
+  });
+
   test("Pedir à Ada: assigns the agent, moves to Em andamento and logs it", async () => {
     await go("issues/131");
     const ask = screen().getByRole("region", { name: "Pedir a um agente" });
@@ -632,7 +703,8 @@ describe("Issue detail", () => {
     expect(screen().queryByRole("region", { name: "Pedir a um agente" })).toBeNull();
     const aside = screen().getByRole("group", { name: "Detalhes da tarefa" });
     expect(within(aside).getByRole("combobox", { name: "Coluna" }).textContent).toContain("Em andamento");
-    expect(within(aside).getByRole("combobox", { name: "Responsável" }).textContent).toContain("Ada");
+    // The agent asked comes first; who had the task keeps it.
+    expect(within(aside).getByRole("button", { name: "Responsável: Ada e João" })).toBeTruthy();
     await tab("Histórico");
     expect(screen().getByRole("region", { name: "Histórico" }).textContent).toContain("Walter pediu a Ada para fazer");
   });
@@ -751,13 +823,13 @@ describe("Rotinas", () => {
   test("rows with agent, target, schedule, next and last run; no money", async () => {
     await go("routines");
     const weekly = screen().getByRole("article", { name: "Resumo da semana" });
-    expect(weekly.textContent).toContain("entrega em #eng");
+    // Two lines: its name, then when it runs and the next run. Where it delivers and its runs are in its details.
+    expect(weekly.textContent).not.toContain("entrega em #eng");
     expect(weekly.textContent).toContain("Toda semana, seg, às 09:00");
     expect(weekly.textContent).toMatch(/Próxima/);
     // No money on the rows.
     expect(weekly.textContent).not.toContain("US$");
-    // The last runs as a pixel strip, said in words.
-    expect(within(weekly).getByRole("img", { name: /^(Últimas execuções|Nenhuma execução)/ })).toBeTruthy();
+    expect(within(weekly).queryByRole("img", { name: /^(Últimas execuções|Nenhuma execução)/ })).toBeNull();
     const pr = screen().getByRole("article", { name: "Revisar PR aberto" });
     expect(pr.textContent).toContain("PR aberto no GitHub");
     expect(pr.textContent).toMatch(/Espera/);
@@ -792,7 +864,8 @@ describe("Rotinas", () => {
     await click(labels()[0] as HTMLElement);
     await settle(4);
     expect(labels()[0]?.getAttribute("aria-pressed")).toBe("true");
-    for (const row of screen().getAllByRole("article")) expect(row.textContent).toContain(names[0] as string);
+    for (const row of screen().getAllByRole("article"))
+      expect(row.querySelector(".routine-row__who")?.textContent).toBe(names[0] as string);
     // Again: the filter goes away.
     await click(labels()[0] as HTMLElement);
     await settle(4);
@@ -861,7 +934,6 @@ describe("Rotinas", () => {
     await settle(5);
     const card = screen().getByRole("article", { name: "PRs parados" });
     expect(card.textContent).toContain("De segunda a sexta, às 08:30");
-    expect(card.textContent).toContain("Ainda não rodou");
   });
 
   test("Nova rotina: a template from one search fills the form, and all of it stays editable", async () => {
@@ -1044,6 +1116,7 @@ describe("Rotinas", () => {
 });
 
 describe("Calendário", () => {
+  pinClockInDescribe();
   const openPanel = async () => {
     const show = screen().queryByRole("button", { name: "Mostrar painel" });
     if (show) await click(show);

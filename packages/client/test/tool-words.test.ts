@@ -47,6 +47,13 @@ describe("the engine's tools and the words for them", () => {
     expect([...kinds].filter((k) => !(k in activity) || !(k in work.step))).toEqual([]);
   });
 
+  test("the line before slow work (`say_now`, ADR 0207) is found and reads as posting a message", () => {
+    expect(tools).toContain("say_now");
+    expect(toolActivity("say_now")).toEqual({ kind: "postingMessage" });
+    // Behind a computer brain's bridge too.
+    expect(toolActivity("mcp__agentes__say_now")).toEqual({ kind: "postingMessage" });
+  });
+
   test("a word before an underscore names no app: only a catalog connector's prefix or the event's label does", () => {
     expect(toolActivity("himetrica_get").kind).toBe("usingTool");
     expect(toolActivity("himetrica_get", "Himetrica")).toMatchObject({ kind: "consulting", app: "Himetrica" });

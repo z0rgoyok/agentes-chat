@@ -96,6 +96,9 @@ function browserRunner(hub: MachineHub, opts: { dead?: boolean; closedBrowser?: 
           access: { folders: [], tools: { claude: true, codex: true, commands: true, browser: true } },
         }),
       ),
+    pointer: (x: number, act = "click") =>
+      reply({ type: "browser.pointer", agentId: f.agent.id, x, y: 200, width: 1280, height: 720, act }),
+    ended: () => reply({ type: "browser.stream.ended", agentId: f.agent.id, reason: "closed" }),
     frame: (seq: number) =>
       reply({
         type: "browser.frame",
@@ -348,6 +351,48 @@ test("a view the computer couldn't open (away for a moment) is tried again", asy
   await Bun.sleep(40);
   expect(runner.views()).toHaveLength(2);
   stop();
+  live.close();
+});
+
+test("a view that opens gets the agent's last pointer on the page once, marked as said before; none after the browser closed", async () => {
+  const { hub, paired, live, got, viewer } = await liveSetup();
+  const runner = browserRunner(hub);
+  await runner.hello(paired.token);
+  await live.watch(viewer, f.org.id, f.agent.id);
+  await until(() => runner.starts().length === 1);
+  await runner.frame(1);
+  await runner.pointer(100);
+  await runner.pointer(300, "move");
+  const pointers = (all: BrowserLiveMessage[]) => all.filter((m) => m.type === "browser.pointer");
+  // Live, as each gesture starts.
+  expect(pointers(got).map((m) => [m.x, m.act, "replay" in m])).toEqual([
+    [100, "click", false],
+    [300, "move", false],
+  ]);
+  // Someone who opens it now sees where it is: the newest one only.
+  const later: BrowserLiveMessage[] = [];
+  await live.watch({ userId: f.owner.id, send: (m) => later.push(m) }, f.org.id, f.agent.id);
+  expect(pointers(later)).toEqual([
+    {
+      type: "browser.pointer",
+      agentId: f.agent.id,
+      x: 300,
+      y: 200,
+      width: 1280,
+      height: 720,
+      act: "move",
+      replay: true,
+    },
+  ]);
+  // The browser closed: forgotten, so a page opened again never shows a pointer of the old one.
+  await runner.ended();
+  await live.watch({ userId: f.owner.id, send: () => {} }, f.org.id, f.agent.id);
+  await until(() => runner.starts().length === 2);
+  await runner.frame(2);
+  const after: BrowserLiveMessage[] = [];
+  await live.watch({ userId: f.owner.id, send: (m) => after.push(m) }, f.org.id, f.agent.id);
+  expect(after.some((m) => m.type === "browser.frame")).toBe(true);
+  expect(pointers(after)).toEqual([]);
   live.close();
 });
 

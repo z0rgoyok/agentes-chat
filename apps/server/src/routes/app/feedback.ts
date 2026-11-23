@@ -19,9 +19,12 @@ import {
   isFeedbackRelay,
   NotFoundError,
   queueFeedback,
+  recordSupportRequest,
+  reportedMessageId,
   sendRelayedFeedback,
   sniffFeedbackFile,
   storeFeedbackFile,
+  supportAboutKind,
   TooManyError,
   ValidationError,
 } from "@agenteschat/engine";
@@ -87,6 +90,8 @@ export function feedbackRoutes(deps: AppDeps) {
   const files = { db, blobs: adapters.platformBlobs };
   const destination = feedbackDestination(config);
   const relayed = isFeedbackRelay(destination);
+  // What a member wrote is kept beside their request only where the operator may later be asked to read it.
+  const keepWords = Boolean(config.OPERATOR_API_REVEAL_TOKEN);
   // Before a byte of an upload is read: is there a form at all, is this person within their hour, and does the body
   // say it is too large. Then the body is read only up to the largest file, whatever its length claimed.
   const uploadMax = FEEDBACK_FILES.videoBytes + MULTIPART_SLACK_BYTES;
@@ -245,6 +250,20 @@ export function feedbackRoutes(deps: AppDeps) {
             version,
           },
         });
+        // A member's own request is what an operator's later read of their workspace rests on (ADR 0056).
+        if (member) {
+          await recordSupportRequest(tx, {
+            orgId: member.orgId,
+            userId: user.id,
+            source: "form",
+            ref: input.id,
+            aboutKind: supportAboutKind(input.about?.kind),
+            messageId: await reportedMessageId(tx, member.orgId, input.facts),
+            text: input.text,
+            about: input.about?.text,
+            keepWords,
+          });
+        }
       });
       deps.wakeWorkers?.();
       return c.body(null, 204);
@@ -281,7 +300,7 @@ export function feedbackRoutes(deps: AppDeps) {
     async (c) => {
       const input = c.req.valid("json");
       const offer = await decideFeedbackOffer(
-        { db, pubsub: adapters.pubsub, rateLimiter: adapters.rateLimiter, to: destination, version },
+        { db, pubsub: adapters.pubsub, rateLimiter: adapters.rateLimiter, to: destination, version, keepWords },
         {
           orgId: input.orgId,
           messageId: c.req.valid("param").messageId,

@@ -163,6 +163,8 @@ test("a turn goes to the agent's computer as brain.turn and streams its events b
     prompt: "hi",
     keepAlive: true,
     personalMcp: false,
+    // Each answer it finishes before it goes on is its own message (ADR 0112).
+    answers: "each",
   });
   const sent = calls[0]?.request as { mcp?: { token?: string } } | undefined;
   expect(sent?.mcp?.token?.length ?? 0).toBeGreaterThan(20);

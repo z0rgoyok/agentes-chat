@@ -1,8 +1,8 @@
 import type { CatchUpClosed, Message } from "@agenteschat/client";
 import { keys, useApi, useUsageQueue } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { clockAt } from "@agenteschat/client/lib/format";
-import { can } from "@agenteschat/client/lib/permissions";
 import {
   answerAnywayOpen,
   mayAnswerAnyway,
@@ -109,8 +109,9 @@ export function UsageWaitCancel({ message, wait }: { message: Message; wait: Usa
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
-  const owner = dir.agentById.get(message.author.id ?? "")?.ownerUserId;
-  const admin = can(org, "manage_agents");
+  const agent = dir.agentById.get(message.author.id ?? "");
+  const owner = agent?.ownerUserId;
+  const admin = managesAgent(agent);
   const may = mayContinueUsage(wait, me.user.id, owner, admin);
   const fix = usageWaitFix(message.meta, { admin, owner: owner === me.user.id });
   return (
@@ -168,8 +169,8 @@ export function AnswerAnywayButton({
   const qc = useQueryClient();
   const toast = useToast();
   const [pending, setPending] = useState(false);
-  const owner = dir.agentById.get(agentId ?? "")?.ownerUserId;
-  const may = mayAnswerAnyway(closed, me.user.id, owner, can(org, "manage_agents"));
+  const agent = dir.agentById.get(agentId ?? "");
+  const may = mayAnswerAnyway(closed, me.user.id, agent?.ownerUserId, managesAgent(agent));
   if (!answerAnywayOpen(closed)) return null;
   return (
     <TextAction
@@ -222,7 +223,7 @@ export function UsagePauseCardView({ message, card }: { message: Message; card: 
   const agent = dir.agentById.get(card.agentId);
   const name = agent?.name ?? t("channel.unknownAgent");
   const { title, line } = usagePauseText(t, i18n.language, card, name);
-  const may = mayContinueUsage(card, me.user.id, agent?.ownerUserId, can(org, "manage_agents"));
+  const may = mayContinueUsage(card, me.user.id, agent?.ownerUserId, managesAgent(agent));
   const by = card.continuedByUserId;
   const time = card.continuedAt ? clockAt(i18n.language, card.continuedAt) : "";
   const go = async () => {

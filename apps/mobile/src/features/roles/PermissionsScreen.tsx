@@ -29,8 +29,8 @@ const STEPS = [0, 1, 2, 3, 4] as const;
 const stepKey = (n: number) => `mobile.roles.computers.steps.${n}` as "mobile.roles.computers.steps.0";
 
 /**
- * A cargo's Permissões (P4): one flat list in the web's groups, searchable. A row everyone has reads "Todos podem" and
- * stays live: turning it off asks who keeps it (P5). The computers are one row of five steps. Administrador last,
+ * A cargo's Permissões: one flat list in the web's groups, searchable. A row everyone has reads "Todos podem" and
+ * stays live: turning it off asks who keeps it (`WhoCanScreen`). The computers are one row of five steps. Administrador last,
  * asking first; on, the groups fold into one line. Every switch saves at once, one save at a time.
  */
 export function RolePermissionsScreen({ roleId }: { roleId: string }) {
@@ -181,7 +181,7 @@ export function RolePermissionsScreen({ roleId }: { roleId: string }) {
 }
 
 /**
- * Quem pode {{short}} (P5), pushed with Salvar: Todos, or only some cargos and which. A cargo with Administrador is
+ * Quem pode {{short}}, pushed with Salvar: Todos, or only some cargos and which. A cargo with Administrador is
  * ticked and fixed, one above the viewer stays as it is. The consequence under it, then "Donos sempre podem.";
  * Salvar changes Todos and the cargos in one call. For the computers it asks who keeps Todos' step (`step`: the one
  * Todos goes down to).

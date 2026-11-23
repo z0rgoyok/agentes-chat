@@ -26,6 +26,9 @@ export const SEARCH_ACTIONS: SearchAction[] = ["newConversation", "newTask", "ne
 /** What the search API is asked for. */
 export const SEARCH_KINDS: SearchKind[] = ["action", "message", "file"];
 
+/** The root of every search of a workspace (`packages/client/src/api/keys.ts`): a pull asks them all again. */
+export const searchQueryRoot = (orgId: string) => ["org", orgId, "search"] as const;
+
 /** The chips over the results. */
 export type SearchFilter = "all" | "chats" | "team" | "messages" | "files";
 export const SEARCH_FILTERS: SearchFilter[] = ["all", "chats", "team", "messages", "files"];
@@ -49,6 +52,9 @@ export interface SearchResults {
   files: SearchHit[];
 }
 
+export type LocalResults = Pick<SearchResults, "actions" | "agents" | "channels" | "dms">;
+export type HitResults = Pick<SearchResults, "team" | "messages" | "files">;
+
 /** What to show for `q`, given the action labels in the person's language. */
 export function searchResults(
   q: string,
@@ -60,16 +66,29 @@ export function searchResults(
     hits: SearchHit[];
   },
 ): SearchResults {
-  const words = Boolean(fold(q));
+  return { ...localResults(q, input), ...hitResults(q, input.hits) };
+}
+
+/** The groups the phone finds by itself: the actions, the agents, the channels and the DMs. */
+export function localResults(
+  q: string,
+  input: { actionLabels: Record<SearchAction, string>; agents: Agent[]; channels: Channel[]; dms: DirectMessage[] },
+): LocalResults {
   return {
     actions: SEARCH_ACTIONS.filter((a) => matches(q, input.actionLabels[a])),
     agents: input.agents.filter((a) => matches(q, a.name, a.role, a.handle)).slice(0, 8),
     channels: input.channels.filter((c) => matches(q, c.name, c.topic)).slice(0, 8),
     dms: input.dms.filter((d) => matches(q, d.with.name, d.with.handle)).slice(0, 8),
-    // Only hits that open in the app; with no words, nothing.
-    team: words ? input.hits.filter((h) => h.kind === "action" && h.channelIds.length > 0).slice(0, 20) : [],
-    messages: words ? input.hits.filter((h) => h.kind === "message" && h.channelIds.length > 0).slice(0, 20) : [],
-    files: words ? input.hits.filter((h) => h.kind === "file").slice(0, 20) : [],
+  };
+}
+
+/** The groups the server's hits fill: only hits that open in the app; with no words, nothing. */
+export function hitResults(q: string, hits: SearchHit[]): HitResults {
+  const words = Boolean(fold(q));
+  return {
+    team: words ? hits.filter((h) => h.kind === "action" && h.channelIds.length > 0).slice(0, 20) : [],
+    messages: words ? hits.filter((h) => h.kind === "message" && h.channelIds.length > 0).slice(0, 20) : [],
+    files: words ? hits.filter((h) => h.kind === "file").slice(0, 20) : [],
   };
 }
 

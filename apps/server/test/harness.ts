@@ -45,10 +45,12 @@ import { type AppleTokenRevoker, createAuth } from "../src/auth";
 import { buildEngine } from "../src/engine";
 import { createHumanCheck } from "../src/http/human-check";
 import { createLogger } from "../src/logger";
+import { createLiveSockets } from "../src/realtime/live";
 import { createMachineSockets } from "../src/realtime/machines";
 import { createStreamSockets } from "../src/realtime/streams";
 import { createRealtime, type SocketData } from "../src/realtime/ws";
 import type { BlockActions } from "../src/routes/app/extras";
+import type { AppDeps } from "../src/routes/app/context";
 
 export const ORIGIN = "http://localhost:3000";
 
@@ -206,6 +208,36 @@ export async function createTestServer(
     humanCheck: adapters.humanCheck,
     pubsub: adapters.pubsub,
   });
+  const services: AppDeps = {
+    db,
+    auth,
+    config,
+    adapters,
+    extras: {
+      http: options.http,
+      mcpConnect: options.mcpConnect,
+      resolveHost: options.resolveHost,
+      embed: engine.gateway.embed,
+      storage: engine.storage,
+      artifacts: engine.artifacts,
+      blockActions: options.blockActions,
+      context: engine.context,
+      sandbox: engine.sandbox,
+      gitProxy: engine.gitProxy,
+      desktopFetch: options.desktopFetch,
+      browserLive: engine.browserLive,
+      router: engine.router,
+      streams: engine.streams,
+      jevKey: engine.jevKey,
+      gifKey,
+      githubApp: engine.githubApp,
+      speech: engine.speech,
+      voice: engine.voice,
+      live: engine.live,
+      liveDeps: engine.liveDeps,
+    },
+    log,
+  };
   const app = createApp({
     edition: "selfhost",
     version: "test",
@@ -216,33 +248,17 @@ export async function createTestServer(
       (async () => {
         throw new Error("no network in tests");
       }),
-    services: {
-      db,
-      auth,
-      config,
-      adapters,
-      extras: {
-        http: options.http,
-        mcpConnect: options.mcpConnect,
-        resolveHost: options.resolveHost,
-        embed: engine.gateway.embed,
-        storage: engine.storage,
-        artifacts: engine.artifacts,
-        blockActions: options.blockActions,
-        context: engine.context,
-        sandbox: engine.sandbox,
-        gitProxy: engine.gitProxy,
-        desktopFetch: options.desktopFetch,
-        browserLive: engine.browserLive,
-        router: engine.router,
-        streams: engine.streams,
-        jevKey: engine.jevKey,
-        gifKey,
-        githubApp: engine.githubApp,
-        speech: engine.speech,
-        voice: engine.voice,
-      },
-    },
+    services,
+    log,
+  });
+  const live = createLiveSockets({
+    db,
+    auth,
+    config,
+    pubsub: adapters.pubsub,
+    rateLimiter: adapters.rateLimiter,
+    docs: engine.live,
+    artifacts: engine.artifacts,
     log,
   });
   const realtime = createRealtime({
@@ -254,12 +270,15 @@ export async function createTestServer(
     machines: createMachineSockets(engine.machineHub),
     browserLive: engine.browserLive,
     streams: createStreamSockets({ db, auth, config, broker: engine.streams }),
+    live,
   });
   return {
     db,
     close: async () => {
       await engine.machineHub.stop();
       engine.streams.stop();
+      live.stop();
+      await engine.live.stop();
       await close();
     },
     config,
@@ -275,6 +294,8 @@ export async function createTestServer(
     gifKey,
     app,
     auth,
+    /** What the routes get, for an app served apart (the chat surface bridge). */
+    services,
     realtime,
     drain: () => drainOutbox(db, handlers),
   };

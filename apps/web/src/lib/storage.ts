@@ -81,6 +81,10 @@ export const STORAGE_KEYS = {
   membersColumn: "agentes.members.column",
   /** Prefix (`.<user id>.<org id>`): "1" or "0", the person opened or closed the sidebar of a DM with an agent there. */
   dmSidebar: "agentes.dm.sidebar",
+  /** Prefix (`.<user id>.<org id>`): "1" or "0", the person opened or closed a live file's conversation there. */
+  liveTalk: "agentes.live.talk",
+  /** Prefix (`.<user id>.<org id>`): the width (px) the person dragged a live file's conversation to there. */
+  liveTalkWidth: "agentes.live.talkWidth",
   /** Offline-computer notices the person closed (`machineId@offlineSince`), until that computer comes back. */
   outagesDismissed: "agentes.outages.dismissed",
   /** The workspace computer's notice the person closed (`setupNoticeKey`), until its state changes. */
@@ -118,6 +122,8 @@ export const STORAGE_KEYS = {
   sounds: "agentes.sounds",
   /** In `sessionStore`, this tab's id; in `storage`, the tab the person used last (it plays sounds while hidden). */
   soundTab: "agentes.sounds.tab",
+  /** The speed voice messages play at in this browser: "1" (default), "1.5" or "2" (lib/voice-speed.ts). */
+  voiceSpeed: "agentes.voice.speed",
   /** How many times our notifications ask showed by itself in this browser (`usePushAsk`, ADR 0071). */
   pushOffers: "agentes.push.offers",
   /** In `sessionStore`: when the boot last reloaded because the app's files didn't load (index.html keeps a copy). */

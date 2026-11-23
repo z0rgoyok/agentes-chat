@@ -24,6 +24,7 @@ import { enqueue } from "./outbox";
 import { deliverNoticeToRun } from "./run-resume";
 import { replyThreadOf } from "./runs";
 import type { Talker } from "./talker";
+import { confidentialRefusal } from "./tools/confidential-lock";
 import { listsEveryTool } from "./tools/directory";
 import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./tools/types";
 
@@ -97,6 +98,15 @@ const failed = (error: unknown): ToolOutput => ({
   content: `Failed: ${error instanceof Error ? error.message : String(error)}`,
   isError: true,
 });
+/** Whether an artifact was shown in the thread the run answers in (same conversation, under the same root). */
+async function shownInRunThread(db: Database, ctx: ToolContext, artifactId: string) {
+  const [a] = await db
+    .select({ channelId: artifacts.channelId, threadId: artifacts.threadId })
+    .from(artifacts)
+    .where(and(eq(artifacts.id, artifactId), eq(artifacts.orgId, ctx.orgId)));
+  return a?.channelId === ctx.channelId && a.threadId === ctx.threadRootId;
+}
+
 const actorOf = (ctx: ToolContext) => ({
   type: "agent" as const,
   agentId: ctx.agentId,
@@ -474,6 +484,11 @@ export function createBlockToolSource(deps: ArtifactDeps): ToolSource {
         const title = str(input.title);
         const subtitle = str(input.subtitle).trim() || undefined;
         const blockId = str(input.block_id);
+        // In a confidential thread (ADR 0190) only a block of that thread is replaced: one shown anywhere else is
+        // read, indexed and kept outside it.
+        if (blockId && ctx.confidential && !(await shownInRunThread(deps.db, ctx, blockId))) {
+          return confidentialRefusal();
+        }
         // A spec when there is one: a page runs only on a click, so the parts win when the agent sent both.
         const content: Extract<ArtifactContent, { kind: "block" }> = hasSpec
           ? { kind: "block", spec: spec as BlockSpec, subtitle }

@@ -123,6 +123,19 @@ test("the review's rows: kit steps, and the name, the value and Editar start on 
   expect(declarations(review, ".newag__rv-k")).toContainEqual(["min-height", "var(--rv-line)"]);
 });
 
+test("a review row stacks by the room the review has, not the window's: narrow beside the app's sidebar too", async () => {
+  const css = await sheet("pages/new-agent.css");
+  expect(declarations(topLevel(css), ".newag__review")).toContainEqual(["container", "newag-review / inline-size"]);
+  const narrow = atRule(css, "@container newag-review (max-width: 520px)");
+  expect(declarations(narrow, ".newag__rv")).toContainEqual(["grid-template-areas", '"k end" "v v"']);
+  expect(declarations(narrow, ".newag__rv-v")).toEqual([["grid-area", "v"]]);
+  // Only there, so no window width decides it: a laptop's window is wide while the flow's column is a phone's.
+  const stacked = rules(css).filter(
+    (r) => r.selectors.includes(".newag__rv") && r.declarations.some(([prop]) => prop === "grid-template-areas"),
+  );
+  expect(stacked).toHaveLength(1);
+});
+
 test("the kit: an option's ⓘ follows its words, and a text button has no box", async () => {
   const kit = topLevel(await Bun.file(join(import.meta.dir, "../../../packages/ui/src/styles/components.css")).text());
   expect(declarations(kit, ".ac-hint.ac-menu__hint").find(([p]) => p === "margin")?.[1]).toBe("-5px 0");

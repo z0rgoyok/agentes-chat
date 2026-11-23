@@ -5,6 +5,8 @@ import { heldWhole, joinNames } from "@agenteschat/client/lib/format";
 import { mixHex } from "@agenteschat/ui/agent/engine";
 import type { TFunction } from "i18next";
 
+export { type ConnectionTab, connectionTabs } from "@agenteschat/client/lib/connected";
+
 /**
  * The connectors gallery on the phone: pure pieces the screen and
  * the tests share. No React Native imports.

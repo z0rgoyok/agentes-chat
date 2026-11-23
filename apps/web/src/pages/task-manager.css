@@ -34,86 +34,24 @@
   color: var(--warn);
 }
 
-/* The agents' cards: a row that slides, a card at a time, its line edge to edge under its head. */
+/* The agents as filter chips in a row that slides: face, name, how many tasks. */
 .tm-cards .ac-carousel__track {
-  gap: 12px;
-  padding: 4px 2px 8px;
-}
-.tm-card.ac-card {
-  --card-pad: 0;
-  position: relative;
-  gap: 8px;
-  width: 184px;
-  overflow: hidden;
-  font: inherit;
-  color: var(--ink);
-  text-align: left;
-}
-.tm-card__head {
-  display: flex;
-  align-items: center;
   gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-3) var(--space-3) 0;
+  padding: var(--space-1) 2px;
 }
-/* The card's press: it covers the card, so the face (`OpensAgent`) alone sits above it. */
-.tm-card__text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
+.tm-chip {
+  flex: none;
+}
+.tm-chip__n {
+  color: var(--muted);
+  font-weight: 600;
+}
+/* No × to make room for: the chip keeps its end padding when chosen. */
+.tm-chip.ac-filter--active .ac-filter__trigger {
+  padding-right: 10px;
+}
+.tm-chip.ac-filter--active .tm-chip__n {
   color: inherit;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-.tm-card__text::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.tm-card__text b {
-  font-size: 14px;
-  font-weight: 650;
-}
-.tm-card__text small {
-  font-size: 12px;
-  color: var(--faint);
-}
-.tm-card__n {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-agent);
-  background: var(--plate);
-  font-size: 15px;
-  font-weight: 650;
-}
-.tm-card__wait.ac-chip {
-  flex: none;
-}
-/* No room around the line: it runs to the card's sides and bottom, and the card's own corners clip it. */
-.tm-card > .chart-spark {
-  margin-top: auto;
-}
-.tm-card[data-pressed],
-.tm-card[data-pressed]:hover {
-  background: var(--chosen-bg);
-  box-shadow: var(--chosen-shadow);
-  transform: var(--chosen-lift);
-}
-html:not([data-pointer]) .tm-card__text:focus-visible {
-  outline: none;
-}
-html:not([data-pointer]) .tm-card:has(.tm-card__text:focus-visible) {
-  box-shadow: var(--card-shadow), var(--focus-ring);
 }
 
 /* The tasks now: its toolbar ("Ver passos", "Parar tarefa"), then the table. */
@@ -340,7 +278,6 @@ html:not([data-pointer]) .tm-row:has(.tm-hit:focus-visible) {
   cursor: pointer;
 }
 .tm-more:hover {
-  background: var(--plate);
   color: var(--ink);
 }
 html:not([data-pointer]) .tm-more:focus-visible {
@@ -412,18 +349,15 @@ html:not([data-pointer]) .tm-more:focus-visible {
   .tm-cell--state > .tm-mark {
     display: inline-grid;
   }
+  /* The mark keeps the kit's 8 from the time's shaded box after it. */
   .tm-row--agent > .tm-cell--state,
   .tm-row--ended > .tm-cell--state,
   .tm-row[data-look="flat"] > .tm-cell--state {
-    padding-inline: var(--space-1) 0;
+    padding-inline: var(--space-1) var(--space-2);
   }
 }
 
-/* "Computadores" (ADR 0128): the computers with work, whether each has room, and "Ver fila". No memory figure. */
-.tm-computers {
-  display: flex;
-  flex-direction: column;
-}
+/* What holds the work (ADR 0128): a limit or a computer per row, its way out at the end. No memory figure. */
 .tm-computers__list.ac-card {
   --card-pad: 0;
   gap: 0;
@@ -477,16 +411,10 @@ html:not([data-pointer]) .tm-more:focus-visible {
   flex: none;
 }
 
-/* Over the cards while work waits: today's line, then what holds the work in the Computadores rows' look. */
+/* Over the chips while work waits: its heading, then one row per cause. */
 .tm-causes {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-.tm-causes__today {
-  margin: 0;
-  font-size: 14px;
-  color: var(--muted);
 }
 /* Narrow, a cause's row and a computer's alike: the tile and the name on one line, the facts whole and the way out
    under them, full width. Its words' tip still opens from the way out. */

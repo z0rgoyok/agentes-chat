@@ -27,14 +27,15 @@ test("words and their actions wrap as the web's .ac-actline: the words from thei
     expect(readFileSync(join(SRC, user), "utf8")).toContain("ACT_LINE.row");
 });
 
-test("an import's head keeps its name whole: Trocar arquivo beside it while it fits, under it otherwise", () => {
+test("an import's head keeps its name whole beside the source's mark; another file is the system's back away", () => {
   const imp = readFileSync(join(SRC, "features/agents/ImportAgents.tsx"), "utf8");
-  const head = imp.slice(
-    imp.indexOf("<SourceMark card={origin.card} size={44} />"),
-    imp.indexOf("onPress={imp.reset}"),
-  );
-  expect(head).toContain("<View style={[ACT_LINE.row, styles.line]}>");
+  const start = imp.indexOf("<SourceMark card={origin.card} size={44} />");
+  const head = imp.slice(start, imp.indexOf("</View>", start));
+  expect(head).toContain("{bundle.source.name}");
   expect(head).not.toContain("numberOfLines");
+  // The preview is a screen of its own over the picker: no button in it that only goes back.
+  expect(imp).not.toContain("onPress={imp.reset}");
+  expect(imp).not.toContain("onboarding.import.change");
 });
 
 test("a section's header: its way on beside the title while the title fits its line, under it otherwise, never cut", () => {

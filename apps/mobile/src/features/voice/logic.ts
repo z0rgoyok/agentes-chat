@@ -1,5 +1,6 @@
 import type { Message } from "@agenteschat/client";
-import { VOICE_COUNTDOWN_MS, VOICE_MAX_MS, voiceOf } from "@agenteschat/client/lib/voice";
+import { VOICE_COUNTDOWN_MS, VOICE_MAX_MS, VOICE_SPEEDS, voiceParts } from "@agenteschat/client/lib/voice";
+import type { VoiceSend } from "./outbox";
 
 /**
  * Voice messages on the phone (ADR 0100), the part with no device in it: how a recording's gestures read and how
@@ -10,7 +11,6 @@ export const HOLD_MS = 220;
 /** How far left deletes, and how far up locks. */
 export const CANCEL_X = -110;
 export const LOCK_Y = -70;
-export const VOICE_SPEEDS = [1, 1.5, 2] as const;
 
 /** A level from 0 to 1 from the recorder's decibels (-160 to 0); what is below -50 is silence. */
 export function levelOf(db: number | undefined): number {
@@ -47,7 +47,7 @@ export function columnsIn(width: number): number {
 /**
  * A played wave's columns on `width`: how many, and where the first starts. They leave the handle's width and 2 at
  * both ends, centred on whole points, so at 0:00 the handle stands before the first column and at the end after the
- * last, flush with the wave's ends, as WhatsApp's dot does.
+ * last, flush with the wave's ends: the handle never covers a column at either end.
  */
 export function playedColumns(width: number): { count: number; start: number } {
   const count = columnsIn(width - 2 * (WAVE_HANDLE + 2));
@@ -83,10 +83,72 @@ export function secondsLeft(ms: number): number | null {
 export const nextSpeed = (speed: number) =>
   VOICE_SPEEDS[(VOICE_SPEEDS.indexOf(speed as (typeof VOICE_SPEEDS)[number]) + 1) % VOICE_SPEEDS.length] ?? 1;
 
-/** Whether a message has words to open: not when no engine could make them out, nor before the server answers. */
-export function hasWords(message: Pick<Message, "body" | "meta" | "local">): boolean {
-  return !message.local && !voiceOf(message.meta)?.noWords && message.body.trim() !== "";
+/**
+ * The words said in a voice message, for its player: not what was typed beside the take, not when no engine could make
+ * them out, nor before the server answers.
+ */
+export function spokenWords(message: Pick<Message, "body" | "meta" | "local">): string | null {
+  return message.local ? null : voiceParts(message).words;
 }
+
+export const hasWords = (message: Pick<Message, "body" | "meta" | "local">) => spokenWords(message) !== null;
+
+/** The upload's form fields besides the recording; an older server ignores `text` and `attachments`. */
+export function voiceFields(item: VoiceSend): [string, string][] {
+  const fields: [string, string][] = [
+    ["durationMs", String(item.durationMs)],
+    ["peaks", JSON.stringify(item.peaks)],
+    ["clientId", item.clientId],
+  ];
+  if (item.threadId) fields.push(["threadId", item.threadId]);
+  if (item.replyTo) fields.push(["replyTo", item.replyTo]);
+  if (item.language) fields.push(["language", item.language]);
+  if (item.text?.trim()) fields.push(["text", item.text]);
+  if (item.artifacts?.length) fields.push(["attachments", JSON.stringify(item.artifacts.map((a) => a.id))]);
+  return fields;
+}
+
+/** A refused take's typed text and files, for the composer of the conversation it was sent from (null anywhere else). */
+export const takeBack = (
+  item: Pick<VoiceSend, "text" | "artifacts" | "channelId" | "threadId">,
+  here: { channelId: string; threadId: string | null },
+) => {
+  const text = item.text ?? "";
+  const artifacts = item.artifacts ?? [];
+  const same = item.channelId === here.channelId && item.threadId === here.threadId;
+  return same && (text || artifacts.length > 0) ? { text, artifacts } : null;
+};
+
+/** Tries before the bubble says it didn't go (the first miss is often a blip the next try fixes). */
+const FAILED_AFTER = 2;
+
+/** The bubble until the real message arrives: my audio, not playable yet, no words; what I typed above it, my files. */
+export const localVoiceMessage = (item: VoiceSend): Message => ({
+  id: `local-${item.clientId}`,
+  channelId: item.channelId,
+  threadId: item.threadId,
+  author: { type: "person", id: item.authorId },
+  body: item.text ?? "",
+  mentionedAgentIds: [],
+  agentRunId: null,
+  meta: {
+    voice: {
+      clipId: `local:${item.clientId}`,
+      durationMs: item.durationMs,
+      peaks: item.peaks,
+      ...(item.text ? { text: item.text } : {}),
+    },
+    ...(item.artifacts?.length ? { artifacts: item.artifacts } : {}),
+    // Why it didn't go yet, under "Não foi enviada" once it failed: a sender is never left guessing.
+    ...(item.lastError ? { sendError: item.lastError } : {}),
+    // The server has it (it answered 202): it posts the message once the words are made out, which can take a moment;
+    // the bubble stops saying "Enviando…" meanwhile (the recording is safe there).
+    ...(item.accepted ? { voiceAccepted: true } : {}),
+  },
+  clientId: item.clientId,
+  local: (item.tries ?? 0) >= FAILED_AFTER ? "failed" : "pending",
+  createdAt: item.createdAt,
+});
 
 /** Waits between upload tries, while the phone has no way through. */
 export function retryDelayMs(attempt: number): number {

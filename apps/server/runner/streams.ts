@@ -205,6 +205,8 @@ export function openDataSocket(opts: {
  */
 export class DataSockets {
   private readonly open = new Set<DataSocket>();
+  /** Goes up with every `closeAll`. */
+  private turn = 0;
 
   constructor(private readonly opts: { url: string; token: string; timeoutMs?: number; relayed?: RelayCount }) {}
 
@@ -216,6 +218,7 @@ export class DataSockets {
     const { relayed, ...dial } = this.opts;
     // Phones are only reached by single-user runners, which count nothing.
     const bytes = kind === "phone" ? undefined : relayed?.[kind];
+    const turn = this.turn;
     let socket: DataSocket | null = null;
     socket = await openDataSocket({
       ...dial,
@@ -232,11 +235,17 @@ export class DataSockets {
         if (socket) this.open.delete(socket);
       },
     });
+    // The connection ended while this dialled (`closeAll` didn't have it yet): it closes with the others.
+    if (turn !== this.turn) {
+      socket.close(STREAM_CLOSE.restarting, "the computer's runner stopped");
+      throw new RunnerError("internal", "The connection to the server ended while the stream opened");
+    }
     this.open.add(socket);
     return socket;
   }
 
   closeAll() {
+    this.turn++;
     for (const socket of [...this.open]) socket.close(STREAM_CLOSE.restarting, "the computer's runner stopped");
     this.open.clear();
   }

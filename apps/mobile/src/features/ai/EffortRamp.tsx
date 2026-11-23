@@ -2,7 +2,7 @@ import { type AgentBrainInput, type BrainKind, type BrainScope, keys, useApi } f
 import { type EffortLevel, effortLevelsOf, effortTextOf } from "@agenteschat/client/lib/brain-advanced";
 import { AUTO } from "@agenteschat/client/lib/providers";
 import { bodyTones } from "@agenteschat/ui/agent/engine";
-import { Canvas, Fill, Shader, Skia, useClock } from "@shopify/react-native-skia";
+import { Canvas, Fill, Shader, Skia } from "@shopify/react-native-skia";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import Animated, { useDerivedValue, useSharedValue, withSpring } from "react-nat
 import { scheduleOnRN } from "react-native-worklets";
 import { useLivePaused } from "@/agent/live";
 import { useOrg } from "@/providers/org";
+import { useDrawingClock } from "@/sky/clock";
 import { rgba } from "@/sky/math";
 import { EFFORT_SHADER } from "@/sky/shaders";
 import { haptics, Text, useReducedMotion, useTheme, useToast } from "@/ui";
@@ -19,7 +20,8 @@ import { effortReach, effortStep } from "./effort";
 
 const HEIGHT = 46;
 const CELL = 3;
-const FILL_SPRING = { stiffness: 220, damping: 22, mass: 1 };
+/** The fill settling on its step after a drag or a tap: 300 ms, a touch of give and no real bounce. */
+const FILL_SPRING = { duration: 300, dampingRatio: 0.8 };
 
 /** Compiled once; null if the device refuses it (the names under the ramp still choose). */
 let effect: ReturnType<typeof Skia.RuntimeEffect.Make> | undefined;
@@ -67,13 +69,13 @@ export function EffortRamp({
   const step = useSharedValue(index);
 
   const land = (to: number) => {
-    pos.value = reduced ? to + 1 : withSpring(to + 1, FILL_SPRING);
+    pos.set(reduced ? to + 1 : withSpring(to + 1, FILL_SPRING));
   };
   // A choice from outside: a saved one, or one that failed and went back.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `land` is the same but for `reduced`
   useEffect(() => {
     setShown(index);
-    step.value = index;
+    step.set(index);
     land(index);
   }, [index, step]);
 
@@ -89,11 +91,11 @@ export function EffortRamp({
   };
   const follow = (x: number) => {
     "worklet";
-    const reach = effortReach(x, track.value, STEPS);
-    pos.value = reach;
+    const reach = effortReach(x, track.get(), STEPS);
+    pos.set(reach);
     const to = effortStep(reach, STEPS);
-    if (to !== step.value) {
-      step.value = to;
+    if (to !== step.get()) {
+      step.set(to);
       scheduleOnRN(stepped, to);
     }
   };
@@ -113,7 +115,7 @@ export function EffortRamp({
     },
     onDeactivate: () => {
       "worklet";
-      scheduleOnRN(choose, step.value);
+      scheduleOnRN(choose, step.get());
     },
   });
   const tap = useTapGesture({
@@ -121,9 +123,9 @@ export function EffortRamp({
     onDeactivate: (e) => {
       "worklet";
       if (e.canceled) return;
-      const to = effortStep(effortReach(e.x, track.value, STEPS), STEPS);
-      if (to !== step.value) {
-        step.value = to;
+      const to = effortStep(effortReach(e.x, track.get(), STEPS), STEPS);
+      if (to !== step.get()) {
+        step.set(to);
         scheduleOnRN(stepped, to);
       }
       scheduleOnRN(choose, to);
@@ -133,7 +135,8 @@ export function EffortRamp({
 
   const source = effortEffect();
   const moving = !reduced && !paused && !disabled;
-  const clock = useClock();
+  // Only while it moves: a still ramp (paused, reduced motion, off) has no frame callback.
+  const clock = useDrawingClock(moving);
   const tones = bodyTones(color);
   const base = {
     size: [width, HEIGHT],
@@ -144,7 +147,7 @@ export function EffortRamp({
     inkTone: rgba(colors.ink),
     offTone: rgba(colors.faint),
   };
-  const uniforms = useDerivedValue(() => ({ ...base, pos: pos.value, t: moving ? clock.value : 0 }));
+  const uniforms = useDerivedValue(() => ({ ...base, pos: pos.get(), t: moving ? clock.get() : 0 }));
 
   const label = t("agentPage.work.brain.effort");
   const level = levels[shown] ?? null;
@@ -179,7 +182,7 @@ export function EffortRamp({
           style={styles.track}
           onLayout={(e) => {
             const w = e.nativeEvent.layout.width;
-            track.value = w;
+            track.set(w);
             setWidth(w);
           }}
         >

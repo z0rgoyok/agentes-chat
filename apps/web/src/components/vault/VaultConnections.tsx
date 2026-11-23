@@ -208,10 +208,9 @@ function ConnectForm({
               <Segmented<VaultScope>
                 label={t("vault.connections.for")}
                 value={scope}
-                disabled={!canManageTeam}
                 onValueChange={setScope}
                 options={[
-                  { value: "team", label: t(modeKey(org, "vault.scope.team")) },
+                  { value: "team", label: t(modeKey(org, "vault.scope.team")), disabled: !canManageTeam },
                   { value: "personal", label: t("vault.scope.personal") },
                 ]}
               />

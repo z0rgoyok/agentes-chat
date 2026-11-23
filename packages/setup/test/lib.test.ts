@@ -37,6 +37,7 @@ import {
   jevStateOf,
   jevStep,
   lastLine,
+  memoryEntries,
   networkOf,
   nextSteps,
   normalizeDomain,
@@ -524,6 +525,15 @@ describe(".env", () => {
     expect(fresh.POSTGRES_PASSWORD).toMatch(/^[0-9a-f]{48}$/);
     expect(secretEntries("AGENTES_SECRET=kept\nPOSTGRES_PASSWORD=kept\n")).toEqual({});
     expect(Object.keys(secretEntries("AGENTES_SECRET=kept\nPOSTGRES_PASSWORD=\n"))).toEqual(["POSTGRES_PASSWORD"]);
+  });
+
+  test("the app's memory limit fits a machine with less than Compose's 8g, and is never replaced", () => {
+    const GiB = 1024 ** 3;
+    // 8 GB of RAM, 7 GiB usable: under the machine's memory, so Docker restarts the app before the kernel kills at random.
+    expect(memoryEntries(null, 7 * GiB)).toEqual({ AGENTES_MEMORY: "5376m" });
+    expect(memoryEntries(null, 1 * GiB)).toEqual({ AGENTES_MEMORY: "1024m" });
+    expect(memoryEntries(null, 16 * GiB)).toEqual({});
+    expect(memoryEntries("AGENTES_MEMORY=3g\n", 4 * GiB)).toEqual({});
   });
 
   test("covers what the app requires: .env.example's required values come from the setup or the compose file", () => {
@@ -1517,7 +1527,27 @@ describe("the compose file the setup drives", () => {
         "\trequest_body /mcp* {",
         "\t\tmax_size 128KiB",
         "\t}",
-        "\treverse_proxy agentes:3000",
+        "  handle /.well-known/apple-app-site-association {",
+        "    header Content-Type application/json",
+        "    respond <<JSON",
+        "    {",
+        '      "applinks": {',
+        '        "details": [',
+        "          {",
+        '            "appIDs": ["N6M79K762Y.app.tich.rooms"],',
+        '            "components": [',
+        '              {"/": "/invite/*"},',
+        '              {"/": "/reset-password*"}',
+        "            ]",
+        "          }",
+        "        ]",
+        "      }",
+        "    }",
+        "    JSON",
+        "  }",
+        "  handle {",
+        "    reverse_proxy agentes:3000",
+        "  }",
         "\thandle_errors 502 503 504 {",
         "\t\troot * /etc/caddy/errors",
         "\t\trewrite * /unavailable.html",

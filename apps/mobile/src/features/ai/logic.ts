@@ -13,12 +13,23 @@ import { autonomyWords, type NewAgentStart } from "@agenteschat/client/lib/agent
 import {
   type AccountChoice,
   accountAbout,
+  accountChain,
+  accountInLine,
   accountTitle,
+  chainHasRoom,
   type ExistingAi,
   existingAi,
+  groupPlans,
+  haveAbout,
+  haveGroup,
   lendable,
+  lockedByOwner,
+  lockedText,
+  orderStep,
   ownSignInLower,
+  pickable,
   signInOf,
+  unnamedAccount,
 } from "@agenteschat/client/lib/ai-accounts";
 import { thinksWith } from "@agenteschat/client/lib/brain";
 import { type Advanced, advancedDefaults, advancedParts } from "@agenteschat/client/lib/brain-advanced";
@@ -39,10 +50,10 @@ import {
   planOfAccount,
   planOfKind,
 } from "@agenteschat/client/lib/no-ai";
-import { planWord } from "@agenteschat/client/lib/plan-usage";
+import { planWord, roomWord } from "@agenteschat/client/lib/plan-usage";
 import { brainPlan } from "@agenteschat/client/lib/plans";
 import { AUTO, isAuto, keyLine } from "@agenteschat/client/lib/providers";
-import { planState } from "@agenteschat/ui/plan-state";
+import { planState, sortHave } from "@agenteschat/ui/plan-state";
 import type { TFunction } from "i18next";
 
 /*
@@ -59,20 +70,24 @@ export const offersKeyNow = (gate: PlanGate, held: boolean) =>
     ? gate.view !== null && !held
     : !held && (gate.state === "offline" || gate.state === "missing" || gate.state === "unsupported");
 
-/** Where the flow is: the first page, the plans, one plan's page, the API key's, or that key's makers. */
+/**
+ * A page of the flow, each its own pushed screen: the first page (the two ways), every account already connected
+ * ("Todas as contas"), the plans, one plan's page, the API key's, or that key's makers.
+ */
 export type FlowView =
   | { page: "home" }
+  | { page: "have" }
   | { page: "plans" }
   | { page: "plan"; choice: PlanChoice }
   | { page: "key" }
   | { page: "makers" };
 
-/** What Back opens: a list's pick goes back to its list, and a sign-in from a row of what the person has to that row. */
-export const flowBack = (view: FlowView, fromRow: boolean): FlowView | null => {
-  if (view.page === "home") return null;
-  if (view.page === "makers") return { page: "key" };
-  return view.page === "plan" && !fromRow ? { page: "plans" } : { page: "home" };
-};
+/** The flow's steps, counted in its bar's subtitle ("1 de 3"): the way, the sign-in or the key, done. */
+export const FLOW_STEPS = 3;
+
+/** The step a page stands for: the two ways and what the person has first, any page after them second, done last. */
+export const flowStep = (view: FlowView, done: boolean) =>
+  done ? FLOW_STEPS : view.page === "home" || view.page === "have" ? 1 : 2;
 
 /** How often a plan's page asks again while it waits (the web's first run asks as often). */
 export const PLAN_POLL_MS = 5000;
@@ -110,6 +125,27 @@ export const agentAccounts = (
         a.id === view.account ||
         (view.canUseOthersPlans === true && a.ownerId !== ownerUserId && lendable(a, agentName))),
   );
+
+/**
+ * Where its runs go at a limit (ADR 0041 §6, as the web's "Quem pensa"): `moves`, another account follows its own in
+ * the order; `waits`, its own is at its limit and none of the others has room, so it is the agent that waits.
+ */
+export function agentChain(
+  view: Pick<AgentBrain, "accounts" | "account" | "accountPinned" | "scope">,
+  agentId: string,
+  ownerUserId: string | null | undefined,
+) {
+  const chain = accountChain(view.accounts, {
+    id: agentId,
+    ownerId: ownerUserId ?? null,
+    account: view.account,
+    pinned: view.accountPinned === true,
+    ...(view.scope ? { scope: view.scope } : {}),
+  });
+  const limited = (a: MachineAccount) => (a.usage ? planState(a.usage).state === "limited" : false);
+  const own = chain[0];
+  return { moves: chain.length > 1, waits: own !== undefined && limited(own) && !chainHasRoom(chain, limited) };
+}
 
 /** The plan usage of what it thinks with: its account's, or the computer's own sign-in's where that thinks for it. */
 export function thinkingUsage(
@@ -173,14 +209,14 @@ export function accountSaved(
   t: TFunction,
   _language: string,
   agentName: string,
-  a: Pick<MachineAccount, "label"> | null,
+  a: Pick<MachineAccount, "kind" | "label" | "plan" | "email" | "mine" | "named" | "keyHint" | "provider"> | null,
   input: Pick<AgentBrainInput, "model">,
   saved: ThinkingView,
 ): string {
   const g = agentGrammar(agentName);
   if ("model" in input) return t("agentPage.work.saved.brain", { ...g, brain: thinksNow(t, saved) ?? "" });
   return a
-    ? t("agentPage.work.saved.account", { ...g, account: a.label })
+    ? t("agentPage.work.saved.account", { ...g, account: accountInLine(t, a) })
     : t("aiAccounts.done.savedAgent", { agent: agentName, label: ownSignInLower(t, saved.brain) });
 }
 
@@ -192,7 +228,8 @@ export const accountRow = (t: TFunction, choice: AccountChoice<MachineAccount>, 
   const usage = choice.login.usage;
   const word = planWord(t, locale, usage ? planState(usage, Date.now()) : null);
   return {
-    label: accountTitle(choice.login),
+    label: accountTitle(t, choice.login),
+    unnamed: unnamedAccount(choice.login),
     sub: accountAbout(t, choice, agentName),
     ...(word ? { below: word } : {}),
     mark: choice.login.provider ?? choice.login.kind,
@@ -201,8 +238,9 @@ export const accountRow = (t: TFunction, choice: AccountChoice<MachineAccount>, 
 };
 
 /**
- * Connect an AI's first group: what the person already has for the agent (`existingAi`), each row as it reads, the
- * accounts as the agent's page lists them and a workspace key with the budget line under it.
+ * Connect an AI's first rows: what the person already has for the agent and may pick (`existingAi`, `pickable`), each
+ * row as it reads, with its group by owner (`haveGroup`). An account's line tells it apart (`haveAbout`), someone
+ * else's says how much room its plan has, a workspace key the budget line under it.
  */
 export function existingRows(
   t: TFunction,
@@ -211,19 +249,104 @@ export function existingRows(
   agentName: string,
   locale: string,
 ) {
-  return existingAi(view, keys).map((row: ExistingAi) =>
-    row.kind === "key"
-      ? {
-          key: row.key.id,
-          row,
-          label: row.key.label,
-          sub: keyLine(t, row.key),
-          below: t("agentPage.work.brain.modelText", agentGrammar(agentName)),
-          mark: row.key.provider,
-          off: false,
-        }
-      : { key: row.choice.login.id, row, ...accountRow(t, row.choice, agentName, locale) },
-  );
+  return pickable(existingAi(view, keys)).map((row: ExistingAi) => {
+    const group = haveGroup(t, row);
+    if (row.kind === "key") {
+      return {
+        key: row.key.id,
+        row,
+        group,
+        label: row.key.label,
+        sub: keyLine(t, row.key),
+        below: t("agentPage.work.brain.modelText", agentGrammar(agentName)),
+        mark: row.key.provider,
+        off: false,
+        usage: null,
+        isKey: true,
+        signIn: false,
+      };
+    }
+    const a = row.choice.login;
+    const state = a.usage ? planState(a.usage, Date.now()) : null;
+    const word = a.mine ? planWord(t, locale, state) : roomWord(t, locale, state);
+    return {
+      key: a.id,
+      row,
+      group,
+      label: accountTitle(t, a),
+      unnamed: unnamedAccount(a),
+      sub: haveAbout(t, row, agentName),
+      ...(word ? { below: word } : {}),
+      mark: a.provider ?? a.kind,
+      off: signInOf(a) === "signed_out",
+      usage: a.usage,
+      isKey: false,
+      signIn: row.act !== "use" && row.act !== "move",
+    };
+  });
+}
+
+/** Someone else's accounts the person can't pick, one line per owner ("Mais 2 contas de Walter…"), by group key. */
+export const existingNotes = (
+  t: TFunction,
+  view: Pick<AgentBrain, "accounts" | "account" | "canUseOthersPlans">,
+  keys: readonly Credential[],
+) => lockedByOwner(existingAi(view, keys)).map((o) => ({ key: o.key, text: lockedText(t, o) }));
+
+/** Up to this many rows the first page groups them all; past it, this many with most room and a row to the rest. */
+export const HAVE_SHOWN = 3;
+
+/**
+ * How the first page lays out what the person has, as the web's list: few rows by owner (theirs, the workspace's
+ * keys, each other person's), each person's line of accounts they can't give under their group; many rows the three
+ * with most room (`sortHave`), the rest a row away ("Ver as N contas"), the lines under them. `all`: every row by
+ * owner, whatever their number ("Todas as contas").
+ */
+export function haveLayout<R extends { group: { key: string; label: string }; usage: PlanUsage | null }>(
+  rows: readonly R[],
+  notes: readonly { key: string; text: string }[],
+  all = false,
+): { best: R[] | null; groups: { key: string; label: string | null; rows: R[]; note: string | null }[] } {
+  if (!all && rows.length > HAVE_SHOWN) {
+    return {
+      best: sortHave(rows).slice(0, HAVE_SHOWN),
+      groups: notes.map((n) => ({ key: n.key, label: null, rows: [], note: n.text })),
+    };
+  }
+  const groups: { key: string; label: string | null; rows: R[]; note: string | null }[] = [];
+  const order = (k: string) => (k === "mine" ? 0 : k === "keys" ? 1 : 2);
+  for (const r of [...rows].sort((x, y) => order(x.group.key) - order(y.group.key))) {
+    const g = groups.find((x) => x.key === r.group.key);
+    if (g) g.rows.push(r);
+    else groups.push({ key: r.group.key, label: r.group.label, rows: [r], note: null });
+  }
+  for (const n of notes) {
+    const g = groups.find((x) => x.key === n.key);
+    if (g) g.note = n.text;
+    else groups.push({ key: n.key, label: null, rows: [], note: n.text });
+  }
+  return { best: null, groups };
+}
+
+/**
+ * Contas de IA's own rows: the viewer's logins of one account (`groupPlans`) as one row, by its login for all agents
+ * (else a signed-in one), with every agent on any of them and the newest usage; `logins`, all of them, and those
+ * signed out or not checked (`signInNote`).
+ */
+export function ownAccountRows<A extends MachineAccount & { machineId: string }>(accounts: readonly A[]) {
+  return groupPlans(accounts).flatMap(({ logins, usedBy, usage, signedOut, unknown }) => {
+    const first = logins.find((l) => l.shared === true) ?? logins.find((l) => l.status === "active") ?? logins[0];
+    return first
+      ? [
+          {
+            account: { ...first, usedBy: [...new Set(usedBy)], usage: usage ?? first.usage },
+            logins,
+            signedOut,
+            unknown,
+          },
+        ]
+      : [];
+  });
 }
 
 /**
@@ -235,12 +358,11 @@ export function setupWords(
   t: TFunction,
   language: string,
   view: Pick<AgentBrain, "brain" | "effectiveModel" | "options" | "accounts" | "account" | "autonomy">,
-  o: { apiKey: boolean; now: Advanced },
+  o: { now: Advanced },
 ): string {
   const parts = advancedParts(t, language, {
     kind: view.brain,
     autoModel: isAuto(view.effectiveModel),
-    apiKey: o.apiKey,
     // The workspace's setup for a key carries no effort yet (ADR 0041, amended 2026-11-12): its words name none.
     now: view.brain === "model" ? { ...o.now, effort: null } : o.now,
   });
@@ -268,7 +390,7 @@ export function advancedResetInput(
           ...(autoModel ? {} : { effort: to.effort }),
           ...(to.speed !== now.speed ? { speed: to.speed } : {}),
           ...(to.onlyOwner !== view.onlyOwner ? { onlyOwner: to.onlyOwner } : {}),
-          fallback: to.fallback,
+          ...(now.accountPinned ? { accountPinned: false } : {}),
         }),
   };
 }
@@ -326,4 +448,19 @@ export function pickedAi(
     plan: { machineId: pick.machineId, input: brainPickInput(pick) },
     connect: needsOwnSignIn(computers, pick) ? planOfKind(pick.kind) : null,
   };
+}
+
+/**
+ * Move up and Move down for `account` in its order of use (`orderStep`): only for whoever may move it, none at an end
+ * nor for an account with no place.
+ */
+export function orderMoves(
+  accounts: readonly { id: string; sameAs?: string; movable?: boolean }[],
+  account: { id: string; canMove: boolean },
+) {
+  if (!account.canMove) return [];
+  return ([-1, 1] as const).flatMap((step) => {
+    const index = orderStep(accounts, account.id, step);
+    return index === null ? [] : [{ step, index }];
+  });
 }

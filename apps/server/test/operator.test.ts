@@ -34,6 +34,7 @@ beforeAll(async () => {
     version: "test",
     log: createLogger("error"),
     pubsub: t.adapters.pubsub,
+    blobs: t.adapters.platformBlobs,
     hub: t.engine.machineHub,
   };
   const app = createOperatorApp(deps, TOKEN);
@@ -195,14 +196,91 @@ test("the read-only token: GET and HEAD outside /review; 403 for a write or a re
   }
 });
 
+test("the reveal token: POST under /reveal and nothing else; the other two never open that door; unset, it is closed to all", async () => {
+  const READ = "operator-read-token-".padEnd(48, "x");
+  const REVEAL = "operator-reveal-token-".padEnd(48, "x");
+  const as = (app: ReturnType<typeof createOperatorApp>, token: string, path: string, method = "GET") =>
+    app.request(`/api/operator/v1${path}`, { method, headers: { authorization: `Bearer ${token}` } });
+  const answer = async (res: Response) => [res.status, ((await res.json()) as { error: { code: string } }).error.code];
+  const door = `/reveal/orgs/${acme.orgId}`;
+
+  const open = createOperatorApp(deps, TOKEN, READ, REVEAL);
+  // Past the door: an empty body is the route's own refusal, never the door's.
+  expect(await answer(await as(open, REVEAL, door, "POST"))).toEqual([400, "invalid_request"]);
+  for (const method of ["GET", "HEAD", "PUT", "DELETE"]) {
+    expect({ method, status: (await as(open, REVEAL, door, method)).status }).toEqual({ method, status: 403 });
+  }
+  for (const [path, method] of [
+    ["/health", "GET"],
+    ["/orgs", "GET"],
+    ["/openapi.json", "GET"],
+    ["/events", "GET"],
+    [`/orgs/${acme.orgId}/deletion-hold`, "PUT"],
+    [`/review/run/${crypto.randomUUID()}?reason=check&operator=someone`, "GET"],
+    ["/nope", "POST"],
+  ] as const) {
+    expect({ path, answer: await answer(await as(open, REVEAL, path, method)) }).toEqual({
+      path,
+      answer: [403, "forbidden"],
+    });
+  }
+  for (const token of [TOKEN, READ]) {
+    for (const [path, method] of [
+      [door, "POST"],
+      [door, "GET"],
+      ["/reveal/nope", "POST"],
+    ] as const) {
+      expect({ path, method, answer: await answer(await as(open, token, path, method)) }).toEqual({
+        path,
+        method,
+        answer: [403, "forbidden"],
+      });
+    }
+    expect((await as(open, token, "/health")).status).toBe(200);
+  }
+  expect(await answer(await as(open, "wrong", door, "POST"))).toEqual([401, "unauthorized"]);
+
+  // A server that didn't set it: the door is closed whoever knocks, and the token is nobody's.
+  const closed = createOperatorApp(deps, TOKEN, READ);
+  for (const token of [TOKEN, READ, REVEAL, "wrong", ""]) {
+    expect({ token, answer: await answer(await as(closed, token, door, "POST")) }).toEqual({
+      token,
+      answer: [403, "forbidden"],
+    });
+  }
+  expect(await answer(await as(closed, REVEAL, "/health"))).toEqual([401, "unauthorized"]);
+
+  // The listener takes it from the configuration.
+  const config = testConfig({
+    OPERATOR_API_TOKEN: TOKEN,
+    OPERATOR_API_READ_TOKEN: READ,
+    OPERATOR_API_REVEAL_TOKEN: REVEAL,
+    HOST: "127.0.0.1",
+  });
+  const server = serveOperatorApi({ ...deps, config }, 0);
+  if (!server) throw new Error("no operator listener");
+  try {
+    const url = `http://127.0.0.1:${server.port}/api/operator/v1`;
+    const headers = { authorization: `Bearer ${REVEAL}` };
+    expect((await fetch(`${url}${door}`, { method: "POST", headers })).status).toBe(400);
+    expect((await fetch(`${url}/health`, { headers })).status).toBe(403);
+  } finally {
+    await server.stop(true);
+  }
+});
+
 test("health, with the bot check: off without its keys, else its state, since when, the networks it refused and the tokens it passed", async () => {
-  const off = await body<{ ok: boolean; version: string; botCheck: Record<string, unknown> & { since: string } }>(
-    await op("/health"),
-  );
+  const off = await body<{
+    ok: boolean;
+    version: string;
+    botCheck: Record<string, unknown> & { since: string };
+    eventLoopLag: unknown;
+  }>(await op("/health"));
   expect(off).toEqual({
     ok: true,
     version: "test",
     botCheck: { state: "off", since: off.botCheck.since, blocked: 0, passed: 0, testing: false },
+    eventLoopLag: null,
   });
   expect(off.botCheck.since).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
 
@@ -213,12 +291,14 @@ test("health, with the bot check: off without its keys, else its state, since wh
     probe: async () => "unreachable" as const,
     status: () => ({ state: "unreachable" as const, since, blocked: 21, passed: 3, testing: false }),
   };
-  const app = createOperatorApp({ ...deps, humanCheck }, TOKEN);
+  const eventLoopLag = { p50Ms: 1.2, p99Ms: 48.5, maxMs: 310, at: "2026-10-27T12:01:00.000Z" };
+  const app = createOperatorApp({ ...deps, humanCheck, eventLoopLag: () => eventLoopLag }, TOKEN);
   const res = await app.request("/api/operator/v1/health", { headers: { authorization: BEARER } });
   expect(await body(res)).toEqual({
     ok: true,
     version: "test",
     botCheck: { state: "unreachable", since: "2026-10-27T12:00:00.000Z", blocked: 21, passed: 3, testing: false },
+    eventLoopLag,
   });
 });
 
@@ -885,6 +965,132 @@ test("limits: set them all, read back with what the workspace uses; any standing
   await body(await put(`/orgs/${orgId}/billing-hold`, { hold: null }));
 });
 
+test("outside collaborators (ADR 0191): asked for here, answered in the workspace, never counted, ended here", async () => {
+  const READ = "operator-read-token-".padEnd(48, "x");
+  const app = createOperatorApp(deps, TOKEN, READ);
+  const call = (method: string, path: string, json?: unknown, authorization: string | null = BEARER) =>
+    app.request(`/api/operator/v1${path}`, {
+      method,
+      headers: {
+        ...(authorization === null ? {} : { authorization }),
+        ...(json === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: json === undefined ? undefined : JSON.stringify(json),
+    });
+  const refusal = async (res: Response) => [res.status, ((await res.json()) as { error: { code: string } }).error.code];
+  const NONE = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+
+  // A workspace of one, full at one person, and an account from outside it.
+  const boss = browser(t);
+  await signUp(boss, "boss@example.com");
+  const { orgId } = await seedOrg(boss);
+  const visitor = browser(t);
+  await signUp(visitor, "consultant@example.com");
+  const idOf = async (email: string) =>
+    (await t.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.email, email)))[0]?.id ?? "";
+  const [bossId, visitorId] = [await idOf("boss@example.com"), await idOf("consultant@example.com")];
+  const path = `/orgs/${orgId}/outside-access`;
+  const ask = { userId: visitorId, outsideOf: "Example Consulting", note: "Sets up the agents" };
+  const limits = { members: 1, storageBytes: null, uploadBytesPerDay: null, platformUsdPerMonth: null };
+  await body(await put(`/orgs/${orgId}/limits`, limits));
+
+  // Every route needs the token; the read-only one lists and changes nothing.
+  const routes: [method: string, path: string, json?: unknown][] = [
+    ["POST", path, ask],
+    ["GET", path],
+    ["DELETE", `${path}/${visitorId}`],
+  ];
+  for (const [method, to, json] of routes) {
+    expect(await refusal(await call(method, to, json, null))).toEqual([401, "unauthorized"]);
+    if (method === "GET") continue;
+    expect(await refusal(await call(method, to, json, `Bearer ${READ}`))).toEqual([403, "forbidden"]);
+  }
+  expect(await body(await call("GET", path, undefined, `Bearer ${READ}`))).toEqual({ people: [] });
+
+  for (const bad of [{}, { ...ask, outsideOf: "  " }, { ...ask, outsideOf: "x".repeat(81) }, { ...ask, userId: "" }]) {
+    expect({ bad, status: (await call("POST", path, bad)).status }).toEqual({ bad, status: 400 });
+  }
+  expect(await refusal(await call("POST", `/orgs/${NONE}/outside-access`, ask))).toEqual([404, "not_found"]);
+  expect(await refusal(await call("POST", path, { ...ask, userId: "nobody" }))).toEqual([404, "not_found"]);
+  expect(await refusal(await call("GET", `/orgs/${NONE}/outside-access`))).toEqual([404, "not_found"]);
+  expect(await refusal(await call("DELETE", `/orgs/${NONE}/outside-access/${visitorId}`))).toEqual([404, "not_found"]);
+  // Someone already in is the workspace's own: neither let in again nor taken out from here.
+  expect(await refusal(await call("POST", path, { ...ask, userId: bossId }))).toEqual([409, "join.member"]);
+  expect(await refusal(await call("DELETE", `${path}/${bossId}`))).toEqual([409, "outside_access.member"]);
+
+  enableOperatorEvents();
+  try {
+    // Asked, and asked again: one request, which the workspace reads with who they work for.
+    expect(await body(await call("POST", path, ask))).toEqual({ state: "pending" });
+    expect(await body(await call("POST", path, { ...ask, outsideOf: "Another Firm" }))).toEqual({ state: "pending" });
+    expect(await body(await call("GET", path))).toEqual({
+      people: [{ userId: visitorId, outsideOf: "Example Consulting", state: "pending", since: expect.any(String) }],
+    });
+    type Waiting = { requests: { id: string; name: string; outsideOf?: string | null }[] };
+    const { requests } = await body<Waiting>(await boss(`/api/app/organizations/${orgId}/join-requests`));
+    expect(requests.map((r) => [r.name, r.outsideOf])).toEqual([["consultant", "Example Consulting"]]);
+
+    // The workspace is full, and approving lets them in all the same.
+    const approved = await boss(`/api/app/organizations/${orgId}/join-requests/${requests[0]?.id}/approve`, {
+      json: {},
+    });
+    expect(await body(approved)).toEqual({ outcome: "joined" });
+    expect(await body(await call("GET", path))).toEqual({
+      people: [{ userId: visitorId, outsideOf: "Example Consulting", state: "member", since: expect.any(String) }],
+    });
+    type People = { members: { userId: string; outsideOf?: string | null }[] };
+    const { members } = await body<People>(await boss(`/api/app/organizations/${orgId}/members`));
+    expect(members.map((m) => [m.userId, m.outsideOf])).toEqual([
+      [bossId, null],
+      [visitorId, "Example Consulting"],
+    ]);
+    const { people } = await body<{ people: People["members"] }>(await boss(`/api/app/organizations/${orgId}/people`));
+    expect(people.find((p) => p.userId === visitorId)?.outsideOf).toBe("Example Consulting");
+
+    // Two people are in; the plan's count is still one, and the workspace still exactly full for an ordinary person.
+    expect((await body<{ counts: { members: number } }>(await op(`/orgs/${orgId}`))).counts.members).toBe(1);
+    const listed = await body<Page>(await op(`/orgs?q=${orgId}`));
+    expect(listed.orgs.map((o) => o.members)).toEqual([1]);
+    const seats = await body<{ members: { used: number; limit: number } }>(
+      await boss(`/api/app/organizations/${orgId}/limits`),
+    );
+    expect(seats.members).toMatchObject({ used: 1, limit: 1 });
+    const invited = await boss(`/api/app/organizations/${orgId}/invitations`, {
+      json: { email: "hire@example.com", roleIds: [] },
+    });
+    expect(await refusal(invited)).toEqual([409, "org.members_full"]);
+    expect(await refusal(await call("POST", path, ask))).toEqual([409, "join.member"]);
+
+    // Ended from here, twice over: they are out, and nothing is left to end.
+    expect(await body(await call("DELETE", `${path}/${visitorId}`))).toEqual({ state: "none" });
+    expect(await body(await call("DELETE", `${path}/${visitorId}`))).toEqual({ state: "none" });
+    expect(await body(await call("GET", path))).toEqual({ people: [] });
+    expect((await visitor(`/api/app/organizations/${orgId}/members`)).status).toBe(403);
+
+    // A request the workspace denies, and one ended while it waits.
+    await body(await call("POST", path, ask));
+    const again = await body<Waiting>(await boss(`/api/app/organizations/${orgId}/join-requests`));
+    const denied = await boss(`/api/app/organizations/${orgId}/join-requests/${again.requests[0]?.id}/deny`, {
+      json: {},
+    });
+    expect(denied.status).toBe(204);
+    await body(await call("POST", path, ask));
+    expect(await body(await call("DELETE", `${path}/${visitorId}`))).toEqual({ state: "none" });
+
+    const { events } = await body<{ events: { type: string; orgId: string | null; data: unknown }[] }>(
+      await op("/events?limit=1000"),
+    );
+    expect(events.filter((e) => e.type.startsWith("outside_access.")).map((e) => [e.type, e.orgId, e.data])).toEqual([
+      ["outside_access.granted", orgId, { userId: visitorId }],
+      ["outside_access.ended", orgId, { userId: visitorId }],
+      ["outside_access.denied", orgId, { userId: visitorId }],
+      ["outside_access.ended", orgId, { userId: visitorId }],
+    ]);
+  } finally {
+    enableOperatorEvents(false);
+  }
+});
+
 test("early access: every route needs the token, answers in its shape, and refuses with its codes", async () => {
   const app = createOperatorApp({ ...deps, emails: true }, TOKEN);
   const call = (method: string, path: string, json?: unknown, authorization: string | null = BEARER) =>
@@ -1282,6 +1488,62 @@ test("work analytics: fleet-wide and one workspace's; 401 without the token, 400
   expect(fleet.workspaces.map((w) => w.orgId)).toContain(acme.orgId);
   const after = await agentTokens();
   expect([after.input - before.input, after.output - before.output]).toEqual([40, 2]);
+});
+
+test("a workspace's look (ADR 0193): logo and accent set, kept or cleared, as the system, seen by its members", async () => {
+  const READ = "operator-read-token-".padEnd(48, "x");
+  const app = createOperatorApp(deps, TOKEN, READ);
+  const call = (json: unknown, orgId = acme.orgId, authorization: string | null = BEARER) =>
+    app.request(`/api/operator/v1/orgs/${orgId}/look`, {
+      method: "PUT",
+      headers: { ...(authorization === null ? {} : { authorization }), "content-type": "application/json" },
+      body: JSON.stringify(json),
+    });
+  const refusal = async (res: Response) => [res.status, ((await res.json()) as { error: { code: string } }).error.code];
+  const JPEG = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0xff, 0xda, 0x00, 0x02, 0x01, 0xff, 0xd9,
+  ]).toString("base64");
+  const seen = async () =>
+    (
+      (await (await owner("/api/app/me")).json()) as { organizations: { id: string; logo?: string; accent?: string }[] }
+    ).organizations
+      .filter((o) => o.id === acme.orgId)
+      .map((o) => ({ logo: o.logo ?? null, accent: o.accent ?? null }))[0];
+
+  expect(await refusal(await call({ accent: "#7c3aed" }, acme.orgId, null))).toEqual([401, "unauthorized"]);
+  expect(await refusal(await call({ accent: "#7c3aed" }, acme.orgId, `Bearer ${READ}`))).toEqual([403, "forbidden"]);
+  expect(await refusal(await call({}, "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b"))).toEqual([404, "not_found"]);
+  for (const bad of [{ accent: "purple" }, { logo: { contentType: "image/gif", base64: JPEG } }, { logo: "x" }]) {
+    expect({ bad, status: (await call(bad)).status }).toEqual({ bad, status: 400 });
+  }
+  // Bytes that aren't the declared image: the logo's own refusal, and the accent beside it is left alone.
+  const svg = { contentType: "image/png", base64: Buffer.from("<svg/>").toString("base64") };
+  expect(await refusal(await call({ accent: "#7c3aed", logo: svg }))).toEqual([400, "logo.type"]);
+  expect(await seen()).toEqual({ logo: null, accent: null });
+
+  const both = await body<{ logo: string; accent: string }>(
+    await call({ accent: "#F97316", logo: { contentType: "image/jpeg", base64: JPEG } }),
+  );
+  expect(both).toEqual({ accent: "#f97316", logo: expect.stringContaining(`/api/app/org-logos/${acme.orgId}/`) });
+  expect(await seen()).toEqual(both);
+  expect((await owner(both.logo)).status).toBe(200);
+
+  // An absent field is left alone; null clears it.
+  expect(await body(await call({ accent: null }))).toEqual({ accent: null, logo: both.logo });
+  expect(await body(await call({ logo: null }))).toEqual({ accent: null, logo: null });
+  expect(await body(await call({}))).toEqual({ accent: null, logo: null });
+
+  const audit = await t.db
+    .select({ action: schema.auditLog.action, actorType: schema.auditLog.actorType })
+    .from(schema.auditLog)
+    .where(eq(schema.auditLog.orgId, acme.orgId))
+    .orderBy(schema.auditLog.id);
+  expect(audit.filter((a) => a.action.startsWith("organization.logo") || a.action.endsWith("accent_changed"))).toEqual([
+    { action: "organization.logo_changed", actorType: "system" },
+    { action: "organization.accent_changed", actorType: "system" },
+    { action: "organization.accent_changed", actorType: "system" },
+    { action: "organization.logo_removed", actorType: "system" },
+  ]);
 });
 
 test("the OpenAPI document is the committed contract (ADR 0056)", async () => {

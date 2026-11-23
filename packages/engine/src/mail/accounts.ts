@@ -31,7 +31,7 @@ import { composioToolkitUrl } from "../connectors/presets";
 import { openSecret, sealSecret, sha256 } from "../crypto";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { isBlockedAddress, type ResolveHost, resolveHostDns } from "../net-guard";
-import { requirePermission } from "../organizations";
+import { can, requirePermission } from "../organizations";
 import { closedRefusal, orgStanding } from "../standing";
 import { isEmailAddress, normalizeAddress } from "./text";
 import { restartMailWatches } from "./watches";
@@ -96,9 +96,13 @@ export type MailAction = (typeof MAIL_ACTIONS)[number];
 export const ASKABLE_MAIL_ACTIONS: readonly MailAction[] = ["draft", "organize"];
 
 export const mailAccountAad = (orgId: string, id: string) => `mail-account|${orgId}|${id}`;
-/** Our Composio user id for an organization. */
-export const composioUserId = (orgId: string) => `org_${orgId}`;
-const COMPOSIO_USER = /^org_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+/**
+ * Our Composio user id for an organization, or for one person there (`personId`: their personal connections, ADR 0099
+ * addendum), so one person's sign-in is never another's.
+ */
+export const composioUserId = (orgId: string, personId?: string | null) =>
+  personId ? `org_${orgId}_u_${personId}` : `org_${orgId}`;
+const COMPOSIO_USER = /^org_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_u_[A-Za-z0-9_-]+)?$/;
 /** The organization of one of our Composio user ids (`composioUserId`), or null for anything else. */
 export const orgOfComposioUser = (userId: string) => COMPOSIO_USER.exec(userId)?.[1] ?? null;
 /** `from=desktop`: started in the desktop app's window, so the callback hands the return back to the app. */
@@ -204,15 +208,47 @@ export async function orgMailAccounts(db: Database, orgId: string) {
     .orderBy(asc(mailAccounts.createdAt), asc(mailAccounts.id));
 }
 
-export async function listMailAccounts(db: Database, actorId: string, orgId: string): Promise<MailAccountView[]> {
-  await requirePermission(db, actorId, orgId, "read");
-  const rows = await orgMailAccounts(db, orgId);
+/**
+ * The mailboxes `actorId` sees: their own and any left with no person (ADR 0038: a mailbox is who connected it).
+ * `others`: for who manages connectors, also everyone else's, with only their name, person and agents.
+ */
+export async function listMailAccounts(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  options: { others?: boolean } = {},
+): Promise<MailAccountView[]> {
+  const membership = await requirePermission(db, actorId, orgId, "read");
+  const others = options.others === true && can(membership, "manage_connectors");
+  const rows = (await orgMailAccounts(db, orgId)).filter(
+    (r) => others || !r.createdByUserId || r.createdByUserId === actorId,
+  );
   const grants = await mailGrants(
     db,
     orgId,
     rows.map((r) => r.id),
   );
-  return rows.map((r) => mailAccountView(r, grants.get(r.id)));
+  return rows.map((r) => mailAccountViewFor(r, grants.get(r.id), actorId));
+}
+
+/** A mailbox as `actorId` may see it: someone else's with its name, person and agents only, never its address. */
+function mailAccountViewFor(
+  r: MailAccountRow,
+  grants: Parameters<typeof mailAccountView>[1],
+  actorId: string,
+): MailAccountView {
+  const v = mailAccountView(r, grants);
+  if (!r.createdByUserId || r.createdByUserId === actorId) return v;
+  // A label defaults to the address: one that holds it is left out too.
+  const label = r.address && v.label.toLowerCase().includes(r.address.toLowerCase()) ? "" : v.label;
+  return { ...v, label, address: "", lastError: null, preset: null, aliases: [], defaultFrom: null };
+}
+
+/** Who may change or remove a mailbox: who connected it, or who manages connectors (ADR 0099 addendum). */
+async function requireMailboxManager(db: Database, actorId: string, orgId: string, row: MailAccountRow) {
+  const membership = await requirePermission(db, actorId, orgId, "read");
+  if (row.createdByUserId === actorId || can(membership, "manage_connectors")) return;
+  throw new NotFoundError("Mailbox not found", "mail.account_not_found");
 }
 
 /** The refusal when someone other than who connected a mailbox would widen what agents do with it (ADR 0038). */
@@ -236,10 +272,10 @@ async function loadAccount(db: Database, orgId: string, id: string) {
   return row;
 }
 
-export async function getMailAccountView(db: Database, orgId: string, id: string) {
+export async function getMailAccountView(db: Database, orgId: string, id: string, actorId: string) {
   const row = await loadAccount(db, orgId, id);
   const grants = await mailGrants(db, orgId, [row.id]);
-  return mailAccountView(row, grants.get(row.id));
+  return mailAccountViewFor(row, grants.get(row.id), actorId);
 }
 
 async function assertAddressFree(db: Database, orgId: string, address: string, exceptId?: string) {
@@ -358,7 +394,7 @@ async function imapSettings(
 }
 
 /**
- * Connects an IMAP/SMTP mailbox (admins): the login and both servers are
+ * Connects an IMAP/SMTP mailbox (any member, their own): the login and both servers are
  * tested first; the app password is sealed bound to (org, account). Returns
  * the test's error instead of saving when it fails.
  */
@@ -368,7 +404,8 @@ export async function createImapAccount(
   orgId: string,
   input: ImapAccountInput,
 ): Promise<{ ok: true; account: MailAccountView } | { ok: false; error: MailTestError }> {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  // A mailbox is its person's (ADR 0038): any member connects their own.
+  await requirePermission(deps.db, actorId, orgId, "read");
   const address = normalizeAddress(input.address);
   if (!isEmailAddress(address)) throw new ValidationError("Invalid email address", "mail.invalid_address");
   const password = input.password.trim();
@@ -455,7 +492,8 @@ export async function startComposioConnect(
   orgId: string,
   input: { provider: "gmail" | "outlook"; label?: string; accountId?: string; desktop?: boolean },
 ): Promise<{ accountId: string; redirectUrl: string }> {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  // A mailbox is its person's (ADR 0038): any member connects their own.
+  await requirePermission(deps.db, actorId, orgId, "read");
   const composio = composioOf(deps);
   if (!composio)
     throw new ConflictError("Gmail and Outlook are not configured on this server", "mail.composio_disabled");
@@ -635,8 +673,8 @@ export async function updateMailAccount(
     defaultFrom?: string | null;
   },
 ): Promise<{ ok: true; account: MailAccountView } | { ok: false; error: MailTestError }> {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
   const row = await loadAccount(deps.db, orgId, accountId);
+  await requireMailboxManager(deps.db, actorId, orgId, row);
   const set: Partial<typeof mailAccounts.$inferInsert> = {};
   if (input.label !== undefined) set.label = input.label.trim().slice(0, 80) || row.address;
   const aliases = input.aliases !== undefined ? normalizeAliases(row.address, input.aliases) : row.aliases;
@@ -724,7 +762,7 @@ export async function updateMailAccount(
       });
     }
   }
-  return { ok: true, account: await getMailAccountView(deps.db, orgId, row.id) };
+  return { ok: true, account: await getMailAccountView(deps.db, orgId, row.id, actorId) };
 }
 
 /**
@@ -791,12 +829,12 @@ export async function composioGrantShared(
 }
 
 /**
- * Disconnects a mailbox (admins): Composio forgets the account and its
+ * Disconnects a mailbox (who connected it, or who manages connectors): Composio forgets the account and its
  * triggers; agents lose their mail scopes on it; routines watching it stop.
  */
 export async function revokeMailAccount(deps: MailDeps, actorId: string, orgId: string, accountId: string) {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
   const row = await loadAccount(deps.db, orgId, accountId);
+  await requireMailboxManager(deps.db, actorId, orgId, row);
   const watches = await deps.db.select().from(mailWatches).where(eq(mailWatches.accountId, row.id));
   const composio = composioOf(deps);
   if (row.via === "composio" && composio) {
@@ -924,8 +962,12 @@ export async function listMailFolders(deps: MailDeps, actorId: string, orgId: st
  * empty when the mailbox can't be read.
  */
 export async function suggestMailAddresses(deps: MailDeps, actorId: string, orgId: string, accountId: string) {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
   const row = await loadAccount(deps.db, orgId, accountId);
+  // It reads the mailbox's sent mail: only its person's (who manages connectors, for one left with no person).
+  if (row.createdByUserId !== actorId) {
+    if (row.createdByUserId) throw new NotFoundError("Mailbox not found", "mail.account_not_found");
+    await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  }
   let provider: MailProvider | null = null;
   try {
     provider = await openAccount(deps, row);

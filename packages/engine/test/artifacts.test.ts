@@ -41,7 +41,7 @@ afterEach(async () => {
 const DRIVE = ["drive:read", "drive:write"].map((scope) => ({ connectionId: null, scope }));
 const last = (req: ModelRequest) => JSON.stringify(req.messages.at(-1)?.content);
 
-/** The agent writes a report when asked, and a v2 when asked to fix it. */
+/** The agent writes a report (a table) when asked, and a v2 when asked to fix it. */
 function driveAgent() {
   let artifactId = "";
   return (req: ModelRequest) => {
@@ -55,7 +55,12 @@ function driveAgent() {
         toolUses: [
           {
             name: "update_artifact",
-            input: { artifact_id: artifactId, note: "Corrigi as vendas", markdown: "# Março\nVendas: 12" },
+            input: {
+              artifact_id: artifactId,
+              note: "Corrigi as vendas",
+              columns: ["Mês", "Vendas"],
+              rows: [["Março", "12"]],
+            },
           },
         ],
       };
@@ -65,7 +70,12 @@ function driveAgent() {
         toolUses: [
           {
             name: "create_artifact",
-            input: { title: "Relatório de março", kind: "document", markdown: "# Março\nVendas: 10" },
+            input: {
+              title: "Relatório de março",
+              kind: "table",
+              columns: ["Mês", "Vendas"],
+              rows: [["Março", "10"]],
+            },
           },
         ],
       };
@@ -84,7 +94,7 @@ const post = (body: string, channelId?: string) =>
 const person = (userId: string) => ({ type: "person" as const, userId });
 
 describe("artifacts made by agents", () => {
-  test("an agent creates a document, updates it to v2, and a person downloads it", async () => {
+  test("an agent creates a table, updates it to v2, and a person downloads it", async () => {
     f = await setup({ artifactTools: true, reply: driveAgent() });
     await grantScopes(f.db, f.org.id, f.agent.id, DRIVE);
     const events = f.listen(f.general.id);
@@ -92,7 +102,7 @@ describe("artifacts made by agents", () => {
     await drainOutbox(f.db, f.handlers);
 
     const [created] = await f.db.select().from(schema.artifacts);
-    expect(created).toMatchObject({ kind: "document", title: "Relatório de março", currentVersion: 1 });
+    expect(created).toMatchObject({ kind: "table", title: "Relatório de março", currentVersion: 1 });
     // Asked in the channel: the file and the reply are in the channel itself.
     expect(created).toMatchObject({ channelId: f.general.id, threadId: null, createdByType: "agent" });
     const reply = (await listMessages(f.db, f.owner.id, f.org.id, f.general.id)).at(-1);
@@ -105,9 +115,9 @@ describe("artifacts made by agents", () => {
     const id = created?.id ?? "";
     const v2 = await getArtifact(f.artifactDeps, person(f.owner.id), f.org.id, id);
     expect(v2).toMatchObject({ version: 2, shownVersion: 2 });
-    expect(v2.content).toEqual({ kind: "document", markdown: "# Março\nVendas: 12" });
+    expect(v2.content).toEqual({ kind: "table", columns: ["Mês", "Vendas"], rows: [["Março", "12"]] });
     const v1 = await getArtifact(f.artifactDeps, person(f.owner.id), f.org.id, id, 1);
-    expect(v1.content).toEqual({ kind: "document", markdown: "# Março\nVendas: 10" });
+    expect(v1.content).toEqual({ kind: "table", columns: ["Mês", "Vendas"], rows: [["Março", "10"]] });
     const versions = await listArtifactVersions(f.artifactDeps, person(f.owner.id), f.org.id, id);
     expect(versions.map((v) => [v.version, v.author.type, v.note])).toEqual([
       [2, "agent", "Corrigi as vendas"],
@@ -118,8 +128,11 @@ describe("artifacts made by agents", () => {
     expect(link.url).toContain(encodeURIComponent(`orgs/${f.org.id}/artifacts/${id}/v2`));
     expect(new Date(link.expiresAt).getTime()).toBeGreaterThan(Date.now());
     const file = await artifactFile(f.artifactDeps, f.owner.id, f.org.id, id);
-    expect(new TextDecoder().decode(file.body)).toBe("# Março\nVendas: 12");
-    expect(file.filename).toBe("Relatorio-de-marco-v2.md");
+    expect(JSON.parse(new TextDecoder().decode(file.body))).toEqual({
+      columns: ["Mês", "Vendas"],
+      rows: [["Março", "12"]],
+    });
+    expect(file.filename).toBe("Relatorio-de-marco-v2.json");
 
     const audit = await f.db.select().from(schema.auditLog).where(eq(schema.auditLog.targetId, id));
     expect(audit.map((a) => a.action).sort()).toEqual(["artifact.created", "artifact.version_created"]);
@@ -175,6 +188,18 @@ describe("artifacts made by agents", () => {
     expect(noteAt).toBeGreaterThan(0);
     expect(asked.messages[noteAt - 1]).toMatchObject({ role: "assistant", content: "Pronto, está no Drive." });
     expect(asked.messages.filter((m) => m.role === "assistant" && contentOf(m).includes("attached"))).toEqual([]);
+  });
+
+  test("a page's search text has its tags as spaces, read once however many `<` are never closed", async () => {
+    f = await setup();
+    const started = performance.now();
+    const page = await createArtifact(f.artifactDeps, person(f.owner.id), f.org.id, {
+      title: "Página",
+      content: { kind: "html", html: `<h1>Oi</h1><p>mundo</p><>x${"<".repeat(100_000)}` },
+    });
+    expect(performance.now() - started).toBeLessThan(2000);
+    const [row] = await f.db.select().from(schema.artifacts).where(eq(schema.artifacts.id, page.id));
+    expect(row?.excerpt.startsWith("Oi mundo <>x<<<")).toBe(true);
   });
 
   test("html is stored as is and flagged untrusted", async () => {
@@ -317,21 +342,22 @@ describe("visibility and editing", () => {
   test("an author's files: made by them, or made or changed by them (an agent's page)", async () => {
     f = await setup();
     const bia = await addMember(f.db, f.org.id, "member", "bia");
+    const table = (cell: string) => ({ kind: "table" as const, columns: ["a"], rows: [[cell]] });
     const mine = await createArtifact(f.artifactDeps, person(f.owner.id), f.org.id, {
       title: "Meu",
-      content: { kind: "document", markdown: "a" },
+      content: table("a"),
     });
     const hers = await createArtifact(f.artifactDeps, person(bia.id), f.org.id, {
       title: "Dela",
-      content: { kind: "document", markdown: "b" },
+      content: table("b"),
     });
     await updateArtifact(f.artifactDeps, person(f.owner.id), f.org.id, hers.id, {
-      content: { kind: "document", markdown: "b2" },
+      content: table("b2"),
       baseVersion: 1,
     });
     await createArtifact(f.artifactDeps, person(bia.id), f.org.id, {
       title: "Só dela",
-      content: { kind: "document", markdown: "c" },
+      content: table("c"),
     });
     const owner = { type: "person" as const, id: f.owner.id };
     const ids = async (filters: Parameters<typeof listArtifacts>[3]) =>

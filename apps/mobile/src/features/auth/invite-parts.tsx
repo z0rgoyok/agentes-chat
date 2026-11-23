@@ -1,5 +1,6 @@
 import { type InvitationPreview, useAuthConfig } from "@agenteschat/client";
 import { joinNames } from "@agenteschat/client/lib/format";
+import { useNavigation } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { Easing, FadeInUp } from "react-native-reanimated";
@@ -8,19 +9,22 @@ import { useSession } from "@/providers/session";
 import { AgentAvatar, type AgentMode, Button, Icon, LineIcon, Text, useTheme } from "@/ui";
 import { CENTER } from "@/ui/auth/AuthScaffold";
 import { router } from "@/ui/navigation";
-import { Terms } from "./AuthFlow";
+import { Quiet, Terms } from "./AuthFlow";
 import { boldParts } from "./links";
 
 /** What an invitation's screens show of who works there. */
 export type InvitedAgents = NonNullable<InvitationPreview["agents"]>;
 
-/** Back from an invitation's first screen: the previous one, else home when signed in, else the sign-in. */
-export function useLeaveInvite() {
+/**
+ * Leaving an invitation's screen opened by its link with nothing under it: "Close", for the app when signed in, else
+ * the sign-in. Over another screen the system's back (the bar's button, the edge swipe) leaves, and this isn't drawn.
+ */
+export function CloseIfFirst() {
+  const { t } = useTranslation();
   const session = useSession();
-  return () => {
-    if (router.canGoBack()) router.back();
-    else router.replace(session.signedIn ? "/" : "/sign-in");
-  };
+  const navigation = useNavigation();
+  if (navigation.canGoBack()) return null;
+  return <Quiet label={t("mobile.common.close")} onPress={() => router.replace(session.signedIn ? "/" : "/sign-in")} />;
 }
 
 /** Leaves an invitation that leads nowhere: home when signed in, else the sign-in. */

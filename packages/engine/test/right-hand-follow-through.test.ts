@@ -334,22 +334,13 @@ describe("a handed task that ends after its report", () => {
 
   test("background work that ends the task later is told by the job, in @dev's name", async () => {
     f = await setup({ rightHand: true });
-    const { dm, c, issue, conversationId } = await handOver();
+    const { dm, c, issue } = await handOver();
     await reported(c);
+    // The hand-off made the work (`handOverWork`): it ends now.
     const [work] = await f.db
-      .insert(schema.agentWorks)
-      .values({
-        orgId: f.org.id,
-        agentId: f.agent.id,
-        channelId: conversationId,
-        anchorMessageId: c.messageId,
-        ownThread: false,
-        title: "Campanha de Natal",
-        issueId: issue.id,
-        status: "done",
-        how: "agent",
-        lastUpdateAt: new Date(),
-      })
+      .update(schema.agentWorks)
+      .set({ status: "done", issueId: issue.id })
+      .where(eq(schema.agentWorks.anchorMessageId, c.messageId))
       .returning();
     if (!work) throw new Error("no work");
     await setWorkIssueState(deps(), work, { ended: "done" });

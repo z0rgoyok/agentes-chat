@@ -11,7 +11,9 @@ import {
   useRuleDescribe,
   useRuleParse,
 } from "@agenteschat/client";
+import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
+import { upperFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { splitAddresses } from "@agenteschat/client/lib/mail";
 import { routineReachWarnings } from "@agenteschat/client/lib/reach";
@@ -30,35 +32,37 @@ import {
   zoneDisplayName,
 } from "@agenteschat/client/lib/routines";
 import { WEEKDAYS } from "@agenteschat/ui/recurrence";
-import { type ReactNode, useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import {
   Button,
   fieldText,
+  GROUPED_ROW,
   GroupedField,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
   type IconName,
-  Locked,
   OPTION_ROW,
-  Segmented,
   Text,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { boldRuns } from "../chat/actions";
 import { AllowTalkAction } from "../chat/ReachLines";
+import { closeAgentPick, openAgentPick } from "../dashboards/agent-pick";
+import { closeOptionPick, openOptionPick, type PickChoice } from "../dashboards/option-pick";
+import { MissingScreen } from "../dashboards/parts";
 import { routineHref } from "../links/logic";
 import { ZoneList } from "../me/AccountPage";
+import { SettingsPage, useUnsavedGuard } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useEdition, useMeId, useNamesComputers, useOrgId } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
-import { goBack, PushedHeader, successHaptic } from "../shared/parts";
+import { goBack, successHaptic } from "../shared/parts";
 import { overLimit, TextArea } from "../shared/TextArea";
 import { EventWebhookSetup } from "./EventWebhookSetup";
 import { useFailed, useMyZone, useSay, useTargetLabel } from "./hooks";
@@ -107,9 +111,17 @@ import { setRoutineZone, useRoutineZone } from "./zone";
 
 const PROMPT_LIMIT = { max: FIELD_LIMITS.routinePrompt };
 
-type Open = "agent" | "target" | "mailbox" | "folder" | null;
-
 const close = () => goBack("/routines");
+
+/** What starts a routine, as its tile: the clock, an event, an email, a webhook call (as the list's rows). */
+const kindIcon = (kind: TriggerKind): IconName =>
+  kind === "event"
+    ? "bolt"
+    : kind === "email" || kind === "connector"
+      ? "mail"
+      : kind === "webhook"
+        ? "globe"
+        : "clock";
 
 /** A zone as the form says it: "Horário de Brasília" (a friendly name) or the city. */
 const zoneLabel = (zone: string, locale: string) =>
@@ -120,27 +132,22 @@ const zoneLabel = (zone: string, locale: string) =>
  * title, "Criar" or "Salvar"), the web's form for the phone: a starting point (new only), the agent, where it
  * delivers (a channel, the DM, a Drive document; a routine made in the chat keeps its conversation), what to do, a name, and when: a phrase the server reads ("toda segunda às 9h")
  * shown back as a sentence with the next runs and its time zone (a screen of its own), an event, or an email.
- * Then when it posts and what it may do on its own. Editing saves only what changed.
+ * Then when it posts and what it may do on its own. Editing saves only what changed. On the settings' form page: a
+ * focused field scrolls clear of the keyboard on both systems and the bar over the keyboard walks the fields; leaving
+ * after changing anything asks first.
  */
 export function RoutineForm({ editId }: { editId: string | null }) {
   const { t } = useTranslation();
-  const c = useColors();
   const routines = useRoutines(useOrgId());
   const routine = editId ? routines.data?.find((r) => r.id === editId) : undefined;
   if (editId && !routine)
     return (
-      <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-        <PushedHeader title={t("routines.editTitle")} solid={false} grouped />
-        <View style={styles.center}>
-          {routines.isLoading ? (
-            <ActivityIndicator color={c.muted} />
-          ) : (
-            <Text tone="muted" style={styles.centerText}>
-              {routines.isError && !routines.data ? t("mobile.routines.loadFailed") : t("mobile.notFound.subtitle")}
-            </Text>
-          )}
-        </View>
-      </View>
+      <MissingScreen
+        title={t("routines.editTitle")}
+        state={routines.isLoading ? "loading" : routines.isError && !routines.data ? "failed" : "gone"}
+        onRetry={() => void routines.refetch()}
+        gone={t("mobile.notFound.subtitle")}
+      />
     );
   return <Form key={routine?.id ?? "new"} routine={routine} />;
 }
@@ -148,7 +155,6 @@ export function RoutineForm({ editId }: { editId: string | null }) {
 function Form({ routine }: { routine: Routine | undefined }) {
   const { t, i18n } = useTranslation();
   const c = useColors();
-  const insets = useSafeAreaInsets();
   const orgId = useOrgId();
   const { org } = useOrg();
   const toast = useToast();
@@ -165,25 +171,50 @@ function Form({ routine }: { routine: Routine | undefined }) {
   );
   const targetLabel = useTargetLabel();
   const action = useRoutineAction(orgId);
-  const agents = dir.agents;
+  // The agents this person may make a routine for (`createsRoutinesFor`: they set up its routines, who edits each one
+  // and "Create routines" where it reaches, and it answers them, since a routine asks it on its creator's behalf; ADR
+  // 0085 addendum of 2026-11-17), as the server checks a new routine and a move to another agent. A routine being
+  // edited keeps its own agent, which whoever edits it needn't talk to.
+  const agents = useMemo(
+    () => dir.agents.filter((a) => createsRoutinesFor(a) || a.id === routine?.agentId),
+    [dir.agents, routine?.agentId],
+  );
   const editing = Boolean(routine);
   const myZone = useMyZone("America/Sao_Paulo");
   const savedZone = zoneOf(routine);
   // A routine still read in UTC (made before time zones) starts in my zone, with a hint to keep UTC.
   const utc = wasUtc(routine);
   const [d, setD] = useState<RoutineDraft>(() => draftOf(routine, utc ? myZone : savedZone || myZone));
-  const set = (patch: Partial<RoutineDraft>) => setD((x) => ({ ...x, ...patch }));
+  // Anything the person changed (the defaults filled in as lists load are not theirs): a back swipe asks first.
+  const [touched, setTouched] = useState(false);
+  const leave = useUnsavedGuard(touched);
+  const edit = (next: (x: RoutineDraft) => RoutineDraft) => {
+    setTouched(true);
+    setD(next);
+  };
+  const set = (patch: Partial<RoutineDraft>) => edit((x) => ({ ...x, ...patch }));
   // What the routine had, to tell whether "when" changed.
   const [savedRule] = useState(() => JSON.stringify(toApiRule(ruleOf(routine, savedZone || myZone))));
-  const [open, setOpen] = useState<Open>(null);
-  const toggle = (o: Exclude<Open, null>) => setOpen((v) => (v === o ? null : o));
+  // The agent and the lists to pick from (where it delivers, the mailbox, the folder, a starting point) are screens
+  // of their own, pushed over the form: what is picked there comes back through their stores, which end with it.
+  useEffect(
+    () => () => {
+      closeAgentPick();
+      closeOptionPick();
+    },
+    [],
+  );
+  const pickFrom = (title: string, value: string | null, options: PickChoice[], apply: (key: string) => void) => {
+    openOptionPick({ title, value, options, apply });
+    router.push("/option-pick");
+  };
 
   // My zone may arrive after the form opens (the people list loads): follow it until a zone is picked.
   const [zoneTouched, setZoneTouched] = useState(false);
   const followsMyZone = !routine || utc;
   const setZone = (zone: string) => {
     setZoneTouched(true);
-    setD((x) => ({ ...x, rule: { ...x.rule, timezone: zone } }));
+    edit((x) => ({ ...x, rule: { ...x.rule, timezone: zone } }));
   };
   useEffect(() => {
     if (followsMyZone && !zoneTouched)
@@ -215,6 +246,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
   const [phrase, setPhrase] = useState(phraseOf(routine));
   const [phraseTyped, setPhraseTyped] = useState(false);
   const typePhrase = (text: string) => {
+    setTouched(true);
     setPhrase(text);
     setPhraseTyped(true);
   };
@@ -275,7 +307,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
               ? t("recurrence.s.monthly", { count: 1 })
               : t("mobile.routines.when.custom");
   const pickRule = (next: typeof d.rule) => {
-    setD((x) => ({ ...x, rule: next }));
+    edit((x) => ({ ...x, rule: next }));
     setRulePicked(true);
     setPhrase("");
     setPhraseTyped(false);
@@ -383,10 +415,10 @@ function Form({ routine }: { routine: Routine | undefined }) {
   const setFrom = (text: string) => {
     setFromText(text);
     const { valid } = splitAddresses(text);
-    setD((x) => ({ ...x, email: { ...x.email, filter: { ...x.email.filter, from: valid } } }));
+    edit((x) => ({ ...x, email: { ...x.email, filter: { ...x.email.filter, from: valid } } }));
   };
   const setFilter = (patch: { subject?: string; text?: string }) =>
-    setD((x) => ({ ...x, email: { ...x.email, filter: { ...x.email.filter, ...patch } } }));
+    edit((x) => ({ ...x, email: { ...x.email, filter: { ...x.email.filter, ...patch } } }));
   const fromBad = d.kind === "email" && from.invalid.length > 0;
   // "Email no MillionSend" (ADR 0130): the first connection, its inbox's address and the same filters.
   const hasMillionSend = d.kind === "connector" || eventConnections.length > 0;
@@ -404,8 +436,30 @@ function Form({ routine }: { routine: Routine | undefined }) {
   const [msFromText, setMsFromText] = useState(() => (d.connector.filter.from ?? []).join(", "));
   const msFrom = splitAddresses(msFromText);
   const setConnectorFilter = (patch: { to?: string; from?: string[]; subject?: string }) =>
-    setD((x) => ({ ...x, connector: { ...x.connector, filter: { ...x.connector.filter, ...patch } } }));
+    edit((x) => ({ ...x, connector: { ...x.connector, filter: { ...x.connector.filter, ...patch } } }));
   const msFromBad = d.kind === "connector" && msFrom.invalid.length > 0;
+
+  // What starts it: the clock, an event, an email (a mailbox's, MillionSend's) or a webhook call.
+  const kinds: TriggerKind[] = [
+    "schedule",
+    "event",
+    ...(hasMail ? (["email"] as const) : []),
+    ...(hasMillionSend ? (["connector"] as const) : []),
+    "webhook",
+  ];
+  const pickKind = () =>
+    void pickOne({
+      title: t("routines.form.when"),
+      value: d.kind,
+      options: kinds.map((k) => ({
+        key: k,
+        label: t(`routines.form.kind.${k}`),
+        leading: { kind: "icon" as const, name: kindIcon(k) },
+      })),
+    }).then((key) => {
+      const kind = kinds.find((k) => k === key);
+      if (kind) set({ kind });
+    });
 
   // A routine on someone's computer that runs hourly or more often: how often it wakes that computer.
   const brain = dir.agentById.get(d.agentId)?.brain;
@@ -445,7 +499,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
     setTemplate(o);
     setPhrase("");
     setPhraseTyped(false);
-    setD((x) => ({
+    edit((x) => ({
       ...x,
       prompt: o.prompt,
       name: o.label,
@@ -468,6 +522,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
    * form when it was opened from there, else in place of the form.
    */
   const done = (saved: Routine | undefined) => {
+    leave();
     if (saved?.trigger.type === "webhook") router.dismissTo(routineHref(saved.id));
     else close();
   };
@@ -476,6 +531,7 @@ function Form({ routine }: { routine: Routine | undefined }) {
     if (routine) {
       const patch = draftChanges(routine, d, savedRule, ruleTyped || rulePicked);
       if (Object.keys(patch).length === 0) {
+        leave();
         close();
         return;
       }
@@ -494,7 +550,10 @@ function Form({ routine }: { routine: Routine | undefined }) {
               agentId: d.agentId,
             });
             if (routine.trigger.type !== "webhook") done(saved as Routine);
-            else close();
+            else {
+              leave();
+              close();
+            }
           },
           onError: failed,
         },
@@ -515,507 +574,446 @@ function Form({ routine }: { routine: Routine | undefined }) {
   };
 
   const agent = dir.agentById.get(d.agentId);
-  const targets: { key: string; icon: IconName; label: string }[] = [
+  /** The agent: the app's agent picker, pushed (the agents whose routines this person sets up, talked to or not). */
+  const pickAgent = () => {
+    if (agents.length === 0) return;
+    openAgentPick({
+      agentId: d.agentId || null,
+      apply: (agentId) => set({ agentId }),
+      title: t("routines.form.agent"),
+      note: "",
+      everyone: true,
+      ids: agents.map((a) => a.id),
+    });
+    router.push("/agent-pick");
+  };
+  const targets: (PickChoice & { icon: IconName })[] = [
     // A routine made in the chat (a thread or a DM) keeps its conversation.
     ...(routine && targetChoice(routine.target) === TARGET_KEEP
       ? [{ key: TARGET_KEEP, icon: targetIcon(routine.target), label: targetLabel(routine.target) }]
       : []),
-    ...(channels.data ?? []).map((ch) => ({ key: ch.id, icon: "hash" as const, label: `#${ch.name}` })),
-    { key: TARGET_DM, icon: "chat", label: t("routines.target.dm") },
-    { key: TARGET_ARTIFACT, icon: "doc", label: t("routines.target.artifact") },
+    ...(channels.data ?? []).map((ch) => ({
+      key: ch.id,
+      icon: ch.visibility === "private" ? ("lock" as const) : ("hash" as const),
+      label: `#${ch.name}`,
+    })),
+    { key: TARGET_DM, icon: "chat", label: t("routines.target.dm"), sub: t("routines.panel.whereHint.dm") },
+    {
+      key: TARGET_ARTIFACT,
+      icon: "doc",
+      label: t("routines.target.artifact"),
+      sub: t("routines.panel.whereHint.artifact"),
+    },
   ];
   const target = targets.find((o) => o.key === d.target);
+  const pickTarget = () => pickFrom(t("routines.form.target"), d.target, targets, (key) => set({ target: key }));
+  const pickMailbox = () =>
+    pickFrom(
+      t("mail.routine.mailbox"),
+      d.email.accountId,
+      mailList.map((a) => ({ key: a.id, icon: "mail", label: a.address })),
+      (accountId) => edit((x) => ({ ...x, email: { ...x.email, accountId, folder: "" } })),
+    );
+  const pickFolder = () =>
+    pickFrom(
+      t("mail.routine.folder"),
+      d.email.folder,
+      folderOptions.map((f) => ({ key: f.id, icon: "archive", label: f.label })),
+      (folder) => edit((x) => ({ ...x, email: { ...x.email, folder } })),
+    );
   const input = [fieldText("callout"), styles.input, { color: c.ink }];
   return (
-    <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={editing ? t("routines.editTitle") : t("routines.new")}
-        solid={false}
-        grouped
-        action={{ label: editing ? t("common.save") : t("mobile.routines.create"), disabled: !ready, onPress: submit }}
+    <SettingsPage
+      title={editing ? t("routines.editTitle") : t("routines.new")}
+      action={{ label: editing ? t("common.save") : t("mobile.routines.create"), disabled: !ready, onPress: submit }}
+      locked={action.isPending}
+      toolbar
+    >
+      {agents.length === 0 && !dir.loading ? <GroupedFooter>{t("routines.form.noAgents")}</GroupedFooter> : null}
+      {!editing ? <TemplatePicker value={template?.value} onPick={pickTemplate} /> : null}
+
+      <GroupedHeader>{t("routines.form.agent")}</GroupedHeader>
+      <GroupedList>
+        <GroupedRow
+          label={agent?.name ?? ""}
+          leading={agent ? <AgentFace agentId={agent.id} size={OPTION_ROW.face} live={false} /> : undefined}
+          icon={agent ? undefined : "agent"}
+          value={agent?.role || undefined}
+          chevron={agents.length > 0}
+          {...(agents.length > 0 ? { onPress: pickAgent } : {})}
+        />
+      </GroupedList>
+
+      <GroupedHeader>{t("routines.form.target")}</GroupedHeader>
+      <GroupedList>
+        <GroupedRow icon={target?.icon ?? "hash"} label={target?.label ?? "#"} chevron onPress={pickTarget} />
+      </GroupedList>
+      <GroupedHeader>{t("routines.form.what")}</GroupedHeader>
+      {promptHidden ? (
+        <GroupedFooter>{t("routines.detailsHidden")}</GroupedFooter>
+      ) : (
+        <TextArea
+          value={d.prompt}
+          onChangeText={(prompt) => set({ prompt })}
+          placeholder={t("routines.form.whatPlaceholder")}
+          accessibilityLabel={t("routines.form.what")}
+          minHeight={110}
+          limit={PROMPT_LIMIT}
+        />
+      )}
+      {unfilled ? <GroupedFooter>{t("routines.presets.fillBlank")}</GroupedFooter> : null}
+      <GroupedHeader>{editing ? t("routines.form.title") : t("routines.form.name")}</GroupedHeader>
+      <TextArea
+        value={d.name}
+        onChangeText={(name) => set({ name })}
+        accessibilityLabel={editing ? t("routines.form.title") : t("routines.form.name")}
+        multiline={false}
+        minHeight={50}
+        returnKeyType="done"
+        maxLength={200}
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={[styles.in, { paddingBottom: 32 + insets.bottom }]}
-      >
-        <Locked when={action.isPending}>
-          {agents.length === 0 && !dir.loading ? <GroupedFooter>{t("routines.form.noAgents")}</GroupedFooter> : null}
-          {!editing ? <TemplatePicker value={template?.value} onPick={pickTemplate} /> : null}
 
-          <GroupedHeader>{t("routines.form.agent")}</GroupedHeader>
+      <GroupedHeader>{t("routines.form.when")}</GroupedHeader>
+      {/* What starts it, picked in the app's picker (up to five kinds: a row of segments ran off a phone). */}
+      <GroupedList>
+        <GroupedRow icon={kindIcon(d.kind)} label={t(`routines.form.kind.${d.kind}`)} menu onPress={pickKind} />
+      </GroupedList>
+      {schedule ? (
+        <>
+          <View style={styles.gap} />
           <GroupedList>
-            <GroupedRow
-              label={agent?.name ?? ""}
-              leading={agent ? <AgentFace agentId={agent.id} size={OPTION_ROW.face} live={false} /> : undefined}
-              icon={agent ? undefined : "agent"}
-              value={agent?.role || undefined}
-              chevron
-              onPress={() => toggle("agent")}
-            />
-            {open === "agent"
-              ? agents
-                  .filter((a) => a.id !== d.agentId)
-                  .map((a) => (
-                    <GroupedRow
-                      key={a.id}
-                      label={a.name}
-                      leading={<AgentFace agentId={a.id} size={OPTION_ROW.face} live={false} />}
-                      value={a.role || undefined}
-                      onPress={() => {
-                        set({ agentId: a.id });
-                        setOpen(null);
-                      }}
-                    />
-                  ))
-              : null}
-          </GroupedList>
-
-          <GroupedHeader>{t("routines.form.target")}</GroupedHeader>
-          <GroupedList>
-            <GroupedRow
-              icon={target?.icon ?? "hash"}
-              label={target?.label ?? "#"}
-              chevron
-              onPress={() => toggle("target")}
-            />
-            {open === "target"
-              ? targets
-                  .filter((o) => o.key !== d.target)
-                  .map((o) => (
-                    <GroupedRow
-                      key={o.key}
-                      icon={o.icon}
-                      label={o.label}
-                      onPress={() => {
-                        set({ target: o.key });
-                        setOpen(null);
-                      }}
-                    />
-                  ))
-              : null}
-          </GroupedList>
-          <GroupedHeader>{t("routines.form.what")}</GroupedHeader>
-          {promptHidden ? (
-            <GroupedFooter>{t("routines.detailsHidden")}</GroupedFooter>
-          ) : (
-            <TextArea
-              value={d.prompt}
-              onChangeText={(prompt) => set({ prompt })}
-              placeholder={t("routines.form.whatPlaceholder")}
-              accessibilityLabel={t("routines.form.what")}
-              minHeight={110}
-              limit={PROMPT_LIMIT}
-            />
-          )}
-          {unfilled ? <GroupedFooter>{t("routines.presets.fillBlank")}</GroupedFooter> : null}
-          <GroupedHeader>{editing ? t("routines.form.title") : t("routines.form.name")}</GroupedHeader>
-          <TextArea
-            value={d.name}
-            onChangeText={(name) => set({ name })}
-            accessibilityLabel={editing ? t("routines.form.title") : t("routines.form.name")}
-            multiline={false}
-            minHeight={50}
-            returnKeyType="done"
-            maxLength={200}
-          />
-
-          <GroupedHeader>{t("routines.form.when")}</GroupedHeader>
-          <Segmented
-            items={[
-              { key: "schedule", label: t("routines.form.kind.schedule") },
-              { key: "event", label: t("routines.form.kind.event") },
-              ...(hasMail ? [{ key: "email", label: t("routines.form.kind.email") }] : []),
-              ...(hasMillionSend ? [{ key: "connector", label: t("routines.form.kind.connector") }] : []),
-              { key: "webhook", label: t("routines.form.kind.webhook") },
-            ]}
-            value={d.kind}
-            onChange={(k) => set({ kind: k as TriggerKind })}
-            wide="fit"
-          />
-          {schedule ? (
-            <>
-              <View style={styles.gap} />
-              <GroupedList>
-                {/* A routine kept as a cron says so in its own words until a pick or a phrase replaces it. */}
-                {cron ? (
-                  <View style={styles.sentence}>
-                    <Text variant="body" accessibilityLiveRegion="polite">
-                      {sentence}
-                    </Text>
-                  </View>
-                ) : null}
-                <GroupedRow
-                  key="repeat"
-                  icon="replay"
-                  label={t("recurrence.frequency")}
-                  value={presetWord(preset)}
-                  menu
-                  onPress={pickPreset}
-                />
-                {dayValue !== null ? (
-                  <GroupedRow
-                    key="day"
-                    icon="sun"
-                    label={t("mobile.routines.when.day")}
-                    value={dayValue}
-                    menu
-                    onPress={pickDay}
-                  />
-                ) : null}
-                {preset !== "custom" ? (
-                  <GroupedRow
-                    key="time"
-                    icon="clock"
-                    label={t("recurrence.times")}
-                    value={time}
-                    menu
-                    onPress={pickTime}
-                  />
-                ) : null}
-                {/* A cron keeps its own zone until a phrase replaces it: nothing here could change it. */}
-                {cron ? null : (
-                  <GroupedField label={t("routines.form.timezone")} onPress={pickZone}>
-                    <Text variant="callout" numberOfLines={1}>
-                      {zoneLabel(d.rule.timezone, i18n.language)}
-                    </Text>
-                  </GroupedField>
-                )}
-              </GroupedList>
-              {/* The rows read back as one sentence, with the next runs: what the person checks before saving. */}
-              {cron ? null : (
-                <GroupedFooter>
-                  {[sentence, upcoming.length > 0 ? `${t("routines.form.next")}: ${upcoming.join(" · ")}` : null]
-                    .filter(Boolean)
-                    .join("\n")}
-                </GroupedFooter>
-              )}
-              {utc && !cron && !isUtc(d.rule.timezone) ? (
-                <View style={styles.utc}>
-                  <Text variant="footnote" tone="faint">
-                    {t("routines.form.utcHint", { zone: timezoneName(d.rule.timezone, i18n.language) })}
-                  </Text>
-                  <Pressable
-                    onPress={() => setZone("UTC")}
-                    accessibilityRole="button"
-                    hitSlop={14}
-                    style={({ pressed }) => (pressed ? styles.pressed : null)}
-                  >
-                    <Text variant="footnote" tone="ink2" style={styles.link}>
-                      {t("routines.form.keepUtc")}
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-              {showPhrase ? (
-                <>
-                  {/* Under Repetição, Dia and Horário: "Do seu jeito", what the rows don't hold. */}
-                  <GroupedHeader>{t("mobile.routines.when.custom")}</GroupedHeader>
-                  <TextArea
-                    value={phrase}
-                    onChangeText={typePhrase}
-                    placeholder={t("recurrence.phrasePlaceholder")}
-                    accessibilityLabel={t("routines.form.frequency")}
-                    multiline={false}
-                    minHeight={50}
-                    autoCorrect={false}
-                    autoFocus={writing && !phrase}
-                    returnKeyType="done"
-                    maxLength={300}
-                  />
-                </>
-              ) : null}
-              {phraseError ? (
-                <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
-                  {phraseError}
+            {/* A routine kept as a cron says so in its own words until a pick or a phrase replaces it. */}
+            {cron ? (
+              <View style={styles.sentence}>
+                <Text variant="body" accessibilityLiveRegion="polite">
+                  {sentence}
                 </Text>
-              ) : null}
-              {busy ? <GroupedFooter>{say(busy)}</GroupedFooter> : null}
-            </>
-          ) : null}
-          {d.kind === "event" ? (
-            <>
-              <GroupedHeader
-                hint={{
-                  name: t("common.about", { label: t("routines.form.event") }),
-                  text: t("routines.form.eventHelp", { org: org?.name ?? "" }),
-                }}
-              >
-                {t("routines.form.event")}
-              </GroupedHeader>
-              <GroupedList>
-                {ROUTINE_EVENTS.map((e) => (
-                  <GroupedRow
-                    key={e}
-                    icon="bolt"
-                    label={t(`routines.event.${e}`)}
-                    checked={d.event === e}
-                    onPress={() => set({ event: e })}
-                  />
-                ))}
-              </GroupedList>
-              {eventWebhook(d.event) ? <EventWebhookSetup provider={eventWebhook(d.event) ?? "github"} /> : null}
-            </>
-          ) : null}
-          {d.kind === "email" ? (
-            mailboxes.isSuccess && allMail.length === 0 ? (
-              <View style={styles.noMail}>
-                <Text variant="footnote" tone="faint">
-                  {t("mail.routine.noMailbox")}
-                </Text>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="bolt"
-                  label={t("mail.routine.openConnectors")}
-                  onPress={() => router.push("/connectors")}
-                />
               </View>
-            ) : (
-              <>
-                {mailPick.cantRead ? (
-                  <AgentAccessNote
-                    agentId={d.agentId}
-                    words={mailList.length === 0 ? "mail.routine.readsNone" : "mail.routine.cantRead"}
-                  />
-                ) : null}
-                <View style={styles.gap} />
-                <GroupedList>
-                  <GroupedRow
-                    icon="mail"
-                    label={t("mail.routine.mailbox")}
-                    value={mailbox?.address}
-                    chevron={mailList.length > 1}
-                    onPress={mailList.length > 1 ? () => toggle("mailbox") : undefined}
-                  />
-                  {open === "mailbox"
-                    ? mailList
-                        .filter((a) => a.id !== d.email.accountId)
-                        .map((a) => (
-                          <GroupedRow
-                            key={a.id}
-                            label={a.address}
-                            onPress={() => {
-                              setD((x) => ({ ...x, email: { ...x.email, accountId: a.id, folder: "" } }));
-                              setOpen(null);
-                            }}
-                          />
-                        ))
-                    : null}
-                  <GroupedRow
-                    icon="archive"
-                    label={t("mail.routine.folder")}
-                    value={folderLabel}
-                    chevron
-                    onPress={() => toggle("folder")}
-                  />
-                  {open === "folder"
-                    ? folderOptions
-                        .filter((f) => f.id !== d.email.folder)
-                        .map((f) => (
-                          <GroupedRow
-                            key={f.id}
-                            label={f.label}
-                            onPress={() => {
-                              setD((x) => ({ ...x, email: { ...x.email, folder: f.id } }));
-                              setOpen(null);
-                            }}
-                          />
-                        ))
-                    : null}
-                </GroupedList>
-                <GroupedHeader>{t("mail.routine.filters")}</GroupedHeader>
-                <GroupedList>
-                  <StackedField label={t("mail.routine.from")}>
-                    <TextInput
-                      value={fromText}
-                      onChangeText={setFrom}
-                      placeholder={t("mail.list.placeholder")}
-                      placeholderTextColor={c.faint}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      accessibilityLabel={t("mail.routine.from")}
-                      style={input}
-                    />
-                  </StackedField>
-                  <StackedField label={t("mail.routine.subject")}>
-                    <TextInput
-                      value={d.email.filter.subject ?? ""}
-                      onChangeText={(subject) => setFilter({ subject })}
-                      accessibilityLabel={t("mail.routine.subject")}
-                      style={input}
-                    />
-                  </StackedField>
-                  <StackedField label={t("mail.routine.text")}>
-                    <TextInput
-                      value={d.email.filter.text ?? ""}
-                      onChangeText={(text) => setFilter({ text })}
-                      accessibilityLabel={t("mail.routine.text")}
-                      style={input}
-                    />
-                  </StackedField>
-                </GroupedList>
-                {fromBad ? (
-                  <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
-                    {t("mail.list.invalid")}
-                  </Text>
-                ) : (
-                  <GroupedFooter>{t("mail.routine.fromHelp")}</GroupedFooter>
-                )}
-              </>
-            )
-          ) : null}
-
-          {d.kind === "connector" ? (
-            <>
-              {connectionPick.cantRead ? (
-                <AgentAccessNote
-                  agentId={d.agentId}
-                  words={
-                    connectionPick.options.length === 0
-                      ? "mail.routine.connectorReadsNone"
-                      : "mail.routine.connectorCantRead"
-                  }
-                  values={{
-                    connector:
-                      eventConnections.find((s) => s.id === d.connector.connectionId)?.label ??
-                      eventConnections[0]?.label ??
-                      "",
-                  }}
-                />
-              ) : null}
-              <View style={styles.gap} />
-              <GroupedList>
-                <StackedField label={t("mail.routine.inboxAddress")}>
-                  <TextInput
-                    value={d.connector.filter.to ?? ""}
-                    onChangeText={(to) => setConnectorFilter({ to })}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    accessibilityLabel={t("mail.routine.inboxAddress")}
-                    style={input}
-                  />
-                </StackedField>
-              </GroupedList>
-              <GroupedFooter>{t("mail.routine.inboxAddressHelp")}</GroupedFooter>
-              <GroupedHeader>{t("mail.routine.filters")}</GroupedHeader>
-              <GroupedList>
-                <StackedField label={t("mail.routine.from")}>
-                  <TextInput
-                    value={msFromText}
-                    onChangeText={(text) => {
-                      setMsFromText(text);
-                      setConnectorFilter({ from: splitAddresses(text).valid });
-                    }}
-                    placeholder={t("mail.list.placeholder")}
-                    placeholderTextColor={c.faint}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    accessibilityLabel={t("mail.routine.from")}
-                    style={input}
-                  />
-                </StackedField>
-                <StackedField label={t("mail.routine.subject")}>
-                  <TextInput
-                    value={d.connector.filter.subject ?? ""}
-                    onChangeText={(subject) => setConnectorFilter({ subject })}
-                    accessibilityLabel={t("mail.routine.subject")}
-                    style={input}
-                  />
-                </StackedField>
-              </GroupedList>
-              {msFromBad ? (
-                <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
-                  {t("mail.list.invalid")}
+            ) : null}
+            <GroupedRow
+              key="repeat"
+              icon="replay"
+              label={t("recurrence.frequency")}
+              value={presetWord(preset)}
+              menu
+              onPress={pickPreset}
+            />
+            {dayValue !== null ? (
+              <GroupedRow
+                key="day"
+                icon="sun"
+                label={t("mobile.routines.when.day")}
+                value={dayValue}
+                menu
+                onPress={pickDay}
+              />
+            ) : null}
+            {preset !== "custom" ? (
+              <GroupedRow key="time" icon="clock" label={t("recurrence.times")} value={time} menu onPress={pickTime} />
+            ) : null}
+            {/* A cron keeps its own zone until a phrase replaces it: nothing here could change it. */}
+            {cron ? null : (
+              <GroupedField label={t("routines.form.timezone")} onPress={pickZone}>
+                <Text variant="callout" numberOfLines={1}>
+                  {zoneLabel(d.rule.timezone, i18n.language)}
                 </Text>
-              ) : (
-                <GroupedFooter>{t("mail.routine.fromHelp")}</GroupedFooter>
-              )}
+              </GroupedField>
+            )}
+          </GroupedList>
+          {/* The rows read back as one sentence, with the next runs: what the person checks before saving. */}
+          {cron ? null : (
+            <GroupedFooter>
+              {[sentence, upcoming.length > 0 ? `${t("routines.form.next")}: ${upcoming.join(" · ")}` : null]
+                .filter(Boolean)
+                .join("\n")}
+            </GroupedFooter>
+          )}
+          {utc && !cron && !isUtc(d.rule.timezone) ? (
+            <View style={styles.utc}>
+              <Text variant="footnote" tone="faint">
+                {t("routines.form.utcHint", { zone: timezoneName(d.rule.timezone, i18n.language) })}
+              </Text>
+              <Pressable
+                onPress={() => setZone("UTC")}
+                accessibilityRole="button"
+                hitSlop={14}
+                style={({ pressed }) => (pressed ? styles.pressed : null)}
+              >
+                <Text variant="footnote" tone="ink2" style={styles.link}>
+                  {t("routines.form.keepUtc")}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {showPhrase ? (
+            <>
+              {/* Under Repetição, Dia and Horário: "Do seu jeito", what the rows don't hold. */}
+              <GroupedHeader>{t("mobile.routines.when.custom")}</GroupedHeader>
+              <TextArea
+                value={phrase}
+                onChangeText={typePhrase}
+                placeholder={t("recurrence.phrasePlaceholder")}
+                accessibilityLabel={t("routines.form.frequency")}
+                multiline={false}
+                minHeight={50}
+                autoCorrect={false}
+                autoFocus={writing && !phrase}
+                returnKeyType="done"
+                maxLength={300}
+              />
             </>
           ) : null}
-
-          {d.kind === "webhook" ? (
-            routine?.trigger.type === "webhook" ? (
-              <WebhookCard routine={routine} runs={routine.recentRuns} />
-            ) : (
-              <GroupedFooter
-                hint={{
-                  name: t("common.about", { label: t("routines.webhook.address") }),
-                  text: t("routines.webhook.newNote"),
-                }}
-              >
-                {t("routines.webhook.newShort")}
-              </GroupedFooter>
-            )
+          {phraseError ? (
+            <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
+              {phraseError}
+            </Text>
           ) : null}
-
+          {busy ? <GroupedFooter>{say(busy)}</GroupedFooter> : null}
+        </>
+      ) : null}
+      {d.kind === "event" ? (
+        <>
           <GroupedHeader
-            hint={{ name: t("common.about", { label: t("routines.form.report") }), text: t("routines.report.hint") }}
+            hint={{
+              name: t("common.about", { label: t("routines.form.event") }),
+              text: t("routines.form.eventHelp", { org: org?.name ?? "" }),
+            }}
           >
-            {t("routines.form.report")}
+            {t("routines.form.event")}
           </GroupedHeader>
           <GroupedList>
-            {(["always", "when_new"] as const).map((v) => (
+            {ROUTINE_EVENTS.map((e) => (
               <GroupedRow
-                key={v}
-                label={t(`routines.report.${v}`)}
-                checked={d.report === v}
-                onPress={() => set({ report: v })}
+                key={e}
+                icon="bolt"
+                label={t(`routines.event.${e}`)}
+                checked={d.event === e}
+                onPress={() => set({ event: e })}
               />
             ))}
           </GroupedList>
-          {routineReachWarnings(d.prompt, dir.agents, {
-            agentId: d.agentId || null,
-            creatorUserId: creator === me ? null : creator,
-            creatorRoleIds: creator ? dir.memberById.get(creator)?.roleIds : undefined,
-          }).map((w) => (
-            <View key={w.agent.id} style={styles.warning}>
-              <Text variant="footnote" tone="ink2" accessibilityLiveRegion="polite">
-                {boldRuns(t("routines.reachWarning.blocked", { ...agentGrammar(w.agent.name) }) as string).map(
-                  (r, i) =>
-                    r.bold ? (
-                      <Text key={String(i)} variant="footnote" tone="ink" style={styles.bold}>
-                        {r.text}
-                      </Text>
-                    ) : (
-                      r.text
-                    ),
-                )}
-              </Text>
-              {creator ? <AllowTalkAction agent={w.agent} userId={creator} /> : null}
-            </View>
-          ))}
-          {routine && !isDoneOnce(routine) ? (
-            <>
-              <View style={styles.gap} />
-              <GroupedList>
-                <GroupedRow
-                  label={t("routines.form.active")}
-                  toggle={d.active}
-                  onPress={() => set({ active: !d.active })}
+          {eventWebhook(d.event) ? <EventWebhookSetup provider={eventWebhook(d.event) ?? "github"} /> : null}
+        </>
+      ) : null}
+      {d.kind === "email" ? (
+        mailboxes.isSuccess && allMail.length === 0 ? (
+          <View style={styles.noMail}>
+            <Text variant="footnote" tone="faint">
+              {t("mail.routine.noMailbox")}
+            </Text>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="bolt"
+              label={t("mail.routine.openConnectors")}
+              onPress={() => router.push("/connectors")}
+            />
+          </View>
+        ) : (
+          <>
+            {mailPick.cantRead ? (
+              <AgentAccessNote
+                agentId={d.agentId}
+                words={mailList.length === 0 ? "mail.routine.readsNone" : "mail.routine.cantRead"}
+              />
+            ) : null}
+            <View style={styles.gap} />
+            <GroupedList>
+              <GroupedRow
+                icon="mail"
+                label={t("mail.routine.mailbox")}
+                value={
+                  mailbox?.address ??
+                  // Someone else's mailbox the routine already watches isn't listed to the viewer: it stays, unnamed.
+                  (d.email.accountId ? upperFirst(t("mail.routine.unknownMailbox"), i18n.language) : undefined)
+                }
+                chevron={mailList.length > 1}
+                {...(mailList.length > 1 ? { onPress: pickMailbox } : {})}
+              />
+              <GroupedRow
+                icon="archive"
+                label={t("mail.routine.folder")}
+                value={folderLabel}
+                chevron={folderOptions.length > 1}
+                {...(folderOptions.length > 1 ? { onPress: pickFolder } : {})}
+              />
+            </GroupedList>
+            <GroupedHeader>{t("mail.routine.filters")}</GroupedHeader>
+            <GroupedList>
+              <GroupedField stacked label={t("mail.routine.from")}>
+                <TextInput
+                  value={fromText}
+                  onChangeText={setFrom}
+                  placeholder={t("mail.list.placeholder")}
+                  placeholderTextColor={c.faint}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel={t("mail.routine.from")}
+                  style={input}
                 />
-              </GroupedList>
-            </>
-          ) : null}
-        </Locked>
-      </ScrollView>
-    </View>
-  );
-}
+              </GroupedField>
+              <GroupedField stacked label={t("mail.routine.subject")}>
+                <TextInput
+                  value={d.email.filter.subject ?? ""}
+                  onChangeText={(subject) => setFilter({ subject })}
+                  accessibilityLabel={t("mail.routine.subject")}
+                  style={input}
+                />
+              </GroupedField>
+              <GroupedField stacked label={t("mail.routine.text")}>
+                <TextInput
+                  value={d.email.filter.text ?? ""}
+                  onChangeText={(text) => setFilter({ text })}
+                  accessibilityLabel={t("mail.routine.text")}
+                  style={input}
+                />
+              </GroupedField>
+            </GroupedList>
+            {fromBad ? (
+              <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
+                {t("mail.list.invalid")}
+              </Text>
+            ) : (
+              <GroupedFooter>{t("mail.routine.fromHelp")}</GroupedFooter>
+            )}
+          </>
+        )
+      ) : null}
 
-/** A field with its label above it (long labels: "Assunto contém"). */
-function StackedField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View style={styles.stacked}>
-      <Text variant="footnote" tone="muted">
-        {label}
-      </Text>
-      {children}
-    </View>
+      {d.kind === "connector" ? (
+        <>
+          {connectionPick.cantRead ? (
+            <AgentAccessNote
+              agentId={d.agentId}
+              words={
+                connectionPick.options.length === 0
+                  ? "mail.routine.connectorReadsNone"
+                  : "mail.routine.connectorCantRead"
+              }
+              values={{
+                connector:
+                  eventConnections.find((s) => s.id === d.connector.connectionId)?.label ??
+                  eventConnections[0]?.label ??
+                  "",
+              }}
+            />
+          ) : null}
+          <View style={styles.gap} />
+          <GroupedList>
+            <GroupedField stacked label={t("mail.routine.inboxAddress")}>
+              <TextInput
+                value={d.connector.filter.to ?? ""}
+                onChangeText={(to) => setConnectorFilter({ to })}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel={t("mail.routine.inboxAddress")}
+                style={input}
+              />
+            </GroupedField>
+          </GroupedList>
+          <GroupedFooter>{t("mail.routine.inboxAddressHelp")}</GroupedFooter>
+          <GroupedHeader>{t("mail.routine.filters")}</GroupedHeader>
+          <GroupedList>
+            <GroupedField stacked label={t("mail.routine.from")}>
+              <TextInput
+                value={msFromText}
+                onChangeText={(text) => {
+                  setMsFromText(text);
+                  setConnectorFilter({ from: splitAddresses(text).valid });
+                }}
+                placeholder={t("mail.list.placeholder")}
+                placeholderTextColor={c.faint}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel={t("mail.routine.from")}
+                style={input}
+              />
+            </GroupedField>
+            <GroupedField stacked label={t("mail.routine.subject")}>
+              <TextInput
+                value={d.connector.filter.subject ?? ""}
+                onChangeText={(subject) => setConnectorFilter({ subject })}
+                accessibilityLabel={t("mail.routine.subject")}
+                style={input}
+              />
+            </GroupedField>
+          </GroupedList>
+          {msFromBad ? (
+            <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
+              {t("mail.list.invalid")}
+            </Text>
+          ) : (
+            <GroupedFooter>{t("mail.routine.fromHelp")}</GroupedFooter>
+          )}
+        </>
+      ) : null}
+
+      {d.kind === "webhook" ? (
+        routine?.trigger.type === "webhook" ? (
+          <WebhookCard routine={routine} runs={routine.recentRuns} />
+        ) : (
+          <GroupedFooter
+            hint={{
+              name: t("common.about", { label: t("routines.webhook.address") }),
+              text: t("routines.webhook.newNote"),
+            }}
+          >
+            {t("routines.webhook.newShort")}
+          </GroupedFooter>
+        )
+      ) : null}
+
+      <GroupedHeader
+        hint={{ name: t("common.about", { label: t("routines.form.report") }), text: t("routines.report.hint") }}
+      >
+        {t("routines.form.report")}
+      </GroupedHeader>
+      <GroupedList>
+        {(["always", "when_new"] as const).map((v) => (
+          <GroupedRow
+            key={v}
+            label={t(`routines.report.${v}`)}
+            checked={d.report === v}
+            onPress={() => set({ report: v })}
+          />
+        ))}
+      </GroupedList>
+      {routineReachWarnings(d.prompt, dir.agents, {
+        agentId: d.agentId || null,
+        creatorUserId: creator === me ? null : creator,
+        creatorRoleIds: creator ? dir.memberById.get(creator)?.roleIds : undefined,
+      }).map((w) => (
+        <View key={w.agent.id} style={styles.warning}>
+          <Text variant="footnote" tone="ink2" accessibilityLiveRegion="polite">
+            {boldRuns(t("routines.reachWarning.blocked", { ...agentGrammar(w.agent.name) }) as string).map((r, i) =>
+              r.bold ? (
+                <Text key={String(i)} variant="footnote" tone="ink" style={styles.bold}>
+                  {r.text}
+                </Text>
+              ) : (
+                r.text
+              ),
+            )}
+          </Text>
+          {creator ? <AllowTalkAction agent={w.agent} userId={creator} /> : null}
+        </View>
+      ))}
+      {routine && !isDoneOnce(routine) ? (
+        <>
+          <View style={styles.gap} />
+          <GroupedList>
+            <GroupedRow
+              label={t("routines.form.active")}
+              toggle={d.active}
+              onPress={() => set({ active: !d.active })}
+            />
+          </GroupedList>
+        </>
+      ) : null}
+    </SettingsPage>
   );
 }
 
@@ -1036,14 +1034,10 @@ export function RoutineZonePage() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  in: { paddingHorizontal: 16, paddingTop: 4 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
-  centerText: { textAlign: "center" },
   gap: { height: 10 },
-  sentence: { paddingHorizontal: 14, paddingVertical: 12, gap: 4 },
-  input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
-  stacked: { paddingHorizontal: 14, paddingTop: 10 },
+  sentence: { paddingHorizontal: GROUPED_ROW.padX, paddingVertical: 12, gap: 4 },
+  // Under its label in a stacked field, on the label's column: the field gives the room around it.
+  input: { paddingVertical: 2, paddingHorizontal: 0 },
   utc: { paddingTop: 7, paddingHorizontal: 16, gap: 4 },
   link: { fontWeight: "600", textDecorationLine: "underline" },
   pressed: { opacity: 0.6 },

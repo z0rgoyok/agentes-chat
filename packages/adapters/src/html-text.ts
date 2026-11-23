@@ -222,7 +222,81 @@ const VOID_TAGS = new Set([
 ]);
 
 const ATTR = /([^\s=/"'>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
-const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+
+const SLASH = 47;
+const DOUBLE_QUOTE = 34;
+const SINGLE_QUOTE = 39;
+const GREATER = 62;
+const isAsciiLetter = (c: number) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+/** `[\w:-]`: an ASCII letter or digit, `_`, `:` or `-`. */
+const isNameChar = (c: number) => isAsciiLetter(c) || (c >= 48 && c <= 57) || c === 95 || c === 58 || c === 45;
+
+/**
+ * For each index of `html`, the `>` that closes a tag's attributes read from there, a quoted value (`"…"` or `'…'`)
+ * skipped whole with any `>` in it, or -1 when none does (a quote never closed, or the end of the page). Filled
+ * from the end, so the page is read once however many tags it leaves open.
+ */
+function attributeEnds(html: string): Int32Array {
+  const ends = new Int32Array(html.length + 1);
+  ends[html.length] = -1;
+  let nextDouble = -1;
+  let nextSingle = -1;
+  for (let at = html.length - 1; at >= 0; at--) {
+    const c = html.charCodeAt(at);
+    if (c === GREATER) ends[at] = at;
+    else if (c === DOUBLE_QUOTE) {
+      ends[at] = nextDouble < 0 ? -1 : (ends[nextDouble + 1] ?? -1);
+      nextDouble = at;
+    } else if (c === SINGLE_QUOTE) {
+      ends[at] = nextSingle < 0 ? -1 : (ends[nextSingle + 1] ?? -1);
+      nextSingle = at;
+    } else ends[at] = ends[at + 1] ?? -1;
+  }
+  return ends;
+}
+
+interface Tag {
+  /** Index of the `<`. */
+  start: number;
+  /** Index just past the `>`. */
+  end: number;
+  closing: boolean;
+  name: string;
+  /** What is between the name and the `>`. */
+  raw: string;
+}
+
+/**
+ * The page's tags in order, exactly as `/<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g` finds them, read
+ * by index: run on a page, that pattern reads the rest of it again from each `<` that nothing closes, quadratic in
+ * the page's length. A name that fails at its longest fails at every shorter length too (the letters it gives up
+ * are read as attributes up to the same `>`), so the longest is the only one to try.
+ */
+function* tags(html: string): Generator<Tag> {
+  let ends: Int32Array | undefined;
+  for (let at = html.indexOf("<"); at >= 0; ) {
+    const closing = html.charCodeAt(at + 1) === SLASH;
+    const nameAt = at + (closing ? 2 : 1);
+    if (isAsciiLetter(html.charCodeAt(nameAt))) {
+      let nameEnd = nameAt + 1;
+      while (isNameChar(html.charCodeAt(nameEnd))) nameEnd++;
+      ends ??= attributeEnds(html);
+      const close = ends[nameEnd] ?? -1;
+      if (close >= 0) {
+        yield {
+          start: at,
+          end: close + 1,
+          closing,
+          name: html.slice(nameAt, nameEnd),
+          raw: html.slice(nameEnd, close),
+        };
+        at = html.indexOf("<", close + 1);
+        continue;
+      }
+    }
+    at = html.indexOf("<", at + 1);
+  }
+}
 
 function attributes(raw: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -286,29 +360,169 @@ export function dropHidden(html: string): string {
   let out = "";
   let last = 0;
   let skip: { name: string; depth: number } | null = null;
-  for (const m of html.matchAll(TAG)) {
-    const closing = m[1] === "/";
-    const name = (m[2] ?? "").toLowerCase();
-    const raw = m[3] ?? "";
-    const end = (m.index ?? 0) + m[0].length;
-    const selfClosing = VOID_TAGS.has(name) || raw.trimEnd().endsWith("/");
+  for (const tag of tags(html)) {
+    const name = tag.name.toLowerCase();
+    const selfClosing = VOID_TAGS.has(name) || tag.raw.trimEnd().endsWith("/");
     if (skip) {
       if (name !== skip.name) continue;
-      if (closing) skip.depth--;
+      if (tag.closing) skip.depth--;
       else if (!selfClosing) skip.depth++;
       if (skip.depth === 0) {
         skip = null;
-        last = end;
+        last = tag.end;
       }
       continue;
     }
-    if (closing || !hiddenElement(name, raw)) continue;
-    out += html.slice(last, m.index);
-    last = end;
+    if (tag.closing || !hiddenElement(name, tag.raw)) continue;
+    out += html.slice(last, tag.start);
+    last = tag.end;
     if (!selfClosing) skip = { name, depth: 1 };
   }
   // An unclosed hidden element hides the rest of the page, as in a browser.
   return skip ? out : out + html.slice(last);
+}
+
+// The page's comments, unread elements and tags are taken out by index below, exactly as these patterns take them:
+//   /<!--[\s\S]*?-->/g
+//   /<(head|style|script|title|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi
+//   /<[^>]*>/g
+// Run on a page, those read the rest of it again from each `<!--`, `<script` or `<` that nothing closes: quadratic in
+// the page's length.
+
+/** `html` without its comments, each from a `<!--` to the first `-->` after it; one left open stays. */
+function withoutComments(html: string): string {
+  let out = "";
+  let from = 0;
+  for (let at = html.indexOf("<!--"); at >= 0; at = html.indexOf("<!--", from)) {
+    const end = html.indexOf("-->", at + 4);
+    // No `-->` after this `<!--`: none after a later one either.
+    if (end < 0) break;
+    out += html.slice(from, at);
+    from = end + 3;
+  }
+  return out + html.slice(from);
+}
+
+/** Elements a reader never sees as text, taken out with all they hold. */
+const UNREAD_ELEMENTS = ["head", "style", "script", "title", "noscript"];
+
+const isSpace = (ch: string) => /\s/.test(ch);
+const isWordChar = (ch: string) => /\w/.test(ch);
+/** Whether `text` has `name` (lowercase ASCII) at `at`, in any case of its ASCII letters. */
+function nameAt(text: string, at: number, name: string): boolean {
+  if (at + name.length > text.length) return false;
+  for (let i = 0; i < name.length; i++) {
+    const ch = text.charAt(at + i);
+    if ((ch >= "A" && ch <= "Z" ? ch.toLowerCase() : ch) !== name.charAt(i)) return false;
+  }
+  return true;
+}
+
+/**
+ * `html` without its unread elements: from `<script` (or another of `UNREAD_ELEMENTS`, in any case, not followed by
+ * a letter, digit or `_`) through its tag's `>` to the first `</script>` after it, spaces allowed before that `>`.
+ * One never closed stays. Each search goes on from where the last one for the same thing stopped, so the page is read
+ * a few times at most.
+ */
+function withoutUnreadElements(html: string): string {
+  let gtFrom = Number.POSITIVE_INFINITY;
+  let gtAt = -1;
+  /** The first `>` at or after `from`, or -1. */
+  const nextGt = (from: number) => {
+    if (from < gtFrom || (gtAt >= 0 && from > gtAt)) {
+      gtFrom = from;
+      gtAt = html.indexOf(">", from);
+    }
+    return gtAt;
+  };
+  const closes = new Map<string, { from: number; at: number; end: number }>();
+  /** Where the first `</name>` at or after `from` ends, or -1. */
+  const closeEnd = (name: string, from: number) => {
+    const seen = closes.get(name);
+    if (seen && from >= seen.from && (seen.at < 0 || from <= seen.at)) return seen.end;
+    let at = html.indexOf("</", from);
+    let end = -1;
+    for (; at >= 0; at = html.indexOf("</", at + 1)) {
+      if (!nameAt(html, at + 2, name)) continue;
+      let gt = at + 2 + name.length;
+      while (gt < html.length && isSpace(html.charAt(gt))) gt++;
+      if (html.charAt(gt) === ">") {
+        end = gt + 1;
+        break;
+      }
+    }
+    closes.set(name, { from, at, end });
+    return end;
+  };
+  let out = "";
+  let from = 0;
+  let at = html.indexOf("<");
+  while (at >= 0) {
+    const name = UNREAD_ELEMENTS.find((n) => nameAt(html, at + 1, n));
+    const afterName = at + 1 + (name?.length ?? 0);
+    if (name && !isWordChar(html.charAt(afterName))) {
+      const tagEnd = nextGt(afterName);
+      // No `>` after this tag's name: none after a later one either.
+      if (tagEnd < 0) break;
+      const end = closeEnd(name, tagEnd + 1);
+      if (end >= 0) {
+        out += html.slice(from, at);
+        from = end;
+        at = html.indexOf("<", end);
+        continue;
+      }
+    }
+    at = html.indexOf("<", at + 1);
+  }
+  return out + html.slice(from);
+}
+
+/** `html` without its tags, each from a `<` to the first `>` after it; a `<` left open stays. */
+function withoutTags(html: string): string {
+  let out = "";
+  let from = 0;
+  for (let at = html.indexOf("<"); at >= 0; at = html.indexOf("<", from)) {
+    const end = html.indexOf(">", at + 1);
+    // No `>` after this `<`: none after a later one either.
+    if (end < 0) break;
+    out += html.slice(from, at);
+    from = end + 1;
+  }
+  return out + html.slice(from);
+}
+
+/** Whether `text` has `doctype` at `at`, in any case of its ASCII letters (as `/doctype/i` reads it). */
+function doctypeAt(text: string, at: number): boolean {
+  const word = "doctype";
+  for (let k = 0; k < word.length; k++) {
+    const c = text.charCodeAt(at + k);
+    const w = word.charCodeAt(k);
+    if (c !== w && c !== w - 32) return false;
+  }
+  return true;
+}
+
+/**
+ * `html` without its `<!doctype …>` declarations, read by index. Not by `/<!doctype[^>]*>/gi`: on outside HTML with
+ * many `<!doctype` and no `>`, that pattern reads the rest of the text again from each of them (quadratic).
+ */
+function withoutDoctypes(html: string): string {
+  let out = "";
+  let from = 0;
+  let at = html.indexOf("<!", from);
+  while (at >= 0) {
+    if (!doctypeAt(html, at + 2)) {
+      at = html.indexOf("<!", at + 2);
+      continue;
+    }
+    const end = html.indexOf(">", at + 9);
+    // No `>` after this one: none after a later one either, so nothing more is a declaration.
+    if (end < 0) break;
+    out += html.slice(from, at);
+    from = end + 1;
+    at = html.indexOf("<!", from);
+  }
+  return out + html.slice(from);
 }
 
 /**
@@ -318,18 +532,12 @@ export function dropHidden(html: string): string {
  * result goes through `cleanOutside`.
  */
 export function htmlToText(html: string): string {
-  let text = html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<(head|style|script|title|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<!doctype[^>]*>/gi, "");
+  let text = withoutDoctypes(withoutUnreadElements(withoutComments(html)));
   text = dropHidden(text);
   text = text.replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (_match, attrs: string, inner: string) => {
     const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
     const url = decodeEntities((href?.[1] ?? href?.[2] ?? href?.[3] ?? "").trim());
-    const label = inner
-      .replace(/<[^>]*>/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const label = withoutTags(inner).replace(/\s+/g, " ").trim();
     const labelText = decodeEntities(label);
     if (!url || /^(javascript|data):/i.test(url) || url.startsWith("#")) return label;
     const shownUrl = url.replace(/^mailto:/i, "");
@@ -340,13 +548,14 @@ export function htmlToText(html: string): string {
     const alt = (a ?? b ?? "").trim();
     return alt ? `[${alt}]` : "";
   });
-  text = text
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<li\b[^>]*>/gi, "\n- ")
-    .replace(/<\/(td|th)\s*>/gi, "\t")
-    .replace(new RegExp(`</?(${BLOCK_TAGS})\\b[^>]*>`, "gi"), "\n")
-    .replace(/<\/li\s*>/gi, "")
-    .replace(/<[^>]*>/g, "");
+  text = withoutTags(
+    text
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<li\b[^>]*>/gi, "\n- ")
+      .replace(/<\/(td|th)\s*>/gi, "\t")
+      .replace(new RegExp(`</?(${BLOCK_TAGS})\\b[^>]*>`, "gi"), "\n")
+      .replace(/<\/li\s*>/gi, ""),
+  );
   text = decodeEntities(text).replace(/ /g, " ");
   return cleanOutside(text)
     .split("\n")

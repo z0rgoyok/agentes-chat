@@ -1,12 +1,12 @@
 import type { ComputerDevice, DeviceStatus, PhoneDevice } from "@agenteschat/client";
 import { useRoles } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, TextInput, type TextInputInstance, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
 import { ComputerPortrait } from "@/computer/ComputerPortrait";
 import { useOrg } from "@/providers/org";
-import { Button, Chip, fieldText, GROUPED_ROW, GroupedList, GroupedRow, Icon, InkOrbit, Text, useToast } from "@/ui";
+import { Button, Chip, CodeWords, fieldText, GroupedField, GroupedList, Icon, InkOrbit, Text, useToast } from "@/ui";
 import { AskButtons } from "../chat/asks";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useWhen } from "../shared/hooks";
@@ -19,15 +19,22 @@ export function StatusLine({
   status,
   hostName,
   center = false,
+  text,
 }: {
   status: DeviceStatus;
   hostName?: string | null;
   /** On a device's page, under its portrait. */
   center?: boolean;
+  /**
+   * In place of the status's own words, its `code` as code (the offline cause's way out). The status's own words carry
+   * typed names, so they show as typed.
+   */
+  text?: string | null;
 }) {
   const { t } = useTranslation();
   const when = useWhen();
   const v = statusView(t, status, when, hostName);
+  const words = text ?? v.line;
   const leading =
     v.icon === "spin" ? (
       <InkOrbit size={12} />
@@ -41,9 +48,9 @@ export function StatusLine({
         tone={v.wait ? "wait" : "neutral"}
         {...(leading ? { leading } : v.icon && v.icon !== "face" && v.icon !== "spin" ? { icon: v.icon } : {})}
       />
-      {v.line ? (
-        <Text variant="footnote" tone="faint">
-          {v.line}
+      {words ? (
+        <Text variant="footnote" tone="faint" style={center ? styles.centerText : undefined}>
+          {text ? <CodeWords text={text} /> : v.line}
         </Text>
       ) : null}
     </View>
@@ -178,13 +185,15 @@ export function ConnectedHero({ portrait, title, line }: { portrait: ReactNode; 
   );
 }
 
-/** A phone's name, typed in place: saved when the keyboard closes, if it changed (who may change it only). */
+/**
+ * A phone's name, typed in place as the account's name is (`GroupedField`): saved when the keyboard closes, if it
+ * changed (who may change it only).
+ */
 export function PhoneNameField({ phone }: { phone: Pick<PhoneDevice, "id" | "name" | "mayManage"> }) {
   const { t } = useTranslation();
   const c = useColors();
   const toast = useToast();
   const [name, setName] = useState(phone.name);
-  const input = useRef<TextInputInstance | null>(null);
   const rename = useDeviceMutation((api, orgId, v: string) => api.devices.updatePhone(orgId, phone.id, { name: v }));
   const save = () => {
     const clean = name.trim();
@@ -201,39 +210,33 @@ export function PhoneNameField({ phone }: { phone: Pick<PhoneDevice, "id" | "nam
     });
   };
   const label = t("mobile.devices.page.name");
-  // Read as the rows under it (the label, its value at the right edge), the pen where their chevrons are.
-  if (!phone.mayManage) return <GroupedRow label={label} value={phone.name} />;
+  if (!phone.mayManage)
+    return (
+      <GroupedField label={label}>
+        <Text variant="callout" numberOfLines={1}>
+          {phone.name}
+        </Text>
+      </GroupedField>
+    );
   return (
-    <Pressable onPress={() => input.current?.focus()} accessible={false} style={styles.nameRow}>
-      <Text variant="body" tone="ink">
-        {label}
-      </Text>
+    <GroupedField label={label}>
       <TextInput
-        ref={input}
         value={name}
         onChangeText={setName}
         onEndEditing={save}
         editable={!rename.isPending}
         returnKeyType="done"
         autoCorrect={false}
-        textAlign="right"
         accessibilityLabel={label}
-        style={[fieldText("callout"), styles.input, { color: c.faint }]}
+        style={[fieldText("callout"), styles.input, { color: c.ink }]}
       />
-      <Icon name="pen" size={15} color={c.faint} />
-    </Pressable>
+    </GroupedField>
   );
 }
 
 const styles = StyleSheet.create({
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: GROUPED_ROW.minHeight,
-    paddingHorizontal: GROUPED_ROW.padX,
-  },
-  input: { flex: 1, minWidth: 0, paddingVertical: 12, paddingHorizontal: 0 },
+  // As the account's name field: the field's own line, no padding of its own at the sides.
+  input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
   hero: { alignItems: "center", gap: 8, paddingTop: 24, paddingBottom: 24, paddingHorizontal: 16 },
   heroTitle: { flexDirection: "row", alignItems: "center", gap: 8, maxWidth: "100%" },
   tick: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -241,6 +244,7 @@ const styles = StyleSheet.create({
   center: { textAlign: "center" },
   status: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, rowGap: 4, marginTop: 4 },
   centered: { justifyContent: "center", marginTop: 0 },
+  centerText: { textAlign: "center" },
   card: { borderRadius: 14, padding: 16, gap: 4 },
   bold: { fontWeight: "600" },
   buttons: { marginTop: 12 },

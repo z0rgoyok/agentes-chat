@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { movedOnKey, stoppedRunsKey, stoppedRunsOf } from "../../src/features/chat/stopped-runs";
+import { chatScreenSource } from "./chat-screen-source";
 import { message } from "./fixtures";
 
 const src = (path: string) => readFileSync(join(import.meta.dir, "../../src", path), "utf8");
@@ -51,7 +52,7 @@ describe("one stop, one pill", () => {
   test("a stop whose agent went on offers no Continue: the list provides which, the row reads it", () => {
     expect(movedOnKey(new Set(["r2", "r1"]))).toBe(movedOnKey(new Set(["r1", "r2"])));
     expect(movedOnKey(new Set(["r1"]))).not.toBe(movedOnKey(new Set()));
-    const screen = src("features/chat/ChatScreen.tsx");
+    const screen = chatScreenSource();
     expect(screen).toContain("<StopsMovedOnContext.Provider value={stopsMoved}>");
     expect(screen).toContain("stopsMovedOn(");
     // Only a stop a person made (also through the right hand) or a run at its limit picks up again: never the system's.
@@ -61,7 +62,7 @@ describe("one stop, one pill", () => {
   });
 
   test("the conversation's list provides the stops; the notice draws nothing while its reply has them", () => {
-    expect(src("features/chat/ChatScreen.tsx")).toContain("<StoppedRunsContext.Provider value={stoppedRuns}>");
+    expect(chatScreenSource()).toContain("<StoppedRunsContext.Provider value={stoppedRuns}>");
     const line = src("features/chat/StoppedLine.tsx");
     expect(line).toContain("const inReply = useStoppedRun(notice.runId);\n  if (inReply) return null;");
     expect(line).not.toContain("taskManager.stopped.told");
@@ -83,9 +84,11 @@ describe("the event pill", () => {
 
   test("actions under the sentence keep the room the sentence has over it: 7 from the frame's edge (#8)", () => {
     const pill = src("ui/EventPill.tsx");
-    expect(pill).toMatch(/main: \{[^}]*paddingVertical: 6,/);
+    expect(pill).toContain("const MAIN_Y = 6;");
+    expect(pill).toMatch(/main: \{[^}]*paddingVertical: MAIN_Y,/);
     expect(pill).toMatch(/under: \{[^}]*paddingBottom: 1,/);
-    expect(pill).toContain("actionUnder: { paddingHorizontal: 0, minHeight: 28,");
+    expect(pill).toContain("const ACTION_UNDER_H = 28;");
+    expect(pill).toContain("actionUnder: { paddingHorizontal: 0, minHeight: ACTION_UNDER_H,");
     // No hairline before an action under the sentence, so the frame's edge is never doubled.
     expect(pill).toContain("{stacked ? null : <View style={[styles.rule, { backgroundColor: c.line }]} />}");
   });
@@ -102,10 +105,42 @@ describe("the event pill", () => {
 
   test("a sentence that takes more than a line puts its actions under it, on its column, with no rule", () => {
     const pill = src("ui/EventPill.tsx");
-    expect(pill).toContain("e.nativeEvent.lines.length > 1");
-    expect(pill).toContain("list.length > 0 && (wraps ||");
+    // More than a line beside the actions (the sentence's row past one line of the small text), or too little room
+    // left for it: under.
+    expect(pill).toContain("const wraps = (main.current?.offsetHeight ?? 0) - 2 * MAIN_Y > line * 1.5;");
+    expect(pill).toContain("if (wraps || room - beside < ACT_TEXT_MIN) setUnder(true);");
+    expect(pill).toContain("const stacked = list.length > 0 && under;");
     expect(pill).toContain("{stacked ? null : <View style={[styles.rule");
     expect(pill).toContain("paddingLeft: 12 + MARK + 8");
+  });
+
+  test("beside or under is decided before the pill is drawn, never after it showed one way (no jump)", () => {
+    const pill = src("ui/EventPill.tsx");
+    // Read from the layout in a layout effect (in step with the commit), not from events that come after the paint.
+    const decide = pill.slice(pill.indexOf("useLayoutEffect(() => {"), pill.indexOf("const markNode ="));
+    expect(decide).toContain("pill.current?.offsetWidth");
+    expect(decide).toContain("acts.current?.offsetWidth");
+    expect(decide).toContain("main.current?.offsetHeight");
+    expect(pill).not.toContain("onTextLayout");
+    expect(pill).not.toContain("setActionsWidth");
+    expect(pill).toContain("<View ref={main} style={[styles.main, stacked ? null : styles.mainBeside]}>");
+  });
+
+  test("an action is a finger's 44 beside the sentence and under it, and lights only once the press holds", () => {
+    const pill = src("ui/EventPill.tsx");
+    expect(pill).toContain("const ACTION_H = 30;");
+    expect(pill).toContain("hitSlop={under ? UNDER_SLOP : BESIDE_SLOP}");
+    expect(pill).toContain("const BESIDE_SLOP = { top: (TOUCH - ACTION_H) / 2, bottom: (TOUCH - ACTION_H) / 2 };");
+    expect(pill).toMatch(
+      /const UNDER_SLOP = \{\s*top: \(TOUCH - ACTION_UNDER_H\) \/ 2,\s*bottom: \(TOUCH - ACTION_UNDER_H\) \/ 2,/,
+    );
+    expect(pill).toMatch(/actions: \{[^}]*minHeight: ACTION_H \}/);
+    expect(30 + 2 * ((44 - 30) / 2)).toBe(44);
+    expect(28 + 2 * ((44 - 28) / 2)).toBe(44);
+    // The words under the sentence reach half the room to the next one: their targets never overlap.
+    expect(pill).toContain("const UNDER_SLOP_X = 8;");
+    expect(pill).toContain('slotUnder: { flexDirection: "row", marginRight: 2 * UNDER_SLOP_X },');
+    expect(pill).toContain("unstable_pressDelay={PRESS_DELAY}");
   });
 
   test("the automatic lines use it: notices, stops, decided requests, the task taken, the speed fallback", () => {
@@ -143,7 +178,10 @@ describe("the event pill", () => {
     const asks = src("features/chat/asks.tsx");
     expect(asks).toContain("{pillWords(answer.words, c.ink)}");
     expect(asks).toContain("if (!store || !card || ended) return;");
-    expect(asks).toContain("layout={reduced ? undefined : LinearTransition.duration(220)}");
+    // Answered on screen, how it ended fades in where the buttons were; the card's height never animates (the list
+    // sizes its row), and what it holds when it mounts again just shows.
+    expect(asks).not.toContain("LinearTransition");
+    expect(asks).toContain("<LayoutAnimationConfig skipEntering>");
   });
 });
 

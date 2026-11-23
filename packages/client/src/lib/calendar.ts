@@ -45,6 +45,8 @@ export interface CalItem {
    * the item with their face.
    */
   owner?: Actor;
+  /** A task due that several have: all of them, `owner` being the first. */
+  owners?: Actor[];
   eventId?: string;
   seriesId?: string | null;
   occurrenceStart?: string | null;
@@ -227,12 +229,16 @@ export function toItems(range: CalendarRange | undefined): CalItem[] {
         recurring: false,
         issueId: d.issueId,
         issueNumber: d.number,
-        owner: d.assignee ?? undefined,
+        owner: d.assignees?.[0],
+        owners: d.assignees?.length ? d.assignees : undefined,
         people: [],
       };
     }),
   ];
 }
+
+/** Everyone an item counts for: a due task's assignees, else its one owner. */
+export const itemOwners = (it: Pick<CalItem, "owner" | "owners">): Actor[] => it.owners ?? (it.owner ? [it.owner] : []);
 
 /** All-day, or crossing midnight: drawn as a bar above the hour grid. */
 export const isBarItem = (it: CalItem) =>

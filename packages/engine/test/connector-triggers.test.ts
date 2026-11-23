@@ -6,6 +6,7 @@ import {
   createdId,
   createRoutine,
   deleteRoutine,
+  duplicateRoutine,
   emailPasses,
   getRoutineView,
   type McpSession,
@@ -16,7 +17,7 @@ import {
   setRoutineActive,
   updateRoutine,
 } from "../src";
-import { type Fixture, SECRET, setup } from "./fixtures";
+import { addMember, type Fixture, SECRET, setup } from "./fixtures";
 import { routineDeps } from "./routine-fixtures";
 
 /** ADR 0130: a connector's event as a routine trigger (MillionSend's received email). */
@@ -212,6 +213,37 @@ test("only an agent the connection's owner let read it may wait on its events", 
   }).catch((e: unknown) => e);
   expect((made as { code?: string }).code).toBe("routine.connector_agent_cannot_read");
   expect(calls).toEqual([]);
+});
+
+test("a routine on a person's own connection registers there only while that person is its creator", async () => {
+  f = await setup();
+  const walter = await addMember(f.db, f.org.id, "member", "walter");
+  await f.db.update(schema.agents).set({ ownerUserId: walter.id }).where(eq(schema.agents.id, f.agent.id));
+  const { connection, calls, deps } = await millionSend();
+  await f.db
+    .update(schema.connectorConnections)
+    .set({ ownerUserId: walter.id, createdByUserId: walter.id })
+    .where(eq(schema.connectorConnections.id, connection.id));
+  const made = () => calls.filter((c) => c.name === "create_webhook").length;
+  const routine = await createRoutine(deps, walter.id, f.org.id, {
+    name: "Orders by email",
+    agentId: f.agent.id,
+    prompt: "Answer the new order.",
+    target: { type: "dm" },
+    trigger: { type: "connector", connectionId: connection.id, event: "millionsend.email.received" },
+  });
+  expect(made()).toBe(1);
+  // Who manages routines copies it: the copy is theirs, saved off, and turning it on is refused in plain words.
+  const copy = await duplicateRoutine(deps, f.owner.id, f.org.id, routine.id);
+  expect(copy.active).toBe(false);
+  const refused = await setRoutineActive(deps, f.owner.id, f.org.id, copy.id, true).catch((e: unknown) => e);
+  expect((refused as { code?: string }).code).toBe("routine.connector_not_yours");
+  expect((await getRoutineView(f.db, f.owner.id, f.org.id, copy.id, HOOKS)).active).toBe(false);
+  expect(made()).toBe(1);
+  // His own routine, paused and turned on again by someone else, still answers for him: it registers.
+  await setRoutineActive(deps, f.owner.id, f.org.id, routine.id, false);
+  await setRoutineActive(deps, f.owner.id, f.org.id, routine.id, true);
+  expect(made()).toBe(2);
 });
 
 test("an email that arrives after the owner took the agent's access, or the connection, runs nothing", async () => {

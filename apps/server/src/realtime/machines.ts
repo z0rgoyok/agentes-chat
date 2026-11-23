@@ -37,8 +37,8 @@ export function createMachineSockets(hub: MachineHub) {
       if (ws.data.conn) await hub.message(ws.data.conn, raw);
     },
 
-    async close(ws: Bun.ServerWebSocket<MachineSocketData>) {
-      if (ws.data.conn) await hub.close(ws.data.conn);
+    async close(ws: Bun.ServerWebSocket<MachineSocketData>, code = 1005, reason = "") {
+      if (ws.data.conn) await hub.close(ws.data.conn, { code, reason });
     },
   };
 }

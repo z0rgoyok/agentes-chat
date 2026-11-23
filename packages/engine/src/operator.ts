@@ -18,8 +18,9 @@ const RECENT_SESSIONS = 10;
 // In a select list over one table drizzle writes columns without their table, so in a subquery a bare
 // "id" would be the subquery's own: the outer workspace is named in full.
 const ORG_ID = sql.raw(`"organizations"."id"`);
+// The people a limit and a plan count (`OrgLimits.members`): outside collaborators (ADR 0191) are left out.
 const memberCount = sql<number>`(select count(*) from ${organizationMembers}
-  where ${organizationMembers.orgId} = ${ORG_ID})`.mapWith(Number);
+  where ${organizationMembers.orgId} = ${ORG_ID} and ${organizationMembers.outsideOf} is null)`.mapWith(Number);
 const agentCount = sql<number>`(select count(*) from ${agents}
   where ${agents.orgId} = ${ORG_ID} and ${agents.archivedAt} is null and ${agents.builtin} is null)`.mapWith(Number);
 

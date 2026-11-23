@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RunnerError } from "../../runner/errors";
 import { findOnScreen, LOOKUP_MS, parseIosFlow, pointOf, runIosFlow } from "../../runner/ios-flow";
 import { HelperGone, HelperSlow, type IosScreen, recoveringScreen, type WdaNode } from "../../runner/wda";
 
@@ -188,7 +189,7 @@ test("a step that fails stops the flow and says why; optional ones don't; anythi
   expect(LOOKUP_MS).toBe(10_000);
 });
 
-test("a slow look at a busy screen is asked again; a helper that died is started again once a flow", async () => {
+test("a slow look at a busy screen is asked again; a helper that died is started again, twice a flow", async () => {
   const { screen, calls } = fakeScreen([LOGIN]);
   let slow = 2;
   const busy: IosScreen = {
@@ -202,8 +203,8 @@ test("a slow look at a busy screen is asked again; a helper that died is started
   const run = { env: {}, signal: new AbortController().signal, ...c, save: async () => "" };
   expect((await runIosFlow("- tapOn: Sign in\n", busy, run)).passed).toBe(true);
   expect(calls).toEqual([["tap", 195, 132]]);
-  // Each step reaches the helper running now: a dead one is replaced once, a second death ends the flow.
-  const fate = [true, false, true];
+  // Each step reaches the helper running now: a dead one is replaced, twice a flow; a third death ends it.
+  const fate = [true, false, true, true];
   const dying: IosScreen = {
     ...screen,
     tap: async (x, y) => {
@@ -220,4 +221,15 @@ test("a slow look at a busy screen is asked again; a helper that died is started
     "OK      tapOn",
     "FAILED  tapOn: The test helper didn't answer: ECONNREFUSED",
   ]);
+  // iOS refusing the helper's actions ends the flow as the phone's state, even on an optional step.
+  const refusing: IosScreen = {
+    ...screen,
+    tap: async () => {
+      throw new RunnerError("phone_not_ready", "Screen capture works, but iOS refuses the test helper's taps.");
+    },
+  };
+  const refused = await runIosFlow('- tapOn: { point: "50%, 50%", optional: true }\n', refusing, run).catch(
+    (e: RunnerError) => e.code,
+  );
+  expect(refused).toBe("phone_not_ready");
 });

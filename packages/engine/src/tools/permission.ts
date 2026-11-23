@@ -44,7 +44,14 @@ export async function missingPermissions(ctx: Pick<ToolContext, "db" | "orgId" |
   const connections = await ctx.db
     .select({ id: schema.connectorConnections.id, label: schema.connectorConnections.label })
     .from(schema.connectorConnections)
-    .where(and(eq(schema.connectorConnections.orgId, ctx.orgId), isNull(schema.connectorConnections.revokedAt)));
+    .where(
+      and(
+        eq(schema.connectorConnections.orgId, ctx.orgId),
+        isNull(schema.connectorConnections.revokedAt),
+        // A person's own connection reaches an agent only from that person, never through a card.
+        isNull(schema.connectorConnections.ownerUserId),
+      ),
+    );
   const own = await mailConnectionIds(
     ctx.db,
     ctx.orgId,

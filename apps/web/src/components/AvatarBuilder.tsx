@@ -269,6 +269,9 @@ export function AvatarBuilderDialog({
   );
 
   const wear = (next: PersonRecipe) => {
+    // A pick during a shuffle wins: its last face would replace it.
+    if (timer.current) clearInterval(timer.current);
+    timer.current = null;
     setDraft(next);
     setTrying(null);
     setPop((n) => n + 1);

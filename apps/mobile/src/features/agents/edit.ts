@@ -49,13 +49,24 @@ export function shuffleLook(current: FullLook, rand: () => number = Math.random)
 export type AgentEditField = "name" | "role" | "instructions" | "look" | "consultable";
 
 /**
- * Who manages agents changes everything here; the agent's own person, its look and whether other agents may consult
- * it (who talks to it is theirs too, as on the web).
+ * Who manages the agent (`admin`: the server's `canManage`) changes everything here. Who edits it (`editor`: the
+ * server's `canEdit`, its owner and its "Quem pode editar", ADR 0085 addendum of 2026-11-17) its role and
+ * instructions. The agent's own person also its look and whether other agents may consult it (who talks to it is
+ * theirs too, as on the web).
  */
-export function editableFields(viewer: { admin: boolean; owner: boolean }): Set<AgentEditField> {
+export function editableFields(viewer: { admin: boolean; editor?: boolean; owner: boolean }): Set<AgentEditField> {
   if (viewer.admin) return new Set(["name", "role", "instructions", "look", "consultable"]);
-  if (viewer.owner) return new Set(["look", "consultable"]);
-  return new Set();
+  const out = new Set<AgentEditField>();
+  // Its owner always edits it, as the server's `editsAgent` says.
+  if (viewer.editor || viewer.owner) {
+    out.add("role");
+    out.add("instructions");
+  }
+  if (viewer.owner) {
+    out.add("look");
+    out.add("consultable");
+  }
+  return out;
 }
 
 export interface AgentDraft {

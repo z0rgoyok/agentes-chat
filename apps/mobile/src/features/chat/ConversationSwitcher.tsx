@@ -2,9 +2,9 @@ import { previewBody } from "@agenteschat/client/lib/message-body";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Count, GroupedHeader, GroupedList, GroupedRow, SearchField, Text } from "@/ui";
+import { Button, Count, EmptyState, GroupedHeader, GroupedList, GroupedRow, SearchField } from "@/ui";
 import { type ConversationRow, rowName } from "../chats/logic";
 import { matches } from "../search/logic";
 import { AgentFace, Face } from "../shared/Face";
@@ -69,9 +69,18 @@ export function ConversationSwitcher({
       <SheetTitle title={t("mobile.chat.switchTitle")} />
       <SearchField value={q} onChangeText={setQ} placeholder={t("mobile.chat.switchSearch")} autoCorrect={false} />
       {groups.length === 0 ? (
-        <Text variant="body" tone="muted" style={styles.empty}>
-          {t("mobile.chat.switchNone")}
-        </Text>
+        // Nothing matches what was typed: said, with the way back to every conversation.
+        <EmptyState
+          size="inline"
+          title={t("mobile.chat.switchNone")}
+          {...(q.trim()
+            ? {
+                action: (
+                  <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
+                ),
+              }
+            : {})}
+        />
       ) : (
         groups.map((g) => (
           <View key={g.key}>
@@ -102,7 +111,3 @@ export function ConversationSwitcher({
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  empty: { paddingVertical: 8 },
-});

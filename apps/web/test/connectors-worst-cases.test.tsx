@@ -63,7 +63,8 @@ async function open() {
     lastError: null,
     preset: "icloud",
     createdAt: new Date(Date.now() - 600_000).toISOString(),
-    ownerUserId: state.me?.user.id ?? null,
+    // Mailboxes left with no person: the team's side holds them with the rest.
+    ownerUserId: null,
   };
   mail.accounts = [
     {

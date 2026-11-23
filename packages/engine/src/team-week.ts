@@ -375,10 +375,12 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
       group by r.agent_id, r.channel_id order by n desc limit 2`),
   );
   const closed = rowsOf<{ agent_id: string; n: number | string }>(
-    await db.execute(sql`select assignee_id as agent_id, count(*) as n from issues
-      where org_id = ${w.orgId} and assignee_type = 'agent' and ${closedByAgentSql("issues", start, end)}
+    // A task closed counts for each agent that has it.
+    await db.execute(sql`select ia.assignee_id as agent_id, count(*) as n from issues
+      join issue_assignees ia on ia.issue_id = issues.id and ia.assignee_type = 'agent'
+      where issues.org_id = ${w.orgId} and ${closedByAgentSql("issues", start, end)}
         and ${taskSeenSql("issues", sql`${w.userId}::text`)}
-      group by assignee_id order by n desc limit 1`),
+      group by ia.assignee_id order by n desc limit 1`),
   );
   const worked: TeamWeekHighlight[] = [
     ...busiest
@@ -564,7 +566,10 @@ async function suggestedLately(db: Database, w: Window): Promise<Set<string>> {
 /** The model one size down from a large one, for the brain it thinks with. Null: not large, or nothing in between. */
 function smallerModel(a: TeamAgent): { from: string; to: string } | null {
   // Claude Code names its models by size.
-  if (a.brain === "claude_code") return a.brain_model === "opus" ? { from: "opus", to: "sonnet" } : null;
+  if (a.brain === "claude_code") {
+    const to = a.brain_model === "fable" ? "opus" : a.brain_model === "opus" ? "sonnet" : null;
+    return to && a.brain_model ? { from: a.brain_model, to } : null;
+  }
   const info = a.brain === "model" ? modelInfo(a.model) : undefined;
   if (info?.tier !== "large") return null;
   const to = modelForTier(info.provider, "medium");
@@ -839,9 +844,10 @@ export async function buildTeamDay(
     }));
 
   const closed = rowsOf<{ agent_id: string; n: number | string }>(
-    await db.execute(sql`select assignee_id as agent_id, count(*) as n from issues
-      where org_id = ${w.orgId} and assignee_type = 'agent'
-        and created_by_type = 'person' and created_by_id = ${w.userId}
+    await db.execute(sql`select ia.assignee_id as agent_id, count(*) as n from issues
+      join issue_assignees ia on ia.issue_id = issues.id and ia.assignee_type = 'agent'
+      where issues.org_id = ${w.orgId}
+        and issues.created_by_type = 'person' and issues.created_by_id = ${w.userId}
         and ${taskSeenSql("issues", user)}
         and ${closedByAgentSql("issues", start, end)}
         and not ${taskEndToldSql(
@@ -850,7 +856,7 @@ export async function buildTeamDay(
             and dm_key = ${personAgentDmKey(w.userId, w.rightHandId)})`,
           start,
         )}
-      group by assignee_id order by n desc limit 1`),
+      group by ia.assignee_id order by n desc limit 1`),
   );
   const worked: TeamWeekHighlight[] = [
     ...[...doneIn.values()]
@@ -1053,17 +1059,20 @@ async function stalledSteps(db: Database, w: Window, own = false): Promise<TeamW
     id: string;
     number: number;
     title: string;
-    assignee_type: string | null;
-    assignee_id: string | null;
+    agent_id: string | null;
     steps: number[] | string;
     on_number: number | null;
     on_agent: string | null;
     moved: string | Date;
   }>(
-    await db.execute(sql`select p.id, p.number, p.title, p.assignee_type, p.assignee_id,
+    await db.execute(sql`select p.id, p.number, p.title,
+        (select ia.assignee_id from issue_assignees ia where ia.issue_id = p.id and ia.assignee_type = 'agent'
+          order by ia.position, ia.created_at limit 1) as agent_id,
         array_agg(s.number order by s.number) filter (where s.status = 'todo') as steps,
         (array_agg(s.number order by s.number) filter (where s.status in ('in_progress', 'in_review') or s.blocked is not null))[1] as on_number,
-        (array_agg(s.assignee_id order by s.number) filter (where s.assignee_type = 'agent' and (s.status in ('in_progress', 'in_review') or s.blocked is not null)))[1] as on_agent,
+        (array_agg((select ia.assignee_id from issue_assignees ia where ia.issue_id = s.id and ia.assignee_type = 'agent'
+          order by ia.position, ia.created_at limit 1) order by s.number) filter (where (s.status in ('in_progress', 'in_review') or s.blocked is not null)
+          and exists (select 1 from issue_assignees ia where ia.issue_id = s.id and ia.assignee_type = 'agent')))[1] as on_agent,
         max(s.updated_at) as moved
       from issues p join issues s on s.parent_issue_id = p.id and s.org_id = p.org_id
         and ${taskSeenSql("s", sql`${w.userId}::text`)}
@@ -1087,7 +1096,7 @@ async function stalledSteps(db: Database, w: Window, own = false): Promise<TeamW
     steps,
     onNumber: s.on_number,
     hours: Math.floor((w.end.getTime() - new Date(s.moved).getTime()) / HOUR_MS),
-    agentId: s.assignee_type === "agent" ? s.assignee_id : s.on_agent,
+    agentId: s.agent_id ?? s.on_agent,
   };
 }
 

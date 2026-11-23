@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { pointerInView, pointerShare } from "@agenteschat/client";
-import { pointerStep, TAG_BELOW, watchView } from "../../src/features/computer/agent-pointer";
+import { pointerInView, pointerShare, CURSOR_TAG_BELOW as TAG_BELOW } from "@agenteschat/client";
+import { pointerStep, watchView } from "../../src/features/computer/agent-pointer";
 import { CURSOR_CELLS, cursorCells } from "../../src/features/computer/pixel-cursor";
 import {
   BUTTON,
@@ -535,6 +535,7 @@ describe("the agent's own pointer on its screen", () => {
       quiet: false,
       flip: false,
       lift: false,
+      rest: false,
     });
     expect(pointerStep({ ...p, act: "double" }, card, 10_000)?.presses).toBe(2);
     expect(pointerStep({ ...p, act: "move" }, card, 10_000)?.presses).toBe(0);
@@ -583,9 +584,44 @@ describe("the agent's own pointer on its screen", () => {
     expect(pointerStep(tip, card, 10_000)?.lift).toBe(false);
   });
 
-  test("a gesture over before the view showed it is never replayed", () => {
-    expect(pointerStep({ ...p, act: "click" }, card, 10_000 + 4000)).not.toBeNull();
-    expect(pointerStep({ ...p, act: "click" }, card, 10_000 + 4001)).toBeNull();
-    expect(pointerStep({ ...p, act: "click" }, card, 10_000 + 60_000)).toBeNull();
+  test("a gesture over before the view showed it is placed at rest where it went, never replayed", () => {
+    expect(pointerStep({ ...p, act: "click" }, card, 10_000 + 4000)).toMatchObject({ presses: 1, rest: false });
+    const placed = { to: { x: 0.5, y: 0.5 }, presses: 0, quiet: false, flip: false, lift: false, rest: true };
+    expect(pointerStep({ ...p, act: "click" }, card, 10_000 + 4001)).toEqual(placed);
+    expect(pointerStep({ ...p, act: "double" }, card, 10_000 + 60_000)).toEqual(placed);
+    // The server's copy of the last one, sent as the view opened (`at` 0): at rest at once.
+    expect(pointerStep({ ...p, act: "click", at: 0 }, card, 10_000)).toEqual(placed);
+    // Typing then, only its face still.
+    expect(pointerStep({ ...p, act: "type", at: 0 }, card, 10_000)).toMatchObject({ quiet: true, rest: true });
+  });
+
+  test("its fade ends at the resting look, and the help request's peek of the page draws it too", async () => {
+    const read = (file: string) => Bun.file(new URL(`../../src/features/${file}`, import.meta.url)).text();
+    const pointer = await read("computer/AgentPointer.tsx");
+    expect(pointer).toContain("withTiming(CURSOR_REST_OPACITY");
+    expect(pointer).not.toContain("withTiming(0, { duration: FADE_MS })");
+    const peek = (await read("browser/HandoffCard.tsx")).split("function ScreenPeek")[1] ?? "";
+    expect(peek).toMatch(/<FrameView[^>]*cursor=\{/);
+  });
+
+  test("a desktop's last pointer, said as its stream opens and before its picture shows, is heard and then drawn", async () => {
+    const pointer = await Bun.file(new URL("../../src/features/computer/AgentPointer.tsx", import.meta.url)).text();
+    // The hook listens whatever the view shows; the view only decides whether it is drawn.
+    const hook = pointer.split("function useDesktopPointer")[1]?.split("\n}\n")[0] ?? "";
+    expect(hook).toContain("connection.onUserEvent");
+    expect(hook).not.toContain("enabled");
+    expect(pointer).toContain("pointer={enabled ? pointer : null}");
+  });
+
+  test("a resting pointer said before its box was laid out turns and lifts its name once the box has its size", async () => {
+    const corner = { ...p, x: 0.95 * 1280, y: 0.95 * 900, act: "click" as const, at: 0 };
+    const unlaid = watchView({ width: 0, height: 0 }, desk);
+    expect(pointerStep(corner, unlaid, 10_000)).toMatchObject({ flip: false, lift: false, rest: true });
+    expect(pointerStep(corner, card, 10_000)).toMatchObject({ flip: true, lift: true, rest: true });
+    // So the cursor works its look out again for each size the box takes, not only as a gesture starts.
+    const pointer = await Bun.file(new URL("../../src/features/computer/AgentPointer.tsx", import.meta.url)).text();
+    expect(pointer).toMatch(
+      /useAnimatedReaction\(\s*\(\) => \(\{ w: view\.value\.boxWidth, h: view\.value\.boxHeight \}\)/,
+    );
   });
 });

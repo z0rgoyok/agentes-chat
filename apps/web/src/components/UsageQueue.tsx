@@ -4,6 +4,7 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
+  usageQueueChain,
   usageQueueMeta,
   usageQueueResuming,
   usageQueueShared,
@@ -97,12 +98,18 @@ export function UsageQueueDialog({
   // "Não rodar nenhuma?" asked in place takes the whole footer.
   const [asking, setAsking] = useState(false);
   const title = queue ? usageQueueTitle(t, i18n.language, agent, queue, new Date(now)) : agent;
+  // Behind the ⓘ: every account of its order at its limit (the title's time is the first reset), then who shares the line.
   const shared = queue
-    ? usageQueueShared(
-        t,
-        queue.plan,
-        queue.sharedWith.flatMap((id) => dir.agentById.get(id)?.name ?? []),
-      )
+    ? [
+        usageQueueChain(t, queue),
+        usageQueueShared(
+          t,
+          queue.plan,
+          queue.sharedWith.flatMap((id) => dir.agentById.get(id)?.name ?? []),
+        ),
+      ]
+        .filter(Boolean)
+        .join(" ")
     : null;
   return (
     <Dialog

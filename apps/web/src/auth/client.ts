@@ -14,6 +14,8 @@ export type AuthResult =
       /** A blocked account on agentes.chat Cloud: the block's kind, with `cloud` (`restrictionLine`). */
       kind?: string;
       cloud?: boolean;
+      /** Seconds until a limit lets the call through again, where the refusal says (`TOO_MANY_PASSWORD_TRIES`). */
+      retryIn?: number;
     };
 
 /** `humanCheck` on the email forms: the bot check's token, when the server has one (ADR 0075). */

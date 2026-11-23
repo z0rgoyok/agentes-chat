@@ -35,6 +35,7 @@ import {
   MachineOfflineError,
   MachineRequestError,
   type MachineStatus,
+  ROUTINE_KEYS_NOT_LENT,
   releaseVaultKeys,
   runnerFailureText,
   secretLabelOf,
@@ -888,6 +889,85 @@ test("a routine's own run uses the Vault keys its creator allowed, and asks a pe
   await v.call(ctx, "browser_read", {});
   const typed = await v.call(ctx, "browser_type_secret", { target: "e2", login: v.items.login.id });
   expect(typed.isError).toBeFalsy();
+});
+
+test("a run a routine's work woke, a teammate's too, uses only the Vault keys listed for that routine", async () => {
+  const v = await vaultSetup();
+  const routineRun = await routineCtx();
+  const [routine] = await f.db.select().from(schema.routines).where(eq(schema.routines.agentId, f.agent.id));
+  if (!routine) throw new Error("no routine");
+  // A teammate with the same computer, which the routine's run hands a step to.
+  const qa = await createAgent(
+    f.db,
+    f.owner.id,
+    f.org.id,
+    { name: "QA", handle: "qa", credentialId: f.credential.id },
+    { model: "claude-sonnet-5-5" },
+  );
+  await f.db.update(schema.agents).set({ machineId: v.machineId }).where(eq(schema.agents.id, qa.id));
+  await grantScopes(f.db, f.org.id, qa.id, [{ connectionId: null, scope: "sandbox:run" }]);
+  /** The run a message of the routine's own run woke: nobody is behind it, and it keeps that routine's brief. */
+  const wokenRun = async (agentId: string): Promise<ToolContext> => {
+    const message = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "agent", agentId: f.agent.id, runId: routineRun.runId, hop: 0 },
+      body: "gera a dublagem do episódio",
+    });
+    const [run] = await f.db.transaction((tx) => createAgentRuns(tx, message, [agentId], "mention"));
+    if (!run) throw new Error("no run");
+    return {
+      db: f.db,
+      orgId: f.org.id,
+      agentId,
+      runId: run.id,
+      channelId: f.general.id,
+      threadRootId: run.threadRootId,
+      triggerMessageId: run.triggerMessageId,
+    };
+  };
+  const teammate = await wokenRun(qa.id);
+  const withKey = { language: "bash", code: "env", keys: ["ACME_API_KEY"] };
+  // Not listed for the routine: refused with what a person sets up, and nothing asked of the computer.
+  const unlisted = await v.call(teammate, "run_code", withKey);
+  expect(unlisted).toMatchObject({
+    isError: true,
+    content: ROUTINE_KEYS_NOT_LENT,
+    data: { code: "vault.not_allowed" },
+  });
+  expect(v.computer.calls.filter((c) => c.op === "vault.key" || c.op === "exec")).toEqual([]);
+  // Listed by the routine's creator: the teammate's command gets it, released for that creator, its use recorded.
+  await f.db
+    .update(schema.routines)
+    .set({ ownActions: ["vault:ACME_API_KEY"] })
+    .where(eq(schema.routines.id, routine.id));
+  expect((await v.call(teammate, "run_code", withKey)).isError).toBeFalsy();
+  expect(v.computer.opened).toEqual([{ use: "env:ACME_API_KEY", value: KEY_VALUE }]);
+  expect((await usesOf(v.items.key.id)).filter((u) => u.action === "key")).toHaveLength(1);
+  // The routine's own agent, woken the same way, too.
+  expect((await v.call(await wokenRun(f.agent.id), "run_code", withKey)).isError).toBeFalsy();
+  // Another key in the same command, or a key no longer shared with the teammate: nothing goes.
+  const more = await v.call(teammate, "run_code", { ...withKey, keys: ["ACME_API_KEY", "OTHER_KEY"] });
+  expect(more).toMatchObject({ isError: true, content: ROUTINE_KEYS_NOT_LENT });
+  await updateVaultItem(v.vault, f.owner.id, f.org.id, v.items.key.id, {
+    access: { everyone: false, roleIds: [], userIds: [], allAgents: false, agentIds: [f.agent.id] },
+  });
+  expect(await v.call(teammate, "run_code", withKey)).toMatchObject({
+    isError: true,
+    data: { code: "vault.not_shared" },
+  });
+  await updateVaultItem(v.vault, f.owner.id, f.org.id, v.items.key.id, {
+    access: { everyone: false, roleIds: [], userIds: [], allAgents: true, agentIds: [] },
+  });
+  // A teammate that always asks still asks a person for the command, listed key or not.
+  await f.db.update(schema.agents).set({ approvalsLevel: "always" }).where(eq(schema.agents.id, qa.id));
+  const always = await f.tools?.invoke(teammate, {
+    toolUseId: `tu_${crypto.randomUUID()}`,
+    name: "run_code",
+    input: { ...withKey, why: "The episode's dubbing step needs the Acme key to call its API." },
+  });
+  expect(always?.type).toBe("approval");
+  expect(v.computer.opened).toHaveLength(2);
 });
 
 test("a key's use is recorded even when the command's answer never comes back", async () => {

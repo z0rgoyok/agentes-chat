@@ -210,13 +210,15 @@ export function EmptyState({
   );
 }
 
-/** Inline error (or neutral notice) with an icon. */
+/** Inline error (or neutral notice) with an icon: `info` for a notice that suggests rather than warns. */
 export function Alert({
   tone = "danger",
+  icon = "alert",
   children,
   className,
 }: {
   tone?: "danger" | "neutral";
+  icon?: IconName;
   children: ReactNode;
   className?: string;
 }) {
@@ -225,7 +227,7 @@ export function Alert({
       role={tone === "danger" ? "alert" : "status"}
       className={cx("ac-alert ac-iconline", tone === "neutral" && "ac-alert--neutral", className)}
     >
-      <Icon name="alert" />
+      <Icon name={icon} />
       <span>{children}</span>
     </p>
   );

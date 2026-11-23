@@ -12,6 +12,7 @@ import {
   createAgentStyleToolSource,
   createCoAuthorToolSource,
   createFeedbackToolSource,
+  createSayNowToolSource,
   createSetStatusToolSource,
   createSetupToolSource,
   createUsageToolSource,
@@ -21,18 +22,21 @@ import {
   grantScopes,
   HOW_YOU_WORK,
   openDm,
+  SAY_NOW_LINE,
   type ToolSource,
   WORK_IN_BACKGROUND_LINE,
 } from "../src";
 import { setup } from "../test/fixtures";
 
 /**
- * The autonomy and proactivity rules every run with tools reads, word for word (ADR 0037, 0097, 0113, 0120, 0121).
- * A trim may move them, never change them.
+ * The autonomy and proactivity rules every run with tools reads, word for word (ADR 0037, 0097, 0113, 0120, 0121,
+ * 0207). A trim may move them, never change them.
  */
 export const AUTONOMY_PHRASES: string[] = [
   HOW_YOU_WORK,
   finishWhatYouStart(true),
+  // A person's run in a conversation people read as it goes: every scripted turn is one.
+  SAY_NOW_LINE,
   WORK_IN_BACKGROUND_LINE,
   CONTINUE_THE_CONVERSATION,
   ASK_APPROVALS_TOGETHER,
@@ -77,6 +81,19 @@ export const TURNS: ScriptedTurn[] = [
     where: "dm",
     body: "oi",
     listed: ["react", "ask_user", "search_context", "remember"],
+  },
+  {
+    id: "say-now",
+    title: "Web research that takes a while: one line first, then the work",
+    where: "channel",
+    body: "pesquisa na web quanto custa hoje lançar um satélite pequeno em órbita baixa e compara as opções",
+    listed: ["say_now", "web_search", "web_fetch"],
+    wants: ["say_now"],
+    // Only the line: a web call here would reach the real web, and the CI run of these turns has no network.
+    first: {
+      chunks: [],
+      toolUses: [{ name: "say_now", input: { text: "Bora! Vou pesquisar os preços e já te trago a comparação." } }],
+    },
   },
   {
     id: "long-work",
@@ -233,6 +250,8 @@ export async function turnsWorld(
     workTools: true,
     toolsOnDemand: true,
     toolSources: [
+      // The line before slow work (ADR 0207), listed in every person's run as in production.
+      createSayNowToolSource({}),
       createUsageToolSource(),
       createSetStatusToolSource({}),
       createAgentStyleToolSource(),

@@ -5,6 +5,7 @@ import {
   agentCardLine,
   CAUSES_SHOWN,
   causeWords,
+  computerRoomText,
   computersBesides,
   delegationText,
   groupTasks,
@@ -204,7 +205,7 @@ test("a task with no title of its own is called by its place, said once", () => 
   expect(taskPlace(t, { ...base, label: "Release 8 na loja" })).toBe("#eng");
 });
 
-test("what holds the waiting work: one cause per sign-in, computer or the people asked, the most held first", () => {
+test("what holds the waiting work: one cause per sign-in, computer away or the people asked; a turn in line is none", () => {
   const limit = { code: "plan_limit", percent: null, window: null };
   const codex = wait({ ...limit, key: "plan:m1:codex:a2", plan: "ChatGPT" });
   const busy = (runId: string, machineId: string) =>
@@ -226,17 +227,15 @@ test("what holds the waiting work: one cause per sign-in, computer or the people
     task(null, null, { runId: "j", status: "running" }),
   ]);
   expect(causes.map((c) => [c.kind, c.tasks.map((x) => x.runId).join("")])).toEqual([
-    ["computer", "def"],
     ["limit", "ac"],
     ["limit", "b"],
     ["computer", "g"],
     ["person", "i"],
   ]);
-  expect(causes[0]).toMatchObject({ machineId: "m1", busy: true });
-  expect(causes[3]).toMatchObject({ machineId: "m2", busy: false });
+  expect(causes[2]).toMatchObject({ machineId: "m2" });
 });
 
-test("a cause's row: a limit in its tasks' own words and return time, a full computer with its whole facts, shown once", () => {
+test("a cause's row: a limit in its tasks' own words and return time; a computer with a line stays under Computadores", () => {
   const limit = wait({ code: "plan_limit", percent: null, window: null });
   const busy = (runId: string, machineId: string) =>
     task("computer_busy", wait({ code: "busy" }), {
@@ -248,28 +247,22 @@ test("a cause's row: a limit in its tasks' own words and return time, a full com
     { id: "m1", name: "PC", working: 2, inLine: 4 },
     { id: "m2", name: "Servidor", working: 1, inLine: 0 },
   ];
-  const [plan, computer] = waitCauses([
+  const causes = waitCauses([
     task("plan", limit, { runId: "a" }),
     task("plan", limit, { runId: "b" }),
     busy("c", "m1"),
   ]);
+  const [plan] = causes;
+  expect(causes).toHaveLength(1);
   // The wait's own words and time, the one the work goes on at: never a usage meter's.
   const said = causeWords(t, "en", plan as never, computers, now);
   expect(said.name).toBe(words(task("plan", limit))?.state as string);
   expect(said.fact).toBe(`${words(task("plan", limit))?.next} · taskManager.tasks {"count":2}`);
   expect(said.fact).toContain("chat.usageWhen.on");
-  expect(causeWords(t, "en", computer as never, computers, now)).toEqual({
-    name: "PC",
-    fact: 'taskManager.queue.full {"count":4} · taskManager.working {"count":2}',
-  });
-  // Not in the summaries yet: its own tasks make its line.
-  expect(causeWords(t, "en", computer as never, [], now)).toEqual({
-    name: "Fallback",
-    fact: 'taskManager.queue.full {"count":1}',
-  });
-  // Computadores keeps only what the strip doesn't show.
-  expect(computersBesides(computers, [plan, computer] as never).map((c) => c.id)).toEqual(["m2"]);
-  expect(computersBesides(computers, [plan] as never).map((c) => c.id)).toEqual(["m1", "m2"]);
+  expect(computersBesides(computers, causes).map((c) => c.id)).toEqual(["m1", "m2"]);
+  expect(computerRoomText(t, computers[0] as never)).toBe(
+    'taskManager.queue.inLine {"count":4} · taskManager.working {"count":2}',
+  );
 });
 
 test("the strip shows the three causes holding the most; a fourth stays only in the count", () => {

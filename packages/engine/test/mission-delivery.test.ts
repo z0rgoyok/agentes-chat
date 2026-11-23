@@ -26,7 +26,13 @@ import {
   updatePlan,
 } from "../src";
 import { addMember, type Fixture, setup } from "./fixtures";
-import { type McpResult, missionRunner, pairedMachine, type TaskStartRequest } from "./mission-helpers";
+import {
+  type McpResult,
+  missionComputerBrain,
+  missionRunner,
+  pairedMachine,
+  type TaskStartRequest,
+} from "./mission-helpers";
 
 let f: Fixture;
 afterEach(async () => {
@@ -51,7 +57,12 @@ const ok = (r: McpResult) => {
  * (ADR 0032 §6), and one item session runs on the computer (`item`).
  */
 async function started() {
-  f = await setup({ machines: true, missionTools: true, reply: () => ({ chunks: ["ok"] }) });
+  f = await setup({
+    machines: true,
+    missionTools: true,
+    reply: () => ({ chunks: ["ok"] }),
+    brains: missionComputerBrain().brains,
+  });
   const paired = await pairedMachine(f);
   const runner = missionRunner(f.machineHub as MachineHub);
   await runner.hello(paired.token);

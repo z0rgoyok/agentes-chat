@@ -1,7 +1,7 @@
 # Trademarks
 
 "agentes", "agentes.chat", the agentes logo, the agent symbol and the app icons are trademarks of
-Codari Global, LLC, registered or not. The code licenses ([LICENSE](LICENSE)) grant no rights to them.
+AGENTESCHAT, LLC, registered or not. The code licenses ([LICENSE](LICENSE)) grant no rights to them.
 
 ## Without asking
 
@@ -24,9 +24,9 @@ Codari Global, LLC, registered or not. The code licenses ([LICENSE](LICENSE)) gr
 Forks are allowed under the code licenses. A public fork needs its own name and logo and, for the
 apps, its own store listing, icon and bundle ID (not `chat.agentes.*`). You may call it "a fork of
 agentes.chat". Whatever its name, it keeps the attribution the license requires ("Based on
-agentes.chat by Codari Global, LLC") in its About screen.
+agentes.chat by AGENTESCHAT, LLC") in its About screen.
 
 ## Questions
 
-Write to legal@agentes.chat, or by post to Codari Global, LLC, 7345 W Sand Lake Rd Ste 210,
-Office 4592, Orlando, FL 32819, USA.
+Write to legal@agentes.chat, or by post to AGENTESCHAT, LLC, 2810 North Church Street,
+Ste 91038, Wilmington, DE 19802, USA.

@@ -1,5 +1,7 @@
+import OpenAI from "openai";
 import { createAnthropicProvider } from "./anthropic";
 import { parseCustomModel } from "./catalog";
+import { openAIImages } from "./openai";
 import { createOpenRouterProvider } from "./openrouter";
 import { type Endpoint, type ModelProvider, type ModelResult, ProviderError } from "./types";
 
@@ -189,6 +191,38 @@ export function createCustomProvider(
         streamOptions,
       );
       return { ...result, model: request.model };
+    },
+    /**
+     * Pictures from an endpoint that speaks OpenAI's Images API (`/images/generations`, `/images/edits`, ADR 0197):
+     * through the same bounded fetch, a picture it answers with as an address read through it too. The workspace
+     * prices them (`imageCostNanoUsd`): a cost the server reports is ignored.
+     */
+    async generateImage(request, { apiKey, endpoint }) {
+      if (endpoint?.style !== "openai") throw new ProviderError("this endpoint makes no pictures", false);
+      const model = parseCustomModel(request.model)?.model ?? request.model;
+      const client = new OpenAI({
+        apiKey,
+        baseURL: endpoint.baseURL,
+        fetch: bounded,
+        maxRetries: options.maxRetries ?? 2,
+      });
+      const fetchUrl = async (url: string) => {
+        let res: Response;
+        try {
+          if (!/^https?:\/\//i.test(url)) throw new Error("not a web address");
+          res = await bounded(url, { signal: request.signal });
+        } catch {
+          throw new ProviderError("could not read the endpoint's picture", true);
+        }
+        if (!res.ok) throw new ProviderError(`the endpoint answered ${res.status} for its picture`, true, res.status);
+        return new Uint8Array(await res.arrayBuffer());
+      };
+      const { costNanoUsd: _reported, ...result } = await openAIImages(
+        client,
+        { ...request, model },
+        { compatible: true, fetchUrl },
+      );
+      return result;
     },
   };
 }

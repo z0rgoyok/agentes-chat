@@ -33,7 +33,6 @@ import {
   phoneLine,
   RUNNER_UPDATE_COMMAND,
   reasonText,
-  type StepState,
   tooOldVersion,
   useIphoneRestart,
   useStalled,
@@ -76,6 +75,7 @@ import { useToast } from "@/lib/toast";
 import { FlowFooter, type FlowProps } from "./flow";
 import { DevicePortrait } from "./parts";
 import { useDevices, useUpdatePhone, useWifiPairing } from "./queries";
+import { Step } from "./Step";
 import { WhoPicker, WhoSelect } from "./WhoCanUse";
 
 /**
@@ -127,64 +127,6 @@ export function WifiIphoneOffer({ host, card = false }: { host: ComputerDevice; 
 
 /** While a phone flow is open, the list is asked every 2 s too: the phone may show up between events. */
 const PHONE_POLL_MS = 2000;
-
-/**
- * One step of a live checklist: its mark (a tick, the live orbit, an alert, or its number), title, one line, extras.
- * `open` given: the step folds to its title when not open, and its title opens it (`onOpen`); a done step shows its
- * extras when open. Without it, a done step hides them. `live`: the current step's mark spins (the computer watches).
- */
-function Step({
-  state,
-  title,
-  text,
-  children,
-  live = true,
-  open,
-  onOpen,
-}: {
-  state: StepState;
-  title: ReactNode;
-  text?: ReactNode;
-  children?: ReactNode;
-  live?: boolean;
-  open?: boolean;
-  onOpen?: () => void;
-}) {
-  const shut = open === false;
-  return (
-    <li
-      className="dv-step"
-      data-state={state}
-      data-shut={shut ? "" : undefined}
-      aria-current={state === "current" ? "step" : undefined}
-    >
-      <span className="dv-step__mark" aria-hidden="true">
-        {state === "done" ? (
-          <Icon name="check" size={14} />
-        ) : state === "current" && live ? (
-          <PixelSpinner size={14} />
-        ) : state === "needs" ? (
-          <Icon name="alert" size={14} />
-        ) : null}
-      </span>
-      <div className="dv-step__head">
-        {shut && onOpen ? (
-          <button type="button" className="dv-step__title dv-step__open" aria-expanded="false" onClick={onOpen}>
-            {title}
-          </button>
-        ) : (
-          <p className="dv-step__title">{title}</p>
-        )}
-        {text && !shut && (
-          <p className="dv-step__text" role={state === "current" ? "status" : undefined}>
-            {text}
-          </p>
-        )}
-      </div>
-      {children && !shut && (open || state !== "done") && <div className="dv-step__more">{children}</div>}
-    </li>
-  );
-}
 
 /** A tiny drawing of the phone's own setting row, the row to find ringed: a tap count or its switch. */
 function SettingRowDrawing({ title, sub, taps }: { title: string; sub: string; taps?: number }) {
@@ -1106,11 +1048,13 @@ export function IphoneFlow({
     uiAutomation:
       reason === "ui_not_authorized" ? t("devices.iphone.uiRefusedText") : t("devices.iphone.uiAutomationText"),
     helper:
-      reason === "helper_untrusted"
-        ? t("devices.iphone.helperUntrustedText")
-        : reason === "team_limit"
-          ? t("devices.iphone.teamLimitText")
-          : t("devices.iphone.helperText"),
+      reason === "ios_behind_xcode" && phone?.osVersion && sdk
+        ? t("devices.iphone.iosBehind", { ios: phone.osVersion, sdk })
+        : reason === "helper_untrusted"
+          ? t("devices.iphone.helperUntrustedText")
+          : reason === "team_limit"
+            ? t("devices.iphone.teamLimitText")
+            : t("devices.iphone.helperText"),
   };
   const more: Partial<Record<IphoneStep, ReactNode>> = {
     xcode:

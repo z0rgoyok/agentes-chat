@@ -501,11 +501,12 @@ export function AuthPage({
 
   // Which server this signs in to, on every step, with Change: the desktop app's window of servers (it keeps several,
   // and the same screen on another one looks the same, ADR 0158), or on the web "Onde fica o seu workspace?". Said
-  // once the server said whether it is the Cloud (and, in the app, whether it is the app's own).
+  // once the server said whether it is the Cloud (and, in the app, whether it is the app's own). Never on a registered
+  // host (ADR 0194): its pages name it, not the product's service, and the product's chooser isn't theirs.
   const here = window.location.origin;
   const cloudHere = instance.data?.cloud;
   const changes = !desktop || desktopPicksServer();
-  const serverLine = cloudHere !== undefined && placeKnown && (
+  const serverLine = cloudHere !== undefined && placeKnown && config.data !== undefined && !config.data.host && (
     <p className="auth__place">
       <Icon name={local ? "computer" : cloudHere ? "cloud" : "globe"} size={14} />
       <span className="auth__place-where">

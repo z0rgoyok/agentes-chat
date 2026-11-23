@@ -82,26 +82,34 @@ describe("agentWorkingIn", () => {
 });
 
 describe("audienceWithMe", () => {
-  const admin = { permissions: ["manage_agents", "talk_to_agents"] } as unknown as OrgSummary;
+  const admin = { permissions: ["administrator", "manage_agents", "talk_to_agents"] } as unknown as OrgSummary;
   const member = { permissions: ["talk_to_agents"] } as unknown as OrgSummary;
+  // As the server sends it to each: an administrator manages every agent (`canManage`), a member doesn't.
   const kept = agent({ canTalk: false, audience: { mode: "people", userIds: [], roleIds: ["suporte"] } });
+  const managed = { ...kept, canManage: true };
   test("an admin it keeps out lets themselves in, its roles kept; a member outside can't", () => {
-    expect(audienceWithMe(admin, kept, "u-caio")).toEqual({
+    expect(audienceWithMe(admin, managed, "u-caio")).toEqual({
       mode: "people",
       userIds: ["u-caio"],
       roleIds: ["suporte"],
     });
     expect(audienceWithMe(member, kept, "u-bia")).toBeNull();
-    expect(audienceWithMe(admin, { ...kept, canTalk: true }, "u-caio")).toBeNull();
+    expect(audienceWithMe(admin, { ...managed, canTalk: true }, "u-caio")).toBeNull();
+  });
+  test("Edit agents alone doesn't let anyone into someone's private agent (ADR 0085 addendum)", () => {
+    const keyHolder = { permissions: ["manage_agents", "talk_to_agents"] } as unknown as OrgSummary;
+    // Its audience leaves them out, so the key doesn't reach it: the server says they don't manage it.
+    expect(audienceWithMe(keyHolder, { ...kept, canManage: false }, "u-bia")).toBeNull();
+    expect(audienceWithMe(keyHolder, kept, "u-bia")).toBeNull();
   });
   test("on someone else's plan an admin lets themselves in too, asked first; its owner isn't asked", () => {
-    const onPlan = { ...kept, brain: { kind: "claude_code", account: "Claude Max" } as Agent["brain"] };
+    const onPlan = { ...managed, brain: { kind: "claude_code", account: "Claude Max" } as Agent["brain"] };
     const next = audienceWithMe(admin, onPlan, "u-caio");
     expect(next).toEqual({ mode: "people", userIds: ["u-caio"], roleIds: ["suporte"] });
     expect(next && opensOthersPlan(onPlan, next, "u-caio")).toBe(true);
     expect(opensOthersPlan(onPlan, { mode: "everyone", userIds: [], roleIds: [] }, "u-heitor")).toBe(false);
     expect(opensOthersPlan(kept, { mode: "everyone", userIds: [], roleIds: [] }, "u-caio")).toBe(false);
-    expect(audienceWithMe(member, onPlan, "u-bia")).toBeNull();
+    expect(audienceWithMe(member, { ...onPlan, canManage: false }, "u-bia")).toBeNull();
     // No plan of anyone's thinks for it there (OpenCode's free tier on a computer nobody connected): nothing to ask.
     const free = { ...kept, brain: { kind: "opencode", model: null } as Agent["brain"] };
     expect(opensOthersPlan(free, { mode: "everyone", userIds: [], roleIds: [] }, "u-caio")).toBe(false);

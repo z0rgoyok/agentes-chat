@@ -39,6 +39,8 @@ import { AudienceChoice, WorkView } from "./schemas";
 
 const tags = ["Issues"];
 const Actor = z.object({ type: z.enum(["person", "agent"]), id: z.string() });
+/** Who has a task (ADR 0188): the whole list, in order. */
+const Assignees = z.array(Actor).max(20);
 const Status = z.enum(["todo", "in_progress", "in_review", "done", "canceled"]);
 const Priority = z.enum(["low", "normal", "high"]);
 const GithubUrl = z
@@ -91,7 +93,10 @@ const Issue = z
     boardRank: z.number().openapi({ description: "Order inside the column, lowest first." }),
     priority: Priority,
     project: ProjectRef.nullable(),
-    assignee: Actor.nullable(),
+    assignees: z.array(Actor).openapi({
+      description:
+        "Who has it, in order: people and agents; empty: nobody. The first agent answers what names nobody in its conversation.",
+    }),
     labels: z.array(z.string()),
     dueDate: z.string().nullable(),
     criteria: z.array(
@@ -153,7 +158,7 @@ const Issue = z
 
 const IssueDetail = Issue.extend({
   subIssues: z.array(
-    z.object({ id: z.uuid(), number: z.number(), title: z.string(), status: Status, assignee: Actor.nullable() }),
+    z.object({ id: z.uuid(), number: z.number(), title: z.string(), status: Status, assignees: z.array(Actor) }),
   ),
 }).openapi("IssueDetail");
 
@@ -166,6 +171,9 @@ const Activity = z
     event: z.string().optional(),
     textCode: z.string().optional(),
     textParams: z.record(z.string(), z.string()).optional(),
+    assignee: Actor.optional().openapi({
+      description: "An `assigned` event: who was put on the task, or taken off it (`textCode` `unassigned`).",
+    }),
     auto: z.boolean().optional().openapi({ description: "The system moved it on its own (runs and PRs)." }),
     attachments: z.array(z.object({ id: z.uuid(), title: z.string() })).optional(),
     createdAt: z.string(),
@@ -275,7 +283,7 @@ export function issueRoutes(deps: AppDeps) {
             title: z.string().min(1).max(300),
             description: z.string().max(50_000).optional(),
             criteria: z.array(z.string().max(500)).max(50).optional(),
-            assignee: Actor.nullable().optional(),
+            assignees: Assignees.optional(),
             priority: Priority.optional(),
             dueDate: DueDate.optional(),
             labels: z.array(z.string().max(40)).max(20).optional(),
@@ -326,7 +334,9 @@ export function issueRoutes(deps: AppDeps) {
               .openapi({ description: "Move to a board column; the issue takes that column's stage." }),
             boardRank: z.number().optional().openapi({ description: "Its order inside the column (lowest first)." }),
             priority: Priority.optional(),
-            assignee: Actor.nullable().optional(),
+            assignees: Assignees.optional().openapi({
+              description: "The whole new list, in order: whoever is left out leaves the task.",
+            }),
             dueDate: DueDate.optional(),
             labels: z.array(z.string().max(40)).max(20).optional(),
             projectId: ProjectId.optional(),
@@ -667,7 +677,8 @@ export function issueRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/issues/{issueId}/ask-agent",
       tags,
       security,
-      summary: '"Ask Ada to implement": assigns the agent and starts its work in the task\'s conversation',
+      summary:
+        '"Ask Ada to implement": puts the agent first among the assignees and starts its work in the task\'s conversation',
       request: { params: IssueParams, body: body(z.object({ agentId: z.uuid() })) },
       responses: { 200: json(Issue), ...errors },
     }),

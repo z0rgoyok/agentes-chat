@@ -8,9 +8,9 @@ import { Text, useTheme } from "@/ui";
 export const DATE_PILL_IDLE_MS = 1200;
 
 /**
- * The day of the messages at the top of the list, floating at its top centre while the person scrolls (as WhatsApp
- * does): "Hoje", "Ontem", a weekday this week, else a date in the person's locale. `shown` fades it; the day lines in
- * the list say it to screen readers.
+ * The day of the messages at the top of the list, floating at its top centre while the person scrolls, so a long
+ * scroll always says when it is: "Hoje", "Ontem", a weekday this week, else a date in the person's locale. `shown`
+ * fades it; the day lines in the list say it to screen readers.
  */
 export function DatePill({ day, shown, top }: { day: string | null; shown: SharedValue<number>; top: number }) {
   const { t, i18n } = useTranslation();

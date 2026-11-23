@@ -2,10 +2,14 @@ import { and, asc, eq, inArray, isNotNull, isNull, rowsOf, schema, sql } from "@
 import { appLocale } from "@agenteschat/i18n/locale";
 import type { PlanModel } from "@agenteschat/providers/plans";
 import { approvalCardThreads, approvalOriginOf, notifiedIds } from "./approvals";
+import { agentManagerIds } from "./audience";
 import { accountablePerson, runAuthorityById } from "./authority";
 import { autonomyNoteFor, proposalCardOf } from "./brakes";
 import { readableChannelIds } from "./channels";
+import { confidentialThreadSql, isConfidential } from "./confidential";
 import { threadFollowChoices } from "./follows";
+import { type Assignee, assigneesOfIssue } from "./issue-assignees";
+import { fileOfConversation } from "./live/conversation";
 import { type TaskEnd, taskEndLine } from "./machine-task-text";
 import { isMediaAfterReply } from "./media";
 import { type PreviewMeta, previewMediaKind, previewMeta, readableBody } from "./message-preview";
@@ -26,7 +30,7 @@ import {
 import { maySql, type RolePermission } from "./permissions";
 import { secretLabelOf } from "./secrets";
 import { stretchCardOf } from "./stretch";
-import { adminChannelSql, taskReadersAmong } from "./task-access";
+import { adminChannelSql, fileConversationReaderSql, taskReadersAmong } from "./task-access";
 
 /**
  * Where notifications come from: each flow calls one of these after
@@ -74,10 +78,12 @@ function handlesIn(text: string): string[] {
 async function inChannel(deps: NotificationDeps, channelId: string, userIds: string[]) {
   const ids = [...new Set(userIds.filter(Boolean))];
   if (ids.length === 0) return [];
+  // A live file's conversation (ADR 0199) has no people in it: whoever reads the file is there.
   const rows = rowsOf<{ id: string }>(
     await deps.db.execute(sql`select u.id from ${schema.users} u join ${channels} on ${channels.id} = ${channelId}::uuid
       where u.id = any(${`{${ids.join(",")}}`}::text[]) and (exists (select 1 from ${channelMembers} m
-        where m.channel_id = ${channels.id} and m.user_id = u.id) or ${adminChannelSql(sql`${channels.orgId}`, sql`u.id`)})`),
+        where m.channel_id = ${channels.id} and m.user_id = u.id) or ${adminChannelSql(sql`${channels.orgId}`, sql`u.id`)}
+        or (${channels.kind} = 'file' and ${fileConversationReaderSql(sql`${channelId}::uuid`, sql`u.id`)}))`),
   );
   return rows.map((r) => r.id);
 }
@@ -127,6 +133,15 @@ export const agentReplyGroup = (channelId: string, threadId: string | null) =>
   `agent_reply:${channelId}:${threadId ?? "top"}`;
 
 /**
+ * Never news for a person: a notice only for its agent or never news (a follow-up's lines, whose reply notifies
+ * instead; a stopped task's receipt; a mention its message's own line explains), a long work's progress line
+ * (ADR 0121), unread only for who follows its thread, or the line an agent says before slow work (`say_now`,
+ * ADR 0207), whose reply notifies. Outside chat surfaces skip the same messages (ADR 0187).
+ */
+export const quietForPeople = (meta: Record<string, unknown>) =>
+  isQuietNotice(meta) || Boolean(meta.workUpdate) || Boolean(meta.sayNow);
+
+/**
  * Job `notifications.message` (enqueued in the message's own statement):
  * people mentioned (`mention`), the other person of a DM (`dm`), the person
  * an agent answers (`agent_reply`, merged per conversation, ADR 0071), and
@@ -145,11 +160,7 @@ export async function notifyMessage(deps: NotificationDeps, orgId: string, messa
   if (meta.questionId || meta.approvalId || meta.secretRequestId) return;
   // An agent's sticker or GIF after its own reply (ADR 0091) is silent: the reply already told whoever it was for.
   if (isMediaAfterReply(meta)) return;
-  // Only for its agent, or never news (a follow-up's lines: the reply it brings notifies instead; a stopped task's
-  // receipt; a mention its message's own line explains).
-  if (isQuietNotice(meta)) return;
-  // A long work's progress line (ADR 0121) never pushes: it counts as unread only for who follows its thread.
-  if (meta.workUpdate) return;
+  if (quietForPeople(meta)) return;
   const [channel] = await db
     .select({ kind: channels.kind, name: channels.name, visibility: channels.visibility })
     .from(channels)
@@ -161,22 +172,28 @@ export async function notifyMessage(deps: NotificationDeps, orgId: string, messa
   const authorUser = message.authorUserId;
   // A reminder's own words, without the English prefix the chat replaces with its own label.
   const said = typeof meta.reminderText === "string" ? meta.reminderText : await quotedBody(deps, orgId, message);
-  const text = notificationSnippet(readableBody(said, meta));
+  // A message of a confidential thread (ADR 0190) is told with no word of it: the inbox, the push and a mail that
+  // quote this say only that there is something to open.
+  const text = isConfidential(meta) ? "" : notificationSnippet(readableBody(said, meta));
   // Only a GIF or a sticker (ADR 0091): the apps and the push say which, in the person's language.
   const media = previewMediaKind(message.body, meta);
   // A body the server wrote: the apps say it in the reader's language, as the conversation lists do.
-  const written = previewMeta(meta);
+  const written = isConfidential(meta) ? null : previewMeta(meta);
   // What the right hand posts by itself with a ring (`postFromLodi`) names its person on the message. Nobody asked,
   // so it is no reply: it rings as a message it sent them. Its stored text is already in their language, so the
   // inbox and the push quote it as it is.
   const unasked = message.authorType === "agent" && !message.agentRunId && typeof meta.forUserId === "string";
   const latest = { text, ...(media ? { media } : {}), ...(written && !unasked ? { meta: written } : {}) };
-  const label = channel.kind === "channel" ? channel.name : undefined;
+  // A live file's conversation (ADR 0199): named by its file, and the apps open the file with it at this message.
+  const file = channel.kind === "file" ? await fileOfConversation(db, orgId, message.channelId) : null;
+  if (channel.kind === "file" && !file) return;
+  const label = channel.kind === "channel" ? channel.name : file?.title;
   const where: NotificationSource = {
     channelId: message.channelId,
     ...(message.threadId ? { threadId: message.threadId } : {}),
     messageId: message.id,
     ...(channel.kind === "dm" ? { dmId: message.channelId } : {}),
+    ...(file ? { artifactId: file.id } : {}),
   };
   const done = new Set<string>(authorUser ? [authorUser] : []);
 
@@ -253,7 +270,7 @@ export async function notifyMessage(deps: NotificationDeps, orgId: string, messa
     message.mentionedUserIds.filter((u) => !done.has(u)),
   );
   let threadLabel: string | undefined;
-  if (message.threadId) threadLabel = await threadTitle(deps, orgId, message.threadId);
+  if (message.threadId && !file) threadLabel = await threadTitle(deps, orgId, message.threadId);
   if (mentioned.length > 0) {
     await notify(deps, {
       orgId,
@@ -334,7 +351,9 @@ async function threadTitle(deps: NotificationDeps, orgId: string, rootId: string
     .select({ body: messages.body, meta: messages.meta })
     .from(messages)
     .where(and(eq(messages.orgId, orgId), eq(messages.id, rootId)));
-  return root ? notificationSnippet(readableBody(root.body, root.meta), 80) || undefined : undefined;
+  return root && !isConfidential(root.meta)
+    ? notificationSnippet(readableBody(root.body, root.meta), 80) || undefined
+    : undefined;
 }
 
 const REACTION_EMOJI: Record<string, string> = { "+1": "👍", "-1": "👎" };
@@ -383,7 +402,10 @@ export async function notifyReaction(
       ...(channel?.kind === "dm" ? { dmId: message.channelId } : {}),
       ...(channel?.kind === "channel" ? { label: channel.name } : {}),
     },
-    latest: { emojis, quote: notificationSnippet(readableBody(message.body, message.meta), 140) },
+    latest: {
+      emojis,
+      quote: isConfidential(message.meta) ? "" : notificationSnippet(readableBody(message.body, message.meta), 140),
+    },
   });
 }
 
@@ -413,8 +435,30 @@ export async function notifyQuestion(deps: NotificationDeps, q: QuestionRow) {
       ...(channel?.kind === "channel" ? { label: channel.name } : {}),
       questionId: q.id,
     },
-    latest: { text: notificationSnippet(q.text), suggestions: q.choices ?? undefined },
+    // Asked in a confidential thread (ADR 0190): what the agent typed stays on its card there.
+    latest: (await sealedPlace(deps, q.orgId, q.threadId ?? q.messageId, q.runId))
+      ? { text: "" }
+      : { text: notificationSnippet(q.text), suggestions: q.choices ?? undefined },
   });
+}
+
+/**
+ * Whether a card was asked from a confidential thread: its place (its thread's root, or itself in the main timeline)
+ * is one, or the run that asked answers in one, wherever its card was posted.
+ */
+async function sealedPlace(
+  deps: Pick<NotificationDeps, "db">,
+  orgId: string,
+  rootId: string | null,
+  runId: string | null,
+) {
+  const org = sql`${orgId}::uuid`;
+  const [row] = rowsOf<{ sealed: boolean }>(
+    await deps.db.execute(sql`select (${confidentialThreadSql(org, sql`${rootId}::uuid`)}
+      or exists (select 1 from ${schema.agentRuns} r where r.id = ${runId}::uuid and r.org_id = ${org}
+        and ${confidentialThreadSql(org, sql`r.thread_root_id`)})) as sealed`),
+  );
+  return row?.sealed === true;
 }
 
 /** Answered (by anyone) or expired: out of everyone's inbox. */
@@ -510,13 +554,14 @@ export async function notifyApproval(deps: NotificationDeps, approval: ApprovalR
       ...(approval.missionId ? { missionId: approval.missionId } : {}),
       ...(channel?.kind === "channel" ? { label: channel.name } : {}),
     },
-    latest: approvalLatest(approval),
+    latest: approvalLatest(approval, await sealedPlace(deps, approval.orgId, approval.threadRootId, approval.runId)),
   });
 }
 
-const approvalLatest = (approval: ApprovalRow) => ({
-  title: notificationSnippet(approval.title, 200),
-  text: notificationSnippet(approval.why, 200),
+/** `sealed`: asked in a confidential thread (ADR 0190), so neither its title nor its why leaves its card. */
+const approvalLatest = (approval: ApprovalRow, sealed: boolean) => ({
+  title: sealed ? "" : notificationSnippet(approval.title, 200),
+  text: sealed ? "" : notificationSnippet(approval.why, 200),
   origin: approvalOriginOf(approval.origin) ?? undefined,
   expiresAt: approval.expiresAt.toISOString(),
 });
@@ -545,9 +590,11 @@ export async function resolveApprovalNotifications(
     .orderBy(asc(approvals.createdAt));
   if (waiting.length === 0) return resolveNotifications(deps, approval.orgId, { groupKey });
   const told = await Promise.all(waiting.map(async (a) => new Set(await notifiedIds(deps.db, a))));
+  // The requests of one card share its thread.
+  const sealed = await sealedPlace(deps, approval.orgId, waiting[0]?.threadRootId ?? null, waiting[0]?.runId ?? null);
   await retargetNotifications(deps, approval.orgId, groupKey, (userId) => {
     const next = waiting.find((_, i) => told[i]?.has(userId));
-    return next ? { source: { approvalId: next.id }, latest: approvalLatest(next) } : null;
+    return next ? { source: { approvalId: next.id }, latest: approvalLatest(next, sealed) } : null;
   });
 }
 
@@ -591,9 +638,10 @@ export async function notifyNewcomers(deps: NotificationDeps, row: ApprovalRow) 
 
 // ── Issues ────────────────────────────────────────────────────────────────────
 
-/** Who follows an issue: its author, its assignee, and the people who acted on it or wrote in its conversation. */
+/** Who follows an issue: its author, its assignees, and the people who acted on it or wrote in its conversation. */
 async function issueFollowers(deps: NotificationDeps, issue: IssueRow) {
-  const [acted, wrote] = await Promise.all([
+  const [assigned, acted, wrote] = await Promise.all([
+    assigneesOfIssue(deps.db, issue.id),
     deps.db
       .selectDistinct({ userId: issueActivity.authorId })
       .from(issueActivity)
@@ -613,7 +661,7 @@ async function issueFollowers(deps: NotificationDeps, issue: IssueRow) {
   ]);
   const ids = new Set<string>([...acted.map((a) => a.userId), ...wrote.flatMap((w) => (w.userId ? [w.userId] : []))]);
   if (issue.createdByType === "person") ids.add(issue.createdById);
-  if (issue.assigneeType === "person" && issue.assigneeId) ids.add(issue.assigneeId);
+  for (const a of assigned) if (a.type === "person") ids.add(a.id);
   return taskReadersAmong(deps.db, issue.id, [...ids]);
 }
 
@@ -632,28 +680,31 @@ const issueActor = (a: IssueNotifyActor): NotificationActor =>
 export const issueStatusGroup = (issueId: string, at: number) => `issue_status:${issueId}:${at}`;
 
 /**
- * After an issue changed: a new person assignee hears it (and the previous
- * one's "assigned to you" resolves); a status change reaches the followers.
+ * After an issue changed: each person put on it hears it (and the "assigned to you" of each one taken off it
+ * resolves); a status change reaches the followers.
  */
 export async function notifyIssueChanged(
   deps: NotificationDeps,
   actor: IssueNotifyActor,
-  before: Pick<IssueRow, "status" | "assigneeType" | "assigneeId"> | null,
+  before: Pick<IssueRow, "status"> | null,
   issue: IssueRow,
+  /** Who was put on the task and who was taken off it by this change. */
+  assignees: { added: readonly Assignee[]; removed: readonly Assignee[] } = { added: [], removed: [] },
 ) {
   const at = issue.updatedAt.getTime();
-  const prevPerson = before?.assigneeType === "person" ? before.assigneeId : null;
-  const nowPerson = issue.assigneeType === "person" ? issue.assigneeId : null;
-  if (prevPerson && prevPerson !== nowPerson) {
+  const people = (list: readonly Assignee[]) => list.filter((a) => a.type === "person").map((a) => a.id);
+  const left = people(assignees.removed);
+  const joined = people(assignees.added);
+  if (left.length > 0) {
     await resolveNotifications(deps, issue.orgId, {
       groupKeyPrefix: `issue_assigned:${issue.id}:`,
-      userIds: [prevPerson],
+      userIds: left,
     });
   }
-  if (nowPerson && nowPerson !== prevPerson) {
+  if (joined.length > 0) {
     await notify(deps, {
       orgId: issue.orgId,
-      userIds: await taskReadersAmong(deps.db, issue.id, [nowPerson]),
+      userIds: await taskReadersAmong(deps.db, issue.id, joined),
       kind: "issue_assigned",
       groupKey: `issue_assigned:${issue.id}:${at}`,
       actor: issueActor(actor),
@@ -742,8 +793,10 @@ async function notifyTaskMessage(deps: NotificationDeps, message: typeof message
   const author =
     message.authorType === "person" ? message.authorUserId : message.authorAgentId ? message.authorAgentId : null;
   if (!issue || !author) return;
-  const text = readableBody(message.body, message.meta);
-  if (!text.trim()) return;
+  // A message of a confidential thread (ADR 0190) is told with no word of it.
+  const sealed = isConfidential(message.meta);
+  const text = sealed ? "" : readableBody(message.body, message.meta);
+  if (!text.trim() && !sealed) return;
   await notifyIssueComment(deps, { type: message.authorType, id: author }, issue.id, message.id, text, {
     messageId: message.id,
   });
@@ -831,9 +884,9 @@ export async function notifyRoutineFailed(
 
 /**
  * A routine couldn't call an agent its creator can't talk to (`reach.ts`, and its own tell_agent or
- * ask_agent, `consultations.ts`): the agent's owner hears it once per routine and agent, or who manages agents when
- * it has none. It opens the agent's page (who talks to it), the place they may not otherwise reach being private;
- * `source.userId` is the routine's creator, whom its one-click action lets talk to the agent.
+ * ask_agent, `consultations.ts`): the agent's owner hears it once per routine and agent, or who manages it
+ * (`agentManagerIds`) when it has none. It opens the agent's page (who talks to it), the place they may not otherwise
+ * reach being private; `source.userId` is the routine's creator, whom its one-click action lets talk to the agent.
  */
 export async function notifyAgentUnreached(
   deps: NotificationDeps,
@@ -851,7 +904,7 @@ export async function notifyAgentUnreached(
   const owner = await agentOwner(deps, input.agentId);
   await notify(deps, {
     orgId: input.orgId,
-    userIds: owner ? [owner] : await adminsOf(deps, input.orgId, "manage_agents"),
+    userIds: owner ? [owner] : await agentManagerIds(deps.db, input.orgId, input.agentId),
     kind: "agent_unreached",
     groupKey: `agent_unreached:${input.routineId}:${input.agentId}`,
     actor: agent(input.agentId),
@@ -1594,9 +1647,10 @@ export async function notifyOrgStanding(
 const agentHoldGroup = (agentId: string) => `org_standing:agent:${agentId}:`;
 
 /**
- * An agent was held on agentes.chat Cloud (ADR 0056 §9): its responsible person and the workspace's owners and admins
- * hear it, with the hold's kind (`latest.holdKind`), never its reason. One row each time they are told (`at`): when
- * it is held, and when it is held again for another kind.
+ * An agent was held on agentes.chat Cloud (ADR 0056 §9): its responsible person and who manages it (the workspace's
+ * owners and administrators, and who else reaches it with "Editar qualquer agente": `agentManagerIds`, ADR 0085
+ * addendum of 2026-11-17) hear it, with the hold's kind (`latest.holdKind`), never its reason. One row each time they
+ * are told (`at`): when it is held, and when it is held again for another kind.
  */
 export async function notifyAgentHold(
   deps: NotificationDeps,
@@ -1604,7 +1658,7 @@ export async function notifyAgentHold(
 ) {
   await notify(deps, {
     orgId: hold.orgId,
-    userIds: [await agentOwner(deps, hold.agentId), ...(await adminsOf(deps, hold.orgId, "manage_agents"))],
+    userIds: [await agentOwner(deps, hold.agentId), ...(await agentManagerIds(deps.db, hold.orgId, hold.agentId))],
     kind: "org_standing",
     groupKey: `${agentHoldGroup(hold.agentId)}${hold.at.getTime()}:${hold.kind}`,
     source: { agentId: hold.agentId, label: hold.name },

@@ -36,6 +36,7 @@ import {
   screenGesture,
   statusDetail,
   statusPill,
+  statusSentence,
   waitEndedText,
   waitText,
   wifiHosts,
@@ -121,6 +122,20 @@ describe("status words", () => {
       statusDetail(t, "en-US", { kind: "offline", lastSeenAt: null, withHost: true }, { host: "Ana's iMac" }),
     ).toBe("with Ana's iMac");
     expect(statusDetail(t, "en-US", { kind: "ready" })).toBeNull();
+  });
+
+  test("a computer offline for a known cause: the row says why, its page adds the one way out", () => {
+    const off = (cause: "unresponsive" | "stopped" | "dropped") =>
+      ({ kind: "offline", lastSeenAt: at(14, 2), cause }) as const;
+    expect(statusDetail(t, "en-US", off("unresponsive"), { now: NOW })).toBe("stopped answering at 2:02 PM");
+    expect(statusDetail(t, "en-US", off("stopped"), { now: NOW })).toBe("runner stopped at 2:02 PM");
+    expect(statusDetail(t, "en-US", off("dropped"), { now: NOW })).toBe("connection dropped at 2:02 PM");
+    expect(statusSentence(t, "en-US", off("stopped"), { now: NOW })).toBe(
+      "The runner stopped at 2:02 PM. Start it again, or run `agentes-runner doctor` on it to see why.",
+    );
+    expect(statusSentence(t, "en-US", off("unresponsive"), { now: NOW })).toContain(
+      "Run `agentes-runner doctor` on it.",
+    );
   });
 });
 

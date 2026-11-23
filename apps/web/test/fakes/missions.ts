@@ -136,7 +136,6 @@ export function createFakeMissions(
         ready: true,
         executors: ["claude", "codex", "agent"] as ("claude" | "codex" | "agent")[],
         defaultExecutor: "claude" as const,
-        codexTooOld: false,
         commandApproval: defaults.get(a.id) ?? ("low_risk_auto" as const),
       }));
     },
@@ -227,7 +226,6 @@ export function createFakeMissions(
           online: true,
           lentBy: null,
           executors: ["claude", "codex", "agent"],
-          codexTooOld: false,
         },
         needsComputer: false,
         role: "owner",
@@ -340,7 +338,6 @@ export function createFakeMissions(
           online: true,
           lentBy: null,
           executors: ["claude", "agent"],
-          codexTooOld: false,
         },
         needsComputer: false,
       });

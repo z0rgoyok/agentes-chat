@@ -36,6 +36,12 @@ export const voiceClips = pgTable(
     peaks: jsonb().$type<number[]>().notNull(),
     /** The language the person's app is in (`pt`, `en`). */
     language: text(),
+    /** What the person typed beside the take: posted above the words, in the same message. */
+    text: text(),
+    /** Files (artifact ids) sent with the take, checked as a typed message's when it arrived. */
+    attachments: jsonb().$type<string[]>(),
+    /** Where the take came from when not an app (an outside chat surface, ADR 0187): the message's `meta.via`. */
+    via: jsonb().$type<Record<string, unknown>>(),
     status: text().$type<"pending" | "sent" | "dropped">().notNull().default("pending"),
     messageId: uuid(),
     /** Which engine made the words, and what they cost us. Never shown. */

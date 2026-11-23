@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   type Agent,
   createAgent,
+  editAgent,
   freeHandle,
   listAgents,
   NEW_AGENT_DEFAULTS,
@@ -10,6 +11,7 @@ import {
   updateAgent,
 } from "../agents";
 import { AGENT_LOOK, setAgentAppearance } from "../appearance";
+import { listsAgentTo } from "../audience";
 import { recordAudit } from "../audit";
 import { createChannel, listChannels } from "../channels";
 import { addContextItemByPerson } from "../context/items";
@@ -17,6 +19,7 @@ import { ConflictError, TooManyError, ValidationError } from "../errors";
 import { handleFromName } from "../imports";
 import { publishMachineAgentsChanged } from "../machines";
 import { notifyAppCreated } from "../notification-producers";
+import { getMembership } from "../organizations";
 import { createRoutine, listRoutines } from "../routines";
 import {
   listSkills,
@@ -149,14 +152,17 @@ export function registerManageTools(deps: AppsToolDeps, p: AppPrincipal, tool: R
       openWorld: false,
     },
     async () => {
-      const [agents, skills, routines, channels] = await Promise.all([
+      const [agents, skills, routines, channels, membership] = await Promise.all([
         listAgents(deps.db, p.userId, p.orgId),
         listSkills(deps.db, p.userId, p.orgId),
         listRoutines(deps.db, p.userId, p.orgId),
         listChannels(deps.db, p.userId, p.orgId),
+        getMembership(deps.db, p.userId, p.orgId),
       ]);
       return {
-        agents: agents.map((a) => ({ id: a.id, name: a.name, handle: a.handle, role: fenced(a.role, 200) })),
+        agents: agents
+          .filter((a) => listsAgentTo(a, p.userId, membership))
+          .map((a) => ({ id: a.id, name: a.name, handle: a.handle, role: fenced(a.role, 200) })),
         skills: skills.map((s) => ({ id: s.id, name: s.name })),
         routines: routines.map((r) => ({ id: r.id, name: r.name, agent_id: r.agentId })),
         channels: channels.map((c) => ({ id: c.id, name: c.name })),
@@ -293,27 +299,27 @@ export function registerManageTools(deps: AppsToolDeps, p: AppPrincipal, tool: R
       if (!look && Object.keys(fields).length === 0)
         throw new ValidationError("Nothing to change: give role, name, or one of the avatar fields.");
       await allow();
-      let updated: Pick<Agent, "id" | "name" | "handle"> = agent;
-      if (Object.keys(fields).length > 0)
-        updated = await updateAgent(deps.db, p.userId, p.orgId, agent.id, fields, {
-          remember: false,
-          pubsub: deps.pubsub,
-        });
-      if (look) {
-        const now = agent.appearance;
-        updated = await setAgentAppearance(
-          deps.db,
-          p.userId,
-          p.orgId,
-          agent.id,
-          {
-            color: args.avatar_color ?? now?.color ?? AGENT_LOOK.colors[0],
-            eyes: args.avatar_eyes ?? now?.eyes ?? AGENT_LOOK.eyes[0],
-            accessory: args.avatar_accessory ?? now?.accessory ?? "none",
-          },
-          { pubsub: deps.pubsub },
-        );
-      }
+      // Its fields and its look in one change, both decided against the agent as it was: who may change one but not
+      // the other gets a refusal before anything is saved (ADR 0085 addendum of 2026-11-17).
+      const now = agent.appearance;
+      const updated: Pick<Agent, "id" | "name" | "handle"> = await editAgent(
+        { db: deps.db, pubsub: deps.pubsub },
+        p.userId,
+        p.orgId,
+        agent.id,
+        {
+          ...(Object.keys(fields).length > 0 ? { fields } : {}),
+          ...(look
+            ? {
+                appearance: {
+                  color: args.avatar_color ?? now?.color ?? AGENT_LOOK.colors[0],
+                  eyes: args.avatar_eyes ?? now?.eyes ?? AGENT_LOOK.eyes[0],
+                  accessory: args.avatar_accessory ?? now?.accessory ?? "none",
+                },
+              }
+            : {}),
+        },
+      );
       await recordAudit(deps.db, {
         orgId: p.orgId,
         actor: { type: "person", id: p.userId },

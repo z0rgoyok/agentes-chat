@@ -8,14 +8,22 @@ import {
   createApiKeyConnection,
   createConnectorToolSource,
   createToolGateway,
+  decideApproval,
+  drainOutbox,
   postPersonMessage,
   saveCustomTools,
 } from "../src";
+import { closeWorlds } from "./autonomy/harness";
+import { vaultWorld } from "./confidential-fixtures";
 import { fakeGithubMcp } from "./fake-mcp";
 import { type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
-afterEach(() => f?.close());
+afterEach(async () => {
+  await f?.close();
+  f = undefined as unknown as Fixture;
+  await closeWorlds();
+});
 
 const SERVER = "https://tools.example.com/mcp";
 const SECRET = "test-secret-".padEnd(32, "x");
@@ -123,6 +131,8 @@ test("a listed host: each tool call carries a statement signed with its secret t
     run: ctx.runId,
     conn,
     user: f.owner.id,
+    channel: f.general.id,
+    thread: ctx.threadRootId,
     iat,
     exp: iat + 60,
     jti: expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -156,11 +166,97 @@ test("a run nobody is behind names no person, and a call outside any run names n
   await tool?.execute(INPUT, { ...ctx, runId: "" });
 
   const [routine, noRun] = toolCalls(mcp).map((r) => verified(statementOf(r), SECRET)?.claims);
-  expect(routine).toMatchObject({ org: f.org.id, agent: f.agent.id, run: ctx.runId });
+  // A routine's own run: the conversation it answers in is its room, and the thread's root is what woke it.
+  expect(routine).toMatchObject({
+    org: f.org.id,
+    agent: f.agent.id,
+    run: ctx.runId,
+    channel: ctx.channelId,
+    thread: ctx.threadRootId,
+  });
   expect(routine).not.toHaveProperty("user");
+  // Nobody said what thinks for either call, so neither statement says.
+  expect(routine).not.toHaveProperty("brain");
+  expect(routine).not.toHaveProperty("provider");
   expect(noRun).toMatchObject({ org: f.org.id, agent: f.agent.id });
   expect(noRun).not.toHaveProperty("run");
   expect(noRun).not.toHaveProperty("user");
+});
+
+test("what thinks for the run and where it answers: a model the server calls says its provider, a program on a computer only its kind", async () => {
+  const mcp = fakeGithubMcp();
+  let source: ReturnType<typeof createConnectorToolSource> | null = null;
+  f = await setup({
+    toolSources: [{ name: "connectors", tools: (ctx) => (source ? source.tools(ctx) : Promise.resolve([])) }],
+    reply: (req) =>
+      JSON.stringify(req.messages).includes("pull_request_read")
+        ? { chunks: ["Read."] }
+        : { chunks: [], toolUses: [{ name: "tools_pull_request_read", input: INPUT }] },
+  });
+  const deps = depsOf(f, mcp);
+  await connectTools(f, deps);
+  source = createConnectorToolSource({ ...deps, callerIdentity: new Map([["tools.example.com", SECRET]]) });
+  // A person's run, through the server's own model loop.
+  const asked = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev read pull request 42",
+  });
+  await drainOutbox(f.db, f.handlers);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  const [own] = toolCalls(mcp).map((r) => verified(statementOf(r), SECRET)?.claims);
+  expect(own).toMatchObject({
+    run: run?.id,
+    user: f.owner.id,
+    brain: "model",
+    provider: "anthropic",
+    channel: f.general.id,
+    thread: asked.id,
+  });
+
+  // A program on a computer, whose calls come back through the bridge: its kind, and no provider.
+  const ctx = await runContext(f);
+  const tool = (await source.tools(ctx)).find((t) => t.name === "tools_pull_request_read");
+  await tool?.execute(INPUT, { ...ctx, thinksWith: "claude_code", bridge: { machineId: "m1" } });
+  const computer = verified(statementOf(toolCalls(mcp).at(-1) as FakeMcp["requests"][number]), SECRET)?.claims;
+  expect(computer).toMatchObject({ brain: "claude_code", channel: f.general.id, thread: ctx.threadRootId });
+  expect(computer).not.toHaveProperty("provider");
+});
+
+test("an action a person approved says what thinks for the run too, when the run that comes back executes it", async () => {
+  const w = await vaultWorld({
+    agents: ["kai"],
+    changeAsks: true,
+    script: {
+      kai: [
+        { calls: [{ name: "vault_list_records", input: {} }] },
+        {
+          calls: [
+            {
+              name: "vault_change_record",
+              input: { id: "r1", note: "seen", why: "The person asked for this change to the record just now, here." },
+            },
+          ],
+        },
+        { text: "Changed." },
+      ],
+    },
+  });
+  const asked = await w.say("@kai list the records and change r1");
+  await w.settle();
+  const [approval] = await w.db.select().from(schema.approvals);
+  expect(approval?.status).toBe("pending");
+  await decideApproval({ db: w.db, pubsub: w.f.pubsub }, w.owner.id, w.org.id, approval?.id ?? "", {
+    decision: "approve",
+  });
+  await w.settle();
+  /** The claims of the one call the server got for a tool of its own (unverified: the signature is checked above). */
+  const claimsOf = (name: string) => {
+    const statement = w.vault.requests.find((r) => r.name === name)?.meta?.[CALLER_META_KEY];
+    const [, payload = ""] = typeof statement === "string" ? statement.split(".") : [];
+    return JSON.parse(Buffer.from(payload, "base64url").toString() || "{}") as Record<string, unknown>;
+  };
+  const said = { brain: "model", provider: "anthropic", channel: w.channelId, thread: asked.id };
+  expect(claimsOf("list_records")).toMatchObject(said);
+  expect(claimsOf("change_record")).toMatchObject(said);
 });
 
 test("nothing for a host that isn't listed, a listed one on another port or over http, or a catalog connector", async () => {

@@ -34,7 +34,7 @@ The same tools everywhere (`work_in_background`, `post_update`, `steer_work`, `s
 
 - `sessionFor`: a conversation run never takes a session that a work run or an active run shares, through any row that carries it (an earlier finished run included).
 - A work's turn end drops the check-ins it never read (agent-only `work_check_in` notices, `dropWorkNotices`): the turn's text is the report. A work still in line at a turn's end parks there (`workStartsNote` when its turn comes), never ends `done`.
-- `mayFallBack`: a work waits for its computer instead of switching brains.
+- `mayFallBack`: a work waits for its computer instead of switching brains. (Removed since: no run switches brains, ADR 0032's 2026-11-15 addendum.)
 - No runner change and no protocol bump.
 - An API-model work yields its job after `WORK_JOB_YIELD_MS` (1 h) at the loop top: it saves its transcript and queues its own `agent_run.execute` 10 s later. A single computer turn longer than the outbox's 6 h lease stays the known ceiling.
 
@@ -146,3 +146,22 @@ A reply turn passed a person's next step on to a work ("then post the summary in
 A work that asked other agents something and ended its turn reported home with the answers still out. Each answer then woke the agent where the ended run pointed: the anchor's thread. The result the person was waiting for (the files, the summary) landed under the anchor, after the report, where nobody looks once the work says it ended; in the conversation the agent later spoke of things the person had never seen.
 
 A notice for a run whose work ended and had its own thread (`deliverNoticeToRun`, `workHome` in `run-resume.ts`) is now written where the work reported: its channel and `home_thread_id`. The run it wakes is triggered there, so it answers in the conversation. While the work is on, a notice still lands in its thread; a work asked inside a thread keeps that thread, as before.
+
+## Addendum 2026-11-15: work handed between agents reports where the person asked
+
+The right hand handed a person's ask to another agent with `tell_agent`. The delegate worked in the two agents' DM (or in a task's conversation), which no person reads: `movableRun` refused it, so it had no `work_in_background`, `post_update` or card, and its progress and report reached the person only when the right hand woke to relay them. Each delegate's reply woke the right hand again.
+
+- **A handed work.** `handOverWork` runs right after a hand-off starts its run (`tell_agent`, and the right hand handing a task, `askAgentToImplement` with `by`). When a person is behind the chain (`handedHome`: the run answers hand-offs, `consultationOrigin` names the person's conversation, the authority is `person`), the run becomes background work with `how = 'handed'`: `channel_id` is the person's conversation and `handed_thread_id` its thread there, `home_thread_id` stays the run's own reply thread where it runs (the executor posts its report there unchanged), `anchor_message_id` is the hand-off's message and `consultation_id` its row (migration 0281). Nothing for a heads-up, a routine's chain, a run that answers agents only, or a run the hand-off only joined (it keeps its own course). A handed work's run keeps taking other agents' notes where it runs (`workKeepsThread`).
+- **Its updates and report go home.** `updatesThreadOf` and `workHomeThreadOf` read `handed_thread_id` for a handed work, so `post_update`, the server's update and an end line post in the person's conversation as the delegate. `endWork` copies the report the run posted where it ran into the person's conversation (`meta.handedReport.fromMessageId`); the copy is the work's result. `work_in_background` from such a run makes the same handed work.
+- **Its card.** It gets its card at once (`ensureWorkCard`): the task it was handed, or a new one made by the agent that handed it, from the person's conversation, seen by who reads it. `setWorkIssueState` moves it To do → In progress → Done with no `update_issue`.
+- **What the apps draw.** `WorkView` carries `handedBy`, `askerRunId`, `planStep` and `result`. The reply that handed it carries `handedWorks` (on its run's last message in a list; live through `agent.work` and the client cache). The line reads "Handed to Atlas · working on it · step 3 of 5 · 2 min", amber while it waits on the reader, "done in 10 min" with See the result; the pair row for that hand-off goes. The delegate's messages in an agent's DM show its name, its question card says "Atlas asks you", and its updates carry no tool block.
+
+## Addendum 2026-11-19: a reply turn's promise about the work is the work's
+
+A reply turn beside a running background work could say it would bring what the work finds once it ends. The follow-through judge read that as the reply turn's own unkept promise and nudged it to go on, so the reply turn started doing the work itself, and the person's next messages went into a turn that wouldn't read them for minutes. `comesBackHere` doesn't count a work asked in the main timeline (its updates go to its own thread), on purpose: a new request beside it must still be kept.
+
+The judge now reads the titles of the agent's own work running in the background in the conversation (`background_work`, from `liveWorksHere`, for a run that isn't that work; read again only where the run's context found some, `WORK_BRIEF_HEADING`, so a run with none costs no statement), and a promise about what that work will bring (its findings, its result, word when it ends) counts as kept by it: done. A promise about anything else still gets its nudge.
+
+## Addendum 2026-11-19: the line before shorter work (ADR 0207)
+
+`work_in_background`'s `say` is what a person reads at once before long work. Work of seconds to a couple of minutes (a search, a page in the browser, a few files) had no such line: until the reply, the person had only the step line. `say_now` (ADR 0207) is that line for the rest: one short line, once per run, posted at once where the run answers. It doesn't apply to a work (`workId`: its voice is `post_update`, and the tool says so), and the prompt says never to call it with `work_in_background`, whose `say` already is the line. A line said before a run moves to the background stays where it was posted, and the anchor comes after it.

@@ -2,6 +2,7 @@ import type { BlobStoreResolver, PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, eq, gt, inArray, isNull, lte, or, type SQL, schema, sql } from "@agenteschat/db";
 import { SKILL_ASSET_BYTES, SKILL_TEXT_BYTES } from "@agenteschat/tokens/skills";
 import { getAgent } from "./agents";
+import { editsAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { mapInBatches } from "./batches";
 import { activeConnections, type ConnectorDeps } from "./connectors/connections";
@@ -1653,7 +1654,11 @@ export async function reimportSkill(deps: SkillDeps, actorId: string, orgId: str
  */
 export async function listSkills(db: Database, actorId: string, orgId: string, options: { others?: boolean } = {}) {
   const membership = await requirePermission(db, actorId, orgId, "read");
-  const others = options.others === true && can(membership, "manage_agents");
+  return skillsWithCounts(db, actorId, orgId, options.others === true && can(membership, "manage_agents"));
+}
+
+/** `listSkills`' rows once its caller checked who may see everyone else's personal skills (`others`). */
+async function skillsWithCounts(db: Database, actorId: string, orgId: string, others: boolean) {
   const rows = await db
     .select()
     .from(skills)
@@ -1859,12 +1864,16 @@ export async function setSkillAgentsImprove(
   return skillDetail(db, row ?? s);
 }
 
-/** Who may lock or undo an agent-made skill: who manages agents, or the owner of the agent that made it. */
+/**
+ * Who may lock or undo an agent-made skill: who manages the team's skills (`manage_agents`), or who edits the agent
+ * that made it (`editsAgent`: its owner, who manages it, its "Quem pode editar", ADR 0085 addendum of 2026-11-17).
+ */
 async function mayChangeAgentSkill(db: Database, actorId: string, orgId: string, ownerAgentId: string | null) {
   const membership = await requirePermission(db, actorId, orgId, "read");
   if (can(membership, "manage_agents")) return true;
   if (!ownerAgentId) return false;
-  return (await getAgent(db, orgId, ownerAgentId))?.ownerUserId === actorId;
+  const agent = await getAgent(db, orgId, ownerAgentId);
+  return !!agent && editsAgent(agent, actorId, membership);
 }
 
 export async function requireAgentSkillChange(db: Database, actorId: string, orgId: string, s: SkillRow) {
@@ -1980,13 +1989,14 @@ export async function agentMadeSkills(db: Database, actorId: string, orgId: stri
 
 /**
  * The skills the actor sees with whether this agent has each one on, and someone else's personal skill while it is on
- * for this agent (name and person only), so who manages agents can turn it off.
+ * for this agent (name and person only), so who edits the agent (`editsAgent`) can turn it off.
  */
 export async function agentSkillList(db: Database, actorId: string, orgId: string, agentId: string) {
-  await requirePermission(db, actorId, orgId, "read");
-  if (!(await getAgent(db, orgId, agentId))) throw new NotFoundError("Agent not found");
+  const membership = await requirePermission(db, actorId, orgId, "read");
+  const agent = await getAgent(db, orgId, agentId);
+  if (!agent) throw new NotFoundError("Agent not found");
   const [all, mine] = await Promise.all([
-    listSkills(db, actorId, orgId, { others: true }),
+    skillsWithCounts(db, actorId, orgId, editsAgent(agent, actorId, membership)),
     db
       .select()
       .from(agentSkills)
@@ -1998,7 +2008,10 @@ export async function agentSkillList(db: Database, actorId: string, orgId: strin
     .filter((s) => !s.ownerUserId || s.ownerUserId === actorId || s.enabled);
 }
 
-/** Turns skills on or off for an agent (admins or its owner). */
+/**
+ * Turns skills on or off for an agent: who edits it (`editsAgent`: its owner, who manages it, its "Quem pode editar",
+ * ADR 0085 addendum of 2026-11-17).
+ */
 export async function setAgentSkills(
   db: Database,
   actorId: string,
@@ -2009,8 +2022,8 @@ export async function setAgentSkills(
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!can(membership, "manage_agents") && agent.ownerUserId !== actorId) {
-    throw new ForbiddenError("Only an admin or the agent's owner can change its skills");
+  if (!editsAgent(agent, actorId, membership)) {
+    throw new ForbiddenError("Only who can edit the agent changes its skills");
   }
   const ids = [...new Set(input.map((i) => i.skillId))];
   if (ids.length > 0) {

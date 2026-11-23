@@ -11,7 +11,7 @@ import { mailActionsChanged, mailActionsFrom, mailReviewTools } from "@agentesch
 import { type ReviewTool, reviewDecisions, reviewToolsOf } from "@agenteschat/client/lib/tool-review";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import {
   Button,
   GroupedFooter,
@@ -25,6 +25,7 @@ import {
   SearchField,
   Text,
 } from "@/ui";
+import { RowBones } from "../roles/parts";
 import { useColors, useOrgId } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
 import { errorHaptic, successHaptic } from "../shared/parts";
@@ -48,9 +49,13 @@ import {
 /** Each tool level's mark in the picker. */
 const TOOL_LEVEL_ICON: Record<string, IconName> = { read: "eye", write: "pen", approval: "shield", off: "eyeoff" };
 
-/** What a screen pins at its bottom for the review's save: the words, whether it is busy, what a tap does. */
+/**
+ * What a screen pins at its bottom for the review's save: the words, whether it is saving (the button spins) or
+ * waiting on something else (it can't be pressed), what a tap does.
+ */
 export interface SaveBar {
   label: string;
+  saving: boolean;
   busy: boolean;
   onPress: () => void;
 }
@@ -78,7 +83,6 @@ export function ReviewStep({
   onSaveBar?: (bar: SaveBar | null) => void;
 }) {
   const { t } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const servers = useCustomServers(orgId);
   const target = reviewTarget(
@@ -99,7 +103,14 @@ export function ReviewStep({
       />
     );
   }
-  if (target.kind === "loading") return <ActivityIndicator color={c.muted} />;
+  // The rows' shape while the tools are read, never a bare spinner.
+  if (target.kind === "loading")
+    return (
+      <GroupedList>
+        <RowBones />
+        <RowBones name={56} />
+      </GroupedList>
+    );
   const tools = target.kind === "catalog" ? catalogReviewTools(t, target.def) : [];
   return (
     <>
@@ -161,19 +172,16 @@ function ServerReview({
       },
     );
   };
-  const saveLabel = save.isPending
-    ? t("mobile.connectors.review.saving")
-    : onScreen
-      ? t("common.save")
-      : t("connectFlow.next");
+  const saveLabel = onScreen ? t("common.save") : t("connectFlow.next");
+  const saving = save.isPending;
   // Pinned at the screen's bottom (Ferramentas): the bar gets the words and the state, a tap the latest `next`.
   const nextNow = useRef(next);
   useEffect(() => {
     nextNow.current = next;
   });
   useEffect(() => {
-    onSaveBar?.({ label: saveLabel, busy, onPress: () => nextNow.current() });
-  }, [onSaveBar, saveLabel, busy]);
+    onSaveBar?.({ label: saveLabel, saving, busy: refresh.isPending, onPress: () => nextNow.current() });
+  }, [onSaveBar, saveLabel, saving, refresh.isPending]);
   useEffect(() => () => onSaveBar?.(null), [onSaveBar]);
   return (
     <>
@@ -205,7 +213,9 @@ function ServerReview({
         <GroupedFooter>{left > 0 ? t("toolReview.missing", { count: left }) : t("toolReview.later")}</GroupedFooter>
       </View>
       {failed ? <Problem key={failed} text={failed} /> : null}
-      {onSaveBar ? null : <Button variant="primary" wide label={saveLabel} disabled={busy} onPress={next} />}
+      {onSaveBar ? null : (
+        <Button variant="primary" wide label={saveLabel} disabled={refresh.isPending} loading={saving} onPress={next} />
+      )}
     </>
   );
 }
@@ -265,10 +275,8 @@ export function MailReview({
       <Button
         variant="primary"
         wide
-        label={
-          update.isPending ? t("mobile.connectors.review.saving") : onScreen ? t("common.save") : t("connectFlow.next")
-        }
-        disabled={update.isPending}
+        label={onScreen ? t("common.save") : t("connectFlow.next")}
+        loading={update.isPending}
         onPress={next}
       />
     </>

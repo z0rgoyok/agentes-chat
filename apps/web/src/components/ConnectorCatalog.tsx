@@ -9,6 +9,7 @@ import {
   AgentSearching,
   Button,
   Chip,
+  codeAndBold,
   Dialog,
   EmptyState,
   GroupHeading,
@@ -455,7 +456,7 @@ export function ConnectorCatalogDialog({
                     </button>
                   </li>
                 </ul>
-                {composioOff && <p className="small muted catalog__note">{composioOff}</p>}
+                {composioOff && <p className="small muted catalog__note">{codeAndBold(composioOff)}</p>}
               </section>
             </>
           )}

@@ -5,12 +5,15 @@ import { idlePose, mixHex, type Pose } from "@agenteschat/ui/agent/engine";
  * Native imports. Times in seconds.
  */
 export const LAUNCH = {
-  /** The shortest it plays before it may leave. */
+  /** The shortest it plays before it may leave, once its rise is under way. */
   min: 0.9,
+  /**
+   * Ready this soon (its first frames: the session and the workspace kept from last time), it leaves at once, with no
+   * minimum to sit through: its rise had barely begun.
+   */
+  quick: 0.15,
   /** The sky rising and the agent lifting with it. */
   rise: 0.85,
-  /** Leaving: the agent and the name go up and out first, the sky sinks, the screen fades into the app. */
-  exit: 0.55,
   /** Leaving with reduced motion: a short fade. */
   reducedExit: 0.25,
   /** When the name comes in. */
@@ -27,12 +30,87 @@ export const LAUNCH = {
   waitingSky: 0.56,
 } as const;
 
+/**
+ * Leaving into the app (motion on): the agent's body becomes a window onto the app, already drawn under the splash.
+ * The sky takes the whole screen in a moment (so the window opens on the sky, not on a white page), the agent draws
+ * in a little, then the window grows faster and faster until it covers the screen. All on the UI thread; times in
+ * seconds from the moment it leaves.
+ */
+export const DIVE = {
+  /** The agent draws in before it dives. */
+  breath: 0.12,
+  shrink: 0.9,
+  /** The dive itself: from the agent's size until its body covers the screen. */
+  at: 0.1,
+  span: 0.34,
+  /** How large the body ends, as a share of the logo: past the corners of any phone, or a tablet either way up. */
+  far: 18,
+  /** The name leaves first. */
+  nameOut: 0.12,
+  /** The sky takes the whole screen. */
+  flood: 0.16,
+  floodLevel: 1.35,
+  /** The sky goes a little way with the camera: its scale once the window covers the screen. */
+  camera: 1.45,
+} as const;
+
+/** From leaving until the app alone shows. */
+export const DIVE_TOTAL = DIVE.at + DIVE.span;
+
+const clamp01 = (x: number) => {
+  "worklet";
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+};
+const smooth01 = (x: number) => {
+  "worklet";
+  const k = clamp01(x);
+  return k * k * (3 - 2 * k);
+};
+
+/** How far the dive is (0 → 1) `e` seconds after leaving. */
+export function diveZoom(e: number): number {
+  "worklet";
+  return clamp01((e - DIVE.at) / DIVE.span);
+}
+
+/**
+ * The agent's size as a share of the logo `e` seconds after leaving: a breath in, then ever faster (an exponential
+ * whose exponent eases in), so the window rushes at the camera.
+ */
+export function diveScale(e: number): number {
+  "worklet";
+  const shrink = 1 + (DIVE.shrink - 1) * (1 - (1 - clamp01(e / DIVE.breath)) ** 3);
+  const z = diveZoom(e);
+  return shrink * (DIVE.far / DIVE.shrink) ** (z * z);
+}
+
+/** The body's own fill as the dive starts (1 → 0): the app shows through it. */
+export function diveBody(e: number): number {
+  "worklet";
+  return 1 - smooth01((e - DIVE.at) / 0.1);
+}
+
+/** The eyes, a moment longer: they fly past. */
+export function diveEyes(e: number): number {
+  "worklet";
+  return 1 - smooth01((e - DIVE.at - 0.08) / 0.16);
+}
+
+/** The name, gone before the dive. */
+export function diveName(e: number): number {
+  "worklet";
+  return 1 - smooth01(e / DIVE.nameOut);
+}
+
 /** The native launch image (assets/images/splash-icon.png, 512 px with the body at 56–456) is 120 pt wide. */
 export const NATIVE_IMAGE = 120;
 /** So the agent's body there is this wide, centered on the screen: the splash starts exactly on it. */
 export const LOGO = (NATIVE_IMAGE * 400) / 512;
 /** The agent in the logo (the same as the app icon). */
 export const LOGO_LOOK = { color: "sky", eyes: "round" } as const;
+
+/** Whether the app, ready `readyMs` after the splash came up, skips its minimum (`LAUNCH.quick`). */
+export const launchesAtOnce = (readyMs: number) => readyMs <= LAUNCH.quick * 1000;
 
 /** The line under the name while it waits: none at first, then why (no network, or just slow). */
 export function waitLine(late: boolean, offline: boolean): "offline" | "slow" | null {

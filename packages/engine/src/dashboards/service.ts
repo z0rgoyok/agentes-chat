@@ -1393,7 +1393,7 @@ export async function getWidget(
   const [view, history, step] = await Promise.all([
     widgetView(deps.db, widget, viewer),
     widgetHistory(deps.db, orgId, widget.id),
-    widget.status === "building" || widget.status === "updating" ? widgetStep(deps.db, orgId, widget) : null,
+    widget.status === "building" || widget.status === "updating" ? widgetStep(deps.db, orgId, widget, actorId) : null,
   ]);
   return {
     ...view,
@@ -1406,14 +1406,26 @@ export async function getWidget(
 
 /**
  * The tool call the widget's refresh run is in: the latest step of its routine's unfinished run, when that is a call
- * (a result or a model round after it means it is thinking: null). No access check: callers check.
+ * (a result or a model round after it means it is thinking: null). A call in a person's own connection is only for
+ * that person, the routine's creator: anyone else reads it thinking. No access check: callers check.
  */
-async function widgetStep(db: Executor, orgId: string, widget: WidgetRow): Promise<WidgetStepView | null> {
+async function widgetStep(
+  db: Executor,
+  orgId: string,
+  widget: WidgetRow,
+  viewerId: string,
+): Promise<WidgetStepView | null> {
   if (!widget.routineId) return null;
   const [step] = await db
-    .select({ kind: agentRunSteps.kind, data: agentRunSteps.data, at: agentRunSteps.createdAt })
+    .select({
+      kind: agentRunSteps.kind,
+      data: agentRunSteps.data,
+      at: agentRunSteps.createdAt,
+      creator: routines.createdByUserId,
+    })
     .from(agentRunSteps)
     .innerJoin(routineRuns, eq(routineRuns.agentRunId, agentRunSteps.runId))
+    .innerJoin(routines, eq(routines.id, routineRuns.routineId))
     .where(
       and(
         eq(agentRunSteps.orgId, orgId),
@@ -1424,7 +1436,7 @@ async function widgetStep(db: Executor, orgId: string, widget: WidgetRow): Promi
     )
     .orderBy(desc(routineRuns.createdAt), desc(agentRunSteps.seq))
     .limit(1);
-  if (step?.kind !== "tool_call") return null;
+  if (step?.kind !== "tool_call" || (step.data.personal === true && step.creator !== viewerId)) return null;
   const text = (v: unknown) => (typeof v === "string" && v ? v : null);
   return {
     tool: text(step.data.name) ?? "",

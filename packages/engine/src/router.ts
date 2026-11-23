@@ -27,6 +27,7 @@ import { audienceSql } from "./audience";
 import { TYPING_GRACE_MS, typesInApp, typingLogFor } from "./burst";
 import { caches } from "./cache";
 import { summarizeGrants } from "./capabilities";
+import { isConfidential } from "./confidential";
 import { quotedLine } from "./context";
 import { addAgentReaction, isValidReaction, normalizeReaction } from "./context/feedback";
 import { createAgentRuns, requesterOf } from "./dispatch";
@@ -776,7 +777,16 @@ export { AGENT_CHIME_IN_MAX_HOP };
 export async function routeMessage(
   deps: RouterDeps,
   input: { orgId: string; messageId: string },
+  /**
+   * A message the triage took out of an agent's task as someone else's (`ROUTE_RELEASED_JOB`). `except`: that agent,
+   * out of the running (the lean toward the agent the person was just talking to would hand it straight back).
+   * `forSomeoneElse`: only an agent the message speaks to answers it (the step's `addressee`, or an agent it names),
+   * never one placed best to answer nor one a rule supplies (the one agent here, a follow-up, a step's failure, R5's "a
+   * message for the agents always gets one"): it is for someone else, maybe another agent ("Bruno, vê isso").
+   */
+  options: { except?: readonly string[]; forSomeoneElse?: boolean } = {},
 ): Promise<RouteResult> {
+  const started = performance.now();
   const { db } = deps;
   // A workspace on hold, suspended or being deleted asks no strategy (Jev bills the server): nobody answers there now.
   const refusal = await standingRefusal(db, input.orgId);
@@ -841,13 +851,15 @@ export async function routeMessage(
     )
     // Oldest first: the last tie-break of a default pick.
     .orderBy(asc(agents.createdAt));
-  let candidates: RoutingCandidate[] = rows.map((r) => ({
-    agentId: r.agentId,
-    handle: r.handle,
-    name: r.name,
-    role: r.role,
-    about: cutText(r.instructions, 300),
-  }));
+  let candidates: RoutingCandidate[] = rows
+    .filter((r) => !options.except?.includes(r.agentId))
+    .map((r) => ({
+      agentId: r.agentId,
+      handle: r.handle,
+      name: r.name,
+      role: r.role,
+      about: cutText(r.instructions, 300),
+    }));
   // Out of office (ADR 0084 §12): with nothing to think with until a reset, an agent doesn't answer a message nobody
   // mentioned it in (the others do); a mention still reaches it.
   if (deps.outOfOffice && candidates.length > 0) {
@@ -908,14 +920,19 @@ export async function routeMessage(
     }
     if (await continuedSoon(db, message, quietMs)) return { runs: [], skipped: "continued" };
   }
-  // What each one can reach, by name ("Sentry"): a question about an app goes to who has it.
+  // What each one can reach, by name ("Sentry"): a question about an app goes to who has it. A person's own
+  // connection is never named: the router's reason is read by the whole conversation.
   const [granted, connections] = await Promise.all([
     db
       .select({ agentId: agentScopes.agentId, scope: agentScopes.scope, connectionLabel: connectorConnections.label })
       .from(agentScopes)
       .leftJoin(
         connectorConnections,
-        and(eq(connectorConnections.id, agentScopes.connectionId), isNull(connectorConnections.revokedAt)),
+        and(
+          eq(connectorConnections.id, agentScopes.connectionId),
+          isNull(connectorConnections.revokedAt),
+          isNull(connectorConnections.ownerUserId),
+        ),
       )
       .where(
         and(
@@ -929,7 +946,13 @@ export async function routeMessage(
     db
       .select({ label: connectorConnections.label })
       .from(connectorConnections)
-      .where(and(eq(connectorConnections.orgId, message.orgId), isNull(connectorConnections.revokedAt))),
+      .where(
+        and(
+          eq(connectorConnections.orgId, message.orgId),
+          isNull(connectorConnections.revokedAt),
+          isNull(connectorConnections.ownerUserId),
+        ),
+      ),
   ]);
   const orgApps = connections.map((c) => c.label);
   for (const c of candidates) {
@@ -963,7 +986,9 @@ export async function routeMessage(
           and r.trigger_message_id = ${messages.id} and ${inArray(sql`r.status`, [...ACTIVE_RUN_STATUSES])})`,
         threadId: messages.threadId,
         // As text, which every driver reads the same way.
-        replyTo: sql<string | null>`(${messages.meta}->'replyTo')::text`,
+        // The quote a message carries is a copy of the quoted words: none out of a confidential thread (ADR 0190).
+        replyTo: sql<string | null>`case when coalesce(${messages.meta}->>'confidential', '') = 'true' then null
+          else (${messages.meta}->'replyTo')::text end`,
         createdAt: messages.createdAt,
       })
       .from(messages)
@@ -1193,7 +1218,9 @@ export async function routeMessage(
   }
   // R2: a person alone in the channel with its one agent.
   const onlyAgentId =
-    !byAgent && candidates.length === 1 && (await aloneHere()) ? (candidates[0]?.agentId ?? null) : null;
+    !byAgent && !options.forSomeoneElse && candidates.length === 1 && (await aloneHere())
+      ? (candidates[0]?.agentId ?? null)
+      : null;
 
   const lineOf = (m: (typeof history)[number]): RoutingLine => {
     const names = namesOf(m).map((n) => n.label);
@@ -1206,7 +1233,10 @@ export async function routeMessage(
   // What it decides on, one line per message, and everyone those name. Of the `ROUTER_MESSAGE_CHARS` a step
   // reads, the message takes what it needs; the lines before it, cut like the slice's, fill the rest, newest
   // first, a line break each.
-  const ownLine = { body: `${quotedLine(message.meta)}${message.body}`, names: namesOf(message).map((n) => n.label) };
+  const ownLine = {
+    body: `${isConfidential(message.meta) ? "" : quotedLine(message.meta)}${message.body}`,
+    names: namesOf(message).map((n) => n.label),
+  };
   const runLines = run.map(lineOf);
   const saidNames = [...new Set([...runLines, ownLine].flatMap((l) => l.names ?? []))];
   const said = [...sliced(null, runLines, ROUTER_MESSAGE_CHARS - ownLine.body.length - runLines.length), ownLine];
@@ -1319,6 +1349,12 @@ export async function routeMessage(
       () => undefined,
     );
   };
+  // The hour's cap held a default pick back: what the cap answered where a pick below asked it.
+  let capped = false;
+  const underDefaultCap = async () => {
+    capped = await defaultCapReached();
+    return !capped;
+  };
   // Which default tier picked (R5): the agent the person talks with, the best placed agent; or the best placed
   // agent for a person alone with the team.
   let fallback: "talk" | "best" | "alone" | null = null;
@@ -1366,7 +1402,7 @@ export async function routeMessage(
       ? { rule: "reply", agentId: repliedAgentId }
       : onlyAgentId
         ? { rule: "only_agent", agentId: onlyAgentId }
-        : fromOwn && !namesPerson
+        : fromOwn && !namesPerson && !options.forSomeoneElse
           ? { rule: "follow_up", agentId: fromOwn }
           : null;
     if (rule) {
@@ -1376,7 +1412,13 @@ export async function routeMessage(
         strategy: `rule:${rule.rule}`,
         decidedBy: { step: "rule", rule: rule.rule },
       };
-    } else if (failures.length > 0 && !peopleTalking && !isAck(0) && !(await defaultCapReached())) {
+    } else if (
+      failures.length > 0 &&
+      !options.forSomeoneElse &&
+      !peopleTalking &&
+      !isAck(0) &&
+      !(await defaultCapReached())
+    ) {
       // A router failure is never silence (R5): the agent they talk with, else the best placed. Not when no step
       // could even try (no key, no sign-in): that stays `mention_needed`, or every message would wake one.
       const agentId = talkingWith ?? bestPlaced(() => 0);
@@ -1421,8 +1463,14 @@ export async function routeMessage(
   const decided = result;
   const addressee = !byAgent && decided.addressee && candidateIds.has(decided.addressee) ? decided.addressee : null;
 
-  // The router's own pick; when it picks several agents, the message speaks to several.
-  const picked = selectAgents(candidates, decided, policy, { continuityAgentId: addressee ?? continuityAgentId });
+  // The router's own pick; when it picks several agents, the message speaks to several. For someone else: only the
+  // agent it speaks to, if any.
+  const spokenTo = addressee ?? address.find((n) => n.agent && candidateIds.has(n.id))?.id ?? null;
+  const picked = options.forSomeoneElse
+    ? spokenTo
+      ? [spokenTo]
+      : []
+    : selectAgents(candidates, decided, policy, { continuityAgentId: addressee ?? continuityAgentId });
   const scoreOf = (agentId: string | null) =>
     Math.max(0, ...decided.agents.filter((a) => a.agentId === agentId).map((a) => a.score));
   const clearPickScore = policy.clearPickScore ?? DEFAULT_ROUTER_POLICY.clearPickScore;
@@ -1466,6 +1514,7 @@ export async function routeMessage(
   // The failure fallback already chose, as a run that may pass: no follow-up marks it or switches its agent.
   const followUp =
     fallback === null &&
+    !options.forSomeoneElse &&
     talkingTo !== null &&
     (repliedAgentId !== null ||
       (talkingTo === addressee && picked.includes(talkingTo)) ||
@@ -1513,6 +1562,7 @@ export async function routeMessage(
   if (
     !byAgent &&
     !onlyAgentId &&
+    !options.forSomeoneElse &&
     selected.length === 0 &&
     !duplicate &&
     !toPerson &&
@@ -1529,7 +1579,7 @@ export async function routeMessage(
         // Talking with an agent is no reason on its own: "vou almoçar agora, volto em uma hora" 15 minutes after a
         // talk needs nobody. A question, or some need, is for the agent ("Entenderam?").
         (!peopleTalking && ((talkingWith !== null && hasQuestionMark(saidText)) || needs >= DEFAULT_NEED))) &&
-      !(await defaultCapReached())
+      (await underDefaultCap())
     ) {
       const agentId = talkingWith ?? bestPlaced(scoreOf, decided.best);
       if (agentId) {
@@ -1547,13 +1597,14 @@ export async function routeMessage(
     chosen.length === 0 &&
     !byAgent &&
     !onlyAgentId &&
+    !options.forSomeoneElse &&
     !duplicate &&
     !peopleTalking &&
     !otherPerson(root?.authorUserId) &&
     !FOR_SOMEONE.has(socialOf(decided)) &&
     !(ack && thankedAgent()) &&
     (await aloneHere()) &&
-    !(await defaultCapReached())
+    (await underDefaultCap())
   ) {
     const agentId = bestPlaced(scoreOf, decided.best);
     if (agentId) {
@@ -1591,6 +1642,16 @@ export async function routeMessage(
             followUp && resumes && selected.length > 0 ? "last talked to" : null,
             duplicate ? "already answered by another agent" : null,
             forPeople ? "for people" : heldBack ? "held back" : null,
+            // Why nobody got it when no marker above says: the need score decided, or the hour's cap did.
+            chosen.length === 0 &&
+            !duplicate &&
+            !forPeople &&
+            !heldBack &&
+            decided.needsAgent !== undefined &&
+            decided.needsAgent < needGateOf(policy, candidates.length === 1)
+              ? UNDER_NEED_GATE
+              : null,
+            chosen.length === 0 && capped ? DEFAULT_CAP : null,
             words,
           ]
             .filter(Boolean)
@@ -1602,7 +1663,10 @@ export async function routeMessage(
       .onConflictDoNothing()
       .returning({ id: routingDecisions.id });
     if (!decision) return null; // another worker routed it first
-    return createAgentRuns(tx, message, chosen, "router", { joinChannelRun: message.authorType === "person" });
+    return createAgentRuns(tx, message, chosen, "router", {
+      joinChannelRun: message.authorType === "person",
+      routerMs: performance.now() - started,
+    });
   });
   if (!runs) return { runs: [], skipped: "already_routed" };
   const reacted = chosen.length === 0 ? await reactToSocial(decided, heldBack ? (only ?? null) : null) : undefined;
@@ -1618,6 +1682,11 @@ export async function routeMessage(
 
 /** The marker a decision's `reason` starts with when the router kept the person with the agent they talk to. */
 export const FOLLOW_UP = "follow-up";
+
+/** Nobody got the message, for no reason another marker gives, and its need-any-agent score is under the gate (`needGateOf`). */
+export const UNDER_NEED_GATE = "under need gate";
+/** Nobody got the message: the default pick it would have had was past the hour's cap (`DEFAULT_PICKS_PER_HOUR`). */
+export const DEFAULT_CAP = "default cap";
 
 /** A default pick's `strategy` (R5). Decisions before ADR 0137 may also read `rule:coordinator` (reason `coordinator; default`). */
 export const DEFAULT_STRATEGY = "rule:default";

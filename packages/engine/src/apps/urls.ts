@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { docsUrl } from "@agenteschat/i18n/docs";
 import { isPublicHostName, publicHostAddress, type ResolveHost, resolveHostDns } from "../net-guard";
+import { withoutTrailingSlashes } from "../url-text";
 
 /**
  * AI apps (ADR 0119): the addresses, scopes and token shapes of this server as an MCP server and its own
@@ -46,7 +47,7 @@ export const APP_LIMITS = {
 
 /** The server's base address with no trailing slash: the issuer, and the base of every other address. */
 export function appsUrls(publicUrl: string) {
-  const issuer = publicUrl.replace(/\/+$/, "");
+  const issuer = withoutTrailingSlashes(publicUrl);
   return {
     issuer,
     /** What people paste into their app, and the OAuth resource identifier. */

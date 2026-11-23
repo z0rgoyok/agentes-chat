@@ -129,7 +129,7 @@ describe("a computer's line", () => {
     await settle(4);
     const dialog = screen().getByRole("dialog", { name: "Fila de Studio" });
     const text = dialog.textContent ?? "";
-    expect(text).toContain("Cheio · o próximo começa em cerca de 2 min");
+    expect(text).toContain("Na fila · começa em seguida");
     expect(text).toContain("Trabalhando agora · 1");
     expect(text).toContain("a pedido de Nova · #eng · 6 min");
     expect(text).toContain("faltam ~2 min");
@@ -145,7 +145,7 @@ describe("a computer's line", () => {
     expect(text).toContain("Pessoas vão primeiro.");
   });
 
-  test("the waiting agent's turn after my message says where it is in line, and See queue opens the line", async () => {
+  test("the waiting agent's turn after my message says it is in line, and See queue opens the line", async () => {
     const { api, state, me } = setup();
     state.messages.push(
       said({
@@ -162,20 +162,54 @@ describe("a computer's line", () => {
     await settle(10);
     // The receipt under my message keeps its words; the agent's turn is its own row, where "thinking" shows.
     const foot = row("m-ask").querySelector(".ac-msg__foot") as HTMLElement;
-    expect(foot.textContent).toContain("Atlas está na fila do computador · é o próximo");
+    expect(foot.textContent).toContain("Atlas está na fila");
+    expect(foot.textContent).not.toContain("próximo");
     const [turn, ...more] = turns();
     expect(more).toEqual([]);
     expect(turn?.closest(".ac-receipt")).toBeNull();
     expect(turn?.querySelector(".ac-msg__avatar")).not.toBeNull();
     expect(turn?.textContent).toContain("Atlas");
-    expect(turn?.textContent).toContain("Aguardando o computador. É o próximo, em cerca de 2 min");
+    expect(turn?.textContent).toContain("Na fila · começa em seguida");
     expect(turn?.textContent).toContain("Você vai primeiro");
     await click(within(turn as HTMLElement).getByRole("button", { name: "Ver fila" }));
     await settle(4);
     expect(screen().getByRole("dialog", { name: "Fila de Studio" })).toBeTruthy();
   });
 
-  test("the waiting turn says what holds the computer's memory; the line offers my own computers for my replies", async () => {
+  test("every waiting turn says one line, whatever holds it: no place, estimate, cause or stop", async () => {
+    const { api, state, machines, queue } = setup();
+    // Work on the computer the viewer may stop: the line still offers no way out of its own, See queue has the rows.
+    machines?.setQueue({
+      ...queue,
+      working: queue.working.map((w) => ({ ...w, canStop: true })),
+    });
+    state.messages.push(
+      said({
+        body: "@atlas @rio confiram",
+        mentionedAgentIds: [ATLAS_ID, RIO_ID],
+        receipts: {
+          seenBy: [ATLAS_ID, RIO_ID],
+          pickedBy: [ATLAS_ID, RIO_ID],
+          handled: [
+            { agentId: ATLAS_ID, runId: "r-atlas", status: "waiting_input", computer: "queued" },
+            { agentId: RIO_ID, runId: "r-rio", status: "waiting_input", computer: "queued" },
+          ],
+          blocked: [],
+        },
+      }),
+    );
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(10);
+    // Atlas is next with an estimate, Rio second behind it: both read the same.
+    const says = turns().map((t) => t.querySelector(".cq-turn__say")?.textContent);
+    expect(says).toEqual(["Na fila · começa em seguida", "Na fila · começa em seguida"]);
+    for (const turn of turns()) {
+      expect(turn.textContent).not.toMatch(/Computador cheio|memória|Depois de|minutos?\b|Parar/);
+      expect(within(turn).queryByRole("button", { name: /^Parar/ })).toBeNull();
+    }
+  });
+
+  test("the line offers my own computers for my replies", async () => {
     const { api, state, me, machines } = setup();
     const mac = machines?.pair({ name: "MacBook da Ana", pairedBy: { id: me, name: "Ana" } });
     machines?.setAiAccounts({
@@ -207,13 +241,10 @@ describe("a computer's line", () => {
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
     await settle(10);
     const [turn] = turns();
-    expect(turn?.querySelector(".cq-turn__cause")?.textContent).toBe(
-      "Computador cheio: 1 trabalho usa a memória agora (1 pedida por agente).",
-    );
     await click(within(turn as HTMLElement).getByRole("button", { name: "Ver fila" }));
     await settle(6);
     const dialog = screen().getByRole("dialog", { name: "Fila de Studio" });
-    expect(dialog.textContent).toContain("Mais computadores, menos fila");
+    expect(dialog.textContent).toContain("Seus computadores");
     const own = within(dialog).getByRole("switch", { name: "Suas respostas podem pensar aqui: MacBook da Ana" });
     expect(own.getAttribute("aria-checked")).toBe("true");
     expect(dialog.querySelector(".cq-spill__name small")?.textContent).toContain("seu plano Claude Max");
@@ -225,47 +256,7 @@ describe("a computer's line", () => {
     expect(call?.args.at(-1)).toEqual({ spill: { own: false } });
   });
 
-  test("the wait line offers to stop the work holding the computer, only to who may stop it", async () => {
-    const { api, state, me, machines, queue } = setup();
-    const waits = said({
-      author: { type: "person", id: me },
-      receipts: {
-        seenBy: [ATLAS_ID],
-        pickedBy: [ATLAS_ID],
-        handled: [{ agentId: ATLAS_ID, runId: "r-atlas", status: "waiting_input", computer: "queued" }],
-        blocked: [],
-      },
-    });
-    state.messages.push(waits);
-    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
-    await settle(10);
-    expect(within(turns()[0] as HTMLElement).queryByRole("button", { name: /^Parar/ })).toBeNull();
-    cleanup();
-    machines?.setQueue({
-      ...queue,
-      working: [
-        { ...(queue.working[0] as ComputerQueue["working"][number]), canStop: true },
-        {
-          runId: "r-nova",
-          agentId: NOVA_ID,
-          purpose: { kind: "routine" },
-          where: { channelId: ENG_ID, threadId: null },
-          startedAt: in_(-2),
-          estimatedEndAt: in_(3),
-          canStop: true,
-        },
-      ],
-    });
-    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
-    await settle(10);
-    // A routine goes before an agent's ask.
-    await click(within(turns()[0] as HTMLElement).getByRole("button", { name: "Parar a rotina" }));
-    await settle(4);
-    const call = state.calls.find((c) => c.method === "agents.cancelRun");
-    expect(call?.args.slice(1)).toEqual(["r-nova", undefined, "chain"]);
-  });
-
-  test("an agent further back names who is ahead", async () => {
+  test("an agent further back says the same line, never who is ahead", async () => {
     const { api, state } = setup();
     state.messages.push(
       said({
@@ -282,9 +273,10 @@ describe("a computer's line", () => {
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
     await settle(10);
     const foot = row("m-ask").querySelector(".ac-msg__foot") as HTMLElement;
-    expect(foot.textContent).toContain("Rio está na fila do computador");
+    expect(foot.textContent).toContain("Rio está na fila");
     expect(foot.textContent).not.toContain("próximo");
-    expect(turns()[0]?.textContent).toContain("Na fila, 2º. Depois de Atlas");
+    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
+    expect(turns()[0]?.textContent).not.toContain("Depois de");
     expect(turns()[0]?.textContent).not.toContain("Você vai primeiro");
   });
 
@@ -308,7 +300,7 @@ describe("a computer's line", () => {
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
     await settle(10);
     const foot = row("m-ask").querySelector(".ac-msg__foot") as HTMLElement;
-    expect(foot.textContent?.match(/estão na fila do computador/g)).toHaveLength(1);
+    expect(foot.textContent?.match(/estão na fila/g)).toHaveLength(1);
     expect(turns().map((t) => t.querySelector(".ac-msg__head")?.textContent)).toEqual([
       expect.stringContaining("Atlas"),
       expect.stringContaining("Rio"),
@@ -450,7 +442,7 @@ describe("a wait in the conversation holds still", () => {
     expect(place & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Each message keeps its own receipt, and they say the same.
     for (const id of ["m-ask", "m-again"])
-      expect(row(id).querySelector(".ac-msg__foot")?.textContent).toContain("é o próximo");
+      expect(row(id).querySelector(".ac-msg__foot")?.textContent).toContain("Atlas está na fila");
   });
 
   test("a second message arrives live: the wait stays one, and the message gets the same receipt", async () => {
@@ -479,7 +471,7 @@ describe("a wait in the conversation holds still", () => {
     });
     await settle(6);
     expect(turns()).toHaveLength(1);
-    expect(row("m-again").querySelector(".ac-msg__foot")?.textContent).toContain("é o próximo");
+    expect(row("m-again").querySelector(".ac-msg__foot")?.textContent).toContain("Atlas está na fila");
     expect(thinking()).not.toContain("pensando");
   });
 
@@ -490,18 +482,18 @@ describe("a wait in the conversation holds still", () => {
     const socket = r.sockets.last();
     await act(async () => socket.open());
     await settle(10);
-    expect(turns()[0]?.textContent).toContain("É o próximo, em cerca de 2 min");
+    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
 
     machines?.setQueue(lineWithout(queue, "r-atlas"));
     await act(async () => socket.push(orgEvent({ type: "computer.queue", machineId: queue.machineId })));
     await settle(6);
     expect(turns()).toHaveLength(1);
-    expect(turns()[0]?.textContent).toContain("Aguardando o computador");
+    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
 
     machines?.setQueue(queue);
     await act(async () => socket.push(orgEvent({ type: "computer.queue", machineId: queue.machineId })));
     await settle(6);
-    expect(turns()[0]?.textContent).toContain("É o próximo, em cerca de 2 min");
+    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
   });
 
   test("the run goes from thinking to the line: its wait shows before the line is read", async () => {
@@ -520,7 +512,7 @@ describe("a wait in the conversation holds still", () => {
     await act(async () => socket.push({ type: "event", channelId: ENG_ID, event: atlasWaits() }));
     await settle(6);
     expect(turns()).toHaveLength(1);
-    expect(turns()[0]?.textContent).toContain("Aguardando o computador");
+    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
   });
 
   test("back on a hidden tab, the run asking the computer again: one wait, no thinking row", async () => {

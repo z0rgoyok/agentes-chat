@@ -452,36 +452,30 @@ describe("Conectores → Email", () => {
     ]);
   });
 
-  test("someone else's mailbox: 'O que faz' read-only, and lowering who uses it ends there, without rules to set", async () => {
-    const { api, state, mail } = mailApi([
+  test("someone else's mailbox: a bare row under others' personal ones, with only Remover, and no flow opens on it", async () => {
+    const { api, state } = mailApi([
       {
         address: "joao@example.com",
+        label: "joao@example.com",
         ownerUserId: "u-joao",
         agents: [{ agentId: ADA_ID, level: "read_write", canDelete: false }],
       },
     ]);
-    mail.agentMail.set(
-      ADA_ID,
-      new Map([["mail-1", { accountId: "mail-1", level: "read_write", canDelete: false, policy: defaultPolicy() }]]),
-    );
     await renderApp(`/org/${ORG_ID}/settings/connectors?mail=connected&account=mail-1`, { api });
     await settle(8);
-    const actions = screen().getByRole("dialog", { name: "O que joao@example.com faz" });
-    expect(actions.textContent).toContain("Só João dá acesso a esta caixa.");
-    expect(within(actions).queryByRole("radiogroup", { name: "Nível de Enviar" })).toBeNull();
-    await click(within(actions).getByRole("button", { name: "Continuar" }));
-    await settle(4);
-    expect(state.calls.some((c) => c.method === "mail.update")).toBe(false);
-    const who = screen().getByRole("dialog", { name: "Quem pode usar joao@example.com" });
+    expect(screen().queryByRole("dialog", { name: "O que joao@example.com faz" })).toBeNull();
+    const others = screen().getByRole("region", { name: /Pessoais de outras pessoas/ });
+    expect(others.textContent).toContain("Pessoal de João");
+    await openConnected();
+    expect(within(others).queryByRole("button", { name: /Quem usa|Ferramentas|Endereços/ })).toBeNull();
+    await click(within(others).getByRole("button", { name: "Remover joao@example.com" }));
     await click(
-      within(within(who).getByRole("radiogroup", { name: "Nível de Ada" })).getByRole("radio", { name: "Ler" }),
+      within(screen().getByRole("dialog", { name: "Remover joao@example.com?" })).getByRole("button", {
+        name: "Remover",
+      }),
     );
-    await click(within(who).getByRole("button", { name: "Continuar" }));
-    await settle(6);
-    expect(
-      state.calls.filter((c) => c.method === "mail.setAgent").map((c) => (c.args[3] as { level: string }).level),
-    ).toEqual(["read"]);
-    expect(screen().queryByRole("dialog", { name: "Regras em joao@example.com" })).toBeNull();
+    await settle(4);
+    expect(state.calls.find((c) => c.method === "mail.disconnect")?.args).toEqual([ORG_ID, "mail-1"]);
   });
 
   test("'Precisa reconectar': a new app password (PATCH), or Gmail signs in again", async () => {
@@ -582,7 +576,14 @@ describe("the agent's email rules", () => {
   });
 
   test("someone else's mailbox: read-only, says who gives it, and an admin removes the agent's access", async () => {
-    const { api, state, mail } = mailApi([{ address: "joao@example.com", ownerUserId: "u-joao" }]);
+    const { api, state, mail } = mailApi([
+      {
+        address: "joao@example.com",
+        label: "joao@example.com",
+        ownerUserId: "u-joao",
+        agents: [{ agentId: ADA_ID, level: "read", canDelete: false }],
+      },
+    ]);
     mail.agentMail.set(
       ADA_ID,
       new Map([["mail-1", { accountId: "mail-1", level: "read", canDelete: false, policy: defaultPolicy() }]]),

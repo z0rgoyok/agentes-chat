@@ -2,6 +2,7 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WELCOME_CLOSE_MS, WELCOME_LEAVE_MS, welcomeClock } from "@agenteschat/client/lib/welcome";
+import { chatScreenSource } from "./chat-screen-source";
 
 const source = (path: string) => readFileSync(join(import.meta.dir, "../../src/features/chat", path), "utf8");
 
@@ -10,10 +11,15 @@ afterEach(() => jest.useRealTimers());
 test("the day's greeting goes by itself 8 s after the first touch elsewhere, never under a finger, unfelt", () => {
   // No renderer for the phone's components in these tests: what only the source can say is read from it.
   expect([WELCOME_CLOSE_MS, WELCOME_LEAVE_MS]).toEqual([8_000, 2_000]);
-  const chat = source("ChatScreen.tsx");
-  // Any touch on the conversation's screen: a scroll, the box, a message, the bar.
-  expect(chat).toContain("onTouchStart={touched ? undefined : () => setTouched(true)}");
+  const chat = chatScreenSource();
+  // Any touch on the conversation's screen: a scroll, the box, a message, the bar. Kept outside the screen's state
+  // (`ValueStore`): that first touch redraws the greeting alone, never the whole conversation.
+  expect(chat).toContain("onTouchStart={markTouched}");
+  expect(chat).toContain("const [touched] = useState(() => createValueStore(false));");
+  expect(chat).toContain("const markTouched = useCallback(() => touched.set(true), [touched]);");
+  expect(chat).not.toContain("setTouched(");
   expect(chat).toContain("touched={touched}");
+  expect(chat).toContain("<ChannelWelcome {...welcome} touched={useValueOf(touched)} />");
   const welcome = source("ChannelWelcome.tsx");
   // Only the day's greeting: a newcomer's welcome stays until they close it.
   expect(welcome).toContain("const autoCloses = Boolean(me) && greets && messages !== undefined && touched;");

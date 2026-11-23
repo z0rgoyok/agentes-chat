@@ -53,6 +53,16 @@ import {
   serverKey,
 } from "./oauth-mcp";
 import { oauthReturnTo } from "./oauth-return";
+import {
+  auditLabel,
+  connectionFor,
+  connectionsOf,
+  othersLabel,
+  othersPersonal,
+  personalAgents,
+  requireConnect,
+  seenBy,
+} from "./personal";
 import { seedToolPins } from "./pins";
 import {
   composioToolkitOf,
@@ -199,6 +209,13 @@ export interface CustomServerView {
   events: ConnectorEventId[];
   reviewedAt: string | null;
   createdAt: string;
+  /**
+   * A personal connection's person (ADR 0099 addendum); null: the team's. Someone else's comes with its name, service
+   * and person only: no address, account, headers or tools.
+   */
+  ownerUserId: string | null;
+  /** A personal connection's agents (a grant of their own on it), in the list only. */
+  agentIds?: string[];
 }
 
 export type CustomConnectStart =
@@ -263,8 +280,30 @@ function toolView(t: ToolRow, prefix: string | null): CustomToolView {
   };
 }
 
-/** `whole`: the reader manages connectors, so sees the address as it was typed and the names of its headers. */
-function view(c: ConnectorConnection, tools: ToolRow[], whole = true): CustomServerView {
+/**
+ * `whole`: the reader manages connectors (or it is their own), so sees the address as it was typed and the names of
+ * its headers. `actorId`: someone else's personal connection shows its name, service and person only.
+ */
+function view(c: ConnectorConnection, tools: ToolRow[], whole = true, actorId?: string): CustomServerView {
+  if (actorId && othersPersonal(c, actorId)) {
+    return {
+      id: c.id,
+      serverUrl: "",
+      label: othersLabel(c.label, c.accountLabel),
+      accountLabel: null,
+      authType: c.authType === "oauth" ? "oauth" : "api_key",
+      headerNames: [],
+      iconUrl: c.icon,
+      ...(composioToolkitOf(c.serverUrl) ? { via: "composio" as const } : {}),
+      status: c.status === "needs_reconnect" ? "needs_reconnect" : "active",
+      toolsError: null,
+      tools: [],
+      events: [],
+      reviewedAt: null,
+      createdAt: c.createdAt.toISOString(),
+      ownerUserId: c.ownerUserId,
+    };
+  }
   const mine = tools.filter((t) => t.connectionId === c.id);
   const prefix = sharedPrefix(mine.map((t) => t.name));
   return {
@@ -282,6 +321,7 @@ function view(c: ConnectorConnection, tools: ToolRow[], whole = true): CustomSer
     events: connectorEventsOf(c.serverUrl),
     reviewedAt: c.reviewedAt ? c.reviewedAt.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
+    ownerUserId: c.ownerUserId,
   };
 }
 
@@ -301,8 +341,18 @@ async function loadCustom(db: Database, orgId: string, id: string) {
   return c;
 }
 
-export async function listCustomServers(db: Database, actorId: string, orgId: string): Promise<CustomServerView[]> {
+/**
+ * The team's servers and the actor's own personal ones; with `others`, for who manages connectors, also everyone
+ * else's personal ones, as `view` shows them (name, service and person only).
+ */
+export async function listCustomServers(
+  db: Database,
+  actorId: string,
+  orgId: string,
+  options: { others?: boolean } = {},
+): Promise<CustomServerView[]> {
   const whole = can(await requirePermission(db, actorId, orgId, "read"), "manage_connectors");
+  const others = whole && options.others === true;
   const rows = await db
     .select()
     .from(connectorConnections)
@@ -311,14 +361,19 @@ export async function listCustomServers(db: Database, actorId: string, orgId: st
         eq(connectorConnections.orgId, orgId),
         like(connectorConnections.connector, `${CUSTOM_PREFIX}%`),
         isNull(connectorConnections.revokedAt),
+        others ? undefined : seenBy(actorId),
       ),
     )
     .orderBy(asc(connectorConnections.createdAt));
   const tools = await toolRows(
     db,
-    rows.map((r) => r.id),
+    rows.filter((r) => !othersPersonal(r, actorId)).map((r) => r.id),
   );
-  return rows.map((r) => view(r, tools, whole));
+  const agents = await personalAgents(db, orgId, rows);
+  return rows.map((r) => ({
+    ...view(r, tools, whole || r.ownerUserId === actorId, actorId),
+    ...(r.ownerUserId ? { agentIds: agents.get(r.id) ?? [] } : {}),
+  }));
 }
 
 type AccountSpec = NonNullable<McpPreset["account"]>;
@@ -391,10 +446,19 @@ async function providerAccount(
 const accountName = (service: string, account: string) =>
   `${service} (${oneLine(account, Math.max(8, 77 - service.length))})`;
 
-/** "Reconectar": the live connection of this workspace it names, at the same address (400 otherwise). */
-export async function reconnectTarget(db: Database, orgId: string, connectionId: string, serverUrl: string) {
+/**
+ * "Reconectar": the live connection of this workspace it names, at the same address (400 otherwise), and of the same
+ * owner (`owner`: the person reconnecting their own; null: the team's), so nobody signs in over another's account.
+ */
+export async function reconnectTarget(
+  db: Database,
+  orgId: string,
+  connectionId: string,
+  serverUrl: string,
+  owner: string | null = null,
+) {
   const c = await loadCustom(db, orgId, connectionId).catch(() => null);
-  if (!c) throw new NotFoundError("This account is no longer connected", "connector.gone");
+  if (!c || c.ownerUserId !== owner) throw new NotFoundError("This account is no longer connected", "connector.gone");
   if (serverKey(c.serverUrl) !== serverKey(serverUrl)) {
     throw new ValidationError("Reconnect the account at its own address", "connector.other_server");
   }
@@ -427,12 +491,20 @@ export async function storeCustomConnection(
     connectionId?: string | null;
     /** Through Composio: its connected account, and the name Composio keeps for it when the entry can't ask. */
     composio?: { accountId: string; name: string | null };
+    /** A personal connection's person; null or absent: the team's. Accounts are told apart within each owner's. */
+    owner?: string | null;
   },
 ): Promise<{ connection: ConnectorConnection; outcome: ConnectOutcome }> {
+  const owner = input.owner ?? null;
   const wrapper = deps.keyWrappers[0];
   if (!wrapper) throw new Error("no key wrapper");
   const preset = presetForServer(input.serverUrl);
-  const reached = { serverUrl: input.serverUrl, orgId: input.orgId, composioAccountId: input.composio?.accountId };
+  const reached = {
+    serverUrl: input.serverUrl,
+    orgId: input.orgId,
+    composioAccountId: input.composio?.accountId,
+    ownerUserId: owner,
+  };
   const account =
     input.secret || input.composio
       ? await providerAccount(
@@ -445,14 +517,14 @@ export async function storeCustomConnection(
   // Composio's name for the account when the entry's account action didn't say: a name, never an identity.
   const named = account?.name ?? input.composio?.name ?? null;
   const key = serverKey(input.serverUrl);
-  const same = await liveAccounts(deps.db, input.orgId, key);
+  const same = await liveAccounts(deps.db, input.orgId, key, owner);
   if (account) {
     // Accounts connected before their provider was asked: asked now, so the same account is recognized.
     for (const c of same.filter((c) => !c.accountId)) c.accountId = (await fillAccount(deps, c))?.id ?? null;
   }
   let target: ConnectorConnection | undefined;
   if (input.connectionId) {
-    target = await reconnectTarget(deps.db, input.orgId, input.connectionId, input.serverUrl);
+    target = await reconnectTarget(deps.db, input.orgId, input.connectionId, input.serverUrl, owner);
     // Its grants were given for the account it is: a sign-in that can't say which one it reached doesn't replace it.
     if (preset?.account && target.accountId && !account) {
       throw new ConflictError("Couldn't check which account you signed in to", "connector.account_unknown");
@@ -508,6 +580,7 @@ export async function storeCustomConnection(
         label: row.label,
         account: row.accountLabel,
         sameAccount: outcome === "same_account",
+        ...(row.ownerUserId ? { personal: true } : {}),
       },
     });
     return { connection: row, outcome };
@@ -519,7 +592,7 @@ export async function storeCustomConnection(
         // Two connects of one server at once: read under the lock, so only one of them is its first account, and
         // one that reached the same account as the other is that connection, not a second one.
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`connector-accounts:${input.orgId}:${key}`}))`);
-        const live = await liveAccounts(tx, input.orgId, key);
+        const live = await liveAccounts(tx, input.orgId, key, owner);
         const twin = account
           ? live.find((c) => c.accountId === account.id)
           : input.authType === "none"
@@ -529,7 +602,7 @@ export async function storeCustomConnection(
         // The service's name, not the account's: `stripe`, then `stripe_2`; a later account goes by the server's
         // oldest one, whatever it is called now.
         const base = live[0] ? prefixService(toolPrefixOfConnection(live[0])) : toolPrefixOf(service);
-        const label = await freeLabel(tx, input.orgId, named ? accountName(service, named) : service);
+        const label = await freeLabel(tx, input.orgId, named ? accountName(service, named) : service, owner);
         const toolPrefix = await freeToolPrefix(tx, input.orgId, base, deps.oauthApps);
         const [row] = await tx
           .insert(connectorConnections)
@@ -542,6 +615,7 @@ export async function storeCustomConnection(
             serverUrl: input.serverUrl,
             ...credentials,
             createdByUserId: input.actorId,
+            ownerUserId: owner,
           })
           .returning();
         if (!row) throw new Error("connection insert returned nothing");
@@ -555,7 +629,8 @@ export async function storeCustomConnection(
             authType: input.authType,
             label,
             account: named,
-            everyAgent: true,
+            everyAgent: !owner,
+            ...(owner ? { personal: true } : {}),
           },
         });
         await grantToEveryAgent(tx, input.orgId, input.actorId, row);
@@ -578,8 +653,8 @@ export async function storeCustomConnection(
   }
 }
 
-/** A workspace's live accounts of one server (`serverKey`), oldest first. */
-async function liveAccounts(db: Executor, orgId: string, key: string) {
+/** One owner's live accounts of one server (`serverKey`) in a workspace, oldest first: the team's, or a person's. */
+async function liveAccounts(db: Executor, orgId: string, key: string, owner: string | null) {
   const rows = await db
     .select()
     .from(connectorConnections)
@@ -588,6 +663,7 @@ async function liveAccounts(db: Executor, orgId: string, key: string) {
         eq(connectorConnections.orgId, orgId),
         like(connectorConnections.connector, `${CUSTOM_PREFIX}%`),
         isNull(connectorConnections.revokedAt),
+        connectionsOf(owner),
       ),
     )
     .orderBy(asc(connectorConnections.createdAt));
@@ -795,20 +871,26 @@ export async function connectCustomServer(
     returnTo?: string;
     connectionId?: string;
     headers?: RequestHeader[];
+    /** The actor's own connection, which any member adds, instead of the team's (who manages connectors). */
+    personal?: boolean;
   },
 ): Promise<CustomConnectStart> {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  const personal = input.personal === true;
+  await requireConnect(deps.db, actorId, orgId, personal);
+  const owner = personal ? actorId : null;
   const signInOnly = () => new ValidationError("This service connects by signing in", "connector.oauth_only");
   // A service through Composio signs in on Composio's page: its address is never fetched.
   if (composioToolkitOf(input.serverUrl.trim())) {
     if (input.headers?.length) throw signInOnly();
-    return beginComposioConnect(deps, actorId, orgId, input);
+    return beginComposioConnect(deps, actorId, orgId, { ...input, personal });
   }
   const url = await assertPublicHttpsUrl(input.serverUrl.trim(), deps.resolveHost);
   // Composio's address spelled another way is still Composio's: nothing is sent or kept there.
   if (composioToolkitTyped(url)) throw signInOnly();
   // Checked before anyone signs in for nothing.
-  const target = input.connectionId ? await reconnectTarget(deps.db, orgId, input.connectionId, url.toString()) : null;
+  const target = input.connectionId
+    ? await reconnectTarget(deps.db, orgId, input.connectionId, url.toString(), owner)
+    : null;
   // Reconectar asks at the account's own address, however it was typed again: what it keeps goes nowhere else.
   const serverUrl = target?.serverUrl ?? url.toString();
   const label = input.label?.trim() || presetForServer(serverUrl)?.label || url.hostname;
@@ -827,6 +909,7 @@ export async function connectCustomServer(
       authType,
       secret,
       connectionId: input.connectionId,
+      owner,
     });
     await syncCustomTools(deps, connection).catch(() => {});
     return {
@@ -861,6 +944,7 @@ export async function connectCustomServer(
     scopes: probe.scopes,
     returnTo: input.returnTo,
     connectionId: input.connectionId,
+    personal,
   });
 }
 
@@ -884,6 +968,8 @@ export async function beginMcpOAuth(
     returnTo?: string;
     /** "Reconectar": the connection whose sign-in this replaces. */
     connectionId?: string;
+    /** The connection it makes is the actor's own. */
+    personal?: boolean;
   },
 ): Promise<Exclude<CustomConnectStart, { status: "connected" }>> {
   const meta = await authServerMetadata(deps, input.issuer);
@@ -920,6 +1006,7 @@ export async function beginMcpOAuth(
     resource: input.resource,
     label: input.label ?? null,
     connectionId: input.connectionId ?? null,
+    personal: input.personal === true,
     expiresAt: new Date((deps.now?.() ?? new Date()).getTime() + OAUTH_STATE_TTL_MS),
   });
   const url = new URL(client.authorizationEndpoint);
@@ -936,7 +1023,7 @@ export async function beginMcpOAuth(
 
 /** Lists the tools again (admins). */
 export async function refreshCustomServer(deps: CustomDeps, actorId: string, orgId: string, id: string) {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  await connectionFor(deps.db, actorId, orgId, id, "change");
   const c = await loadCustom(deps.db, orgId, id);
   // A server that can't be read comes back with `toolsError`, for the apps to say why and offer to try again.
   await syncCustomTools(deps, c).catch((error) => {
@@ -966,7 +1053,7 @@ export async function saveCustomTools(
   id: string,
   input: { label: string; tools: ToolDecisionInput[] },
 ) {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  await connectionFor(deps.db, actorId, orgId, id, "change");
   const c = await loadCustom(deps.db, orgId, id);
   const known = new Map((await toolRows(deps.db, [c.id])).map((t) => [t.name, t]));
   for (const t of input.tools) {
@@ -984,7 +1071,7 @@ export async function saveCustomTools(
   const now = new Date();
   await deps.db.transaction(async (tx) => {
     const asked = input.label.trim();
-    const label = asked && asked !== c.label ? await checkLabel(tx, orgId, asked, c.id) : c.label;
+    const label = asked && asked !== c.label ? await checkLabel(tx, orgId, asked, c) : c.label;
     for (const t of input.tools) {
       const row = known.get(t.name);
       if (!row) continue;
@@ -1006,7 +1093,10 @@ export async function saveCustomTools(
       actor: { type: "person", id: actorId },
       action: "connector.custom_tools_classified",
       target: { type: "connector_connection", id: c.id },
-      details: { tools: input.tools.map((t) => ({ name: t.name, access: t.access })) },
+      details: {
+        tools: input.tools.map((t) => ({ name: t.name, access: t.access })),
+        ...(c.ownerUserId ? { label: auditLabel({ ...c, label }), personalOf: c.ownerUserId } : {}),
+      },
     });
   });
   caches.connections.delete(`${orgId}:active`);
@@ -1026,7 +1116,7 @@ export async function classifiedTools(db: Database, connectionId: string) {
  * so the app can offer to grant it.
  */
 export async function acceptCustomSuggestion(deps: CustomDeps, actorId: string, orgId: string, id: string) {
-  await requirePermission(deps.db, actorId, orgId, "manage_connectors");
+  await connectionFor(deps.db, actorId, orgId, id, "change");
   const c = await loadCustom(deps.db, orgId, id);
   const rows = await toolRows(deps.db, [c.id]);
   const tools = rows.map((t): ToolDecisionInput => {
@@ -1048,13 +1138,25 @@ export async function acceptCustomSuggestion(deps: CustomDeps, actorId: string, 
     .where(eq(agentScopes.orgId, orgId));
   const withAccess = new Set(
     grants
-      .filter((g) => g.scope === "*" || (g.connectionId === c.id && g.scope !== "" && !g.scope.startsWith("deny:")))
+      // "All tools" never covers someone's personal connection.
+      .filter(
+        (g) =>
+          (g.scope === "*" && !c.ownerUserId) ||
+          (g.connectionId === c.id && g.scope !== "" && !g.scope.startsWith("deny:")),
+      )
       .map((g) => g.agentId),
   );
   const agentRows = await deps.db
     .select({ id: agents.id, name: agents.name, handle: agents.handle })
     .from(agents)
-    .where(and(eq(agents.orgId, orgId), isNull(agents.archivedAt)));
+    .where(
+      and(
+        eq(agents.orgId, orgId),
+        isNull(agents.archivedAt),
+        // A personal connection goes on for its person's own agents.
+        c.ownerUserId ? eq(agents.ownerUserId, c.ownerUserId) : undefined,
+      ),
+    );
   return {
     server,
     agentsWithoutAccess: agentRows.filter((a) => !withAccess.has(a.id)),

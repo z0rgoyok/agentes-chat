@@ -284,23 +284,27 @@ export async function missingConnectors(
   orgId: string,
   catalog: ServerCatalog,
   tools: { usable: Tools; listed: Tools },
+  person: string | null = null,
 ): Promise<MissingConnector[]> {
-  const states = await connectorStates(db, orgId, catalog, tools);
+  const states = await connectorStates(db, orgId, catalog, tools, person);
   return states.filter((c): c is MissingConnector => c.state !== "usable");
 }
 
 /**
  * The connectors of "Adicionar conector" (`connectorListing` and the mailboxes) and how the agent stands with each.
  * `usable`: the agent's tools; `listed`: every tool this server lists for the workspace. Names and states only:
- * never a connection's account, address or key.
+ * never a connection's account, address or key. `person`: who the run answers for; of personal connections only
+ * theirs count, so someone else's never reads as held.
  */
 export async function connectorStates(
   db: Database,
   orgId: string,
   catalog: ServerCatalog,
   tools: { usable: Tools; listed: Tools },
+  person: string | null = null,
 ): Promise<ConnectorState[]> {
-  const [connections, mailboxes] = await Promise.all([activeConnections(db, orgId), orgMailAccounts(db, orgId)]);
+  const [all, mailboxes] = await Promise.all([activeConnections(db, orgId), orgMailAccounts(db, orgId)]);
+  const connections = all.filter((c) => !c.ownerUserId || c.ownerUserId === person);
   const services = new Map<
     string,
     {

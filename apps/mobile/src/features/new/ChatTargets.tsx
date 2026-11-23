@@ -1,77 +1,87 @@
+import { markTerms } from "@agenteschat/client/lib/search-filters";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet } from "react-native";
+import { View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { EmptyState, Icon, Text } from "@/ui";
+import { Button, EmptyState, GROUPED_ROW, GroupedHeader, GroupedList, GroupedRow } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AgentFace, Face } from "../shared/Face";
 import { FirstUse } from "../shared/FirstUse";
-import { useColors, useDirectory, useMeId } from "../shared/hooks";
-import { ActionList } from "../shared/parts";
+import { useDirectory, useMeId } from "../shared/hooks";
 import { chatMatches, mayCreate } from "./logic";
 
 /**
- * Who a conversation can start with, for the words typed: "Agents" and "People", each a card of rows (face, name,
- * role, chevron), or a line when nobody matches. Used by "New"'s search and by "Chat with…"; the parent lays it out
- * in a column with a gap.
+ * Who a conversation can start with, for the words typed: "Agents" and "People", each a grouped list under its
+ * header in New's own rows (the face in the rows' 36 column, the name with the words found in it, the role, a
+ * chevron), or a line when nobody matches with the way to clear the words. Used by "Chat with…"; the parent lays it
+ * out in a column with a gap.
  */
 export function ChatTargets({
   q,
   onAgent,
   onPerson,
+  onClear,
 }: {
   q: string;
   onAgent: (agentId: string) => void;
   onPerson: (userId: string) => void;
+  /** Empties the search (a search that found nobody offers it). */
+  onClear: () => void;
 }) {
   const { t } = useTranslation();
-  const c = useColors();
   const dir = useDirectory();
   const meId = useMeId();
   const { org } = useOrg();
+  const typed = q.trim();
   const found = useMemo(
     () => chatMatches(q, dir.agents, dir.memberById.values(), meId),
     [q, dir.agents, dir.memberById, meId],
   );
-  const chevron = <Icon name="right" size={16} color={c.faint} />;
   return (
     <>
+      {/* Each header with its list in one block: the sheet's gap goes between groups, not under a header. */}
       {found.agents.length > 0 ? (
-        <>
-          <Text variant="label" accessibilityRole="header" style={styles.sec}>
-            {t("mobile.find.agents")}
-          </Text>
-          <ActionList
-            items={found.agents.map((a) => ({
-              key: a.id,
-              leading: <AgentFace agentId={a.id} size={32} live={false} presence ring={c.raised} />,
-              label: a.name,
-              ...(a.role ? { hint: a.role } : {}),
-              trailing: chevron,
-              onPress: () => onAgent(a.id),
-            }))}
-          />
-        </>
+        <View>
+          <GroupedHeader>{t("mobile.find.agents")}</GroupedHeader>
+          <GroupedList>
+            {found.agents.map((a) => (
+              <GroupedRow
+                key={a.id}
+                leading={<AgentFace agentId={a.id} size={GROUPED_ROW.lead} live={false} />}
+                label={a.name}
+                {...(typed ? { labelParts: markTerms(a.name, [typed]) } : {})}
+                {...(a.role?.trim() ? { sub: a.role.trim() } : {})}
+                chevron
+                onPress={() => onAgent(a.id)}
+              />
+            ))}
+          </GroupedList>
+        </View>
       ) : null}
       {found.people.length > 0 ? (
-        <>
-          <Text variant="label" accessibilityRole="header" style={styles.sec}>
-            {t("mobile.new.people")}
-          </Text>
-          <ActionList
-            items={found.people.map((p) => ({
-              key: p.userId,
-              leading: <Face who={{ type: "person", id: p.userId }} size={32} presence ring={c.raised} />,
-              label: p.name,
-              trailing: chevron,
-              onPress: () => onPerson(p.userId),
-            }))}
-          />
-        </>
+        <View>
+          <GroupedHeader>{t("mobile.new.people")}</GroupedHeader>
+          <GroupedList>
+            {found.people.map((p) => (
+              <GroupedRow
+                key={p.userId}
+                leading={<Face who={{ type: "person", id: p.userId }} size={GROUPED_ROW.lead} />}
+                label={p.name}
+                {...(typed ? { labelParts: markTerms(p.name, [typed]) } : {})}
+                chevron
+                onPress={() => onPerson(p.userId)}
+              />
+            ))}
+          </GroupedList>
+        </View>
       ) : null}
       {found.agents.length + found.people.length === 0 && !dir.loading ? (
-        q.trim() ? (
-          <EmptyState size="inline" title={t("mobile.find.nothing", { q: q.trim() })} />
+        typed ? (
+          <EmptyState
+            size="inline"
+            title={t("mobile.find.nothing", { q: typed })}
+            action={<Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={onClear} />}
+          />
         ) : (
           <FirstUse
             place="people"
@@ -85,7 +95,3 @@ export function ChatTargets({
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  sec: { paddingHorizontal: 4, paddingTop: 10 },
-});

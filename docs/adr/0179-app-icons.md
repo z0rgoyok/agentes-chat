@@ -29,8 +29,10 @@ Comparing directions, more than one was liked, which raised the question of lett
    8; the web's `favicon.ico`, `apple-touch-icon.png` and `icon-512.png`. The desktop app's icons folder is never
    committed, so its build draws them from the same scenes (`apps/desktop/scripts/icons.ts`, before `tauri icon` and
    `cargo test`): the bundle's 1024 master in macOS's shape and shadow on Apple's grid (no black tile around the agent
-   any more), and each icon's Dock and window pictures. Changing an icon means changing its scene and running the
-   script again.
+   any more) for the `.icns`, a second master in the full rounded square for Windows' `.ico` and Linux's PNGs
+   (`app-icon-tile.png`: their taskbars draw an icon edge to edge, so Apple's margin showed it about a fifth smaller
+   than its neighbours), and each icon's Dock and window pictures. Changing an icon means changing its scene and
+   running the script again.
 
 2. **The scenes sit on a pixel grid.** A 1024 icon is 32 cells a side and the agent's dither cells are the sky's
    cells, so nothing is half a pixel (but in the two Peeking icons, whose agent leans: its cells turn with it, on a

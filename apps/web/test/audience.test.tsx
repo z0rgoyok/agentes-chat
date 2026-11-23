@@ -261,16 +261,22 @@ describe("audience rules", () => {
     const admin: OrgSummary = { ...member, permissions: ["read", "post", "manage_agents"] };
     expect(canEditAudience(member, theo({}), "u1")).toBe(true);
     expect(canEditAudience(member, theo({}), "u2")).toBe(false);
-    expect(canEditAudience(admin, theo({}), "u2")).toBe(true);
+    // Who manages it, as the server says (`canManage`, ADR 0085 addendum of 2026-11-17): the key alone isn't enough.
+    expect(canEditAudience(admin, theo({ canManage: true }), "u2")).toBe(true);
+    expect(canEditAudience(admin, theo({}), "u2")).toBe(false);
   });
 
-  test("whose lists show it: anyone's while it answers them, always who manages agents'", () => {
+  test("whose lists show it: anyone's while it answers them, they manage it or they edit it; never the key alone", () => {
     const member: OrgSummary = { id: ORG_ID, name: "Acme", role: "member", permissions: ["read", "talk_to_agents"] };
     const manager: OrgSummary = { ...member, permissions: ["read", "talk_to_agents", "manage_agents"] };
     const locked = theo({ canTalk: false });
     expect(listsAgent(member, theo({}))).toBe(true);
     expect(listsAgent(member, locked)).toBe(false);
-    expect(listsAgent(manager, locked)).toBe(true);
+    // "Edit agents" where it reaches the agent (`canManage`, ADR 0085 addendum of 2026-11-17), not someone's private one.
+    expect(listsAgent(manager, locked)).toBe(false);
+    expect(listsAgent(manager, { ...locked, canManage: true })).toBe(true);
+    // Named in its "Who can edit": listed though it doesn't answer them.
+    expect(listsAgent(member, { ...locked, canEdit: true })).toBe(true);
     // An older server says nothing: it answers everyone.
     expect(listsAgent(member, theo({ canTalk: undefined }))).toBe(true);
   });

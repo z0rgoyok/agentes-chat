@@ -1,5 +1,5 @@
 import type { Artifact, ArtifactContent, ArtifactKind } from "@agenteschat/client";
-import { ApiError, keys } from "@agenteschat/client";
+import { ApiError, isLiveFileKind, keys } from "@agenteschat/client";
 import { fileName } from "@agenteschat/client/lib/artifacts";
 import { artifactPlace } from "@agenteschat/client/lib/drive";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -113,7 +113,7 @@ export function useDeleteArtifact(onDeleted?: (ids: string[]) => void) {
   return { ask, dialog, restore };
 }
 
-export type DownloadFormat = "pdf" | "docx" | "csv";
+export type DownloadFormat = "pdf" | "docx" | "csv" | "xlsx" | "pptx" | "md";
 type Downloadable = Pick<Artifact, "id" | "kind" | "title">;
 
 /**
@@ -127,6 +127,12 @@ export function useArtifactDownload() {
   const { org } = useOrg();
   const api = useApi();
   const original = async (a: Downloadable, version?: number, content?: ArtifactContent) => {
+    // A live file's version holds its document: what it downloads as is written by the server (ADR 0198).
+    if (isLiveFileKind(a.kind)) {
+      const url = api.artifacts.fileUrl(org.id, a.id, version ? { version } : {});
+      fileSaver.save(url, fileName(a.title, { kind: a.kind }));
+      return;
+    }
     if (a.kind === "file") {
       const name = content?.kind === "file" ? content.name : a.title;
       fileSaver.save(api.artifacts.fileUrl(org.id, a.id, version ? { version } : {}), name);
@@ -144,16 +150,34 @@ export function useArtifactDownload() {
   };
   /** What a kind can be saved as ("Original" for all but tables, whose original is the CSV). */
   const formats = (kind: ArtifactKind): { key: string; format?: DownloadFormat; icon: IconName; label: string }[] => [
+    // A document (a live file, ADR 0200): Word, its Markdown, or a PDF.
     ...(kind === "document"
       ? [
-          { key: "pdf", format: "pdf" as const, icon: "document" as const, label: t("artifacts.formatPdf") },
-          { key: "docx", format: "docx" as const, icon: "page" as const, label: t("artifacts.formatDocx") },
+          { key: "docx", format: "docx" as const, icon: "page" as const, label: t("live.shell.formats.docx") },
+          { key: "md", format: "md" as const, icon: "document" as const, label: t("live.shell.formats.md") },
+          { key: "pdf", format: "pdf" as const, icon: "document" as const, label: t("live.shell.formats.pdf") },
         ]
       : []),
     ...(kind === "table"
       ? [{ key: "csv", format: "csv" as const, icon: "table" as const, label: t("artifacts.formatCsv") }]
       : []),
-    ...(kind !== "table" ? [{ key: "original", icon: "download" as const, label: t("artifacts.formatOriginal") }] : []),
+    // Live files (ADR 0198): a spreadsheet as Excel or CSV, a presentation as PowerPoint or PDF, a canvas as JSON.
+    ...(kind === "spreadsheet"
+      ? [
+          { key: "xlsx", format: "xlsx" as const, icon: "spreadsheet" as const, label: t("live.shell.formats.xlsx") },
+          { key: "csv", format: "csv" as const, icon: "table" as const, label: t("live.shell.formats.csv") },
+        ]
+      : []),
+    ...(kind === "slides"
+      ? [
+          { key: "pptx", format: "pptx" as const, icon: "slides" as const, label: t("live.shell.formats.pptx") },
+          { key: "pdf", format: "pdf" as const, icon: "document" as const, label: t("live.shell.formats.pdf") },
+        ]
+      : []),
+    ...(kind === "canvas" ? [{ key: "json", icon: "code" as const, label: t("live.shell.formats.json") }] : []),
+    ...(kind !== "table" && !isLiveFileKind(kind)
+      ? [{ key: "original", icon: "download" as const, label: t("artifacts.formatOriginal") }]
+      : []),
   ];
   return { save, formats };
 }
@@ -183,7 +207,10 @@ export function useArtifactEntries() {
       },
     ];
   };
-  const build = (artifact: Artifact, { onOpen, onVersions, onDelete, download }: ArtifactMenuOptions): MenuEntry[] => [
+  const build = (
+    artifact: Artifact,
+    { onOpen, onVersions, onDelete, download, onRename, onMove }: ArtifactMenuOptions,
+  ): MenuEntry[] => [
     ...(onOpen
       ? ([
           { kind: "item", id: "open", label: t("artifacts.openFile"), icon: "external", run: () => onOpen() },
@@ -213,6 +240,12 @@ export function useArtifactEntries() {
       run: () => share.copyLink(artifact),
     },
     ...placeEntry(artifact),
+    ...(onRename
+      ? ([{ kind: "item", id: "rename", label: t("drive.rename"), icon: "edit", run: onRename }] satisfies MenuEntry[])
+      : []),
+    ...(onMove
+      ? ([{ kind: "item", id: "move", label: t("drive.moveToMenu"), icon: "move", run: onMove }] satisfies MenuEntry[])
+      : []),
     ...(onVersions
       ? ([
           { kind: "item", id: "versions", label: t("artifacts.seeVersions"), icon: "waiting", run: onVersions },
@@ -235,6 +268,9 @@ export interface ArtifactMenuOptions {
   onDelete: () => void;
   /** "Baixar" the original (Drive's right click; the details and the viewer have their own button). */
   download?: boolean;
+  /** The Drive's own: "Renomear" and "Mover para…" (who adds to the Drive). */
+  onRename?: () => void;
+  onMove?: () => void;
 }
 
 /** "…" on a file (viewer header, Drive rows, the details): its actions (`useArtifactEntries`). */

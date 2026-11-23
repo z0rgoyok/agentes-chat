@@ -1,15 +1,13 @@
 import { useCreateDashboard, useMembers } from "@agenteschat/client";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GroupedHeader, Locked, useTheme, useToast } from "@/ui";
+import { GroupedHeader, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { boardHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
+import { SettingsPage, useUnsavedGuard } from "../settings/parts";
 import { useOrgId } from "../shared/hooks";
-import { PushedHeader, successHaptic } from "../shared/parts";
-import { SheetHostProvider } from "../shared/SheetHost";
+import { successHaptic } from "../shared/parts";
 import { TextArea } from "../shared/TextArea";
 import { type AudienceDraft, audienceDraftOf, audienceReady, shareInputOf } from "./logic";
 import { AudienceFields } from "./parts";
@@ -18,21 +16,13 @@ import { AudienceFields } from "./parts";
 const TITLE_MAX = 80;
 
 /**
- * "New dashboard", pushed (ADR 0135): its name (with a line saying an agent builds one when asked in a chat), who sees
- * it and who edits it. "Create" in the bar opens the new, empty board.
+ * "New dashboard", pushed (ADR 0135), on the settings' form page (a focused field clears the keyboard on both
+ * systems): its name (with a line saying an agent builds one when asked in a chat; the person taps it, the keyboard
+ * never comes up on its own), who sees it and who edits it. "Create" in the bar opens the new, empty board in its
+ * place; leaving with a name typed asks first.
  */
 export function NewBoardScreen() {
-  return (
-    <SheetHostProvider>
-      <NewBoard />
-    </SheetHostProvider>
-  );
-}
-
-function NewBoard() {
   const { t } = useTranslation();
-  const { colors: c } = useTheme();
-  const insets = useSafeAreaInsets();
   const orgId = useOrgId();
   const toast = useToast();
   const failed = useFailed();
@@ -40,6 +30,7 @@ function NewBoard() {
   const create = useCreateDashboard(orgId);
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState<AudienceDraft>(() => audienceDraftOf(null));
+  const leave = useUnsavedGuard(title.trim() !== "");
   const ready = title.trim().length > 0 && audienceReady(draft) && !create.isPending;
   const submit = () => {
     if (!ready) return;
@@ -50,6 +41,7 @@ function NewBoard() {
         onSuccess: (board) => {
           successHaptic();
           toast({ title: t("dashboards.create.created", { title: name }) });
+          leave();
           router.replace(boardHref(board.id));
         },
         onError: failed,
@@ -57,48 +49,31 @@ function NewBoard() {
     );
   };
   return (
-    <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={t("dashboards.create.title")}
-        solid={false}
-        grouped
-        action={{ label: t("mobile.dashboards.create"), disabled: !ready, onPress: submit }}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={[styles.in, { paddingBottom: 24 + insets.bottom }]}
+    <SettingsPage
+      title={t("dashboards.create.title")}
+      action={{ label: t("mobile.dashboards.create"), disabled: !ready, onPress: submit }}
+      locked={create.isPending}
+    >
+      <GroupedHeader
+        hint={{
+          name: t("common.about", { label: t("dashboards.create.name") }),
+          text: t("dashboards.create.askHint"),
+        }}
       >
-        <Locked when={create.isPending}>
-          <GroupedHeader
-            hint={{
-              name: t("common.about", { label: t("dashboards.create.name") }),
-              text: t("dashboards.create.askHint"),
-            }}
-          >
-            {t("dashboards.create.name")}
-          </GroupedHeader>
-          <TextArea
-            value={title}
-            onChangeText={setTitle}
-            placeholder={t("dashboards.create.namePlaceholder")}
-            accessibilityLabel={t("dashboards.create.name")}
-            multiline={false}
-            minHeight={50}
-            maxLength={TITLE_MAX}
-            returnKeyType="done"
-            autoFocus
-          />
-
-          <AudienceFields draft={draft} onChange={setDraft} members={members.data?.length ?? 0} />
-        </Locked>
-      </ScrollView>
-    </View>
+        {t("dashboards.create.name")}
+      </GroupedHeader>
+      <TextArea
+        value={title}
+        onChangeText={setTitle}
+        placeholder={t("dashboards.create.namePlaceholder")}
+        accessibilityLabel={t("dashboards.create.name")}
+        multiline={false}
+        minHeight={50}
+        maxLength={TITLE_MAX}
+        returnKeyType="done"
+        onSubmitEditing={submit}
+      />
+      <AudienceFields draft={draft} onChange={setDraft} members={members.data?.length ?? 0} />
+    </SettingsPage>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  in: { paddingHorizontal: 16, paddingTop: 4 },
-});

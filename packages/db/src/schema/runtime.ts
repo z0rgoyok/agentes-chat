@@ -53,6 +53,8 @@ export const outbox = pgTable(
     lockedUntil: timestamp({ withTimezone: true }),
     lockedBy: text(),
     lastError: text(),
+    /** The HTTP status the error behind `lastError` carried (a provider's refusal), when it carried one. */
+    lastErrorStatus: integer(),
     /** Optional idempotency key: enqueueing the same key twice is a no-op. */
     dedupeKey: text().unique(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -123,6 +125,11 @@ export const agentRuns = pgTable(
      * prompt caches stay valid). See docs/adr/0015-tool-gateway-and-approvals.md.
      */
     transcript: jsonb().$type<Record<string, unknown>>(),
+    /**
+     * Each claim's stage profile (the last `RUN_PROFILES_KEPT`), for the operator's work analytics. Its own column so
+     * analytics read it without decompressing the transcript; null on runs that ended before it existed.
+     */
+    profiles: jsonb().$type<unknown[]>(),
     /** Model calls made so far (capped by AGENT_MAX_TOOL_TURNS). */
     turns: integer().notNull().default(0),
     /**
@@ -131,6 +138,11 @@ export const agentRuns = pgTable(
      * next call ("New message from …"), instead of starting a second run.
      */
     pendingMessageIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    /**
+     * A separate request sent while the run worked (ADR 0112 addendum, `steerHandling` `queue`): out of what its steps
+     * read, left for after its task. Every ending hands them on with its unread messages: a run of their own.
+     */
+    afterMessageIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
     /**
      * The issue this run works on: set when someone asks the agent to
      * implement it, or when the run uses an issue tool on it. The issue shows
@@ -155,7 +167,7 @@ export const agentRuns = pgTable(
     workingSince: timestamp({ withTimezone: true }),
     /**
      * The computer this run waits for (`waiting_input` with a computer brain
-     * and nothing to fall back on, ADR 0032 §5): queued again when it comes
+     * that can't answer now, ADR 0032 §5): queued again when it comes
      * back (`resumeRunsWaitingForMachine`). Null otherwise.
      */
     waitingMachineId: uuid(),
@@ -174,7 +186,7 @@ export const agentRuns = pgTable(
     background: boolean().notNull().default(false),
     /**
      * The brain this run actually thinks with (`model`, `claude_code`, `codex`): the agent's, a
-     * mission's override or a fallback. Null until its first turn. Shared code reads this, never
+     * mission's override, or the model brain an older release stood in with. Null until its first turn. Shared code reads this, never
      * the agent's stored brain.
      */
     brain: text(),
@@ -202,6 +214,8 @@ export const agentRuns = pgTable(
     index().on(t.issueId, t.createdAt),
     // A stretch's runs, counted before an agent starts another (`stretchStop`).
     index().on(t.orgId, t.stretchId).where(sql`${t.stretchId} is not null`),
+    // A computer brain's session's runs (`resolveBrain`, a cut tool call read back from an earlier run).
+    index().on(t.orgId, t.brainSessionId).where(sql`${t.brainSessionId} is not null`),
     // Runs waiting for a computer, found when it reconnects (only those rows are indexed).
     index("agent_runs_waiting_machine_idx").on(t.waitingMachineId).where(sql`${t.waitingMachineId} is not null`),
     // The task manager's count of today's finished tasks, asked at every poll: only today's rows read, not every run
@@ -237,8 +251,15 @@ export const agentWorks = pgTable(
     issueId: uuid().references(() => issues.id, { onDelete: "set null" }),
     /** `queued` | `live` | `done` | `failed` | `canceled`. */
     status: text().notNull(),
-    /** `agent` (it called work_in_background) | `auto` (the safety net moved it). */
+    /**
+     * `agent` (it called work_in_background) | `auto` (the safety net moved it) | `handed` (another agent handed it
+     * over for a person: it runs in the agents' DM or a task's conversation and reports in the person's, ADR 0121).
+     */
     how: text().notNull(),
+    /** A handed work: the hand-off (note) it came from. */
+    consultationId: uuid().references(() => agentConsultations.id, { onDelete: "set null" }),
+    /** A handed work: the thread of `channelId` its updates and report go to (null: the main timeline). */
+    handedThreadId: uuid(),
     /** The person behind it, for lists and notifications. */
     requestedByUserId: text(),
     updateSeq: integer().notNull().default(0),
@@ -257,6 +278,7 @@ export const agentWorks = pgTable(
     index().on(t.orgId, t.status).where(sql`${t.status} in ('queued', 'live')`),
     index().on(t.agentId, t.status).where(sql`${t.status} in ('queued', 'live')`),
     index().on(t.issueId).where(sql`${t.issueId} is not null`),
+    index().on(t.consultationId).where(sql`${t.consultationId} is not null`),
   ],
 );
 
@@ -329,10 +351,13 @@ export const agentRunSteps = pgTable(
     // A workspace's tool calls in a range of dates, for the operator API (only those steps are indexed). Built
     // concurrently: every step of every run is a row here, and a plain build keeps them all waiting until it ends.
     index("agent_run_steps_tool_calls_idx").on(t.orgId, t.createdAt).where(sql`${t.kind} = 'tool_call'`).concurrently(),
+    // The task list's count of a run's tool calls and its latest one, without reading the run's other steps.
+    index("agent_run_steps_tool_call_run_idx").on(t.runId, t.seq).where(sql`${t.kind} = 'tool_call'`),
   ],
 );
 
-export const usageKindEnum = pgEnum("usage_kind", ["agent", "router", "embedding", "summary"]);
+/** `image`: pictures made through the gateway (ADR 0197), billed like an agent's own calls when an agent asked. */
+export const usageKindEnum = pgEnum("usage_kind", ["agent", "router", "embedding", "summary", "image"]);
 
 /**
  * One row per model call, written by the Model Gateway only. Same numbers in
@@ -397,6 +422,8 @@ export const usageRecords = pgTable(
     index().on(t.orgId, t.personId, t.createdAt),
     // The operator's work analytics read every workspace's usage in a range of dates.
     index().on(t.createdAt),
+    // Usage by run (the task list, routines, cost): read per run id, never by time.
+    index().on(t.runId),
   ],
 );
 
@@ -419,6 +446,8 @@ export const agentBudgetPeriods = pgTable(
   (t) => [
     primaryKey({ columns: [t.agentId, t.periodStart] }),
     foreignKey({ columns: [t.orgId, t.agentId], foreignColumns: [agents.orgId, agents.id] }).onDelete("cascade"),
+    // A workspace's month (agents' statuses, the right hand's budget watch): the key starts with the agent.
+    index().on(t.orgId, t.periodStart),
   ],
 );
 
@@ -529,6 +558,11 @@ export interface ApprovalApprovers {
   requesterDecides: boolean;
   /** Only `userIds` decide it, admins too: someone else asked to act in that person's own mailbox. */
   required?: boolean;
+  /**
+   * An action in one person's own connection: listed only to `userIds` and to who is in its conversation, never to
+   * admins or the agent's owner for being them (ADR 0099 addendum).
+   */
+  personal?: boolean;
 }
 
 /**
@@ -820,6 +854,8 @@ export const agentScopes = pgTable(
   (t) => [
     foreignKey({ columns: [t.orgId, t.agentId], foreignColumns: [agents.orgId, agents.id] }).onDelete("cascade"),
     unique().on(t.agentId, t.connectionId, t.scope).nullsNotDistinct(),
+    // A connection's grants across agents (a mailbox's or a database's people and agents).
+    index().on(t.connectionId).where(sql`${t.connectionId} is not null`),
   ],
 );
 
@@ -947,6 +983,17 @@ export const agentConsultations = pgTable(
     reportedAt: timestamp({ withTimezone: true }),
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /**
+     * The person behind the asking run when it was made (`runAuthorityById`), never changed; null with nobody behind
+     * it (a routine's work) and on rows made before the column.
+     */
+    forUserId: text(),
+    /**
+     * The asking run had read outside content when it made this (`runReadOutside`), never changed: its words relay
+     * that content. The question's own message carries the same mark for the agent that answers; a task's start line
+     * is the server's and carries none.
+     */
+    askerReadOutside: boolean().notNull().default(false),
   },
   (t) => [
     foreignKey({ columns: [t.orgId, t.askerAgentId], foreignColumns: [agents.orgId, agents.id] }).onDelete("cascade"),
@@ -958,6 +1005,8 @@ export const agentConsultations = pgTable(
     index().on(t.orgId, t.askerAgentId, t.createdAt),
     // The hand-over of a task, found by the task's conversation.
     index().on(t.orgId, t.channelId),
+    // What other agents handed an agent for a person, newest first (`handedFor`).
+    index("agent_consultations_handed_for_idx").on(t.orgId, t.targetAgentId, t.forUserId, t.createdAt),
   ],
 );
 

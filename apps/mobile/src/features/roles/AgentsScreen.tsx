@@ -1,4 +1,4 @@
-import type { Agent, AgentAudience, OrgRole, Person } from "@agenteschat/client";
+import type { Agent, AgentAudience, OrgRole } from "@agenteschat/client";
 import { useAgents, useUpdateRole, useWidenAudience } from "@agenteschat/client";
 import { sameAudience } from "@agenteschat/client/lib/agent-edit";
 import { audienceOf, audiencePatch, canEditAudience } from "@agenteschat/client/lib/audience";
@@ -6,7 +6,7 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
 import { holdsAll, isEveryone, roleLock, roleName, sortRoles, withRow } from "@agenteschat/client/lib/roles";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
@@ -16,8 +16,8 @@ import { useWidenAsk } from "../chat/ReachLines";
 import { SettingsPage } from "../settings/parts";
 import { AgentFace, Face } from "../shared/Face";
 import { useDirectory } from "../shared/hooks";
-import { pickOne } from "../shared/PickerSheet";
 import { goBack, successHaptic, tapHaptic } from "../shared/parts";
+import { closePersonChoose, openPersonChoose } from "../team/person-choose";
 import {
   agentAudienceLine,
   agentIntent,
@@ -31,9 +31,10 @@ import {
 import { CargoMark, Gone, rolesHref, useFail, useRolesData, Waiting } from "./parts";
 
 /**
- * A cargo's Agentes (P7): who its people talk to, each agent saying who talks to it now. A tap follows W7: one that
- * answers everyone asks who talks to it (P7b), one listing the cargo drops it, one listing others adds it after
- * today's questions (someone's plan, a mailbox). When neither Todos nor the cargo talks to agents, that comes first.
+ * A cargo's Agentes: who its people talk to, each agent saying who talks to it now. A tap (`agentIntent`): one that
+ * answers everyone asks who talks to it (`AgentWhoScreen`), one listing the cargo drops it, one listing others adds it
+ * after today's questions (someone's plan, a mailbox). When neither Todos nor the cargo talks to agents, that comes
+ * first.
  */
 export function RoleAgentsScreen({ roleId }: { roleId: string }) {
   const { t } = useTranslation();
@@ -151,9 +152,9 @@ function AgentRow({ role, agent, roles, locked }: { role: OrgRole; agent: Agent;
 }
 
 /**
- * Quem fala com {{agent}} (P7b), pushed with Salvar: the agent page's "Quem pode falar". Todos, only some cargos and
- * people (the cargos, then the people with Adicionar pessoa), or only the person responsible. The line under it says
- * who stops talking to it.
+ * Quem fala com {{agent}}, pushed with Salvar: the agent page's "Quem pode falar". Todos, only some cargos and
+ * people (the cargos, then the people with Adicionar pessoa, which opens the people on a screen of their own), or only
+ * the person responsible. The line under it says who stops talking to it.
  */
 export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: string }) {
   const { t, i18n } = useTranslation();
@@ -165,6 +166,7 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
   const askWiden = useWidenAsk(agent);
   const [edit, setEdit] = useState<Partial<AgentAudience>>({});
   const [error, setError] = useState<unknown>(null);
+  useEffect(() => () => closePersonChoose(), []);
   const title = agent?.name ?? t("audience.section");
   if (!data || !people || !agents.data)
     return <Waiting title={title} failed={failed || agents.isError} error={loadError ?? agents.error} retry={retry} />;
@@ -189,19 +191,19 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
     });
   };
   const setPeople = (userIds: string[]) => setEdit((e) => ({ ...e, userIds }));
-  const addPerson = async () => {
+  // Adicionar pessoa: the people not on the list yet, on their own screen; the one chosen joins the list as it is then.
+  const addPerson = () => {
     const left = people.filter((p) => !who.userIds.includes(p.userId) && p.userId !== agent.ownerUserId);
-    const key = await pickOne({
+    const before = start.userIds;
+    openPersonChoose({
       title: t("mobile.roles.agents.addPerson"),
-      options: left.map((p: Person) => ({
-        key: p.userId,
-        label: p.name,
-        sub: p.email,
-        leading: { kind: "person", userId: p.userId },
-      })),
-      search: true,
+      people: left.map((p) => ({ userId: p.userId, name: p.name, sub: p.email })),
+      picked: null,
+      apply: (userId) => {
+        if (userId) setEdit((e) => ({ ...e, userIds: [...new Set([...(e.userIds ?? before), userId])] }));
+      },
     });
-    if (key) setPeople([...who.userIds, key]);
+    router.push("/person-choose");
   };
   const save = () =>
     widen.saveAsync(next, askWiden(next)).then((done) => {
@@ -279,7 +281,7 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
                 }}
               />
             ))}
-            <GroupedRow icon="plus" label={t("mobile.roles.agents.addPerson")} onPress={() => void addPerson()} />
+            <GroupedRow icon="plus" label={t("mobile.roles.agents.addPerson")} chevron onPress={addPerson} />
           </GroupedList>
           {owner ? <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter> : null}
         </>

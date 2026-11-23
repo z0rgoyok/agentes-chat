@@ -1,4 +1,4 @@
-import type { Issue, IssueColumn, IssuePriority } from "@agenteschat/client";
+import type { Actor, Issue, IssueColumn, IssuePriority } from "@agenteschat/client";
 import { useIssueAction, useIssueProjects, useStartAgentOnTask } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
@@ -31,8 +31,7 @@ import {
 } from "@agenteschat/ui";
 import { type ClipboardEvent, type KeyboardEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActorAvatar } from "@/components/AgentAvatar";
-import { actorFromKey, NO_ACTOR, useActors } from "@/components/actors";
+import { useActors } from "@/components/actors";
 import { useFileDrop } from "@/components/drive/DriveUploads";
 import { PendingTile } from "@/components/IssueFiles";
 import { useOrg } from "@/components/org-context";
@@ -43,6 +42,7 @@ import { usePersonalView } from "@/hooks/usePersonalView";
 import { useTextLimit } from "@/hooks/useTextLimit";
 import { columnIdOf, columnsOf, PRIORITIES, splitCriteria, useColumnTitle } from "@/lib/issues";
 import { useToast } from "@/lib/toast";
+import { AssigneesField } from "./IssueAssignees";
 import { ProjectDialog } from "./IssueProjects";
 
 /** Description + criteria back into the quick box's text ("-" lines are criteria there). */
@@ -98,7 +98,7 @@ export function NewIssueDialog({
   const [description, setDescription] = useState("");
   const [criteria, setCriteria] = useState<string[]>([]);
   const [draftCriterion, setDraftCriterion] = useState("");
-  const [assignee, setAssignee] = useState(NO_ACTOR);
+  const [assignees, setAssignees] = useState<Actor[]>([]);
   const [priority, setPriority] = useState<IssuePriority>("normal");
   const [due, setDue] = useState<string | null>(null);
   const [another, setAnother] = useState(false);
@@ -115,8 +115,9 @@ export function NewIssueDialog({
   // The org's Drive: the task has no channel yet.
   const files = useComposerFiles(null, () => textRef.current?.focus());
   const drop = useFileDrop(files.onFiles, open);
-  const chosen = actorFromKey(assignee);
-  const agent = chosen?.type === "agent" ? actors.dir.agentById.get(chosen.id) : undefined;
+  // The first agent picked starts on the task once it exists; the others it is given to only have it.
+  const starter = assignees.find((a) => a.type === "agent");
+  const agent = starter ? actors.dir.agentById.get(starter.id) : undefined;
   const quickCriteria = wide ? [] : splitCriteria(text).criteria;
   // The text box as tall as its text, also where the engine can't size it from CSS (`field-sizing`, which the Mac
   // app's WebKit lacks); measured again when the form swaps the quick box for the full one (another textarea).
@@ -143,7 +144,7 @@ export function NewIssueDialog({
     setDue(null);
     files.clear();
     if (!keepChoices) {
-      setAssignee(NO_ACTOR);
+      setAssignees([]);
       setPriority("normal");
       setAudience(EVERYONE);
       setWide(false);
@@ -162,7 +163,7 @@ export function NewIssueDialog({
   /** "Pedir" right after creating: when it can't start, the toast says why, with Pedir de novo. */
   const startAgent = (issue: Issue, picked: { id: string; name: string }, again = false) => {
     const g = agentGrammar(picked.name);
-    start.mutateAsync({ issueId: issue.id, agentId: picked.id }).then(
+    start.mutateAsync({ issueId: issue.id, agentId: picked.id, assignees: issue.assignees }).then(
       () => again && toast.show(t("issues.asked", g)),
       (error: unknown) =>
         toast.show(
@@ -185,7 +186,7 @@ export function NewIssueDialog({
           title: title.trim(),
           description: body.description,
           criteria: body.criteria,
-          assignee: chosen?.type === "person" ? chosen : null,
+          assignees: assignees.filter((a) => a !== starter),
           priority,
           dueDate: due,
           ...(chosenProject ? { projectId: chosenProject.id } : {}),
@@ -197,11 +198,11 @@ export function NewIssueDialog({
         onSuccess: (created) => {
           const issue = created as Issue;
           // New tasks land in the first column of A fazer; another one was chosen.
-          if (chosenColumn && chosenColumn.id !== columnIdOf(issue, columns) && chosen?.type !== "agent")
+          if (chosenColumn && chosenColumn.id !== columnIdOf(issue, columns) && !starter)
             action.mutate({ type: "update", id: issue.id, patch: { columnId: chosenColumn.id } });
           toast.show(t("issues.form.created", { number: issue.number }));
           // An agent picked here starts right away ("Pedir"): assigned, its run linked, in progress.
-          if (chosen?.type === "agent") startAgent(issue, { id: chosen.id, name: agent?.name ?? "" });
+          if (starter) startAgent(issue, { id: starter.id, name: agent?.name ?? "" });
           if (another) {
             reset(true);
             // After the form unlocks: a disabled field takes no focus.
@@ -272,25 +273,7 @@ export function NewIssueDialog({
           {t("issues.projects.new")}
         </MenuItem>
       </Menu>
-      <Menu
-        label={t("issues.form.assignee")}
-        trigger={
-          <Button
-            size="sm"
-            icon={chosen ? undefined : "person"}
-            aria-label={chosen ? `${t("issues.form.assignee")}: ${actors.name(chosen)}` : t("issues.form.assignee")}
-          >
-            {chosen && <ActorAvatar actor={chosen} name={actors.name(chosen)} size="xs" />}
-            {chosen ? actors.name(chosen) : t("issues.form.assignee")}
-          </Button>
-        }
-      >
-        {actors.options(true).map((o) => (
-          <MenuItem key={o.value} leading={o.leading} onSelect={() => setAssignee(o.value)}>
-            {o.label}
-          </MenuItem>
-        ))}
-      </Menu>
+      <AssigneesField value={assignees} onChange={setAssignees} />
       <Menu
         label={t("issues.form.priority")}
         trigger={

@@ -30,3 +30,7 @@
 
 - One process serves HTTP, WebSocket and the SPA: no separate real-time service.
 - Follow-ups: revoke live subscriptions when someone leaves a channel or organization (today the check runs at subscribe time; a reconnect re-checks), presence events to clients, typing indicators for people, `NOTIFY` throughput limits at Cloud scale (Redis adapter).
+
+## Addendum 2026-11-19: one line before slow work (ADR 0207)
+
+A reply still shows whole, once, at the end, and nothing an agent writes streams into the chat. The one exception is a line that is not part of the reply: before work that takes a while, an agent may post one short line of what it will do (`say_now`, ADR 0207), at most once per run, whole and at once, as a message of its own (`meta.sayNow`). It carries no run id and the apps don't take it for the reply: the run's working row and the person's receipt stay until the reply, which doesn't repeat the line.

@@ -1,0 +1,156 @@
+/*
+ * A document drawn small (ADR 0200): a page of the Wiki's look on the cover's sunken ground, its first blocks in
+ * sizes of the cover's width (the cover is a size container, `.lf-cover`), fading at its foot.
+ */
+
+/* Over the cover's own ground (`.lf-cover` in covers.css, another sheet): the two classes win in any order the build
+   links the sheets in. */
+.lf-cover.lf-cover--doc {
+  background: var(--surface-sunken);
+}
+.lf-doc-mini {
+  position: absolute;
+  inset: 9% 10% -4%;
+  display: flex;
+  flex-direction: column;
+  gap: 2.2cqw;
+  padding: 7cqw 7cqw 0;
+  overflow: hidden;
+  border-radius: 2.6cqw 2.6cqw 0 0;
+  background: var(--surface-raised);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--e1);
+  color: var(--ink2);
+  font-size: 3.4cqw;
+  line-height: 1.45;
+  -webkit-mask-image: linear-gradient(#000 70%, transparent);
+  mask-image: linear-gradient(#000 70%, transparent);
+}
+.lf-doc-mini > *,
+.lf-doc-mini__quote > * {
+  flex: none;
+  min-width: 0;
+}
+.lf-doc-mini__h {
+  display: block;
+  color: var(--ink);
+  font-weight: 650;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lf-doc-mini__h[data-level="1"] {
+  font-size: 5cqw;
+  margin-top: 1cqw;
+}
+.lf-doc-mini__h[data-level="2"] {
+  font-size: 4.2cqw;
+}
+.lf-doc-mini__p {
+  --lv: 0;
+  position: relative;
+  display: -webkit-box;
+  padding-left: calc(var(--lv) * 4cqw);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+.lf-doc-mini__p[data-list] {
+  padding-left: calc((var(--lv) + 1) * 4cqw);
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+.lf-doc-mini__p[data-list]::before {
+  content: "•";
+  position: absolute;
+  left: calc(var(--lv) * 4cqw);
+  color: var(--ink-muted);
+}
+.lf-doc-mini__p[data-list="ordered"]::before {
+  content: "·";
+}
+.lf-doc-mini__quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4cqw;
+  padding-left: 2.6cqw;
+  border-left: 0.8cqw solid var(--line2);
+  color: var(--ink-muted);
+}
+.lf-doc-mini__code {
+  display: block;
+  padding: 2cqw 2.6cqw;
+  border-radius: 1.6cqw;
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 2.8cqw;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lf-doc-mini__rule {
+  display: block;
+  height: 1px;
+  background: var(--line);
+}
+.lf-doc-mini__img {
+  display: block;
+  max-width: 100%;
+  min-height: 12cqw;
+  overflow: hidden;
+  border-radius: 1.6cqw;
+  background: var(--surface-sunken);
+}
+.lf-doc-mini__img img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.lf-doc-mini__table {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 2.8cqw;
+  box-shadow: inset 0 0 0 1px var(--line);
+  border-radius: 1.6cqw;
+}
+.lf-doc-mini__row {
+  display: table-row;
+}
+.lf-doc-mini__cell {
+  display: table-cell;
+  padding: 1cqw 1.6cqw;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lf-doc-mini__table.has-header .lf-doc-mini__row:first-child .lf-doc-mini__cell {
+  background: var(--plate);
+  color: var(--ink);
+  font-weight: 600;
+}
+.lf-doc-mini__row:last-child .lf-doc-mini__cell {
+  border-bottom: 0;
+}
+/* The list's small thumbnail: the page's lines only. */
+.lf-doc-mini--tiny {
+  inset: 12% 18% -6%;
+  gap: 8%;
+  padding: 14% 12% 0;
+}
+.lf-doc-mini--tiny i {
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line2);
+}
+.lf-doc-mini--tiny i:first-child {
+  height: 3px;
+  background: var(--ink-muted);
+  opacity: 0.6;
+}

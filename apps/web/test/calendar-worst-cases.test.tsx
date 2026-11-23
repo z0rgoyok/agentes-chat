@@ -7,8 +7,11 @@ import type { Agent, CalendarEvent, CalendarRange, Member } from "@agenteschat/c
 import { addDays, mondayOf } from "@agenteschat/client/lib/calendar";
 import { toYmd } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { pinFileClock } from "./clock";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
+
+pinFileClock();
 
 afterEach(() => cleanup());
 
@@ -159,14 +162,14 @@ const go = async (view?: "Dia" | "Mês" | "Agenda") => {
           number: 4521,
           title: "Ninguém pegou esta tarefa ainda",
           date: toYmd(monday),
-          assignee: null,
+          assignees: [],
         },
         {
           issueId: "iss-person",
           number: 10942,
           title: "Revisar o contrato de 2027",
           date: toYmd(addDays(monday, 1)),
-          assignee: { type: "person", id: "u-ale" },
+          assignees: [{ type: "person", id: "u-ale" }],
         },
       ],
     };

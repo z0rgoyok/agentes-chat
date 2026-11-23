@@ -1,3 +1,4 @@
+import { retryInSeconds } from "@agenteschat/adapters";
 import {
   APP_SCOPES,
   appPrincipal,
@@ -175,7 +176,7 @@ export function registerAppsRoot(app: OpenAPIHono, deps: AppDeps, options: AppsR
         ] as const) {
           const r = await deps.adapters.rateLimiter.consume(`mcp:${suffix}:${row.grant.id}`, rule);
           if (!r.allowed) {
-            const retry = Math.max(1, Math.ceil((r.resetAt.getTime() - Date.now()) / 1000));
+            const retry = retryInSeconds(r.resetAt);
             return c.json(
               {
                 jsonrpc: "2.0",

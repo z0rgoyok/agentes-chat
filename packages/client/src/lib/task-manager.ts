@@ -10,7 +10,7 @@ import type {
   TaskWait,
 } from "../api/types";
 import { type Activity, toolActivity } from "./activity";
-import { durationText, etaMinutes } from "./computer-queue";
+import { durationText } from "./computer-queue";
 import { agentGrammar } from "./grammar";
 import { stopperOf } from "./notices";
 import { usageWhenShort } from "./plan-usage";
@@ -57,7 +57,7 @@ export const waitKey = (w: WaitReason) =>
     : w === "answer"
       ? "taskManager.state.answer"
       : w === "computer_busy"
-        ? "taskManager.state.computerBusy"
+        ? "queue.waiting"
         : w === "computer_offline"
           ? "taskManager.state.computerOffline"
           : w === "plan"
@@ -80,7 +80,7 @@ function backWhen(t: TFunction, locale: string, resetsAt: string | null, now: nu
 const COMPUTER_GONE = new Set(["machine_offline", "machine_dropped"]);
 
 /**
- * What a waiting task says on its row, whole: what holds it and why ("Pausada: plano a 95% da semana"), and what comes
+ * What a waiting task says on its row, whole: what holds it and why ("Pausada: plano a 99% da semana"), and what comes
  * next ("Volta sáb às 18:00"). Null when it isn't waiting.
  */
 export function taskWaitWords(
@@ -100,15 +100,9 @@ export function taskWaitWords(
       return { state: s(waitKey(reason)), next: s("taskManager.wait.okNext") };
     case "answer":
       return { state: s(waitKey(reason)), next: s("taskManager.wait.answerNext") };
-    case "computer_busy": {
-      const place = linePlace(task);
-      return {
-        state: place ? s("taskManager.state.inLine", { position: place.position }) : s(waitKey(reason)),
-        next: place?.estimatedStartAt
-          ? s("queue.startsIn", { n: etaMinutes(place.estimatedStartAt, now) })
-          : s("taskManager.wait.computerBusyNext"),
-      };
-    }
+    // One state whatever holds the turn (its computer's room or its plan sign-in's): it waits its turn in line.
+    case "computer_busy":
+      return { state: s(waitKey(reason)), next: null };
     case "computer_offline":
       if (w?.code === "work_queue")
         return { state: s("taskManager.wait.workLine"), next: s("taskManager.wait.workLineNext") };
@@ -197,7 +191,7 @@ export function taskWaitGroups(tasks: ManagedTask[]): TaskWaitGroup[] {
     });
 }
 
-/** The line over a group: "9 rotinas pausadas: o plano do Claude está em 95% da semana e volta sáb às 18:00. …". */
+/** The line over a group: "9 rotinas pausadas: o plano do Claude está em 99% da semana e volta sáb às 18:00. …". */
 export function taskWaitGroupText(t: TFunction, locale: string, group: TaskWaitGroup, now = Date.now()) {
   const s = say(t);
   const { wait: w, tasks } = group;
@@ -225,7 +219,7 @@ export function taskWaitGroupText(t: TFunction, locale: string, group: TaskWaitG
  */
 export type WaitCause =
   | { kind: "limit"; key: string; tasks: ManagedTask[] }
-  | { kind: "computer"; key: string; machineId: string; busy: boolean; tasks: ManagedTask[] }
+  | { kind: "computer"; key: string; machineId: string; tasks: ManagedTask[] }
   | { kind: "person"; key: string; tasks: ManagedTask[] };
 
 export function waitCauses(tasks: ManagedTask[]): WaitCause[] {
@@ -238,8 +232,8 @@ export function waitCauses(tasks: ManagedTask[]): WaitCause[] {
         ? { kind: "person", key: "person", tasks: [] }
         : why === "plan" || why === "budget"
           ? { kind: "limit", key: `limit:${task.wait?.key ?? task.wait?.plan ?? why}`, tasks: [] }
-          : (why === "computer_busy" || why === "computer_offline") && machineId && task.wait?.code !== "work_queue"
-            ? { kind: "computer", key: `${why}:${machineId}`, machineId, busy: why === "computer_busy", tasks: [] }
+          : why === "computer_offline" && machineId && task.wait?.code !== "work_queue"
+            ? { kind: "computer", key: `${why}:${machineId}`, machineId, tasks: [] }
             : null;
     if (!cause) continue;
     const found = causes.get(cause.key) ?? cause;
@@ -259,11 +253,11 @@ export const CAUSES_SHOWN = 3;
 /** What holds the waiting work, as the task manager shows it over its sections (`waitCauses`, the first few). */
 export const shownCauses = (tasks: ManagedTask[]) => waitCauses(tasks).slice(0, CAUSES_SHOWN);
 
-/** A computer on the task manager: "Cheio · 2 na fila · 3 trabalhando", "Tem espaço · 1 trabalhando". */
+/** A computer on the task manager: "2 na fila · 3 trabalhando", "Tem espaço · 1 trabalhando". */
 export function computerRoomText(t: TFunction, computer: Pick<ComputerSummary, "working" | "inLine">): string {
   const s = say(t);
   const room =
-    computer.inLine > 0 ? s("taskManager.queue.full", { count: computer.inLine }) : s("taskManager.queue.room");
+    computer.inLine > 0 ? s("taskManager.queue.inLine", { count: computer.inLine }) : s("taskManager.queue.room");
   return computer.working > 0 ? `${room} · ${s("taskManager.working", { count: computer.working })}` : room;
 }
 
@@ -294,12 +288,6 @@ export function causeWords(
   if (cause.kind === "computer") {
     const computer = computers.find((c) => c.id === cause.machineId);
     const name = computer?.name ?? first.machine?.name ?? "";
-    // Full, it has a line: its own tasks in it at least, while the workspace's count lags behind them.
-    if (cause.busy)
-      return {
-        name,
-        fact: computerRoomText(t, { working: computer?.working ?? 0, inLine: computer?.inLine || cause.tasks.length }),
-      };
     const working = computer?.working ? s("taskManager.working", { count: computer.working }) : null;
     return { name, fact: [words?.state, count, working].filter(Boolean).join(" · ") };
   }

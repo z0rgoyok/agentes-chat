@@ -71,6 +71,27 @@ describe("web_search", () => {
     expect(out.data).toMatchObject({ provider: "duckduckgo" });
   });
 
+  test("DuckDuckGo's page is read in linear time, however its tags are left open", () => {
+    const page = (body: string) => `<div class="result x">${body}`;
+    // The tag's last address that a `>` and a `</a>` follow; the snippet up to its first `</a>`.
+    expect(
+      parseDuckDuckGoHtml(
+        page(
+          '<a class="result__a" href="//x.example/" href="https://b.example/p">B</a><a class="result__snippet">S <b>s</b></a>',
+        ),
+      ),
+    ).toEqual([{ title: "B", url: "https://b.example/p", snippet: "S s" }]);
+    const started = performance.now();
+    for (const body of [
+      'class="result__a"'.repeat(20_000),
+      `class="result__a"${'href="!"'.repeat(30_000)}`,
+      'class="result__a"href="!">a'.repeat(10_000),
+      `<a class="result__a" href="https://a.example/">t</a>${'class="result__snippet">a'.repeat(10_000)}`,
+    ])
+      parseDuckDuckGoHtml(page(body));
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("Brave first when its key is set; on its failure, the next provider", async () => {
     const brave = { web: { results: [{ title: "B", url: "https://b.example.com", description: "d" }] } };
     const ok = web({ "https://api.search.brave.com/": () => Response.json(brave) }, { braveKey: "k" });

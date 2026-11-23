@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { channelTopic, orgTopic, userTopic } from "@agenteschat/adapters";
-import { and, eq, schema } from "@agenteschat/db";
+import { and, countQueries, eq, schema } from "@agenteschat/db";
 import {
   addChannelMember,
   archiveAgent,
@@ -387,6 +387,16 @@ describe("every path that changes the agents or the channels tells the workspace
     expect(await listed(bia.id)).toEqual([dm.id]);
     await postPersonMessage({ db, pubsub }, owner.id, org.id, dm.id, { body: "oi" });
     expect((await listDms(db, bia.id, org.id))[0]?.unread).toBe(1);
+
+    // The unread counts come in one query, however many DMs: two more of hers cost the list nothing.
+    const cost = async () => (await countQueries(() => listDms(db, bia.id, org.id))).queries;
+    const withOne = await cost();
+    await openDm(db, bia.id, org.id, { userId: cara.id }, { pubsub });
+    await openDm(db, bia.id, org.id, { agentId: agent.id }, { pubsub });
+    const hers = await listDms(db, bia.id, org.id);
+    expect(hers).toHaveLength(3);
+    expect(hers.find((d) => d.channelId === dm.id)?.unread).toBe(1);
+    expect(await cost()).toBe(withOne);
   });
 
   test("a DM with an agent is listed even with no message, and opening it reads nothing (the right hand's wave)", async () => {

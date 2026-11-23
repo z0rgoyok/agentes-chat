@@ -1,6 +1,7 @@
 import {
   type ArtifactDetail,
   type BlockChange,
+  newClientId,
   useArtifact,
   useBlockAction,
   useBlockReply,
@@ -262,7 +263,7 @@ export function LiveBlock({
 
   const say = (text: string, then?: () => void) =>
     reply.mutate(
-      { text, clientId: crypto.randomUUID() },
+      { text, clientId: newClientId() },
       { onSuccess: then, onError: () => toast.show(t("blocks.sendFailed"), "error") },
     );
 

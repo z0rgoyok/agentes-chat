@@ -136,11 +136,12 @@ export function ServerDownPanel({ down }: { down: ServerDown }) {
         ) : null}
       </View>
       <RetryWick nextRetryAt={down.nextRetryAt} checking={down.checking} />
+      {/* The wick above says it is checking; the button keeps its words and spins. */}
       <Button
         variant="primary"
         wide
-        label={down.checking ? t("mobile.auth.server.checking") : t("mobile.auth.server.down.tryNow")}
-        disabled={down.checking}
+        label={t("mobile.auth.server.down.tryNow")}
+        loading={down.checking}
         onPress={down.retry}
       />
       <View style={styles.links}>
@@ -153,14 +154,15 @@ export function ServerDownPanel({ down }: { down: ServerDown }) {
         <AuthLink label={t("mobile.auth.server.down.switchServer")} onPress={() => setSwitching(true)} />
         <AuthLink label={t("mobile.org.signOut")} onPress={() => void signOut()} />
       </View>
-      {/* Over the splash, which covers the navigator: the address screen comes up whole, its back circle closing it. */}
+      {/* Over the splash, which covers the navigator: the address screen comes up whole, as a window of its own that
+          Cancel (or the system's back on Android) closes. */}
       <Modal
         visible={switching}
         animationType="slide"
         supportedOrientations={["portrait", "landscape"]}
         onRequestClose={() => setSwitching(false)}
       >
-        <ServerAddress onDone={() => setSwitching(false)} scan={false} />
+        <ServerAddress onDone={() => setSwitching(false)} onCancel={() => setSwitching(false)} scan={false} />
       </Modal>
     </View>
   );

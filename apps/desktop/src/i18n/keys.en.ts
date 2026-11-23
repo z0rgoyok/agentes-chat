@@ -652,6 +652,22 @@ export const desktopEn = {
       menuBarTitle: "Show in the menu bar",
       notchTitle: "Show the agents in the notch",
       notchDesc: "On MacBooks with a notch: who is working shows around the camera.",
+      /** Linux: draw the window without the graphics card. */
+      compatTitle: "Compatibility mode",
+      compatDesc:
+        "Draws the window without the graphics card. It's slower but works on any computer. Use it if the window goes black, gets cut off or freezes.",
+      /** Toast after changing Compatibility mode: the drawing mode changes only when the app starts. */
+      compatReopen: "Takes effect when the app reopens.",
+      reopenNow: "Reopen now",
+      /** Toast once, after an opening with the graphics card never painted and the app fell back. */
+      compatFellBack: "The window didn't open with the graphics card, so it opened in compatibility mode.",
+      compatTryCard: "Try the graphics card again",
+      /** Behind the ⓘ while WEBKIT_DISABLE_DMABUF_RENDERER was set when the app started: the switch can't change it. */
+      compatOwn:
+        "WEBKIT_DISABLE_DMABUF_RENDERER decides this now. To choose here, quit the app and open it without that variable.",
+      /** Asked before Reopen now while agents work on this computer or agentes.chat runs here. */
+      reopenTitle: "Reopen agentes.chat?",
+      reopenBody: "Agents can't use this computer until the app opens again. What is already running finishes first.",
     },
     thisMac: {
       agents: "Agents",
@@ -781,7 +797,7 @@ export const desktopEn = {
       installerNote: "Open the downloaded file: it installs the new version over the old one.",
       keepNote: "Your servers and settings stay.",
       whatsNew: "What's new in {{version}}",
-      /** Linux: how this computer draws the app (system, graphics card, renderer), one line to copy. */
+      /** The app's and the system's versions (on Linux also how it draws the app), one line to copy. */
       systemDetails: "System details",
     },
     activity: {
@@ -915,6 +931,36 @@ export const desktopEn = {
     openOther: "Open {{server}}",
     onlyHereWorking: "Turning off access from your devices…",
     onlyHereFailed: "Couldn't turn off access from your devices.",
+  },
+  /** "Send a report" from the app (the cover over a server that won't start, Preferences › Activity). */
+  report: {
+    button: "Send a report",
+    title: "Send a report to agentes.chat",
+    noteLabel: "What happened? (optional)",
+    notePlaceholder: "What you were doing when it stopped",
+    emailLabel: "Email for a reply (optional)",
+    emailHelp: "Only if you want an answer.",
+    showAll: "See everything that's sent",
+    copy: "Copy report",
+    copied: "Copied",
+    send: "Send",
+    sending: "Sending…",
+    cancel: "Cancel",
+    sentTitle: "Report {{id}} sent",
+    sentText: "If you write to us, mention this code.",
+    sentTextReply: "We'll answer at {{email}}. Mention this code if you write to us.",
+    copyCode: "Copy code",
+    done: "Done",
+    errorRate: "Too many reports in a short time. Try again in {{minutes}} min, or copy the report.",
+    errorUnreachable: "agentes.chat didn't answer. Try again, or copy the report.",
+    errorRefused: "agentes.chat didn't accept this report (it may be from an older version). Copy the report instead.",
+    emailInvalid: "That email doesn't look right. Fix it or leave it empty.",
+    coverLead:
+      "The agentes.chat team gets this app's version, the server's setup steps and the last lines of its log. No names, addresses or keys.",
+    computerLead:
+      "The agentes.chat team gets this computer's app version, its state and the last lines of its log. No names, addresses or keys.",
+    oldApp: "This computer's agentes.chat app is too old to add its details. Update it, then try again.",
+    offApp: "Sending is off in this app (PROBLEM_REPORT_URL=off). Copy the report to share it.",
   },
   menu: {
     about: "About agentes.chat",

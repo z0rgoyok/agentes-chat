@@ -11,7 +11,7 @@ import {
 } from "./notices";
 import { quoteExcerpt, replyOf } from "./reply";
 import { isRoutineCall, routineReplyOf } from "./routines";
-import { voiceOf } from "./voice";
+import { listedText, voiceOf } from "./voice";
 
 type Timed = { createdAt: string; id: string; local?: Message["local"] };
 
@@ -190,7 +190,7 @@ export function buildTimeline(messages: Message[], approvals: Approval[], runs: 
       const away =
         root && lastShown && lastShown.id !== root.id && lastShown.threadId !== root.id && !replyQuotes(m, root.id);
       // A root that is a GIF or a sticker with no text: its quote names it (ADR 0091).
-      const rootVoice = away && voiceOf(root.meta) !== null;
+      const rootVoice = away && voiceOf(root.meta) !== null && !listedText(root.body, root.meta);
       const rootMedia = rootVoice ? ("voice" as const) : away ? messageMediaOf(root.meta)?.kind : undefined;
       const context: ReplyRef | undefined = away
         ? {
@@ -198,7 +198,7 @@ export function buildTimeline(messages: Message[], approvals: Approval[], runs: 
             threadId: null,
             author: root.author,
             authorName: "",
-            excerpt: rootVoice ? "" : quoteExcerpt(root.body),
+            excerpt: quoteExcerpt(listedText(root.body, root.meta)),
             ...(rootMedia ? { media: rootMedia } : {}),
           }
         : undefined;

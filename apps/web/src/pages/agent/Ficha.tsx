@@ -1,7 +1,8 @@
 import type { Routine } from "@agenteschat/client";
 import { useAgentDetail, useAgentSkills, useRoutines, useUsage } from "@agenteschat/client";
-import { audienceSummary, modeOf } from "@agenteschat/client/lib/audience";
+import { audienceSummary, editorsMode, editorsOf, editorsSummary, modeOf } from "@agenteschat/client/lib/audience";
 import { formatMonth, formatPercent, formatUsd, whenAt } from "@agenteschat/client/lib/format";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import {
   Avatar,
   Button,
@@ -31,11 +32,11 @@ import { AgentAsksLine, agentConnectorTools } from "./AgentTools";
 import { ComputerNow } from "./ComputerNow";
 import { useAgentEdit } from "./context";
 import { useRepoSuffix } from "./Repos";
-import { AudienceEditor, BudgetEditor, ChannelsEditor, OwnerEditor } from "./SettingsTab";
+import { AudienceEditor, BudgetEditor, ChannelsEditor, EditorsEditor, OwnerEditor } from "./SettingsTab";
 import { Cell, WorkCard } from "./Work";
 
 /** The fact sheet's own dialogs; who thinks, where it works and the browser open the page's (`openWork`). */
-type FichaDialog = "access" | "usage" | "budget" | "owner" | "audience" | "channels" | "routines";
+type FichaDialog = "access" | "usage" | "budget" | "owner" | "audience" | "editors" | "channels" | "routines";
 
 /** How many of what it may use the row names before "and N more". */
 const USES_NAMED = 2;
@@ -82,6 +83,9 @@ export function Ficha() {
   // there (the person's, everyone or only them): Settings keeps both, and a list of people always shows (ADR 0159).
   const ownerShown = !(solo && agent.ownerUserId === me.user.id);
   const audienceShown = !solo || modeOf(agent) === "people";
+  // Who edits how it works (ADR 0085 addendum of 2026-11-17), the same way: alone, only once it names someone. Nobody
+  // edits how the right hand works (ADR 0137).
+  const editorsShown = !isRightHand(agent) && (!solo || editorsMode(editorsOf(agent)) === "people");
   const channels = (detail.data?.channels ?? []).filter((c) => saved.channels?.includes(c.id) ?? true);
   const mine = (routines.data ?? []).filter((r) => r.agentId === agent.id);
   const next = mine
@@ -200,6 +204,17 @@ export function Ficha() {
               onOpen={() => setOpen("audience")}
             />
           )}
+          {editorsShown && (
+            <Cell
+              row
+              icon={<Icon name="edit" size={16} />}
+              label={t("editors.section")}
+              value={editorsSummary(t, agent, (id) => dir.memberById.get(id)?.name, dir.roleName)}
+              open={shownOpen === "editors"}
+              openLabel={t("editors.section")}
+              onOpen={() => setOpen("editors")}
+            />
+          )}
           <Cell
             row
             icon={<Icon name="channel" size={16} />}
@@ -257,8 +272,8 @@ export function Ficha() {
         onClose={() => setOpen(null)}
         title={t("newAgent.owner")}
         fields={["owner"]}
-        // Choosing an owner who was in the list takes them out of it (OwnerEditor): Cancel puts both back.
-        reverts={["owner", "audience"]}
+        // Choosing an owner who was in the lists takes them out of them (OwnerEditor): Cancel puts them all back.
+        reverts={["owner", "audience", "editors"]}
       >
         <OwnerEditor />
       </EditDialog>
@@ -269,6 +284,14 @@ export function Ficha() {
         fields={["audience"]}
       >
         <AudienceEditor layout="rows" />
+      </EditDialog>
+      <EditDialog
+        open={open === "editors"}
+        onClose={() => setOpen(null)}
+        title={t("editors.title", g)}
+        fields={["editors"]}
+      >
+        <EditorsEditor layout="rows" />
       </EditDialog>
       <EditDialog
         open={open === "channels"}
@@ -336,10 +359,15 @@ function EditDialog({
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const { can, changes, revert, save, saving } = useAgentEdit();
+  const { can, changes, edits, revert, save, saving } = useAgentEdit();
   const editable = fields.some((f) => can(f));
+  // A choice that changes nothing ("Quem pode editar"'s second one with nobody picked) doesn't stay behind either.
+  const dropIdle = () => {
+    for (const f of reverts) if (edits[f] !== undefined && !changes.some((c) => c.field === f)) revert(f);
+  };
   const cancel = () => {
     for (const c of changes) if (reverts.includes(c.field)) revert(c.key);
+    dropIdle();
     onClose();
   };
   return (
@@ -354,7 +382,9 @@ function EditDialog({
               loading={saving}
               onClick={() =>
                 void save().then((ok) => {
-                  if (ok) onClose();
+                  if (!ok) return;
+                  dropIdle();
+                  onClose();
                 })
               }
             >

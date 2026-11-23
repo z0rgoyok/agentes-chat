@@ -1,4 +1,5 @@
 import type {
+  Agent,
   MailFolder,
   Routine,
   RoutineConnectorTrigger,
@@ -10,8 +11,9 @@ import type {
   RoutineTarget,
   RoutineTargetInput,
 } from "@agenteschat/client";
+import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
 import type { RunStatus } from "@agenteschat/client/lib/calendar";
-import { type RoutineFix, runPixels } from "@agenteschat/client/lib/routine-view";
+import { pausedFix, type RoutineFix, runPixels } from "@agenteschat/client/lib/routine-view";
 import type { IconName } from "@/ui";
 import { defaultRule, fromApiRule, onceAt, onceRule, type RecurrenceRule, toApiRule } from "./rule";
 
@@ -124,9 +126,39 @@ export function routineSections<T extends Routine>(
   };
 }
 
-/** The agents with routines, in the order they first appear (the agent filter, only with two or more). */
-export function routineAgents(list: readonly Pick<Routine, "agentId">[]): string[] {
-  return [...new Set(list.map((r) => r.agentId))];
+/** One agent's routines on the list: its face and name head their section (the web reads them by agent). */
+export interface AgentGroup<T> {
+  agentId: string;
+  routines: T[];
+}
+
+/** One name order per language, made once: `localeCompare` with a language builds a collator on every comparison. */
+const nameOrders = new Map<string, Intl.Collator>();
+const nameOrder = (locale?: string): Intl.Collator => {
+  const key = locale ?? "";
+  let order = nameOrders.get(key);
+  if (!order) {
+    order = new Intl.Collator(locale, { sensitivity: "base" });
+    nameOrders.set(key, order);
+  }
+  return order;
+};
+
+/**
+ * The list broken by agent, one section each: the agents A to Z by `nameOf` (in `locale`), each one's routines in the
+ * list's order (`routineSections`' live ones before its paused ones).
+ */
+export function byAgent<T extends Pick<Routine, "agentId">>(
+  list: readonly T[],
+  nameOf: (agentId: string) => string,
+  locale?: string,
+): AgentGroup<T>[] {
+  const groups = new Map<string, T[]>();
+  for (const r of list) groups.set(r.agentId, [...(groups.get(r.agentId) ?? []), r]);
+  const order = nameOrder(locale);
+  return [...groups]
+    .map(([agentId, routines]) => ({ agentId, routines }))
+    .sort((a, b) => order.compare(nameOf(a.agentId), nameOf(b.agentId)));
 }
 
 // ── Icons (the phone's set) ─────────────────────────────────────────────────
@@ -168,6 +200,19 @@ export const STATE_ICON: Record<"repeat" | "pause" | "alert" | "computer" | "wai
 
 /** A one-tap fix's icon. */
 export const FIX_ICON: Record<RoutineFix, IconName> = { add_agent: "plus", take_over: "join", resume: "play" };
+
+/**
+ * The one-tap fix a paused routine offers me (`pausedFix`), for who changes it (`canManage`). "Take over" makes it
+ * mine, the server's create check (`takeOverRoutine`, ADR 0053 §6.2): only where I may make one for its agent
+ * (`createsRoutinesFor`, its entry in the directory; ADR 0085 addendum of 2026-11-17).
+ */
+export function fixFor(
+  r: Pick<Routine, "active" | "pausedReason" | "target" | "canManage">,
+  agent: Pick<Agent, "canManageRoutines" | "canTalk"> | undefined,
+): RoutineFix | null {
+  const fix = r.canManage ? pausedFix(r) : null;
+  return fix === "take_over" && !createsRoutinesFor(agent) ? null : fix;
+}
 
 // ── What the row says under the "when" ──────────────────────────────────────
 
@@ -238,7 +283,7 @@ export const RUN_SLOTS = 14;
 export const HORIZON_BACK = 4 * 3_600_000;
 export const HORIZON_AHEAD = 20 * 3_600_000;
 
-/** The routines with a lane: active, on the clock, not a one-off that already ran. */
+/** The routines the horizon draws: active, on the clock, not a one-off that already ran. */
 export const horizonLanes = <T extends Routine>(list: readonly T[]) =>
   list.filter((r) => r.active && !isDoneOnce(r) && !isEventDriven(r));
 
@@ -278,21 +323,81 @@ export function horizonTicks(from: Date, to: Date, now: Date): { at: Date; day: 
   return out;
 }
 
+/** How many agents the horizon shows before "Mostrar todos" (the web's five, one fewer on a phone's height). */
+export const HORIZON_AGENTS = 4;
+
+type RunMark = ReturnType<typeof runPixels>[number];
+
+/** One agent's lane on the horizon. */
+export interface HorizonAgent<T> {
+  agentId: string;
+  /** Its routines on the clock. */
+  routines: T[];
+  running: boolean;
+  /** Its coming runs in the window, soonest first. */
+  future: string[];
+  /** Its finished runs in the window (a failure drawn last in its minute, so it shows). */
+  past: RunMark[];
+  /** Its next run, the routine it is, and how many more of its routines run within half an hour of it. */
+  next: { routine: T; at: string; together: number } | null;
+}
+
+/** Runs within this of the next one are said with it ("Relatório e mais 1"). */
+const TOGETHER_MS = 30 * 60_000;
+
 /**
- * The next run's tag on a lane: in minutes within the hour, else its time. None while it runs, and for an hourly
- * routine only within the hour (its tags would crowd the lane).
+ * The horizon as the web draws it: one lane per agent, so it doesn't grow with the number of routines. A lane holds
+ * the recent runs of all of the agent's routines and its coming ones, the next one named. What is at work comes first,
+ * then what runs soonest; an agent with nothing in the window has no lane (`idle` counts them).
  */
-export function laneTag(
-  r: Pick<Routine, "state" | "trigger">,
-  future: readonly string[],
+export function horizonAgents<T extends Routine>(
+  lanes: readonly T[],
+  futureOf: (r: T) => string[],
+  from: Date,
   now: Date,
-): { kind: "soon"; minutes: number; at: string } | { kind: "at"; at: string } | null {
-  const next = future[0];
-  if (!next || isRunning(r)) return null;
+): { agents: HorizonAgent<T>[]; idle: number } {
+  const time = (iso: string) => new Date(iso).getTime();
+  const mine = new Map<string, T[]>();
+  for (const r of lanes) mine.set(r.agentId, [...(mine.get(r.agentId) ?? []), r]);
+  const all = [...mine].map(([agentId, routines]): HorizonAgent<T> => {
+    const nexts = routines
+      .flatMap((routine) => {
+        const at = futureOf(routine)[0];
+        return at ? [{ routine, at }] : [];
+      })
+      .sort((x, y) => time(x.at) - time(y.at));
+    const first = nexts[0];
+    return {
+      agentId,
+      routines,
+      running: routines.some(isRunning),
+      future: routines.flatMap(futureOf).sort((x, y) => time(x) - time(y)),
+      past: routines
+        .flatMap((r) =>
+          runPixels(r.recentRuns).filter((x) => time(x.at) >= from.getTime() && time(x.at) <= now.getTime()),
+        )
+        .sort((x, y) => Number(x.status === "failed") - Number(y.status === "failed")),
+      next: first
+        ? { ...first, together: nexts.filter((x) => time(x.at) - time(first.at) < TOGETHER_MS).length - 1 }
+        : null,
+    };
+  });
+  const order = (a: HorizonAgent<T>) => (a.running ? 0 : a.next ? time(a.next.at) : Number.POSITIVE_INFINITY);
+  const agents = all
+    .filter((a) => a.running || a.future.length > 0 || a.past.length > 0)
+    .sort((x, y) => order(x) - order(y));
+  return { agents, idle: all.length - agents.length };
+}
+
+/** The next run's tag on an agent's lane: in minutes within the hour, else its time; none while the agent works. */
+export function laneTag(
+  next: string | undefined,
+  running: boolean,
+  now: Date,
+): { kind: "soon"; minutes: number } | { kind: "at"; at: string } | null {
+  if (!next || running) return null;
   const ms = new Date(next).getTime() - now.getTime();
-  const soon = ms < 3_600_000;
-  if (!soon && r.trigger.type === "schedule" && r.trigger.rule?.freq === "hourly") return null;
-  return soon ? { kind: "soon", minutes: Math.max(1, Math.floor(ms / 60_000)), at: next } : { kind: "at", at: next };
+  return ms < 3_600_000 ? { kind: "soon", minutes: Math.max(1, Math.floor(ms / 60_000)) } : { kind: "at", at: next };
 }
 
 // ── Where it delivers (the form) ────────────────────────────────────────────

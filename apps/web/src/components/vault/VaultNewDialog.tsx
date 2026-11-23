@@ -15,7 +15,6 @@ import {
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
-import { useToast } from "@/lib/toast";
 import { useVaultItemActions } from "./data";
 import { DEFAULT_MATCH, defaultAccess, hostOf, KIND_ICON, vaultOrigin } from "./lib";
 import { AccessBlock } from "./VaultAccess";
@@ -44,24 +43,27 @@ export function VaultNewDialog({
   canManageTeam,
   scope: startScope,
   onClose,
+  initial,
   onImportEnv,
   onCreated,
 }: {
   canManageTeam: boolean;
   /** The tab it was opened from. */
   scope: VaultScope;
+  /** A key the chat caught on its way out: the form opens on it. */
+  initial?: { keyName: string; secret: string };
   onClose: () => void;
   /** Leaves this form for "Import .env", offered while the item is a key. */
-  onImportEnv: () => void;
+  onImportEnv?: () => void;
+  /** Saved: the caller says so (a toast), in its own words. */
   onCreated: (item: VaultItem) => void;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const toast = useToast();
   const actions = useVaultItemActions(org.id);
-  const [kind, setKind] = useState<VaultItemKind>("login");
-  const [draft, setDraft] = useState<ItemDraft>(EMPTY);
-  const [secret, setSecret] = useState("");
+  const [kind, setKind] = useState<VaultItemKind>(initial ? "key" : "login");
+  const [draft, setDraft] = useState<ItemDraft>(initial ? { ...EMPTY, keyName: initial.keyName } : EMPTY);
+  const [secret, setSecret] = useState(initial?.secret ?? "");
   const [scope, setScope] = useState<VaultScope>(canManageTeam ? startScope : "personal");
   const [access, setAccess] = useState<VaultAccess>(() => defaultAccess(canManageTeam ? startScope : "personal"));
   const [tried, setTried] = useState(false);
@@ -97,9 +99,7 @@ export function VaultNewDialog({
           : { contact: cleanContact(draft.contact) }),
       access,
     });
-    if (!item) return;
-    toast.show(t("vault.new.saved"));
-    onCreated(item);
+    if (item) onCreated(item);
   };
 
   return (
@@ -154,7 +154,7 @@ export function VaultNewDialog({
                 )}
               />
             </Field>
-            {kind === "key" && (
+            {kind === "key" && onImportEnv && (
               <Button size="sm" icon="upload" className="vlt-new__env" onClick={onImportEnv}>
                 {t("vault.env.open")}
               </Button>
@@ -191,11 +191,10 @@ export function VaultNewDialog({
                 block
                 label={t("vault.new.who")}
                 value={scope}
-                disabled={!canManageTeam}
                 onValueChange={pickScope}
                 options={[
                   { value: "personal", label: t("vault.scope.personal") },
-                  { value: "team", label: t(modeKey(org, "vault.scope.team")) },
+                  { value: "team", label: t(modeKey(org, "vault.scope.team")), disabled: !canManageTeam },
                 ]}
               />
               {!canManageTeam && <SettingNote icon="lock">{t(modeKey(org, "vault.new.teamLocked"))}</SettingNote>}

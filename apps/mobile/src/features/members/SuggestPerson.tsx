@@ -3,9 +3,9 @@ import { errorCode, knownErrorText } from "@agenteschat/client/lib/errors";
 import { namesText } from "@agenteschat/client/lib/format";
 import { JOIN_NOTE_MAX, sendsEmail } from "@agenteschat/client/lib/join-requests";
 import { isEmail } from "@agenteschat/client/lib/text";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, type TextInputInstance, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import { fieldText, GROUPED_ROW, GroupedFooter, GroupedHeader, GroupedList, Text, useToast } from "@/ui";
 import { Page } from "../me/parts";
@@ -31,6 +31,7 @@ export function SuggestPersonScreen() {
   const emails = sendsEmail(useAuthConfig().data);
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
+  const noteField = useRef<TextInputInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -85,22 +86,28 @@ export function SuggestPersonScreen() {
             autoCorrect={false}
             autoComplete="email"
             spellCheck={false}
-            returnKeyType="done"
-            autoFocus
+            // Next goes on to who it is, the keyboard staying up between the two.
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => noteField.current?.focus()}
             accessibilityLabel={t("members.suggest.email")}
             style={[fieldText("callout"), styles.input, { color: c.ink }]}
           />
         </View>
       </GroupedList>
+      {/* Under the address, as the forms' footers: in red, read out as it comes. */}
       {error ? (
-        <Text variant="footnote" tone="danger" style={styles.error} accessibilityLiveRegion="polite">
-          {error}
-        </Text>
+        <GroupedFooter>
+          <Text variant="footnote" tone="danger" accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+        </GroupedFooter>
       ) : null}
       <GroupedHeader>
         {t("common.joinSentences", { a: t("members.suggest.who"), b: t("members.dialog.optional") })}
       </GroupedHeader>
       <TextArea
+        ref={noteField}
         value={note}
         onChangeText={setNote}
         placeholder={t("members.suggest.whoPlaceholder")}
@@ -115,5 +122,4 @@ export function SuggestPersonScreen() {
 const styles = StyleSheet.create({
   field: { minHeight: GROUPED_ROW.minHeight, paddingHorizontal: GROUPED_ROW.padX, justifyContent: "center" },
   input: { paddingVertical: GROUPED_ROW.tallPadY, paddingHorizontal: 0 },
-  error: { paddingTop: 8, paddingHorizontal: 16 },
 });

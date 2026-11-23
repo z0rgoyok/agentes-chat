@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { Icon } from "./Icon";
+import { StyleSheet, View } from "react-native";
+import { Disclosure, ROW_MARK } from "./RowMarks";
+import { RowPressable } from "./RowPressable";
 import { CARD_PAD } from "./rhythm";
 import { Text, textLineOf } from "./Text";
 import { useFontScale } from "./text-scale";
@@ -49,7 +50,7 @@ export function Row({
   // title's line (centred on the whole row they floated between lines). Short rows keep everything centred.
   const tall = subtitleLines > 1 || Boolean(below);
   const line = tall ? textLineOf("title", fontScale) : null;
-  const body = (pressed: boolean) => (
+  const body = (
     <View
       style={{
         flexDirection: "row",
@@ -58,7 +59,6 @@ export function Row({
         paddingHorizontal: CARD_PAD,
         paddingVertical: 14,
         minHeight: 60,
-        backgroundColor: pressed ? colors.plate : "transparent",
       }}
     >
       {divider ? (
@@ -69,7 +69,7 @@ export function Row({
             left: leading ? CARD_PAD + LEAD + 12 : CARD_PAD,
             right: 0,
             height: StyleSheet.hairlineWidth,
-            backgroundColor: colors.line2,
+            backgroundColor: colors.separator,
           }}
         />
       ) : null}
@@ -94,20 +94,22 @@ export function Row({
         </View>
       ) : null}
       {chevron ? (
-        <View style={line ? leadBox(line, 15) : null}>
-          <Icon name="right" size={15} color={colors.faint} />
+        <View style={line ? leadBox(line, ROW_MARK.disclosure) : null}>
+          <Disclosure />
         </View>
       ) : null}
     </View>
   );
-  if (!onPress) return body(false);
+  if (!onPress) return body;
+  // Lit as the system's lists light a row; one that opens a screen stays lit until that screen covers it.
   return (
-    <Pressable
+    <RowPressable
       onPress={onPress}
+      hold={chevron}
       accessibilityRole="button"
       accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
     >
-      {({ pressed }) => body(pressed)}
-    </Pressable>
+      {body}
+    </RowPressable>
   );
 }

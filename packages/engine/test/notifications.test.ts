@@ -536,7 +536,7 @@ test("issues: assigned (resolved when unassigned), status by others, comments me
   const owner = { type: "person" as const, userId: f.owner.id };
   const issue = await createIssue(deps(), owner, f.org.id, {
     title: "Export report as CSV",
-    assignee: { type: "person", id: bia.id },
+    assignees: [{ type: "person", id: bia.id }],
   });
   const [assigned] = (await inbox(bia.id)).items;
   expect(assigned).toMatchObject({
@@ -571,7 +571,7 @@ test("issues: assigned (resolved when unassigned), status by others, comments me
   expect(caioInbox.items.find((n) => n.kind === "issue_comment")?.count).toBe(1); // the agent's, not the mention
 
   // Unassigned: "assigned to you" leaves Bia's inbox.
-  await updateIssue(deps(), owner, f.org.id, issue.id, { assignee: null });
+  await updateIssue(deps(), owner, f.org.id, issue.id, { assignees: [] });
   const [row] = await f.db
     .select()
     .from(schema.notifications)

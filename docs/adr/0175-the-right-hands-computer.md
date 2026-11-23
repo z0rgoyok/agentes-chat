@@ -280,6 +280,12 @@ agent, everywhere.
 - A grant taken away through a card ends the seat in the database at once, and the computer hears with its next
   `agents` frame; the access page's own save sends that frame at once.
 
+## Note (2026-11-15): seats are not where it thinks
+
+Seats are for its tools only. Where it thinks is the computer of the plan it thinks with, worked out per run, and
+`agents.machine_id` stays null, so an operator's readout of the agent row shows no computer for every right hand,
+working or not. What it does when that plan can't think is ADR 0137's amendment of 2026-11-15 (`rightHandStandIn`).
+
 ## Before it ships
 
 Nothing here was run on a real system-mode computer. The checks are listed with the change's hand-over: two seats get

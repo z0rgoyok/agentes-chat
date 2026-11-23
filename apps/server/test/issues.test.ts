@@ -39,7 +39,7 @@ test("issues API: create, by number, patch, criteria, comments, activity, ask ag
   expect((await api(`/issues/${issue.id}/comments`, { json: { text: "Olhando" } })).status).toBe(201);
 
   const asked = await api(`/issues/${issue.id}/ask-agent`, { json: { agentId } });
-  expect(await asked.json()).toMatchObject({ assignee: { type: "agent", id: agentId } });
+  expect(await asked.json()).toMatchObject({ assignees: [{ type: "agent", id: agentId }] });
   await t.drain();
   const activity = (await (await api(`/issues/${issue.id}/activity`)).json()) as {
     activity: { kind: string; event?: string; author: { type: string }; text: string }[];
@@ -218,4 +218,41 @@ test("deleting a task: 204, gone from the list and its address; a member who did
   expect((await api("/issues/by-number/1")).status).toBe(404);
   expect(await (await api("/issues")).json()).toMatchObject({ issues: [] });
   expect((await api(`/issues/${created.id}`, { method: "DELETE" })).status).toBe(404);
+});
+
+test("issues API: several assignees, sent as the whole list; asking an agent puts it first", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, agentId } = await seedOrg(owner);
+  const api = (path: string, init?: Parameters<typeof owner>[1]) =>
+    owner(`/api/app/organizations/${orgId}${path}`, init);
+  type Actor = { type: string; id: string };
+  type Issue = { id: string; createdBy: Actor; assignees: Actor[] };
+
+  const bare = (await (await api("/issues", { json: { title: "Nobody's" } })).json()) as Issue;
+  expect(bare.assignees).toEqual([]);
+  const me = { type: "person", id: bare.createdBy.id };
+  const agent = { type: "agent", id: agentId };
+
+  // One named twice counts once.
+  const created = await api("/issues", { json: { title: "Launch", assignees: [me, me] } });
+  expect(created.status).toBe(201);
+  const issue = (await created.json()) as Issue;
+  expect(issue.assignees).toEqual([me]);
+  const patch = (assignees: Actor[]) => api(`/issues/${issue.id}`, { method: "PATCH", json: { assignees } });
+  expect(await (await patch([me, agent])).json()).toMatchObject({ assignees: [me, agent] });
+  expect((await patch(Array.from({ length: 21 }, (_, n) => ({ type: "person", id: `user-${n}` })))).status).toBe(400);
+
+  const asked = await api(`/issues/${issue.id}/ask-agent`, { json: { agentId } });
+  expect(await asked.json()).toMatchObject({ assignees: [agent, me] });
+  expect(await (await api(`/issues/${issue.id}`)).json()).toMatchObject({ assignees: [agent, me], subIssues: [] });
+
+  expect(await (await patch([agent])).json()).toMatchObject({ assignees: [agent] });
+  const { activity } = (await (await api(`/issues/${issue.id}/activity`)).json()) as {
+    activity: { event?: string; textCode?: string; assignee?: Actor }[];
+  };
+  expect(activity.filter((a) => a.event === "assigned").map((a) => [a.textCode, a.assignee])).toEqual([
+    ["assigned", agent],
+    ["unassigned", me],
+  ]);
 });

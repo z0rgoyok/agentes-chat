@@ -5,6 +5,7 @@ import { driveFolder, isIdHandle, isSecretFile } from "@agenteschat/ui/names";
 import { createAgent, freeHandle, HANDLE_PATTERN, updateAgent } from "./agents";
 import { type AgentAppearance, setAgentAppearance, validateAppearance } from "./appearance";
 import { ARTIFACT_LIMITS, type ArtifactDeps, createFileArtifact } from "./artifacts";
+import { managesAgent, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
 import { addChannelMember, CHANNEL_NAME_PATTERN, createChannel } from "./channels";
 import type { ConnectorTriggerDeps } from "./connector-triggers";
@@ -12,7 +13,8 @@ import { addContextItemByPerson, editContextItem, holdsSecret, looksLikeSecret }
 import { nextCronTime, zonedParts } from "./cron";
 import { sha256 } from "./crypto";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
+import type { RoutineHookConfig } from "./routine-hooks";
 import { createRoutine, type RoutineDeps, type RoutineTriggerInput, routineTimezone, updateRoutine } from "./routines";
 import { localDate, nextOccurrence, normalizeRule, type ScheduleRule } from "./rrule";
 import { type ParsedSkill, parseSkillMarkdown, saveSkill, setAgentSkills } from "./skills";
@@ -31,7 +33,12 @@ export interface MigrationBundle {
   channels: BundleChannel[];
   routines: BundleRoutine[];
   notes: BundleNote[];
-  todo: { kind: "connection" | "app" | "secret" | "model" | "file"; label: string; url?: string; agents: string[] }[];
+  todo: {
+    kind: "connection" | "app" | "secret" | "model" | "file" | "webhook";
+    label: string;
+    url?: string;
+    agents: string[];
+  }[];
   leftOut: { kind: string; label: string }[];
 }
 
@@ -66,7 +73,16 @@ export type BundleRule = Omit<ScheduleRule, "freq" | "timezone" | "start" | "byS
   bySetPos?: number | number[] | null;
 };
 
-export type BundleTrigger = { cron: string; timezone: string | null } | { rule: BundleRule } | { at: string };
+/**
+ * When an imported routine runs: a schedule (`cron`, `rule`, `at`), a call to an address of its own (`webhook`, made
+ * new here: the other app's address belongs to it), or an event this server has (`event`).
+ */
+export type BundleTrigger =
+  | { cron: string; timezone: string | null }
+  | { rule: BundleRule }
+  | { at: string }
+  | { webhook: true }
+  | { event: "github.pr_opened" };
 
 export interface BundleRoutine {
   key: string;
@@ -75,6 +91,8 @@ export interface BundleRoutine {
   prompt: string;
   channel: string | null;
   trigger: BundleTrigger;
+  /** Off where it comes from: made paused. An update keeps it as the person left it, and the hash leaves it out. */
+  paused?: boolean;
 }
 
 export const NOTE_KINDS = ["fact", "preference", "decision", "note", "lesson"] as const;
@@ -192,7 +210,15 @@ type Work =
     }
   | { kind: "skill"; skill: ParsedSkill }
   | { kind: "channel"; name: string; topic: string; adopt: boolean; agents: { key: string; autoReply: boolean }[] }
-  | { kind: "routine"; name: string; prompt: string; agent: string; channel: string | null; trigger: BundleTrigger }
+  | {
+      kind: "routine";
+      name: string;
+      prompt: string;
+      agent: string;
+      channel: string | null;
+      trigger: BundleTrigger;
+      paused: boolean;
+    }
   | { kind: "note"; agent: string | null; noteKind: BundleNote["kind"]; title: string; content: string };
 
 export type PlannedItem = ImportItemResult & { hash: string; work?: Work };
@@ -258,6 +284,7 @@ function onceRule(at: Date, zone: string): ScheduleRule {
 
 /** Why a trigger can't land, or null. Zones the bundle leaves out are checked in UTC. */
 function triggerProblem(trigger: BundleTrigger, now: Date): ImportSkipReason | null {
+  if ("webhook" in trigger || "event" in trigger) return null;
   try {
     if ("cron" in trigger)
       return nextCronTime(trigger.cron, trigger.timezone || "UTC", now) ? null : "schedule_in_past";
@@ -467,7 +494,9 @@ export function planImport(input: ImportInput, state: ImportState): { items: Pla
   for (const r of bundle.routines) {
     if (!take("routine", r.key)) continue;
     const trimmed: string[] = [];
-    const hash = digest(r);
+    // On or off is the person's once it is here: never a reason to update.
+    const { paused, ...hashed } = r;
+    const hash = digest(hashed);
     const name = fit(r.name.trim(), FIELD.routineName, "name", trimmed);
     const prompt = fit(r.prompt.trim(), FIELD.prompt, "prompt", trimmed);
     const item = { kind: "routine" as const, key: r.key, label: name || prompt.slice(0, 60) || r.key, hash };
@@ -488,7 +517,15 @@ export function planImport(input: ImportInput, state: ImportState): { items: Pla
       ...item,
       ...compare("routine", r.key, hash),
       trimmed,
-      work: { kind: "routine", name, prompt, agent: r.agent, channel: r.channel, trigger: r.trigger },
+      work: {
+        kind: "routine",
+        name,
+        prompt,
+        agent: r.agent,
+        channel: r.channel,
+        trigger: r.trigger,
+        paused: paused === true,
+      },
     });
   }
 
@@ -651,6 +688,8 @@ export interface ImportDeps {
   pubsub: PubSub;
   /** An update that moves a connector routine (ADR 0130) to a schedule takes its webhook back at the provider. */
   connectors?: ConnectorTriggerDeps;
+  /** A routine another app started by a webhook gets an address of its own here (ADR 0106). */
+  hooks?: RoutineHookConfig;
 }
 
 const publicItem = ({ hash: _hash, work: _work, ...item }: PlannedItem): ImportItemResult => item;
@@ -694,7 +733,7 @@ export async function applyImport(
     );
   }
 
-  const routineDeps: RoutineDeps = { db, pubsub, connectors: deps.connectors };
+  const routineDeps: RoutineDeps = { db, pubsub, connectors: deps.connectors, hooks: deps.hooks };
   const ids: Record<ImportItemKind, Map<string, string>> = {
     agent: new Map(),
     skill: new Map(),
@@ -745,6 +784,8 @@ export async function applyImport(
       return { type: "schedule", phrase: trigger.cron, ...(trigger.timezone ? { timezone: trigger.timezone } : {}) };
     }
     if ("rule" in trigger) return { type: "schedule", rule: asRule(trigger.rule) };
+    if ("webhook" in trigger) return { type: "webhook" };
+    if ("event" in trigger) return { type: "event", event: trigger.event };
     return { type: "schedule", rule: onceRule(new Date(trigger.at), await routineTimezone(db, actorId, orgId)) };
   };
 
@@ -806,7 +847,8 @@ export async function applyImport(
           await remember(item, item.targetId);
           return;
         }
-        const routine = await createRoutine(routineDeps, actorId, orgId, fields).catch((error) => {
+        const made = work.paused ? { ...fields, paused: true } : fields;
+        const routine = await createRoutine(routineDeps, actorId, orgId, made).catch((error) => {
           if (!(error instanceof ValidationError && error.code === "routine.too_many")) throw error;
           item.reason = "too_many_routines";
           return createRoutine(routineDeps, actorId, orgId, { ...fields, paused: true });
@@ -948,7 +990,7 @@ function driveTitle(folder: string, path: string) {
  * trash, whatever its folder is named now) stays as it was: `exists`, so importing again never overwrites. Never a credential store, by its name (`isSecretFile`) or
  * by what it holds, whatever its type (`holdsSecret`: a private key, or a key or a password in its text, as for
  * memory). The Drive's limits apply: 50 MB a file, the workspace's storage and daily uploads (409 `storage.full`,
- * `storage.daily_full`). Who may import, into an agent their own import brought (or anyone's, who manages agents).
+ * `storage.daily_full`). Who may import, into an agent their own import brought (or one they manage).
  */
 export async function copyImportedFile(
   deps: ArtifactDeps,
@@ -965,8 +1007,14 @@ export async function copyImportedFile(
 ): Promise<{ status: "created" | "exists"; artifactId: string; title: string; folder: string }> {
   const { db } = deps;
   const membership = await requirePermission(db, actorId, orgId, "create_agents");
-  // The file is credited to the agent: only into one this person's import brought, unless they manage agents.
-  if (!can(membership, "manage_agents")) {
+  const [agent] = await db
+    .select({ name: agents.name, ...REACH_COLUMNS })
+    .from(agents)
+    .where(and(eq(agents.id, input.agentId), eq(agents.orgId, orgId), isNull(agents.deletedAt)));
+  if (!agent) throw new NotFoundError("Agent not found");
+  // The file is credited to the agent: only into one this person's import brought, unless they manage that agent
+  // (`managesAgent`, ADR 0085 addendum of 2026-11-17).
+  if (!managesAgent(agent, actorId, membership)) {
     const [mine] = await db
       .select({ id: importItems.id })
       .from(importItems)
@@ -990,11 +1038,6 @@ export async function copyImportedFile(
   if (isSecretFile(path) || isSecretFile(name) || holdsSecret(input.bytes)) {
     throw new ValidationError("files with keys or sign-ins are never copied to the Drive", "import.secret_file");
   }
-  const [agent] = await db
-    .select({ name: agents.name })
-    .from(agents)
-    .where(and(eq(agents.id, input.agentId), eq(agents.orgId, orgId), isNull(agents.deletedAt)));
-  if (!agent) throw new NotFoundError("Agent not found");
   const folder = driveFolder(agent.name);
   // Trimmed as the Drive stores titles. What the agent already has at this path, whatever its folder is named now.
   const title = driveTitle(folder, path).trim();

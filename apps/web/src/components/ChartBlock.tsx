@@ -4,6 +4,7 @@ import {
   Button,
   Dialog,
   DialogBody,
+  gradientOf,
   paintCells,
   paintLineArea,
   useElementWidth,
@@ -510,7 +511,9 @@ function PieChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
   const dark = useDarkTheme();
   const size = big ? 220 : 132;
   const shares = useMemo(() => chartShares(spec), [spec]);
-  const slices = useMemo(() => chartSlices(color, dark), [color, dark]);
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const [top, bottom] = gradientOf(color);
+  const slices = useMemo(() => chartSlices([top, bottom], dark), [top, bottom, dark]);
   const values = spec.series[0]?.values ?? [];
   const total = values.reduce((a, b) => a + b, 0);
   const canvas = useRef<HTMLCanvasElement>(null);

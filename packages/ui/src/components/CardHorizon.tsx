@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useRef } from "react";
 import { HORIZON_CELL as CELL, horizonCrest, horizonHeight, horizonTones, HORIZON_WAVE as WAVE } from "../sky/horizon";
 import { bayerAt } from "../sky/math";
+import { PAINT_ATTRS } from "../theme";
 import type { AgentColor } from "./AgentLook";
 
 export { horizonCrest, horizonHeight, horizonTones } from "../sky/horizon";
@@ -97,7 +98,7 @@ export function CardHorizon({
     });
     if (content.current) swapped.observe(content.current, { childList: true });
     const theme = new MutationObserver(draw);
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: PAINT_ATTRS });
     return () => {
       size.disconnect();
       swapped.disconnect();

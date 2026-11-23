@@ -183,7 +183,7 @@ const SETTLE_MS = 220;
  * sits in the same place: a quiet header (what kind of request, and who else it waits for), the agent's own
  * words, what will happen drawn edge to edge (its preview, as an attachment's cover), the object on a line of its own between
  * hairlines with "Ver …" under its words opening it whole, anything to fill in, and the footer strip with the decision on
- * the left and the time left on the right. One surface: nothing inside has a background of its own.
+ * the left and the time left ending its line, or under it from the same edge when there's no room. One surface: nothing inside has a background of its own.
  *
  * Decided (`answer`), it is the same card: the header, the words and the object stay where they were, and the footer
  * strip says how it ended, who did it and when, in the buttons' place.
@@ -200,6 +200,7 @@ export function RequestCard({
   mine: waitsOnMe,
   waitingFor,
   who,
+  asker,
   source,
   lead,
   headless = false,
@@ -232,6 +233,8 @@ export function RequestCard({
   waitingFor?: string;
   /** Who asks, before the kind ("Ada · Pergunta"), where the card stands away from its conversation. */
   who?: ReactNode;
+  /** Another agent than the conversation's own asks here (work handed to it): "Atlas asks you". */
+  asker?: string;
   /** Where it was asked, after the kind ("Thread · #eng"), where the card stands away from its conversation. */
   source?: ReactNode;
   /** The agent's own words: what it asks. None on a card whose object says it all (one of a summary's). */
@@ -331,9 +334,9 @@ export function RequestCard({
     </div>
   ) : (
     (actions || end) && (
-      <div className="rq__foot">
+      <div className="rq__foot ac-tailrow">
         {actions}
-        {end && <span className="rq__end">{end}</span>}
+        {end && <span className="rq__end ac-tail">{end}</span>}
         {under && <span className="rq__under">{under}</span>}
       </div>
     )
@@ -358,7 +361,7 @@ export function RequestCard({
                   {" · "}
                 </>
               )}
-              {askKindWords(t, kind, Boolean(mine))}
+              {asker && mine ? t("chat.request.asksYou", { name: asker }) : askKindWords(t, kind, Boolean(mine))}
               {source && <span className="rq__source"> · {source}</span>}
             </span>
           )}

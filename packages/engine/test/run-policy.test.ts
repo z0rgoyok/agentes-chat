@@ -69,6 +69,7 @@ describe("run policy table", () => {
     expect(toolKind(builtIn("create_routine", "schedule:write")).kind).toBe("elsewhere");
     expect(toolKind(builtIn("post_message")).kind).toBe("elsewhere");
     expect(toolKind(builtIn("react")).kind).toBe("here");
+    expect(toolKind(builtIn("say_now")).kind).toBe("here");
     expect(toolKind(builtIn("hand_off")).kind).toBe("hand_off");
     // A tool the table doesn't know: a sensitive one asks a person, any other is only for a person's run.
     expect(toolKind({ ...builtIn("deploy_app"), sensitive: true }).kind).toBe("external");
@@ -112,6 +113,8 @@ describe("run policy table", () => {
         expect(toolPolicy(r, builtIn(name))).toEqual({ action: "refuse", reason: REFUSALS.routineElsewhere });
       expect(toolPolicy(r, builtIn("ask_user"))).toEqual({ action: "refuse", reason: REFUSALS.routineAskUser });
       expect(toolPolicy(r, builtIn("react"))).toEqual({ action: "refuse", reason: REFUSALS.routineReact });
+      // Nobody is in its room to tell what it will do (ADR 0207).
+      expect(toolPolicy(r, builtIn("say_now"))).toEqual({ action: "refuse", reason: REFUSALS.routineSayNow });
     }
   });
 
@@ -141,6 +144,7 @@ describe("run policy table", () => {
     for (const tool of [
       builtIn("react"),
       builtIn("ask_user"),
+      builtIn("say_now"),
       builtIn("create_issue", "issues:write"),
       builtIn("update_wiki_page", "wiki:write"),
       builtIn("run_code", "sandbox:run"),
@@ -171,6 +175,7 @@ describe("run policy table", () => {
           builtIn("list_issues", "issues:read"),
           builtIn("react"),
           builtIn("ask_user"),
+          builtIn("say_now"),
           builtIn("browser_open", "browser:use"),
           builtIn("web_search"),
           builtIn("create_issue", "issues:write"),
@@ -416,6 +421,38 @@ describe("the gateway applies the run policy", () => {
     expect((await gateway.list(ctx)).find((t) => t.name === "permission_prompt")?.description).toBe(
       "Computer permission prompt",
     );
+  });
+
+  test("tool sources are read at once and merged in their order", async () => {
+    await gatewaySetup();
+    const { ctx } = await runAs("person");
+    const own = (description: string): ToolDefinition => ({
+      name: "permission_prompt",
+      description,
+      inputSchema: { type: "object" },
+      scope: "",
+      connectionId: null,
+      execute: async () => ({ content: description }),
+    });
+    let fastCalled = () => {};
+    const fastStarted = new Promise<void>((resolve) => {
+      fastCalled = resolve;
+    });
+    // Read one after the other, the slow source would wait here alone and give nothing.
+    const slow: ToolSource = {
+      name: "slow",
+      tools: async () =>
+        (await Promise.race([fastStarted.then(() => true), Bun.sleep(1000).then(() => false)])) ? [own("slow")] : [],
+    };
+    const fast: ToolSource = {
+      name: "fast",
+      tools: async () => {
+        fastCalled();
+        return [own("fast")];
+      },
+    };
+    const gateway = createToolGateway({ sources: [slow, fast] });
+    expect((await gateway.list(ctx)).find((t) => t.name === "permission_prompt")?.description).toBe("slow");
   });
 
   test("a connector cannot shadow server-owned Git tools", async () => {
@@ -683,7 +720,8 @@ describe("the gateway applies the run policy", () => {
       { db: f.db, pubsub: f.pubsub, tools: gateway },
       { orgId: f.org.id, agentId: f.agent.id, runId: run.id, machineId: crypto.randomUUID() },
     );
-    expect(bridged.map((t) => t.name).sort()).toEqual(["web_fetch", "web_search"]);
+    // `image_search` is the web's too (ADR 0196 §8): pictures found for a live file.
+    expect(bridged.map((t) => t.name).sort()).toEqual(["image_search", "web_fetch", "web_search"]);
   });
 
   test("the bridge lists exactly what the model loop does, why included", async () => {

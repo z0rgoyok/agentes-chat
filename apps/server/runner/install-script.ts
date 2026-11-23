@@ -16,6 +16,17 @@ export function shQuote(value: string): string {
 }
 
 /**
+ * `address` without the slashes it ends with, read from the end. Not by `/\/+$/`: the address comes from outside (the
+ * server's settings, a request), and that pattern reads each run of slashes that doesn't end the text again from each
+ * of its slashes, quadratic in the run's length.
+ */
+export function withoutTrailingSlashes(address: string): string {
+  let end = address.length;
+  while (end > 0 && address.charAt(end - 1) === "/") end--;
+  return address.slice(0, end);
+}
+
+/**
  * The Bun a system-mode runner runs on, and any runner whose computer has no
  * Bun with `Bun.Terminal` (1.3.5 or newer), which screens and terminals
  * need: the one the repo builds and tests with (`packageManager` in
@@ -75,10 +86,11 @@ export const DESKTOP_CJK_APT_PACKAGES = ["fonts-noto-cjk"] as const;
 export const DESKTOP_DOCK_APT_PACKAGES = ["xfce4-docklike-plugin"] as const;
 
 /**
- * What system mode's isolation runs (`--system`): `nft` for the loopback guard, which won't start without it, and
- * `ss` for the bind check.
+ * What system mode's isolation runs (`--system`): `nft` for the loopback guard, which won't start without it, `ss`
+ * for the bind check, and `setfacl` (`acl`), which lets each agent's user into the shared folder and the cached
+ * repositories (`shared-folder.ts`, `agent-users.ts`). Debian 13's minimal install has no `acl`.
  */
-export const ISOLATION_APT_PACKAGES = ["nftables", "iproute2"] as const;
+export const ISOLATION_APT_PACKAGES = ["nftables", "iproute2", "acl"] as const;
 
 /** System mode: the runner and its Bun (root's, readable by the agents' users), and the command on the PATH. */
 export const SYSTEM_RUNNER_DIR = "/opt/agentes-runner";
@@ -128,7 +140,10 @@ export const CLAUDE_INSTALL_URL = "https://claude.ai/install.sh";
 /** The same installer for Windows, in PowerShell: Claude Code's native build into `%USERPROFILE%\.local\bin`. */
 export const CLAUDE_INSTALL_PS1_URL = "https://claude.ai/install.ps1";
 export const CLAUDE_EXE = "/usr/local/bin/claude";
-/** OpenAI's Codex CLI: its latest release's static Linux build, `codex-<arch>-unknown-linux-musl.tar.gz`. */
+/**
+ * OpenAI's Codex CLI: its latest release's whole package, `codex-package-<arch>-unknown-linux-musl.tar.gz` (the CLI
+ * with the helpers it starts and its resources), checked against the release's `codex-package_SHA256SUMS`.
+ */
 export const CODEX_RELEASES = "https://github.com/openai/codex/releases/latest/download";
 export const CODEX_EXE = "/usr/local/bin/codex";
 
@@ -202,7 +217,7 @@ export const CODEX_EXE = "/usr/local/bin/codex";
  * whole computer as `--system` does; anywhere else, for the user who runs it.
  */
 export function installScript(publicUrl: string, options: { link?: string } = {}): string {
-  const server = shQuote(publicUrl.trim().replace(/\/+$/, ""));
+  const server = shQuote(withoutTrailingSlashes(publicUrl.trim()));
   const uids = DEFAULT_AGENT_UID_RANGE.join("-");
   const shaCases = Object.entries(RUNNER_BUN_SHA256)
     .map(([target, sha]) => `    ${target}) BUN_SHA256=${shQuote(sha)} ;;`)
@@ -727,8 +742,25 @@ install_claude() {
   return 1
 }
 
-# Codex for every user: the latest release's static build for this processor, into $CODEX_EXE (on a Mac, its build
-# for macOS, for this user).
+# The SHA-256 of $1 in the sums file $2 (lines of "<sha256>  <name>").
+codex_sum() {
+  S="" N=""
+  while read -r S N || [ -n "$S" ]; do
+    if [ "$N" = "$1" ]; then
+      printf '%s\\n' "$S"
+      return 0
+    fi
+    S=""
+  done < "$2"
+  return 1
+}
+
+# Codex for every user: the latest release's whole package for this processor, checked against the release's SHA-256
+# sums and unpacked in lib/codex beside $CODEX_EXE's bin (/usr/local/lib/codex), $CODEX_EXE a link to its bin/codex.
+# Codex starts helpers from its package (codex-code-mode-host for code mode, codex-exec-server) and uses its resources
+# (bwrap, rg): its lone binary, which this installed before, fails code mode. The files are the installer's, not the
+# archive's owner's, and no one else can write them. On a Mac, its package for macOS, for this user
+# (~/.local/lib/codex), with codex-code-mode-host linked beside $CODEX_EXE too, as OpenAI's own installer does there.
 install_codex() {
   case "$(uname -m)" in
     x86_64 | amd64) CPU=x86_64 ;;
@@ -737,25 +769,43 @@ install_codex() {
   esac
   BUILD=$CPU-unknown-linux-musl
   if [ "$(uname -s)" = Darwin ]; then BUILD=$CPU-apple-darwin; fi
+  ASSET=codex-package-$BUILD.tar.gz PKG=\${CODEX_EXE%/*/*}/lib/codex
   CX=$(mktemp -d) || return 1
-  mkdir -p "\${CODEX_EXE%/*}" || return 1
-  if download "$CODEX_RELEASES/codex-$BUILD.tar.gz" "$CX/codex.tar.gz" &&
-    tar -xzf "$CX/codex.tar.gz" -C "$CX" && cp "$CX/codex-$BUILD" "$CODEX_EXE.new" &&
-    chmod 755 "$CODEX_EXE.new" && mv -f "$CODEX_EXE.new" "$CODEX_EXE"; then
-    rm -rf "$CX"
+  mkdir -p "\${CODEX_EXE%/*}" "\${PKG%/*}" || return 1
+  rm -rf "$PKG.new" "$PKG.old"
+  if download "$CODEX_RELEASES/$ASSET" "$CX/codex.tar.gz" &&
+    download "$CODEX_RELEASES/codex-package_SHA256SUMS" "$CX/sums" && SUM=$(codex_sum "$ASSET" "$CX/sums") &&
+    [ "$(sha256 "$CX/codex.tar.gz")" = "$SUM" ] && mkdir "$PKG.new" &&
+    tar --no-same-owner -xzf "$CX/codex.tar.gz" -C "$PKG.new" && chmod -R go-w "$PKG.new" &&
+    [ -x "$PKG.new/bin/codex" ] && [ -x "$PKG.new/bin/codex-code-mode-host" ] &&
+    { { [ ! -e "$PKG" ] && [ ! -L "$PKG" ]; } || mv "$PKG" "$PKG.old"; } && mv "$PKG.new" "$PKG" &&
+    ln -sf "$PKG/bin/codex" "$CODEX_EXE.new" && mv -f "$CODEX_EXE.new" "$CODEX_EXE" &&
+    { [ "$(uname -s)" != Darwin ] ||
+      ln -sf "$PKG/bin/codex-code-mode-host" "\${CODEX_EXE%/*}/codex-code-mode-host"; }; then
+    rm -rf "$CX" "$PKG.old"
     return 0
   fi
-  rm -rf "$CX" "$CODEX_EXE.new"
+  rm -rf "$CX" "$PKG.new" "$CODEX_EXE.new"
+  if [ ! -e "$PKG" ] && [ -e "$PKG.old" ]; then mv "$PKG.old" "$PKG"; fi
   return 1
 }
 
-# $1 (claude or codex) at $2, named $3: kept when it is there (it updates itself), else installed with install_$1.
+# Whether $1 at $2 is whole: a Codex that is a lone file with no codex-code-mode-host beside it (what this installed
+# before) can't run code mode, so it is installed again. A Codex that is a link (this installer's, OpenAI's, npm's) is
+# kept, as is Claude Code.
+cli_whole() {
+  [ "$1" != codex ] || [ -L "$2" ] || [ -x "\${2%/*}/codex-code-mode-host" ]
+}
+
+# $1 (claude or codex) at $2, named $3: kept when it is there whole (it updates itself), else installed with install_$1.
 get_cli() {
-  if [ -x "$2" ]; then
+  if [ -x "$2" ] && cli_whole "$1" "$2"; then
     t_step "$3 $("$2" --version 2>/dev/null | head -n 1 | sed 's/^[^0-9]*//; s/ .*//')"
     return 0
   fi
-  if ! t_run "Installing $3" "install_$1"; then
+  WHAT="Installing $3"
+  [ ! -x "$2" ] || WHAT="Installing $3 again, whole: it lacked the helpers it starts"
+  if ! t_run "$WHAT" "install_$1"; then
     t_tail "$T_LOG"
     t_warn "Installing $3 failed: run this again, or install it yourself"
     return 0
@@ -1110,7 +1160,7 @@ export const RUNNER_BUN_WINDOWS_SHA256 = {
  * ASCII only (`psText`).
  */
 export function installScriptPowerShell(publicUrl: string, options: { link?: string } = {}): string {
-  const server = psQuote(publicUrl.trim().replace(/\/+$/, ""));
+  const server = psQuote(withoutTrailingSlashes(publicUrl.trim()));
   const sha = RUNNER_BUN_WINDOWS_SHA256;
   return `# agentes.chat runner installer for Windows: connects this computer to your organization.
 # Usage, with a link made under Settings > Devices: irm <server>/i/<code>/ps | iex

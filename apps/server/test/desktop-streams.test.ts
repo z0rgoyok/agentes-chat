@@ -299,6 +299,42 @@ test("bytes go both ways through the computer's data socket; the audit keeps who
   runner.ws.close();
 });
 
+test("the agent's pointer on its desktop reaches whoever watches it, and the last one a view opened later (ADR 0062)", async () => {
+  const { owner, org, machine, desktop } = await seeded();
+  const runner = await connectRunner(machine.token);
+  const frames: Record<string, unknown>[] = [];
+  const realtime = new WebSocket(`${base()}/api/ws?orgId=${org.orgId}`, {
+    headers: { origin: ORIGIN, cookie: owner.cookie() },
+  } as unknown as string[]);
+  realtime.onmessage = (e) => frames.push(JSON.parse(String(e.data)) as Record<string, unknown>);
+  await until(() => frames.some((f) => f.type === "ready"), "the realtime socket");
+  const pointers = () =>
+    frames
+      .map((f) => f.event as { type?: string; agentId?: string; pointer?: Record<string, unknown> } | undefined)
+      .filter((e) => e?.type === "agent.desktop.pointer");
+
+  const viewer = openViewer(desktop, owner);
+  await until(() => runner.data[0]?.ready === true, "the data socket");
+  const to = { x: 640, y: 400, width: 1280, height: 900, act: "click" };
+  runner.ws.send(JSON.stringify({ type: "desktop.pointer", agentId: org.agentId, ...to }));
+  await until(() => pointers().length === 1, "the pointer to the person watching");
+  expect(pointers()[0]).toEqual({ type: "agent.desktop.pointer", agentId: org.agentId, pointer: to });
+
+  // A view that opens after it: the last pointer, marked as said again.
+  viewer.socket.close();
+  await until(() => runner.data[0]?.closed !== null, "the first view's close");
+  openViewer(desktop, owner);
+  await until(() => runner.data[1]?.ready === true, "the second data socket");
+  await until(() => pointers().length === 2, "the pointer again");
+  expect(pointers()[1]).toEqual({
+    type: "agent.desktop.pointer",
+    agentId: org.agentId,
+    pointer: { ...to, replay: true },
+  });
+  realtime.close();
+  runner.ws.close();
+});
+
 test("a phone's screen through the server: its pictures to the person (base64 for the phone app), their input back in control", async () => {
   const { owner, org, machine, invite } = await seeded();
   const pixel = {

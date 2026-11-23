@@ -50,8 +50,17 @@ export interface AppInfo {
   arch: string;
   /** The system's own version where the app reads it (macOS: `15.1`). */
   system?: string | null;
-  /** Linux: how it draws the app, one line to copy ("Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · …"). */
-  graphics?: string | null;
+  /** The line to copy: versions, and on Linux how it draws ("agentes.chat 0.8.9 · Linux · Ubuntu 26.04 LTS · …"). */
+  details: string;
+}
+
+/** Linux's Compatibility mode (graphics.rs): drawing without the graphics card at the next opening. */
+export interface CompatMode {
+  on: boolean;
+  /** This opening fell back: the last one, with the graphics card, never painted. True for the first ask only. */
+  fellBack: boolean;
+  /** WEBKIT_DISABLE_DMABUF_RENDERER was set when the app started: it decides (`on` says what it does), not the switch. */
+  own: boolean;
 }
 
 /** A server's answer to `siteFetch`: its status and body as text. */
@@ -145,6 +154,11 @@ export interface Host {
   hideWindow(name: WindowName): Promise<void>;
   quit(): Promise<void>;
   appInfo(): Promise<AppInfo>;
+  /** Linux: Compatibility mode as the next opening will have it. */
+  compatMode(): Promise<CompatMode>;
+  setCompatMode(on: boolean): Promise<void>;
+  /** Quits and opens the app again, for a setting read only when it starts. */
+  reopen(): Promise<void>;
   autostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   notify(title: string, body: string): Promise<void>;

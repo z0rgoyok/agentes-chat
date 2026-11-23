@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { NO_COMPUTER } from "@/components/AgentComputer";
 import { useOrg } from "@/components/org-context";
+import { ownsOrManages } from "@/lib/agent-edit";
 import { useAgentEdit } from "../context";
 
 /*
@@ -25,7 +26,7 @@ export type BrowserWord = "off" | "waiting" | "any" | "only";
 export function useWork() {
   const { org } = useOrg();
   const { agent, viewer } = useAgentEdit();
-  const owner = viewer !== "member";
+  const owner = ownsOrManages(viewer);
   const brain = useAgentBrain(org.id, agent.id, owner);
   const computer = useComputer(org.id, agent.id, owner);
   const browser = useAgentBrowserSettings(org.id, agent.id, owner);

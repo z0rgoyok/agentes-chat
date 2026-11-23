@@ -1,13 +1,7 @@
-import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { Easing, useAnimatedStyle } from "react-native-reanimated";
+import { useLivePaused } from "@/agent/live";
+import { useDrawingClock } from "@/sky/clock";
 import { LIST_AVATAR } from "./ListRow";
 import { useReducedMotion, useTheme } from "./theme";
 
@@ -19,7 +13,7 @@ import { useReducedMotion, useTheme } from "./theme";
 export function SkeletonRow({ name = 42, preview = 80 }: { name?: number; preview?: number }) {
   const { colors } = useTheme();
   const pulse = usePulse();
-  const bone = { backgroundColor: colors.sunken };
+  const bone = { backgroundColor: colors.plate };
   return (
     <Animated.View
       style={[styles.row, pulse]}
@@ -57,24 +51,25 @@ const SHAPES: [number, number][] = [
   [34, 78],
 ];
 
-/** The soft pulse every bone shares: 1 → 0.55 → 1 over 1.4 s, still with reduced motion. */
+/** Half a pulse: down to its low in this long, back up in as long. */
+const PULSE_HALF_MS = 700;
+const PULSE_EASE = Easing.inOut(Easing.quad);
+
+/**
+ * The soft pulse every bone shares: 1 → 0.55 → 1 over 1.4 s, still with reduced motion. Off screen (`LivePause`) its
+ * time stops where it was, and it carries on from there when it shows again.
+ */
 export function usePulse() {
   const reduced = useReducedMotion();
-  const k = useSharedValue(1);
-  useEffect(() => {
-    if (reduced) {
-      k.value = 0.8;
-      return;
-    }
-    k.value = withRepeat(
-      withSequence(
-        withTiming(0.55, { duration: 700, easing: Easing.inOut(Easing.quad) }),
-        withTiming(1, { duration: 700, easing: Easing.inOut(Easing.quad) }),
-      ),
-      -1,
-    );
-  }, [k, reduced]);
-  return useAnimatedStyle(() => ({ opacity: k.value }));
+  const paused = useLivePaused();
+  const clock = useDrawingClock(!reduced && !paused);
+  return useAnimatedStyle(() => {
+    if (reduced) return { opacity: 0.8 };
+    const at = clock.get() % (2 * PULSE_HALF_MS);
+    const down = at < PULSE_HALF_MS;
+    const e = PULSE_EASE((down ? at : at - PULSE_HALF_MS) / PULSE_HALF_MS);
+    return { opacity: down ? 1 - 0.45 * e : 0.55 + 0.45 * e };
+  });
 }
 
 const styles = StyleSheet.create({

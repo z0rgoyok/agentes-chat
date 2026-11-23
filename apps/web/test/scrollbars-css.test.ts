@@ -72,6 +72,14 @@ const SIDEWAYS: Record<string, "strip" | "content"> = {
   ".dk-orgpick": "strip",
   ".wiki-doc .wiki-editor__bar": "strip",
   ".nac-band__path": "strip",
+  ".cnv-dock": "strip",
+  ".sheet-tabs__strip": "strip",
+  ".sheet-tools": "strip",
+  ".sl-tools": "strip",
+  ".ac-formatbar__row": "strip",
+  // A document's code block with long lines keeps our scrollbar (ADR 0200).
+  ".lf-doc__body pre.lf-doc__code": "content",
+  ".sl-rail__list": "strip",
   ".code-card__code": "content",
   ".code-card__preview": "content",
   ".level-matrix": "content",
@@ -80,11 +88,12 @@ const SIDEWAYS: Record<string, "strip" | "content"> = {
   ".machine-command__code": "content",
   ".md__table-scroll": "content",
   ".issues-boardwrap": "content",
-  ".issue-table": "content",
+  ".issue-tablewrap": "content",
   ".team-tree": "content",
   ".mi-log": "content",
   ".mi-cmd__line": "content",
   ".ac-msg__text pre": "content",
+  ".sl-chartdlg__data": "content",
 };
 
 describe("our scrollbars, never the browser's", () => {

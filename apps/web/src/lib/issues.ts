@@ -1,5 +1,5 @@
 import type { Issue, IssueColumn, IssueStatus } from "@agenteschat/client";
-import { BOARD, STATUSES } from "@agenteschat/client/lib/issues";
+import { BOARD, STATUSES, taskAgentId } from "@agenteschat/client/lib/issues";
 import { stepPhrase } from "@agenteschat/client/lib/work";
 import { useTranslation } from "react-i18next";
 import { useActors } from "@/components/actors";
@@ -7,11 +7,13 @@ import { lookOf } from "@/lib/look";
 
 export * from "@agenteschat/client/lib/issues";
 
-/** The agent's color for the pixel pieces (people and nobody: neutral). */
+/** The color for the pixel pieces: the working agent's, else the first agent's (people and nobody: neutral). */
 export function useAssigneeColor() {
   const { dir } = useActors();
-  return (i: Pick<Issue, "assignee">) =>
-    i.assignee?.type === "agent" ? (lookOf(dir.agentById.get(i.assignee.id))?.color ?? "sky") : null;
+  return (i: Pick<Issue, "assignees" | "work">) => {
+    const agentId = taskAgentId(i);
+    return agentId ? (lookOf(dir.agentById.get(agentId))?.color ?? "sky") : null;
+  };
 }
 
 /** The step an agent is on, in the person's words ("Atualizou uma tarefa · #131", "Rodou: Rerun the tests"). */

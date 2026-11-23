@@ -16,9 +16,10 @@ import { titleOfSlug, toggleTask, wikiImportOf } from "@agenteschat/client/lib/w
 import { type DiffLine, diffLines } from "@agenteschat/ui/diff";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useHeaderHeight } from "expo-router/react-navigation";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, RefreshControl, StyleSheet, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { readValueSync, STORED, writeValueSync } from "@/lib/storage";
@@ -28,33 +29,43 @@ import {
   Button,
   DiffView,
   EmptyState,
-  fieldText,
+  Filters,
+  GroupedField,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  type HeaderAction,
   Icon,
-  IconButton,
+  type IconName,
   ListRow,
   Locked,
   Row,
   SCREEN_X,
   SearchField,
   SectionHeader,
+  type SFSymbolName,
+  SkeletonList,
   Text,
+  useFieldText,
+  useLargeTitleScroll,
+  usePulse,
   useReducedMotion,
   useToast,
 } from "@/ui";
+import { FadingHeaderTitle } from "@/ui/cover";
 import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
 import { Constellation, StarCard } from "../constellation/Constellation";
 import { aroundStar, linkCount, linksOutOf, mostLinked, pagesMap, strongest } from "../constellation/logic";
 import { chatHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
-import { chooseAction } from "../settings/parts";
+import { chooseAction, NEXT_FIELD, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
-import { FirstUse, useEmptyLook } from "../shared/FirstUse";
-import { useColors, useDirectory, useOrgId } from "../shared/hooks";
+import { FirstUse, LoadFailed, useEmptyLook } from "../shared/FirstUse";
+import { useColors, useDirectory, useOrgId, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
-import { ActionList, copyText, goBack, PushedHeader, successHaptic, Tile } from "../shared/parts";
-import { SheetHostProvider, useSheet } from "../shared/SheetHost";
+import { copyText, goBack, PushedHeader, successHaptic, Tile } from "../shared/parts";
 import {
   continueReading,
   foldersIn,
@@ -106,6 +117,8 @@ export function WikiScreen({ folder = "" }: { folder?: string }) {
   const insets = useSafeAreaInsets();
   const tree = useWikiTree(orgId);
   const graph = useWikiGraph(orgId, folder === "");
+  // A pull asks for the pages again (and the home's graph, which a folder doesn't draw).
+  const pull = usePullRefresh(() => Promise.allSettled([tree.refetch(), ...(folder ? [] : [graph.refetch()])]));
   const [picked, setPicked] = useState<string | null>(null);
   // Read again each time the home shows: a page opened from here is first when coming back.
   const [recents, setRecents] = useState(readRecents);
@@ -139,60 +152,80 @@ export function WikiScreen({ folder = "" }: { folder?: string }) {
   const fade = reduced ? {} : { entering: FadeIn.duration(160), exiting: FadeOut.duration(120) };
   // Who changed it last and when; a pinned page says what it is about instead.
   const byLine = (p: WikiPageSummary) => `${dir.nameOf(p.updatedBy)} · ${when(p.updatedAt)}`;
-  const pageRow = (p: WikiPageSummary, i: number, sub: string, icon?: "pin") => {
-    const on = chosen.has(p.id);
-    return (
-      <ListRow
-        key={p.id}
-        divider={i > 0}
-        leading={<PageTile page={p} icon={icon} />}
-        title={p.title}
-        sub={sub}
-        subLines={1}
-        {...(selecting
-          ? {
-              trailing: <Icon name={on ? "checkc" : "circle"} size={22} color={on ? c.ink : c.faint} />,
-              accessibilityState: { selected: on },
-              onPress: () => {
-                const next = new Set(chosen);
-                if (on) next.delete(p.id);
-                else next.add(p.id);
-                setChosen(next);
-              },
-            }
-          : { onPress: () => openWikiPage(p.slug) })}
-      />
-    );
-  };
+  // A page chosen or let go, by its id: one function for every row (the rows are memoized).
+  const toggle = useCallback(
+    (id: string) =>
+      setChosen((was) => {
+        const next = new Set(was);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
+  const pageRow = (p: WikiPageSummary, i: number, sub: string, icon?: "pin") => (
+    <WikiPageRow
+      key={p.id}
+      id={p.id}
+      slug={p.slug}
+      title={p.title}
+      sub={sub}
+      locked={Boolean(p.locked)}
+      pinned={icon === "pin"}
+      divider={i > 0}
+      selecting={selecting}
+      selected={chosen.has(p.id)}
+      onToggle={toggle}
+    />
+  );
   const inThisFolder = folder ? pages.filter((p) => inFolder(p, folder)).length : 0;
-  // Each page once: a pinned page is under Fixadas only, a page read lately under Continuar lendo only.
-  const pinnedIds = new Set((home?.pinned ?? []).map((p) => p.id));
-  const reading = folder
-    ? []
-    : continueReading(
-        pages.filter((p) => !pinnedIds.has(p.id)),
-        recents[orgId] ?? [],
-      );
-  const readingIds = new Set(reading.map((p) => p.id));
-  const loose = (home?.pages ?? []).filter((p) => !pinnedIds.has(p.id) && !readingIds.has(p.id));
+  // Each page once: a pinned page is under Fixadas only, a page read lately under Continuar lendo only. Worked out
+  // again only when the pages or the reading change, not at each letter typed or page chosen.
+  const { reading, loose } = useMemo(() => {
+    const pinnedIds = new Set((home?.pinned ?? []).map((p) => p.id));
+    const reading = folder
+      ? []
+      : continueReading(
+          pages.filter((p) => !pinnedIds.has(p.id)),
+          recents[orgId] ?? [],
+        );
+    const readingIds = new Set(reading.map((p) => p.id));
+    const loose = (home?.pages ?? []).filter((p) => !pinnedIds.has(p.id) && !readingIds.has(p.id));
+    return { reading, loose };
+  }, [home, folder, pages, recents, orgId]);
   const choosable = search ? found : (home?.pages ?? []);
   // Only with links: a sky of lone dots says nothing.
   const hasMap = Boolean(sky && star && !folder && sky.links.length > 0);
-  // "…": what the home no longer shows, each a line of the system's list.
+  // "…": what the home no longer shows, each a line of the app's sheet with its icon.
   const menu = [
     ...(choosesAudience
       ? [
           {
+            icon: "members" as const,
+            sf: "person.2" as const,
             label: folder ? t("wiki.audience") : t("wiki.audienceRootTitle"),
             onPress: () => router.push({ pathname: "/wiki-audience", params: folder ? { folder } : { root: "1" } }),
           },
         ]
       : []),
-    ...(writes && pages.length > 0 ? [{ label: t("wiki.bulk.select"), onPress: () => setSelecting(true) }] : []),
-    ...(!folder && writes ? [{ label: t("wiki.trash.title"), onPress: openWikiTrash }] : []),
+    ...(writes && pages.length > 0
+      ? [
+          {
+            icon: "checkc" as const,
+            sf: "checkmark.circle" as const,
+            label: t("wiki.bulk.select"),
+            onPress: () => setSelecting(true),
+          },
+        ]
+      : []),
+    ...(!folder && writes
+      ? [{ icon: "trash" as const, sf: "trash" as const, label: t("wiki.trash.title"), onPress: openWikiTrash }]
+      : []),
     ...(folder && writes
       ? [
           {
+            icon: "trash" as const,
+            sf: "trash" as const,
             label: t("wiki.bulk.deleteFolder", { folder }),
             destructive: true,
             onPress: () =>
@@ -206,193 +239,189 @@ export function WikiScreen({ folder = "" }: { folder?: string }) {
         ]
       : []),
   ];
+  // Choosing pages: the bar of what to do with them stays at the screen's foot, over the list.
+  const pickBar = selecting ? (
+    <View style={[styles.pickBar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}>
+      {choosesAudience ? (
+        <Button
+          variant="secondary"
+          label={t("wiki.bulk.agents")}
+          disabled={chosen.size === 0}
+          onPress={() => {
+            openWikiAgents([...chosen]);
+            stopSelecting();
+          }}
+        />
+      ) : null}
+      <View style={styles.grow}>
+        <Button
+          variant="primary"
+          wide
+          label={chosen.size ? t("wiki.bulk.deleteGo", { count: chosen.size }) : t("wiki.bulk.delete")}
+          loading={bulkDelete.pending}
+          disabled={chosen.size === 0 || bulkDelete.pending}
+          onPress={() =>
+            bulkDelete.ask(
+              { ids: [...chosen] },
+              chosen.size,
+              t("wiki.bulk.deleteTitle", { count: chosen.size }),
+              stopSelecting,
+            )
+          }
+        />
+      </View>
+    </View>
+  ) : null;
   return (
-    <View style={styles.fill}>
-      <PushedLargeTitle
-        title={title}
-        bottomInset={selecting ? 96 : 24}
-        right={
-          selecting ? (
-            <Button variant="secondary" size="sm" label={t("common.cancel")} onPress={stopSelecting} />
-          ) : writes || menu.length > 0 ? (
-            <View style={styles.headActs}>
-              {writes ? (
-                <IconButton
-                  icon="plus"
-                  label={t("wiki.newPage")}
-                  onPress={() => newWikiPage(folder ? { folder } : {})}
-                />
-              ) : null}
-              {menu.length > 0 ? (
-                <IconButton
-                  icon="more"
-                  label={t("mobile.wiki.more")}
-                  disabled={bulkDelete.pending}
-                  onPress={() => chooseAction(title, menu, t("common.cancel"))}
-                />
-              ) : null}
-            </View>
-          ) : undefined
-        }
-      >
-        <View style={styles.search}>
-          <SearchField
-            value={q}
-            onChangeText={setQ}
-            placeholder={t("wiki.searchPlaceholder")}
-            accessibilityLabel={t("wiki.searchPlaceholder")}
-            returnKeyType="search"
-          />
-        </View>
-        {tree.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
-        {tree.isError && !tree.data ? (
-          <View style={styles.center}>
-            <Text tone="muted" style={styles.centerText}>
-              {t("common.loadFailed")}
-            </Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t("mobile.common.retry")}
-              onPress={() => void tree.refetch()}
-            />
-          </View>
-        ) : null}
-        {tree.isSuccess && pages.length === 0 ? (
-          <FirstUse
-            place="wiki"
-            size="panel"
-            acts={writes}
-            label={t("wiki.newPage")}
-            onPress={() => newWikiPage(folder ? { folder } : {})}
-          />
-        ) : null}
-        {selecting ? (
-          <>
-            <SectionHeader
-              title={chosen.size ? t("wiki.bulk.selected", { count: chosen.size }) : t("wiki.bulk.select")}
-              count={choosable.length}
-            />
-            <Locked when={bulkDelete.pending}>{choosable.map((p, i) => pageRow(p, i, p.folder || byLine(p)))}</Locked>
-          </>
-        ) : search ? (
-          found.length === 0 ? (
-            pages.length > 0 ? (
-              <EmptyState
-                size="inline"
-                title={t("wiki.noMatch")}
-                action={
-                  <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
-                }
-              />
-            ) : null
-          ) : (
-            <Animated.View key="found" {...fade}>
-              <SectionHeader title={t("wiki.results", { count: found.length })} />
-              {found.map((p, i) => pageRow(p, i, p.folder || byLine(p)))}
-            </Animated.View>
-          )
-        ) : home ? (
-          <Animated.View key="home" {...fade}>
-            {hasMap && map && sky && star ? (
-              <>
-                <SectionHeader
-                  title={t("mobile.wiki.graph")}
-                  count={map.links.length}
-                  action={{ label: t("wiki.openGraph"), onPress: openWikiMap, chevron: true }}
-                />
-                <StarCard
-                  accessibilityLabel={t("mobile.wiki.map")}
-                  map={sky}
-                  selected={star.id}
-                  height={GRAPH_HEIGHT}
-                  explore={false}
-                  assemble={`wiki:${orgId}`}
-                  // A first tap lights the page's links; a tap on the lit page opens it.
-                  onSelect={(id) => (id === star.id ? openWikiPage(id) : setPicked(id))}
-                  title={star.title}
-                  subtitle={[star.folder, t("mobile.wiki.links", { count: linkCount(map, star.id) })]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  onOpen={() => openWikiPage(star.id)}
-                  style={styles.graphCard}
-                />
-              </>
-            ) : null}
-            {reading.length > 0 ? (
-              <>
-                <SectionHeader title={t("mobile.wiki.continue")} />
-                {reading.map((p, i) => pageRow(p, i, byLine(p)))}
-              </>
-            ) : null}
-            {home.pinned.length > 0 ? (
-              <>
-                <SectionHeader title={t("wiki.pinnedPages")} count={home.pinned.length} />
-                {home.pinned.map((p, i) => pageRow(p, i, p.excerpt || byLine(p), "pin"))}
-              </>
-            ) : null}
-            {home.folders.length > 0 ? (
-              <>
-                <SectionHeader title={t("wiki.folders")} count={home.folders.length} />
-                {home.folders.map((f, i) => (
-                  <ListRow
-                    key={f.path}
-                    divider={i > 0}
-                    leading={<Tile icon="archive" size={ROW_TILE} />}
-                    title={f.name}
-                    sub={t("wiki.pageCount", { count: f.count })}
-                    subLines={1}
-                    onPress={() => router.push({ pathname: "/wiki", params: { folder: f.path } })}
-                  />
-                ))}
-              </>
-            ) : null}
-            {loose.length > 0 ? (
-              <>
-                <SectionHeader title={t("wiki.tree")} count={loose.length} />
-                {loose.map((p, i) => pageRow(p, i, byLine(p)))}
-              </>
-            ) : null}
-          </Animated.View>
-        ) : tree.isSuccess && pages.length > 0 ? (
-          <EmptyState icon="archive" title={t("mobile.wiki.folderGone")} />
-        ) : null}
-      </PushedLargeTitle>
+    // The large title's scroll view is the screen's own first view (the system folds the title as it scrolls): the bar
+    // of a selection goes in its dock, never in a view around it.
+    <PushedLargeTitle
+      title={title}
+      bottomInset={selecting ? 96 : 24}
+      dock={pickBar}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+      // Choosing pages, the bar's word ends the choice; otherwise the system's own "+" and "…" (its menu on iOS).
+      {...(selecting
+        ? { action: { label: t("common.cancel"), onPress: stopSelecting } }
+        : {
+            actions: [
+              ...(writes
+                ? [
+                    {
+                      icon: "plus" as const,
+                      sf: "plus" as const,
+                      label: t("wiki.newPage"),
+                      onPress: () => newWikiPage(folder ? { folder } : {}),
+                    },
+                  ]
+                : []),
+              ...(menu.length > 0
+                ? [
+                    {
+                      icon: "more" as const,
+                      sf: "ellipsis" as const,
+                      label: t("mobile.wiki.more"),
+                      disabled: bulkDelete.pending,
+                      onPress: () => chooseAction(title, menu, t("common.cancel")),
+                      menu,
+                    },
+                  ]
+                : []),
+            ],
+          })}
+    >
+      <View style={styles.search}>
+        <SearchField
+          value={q}
+          onChangeText={setQ}
+          placeholder={t("wiki.searchPlaceholder")}
+          accessibilityLabel={t("wiki.searchPlaceholder")}
+          returnKeyType="search"
+        />
+      </View>
+      {/* Loading: the rows' own shape; failed: what happened and the way to ask again. */}
+      {tree.isLoading ? <SkeletonList rows={5} /> : null}
+      {tree.isError && !tree.data ? <LoadFailed onRetry={() => void tree.refetch()} /> : null}
+      {tree.isSuccess && pages.length === 0 ? (
+        <FirstUse
+          place="wiki"
+          size="panel"
+          acts={writes}
+          label={t("wiki.newPage")}
+          onPress={() => newWikiPage(folder ? { folder } : {})}
+        />
+      ) : null}
       {selecting ? (
-        <View
-          style={[styles.pickBar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}
-        >
-          {choosesAudience ? (
-            <Button
-              variant="secondary"
-              label={t("wiki.bulk.agents")}
-              disabled={chosen.size === 0}
-              onPress={() => {
-                openWikiAgents([...chosen]);
-                stopSelecting();
-              }}
-            />
-          ) : null}
-          <View style={styles.grow}>
-            <Button
-              variant="primary"
-              wide
-              label={chosen.size ? t("wiki.bulk.deleteGo", { count: chosen.size }) : t("wiki.bulk.delete")}
-              loading={bulkDelete.pending}
-              disabled={chosen.size === 0 || bulkDelete.pending}
-              onPress={() =>
-                bulkDelete.ask(
-                  { ids: [...chosen] },
-                  chosen.size,
-                  t("wiki.bulk.deleteTitle", { count: chosen.size }),
-                  stopSelecting,
-                )
+        <>
+          <SectionHeader
+            title={chosen.size ? t("wiki.bulk.selected", { count: chosen.size }) : t("wiki.bulk.select")}
+            count={choosable.length}
+          />
+          <Locked when={bulkDelete.pending}>{choosable.map((p, i) => pageRow(p, i, p.folder || byLine(p)))}</Locked>
+        </>
+      ) : search ? (
+        found.length === 0 ? (
+          pages.length > 0 ? (
+            <EmptyState
+              size="inline"
+              title={t("wiki.noMatch")}
+              action={
+                <Button variant="secondary" size="sm" label={t("filters.clearSearch")} onPress={() => setQ("")} />
               }
             />
-          </View>
-        </View>
+          ) : null
+        ) : (
+          <Animated.View key="found" {...fade}>
+            <SectionHeader title={t("wiki.results", { count: found.length })} />
+            {found.map((p, i) => pageRow(p, i, p.folder || byLine(p)))}
+          </Animated.View>
+        )
+      ) : home ? (
+        <Animated.View key="home" {...fade}>
+          {hasMap && map && sky && star ? (
+            <>
+              <SectionHeader
+                title={t("mobile.wiki.graph")}
+                count={map.links.length}
+                action={{ label: t("wiki.openGraph"), onPress: openWikiMap, chevron: true }}
+              />
+              <StarCard
+                accessibilityLabel={t("mobile.wiki.map")}
+                map={sky}
+                selected={star.id}
+                height={GRAPH_HEIGHT}
+                explore={false}
+                assemble={`wiki:${orgId}`}
+                // A first tap lights the page's links; a tap on the lit page opens it.
+                onSelect={(id) => (id === star.id ? openWikiPage(id) : setPicked(id))}
+                title={star.title}
+                subtitle={[star.folder, t("mobile.wiki.links", { count: linkCount(map, star.id) })]
+                  .filter(Boolean)
+                  .join(" · ")}
+                onOpen={() => openWikiPage(star.id)}
+                style={styles.graphCard}
+              />
+            </>
+          ) : null}
+          {reading.length > 0 ? (
+            <>
+              <SectionHeader title={t("mobile.wiki.continue")} />
+              {reading.map((p, i) => pageRow(p, i, byLine(p)))}
+            </>
+          ) : null}
+          {home.pinned.length > 0 ? (
+            <>
+              <SectionHeader title={t("wiki.pinnedPages")} count={home.pinned.length} />
+              {home.pinned.map((p, i) => pageRow(p, i, p.excerpt || byLine(p), "pin"))}
+            </>
+          ) : null}
+          {home.folders.length > 0 ? (
+            <>
+              <SectionHeader title={t("wiki.folders")} count={home.folders.length} />
+              {home.folders.map((f, i) => (
+                <ListRow
+                  key={f.path}
+                  divider={i > 0}
+                  leading={<Tile icon="archive" size={ROW_TILE} />}
+                  title={f.name}
+                  sub={t("wiki.pageCount", { count: f.count })}
+                  subLines={1}
+                  onPress={() => router.push({ pathname: "/wiki", params: { folder: f.path } })}
+                />
+              ))}
+            </>
+          ) : null}
+          {loose.length > 0 ? (
+            <>
+              <SectionHeader title={t("wiki.tree")} count={loose.length} />
+              {loose.map((p, i) => pageRow(p, i, byLine(p)))}
+            </>
+          ) : null}
+        </Animated.View>
+      ) : tree.isSuccess && pages.length > 0 ? (
+        <EmptyState size="panel" icon="archive" title={t("mobile.wiki.folderGone")} />
       ) : null}
-    </View>
+    </PushedLargeTitle>
   );
 }
 
@@ -404,20 +433,74 @@ const GRAPH_HEIGHT = 220;
 const HOME_STARS = 24;
 /** A page's small sky of itself and its neighbours. */
 const AROUND_HEIGHT = 168;
+/**
+ * Where a page's heading starts under the bar (the band's 8 + 96, the page's 16 above its words) and how far it runs
+ * (its title's line; a folder's line and its 4 above the title): the bar's title fades in over that span, as the
+ * heading leaves.
+ */
+const TITLE_IN_BAR_FROM = 8 + 96 + 16;
+const TITLE_IN_BAR_SPAN = 36;
+const FOLDER_LINE = 22;
 
 const inFolder = (p: WikiPageSummary, folder: string) => p.folder === folder || p.folder.startsWith(`${folder}/`);
+
+/**
+ * A page in the wiki's lists: its tile, its title and its line; choosing pages, the check on the right and a tap
+ * chooses it, else a tap opens it. Drawn again only when what it shows changes.
+ */
+const WikiPageRow = memo(function WikiPageRow({
+  id,
+  slug,
+  title,
+  sub,
+  locked,
+  pinned,
+  divider,
+  selecting,
+  selected,
+  onToggle,
+}: {
+  id: string;
+  slug: string;
+  title: string;
+  sub: string;
+  locked: boolean;
+  pinned: boolean;
+  divider: boolean;
+  selecting: boolean;
+  selected: boolean;
+  onToggle: (id: string) => void;
+}) {
+  const c = useColors();
+  return (
+    <ListRow
+      divider={divider}
+      leading={<PageTile page={{ locked }} icon={pinned ? "pin" : undefined} />}
+      title={title}
+      sub={sub}
+      subLines={1}
+      {...(selecting
+        ? {
+            trailing: <Icon name={selected ? "checkc" : "circle"} size={22} color={selected ? c.ink : c.faint} />,
+            accessibilityState: { selected },
+            onPress: () => onToggle(id),
+          }
+        : { onPress: () => openWikiPage(slug) })}
+    />
+  );
+});
 
 /** A page's tile: a lock when only admins edit it, a pin under Fixadas. */
 function PageTile({ page, icon }: { page: Pick<WikiPageSummary, "locked">; icon?: "pin" | undefined }) {
   return <Tile icon={page.locked ? "lock" : (icon ?? "file")} size={ROW_TILE} />;
 }
 
+/** One choice of a page's "…": our icon (Android's list) and its SF Symbol (iOS's own menu). */
 interface MenuItem {
   key: string;
-  icon: "copy" | "pen" | "pin" | "eye" | "lock" | "clock" | "x" | "agent" | "trash";
+  icon: IconName;
+  sf: SFSymbolName;
   label: string;
-  /** What it does, under the label. */
-  hint?: string;
   danger?: boolean;
   run: () => void;
 }
@@ -426,24 +509,15 @@ interface MenuItem {
  * A page: its own sky band with who wrote it, its folder, the title once, who wrote it (and at whose request) and
  * when, the text (links open or create; tasks check with a tap for whoever may edit), then its connections: the page
  * and its neighbours as a small sky (a tapped neighbour lights its lines, then opens), "Liga para", "Mencionada em",
- * the agents that use it and the history. The bar: "Editar" (writing, the B layout) and ⋯ (Copiar link, Renomear ou
- * mover, Fixar, Trancar, Histórico, Lixeira).
+ * the agents that use it and the history. The bar: "Editar" (the writing screen) and "…" (Copiar link, Renomear ou
+ * mover, Fixar, Trancar, Histórico, Apagar), the system's own buttons and menu on iOS.
  */
 export function WikiPageScreen({ slug }: { slug: string }) {
-  return (
-    <SheetHostProvider>
-      <WikiPage slug={slug} />
-    </SheetHostProvider>
-  );
-}
-
-function WikiPage({ slug }: { slug: string }) {
   const { t, i18n } = useTranslation();
   const c = useColors();
   const dir = useDirectory();
   const toast = useToast();
   const failed = useFailed();
-  const sheet = useSheet();
   const api = useApi();
   const qc = useQueryClient();
   const { orgId, org } = useOrg();
@@ -458,7 +532,10 @@ function WikiPage({ slug }: { slug: string }) {
   const action = useWikiAction(orgId);
   const bulkDelete = useWikiBulkDelete();
   const graph = useWikiGraph(orgId, true);
+  // A pull reads the page again, with the links around it.
+  const pull = usePullRefresh(() => Promise.allSettled([page.refetch(), graph.refetch()]));
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const p = page.data;
   const editable = p ? writes && (!p.locked || admin) : false;
   const pages = useMemo(() => tree.data ?? [], [tree.data]);
@@ -531,25 +608,26 @@ function WikiPage({ slug }: { slug: string }) {
     ]);
   };
 
-  const openMenu = () => {
-    if (!p) return;
-    const items: MenuItem[] = [
-      {
-        key: "copy",
-        icon: "copy",
-        label: t("wiki.copyLink"),
-        run: () =>
-          void copyText(`[[${p.title}]]`).then((ok) =>
-            toast(
-              ok ? { title: t("wiki.linkCopied", { title: p.title }) } : { title: t("mobile.app.failed"), icon: "x" },
-            ),
+  // The page's "…": iOS's own menu from the bar button; Android lists the same choices in the app's sheet.
+  const items: MenuItem[] = [];
+  if (p) {
+    items.push({
+      key: "copy",
+      icon: "copy",
+      sf: "link",
+      label: t("wiki.copyLink"),
+      run: () =>
+        void copyText(`[[${p.title}]]`).then((ok) =>
+          toast(
+            ok ? { title: t("wiki.linkCopied", { title: p.title }) } : { title: t("mobile.app.failed"), icon: "x" },
           ),
-      },
-    ];
+        ),
+    });
     if (editable)
       items.push({
         key: "move",
-        icon: "pen",
+        icon: "archive",
+        sf: "folder",
         label: t("wiki.renameOrMove"),
         run: () => router.push({ pathname: "/wiki-move", params: { slug: p.slug } }),
       });
@@ -557,6 +635,7 @@ function WikiPage({ slug }: { slug: string }) {
       items.push({
         key: "pin",
         icon: "pin",
+        sf: p.pinned ? "pin.slash" : "pin",
         label: p.pinned ? t("wiki.unpin") : t("wiki.pin"),
         run: () =>
           action.mutate(
@@ -568,8 +647,8 @@ function WikiPage({ slug }: { slug: string }) {
       items.push({
         key: "context",
         icon: "agent",
+        sf: "sparkles",
         label: p.agentContext ? t("wiki.context.off") : t("wiki.context.on"),
-        hint: t("wiki.context.hint"),
         run: () =>
           action.mutate(
             { type: "context", slug: p.slug, on: !p.agentContext },
@@ -583,6 +662,7 @@ function WikiPage({ slug }: { slug: string }) {
       items.push({
         key: "audience",
         icon: "eye",
+        sf: "eye",
         label: t("wiki.audience"),
         run: () => router.push({ pathname: "/who-sees", params: { slug: p.slug } }),
       });
@@ -590,6 +670,7 @@ function WikiPage({ slug }: { slug: string }) {
       items.push({
         key: "lock",
         icon: "lock",
+        sf: p.locked ? "lock.open" : "lock",
         label: p.locked ? t("wiki.unlock") : t("wiki.lock"),
         run: () =>
           action.mutate(
@@ -603,15 +684,18 @@ function WikiPage({ slug }: { slug: string }) {
     items.push({
       key: "history",
       icon: "clock",
+      sf: "clock",
       label: t("wiki.history"),
       run: () => router.push({ pathname: "/wiki-history", params: { slug: p.slug } }),
     });
-    if (editable) items.push({ key: "delete", icon: "x", label: t("wiki.delete"), danger: true, run: remove });
+    if (editable)
+      items.push({ key: "delete", icon: "trash", sf: "trash", label: t("wiki.delete"), danger: true, run: remove });
     const imported = writes ? wikiImportOf(pages, p) : null;
     if (imported)
       items.push({
         key: "delete-import",
         icon: "trash",
+        sf: "trash",
         label: t("wiki.bulk.deleteImport", { name: imported.name, count: imported.pages.length }),
         danger: true,
         run: () =>
@@ -622,22 +706,45 @@ function WikiPage({ slug }: { slug: string }) {
             goBack,
           ),
       });
-    sheet.open(
-      <ActionList
-        items={items.map((i) => ({
-          key: i.key,
-          icon: i.icon,
-          label: i.label,
-          ...(i.hint ? { hint: i.hint } : {}),
-          ...(i.danger ? { danger: true } : {}),
-          onPress: () => {
-            sheet.close();
-            i.run();
-          },
-        }))}
-      />,
-    );
-  };
+  }
+  // "Editar" as the bar's own button, then "…".
+  const barActions: HeaderAction[] = p
+    ? [
+        ...(editable
+          ? [
+              {
+                icon: "pen" as const,
+                sf: "square.and.pencil" as const,
+                label: t("wiki.edit"),
+                onPress: () => writeWikiPage({ slug: p.slug }),
+              },
+            ]
+          : []),
+        {
+          icon: "more",
+          sf: "ellipsis",
+          label: t("wiki.more"),
+          onPress: () =>
+            chooseAction(
+              p.title,
+              items.map((i) => ({
+                label: i.label,
+                icon: i.icon,
+                ...(i.danger ? { destructive: true } : {}),
+                onPress: i.run,
+              })),
+              t("common.cancel"),
+            ),
+          menu: items.map((i) => ({
+            label: i.label,
+            icon: i.icon,
+            sf: i.sf,
+            ...(i.danger ? { destructive: true } : {}),
+            onPress: i.run,
+          })),
+        },
+      ]
+    : [];
 
   const person = p?.updatedBy.onBehalfOf ? dir.memberById.get(p.updatedBy.onBehalfOf)?.name : undefined;
   // "Theo a pedido de Ana · 3 de nov.": the version lives in Histórico, under the page.
@@ -653,38 +760,37 @@ function WikiPage({ slug }: { slug: string }) {
     : "";
   // The band takes the writer's sky: an agent's color, the app's sky for a person.
   const bandColor = p?.updatedBy.type === "agent" ? agentLook(dir.anyAgent(p.updatedBy.id)).color : ("sky" as const);
+  // Read from where the content rests under the bar (iOS insets it by the bar's height).
+  const scroll = useLargeTitleScroll(Platform.OS === "ios" ? headerHeight : 0, { snap: false });
   return (
     <View style={[styles.fill, { backgroundColor: c.bg }]}>
+      {/* The page's title comes into the bar as its own heading scrolls under it, so a long page keeps its name. */}
       <PushedHeader
         solid={false}
         {...(p
           ? {
-              right: (
-                <View style={styles.barRight}>
-                  {editable ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t("wiki.edit")}
-                      onPress={() => writeWikiPage({ slug: p.slug })}
-                      hitSlop={6}
-                      style={({ pressed }) => [styles.barWord, pressed && styles.pressedWord]}
-                    >
-                      <Text variant="callout" style={[styles.barWordText, { color: c.agent }]}>
-                        {t("wiki.edit")}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  <IconButton icon="more" label={t("wiki.more")} onPress={openMenu} />
-                </View>
+              title: (
+                <FadingHeaderTitle
+                  y={scroll.y}
+                  from={TITLE_IN_BAR_FROM}
+                  to={TITLE_IN_BAR_FROM + (p.folder ? TITLE_IN_BAR_SPAN + FOLDER_LINE : TITLE_IN_BAR_SPAN)}
+                  text={p.title}
+                />
               ),
             }
           : {})}
+        actions={barActions}
       />
-      <ScrollView
+      <Animated.ScrollView
+        ref={scroll.ref}
+        onScroll={scroll.onScroll}
+        scrollEventThrottle={16}
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
-        {page.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
+        {/* Loading: the page's own shape (its band, its title, its lines), never a spinner. */}
+        {page.isLoading ? <PageSkeleton /> : null}
         {page.isError && !p ? (
           (page.error as { code?: string } | null)?.code === "wiki.no_access" ? (
             <EmptyState icon="lock" title={t("wiki.noAccessTitle")} subtitle={t("wiki.noAccessText")} />
@@ -709,17 +815,7 @@ function WikiPage({ slug }: { slug: string }) {
                 : {})}
             />
           ) : (
-            <View style={styles.center}>
-              <Text tone="muted" style={styles.centerText}>
-                {t("common.loadFailed")}
-              </Text>
-              <Button
-                variant="secondary"
-                size="sm"
-                label={t("mobile.common.retry")}
-                onPress={() => void page.refetch()}
-              />
-            </View>
+            <LoadFailed onRetry={() => void page.refetch()} />
           )
         ) : null}
         {p ? (
@@ -841,8 +937,36 @@ function WikiPage({ slug }: { slug: string }) {
             />
           </>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
+  );
+}
+
+/** The widths of the text lines a page's skeleton draws (a paragraph's ragged edge). */
+const SKELETON_LINES = [92, 86, 95, 64] as const;
+
+/** A page while it loads: its band, its title and the start of its text, pulsing together, where they will be. */
+function PageSkeleton() {
+  const { t } = useTranslation();
+  const c = useColors();
+  const pulse = usePulse();
+  const bone = { backgroundColor: c.sunken };
+  return (
+    <Animated.View
+      style={pulse}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={t("common.loadingPage")}
+    >
+      <View style={[styles.band, bone]} />
+      <View style={[styles.page, styles.bones]}>
+        <View style={[styles.boneTitle, bone]} />
+        <View style={[styles.boneLine, styles.boneBy, bone]} />
+        {SKELETON_LINES.map((w) => (
+          <View key={w} style={[styles.boneLine, bone, { width: `${w}%` }]} />
+        ))}
+      </View>
+    </Animated.View>
   );
 }
 
@@ -903,29 +1027,44 @@ export function WikiHistoryScreen({ slug }: { slug: string }) {
   const failed = useFailed();
   const page = useWikiPage(orgId, slug);
   const history = useWikiHistory(orgId, slug, true);
+  const pull = usePullRefresh(() => Promise.allSettled([history.refetch(), page.refetch()]));
   const [open, setOpen] = useState<{ version: number; lines: DiffLine[] } | null>(null);
+  // The version whose change is on its way: its row says so (its wheel in the time's place) until it opens.
+  const [reading, setReading] = useState<number | null>(null);
   const show = async (version: number) => {
     if (open?.version === version) {
       setOpen(null);
       return;
     }
+    if (reading !== null) return;
+    setReading(version);
     try {
       const after = await api.wiki.version(orgId, slug, version);
       const before = version > 1 ? await api.wiki.version(orgId, slug, version - 1) : { body: "" };
       setOpen({ version, lines: diffLines(before.body.split("\n"), after.body.split("\n")) });
     } catch (e) {
       failed(e);
+    } finally {
+      setReading(null);
     }
   };
   const reduced = useReducedMotion();
   const noteOf = (v: WikiVersion) =>
     v.noteCode ? t(`wiki.note.${v.noteCode}`, v.noteParams ?? {}) : (v.note ?? undefined);
   return (
-    <PushedLargeTitle title={t("wiki.history")}>
-      <Text variant="subhead" tone="muted" style={styles.lead}>
-        {page.data ? t("wiki.historyTitle", { title: page.data.title }) : t("wiki.historyText")}
-      </Text>
-      {history.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
+    <PushedLargeTitle
+      title={t("wiki.history")}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+    >
+      {/* Under "Histórico", whose page it is (never "Histórico de …" again under the same word). */}
+      {page.data ? (
+        <Text variant="subhead" tone="muted" numberOfLines={2} style={styles.lead}>
+          {page.data.title}
+        </Text>
+      ) : null}
+      {/* Loading: the rows' own shape; failed: what happened and the way to ask again. */}
+      {history.isLoading ? <SkeletonList rows={4} /> : null}
+      {history.isError && !history.data ? <LoadFailed onRetry={() => void history.refetch()} /> : null}
       {(history.data ?? []).map((v, i) => {
         const person = v.author.onBehalfOf ? dir.memberById.get(v.author.onBehalfOf)?.name : undefined;
         const who = person ? t("wiki.byFor", { name: dir.nameOf(v.author), person }) : dir.nameOf(v.author);
@@ -938,9 +1077,13 @@ export function WikiHistoryScreen({ slug }: { slug: string }) {
               title={`v${v.version} · ${who}`}
               {...(note ? { subtitle: note, subtitleLines: 2 } : {})}
               meta={
-                <Text variant="subhead" tone="faint">
-                  {relativeTime(t, i18n.language, v.at)}
-                </Text>
+                reading === v.version ? (
+                  <ActivityIndicator size="small" color={c.muted} />
+                ) : (
+                  <Text variant="subhead" tone="faint">
+                    {relativeTime(t, i18n.language, v.at)}
+                  </Text>
+                )
               }
               onPress={() => void show(v.version)}
             />
@@ -1001,58 +1144,59 @@ export function WikiMoveScreen({ slug }: { slug: string }) {
       setSaving(false);
     }
   };
-  const field = [styles.field, fieldText("body"), { backgroundColor: c.sunken, color: c.ink }];
+  const words = useFieldText("body");
+  const input = [styles.input, words, { color: c.ink }];
+  const dirty = Boolean(p) && (nextTitle !== p?.title || nextFolder !== p?.folder);
   return (
-    <View style={[styles.fill, { backgroundColor: c.bg }]}>
-      <PushedHeader
-        title={t("wiki.renameOrMove")}
-        solid={false}
-        action={{ label: t("common.save"), onPress: () => void save(), disabled: saving || !p }}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.form}
-      >
-        <Locked when={saving} style={styles.formFields}>
-          <Text variant="footnote" tone="faint">
-            {t("wiki.form.title")}
-          </Text>
+    // A settings form: the fields in a group on the grouped gray, Salvar in the bar.
+    <SettingsPage
+      title={t("wiki.renameOrMove")}
+      action={{ label: t("common.save"), onPress: () => void save(), disabled: saving || !p || !dirty }}
+      busy={saving}
+    >
+      <GroupedList>
+        <GroupedField label={t("wiki.form.title")}>
           <TextInput
             value={title ?? p?.title ?? ""}
             onChangeText={setTitle}
             placeholder={t("wiki.form.titlePlaceholder")}
             placeholderTextColor={c.faint}
-            style={field}
+            {...NEXT_FIELD}
+            style={input}
           />
-          <Text variant="footnote" tone="faint">
-            {t("wiki.renameHelp")}
-          </Text>
-          <Text variant="footnote" tone="faint" style={styles.gapTop}>
-            {t("wiki.form.folder")}
-          </Text>
+        </GroupedField>
+        <GroupedField label={t("wiki.form.folder")}>
           <TextInput
             value={folder ?? p?.folder ?? ""}
             onChangeText={setFolder}
             placeholder={t("wiki.form.folderPlaceholder")}
             placeholderTextColor={c.faint}
             autoCapitalize="words"
-            style={field}
+            returnKeyType="done"
+            onSubmitEditing={() => void save()}
+            style={input}
           />
+        </GroupedField>
+      </GroupedList>
+      <GroupedFooter>{t("wiki.renameHelp")}</GroupedFooter>
+      {folders.length > 0 ? (
+        <>
+          <GroupedHeader>{t("wiki.folders")}</GroupedHeader>
           <FolderChips folders={folders} value={nextFolder} onPick={setFolder} />
-          <Text variant="footnote" tone="faint">
-            {t("wiki.form.folderHelp")}
-          </Text>
-        </Locked>
-      </ScrollView>
-    </View>
+        </>
+      ) : null}
+      <GroupedFooter>{t("wiki.form.folderHelp")}</GroupedFooter>
+    </SettingsPage>
   );
 }
 
 /** A folder as typed: no slashes at its ends. */
 export const cleanFolder = (folder: string) => folder.trim().replace(/^\/+|\/+$/g, "");
 
-/** The folders in use as one-tap choices, "Raiz" first. */
+/**
+ * The folders in use as one-tap choices, "Raiz" first: the app's filter pills, on one line that scrolls sideways
+ * from the screen's edge (they bleed out of the form's padding, as every row of pills does).
+ */
 export function FolderChips({
   folders,
   value,
@@ -1063,30 +1207,14 @@ export function FolderChips({
   onPick: (folder: string) => void;
 }) {
   const { t } = useTranslation();
-  const c = useColors();
   return (
-    <View style={styles.chips}>
-      {["", ...folders].map((f) => {
-        const on = f === value;
-        return (
-          <Pressable
-            key={f || "root"}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            onPress={() => onPick(f)}
-            hitSlop={4}
-            style={({ pressed }) => [
-              styles.chip,
-              { backgroundColor: on ? c.ink : c.sunken },
-              pressed && styles.pressedWord,
-            ]}
-          >
-            <Text variant="subhead" style={{ color: on ? c.bg : c.ink2 }}>
-              {f || t("wiki.root")}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.bleed}>
+      {/* "Raiz" is the empty folder: its key is "" (a folder's own path never is). */}
+      <Filters
+        items={[{ key: "", label: t("wiki.root") }, ...folders.map((f) => ({ key: f, label: f }))]}
+        value={value}
+        onChange={onPick}
+      />
     </View>
   );
 }
@@ -1095,12 +1223,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1, minWidth: 0 },
   lead: { paddingHorizontal: SCREEN_X, marginTop: -4 },
-  search: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
-  loading: { marginVertical: 24 },
-  center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
-  centerText: { textAlign: "center" },
-  pressed: { opacity: 0.85 },
-  pressedWord: { opacity: 0.6 },
+  // Right under the large title, as Drive's.
+  search: { paddingHorizontal: SCREEN_X, paddingBottom: 10 },
   // Folder 4 over the title, the title 8 over who wrote it (the 8 rhythm, tighter inside one heading group).
   title: { marginTop: 4 },
   byline: { marginTop: 8 },
@@ -1108,10 +1232,6 @@ const styles = StyleSheet.create({
   bandFace: { position: "absolute", left: 16, bottom: 12 },
   around: { marginHorizontal: 16, borderRadius: 20, overflow: "hidden" },
   graphCard: { marginTop: 0 },
-  barRight: { flexDirection: "row", alignItems: "center", gap: 2 },
-  barWord: { paddingHorizontal: 10, height: 36, justifyContent: "center" },
-  barWordText: { fontWeight: "600" },
-  headActs: { flexDirection: "row", gap: 4 },
   pickBar: {
     position: "absolute",
     left: 0,
@@ -1127,10 +1247,13 @@ const styles = StyleSheet.create({
   note: { paddingTop: 8 },
   body: { paddingTop: 24 },
   diffWrap: { paddingHorizontal: SCREEN_X, paddingBottom: 12, gap: 8 },
-  form: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40, gap: 8 },
-  formFields: { gap: 8 },
-  field: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
-  gapTop: { marginTop: 12 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: 4 },
-  chip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  // A page's skeleton: the title's 28-point line, the byline's, then the text's lines on the body's rhythm.
+  bones: { gap: 12 },
+  boneTitle: { height: 28, width: "70%", borderRadius: 8, marginTop: 4 },
+  boneLine: { height: 14, borderRadius: 6 },
+  boneBy: { width: "40%", marginBottom: 12 },
+  // A form field's input in its row (the label's column beside it).
+  input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
+  // Pills run from the screen's edge, out of the form's 16 padding.
+  bleed: { marginHorizontal: -16 },
 });

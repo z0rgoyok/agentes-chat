@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,6 +14,7 @@ import {
   writeSync,
 } from "node:fs";
 import { createConnection } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import type { AgentScope, MachineRequest, RunnerAccess } from "@agenteschat/adapters/machine-protocol";
 import { systemLauncher } from "../../runner/agent-users";
@@ -32,7 +35,10 @@ import {
   type DesktopSpawnOptions,
   type DesktopSystem,
   type DesktopUser,
+  desktopSocketPath,
+  LONG_SOCKET_PATH,
   memAvailableBytes,
+  ownSocketFolder,
   PARK_AFTER_MS,
   type ProcessStat,
   procStat,
@@ -326,6 +332,8 @@ test("start: Xvnc on a Unix socket only, VncAuth, never resized; the cookie and 
     "-FrameRate=30",
     "-UseBlacklist=0",
     "-AlwaysShared",
+    // No pointer drawn into the picture: the apps draw the agent's cursor, and in control the person's own shows.
+    "-nocursor",
   ]) {
     expect(xvnc.argv).toContain(flag);
   }
@@ -1759,4 +1767,40 @@ test("requests: starting needs the desktop switch and an unpaused computer; stop
   expect(await run({ op: "desktop.session.stop", agent: dev })).toEqual({ stopped: true });
   expect(await run({ op: "desktop.session.stop", agent: dev })).toEqual({ stopped: false });
   expect(await run({ op: "desktop.session.status", agent: dev })).toEqual({ running: false, streams: 0 });
+});
+
+/**
+ * A `sun_path` holds 107 bytes: a desktop whose folder is deeper than that (a runner home with a long user name, in
+ * single-user mode) would never start. Its socket moves to the temp folder, named after the path, and its other files stay.
+ */
+test.skipIf(!posix)("a desktop's socket goes to the temp folder when its own path is too long", () => {
+  const short = "/home/dev/.agentes/desktop";
+  expect(desktopSocketPath(short, "/tmp")).toBe(path.join(short, "vnc.sock"));
+
+  const long = `/home/${"u".repeat(90)}/.agentes/desktop`;
+  const socket = desktopSocketPath(long, "/tmp");
+  expect(Buffer.byteLength(socket)).toBeLessThanOrEqual(LONG_SOCKET_PATH);
+  expect(socket).toMatch(new RegExp(`^/tmp/agentes-desktop-${process.getuid?.() ?? 0}/[0-9a-f]{16}\\.vnc\\.sock$`));
+  // The same desktop always gets the same socket, so a restart reuses it instead of leaking one per start.
+  expect(desktopSocketPath(long, "/tmp")).toBe(socket);
+  // Two different desktops never share one.
+  expect(desktopSocketPath(`${long}/other`, "/tmp")).not.toBe(socket);
+});
+
+test.skipIf(!posix)("the socket's temp folder is the runner's own and 0700", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "agentes-sock-"));
+  try {
+    const mine = path.join(root, "mine");
+    ownSocketFolder(mine);
+    expect(statSync(mine).mode & 0o777).toBe(0o700);
+    const open = path.join(root, "open");
+    mkdirSync(open, { mode: 0o777 });
+    chmodSync(open, 0o777);
+    expect(() => ownSocketFolder(open)).toThrow();
+    const link = path.join(root, "link");
+    symlinkSync(mine, link);
+    expect(() => ownSocketFolder(link)).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

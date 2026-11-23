@@ -1,4 +1,7 @@
 import { useWikiGraph } from "@agenteschat/client";
+import { Stack, useIsFocused } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
+import { StatusBar } from "expo-status-bar";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
@@ -12,6 +15,11 @@ import { openWikiPage } from "./WikiScreen";
 
 /** The night stays in both themes behind the stars (the constellation's own). */
 const NIGHT = "#070b14";
+/**
+ * The bar over the night: its title and back in white whatever the theme (the theme's ink is near black in light,
+ * unreadable on the night).
+ */
+const NIGHT_BAR = { headerTintColor: "#ffffff", headerTitleStyle: { color: "#ffffff" } } as const;
 
 type MapFilter = "all" | "agent" | `folder:${string}`;
 
@@ -33,15 +41,18 @@ export function filterMap(map: StarMap, filter: MapFilter): StarMap {
 
 /**
  * The wiki's whole graph, as the web's "Grafo": every page a star (the most linked bigger, an agent's page in its
- * color), every [[link]] a line, filtered by who wrote them or the top folder. The sky fills the screen under the
- * bar: drag and pinch to explore, a tap lights a page's links and brings it to the middle, the line at the bottom
+ * color), every [[link]] a line, filtered by who wrote them or the top folder. The sky fills the whole screen behind a
+ * clear bar (on both platforms, as over an agent's sky): its title, its back and the status bar in white over the
+ * night. Drag and pinch to explore, a tap lights a page's links and brings it to the middle, the line at the bottom
  * opens it.
  */
 export function WikiMapScreen() {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const graph = useWikiGraph(orgId, true);
+  const focused = useIsFocused();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { height } = useWindowDimensions();
   const [filter, setFilter] = useState<MapFilter>("all");
   const [picked, setPicked] = useState<string | null>(null);
@@ -68,9 +79,13 @@ export function WikiMapScreen() {
           onSelect={(id) => (id === star?.id ? openWikiPage(id) : setPicked(id))}
         />
       ) : null}
-      <PushedHeader title={t("wiki.graph")} solid={false} />
+      <PushedHeader title={t("wiki.graph")} plate />
+      <Stack.Screen options={NIGHT_BAR} />
+      {/* Light over the night only while the map shows: a screen pushed over it gets the app's own back. */}
+      {focused ? <StatusBar style="light" /> : null}
       {items.length > 1 ? (
-        <View style={[styles.filters, { top: insets.top + 52 }]}>
+        // Right under the clear bar, wherever the system put its bottom edge (never a guessed height).
+        <View style={[styles.filters, { top: headerHeight + 8 }]}>
           <Filters
             items={items}
             value={filter}

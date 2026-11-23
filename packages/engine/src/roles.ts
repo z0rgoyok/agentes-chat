@@ -264,10 +264,22 @@ const announceRoles = async (pubsub: PubSub | undefined, orgId: string) => {
 };
 
 /**
+ * Agents a role's change rewrote (who they answer, who edits them), once its transaction committed: their cached rows
+ * and the team's go, and the apps read the agents again.
+ */
+async function agentsChanged(pubsub: PubSub | undefined, orgId: string, agentIds: readonly string[]) {
+  if (agentIds.length === 0) return;
+  for (const id of new Set(agentIds)) caches.agents.delete(`${orgId}:${id}`);
+  caches.agents.delete(`${orgId}:team`);
+  await publishAgentsChanged(pubsub, orgId);
+}
+
+/**
  * Creates a role at the bottom of the others (just above `everyone`). Needs `manage_roles`. `copyFrom` (Duplicar): a
  * role below the actor whose keys they all hold, whose keys, look and switches fill what `input` leaves out, and
- * whose channels and agents the new role joins (their `audience_role_ids`), with its channel exceptions, in the same
- * transaction. It has nobody yet, so nobody reaches anything new until someone is given it.
+ * whose channels and agents the new role joins (their `audience_role_ids`, and the agents' `editor_role_ids`), with
+ * its channel exceptions, in the same transaction. It has nobody yet, so nobody reaches anything new until someone is
+ * given it.
  */
 export async function createRole(
   db: Database,
@@ -291,6 +303,8 @@ export async function createRole(
   const reach = {
     channelIds: [] as string[],
     agentIds: [] as string[],
+    /** The agents whose "Who can edit" names the source: the copy joins it (ADR 0085 addendum of 2026-11-17). */
+    editorOf: [] as string[],
     exceptions: [] as { channelId: string; allow: string[]; deny: string[] }[],
   };
   const role = await db.transaction(async (tx) => {
@@ -363,6 +377,14 @@ export async function createRole(
           .where(and(eq(agents.orgId, orgId), sql`${source.id}::uuid = any(${agents.audienceRoleIds})`))
           .returning({ id: agents.id })
       ).map((a) => a.id);
+      // And the agents it edits ("Quem pode editar", ADR 0085 addendum of 2026-11-17).
+      reach.editorOf = (
+        await tx
+          .update(agents)
+          .set({ editorRoleIds: sql`array_append(${agents.editorRoleIds}, ${row.id}::uuid)`, updatedAt: new Date() })
+          .where(and(eq(agents.orgId, orgId), sql`${source.id}::uuid = any(${agents.editorRoleIds})`))
+          .returning({ id: agents.id })
+      ).map((a) => a.id);
     }
     await recordAudit(tx, {
       orgId,
@@ -377,12 +399,9 @@ export async function createRole(
     });
     return row;
   });
+  // Once it committed: a run reading one of them while it was open would otherwise keep the row from before.
   for (const id of reach.channelIds) caches.channels.delete(`${orgId}:${id}`);
-  for (const id of reach.agentIds) caches.agents.delete(`${orgId}:${id}`);
-  if (reach.agentIds.length > 0) {
-    caches.agents.delete(`${orgId}:team`);
-    await publishAgentsChanged(options.pubsub, orgId);
-  }
+  await agentsChanged(options.pubsub, orgId, [...reach.agentIds, ...reach.editorOf]);
   if (reach.channelIds.length > 0) await publishChannelsChanged(options.pubsub, orgId);
   await announceRoles(options.pubsub, orgId);
   return role;
@@ -559,7 +578,7 @@ export async function deleteRole(
   const role = await loadRole(db, orgId, roleId);
   if (role.kind === "everyone") throw new ForbiddenError("Every workspace keeps its base role", "role.base");
   if (!mayEdit(actor, role)) throw new ForbiddenError("Only someone above this role changes it", "role.above_you");
-  const leavers = await db.transaction(async (tx) => {
+  const { leavers, unedited } = await db.transaction(async (tx) => {
     // The lock joinChannel takes for a role channel: a join at the same moment sees the role gone, or is dropped here.
     await lockOrgMembers(tx, orgId);
     const holders = (
@@ -575,6 +594,13 @@ export async function deleteRole(
       .update(schema.channels)
       .set({ audienceRoleIds: sql`array_remove(${schema.channels.audienceRoleIds}, ${role.id}::uuid)` })
       .where(and(eq(schema.channels.orgId, orgId), sql`${role.id}::uuid = any(${schema.channels.audienceRoleIds})`));
+    // Agents' "Who can edit" forget it, or saving one sends a role that is gone. Their cached rows go once this
+    // commits (`agentsChanged`).
+    const unedited = await tx
+      .update(schema.agents)
+      .set({ editorRoleIds: sql`array_remove(${schema.agents.editorRoleIds}, ${role.id}::uuid)` })
+      .where(and(eq(schema.agents.orgId, orgId), sql`${role.id}::uuid = any(${schema.agents.editorRoleIds})`))
+      .returning({ id: schema.agents.id });
     // Invitations and links forget it too, or an app starting an approval or a change on their cargos sends one gone.
     for (const t of [schema.organizationInvitations, schema.organizationInviteLinks]) {
       await tx
@@ -605,8 +631,9 @@ export async function deleteRole(
       target: { type: "role", id: role.id },
       details: { name: role.name, permissions: role.permissions },
     });
-    return left;
+    return { leavers: left, unedited: unedited.map((a) => a.id) };
   });
+  await agentsChanged(options.pubsub, orgId, unedited);
   await announceChannelLeavers({ db, pubsub: options.pubsub }, orgId, leavers);
   await announceRoles(options.pubsub, orgId);
 }

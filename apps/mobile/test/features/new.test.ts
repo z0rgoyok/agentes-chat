@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DirectMessage } from "@agenteschat/client";
+import type { Agent, DirectMessage } from "@agenteschat/client";
+import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
 import { buildConversations } from "../../src/features/chats/logic";
 import { AGENT_NAMES, askTargets, chatMatches, createItems, suggestAgentName } from "../../src/features/new/logic";
 import { agent, at } from "./fixtures";
@@ -70,7 +71,7 @@ describe("New: what its Create list offers", () => {
   const all = ["create_agents", "create_channels", "post", "manage_routines", "edit_wiki", "invite_people"] as const;
 
   test("everything, in order, for who may do it all", () => {
-    expect(createItems({ permissions: all }, { ownsAgent: false })).toEqual([
+    expect(createItems({ permissions: all }, { createsRoutines: true })).toEqual([
       "agent",
       "channel",
       "task",
@@ -81,17 +82,37 @@ describe("New: what its Create list offers", () => {
   });
 
   test("nothing without its permission (a conversation starts from the search, not from this list)", () => {
-    expect(createItems({ permissions: [] }, { ownsAgent: false })).toEqual([]);
-    expect(createItems(null, { ownsAgent: false })).toEqual([]);
+    expect(createItems({ permissions: [] }, { createsRoutines: false })).toEqual([]);
+    expect(createItems(null, { createsRoutines: false })).toEqual([]);
   });
 
-  test("a routine also for the owner of an agent", () => {
-    expect(createItems({ permissions: ["post"] }, { ownsAgent: true })).toEqual(["task", "routine"]);
+  test("a routine for who may make one for some agent (its owner's too), never for the permission alone", () => {
+    expect(createItems({ permissions: ["post"] }, { createsRoutines: true })).toEqual(["task", "routine"]);
+    // "Create routines" reaches only the agents whose audience takes the person (ADR 0085 addendum of 2026-11-17).
+    expect(createItems({ permissions: all }, { createsRoutines: false })).toEqual([
+      "agent",
+      "channel",
+      "task",
+      "wiki",
+      "invite",
+    ]);
+  });
+
+  test("a routine asks its agent on its creator's behalf: setting up its routines without talking to it makes none", () => {
+    // A named editor of an agent that doesn't answer them sets up its routines (ADR 0085 addendum of 2026-11-17), yet
+    // the server makes a routine only for who it answers (`createsRoutinesFor`).
+    const editorOnly = agent({ id: "nina", name: "Nina", canManageRoutines: true, canTalk: false });
+    const answers = agent({ id: "theo", name: "Theo", canManageRoutines: true });
+    // What New and Routines read from the directory.
+    const offered = (agents: Agent[]) =>
+      createItems({ permissions: ["post"] }, { createsRoutines: agents.some((a) => createsRoutinesFor(a)) });
+    expect(offered([editorOnly])).toEqual(["task"]);
+    expect(offered([editorOnly, answers])).toEqual(["task", "routine"]);
   });
 
   test("no new agent in a workspace being deleted, as on the web", () => {
     const deletion = { dueAt: null, requestedAt: null, requestedBy: null };
-    expect(createItems({ permissions: all, deletion }, { ownsAgent: false })).not.toContain("agent");
+    expect(createItems({ permissions: all, deletion }, { createsRoutines: true })).not.toContain("agent");
   });
 });
 

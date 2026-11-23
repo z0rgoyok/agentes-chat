@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { dayMonthOrder, formatList, formatMoneyUsd, formatTime, plural, relativeTime } from "../src/format";
+import {
+  dayMonthOrder,
+  formatList,
+  formatMoneyUsd,
+  formatPhone,
+  formatTime,
+  maskPhone,
+  plural,
+  relativeTime,
+} from "../src/format";
 
 describe("Intl formatting", () => {
   test("lists in each language's own way", () => {
@@ -42,5 +51,57 @@ describe("Intl formatting", () => {
     const d = new Date(2026, 10, 2, 15, 5);
     expect(formatTime("en-US", d)).toMatch(/^3:05\s?PM$/);
     expect(formatTime("de-DE", d)).toBe("15:05");
+  });
+});
+
+describe("phone numbers", () => {
+  test("each listed country in the way it prints numbers", () => {
+    const cases: [string, string][] = [
+      ["5511900000001", "+55 (11) 90000-0001"],
+      ["551134567890", "+55 (11) 3456-7890"],
+      ["12025550123", "+1 (202) 555-0123"],
+      ["447700900123", "+44 7700 900123"],
+      ["442079460958", "+44 20 7946 0958"],
+      ["351912345678", "+351 912 345 678"],
+      ["34612345678", "+34 612 345 678"],
+      ["33612345678", "+33 6 12 34 56 78"],
+      ["4915123456789", "+49 151 23456789"],
+      ["493012345678", "+49 30 12345678"],
+      ["393123456789", "+39 312 345 6789"],
+      ["390212345678", "+39 02 1234 5678"],
+      ["31612345678", "+31 6 12345678"],
+      ["525512345678", "+52 55 1234 5678"],
+      ["5491112345678", "+54 9 11 1234-5678"],
+      ["819012345678", "+81 90-1234-5678"],
+      ["821012345678", "+82 10-1234-5678"],
+      ["6281234567890", "+62 812-3456-7890"],
+      ["905321234567", "+90 532 123 45 67"],
+      ["48512345678", "+48 512 345 678"],
+      ["919876543210", "+91 98765 43210"],
+    ];
+    for (const [stored, shown] of cases) expect(formatPhone(stored)).toBe(shown);
+  });
+
+  test("any other country gets the generic grouping, never a bare run", () => {
+    expect(formatPhone("971501234567")).toBe("+971 50 123 4567");
+    expect(formatPhone("79161234567")).toBe("+7 916 123 4567");
+    expect(formatPhone("5511123")).toBe("5511123");
+    expect(formatPhone("55119000000")).toBe("+55 11 900 0000");
+  });
+
+  test("a leading + reads the same, a handle comes back as given", () => {
+    expect(formatPhone("+5511900000001")).toBe("+55 (11) 90000-0001");
+    expect(formatPhone("ana.example")).toBe("ana.example");
+    expect(formatPhone("@ana")).toBe("@ana");
+    expect(formatPhone("1234567890123456")).toBe("1234567890123456");
+    expect(formatPhone("+0012345678")).toBe("+0012345678");
+  });
+
+  test("masked: the country and area codes and the last four digits", () => {
+    expect(maskPhone("5511900000001")).toBe("+55 (11) •••••-0001");
+    expect(maskPhone("551134567890")).toBe("+55 (11) ••••-7890");
+    expect(maskPhone("+12025550123")).toBe("+1 (202) •••-0123");
+    expect(maskPhone("447700900123")).toBe("+44 •••• ••0123");
+    expect(maskPhone("ana.example")).toBe("ana.example");
   });
 });

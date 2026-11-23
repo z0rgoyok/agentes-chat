@@ -202,7 +202,13 @@ test("every hairline between a card's rows, and over its foot, has one step of r
   // An account's row: one step above and below its words, the list's 16 at its sides, what it folds on the same sides.
   expect(last(plan, ".plan-row__head", "padding")).toBe("var(--space-3) var(--space-4)");
   expect(last(plan, ".plan-row__body", "padding")).toBe("0 var(--space-4)");
-  expect(last(plan, ".plan-row__body", "gap")).toBe("var(--space-3)");
+  expect(last(plan, ".plan-row__body", "gap")).toBe("var(--space-4)");
+  // A placed row's number starts on the row's 16 edge: its 4 of padding inside the 12 before it.
+  expect(last(plan, ".plan-row--placed > .plan-row__place", "margin")).toBe(
+    "var(--space-3) 0 0 calc(var(--space-4) - var(--space-1))",
+  );
+  // The grip and the number get no plate on hover.
+  expect(declarations(plan, ".plan-row__place--grip:hover")).toEqual([["color", "var(--ink)"]]);
 });
 
 test("the API keys: each row has the rows' room above and below, 16 at its sides", async () => {

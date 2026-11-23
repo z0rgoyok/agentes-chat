@@ -29,6 +29,8 @@ import {
 import { platformOf } from "../control/platform";
 import { SITE_URL } from "../control/version";
 import { desktopStrings, systemLocale } from "../i18n";
+import { mountReportPanel } from "../report/panel";
+import { type CoverParts, coverReport, knownServers } from "../report/report";
 import { elapsedClock, fillIn } from "../ui/time";
 import { stuckAction } from "./stuck";
 
@@ -146,7 +148,7 @@ function tick() {
   const clock = stepClock(ms, waitSince.state === "migrating" ? UPDATE_SLOW_MS : STEP_SLOW_MS);
   if (time)
     time.textContent = clock.slow ? `${strings.here.slow} · ${elapsedClock(ms)}` : clock.time ? elapsedClock(ms) : "";
-  buttons(clock.slow ? [[words.copy, copyDiagnostics]] : []);
+  buttons(clock.slow ? [[words.copy, copyDiagnostics], ...(overHere ? [report] : [])] : []);
 }
 
 /** Shown again (cover.rs `show`): the sky fills again, nothing is said yet. */
@@ -210,6 +212,42 @@ const copyDiagnostics = () =>
       () => sayAside(words.copyFailed),
     );
 
+/**
+ * Send a report (the server here only): what Copy details copies, as the problem report, shown in full over the cover
+ * before it goes. Rust posts it, as the server may be what's failing.
+ */
+function sendReport() {
+  if (!root || root.querySelector(".cover__report")) return;
+  const host = document.createElement("div");
+  host.className = "cover__report";
+  root.append(host);
+  let unmount = () => host.remove();
+  const close = () => {
+    unmount();
+    host.remove();
+  };
+  void Promise.all([invoke<CoverParts>("problem_report_parts"), localStatus(), currentServer()]).then(
+    ([parts, status, server]) => {
+      const known = knownServers([server, status?.url, status?.publicUrl]);
+      unmount = mountReportPanel(host, {
+        words: strings.report,
+        lead: strings.report.coverLead,
+        report: coverReport(parts, known, systemLocale()),
+        onClose: close,
+      });
+    },
+    () => {
+      unmount = mountReportPanel(host, {
+        words: strings.report,
+        lead: strings.report.coverLead,
+        report: null,
+        onClose: close,
+      });
+    },
+  );
+}
+const report: [string, () => void] = [strings.report.button, sendReport];
+
 /** Another server of the app's list than the one open (and the server here), to open instead. */
 async function otherServer(status: LocalServerStatus | null): Promise<string | null> {
   const list = await invoke<{ current: string | null; servers: string[] }>("servers_get").catch(() => null);
@@ -272,10 +310,7 @@ function showHere(
     ]);
   } else if (state === "failing") {
     say(fill(words.failing));
-    buttons([
-      [words.retry, start],
-      [words.copy, copyDiagnostics],
-    ]);
+    buttons([[words.retry, start], [words.copy, copyDiagnostics], report]);
   } else {
     const onlyHere: [string, () => void] = [fill(words.onlyHere), useOnlyHere];
     const next = coverTailnet(platform, tailnet);

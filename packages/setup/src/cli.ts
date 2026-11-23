@@ -64,6 +64,7 @@ import {
   jevStep,
   lastLine,
   MIN_COMPOSE,
+  memoryEntries,
   type Network,
   networkOf,
   normalizeDomain,
@@ -676,6 +677,7 @@ async function run(opts: Options, ui: Ui, image: boolean): Promise<Result> {
 
   const entries: Record<string, string> = secretEntries(content);
   const newSecrets = Object.keys(entries);
+  Object.assign(entries, memoryEntries(content, machine.memory));
   const hostname = opts.hostname ?? (envValue(content, "TS_HOSTNAME") || DEFAULT_HOSTNAME);
   const port = envValue(content, "HOST_PORT") || "3000";
   let tailscale: "given" | "env" | "joined" | "ask" | "missing" = "missing";

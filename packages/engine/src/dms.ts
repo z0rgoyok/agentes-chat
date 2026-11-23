@@ -1,16 +1,18 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, inArray, isNull, ne, schema, sql } from "@agenteschat/db";
 import type { Agent } from "./agents";
-import { audienceError, canTalkTo, speakerOf } from "./audience";
+import { audienceError, canTalkTo, managesAgent, speakerOf } from "./audience";
 import { caches } from "./cache";
+import { wordsOf } from "./confidential";
 import { sha256 } from "./crypto";
 import { NotFoundError, ValidationError } from "./errors";
 import { publishChannelEvent, publishUserEvent } from "./events";
+import { followsThreadSql, threadReadAtSql } from "./follows";
 import { landedAfterSql } from "./message-place";
 import { type PreviewMeta, previewMediaKind, previewMeta, readableBody } from "./message-preview";
 import { quietNoticeSql } from "./notices";
 import { resolveNotifications, unaskedGroup } from "./notifications";
-import { can, getMembership, requirePermission } from "./organizations";
+import { getMembership, requirePermission } from "./organizations";
 import { accountInUse, closedRefusal } from "./standing";
 
 const { channels, channelMembers, channelReads, messages, agents, users, organizationMembers } = schema;
@@ -121,8 +123,10 @@ export async function openDm(
       .from(agents)
       .where(and(eq(agents.id, target.agentId), eq(agents.orgId, orgId), isNull(agents.archivedAt)));
     if (!agent) throw new NotFoundError("Agent not found");
-    // Who manages agents opens it anyway (its composer says why it won't answer and offers to let them in).
-    if (!canTalkTo(agent, actorId, speakerOf(membership)) && !can(membership, "manage_agents")) blockedAgent = agent;
+    // Who manages the agent opens it anyway (its composer says why it won't answer and offers to let them in); a
+    // private agent stays closed to who merely holds "Editar qualquer agente" (ADR 0085 addendum of 2026-11-17).
+    if (!canTalkTo(agent, actorId, speakerOf(membership)) && !managesAgent(agent, actorId, membership))
+      blockedAgent = agent;
     other = `a:${target.agentId}`;
   }
   const dmKey = keyOf([`u:${actorId}`, other]);
@@ -318,7 +322,7 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
     );
   if (mine.length === 0) return [];
   const ids = mine.map((c) => c.id);
-  const [others, reads, last] = await Promise.all([
+  const [others, reads, last, unreadRows] = await Promise.all([
     db
       .select({
         channelId: channelMembers.channelId,
@@ -365,29 +369,33 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
         ),
       )
       .orderBy(messages.channelId, desc(messages.createdAt)),
+    // Every DM's unread count in one query (each against my own read of it, or the beginning where I never read it),
+    // not one query per DM: the list is read on every app load, and has a DM per agent and per person.
+    db
+      .select({ channelId: messages.channelId, n: sql<number>`count(*)::int` })
+      .from(messages)
+      .leftJoin(channelReads, and(eq(channelReads.channelId, messages.channelId), eq(channelReads.userId, actorId)))
+      .where(
+        and(
+          eq(messages.orgId, orgId),
+          inArray(messages.channelId, ids),
+          isNull(messages.deletedAt),
+          sql`(${messages.authorUserId} is null or ${messages.authorUserId} <> ${actorId})`,
+          sql`not ${quietNoticeSql(sql`${messages.meta}`)}`,
+          landedAfterSql(messages, sql`coalesce(${channelReads.lastReadAt}, 'epoch'::timestamptz)`),
+          // A thread's reply by the channels' rule: only in one I follow or that mentions me, and haven't read there
+          // (reading the thread clears it here too).
+          sql`(${messages.threadId} is null or ((${actorId} = any(${messages.mentionedUserIds})
+              or ${followsThreadSql(orgId, actorId, sql`${messages.threadId}`)})
+            and ${landedAfterSql(messages, threadReadAtSql(actorId, sql`${messages.threadId}`))}))`,
+          // Nor one more unread (ADR 0091): it is silent.
+          sql`${messages.meta}->>'mediaAfter' is null`,
+        ),
+      )
+      .groupBy(messages.channelId),
   ]);
   const readAt = new Map(reads.map((r) => [r.channelId, r.lastReadAt]));
-  const unreadRows = await Promise.all(
-    ids.map(async (id) => {
-      const [row] = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.orgId, orgId),
-            eq(messages.channelId, id),
-            isNull(messages.deletedAt),
-            sql`(${messages.authorUserId} is null or ${messages.authorUserId} <> ${actorId})`,
-            sql`not ${quietNoticeSql(sql`${messages.meta}`)}`,
-            landedAfterSql(messages, readAt.get(id) ?? new Date(0)),
-            // Nor one more unread (ADR 0091): it is silent.
-            sql`${messages.meta}->>'mediaAfter' is null`,
-          ),
-        );
-      return [id, row?.n ?? 0] as const;
-    }),
-  );
-  const unread = new Map(unreadRows);
+  const unread = new Map(unreadRows.map((r) => [r.channelId, r.n]));
   const lastBy = new Map(last.map((m) => [m.channelId, m]));
   return mine
     .flatMap((c) => {
@@ -404,7 +412,10 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
           lastMessage: m
             ? {
                 id: m.id,
-                body: readableBody(m.body, m.meta as Record<string, unknown> | null).slice(0, 200),
+                body: readableBody(
+                  wordsOf(m.body, m.meta as Record<string, unknown> | null),
+                  m.meta as Record<string, unknown> | null,
+                ).slice(0, 200),
                 meta: previewMeta(m.meta as Record<string, unknown> | null),
                 mediaKind: previewMediaKind(m.body, m.meta as Record<string, unknown> | null),
                 createdAt: m.createdAt,

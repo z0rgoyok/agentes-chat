@@ -17,7 +17,7 @@ import {
 import { errorCode } from "@agenteschat/client/lib/errors";
 import { formatShortDate, joinNames, relativeTime, timeLeft } from "@agenteschat/client/lib/format";
 import { approvalCargos, linkNeedsAttention } from "@agenteschat/client/lib/invite-start";
-import { approvalNews, JOIN_REASON_MAX, sendsEmail } from "@agenteschat/client/lib/join-requests";
+import { approvalNews, JOIN_REASON_MAX, sendsEmail, waitsForRoom } from "@agenteschat/client/lib/join-requests";
 import { membersFull } from "@agenteschat/client/lib/limits";
 import { sortRoles } from "@agenteschat/client/lib/roles";
 import {
@@ -110,7 +110,7 @@ export function InvitesPage() {
   const allLinks = links.data ?? [];
   const allInvitations = invitations.data ?? [];
   const shownRequests = wants("requests")
-    ? allRequests.filter((r) => hit(r.name, r.email, roleNames(r.link?.roleIds), r.suggestedBy))
+    ? allRequests.filter((r) => hit(r.name, r.email, roleNames(r.link?.roleIds), r.suggestedBy, r.outsideOf))
     : [];
   const shownLinks = wants("links")
     ? allLinks.filter((l) => hit(roleNames(l.roleIds) || t("roles.member"), l.createdBy))
@@ -270,8 +270,9 @@ export function InviteActions() {
 /**
  * Esperando você (ADR 0068, 0090, 0184): who asked through a link and whom members suggested, oldest first, each
  * approved with its cargos (starting on the link's the approver may give) or turned down with a reason. Approving
- * gives the link's channels and agents too, as far as the approver may give them. `focus` (from the admins' email):
- * that request in view with Aprovar focused, which the admin still presses, or its Recusar dialog open.
+ * gives the link's channels and agents too, as far as the approver may give them. An outside collaborator's request
+ * (ADR 0191) says who they work for, and takes no seat: a full workspace still approves it. `focus` (from the admins'
+ * email): that request in view with Aprovar focused, which the admin still presses, or its Recusar dialog open.
  */
 function WaitingRequests({
   requests,
@@ -367,11 +368,14 @@ function WaitingRequests({
                 (deny.isPending && deny.variables?.id === r.id);
               const when = whenWords(t, i18n.language, r.createdAt);
               const by = r.suggestedBy ?? null;
-              const how = by
-                ? t("members.requests.suggested", { name: by, when })
-                : r.link?.createdBy
-                  ? t("invites.viaLinkOf", { name: r.link.createdBy, when })
-                  : t("members.requests.viaLink", { when });
+              const outsideOf = r.outsideOf ?? null;
+              const how = outsideOf
+                ? t("members.requests.outside", { outsideOf, when })
+                : by
+                  ? t("members.requests.suggested", { name: by, when })
+                  : r.link?.createdBy
+                    ? t("invites.viaLinkOf", { name: r.link.createdBy, when })
+                    : t("members.requests.viaLink", { when });
               const link = r.link;
               const gives = link ? givesText(t, link, { ...look, general: false }) : "";
               const linkIsFull = link?.full === true;
@@ -390,7 +394,7 @@ function WaitingRequests({
                   }
                 >
                   <Who face={<Avatar size="md" name={r.name} />} name={r.name} sub={r.email}>
-                    <State icon={by ? "person" : "link"}>{how}</State>
+                    <State icon={outsideOf ? "globe" : by ? "person" : "link"}>{how}</State>
                     {/* Nobody proved the address: approving can't let them in at once (ADR 0072). */}
                     {!r.verified && !by && (
                       <span className="members-row__flag">
@@ -414,7 +418,7 @@ function WaitingRequests({
                       }}
                       size="sm"
                       variant="primary"
-                      disabled={answering || full || linkIsFull || !cargosLoaded}
+                      disabled={answering || waitsForRoom(r, full) || linkIsFull || !cargosLoaded}
                       loading={approve.isPending && approve.variables?.id === r.id}
                       onClick={() => approveOne(r)}
                     >
@@ -432,8 +436,9 @@ function WaitingRequests({
                       {t("members.requests.deny")}
                     </Button>
                   </span>
-                  {(gives || linkIsFull || above.length > 0) && (
+                  {(gives || linkIsFull || above.length > 0 || outsideOf) && (
                     <span className="ac-mediarow__body members-row__more">
+                      {outsideOf && <State icon="info">{t("members.requests.outsideSeat")}</State>}
                       {gives && <span className="small muted">{t("invites.withLink", { gives })}</span>}
                       {above.length > 0 && (
                         <State icon="lock">

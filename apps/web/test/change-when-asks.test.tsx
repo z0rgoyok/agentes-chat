@@ -182,6 +182,9 @@ describe("Settings → Aprovações", () => {
     await settle(8);
     const section = screen().getByRole("region", { name: "Aprovações" });
     expect(within(section).getByRole("button", { name: /Aprovações/ }).textContent).toBe("AprovaçõesSegue o workspace");
+    // Under the name, never beside it: in a narrow column the longer words would push the chevron to its own line.
+    expect(document.getElementById("agent-approvals-level-status")?.textContent).toBe("Segue o workspace");
+    expect(section.querySelector(".settings-row__value")).toBeNull();
     await click(within(section).getByRole("button", { name: /Aprovações/ }));
     await click(within(screen().getByRole("dialog", { name: "Aprovações" })).getByRole("radio", { name: /Nunca/ }));
     expect(within(section).getByRole("button", { name: /Aprovações/ }).textContent).toBe("AprovaçõesNunca perguntar");

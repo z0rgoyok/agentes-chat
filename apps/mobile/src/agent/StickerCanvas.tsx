@@ -1,5 +1,6 @@
+import { drawnKey } from "@agenteschat/ui/agent/engine";
 import { STICKER_STILL_T, type StickerLook, type StickerMood, stickerSeed } from "@agenteschat/ui/agent/stickers";
-import { Canvas, createPicture, Picture } from "@shopify/react-native-skia";
+import { Canvas, createPicture, Picture, type SkPicture } from "@shopify/react-native-skia";
 import { createContext, memo, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "@/ui/theme";
 import { frameClock } from "./clock";
@@ -21,6 +22,26 @@ export function useStickerLive(id: string | undefined): boolean {
 
 /** `useFrameTime`'s answer while not playing: never a moment of the clock. */
 const STOPPED = -1;
+
+/**
+ * Still stickers kept across mounts, most recently used last (as `AgentAvatar` keeps still faces): a row scrolled back
+ * into view, the picker's grid. The still frame depends only on the look, the mood and the size.
+ */
+const KEPT_STILLS = 200;
+const stills = new Map<string, SkPicture>();
+function keptStill(key: string, make: () => SkPicture): SkPicture {
+  const hit = stills.get(key);
+  if (hit) {
+    stills.delete(key);
+    stills.set(key, hit);
+    return hit;
+  }
+  const made = make();
+  stills.set(key, made);
+  const oldest = stills.size > KEPT_STILLS ? stills.keys().next().value : undefined;
+  if (oldest !== undefined) stills.delete(oldest);
+  return made;
+}
 
 function StickerCanvasView({
   look,
@@ -53,12 +74,19 @@ function StickerCanvasView({
   }, [playFor, start]);
   const t = useFrameTime(live && !reduced && !done, STOPPED, STICKER_FPS);
   const { color, eyes, accessory } = look;
+  // By the colors it resolves to: `sky` follows the workspace's accent.
+  const drawn = drawnKey(color);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `drawn` is what `color` draws as now
   const picture = useMemo(() => {
     const once = playFor === undefined ? undefined : Math.min(Math.max(0, t - start), playFor);
     const at = t === STOPPED ? STICKER_STILL_T : (once ?? t + stickerSeed(seed));
-    const ops = stickerFrame({ color, eyes, accessory }, mood, size, at);
-    return createPicture((canvas) => replay(canvas, ops), { width: size, height: size });
-  }, [color, eyes, accessory, mood, size, seed, t, start, playFor]);
+    const draw = () => {
+      const ops = stickerFrame({ color, eyes, accessory }, mood, size, at);
+      return createPicture((canvas) => replay(canvas, ops), { width: size, height: size });
+    };
+    if (t !== STOPPED) return draw();
+    return keptStill([drawn, eyes ?? "", accessory ?? "", mood, size].join("|"), draw);
+  }, [color, drawn, eyes, accessory, mood, size, seed, t, start, playFor]);
   return (
     <Canvas style={{ width: size, height: size }}>
       <Picture picture={picture} />

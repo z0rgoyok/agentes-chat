@@ -512,12 +512,16 @@ describe("deleting your account (Configurações › Sua conta)", () => {
       },
     });
     const { router } = await open(`/org/${ORG_ID}/settings/account`, { state });
-    const card = screen().getByRole("region", { name: "Apagar" });
+    const card = screen().getByRole("region", { name: "Recomeçar ou apagar" });
     // The kit's Tabs wrap the strip and the panel in a box that lays nothing out (`display: contents`).
     const cards = document.querySelectorAll(".settings__body .ac-tabpanel > .ac-card");
     expect(cards[cards.length - 1]).toBe(card);
     expect(card.classList.contains("settings-danger")).toBe(true);
-    await click(within(card).getByRole("button", { name: "Apagar conta" }));
+    const row = Array.from(card.querySelectorAll("details.danger-row")).at(-1) as HTMLElement;
+    await act(async () => {
+      row.setAttribute("open", "");
+    });
+    await click(within(row).getByRole("button", { name: "Apagar conta" }));
     await settle(6);
     // Kept in the address: a sign-in again comes back to it.
     expect(router.state.location.search).toMatchObject({ account: "delete" });
@@ -533,6 +537,25 @@ describe("deleting your account (Configurações › Sua conta)", () => {
       `/org/${BETA_ID}/settings/general?delete=1`,
     );
     expect(within(dialog).queryByRole("button", { name: "Apagar conta" })).toBeNull();
+  });
+
+  test("a workspace whose others are all outside collaborators: invite a member to make them an owner", async () => {
+    const state = seedState({
+      deletionPlan: {
+        closes: [],
+        leaves: [{ id: BETA_ID, name: "Beta", role: "owner" }],
+        soleOwner: [{ id: BETA_ID, name: "Beta", onlyOutside: true }],
+        computers: [],
+        staysBehind: [],
+        serverOwner: false,
+      },
+    });
+    await open(`/org/${ORG_ID}/issues?account=delete`, { state });
+    const dialog = screen().getByRole("dialog", { name: "Apagar a sua conta inteira?" });
+    expect(dialog.textContent).toContain(
+      "Você é a única pessoa dona de Beta, e as outras pessoas lá são colaboradores externos, que não podem ser donos. Convide um membro e torne essa pessoa dona, ou apague Beta.",
+    );
+    expect(within(dialog).getByRole("link", { name: "Abrir Pessoas" })).toBeTruthy();
   });
 
   test("the account menu doesn't offer it beside Sair", async () => {
@@ -648,33 +671,91 @@ describe("deleting your account (Configurações › Sua conta)", () => {
     expect(screen().getByRole("region", { name: "Sua conta inteira" })).toBeTruthy();
   });
 
-  test("Sua conta's last card: two plain buttons for an owner, the workspace's dialog opening in place", async () => {
+  test("Sua conta's last card: one row each to reset, delete the workspace and delete the account", async () => {
     const { router } = await open(`/org/${ORG_ID}/settings/account`);
-    const card = screen().getByRole("region", { name: "Apagar" });
-    const ways = Array.from(card.querySelectorAll(".danger-pair__way"));
-    expect(ways.map((w) => w.textContent)).toEqual([
-      "Apaga a sua conta em 7 dias, em todos os workspaces.Apagar conta",
-      "Acme fica só para leitura para todos agora. Ele é apagado de vez depois de 7 dias.Apagar workspace",
+    const card = screen().getByRole("region", { name: "Recomeçar ou apagar" });
+    const rows = Array.from(card.querySelectorAll<HTMLDetailsElement>("details.danger-row"));
+    expect(rows.map((r) => r.querySelector("summary")?.textContent)).toEqual([
+      "Recomeçar o workspaceApaga o que foi feito nele e começa de novo, com as mesmas pessoas.",
+      "Apagar workspaceAcme fica só para leitura para todos agora. Ele é apagado de vez depois de 7 dias.",
+      "Apagar contaApaga a sua conta em 7 dias, em todos os workspaces.",
     ]);
-    // One sentence and one button each: no link out of the card, no "…" on a button.
+    // Closed until opened, and no "…" on a button, no link out of the card.
+    expect(rows.map((r) => r.open)).toEqual([false, false, false]);
     expect(within(card).queryAllByRole("link")).toEqual([]);
-    expect(card.textContent).not.toContain("…");
-    await click(within(card).getByRole("button", { name: "Apagar workspace" }));
+    expect(Array.from(card.querySelectorAll(".ac-btn")).some((b) => b.textContent?.includes("…"))).toBe(false);
+    await act(async () => {
+      rows[1]?.setAttribute("open", "");
+    });
+    await click(within(rows[1] as HTMLElement).getByRole("button", { name: "Apagar workspace" }));
     await settle(4);
     expect(screen().getByRole("dialog", { name: /^Apagar Ac/ })).toBeTruthy();
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/account`);
   });
 
-  test("someone who can't delete the workspace gets the account's button alone, under its own name", async () => {
+  test("someone who can't delete the workspace gets the account's row alone, under its own name", async () => {
     await open(`/org/${ORG_ID}/settings/account`, { role: "member" });
     const card = screen().getByRole("region", { name: "Apagar conta" });
-    expect(card.querySelectorAll(".danger-pair__way").length).toBe(1);
-    expect(
-      within(card)
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["Apagar conta"]);
+    expect(card.querySelectorAll(".danger-row").length).toBe(1);
+    expect(Array.from(card.querySelectorAll(".ac-btn")).map((b) => b.textContent)).toEqual(["Apagar conta"]);
     expect(within(card).queryAllByRole("link")).toEqual([]);
+  });
+
+  test("resetting: what goes and stays on the row, then the name and its own code; the row says it started", async () => {
+    const { state, services, router } = await open(`/org/${ORG_ID}/settings/account`);
+    const card = screen().getByRole("region", { name: "Recomeçar ou apagar" });
+    const row = card.querySelector<HTMLDetailsElement>("details.danger-row") as HTMLDetailsElement;
+    await act(async () => {
+      row.setAttribute("open", "");
+    });
+    expect(row.textContent).toContain(
+      "Os agentes, as conversas, as DMs, os arquivos, as tarefas, as rotinas e a memória",
+    );
+    expect(row.textContent).toContain(
+      "As pessoas, os cargos, os convites, as contas de IA, os computadores e os conectores",
+    );
+    expect(row.textContent).toContain("Acontece na hora e não tem volta.");
+    await click(within(row).getByRole("button", { name: "Recomeçar workspace" }));
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: "Recomeçar Acme?" });
+    await type(within(dialog).getByLabelText("Digite Acme para confirmar"), "Acme");
+    await click(within(dialog).getByRole("button", { name: "Enviar código" }));
+    await settle(4);
+    expect(state.calls.filter((c) => c.method === "orgs.resetCode").map((c) => c.args)).toEqual([[ORG_ID]]);
+    expect(state.calls.some((c) => c.method === "orgs.deletionCode")).toBe(false);
+    const submit = within(dialog).getByRole("button", { name: "Recomeçar workspace" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    await type(within(dialog).getByLabelText("Código do email"), "482913");
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    await click(submit);
+    await settle(6);
+    expect(state.calls.find((c) => c.method === "orgs.reset")?.args).toEqual([ORG_ID, { code: "482913" }]);
+    expect(screen().queryByRole("dialog")).toBeNull();
+    expect(row.querySelector("summary")?.textContent).toContain("Recomeçando Acme…");
+    expect(within(row).getByRole("button", { name: "Recomeçar workspace" }).hasAttribute("disabled")).toBe(true);
+    // Done (`org.reset` reads `GET /me` again): its owner is on to the onboarding, without a click.
+    const acme = state.me?.organizations.find((o) => o.id === ORG_ID);
+    if (acme) acme.onboarding = { step: "context", generalChannelId: "c-general" };
+    await act(async () => {
+      await services.queryClient.invalidateQueries();
+    });
+    await settle(8);
+    expect(router.state.location.pathname).toBe("/onboarding");
+  });
+
+  test("the longest workspace name the server takes: every row and the reset dialog keep it whole", async () => {
+    const name = "Northwind Industries Holdings: Planejamento Estratégico e Operações Regionais (LATAM 2027)";
+    await open(`/org/${ORG_ID}/settings/account`, { name });
+    const card = screen().getByRole("region", { name: "Recomeçar ou apagar" });
+    const rows = Array.from(card.querySelectorAll<HTMLDetailsElement>("details.danger-row"));
+    await act(async () => {
+      for (const row of rows) row.setAttribute("open", "");
+    });
+    expect(rows[1]?.querySelector("summary")?.textContent).toContain(name);
+    await click(within(rows[0] as HTMLElement).getByRole("button", { name: "Recomeçar workspace" }));
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: `Recomeçar ${name}?` });
+    expect(within(dialog).getByLabelText(`Digite ${name} para confirmar`)).toBeTruthy();
   });
 
   test("two with the same name in the dialog: told apart in what it says and in its links", async () => {

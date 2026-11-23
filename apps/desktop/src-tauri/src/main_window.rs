@@ -269,10 +269,13 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
             NewWindowResponse::Deny
         })
         // A whole page loading again (⌘R, macOS ended it, a full navigation): the cover, never a blank window.
-        .on_page_load(move |_, payload| match payload.event() {
+        .on_page_load(move |page, payload| match payload.event() {
             PageLoadEvent::Started => crate::cover::show(&on_load, Duration::ZERO),
             // The page's own sizes follow the zoom (desktop.css), and the bar knows about full screen.
-            PageLoadEvent::Finished => fit_page(&on_load),
+            PageLoadEvent::Finished => {
+                fit_page(&on_load);
+                crate::cover::site_loaded(&on_load, &page);
+            }
         })
         .on_download(move |_, event| match event {
             DownloadEvent::Requested { destination, .. } => match downloads_path(&on_download, destination) {

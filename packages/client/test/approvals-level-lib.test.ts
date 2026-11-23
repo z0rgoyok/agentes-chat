@@ -37,18 +37,24 @@ test("an agent follows the workspace only when the server says so, and the own o
   expect(ownApprovalsCount([{ approvalsLevelOwn: true }, { approvalsLevelOwn: false }, {}])).toBe(1);
 });
 
-test("Mudar quando perguntar: a waiting request, for who decides it and manages agents", () => {
-  const admin = { permissions: ["manage_agents"] };
-  expect(changesWhenAsks(admin, { status: "pending", canDecide: true })).toBe(true);
-  expect(changesWhenAsks(admin, { status: "pending", canDecide: false })).toBe(false);
-  expect(changesWhenAsks(admin, { status: "approved", canDecide: true })).toBe(false);
-  expect(changesWhenAsks({ permissions: ["approve_actions"] }, { status: "pending", canDecide: true })).toBe(false);
+test("Change when it asks: a waiting request, for who decides it and manages its agent", () => {
+  // The agent as the server sends it to me: `canManage` ("Edit agents" where it reaches, ADR 0085 addendum).
+  const managed = { canManage: true };
+  expect(changesWhenAsks(managed, { status: "pending", canDecide: true })).toBe(true);
+  expect(changesWhenAsks(managed, { status: "pending", canDecide: false })).toBe(false);
+  expect(changesWhenAsks(managed, { status: "approved", canDecide: true })).toBe(false);
+  // Deciding it isn't setting its agent's level: someone's private agent stays out of reach of the key alone.
+  expect(changesWhenAsks({ canManage: false }, { status: "pending", canDecide: true })).toBe(false);
+  expect(changesWhenAsks({}, { status: "pending", canDecide: true })).toBe(false);
+  expect(changesWhenAsks(undefined, { status: "pending", canDecide: true })).toBe(false);
 });
 
-test("what Desfazer puts back: one agent's choice, or every own choice with the workspace's level", () => {
+test("what Undo puts back: one agent's choice, or every own choice I manage with the workspace's level", () => {
   const agents = [
-    { id: "ada", approvalsLevel: "never" as const, approvalsLevelOwn: true },
-    { id: "atlas", approvalsLevel: "risky" as const, approvalsLevelOwn: false },
+    { id: "ada", approvalsLevel: "never" as const, approvalsLevelOwn: true, canManage: true },
+    { id: "atlas", approvalsLevel: "risky" as const, approvalsLevelOwn: false, canManage: true },
+    // Its own choice, on an agent I don't manage: the server would refuse setting it back.
+    { id: "iara", approvalsLevel: "always" as const, approvalsLevelOwn: true, canManage: false },
   ];
   expect(levelsBefore("risky", agents, "atlas")).toEqual({
     workspace: "risky",

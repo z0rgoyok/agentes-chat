@@ -28,6 +28,7 @@
 /* Review. A row's name, value and Editar each start on a line of one height (`--rv-line`), so the three share the
    first line whatever their type size. */
 .newag__review {
+  container: newag-review / inline-size;
   gap: 0;
   padding: var(--space-1) var(--space-4);
 }
@@ -57,6 +58,25 @@
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+}
+/* A narrow review (a phone, or the flow beside the app's sidebar and its own preview on a laptop): the name of what is
+   reviewed and its Editar (or switch) on one line, the value under them at the row's whole width, never a column
+   beside the button. By the review's own width: the window says nothing of the room the flow got. */
+@container newag-review (max-width: 520px) {
+  .newag__rv {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "k end" "v v";
+    align-items: center;
+  }
+  .newag__rv-k {
+    grid-area: k;
+  }
+  .newag__rv-v {
+    grid-area: v;
+  }
+  .newag__rv > :last-child:not(.newag__rv-v) {
+    grid-area: end;
+  }
 }
 .newag__quote {
   display: -webkit-box;
@@ -363,22 +383,6 @@
   .newag__work {
     padding: 0 16px;
   }
-  /* Narrow: the name of what is reviewed and its Editar (or switch) on one line, the value under them at the row's
-     whole width, never a column beside the button. */
-  .newag__rv {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "k end" "v v";
-    align-items: center;
-  }
-  .newag__rv-k {
-    grid-area: k;
-  }
-  .newag__rv-v {
-    grid-area: v;
-  }
-  .newag__rv > :last-child:not(.newag__rv-v) {
-    grid-area: end;
-  }
   .newag__born {
     min-height: 520px;
     padding: 22px;
@@ -412,33 +416,6 @@
 
 /* Its own page in the desktop app: the workspace is the window less its title bar (desktop.css), so the rail and the
    preview fill that area, not the whole window, and their foot doesn't sink under its edge. */
-html[data-desktop] .shell .newag:not(.newag-dialog > *) {
+html[data-desktop] .shell .newag {
   --onb-h: calc(100dvh - var(--titlebar-h));
-}
-
-/*
- * The card's review, over the conversation (`NewAgentPage` with `onClose`): the flow in a dialog as tall as the window
- * allows, scrolling inside it. `--onb-h` is that height, which the flow's rail, preview and steps fill as they fill the
- * window on its own page. A phone gets the whole screen.
- */
-.newag-dialog {
-  --onb-h: min(880px, calc(100dvh - 48px));
-  height: var(--onb-h);
-  overflow: hidden;
-}
-.newag-dialog > .onb,
-.newag-dialog > .shell__main {
-  height: 100%;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-@media (max-width: 760px) {
-  .newag-dialog {
-    --onb-h: 100dvh;
-    width: 100%;
-    max-height: none;
-    border: 0;
-    border-radius: 0;
-  }
 }

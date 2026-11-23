@@ -1,6 +1,6 @@
 /**
  * One language's strings checked against English, the source (ADR 0122): the same keys, every plural form the
- * language needs, the same placeholders and tags, nothing empty, nothing left in English, the glossary's names kept,
+ * language needs, the same placeholders, tags and `code`, nothing empty, nothing left in English, the glossary's names kept,
  * no semicolons. Shared by every surface's test (`@agenteschat/i18n/testing`) and by `bun run i18n:apply`.
  */
 import glossary from "../glossary.json";
@@ -39,6 +39,8 @@ const sameSet = (a: string[], b: string[]) => {
 };
 const shown = (list: string[]) => [...new Set(list)].map((v) => `{{${v}}}`).join(" ") || "none";
 const sameBag = (a: string[], b: string[]) => [...a].sort().join("\n") === [...b].sort().join("\n");
+/** `code` spans: a command, a path or a setting's name, which a translation keeps as is. */
+const codeSpans = (s: string) => s.match(/`[^`\n]+`/g) ?? [];
 
 /** Values that may stay empty in every language: the custom role starts with no instructions. */
 const EMPTY_OK = new Set(["newAgent.roles.custom.instructions"]);
@@ -135,6 +137,7 @@ export function checkLocale({ source, target, code, ready, identical = [] }: Che
       if (!sameSet(drop(vars(value)), drop(want)))
         problems.push(`${key}: placeholders ${shown(vars(value))} ≠ English ${shown(want)}`);
       if (!sameBag(tags(value), tags(en))) problems.push(`${key}: tags differ from English`);
+      if (!sameBag(codeSpans(value), codeSpans(en))) problems.push(`${key}: \`code\` differs from English`);
       if (!value.trim() && !EMPTY_OK.has(base)) problems.push(`${key}: empty`);
       if (code !== "en" && value === en && !nothingToTranslate(value) && !sameAsEn.has(base))
         problems.push(`${key}: same as English`);

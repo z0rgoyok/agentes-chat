@@ -1,4 +1,5 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isObject } from "@agenteschat/adapters/machine-protocol";
 import { readSmallJson } from "./json-file";
@@ -163,6 +164,31 @@ export function dropAgySignIns(dir: string) {
     } catch {
       // not an account's folder: its own shell may have put anything there
     }
+  }
+}
+
+/**
+ * macOS: the account's own keychain, `Library/Keychains/login.keychain-db` under its folder. The CLI keeps its sign-in
+ * in the default keychain through `/usr/bin/security` (go-keyring), which looks for it under `$HOME`, so with the
+ * folder as `HOME` every account signs in to a keychain of its own and never to the computer user's. It has no
+ * password and never locks by itself; it is unlocked before every CLI run, since a restart locks it.
+ */
+export const AGY_KEYCHAIN = "Library/Keychains/login.keychain-db";
+
+export function agyKeychain(
+  home: string,
+  run: (args: string[]) => void = (args) =>
+    void execFileSync("/usr/bin/security", args, { env: { HOME: home, PATH: "/usr/bin:/bin" }, stdio: "ignore" }),
+) {
+  const file = path.join(home, AGY_KEYCHAIN);
+  try {
+    if (!existsSync(file)) {
+      mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      run(["create-keychain", "-p", "", file]);
+      run(["set-keychain-settings", file]);
+    } else run(["unlock-keychain", "-p", "", file]);
+  } catch {
+    // The CLI then falls back to its own secrets file in the folder, still the account's alone.
   }
 }
 

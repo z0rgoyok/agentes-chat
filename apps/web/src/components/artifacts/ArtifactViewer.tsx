@@ -1,5 +1,6 @@
 import type { ArtifactAuthor, ArtifactContent, ArtifactDetail, ArtifactRef } from "@agenteschat/client";
 import {
+  isLiveFileKind,
   keys,
   useArtifact,
   useArtifactBlob,
@@ -25,13 +26,14 @@ import {
   Locked,
   Menu,
   MenuItem,
-  Textarea,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BlockActionButtons } from "@/components/blocks/LiveBlock";
+import { knownLive, openLivePage } from "@/components/live/open";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useMatchMedia } from "@/hooks/useMatchMedia";
@@ -73,9 +75,17 @@ const ViewerContext = createContext<{
 /** Opens artifacts in the side panel from anywhere in the workspace (chat cards, Drive). */
 export function ArtifactViewerProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<ViewerTarget | null>(null);
+  const { org } = useOrg();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const orgId = org.id;
   const open = useCallback(
-    (id: string, version?: number, set?: ViewerItem[]) => setTarget({ id, version, set, key: id }),
-    [],
+    (id: string, version?: number, set?: ViewerItem[]) => {
+      // A spreadsheet, a presentation or a canvas opens on its own page (ADR 0196 §9), not in the viewer.
+      if (knownLive(qc, orgId, id)) openLivePage(navigate, orgId, id, { version });
+      else setTarget({ id, version, set, key: id });
+    },
+    [qc, orgId, navigate],
   );
   const close = useCallback(() => setTarget(null), []);
   const value = useMemo(() => ({ open, close }), [open, close]);
@@ -163,6 +173,17 @@ export function ArtifactViewer({
   const [editing, setEditing] = useState(false);
   const remover = useDeleteArtifact(onClose);
   const a = query.data;
+  const navigate = useNavigate();
+  const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>;
+  const searchArtifact = search.artifact;
+  // Opened before its kind was known (a link, a notification): a live file goes to its own page (ADR 0196 §9), in
+  // place of the Drive's link to it when that is what opened it.
+  const liveId = a && isLiveFileKind(a.kind) ? a.id : null;
+  useEffect(() => {
+    if (!liveId) return;
+    onClose();
+    openLivePage(navigate, org.id, liveId, { version, replace: searchArtifact === liveId });
+  }, [liveId, onClose, navigate, org.id, version, searchArtifact]);
   const channel = a?.channelId ? channels.data?.find((c) => c.id === a.channelId) : undefined;
   const old = a ? a.shownVersion < a.version : false;
   const uploader = useDriveUpload((saved) => {
@@ -178,7 +199,8 @@ export function ArtifactViewer({
   const formats = a ? downloads.formats(a.kind) : [];
   // The whole text of what's shown (a text or code file, a document, a page's source), copied in one click.
   const text = a && !editing ? artifactText(a.content) : undefined;
-  const canEditNow = Boolean(a?.canEdit && !old && !editing && (a?.kind === "document" || a?.kind === "table"));
+  // A table is saved whole as a new version; a document is a live file edited on its own page (ADR 0200).
+  const canEditNow = Boolean(a?.canEdit && !old && !editing && a?.kind === "table");
   // A snapshot (a screenshot, a photo) has no versions: no history beside it, no "Enviar nova versão" (ADR 0019).
   const versioned = a?.versioned !== false;
   const canUploadVersion = Boolean(a?.canEdit && !old && a?.kind === "file" && versioned);
@@ -344,6 +366,8 @@ export function ArtifactViewer({
       />
     </>
   );
+  // On its way to its own page.
+  if (liveId) return null;
   return (
     <DetailsDialog
       open
@@ -541,15 +565,6 @@ function Editor({ artifact, onDone }: { artifact: ArtifactDetail; onDone: (saved
     >
       <p className="small muted">{t("artifacts.editing", { version: artifact.version + 1 })}</p>
       <Locked when={save.isPending}>
-        {content.kind === "document" && (
-          <Field label={t("artifacts.markdownSource")} id="artifact-md">
-            <Textarea
-              rows={18}
-              value={content.markdown}
-              onChange={(e) => setContent({ kind: "document", markdown: e.target.value })}
-            />
-          </Field>
-        )}
         {content.kind === "table" && (
           <TableEditor
             columns={content.columns}

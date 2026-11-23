@@ -1,3 +1,5 @@
+import { withoutTrailingSlashes } from "../lib/server";
+
 /**
  * Fetch wrapper for the private app API. The web app calls it on the same
  * origin with its cookie session; the phone app passes `baseUrl` and sends its
@@ -84,7 +86,7 @@ interface Transport {
 }
 
 function transport(options: TransportOptions): Transport {
-  const base = (options.baseUrl ?? "").replace(/\/+$/, "");
+  const base = withoutTrailingSlashes(options.baseUrl ?? "");
   const send = options.fetch ?? ((input, init) => fetch(input, init));
   return {
     fetch: async (input, init) => {

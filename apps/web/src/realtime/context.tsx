@@ -23,6 +23,7 @@ import {
   applyConversationEvent,
   applyDashboardEvent,
   applyIssueEvent,
+  applyLiveEvent,
   applyMachineEvent,
   applyMembershipEvent,
   applyNotificationEvent,
@@ -100,6 +101,7 @@ import { knownErrorText } from "@agenteschat/client/lib/errors";
 import { formatPercent } from "@agenteschat/client/lib/format";
 import { isReturnLine } from "@agenteschat/client/lib/notices";
 import { nextMonthIso, usageWhen } from "@agenteschat/client/lib/plan-usage";
+import { useSeat } from "@agenteschat/client/lib/seat-context";
 import { playSound, soundForEvent } from "@agenteschat/client/lib/sounds";
 import { playAgentReaction } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -804,6 +806,8 @@ export function useChannelRealtime(orgId: string, channelId: string, enabled: bo
       }
       // A file's cards and viewer, an agent's memory list.
       applyConversationEvent(qc, orgId, event);
+      // Who is in one of the conversation's live files changed (ADR 0196 §5): its cards ask again.
+      applyLiveEvent(qc, orgId, event);
       if (event.type === "poll.updated") qc.setQueryData(keys.poll(orgId, event.poll.id), event.poll);
       if (event.type === "block.state") {
         const { block } = event;
@@ -1099,15 +1103,16 @@ export function useBrowserLive(agentId: string, enabled = true, maxFps?: number)
  */
 export function useDesktopPointer(agentId: string, enabled = true) {
   const { connection } = useRealtime();
+  const shared = useSeat(agentId) !== undefined;
   const [pointer, setPointer] = useState<BrowserLiveState["pointer"]>(null);
   useEffect(() => {
     setPointer(null);
     if (!connection || !enabled) return;
     return connection.onUserEvent((event) => {
-      const to = desktopPointerOf(event, agentId);
+      const to = desktopPointerOf(event, agentId, shared);
       if (to) setPointer((was) => nextPointer(was, to));
     });
-  }, [connection, agentId, enabled]);
+  }, [connection, agentId, enabled, shared]);
   return pointer;
 }
 

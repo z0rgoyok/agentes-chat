@@ -155,7 +155,11 @@ describe("receipts as on the web", () => {
     expect(sentence).toContain("}, DOUBLE_TAP_MS);");
     expect(sentence.match(/onLongPress=\{onLongPress\}/g)).toHaveLength(1);
     expect(sentence).toContain("onLongPress={href ? onLongPress : undefined}");
-    expect(src).toContain("onPress={() => close(() => router.push(href))}");
+    // The sheet is the sheets' own list: a change that opens its thing closes the sheet first, then goes there.
+    expect(src).toContain("onPress: () => close(() => router.push(href)),");
+    const sheet = src.slice(src.indexOf("function ChangesSheet("), src.indexOf("function CopyHook("));
+    expect(sheet).toContain("<ActionList");
+    expect(sheet).not.toContain("<Card>");
     expect(src).not.toContain("WhoSeesLine");
     const row = readFileSync(join(import.meta.dir, "../../src/features/chat/MessageRow.tsx"), "utf8");
     expect(row).toContain("<Receipts message={m} onTap={onTap} onLongPress={press} />");

@@ -502,11 +502,13 @@ describe("server restarts", () => {
     const old = await jobOf(run.id);
     await f.db
       .update(schema.outbox)
-      .set({ attempts: old?.maxAttempts ?? 4 })
+      .set({ attempts: old?.maxAttempts ?? 4, lastError: "an earlier attempt's refusal (503)", lastErrorStatus: 503 })
       .where(eq(schema.outbox.id, old?.id ?? ""));
     expect((await recoverStaleRuns({ db: f.db, pubsub: f.pubsub })).resumed).toEqual([run.id]);
     const jobs = (await f.db.select().from(schema.outbox)).filter((j) => j.kind === "agent_run.execute");
     expect(jobs.map((j) => j.status).sort()).toEqual(["failed", "pending"]);
+    // The status was that earlier error's: the words that replace it carry none.
+    expect(jobs.find((j) => j.id === old?.id)).toMatchObject({ status: "failed", lastErrorStatus: null });
     await drainOutbox(f.db, f.handlers);
     expect((await runRow(run.id))?.status).toBe("done");
   });
@@ -535,11 +537,21 @@ describe("server restarts", () => {
       .update(schema.agentRuns)
       .set({ heartbeatAt: new Date(Date.now() - RESUME_MAX_AGE_MS - 60_000) })
       .where(eq(schema.agentRuns.id, run.id));
+    await f.db
+      .update(schema.outbox)
+      .set({ lastError: "an earlier attempt's refusal (503)", lastErrorStatus: 503 })
+      .where(eq(schema.outbox.id, (await jobOf(run.id))?.id ?? ""));
 
     expect(await recoverStaleRuns({ db: f.db, pubsub: f.pubsub })).toEqual({
       resumed: [],
       failed: [run.id],
       requeued: [],
+    });
+    // Its job ends with the interruption's words, and the status an earlier error left goes with that error.
+    expect(await jobOf(run.id)).toMatchObject({
+      status: "failed",
+      lastError: INTERRUPTED_BY_RESTART,
+      lastErrorStatus: null,
     });
     await drainOutbox(f.db, f.handlers);
     expect(f.provider.calls).toHaveLength(1);

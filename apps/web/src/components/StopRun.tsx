@@ -1,8 +1,8 @@
 import type { LiveRun, Message } from "@agenteschat/client";
 import { ApiError, continuedRunIdOf, keys, useContinuedRun, workingSinceOf } from "@agenteschat/client";
 import { activityVerb, toolActivity } from "@agenteschat/client/lib/activity";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { can } from "@agenteschat/client/lib/permissions";
 import { playSound } from "@agenteschat/client/lib/sounds";
 import { PixelStop, Spinner } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -23,7 +23,7 @@ type RunOwner = Pick<LiveRun, "agentId" | "channelId" | "threadId"> & { triggerM
 
 /**
  * "Parar" for a run: who may press it (the person whose message started it,
- * the agent's owner, admins) and the stop itself. Stopping is immediate (no
+ * the agent's owner, who manages it) and the stop itself. Stopping is immediate (no
  * confirmation): what the agent did stays, and "Continuar" picks it up again.
  */
 export function useStopRun() {
@@ -51,8 +51,10 @@ export function useStopRun() {
     const root = list.find((m) => m.id === (r.triggerMessageId ?? r.threadId));
     return root?.author.type === "person" && root.author.id === me.user.id;
   };
-  const canStop = (r: RunOwner) =>
-    can(org, "manage_agents") || dir.agentById.get(r.agentId)?.ownerUserId === me.user.id || startedByMe(r);
+  const canStop = (r: RunOwner) => {
+    const agent = dir.agentById.get(r.agentId);
+    return managesAgent(agent) || agent?.ownerUserId === me.user.id || startedByMe(r);
+  };
   return {
     canStop,
     stop: (r: LiveRun) => {

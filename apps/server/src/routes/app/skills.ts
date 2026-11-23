@@ -523,7 +523,7 @@ export function skillRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/skills/{skillId}/revert",
       tags,
       security,
-      summary: "Undo an agent's last change to its own skill (its owner or admins)",
+      summary: "Undo an agent's last change to its own skill (who edits that agent, or who manages the team's skills)",
       request: { params: SkillParams },
       responses: { 200: json(SkillDetail), ...errors },
     }),
@@ -736,7 +736,7 @@ export function skillRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/agents/{agentId}/skills",
       tags,
       security,
-      summary: "Turn skills on or off for an agent (admins or its owner)",
+      summary: "Turn skills on or off for an agent (who edits it: its owner, who manages it, its editors)",
       request: {
         params: AgentParams,
         body: body(z.object({ skills: z.array(z.object({ skillId: z.uuid(), enabled: z.boolean() })).max(500) })),

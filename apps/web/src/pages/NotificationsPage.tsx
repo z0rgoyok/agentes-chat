@@ -225,35 +225,6 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
   return label ? [icon, label] : null;
 }
 
-/** Where it happened, as a chip, unless the headline says it. */
-function SourceChip({
-  n,
-  channelName,
-  className,
-}: {
-  n: AppNotification;
-  channelName: (id: string) => string;
-  className?: string;
-}) {
-  const { t } = useTranslation();
-  const source = sourceOf(t, n, channelName);
-  if (!source) return null;
-  const channel = channelOf(n);
-  return (
-    <Chip icon={source[0]} className={className}>
-      {/* The channel's icon is its #: the words show its bare name, a screen reader still hears the #. */}
-      {source[0] === "channel" && channel ? (
-        <>
-          <span className="ac-visually-hidden">#</span>
-          {channelName(channel)}
-        </>
-      ) : (
-        source[1]
-      )}
-    </Chip>
-  );
-}
-
 /** How long is left to answer, as a chip that turns to attention in the last hours. */
 function LeftChip({ n, className }: { n: AppNotification; className?: string }) {
   const { t } = useTranslation();
@@ -772,14 +743,22 @@ function Row({
               : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
   const stopStep = steps ? (steps.failedAt ?? steps.done + 1) : 0;
   const stepWords = steps
-    ? failed
-      ? t("notifications.stoppedAt", { step: Math.min(stopStep, steps.total), total: steps.total })
-      : t("notifications.steps", { done: steps.done, total: steps.total })
+    ? t("notifications.stoppedAt", { step: Math.min(stopStep, steps.total), total: steps.total })
     : "";
   const agentColor = first?.type === "agent" ? colorOf(dir.anyAgent(first.id)) : undefined;
   const channel = channelOf(n);
   const statusMove = n.kind === "issue_status" && (l.statusFrom || l.statusTo);
-  const tags = !reaction && (sourceOf(t, n, channelName) || statusMove);
+  // Where it happened and a task's move lead the snippet's line in plain words: one muted line, no chips.
+  const where = reaction
+    ? ""
+    : [
+        sourceOf(t, n, channelName)?.[1],
+        statusMove
+          ? t("notifications.status", { from: statusName(t, l.statusFrom), to: statusName(t, l.statusTo) })
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
   return (
     // biome-ignore lint/a11y/useSemanticElements: a row of the inbox, not a fieldset
     <div
@@ -810,17 +789,6 @@ function Row({
       </span>
       <span className="ac-mediarow__end nt-tm">{whenText(t, i18n.language, n.updatedAt)}</span>
       <div className="ac-mediarow__body">
-        {tags && (
-          <span className="nt-tags">
-            <SourceChip n={n} channelName={channelName} />
-            {/* The arrow is in its words: no icon to say it again. */}
-            {statusMove && (
-              <Chip className="nt-chip-ink">
-                {t("notifications.status", { from: statusName(t, l.statusFrom), to: statusName(t, l.statusTo) })}
-              </Chip>
-            )}
-          </span>
-        )}
         {reaction ? (
           <>
             {l.quote && (
@@ -843,24 +811,24 @@ function Row({
           </>
         ) : (
           <>
-            {(text || lead) && (
+            {(text || lead || where) && (
               <p className={cx("nt-snip", restriction && "nt-snip--whole")}>
+                {where && <span className="nt-where">{where}</span>}
+                {where && (text || lead) && " · "}
                 {lead && <b>{t("notifications.lead", { text: lead })} </b>}
                 {speaker && <b>{t("notifications.speaker", { name: speaker })} </b>}
                 {text && <Snippet text={text} mine={mine} />}
               </p>
             )}
-            {steps && (
+            {/* A finished run says nothing extra: only a stopped one shows where it stopped. */}
+            {steps && failed && (
               <div className="nt-steprow">
                 <PlanStrip
                   cells={stepCells({ ...steps, failedAt: failed ? stopStep : undefined })}
                   color={agentColor}
                   label={stepWords}
                 />
-                <Chip
-                  icon={failed ? "alert" : "check"}
-                  className={cx("nt-chip-ink", failed ? "nt-chip-warn" : "nt-chip-ok")}
-                >
+                <Chip icon="alert" className="nt-chip-ink nt-chip-warn">
                   {stepWords}
                 </Chip>
               </div>
@@ -1320,7 +1288,7 @@ function WaitRow({
           <Headline n={n} dir={dir} channelName={channelName} />
         </p>
         {sub && <p className="nt-wr__sub">{sub}</p>}
-        <div className="rq__foot nt-wr__acts">
+        <div className="rq__foot ac-tailrow nt-wr__acts">
           {/* A board's notice is decided or resolved right here (ADR 0135). */}
           <WidgetNoticeActions n={n} onOpen={() => h.onOpen(n)} open={false} />
           <DeviceNoticeActions n={n} inline />
@@ -1329,7 +1297,7 @@ function WaitRow({
           <Button size="sm" className="nt-wr__open" title={t("notifications.openTip")} onClick={() => h.onOpen(n)}>
             {found?.act ? (t as unknown as (key: string) => string)(found.act) : t("notifications.open")}
           </Button>
-          <span className="rq__end">{tail}</span>
+          <span className="rq__end ac-tail">{tail}</span>
         </div>
       </div>
       {children}

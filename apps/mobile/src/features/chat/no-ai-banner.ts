@@ -1,5 +1,5 @@
 import type { AiStatus, Message } from "@agenteschat/client";
-import { aiStateOf, noAiCardOf } from "@agenteschat/client/lib/no-ai";
+import { aiStateOf, noAiCardShown } from "@agenteschat/client/lib/no-ai";
 
 /**
  * Which "no AI" banner the box shows, as the web's `NoAiBanner` (ADR 0061): in an agent's DM, that agent
@@ -25,8 +25,11 @@ export function noAiBanner(
   };
 }
 
-/** The conversation ends on an agent's no-AI card (`meta.noAi`): the banner would repeat it right below. */
+/**
+ * The conversation ends on an agent's no-AI card (`meta.noAi`): the banner would repeat it right below. The right
+ * hand's stand-in line is no such card (`isStandInLine`).
+ */
 export function endsOnNoAiCard(messages: readonly Message[]): boolean {
   const last = messages.at(-1);
-  return Boolean(last && last.author.type === "agent" && noAiCardOf(last.meta));
+  return Boolean(last && last.author.type === "agent" && noAiCardShown(last.meta));
 }

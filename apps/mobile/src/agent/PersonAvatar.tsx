@@ -1,7 +1,8 @@
 import { initialsOf } from "@agenteschat/tokens/names";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
-import { Image, Text as RNText, StyleSheet } from "react-native";
+import { Text as RNText, StyleSheet } from "react-native";
 import type { PhotoSource } from "@/lib/photo";
 import { useTheme } from "@/ui/theme";
 import { initialText } from "@/ui/type-scale";
@@ -17,7 +18,9 @@ export interface PersonAvatarProps {
 
 /**
  * A person: their photo, or a neutral tile with the first letter (agents are the ones with color). The web's tile
- * shape for everyone: a rounded square, radius 30% of the side, as the agents' own.
+ * shape for everyone: a rounded square, radius 30% of the side, as the agents' own. The photo is cached in memory and
+ * on disk (its address changes with its content) and drawn at once, with no fade: a face seen in every list must not
+ * flicker in each time a row comes back.
  */
 export function PersonAvatar({ name, size, photo, radius = size * 0.3 }: PersonAvatarProps) {
   const { scheme } = useTheme();
@@ -56,8 +59,11 @@ export function PersonAvatar({ name, size, photo, radius = size * 0.3 }: PersonA
       {photo && !failed ? (
         <Image
           source={photo}
+          cachePolicy="memory-disk"
+          recyclingKey={photo.uri}
+          transition={0}
+          contentFit="cover"
           onError={() => setFailed(true)}
-          resizeMode="cover"
           style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
           accessibilityIgnoresInvertColors
         />

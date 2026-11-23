@@ -305,6 +305,11 @@ export class McpBridge {
       socketPath: string;
       /** The task's MCP token and state (from the task journal). */
       task: (taskId: string) => McpTaskInfo | null;
+      /**
+       * A tool call of `taskId`'s starts being relayed (+1) or got its answer (-1): a brain process waits on us
+       * meanwhile, so its turn's silence isn't its own (`BrainManager.bridgeCall`).
+       */
+      onCall?: (taskId: string, delta: 1 | -1) => void;
       log?: (line: string) => void;
       callTimeoutMs?: number;
     },
@@ -519,7 +524,12 @@ export class McpBridge {
       args,
       ...(info.serverToken ? { token: info.serverToken } : {}),
     };
-    return this.relayAndWait(callId, tool, frame, !info.runId || RESEND_SAFE.has(tool));
+    this.opts.onCall?.(taskId, 1);
+    try {
+      return await this.relayAndWait(callId, tool, frame, !info.runId || RESEND_SAFE.has(tool));
+    } finally {
+      this.opts.onCall?.(taskId, -1);
+    }
   }
 
   private relayAndWait(callId: string, tool: string, frame: RunnerFrame, resend: boolean) {
@@ -689,6 +699,8 @@ export const ALWAYS_LOADED: ReadonlySet<string> = new Set([
   "react",
   "ask_user",
   "ask_choices",
+  // The line before slow work (ADR 0207): in hand from the first round. The server also marks it `upFront`.
+  "say_now",
   "request_approval",
   "remember",
   "update_memory",
@@ -1421,16 +1433,20 @@ function toolsBreach(init: Record<string, unknown>, own: readonly string[]): str
 
 /**
  * Denied in every profile (Claude Code checks deny rules before allow rules):
- * the deny list, credential stores (shell and read tools) and code given
- * inline to an interpreter, which `Bash(node *)`, `Bash(python3 *)` would
- * otherwise allow (ADR 0053 §3).
+ * the deny list and credential stores (shell and read tools) (ADR 0053 §3).
  */
 export const ALWAYS_DENY_RULES: readonly string[] = [
   ...MISSION_DENY_RULES,
   ...SECRET_BASH_DENY_RULES,
   ...SECRET_READ_DENY_RULES,
-  ...INLINE_CODE_DENY_RULES,
 ];
+
+/**
+ * A `work` turn's `ask` rules, which outrank allow rules: every push, and code given inline to an interpreter, which
+ * `Bash(node *)`, `Bash(python3 *)` would otherwise allow. Both reach our prompt tool, so the server decides (a
+ * mission's card; outside one, ordinary work).
+ */
+const WORK_ASK_RULES: readonly string[] = [...PUSH_ASK_RULES, ...INLINE_CODE_DENY_RULES];
 
 /** What a `plan` turn never gets: edits. Reading the web is a read (ADR 0109). */
 const PLAN_DENY = ["Edit", "Write", "NotebookEdit"];
@@ -1443,8 +1459,8 @@ const PLAN_DENY = ["Edit", "Write", "NotebookEdit"];
  * also `git -C <path> …`; Claude Code checks each part of a pipeline). `work`: edits (`acceptEdits`), the same
  * read-only commands, plain file work, git work, pull requests, tests and
  * builds. Merges, deploys and publishing are denied (deny rules win over
- * allow rules); every push is `ask` (`PUSH_ASK_RULES`, which outranks allow
- * rules), so the prompt tool reads where it goes.
+ * allow rules); every push and inline code is `ask` (`WORK_ASK_RULES`, which outrank allow
+ * rules), so the prompt tool reads where it goes; `plan` and `chat` deny inline code.
  */
 export function claudePermissionSettings(
   mode: "plan" | "work" | "chat",
@@ -1472,7 +1488,10 @@ export function claudePermissionSettings(
   // The team's right hand on a person's plan (protocol 41): our tools only, every tool of Claude Code's own refused.
   if (mode === "chat") {
     return {
-      permissions: { allow: ["mcp__agentes"], deny: [...CHAT_DENIED_TOOLS, ...ALWAYS_DENY_RULES, ...homeDeny] },
+      permissions: {
+        allow: ["mcp__agentes"],
+        deny: [...CHAT_DENIED_TOOLS, ...ALWAYS_DENY_RULES, ...INLINE_CODE_DENY_RULES, ...homeDeny],
+      },
     };
   }
   if (mode === "plan") {
@@ -1491,7 +1510,7 @@ export function claudePermissionSettings(
           ...missionFolderRules(missionFolder, ["Read"]),
         ],
         ask: [...PUSH_ASK_RULES],
-        deny: [...PLAN_DENY, ...ALWAYS_DENY_RULES, ...homeDeny],
+        deny: [...PLAN_DENY, ...ALWAYS_DENY_RULES, ...INLINE_CODE_DENY_RULES, ...homeDeny],
       },
     };
   }
@@ -1499,7 +1518,7 @@ export function claudePermissionSettings(
     return {
       permissions: {
         allow: ["mcp__agentes", ...shellReads, ...missionFolderRules(missionFolder, ["Read"])],
-        ask: [...PUSH_ASK_RULES],
+        ask: [...WORK_ASK_RULES],
         deny: [...ALWAYS_DENY_RULES, ...homeDeny],
       },
     };
@@ -1523,7 +1542,7 @@ export function claudePermissionSettings(
         // What a person allowed for the whole mission ("Aprovar sempre nesta missão").
         ...missionAllow.filter(isSafeRule).slice(0, 100),
       ],
-      ask: [...PUSH_ASK_RULES],
+      ask: [...WORK_ASK_RULES],
       deny: [...ALWAYS_DENY_RULES, ...homeDeny],
     },
   };

@@ -19,6 +19,7 @@ import {
   useAgentStatuses,
   useAiAccounts,
   useArchivedChannels,
+  useAuthConfig,
   useChannelCategories,
   useChannels,
   useConnections,
@@ -47,6 +48,8 @@ import {
   canTalk,
   hiddenAgentIds,
   listsAllAgents,
+  managesAgent,
+  opensDm,
 } from "@agenteschat/client/lib/audience";
 import { workspaceNotes } from "@agenteschat/client/lib/deletion";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
@@ -102,6 +105,7 @@ import {
   SkeletonGroup,
   selectionSkyUrl,
 } from "@agenteschat/ui";
+import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import {
@@ -132,6 +136,7 @@ import { requestChannelDetails } from "@/lib/channel-details";
 import type { MenuEntry } from "@/lib/context-menu";
 import { onPhoneAsk, takePhoneAsk, thisMac } from "@/lib/desktop";
 import { entityMenu } from "@/lib/entity-menu";
+import { navigateAway } from "@/lib/navigate";
 import { useOpenParam } from "@/lib/open-param";
 import { markOpen } from "@/lib/perf";
 import { ownPlanLines, planNearLimit, planWord } from "@/lib/plan-usage";
@@ -220,19 +225,37 @@ export const TABLET_QUERY = "(min-width: 761px) and (max-width: 1199px)";
 const SIDEBAR_EVENT = "agentes:sidebar";
 let sidebarCollapsed = storage.get(STORAGE_KEYS.sidebarCollapsed) === "1";
 let tabletOpen = false;
-const onSidebarChange = (cb: () => void) => {
+/**
+ * A page that runs out of room asked for the rail (a live file with its conversation beside it, ADR 0199): shown as
+ * the rail on desktop widths, never stored, so the person's own choice comes back when the page lets go.
+ */
+let roomAsked = false;
+/** How many times the person used the toggle (any page): a page that asked for the room stops at their hand. */
+let handToggles = 0;
+export const onSidebarChange = (cb: () => void) => {
   window.addEventListener(SIDEBAR_EVENT, cb);
   return () => window.removeEventListener(SIDEBAR_EVENT, cb);
 };
 const isTablet = () => typeof window.matchMedia === "function" && window.matchMedia(TABLET_QUERY).matches;
 export const toggleSidebar = () => {
+  handToggles += 1;
   if (isTablet()) tabletOpen = !tabletOpen;
+  // Shrunk for a page's room: the toggle gives the person their sidebar back (their stored choice, open).
+  else if (roomAsked) roomAsked = false;
   else {
     sidebarCollapsed = !sidebarCollapsed;
     storage.set(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
   }
   window.dispatchEvent(new Event(SIDEBAR_EVENT));
 };
+/** A page asks for the sidebar's room (its rail) or lets it go; the person's stored choice is untouched. */
+export const askSidebarRoom = (asked: boolean) => {
+  if (roomAsked === asked) return;
+  roomAsked = asked;
+  window.dispatchEvent(new Event(SIDEBAR_EVENT));
+};
+/** The toggle's count so far: a page compares it to tell the person's hand from its own ask. */
+export const sidebarHandToggles = () => handToggles;
 /** A tablet's open sidebar back to its rail. */
 export const closeTabletSidebar = () => {
   if (!tabletOpen) return;
@@ -244,7 +267,7 @@ export function useSidebarCollapsed(): [boolean, () => void] {
   const tablet = useMediaQuery(TABLET_QUERY);
   const collapsed = useSyncExternalStore(
     onSidebarChange,
-    () => (tablet ? !tabletOpen : sidebarCollapsed),
+    () => (tablet ? !tabletOpen : sidebarCollapsed || roomAsked),
     () => false,
   );
   return [collapsed, toggleSidebar];
@@ -439,10 +462,12 @@ export function Sidebar() {
   const float = tablet && !collapsed;
 
   // AGENTES (ADR 0083 and its addendum): the agents that talk to me (who manages agents may list the rest), the ones in
-  // no group, then each group of agents, each with my pinned ones on top and the rest in my order.
+  // no group, then each group of agents, each with my pinned ones on top and the rest in my order. A row opens its DM,
+  // so "the rest" are the agents whose DM opens for me (`opensDm`): the ones I manage, never someone's private agent
+  // the key doesn't reach (ADR 0085 addendum of 2026-11-17), which Team still lists.
   const manages = can(org, "manage_agents");
   const team = dir.agents.filter((a) => !isRightHand(a));
-  const shownAgents = team.filter((a) => (manages && view.showAllAgents) || canTalk(a));
+  const shownAgents = team.filter((a) => canTalk(a) || (manages && view.showAllAgents && opensDm(a)));
   const groups = useAgentGroups(orgId).data ?? [];
   const byGroup = agentSections(shownAgents, groups, (a) => a.id);
   const ordered = (items: Agent[]) => {
@@ -500,6 +525,9 @@ export function Sidebar() {
   const agentRow = (a: Agent) => {
     const dm = dmOf.get(a.id);
     const unread = dm?.unread ?? 0;
+    // Groups are made by who holds "Edit agents"; an agent moves in or out of one only for who manages it (ADR 0085
+    // addendum of 2026-11-17): the key alone doesn't reach someone's private agent.
+    const arranges = managesAgent(a);
     return (
       <ErrorBoundary
         key={a.id}
@@ -519,8 +547,8 @@ export function Sidebar() {
           pinned={pins.agents.includes(a.id)}
           onPrefetch={() => dm && prefetch(dm.channelId)}
           onOpen={() => markOpen(dm?.channelId ?? a.id)}
-          drag={organize ? drag.row(a.id) : undefined}
-          menuExtra={manages ? groupEntries(a) : undefined}
+          drag={organize && arranges ? drag.row(a.id) : undefined}
+          menuExtra={arranges ? groupEntries(a) : undefined}
         />
       </ErrorBoundary>
     );
@@ -1858,9 +1886,9 @@ function AgentRow({
   const navigate = useNavigate();
   const agentEntries = useAgentMenu();
   const rowMenu = entityMenu(() => agentEntries(a, menuExtra));
-  // Its owner and the admins: its settings on hover, like a channel's.
-  const edits = can(org, "manage_agents") || a.ownerUserId === me.user.id;
-  // Listed for who manages agents though it doesn't talk to them: the line says who it talks to.
+  // Its owner and who manages it (ADR 0085 addendum of 2026-11-17): its settings on hover, like a channel's.
+  const edits = managesAgent(a) || a.ownerUserId === me.user.id;
+  // Listed for who manages it though it doesn't talk to them (its DM opens, `opensDm`): the line says who it talks to.
   const locked = !canTalk(a);
   const names = locked ? audienceNames(a, (id) => dir.memberById.get(id)?.name, dir.roleName) : [];
   // Working: the pixel orbit in its color beside its name (what it is on in its label and the row's title), so the
@@ -2123,6 +2151,20 @@ function UnreadCount({
  * opening down, also holds what the workspace menu held for one person: Your account, Settings and the person's
  * workspaces. Mounted once either way: the dialogs live here.
  */
+/** Mints the person's link to the referral service and leaves for it (ADR 0192), as `useOpenBilling` does. */
+function useOpenReferrals() {
+  const { t } = useTranslation();
+  const api = useApi();
+  const toast = useToast();
+  const here = useRouterState({ select: (s) => s.location.pathname });
+  return useMutation({
+    mutationFn: () => api.account.referralsLink(here),
+    onSuccess: ({ url }) => navigateAway(url),
+    onError: () => toast.show(t("referrals.failed"), "error"),
+    meta: { silent: true },
+  });
+}
+
 function AccountMenu({ personal = false }: { personal?: boolean }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -2163,6 +2205,8 @@ function AccountMenu({ personal = false }: { personal?: boolean }) {
   const under = Boolean(line || presenceWord);
 
   const { signOut } = useSignOut();
+  const referrals = useAuthConfig().data?.referralsUrl;
+  const openReferrals = useOpenReferrals();
   const openSettings = (section?: SettingsSection) =>
     void (section
       ? navigate({ to: "/org/$orgId/settings/$section", params: { orgId: org.id, section } })
@@ -2283,6 +2327,11 @@ function AccountMenu({ personal = false }: { personal?: boolean }) {
         <MenuItem icon="settings" onSelect={() => openSettings(personal ? undefined : "account")}>
           {t("shell.settings")}
         </MenuItem>
+        {referrals && (
+          <MenuItem icon="coin" disabled={openReferrals.isPending} onSelect={() => openReferrals.mutate()}>
+            {t("referrals.open")}
+          </MenuItem>
+        )}
         {import.meta.env.DEV && (
           <MenuItem icon="grid" onSelect={() => void navigate({ to: "/dev/gallery" })}>
             {t("shell.gallery")}
@@ -2323,7 +2372,11 @@ function useWorkspaceLook() {
     return o !== undefined && isPersonal(o) && o.role === "owner";
   };
   const several = me.organizations.filter((o) => mine(o.id)).length > 1;
-  return (o: { id: string; name: string; logo?: string | null }, face: "sm" | "md", mark: number) =>
+  return (
+    o: { id: string; name: string; logo?: string | null; accent?: string | null },
+    face: "sm" | "md",
+    mark: number,
+  ) =>
     mine(o.id)
       ? {
           leading: <Avatar kind="person" name={me.user.name} imageUrl={me.user.image} size={face} />,
@@ -2331,7 +2384,13 @@ function useWorkspaceLook() {
           sub: null,
           personal: true,
         }
-      : { leading: <OrgMark logo={o.logo} size={mark} />, name: o.name, sub: null, personal: false };
+      : {
+          // Each workspace in its own accent: the engine's `sky` is the active one's.
+          leading: <OrgMark logo={o.logo} accent={o.accent ?? null} size={mark} />,
+          name: o.name,
+          sub: null,
+          personal: false,
+        };
 }
 
 /**

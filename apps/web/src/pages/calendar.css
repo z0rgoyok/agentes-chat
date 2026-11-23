@@ -334,6 +334,15 @@ html:not([data-pointer]) .cal-chip:focus-visible {
   }
 }
 /*
+ * A phone's week of 5 days ("Dias úteis") is a little wider than that and still a word a line: its face too. Its day
+ * is under 67.5px, as for its bars, so a meeting alone in it is under 51.5px inside its 6px sides.
+ */
+@container (max-width: 51.5px) {
+  .cal-week[data-days="5"] .cal-chip--block :is(.cal-chip__name, .cal-chip__time, .cal-chip__repeat) {
+    display: none;
+  }
+}
+/*
  * A week whose days are that narrow (a phone's): a bar is its face on its tint too, whatever days it spans, never a
  * name a word a line. A query can't divide by the days, so each week length has its own: 7 or 5 days under 67.5px,
  * where a day's own items (2px in from its edges) are under 63.5px.

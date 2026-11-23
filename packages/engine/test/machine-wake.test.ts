@@ -2,11 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { MACHINE_PROTOCOL_VERSION, orgTopic } from "@agenteschat/adapters";
 import { asc, eq, schema } from "@agenteschat/db";
 import {
+  awakeForPerson,
   callWhenBack,
   computerBackSoon,
   createMachineHub,
   enableOperatorEvents,
   issueManagedMachine,
+  listDevices,
   listMachines,
   type MachineHub,
   MachineOfflineError,
@@ -17,9 +19,13 @@ import {
   revokeManagedMachine,
   setMachineEgressWaiting,
   setMachineStandby,
+  shownOnline,
+  TASK_OFFLINE_GRACE_MS,
+  WAKE_OVERDUE_JOB,
   WAKE_WANTED_EVERY_MS,
   WANTED_BUSY_MS,
   WANTED_WRITE_MS,
+  wakeOverdue,
   wantMachine,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
@@ -107,7 +113,12 @@ describe("standby", () => {
       { type: "machine.updated", machineId, standby: true },
       { type: "machine.updated", machineId, standby: true },
     ]);
-    expect((await listMachines(f.db, f.owner.id, f.org.id))[0]).toMatchObject({ id: machineId, standby: true });
+    // Asleep, it reads as online and ready to its people: never offline (ADR 0161).
+    expect((await listMachines(f.db, f.owner.id, f.org.id))[0]).toMatchObject({
+      id: machineId,
+      standby: true,
+      online: true,
+    });
 
     // A computer someone connected, another workspace's id, or no such computer: nothing.
     const paired = await pairMachine(deps(), f.owner.id, f.org.id, { name: "Laptop" });
@@ -128,7 +139,8 @@ describe("standby", () => {
     await setMachineStandby(deps(), f.org.id, machineId, true);
     expect((await awake.status(machineId))?.standby).toBe(true);
     expect(await setMachineStandby(deps(), f.org.id, machineId, false)).toEqual({ standby: false });
-    expect((await machineRow(machineId)).standbyAt).toBeNull();
+    // Awake already: nothing starting, no wake's clock.
+    expect(await machineRow(machineId)).toMatchObject({ standbyAt: null, wakeWantedAt: null });
 
     // Removed: no longer the workspace's, and not asleep when it is issued again.
     await setMachineStandby(deps(), f.org.id, machineId, true);
@@ -218,7 +230,7 @@ describe("what wants it", () => {
     expect(await wakeEvents()).toHaveLength(2);
   });
 
-  test("the hub: its status says standby, and a request to it asleep asks for a wake before it fails", async () => {
+  test("the hub: its status says standby, and a request to it asleep asks for a wake and fails at once", async () => {
     f = await setup();
     enableOperatorEvents();
     const { machineId } = await managedComputer();
@@ -229,10 +241,107 @@ describe("what wants it", () => {
 
     await setMachineStandby(deps(), f.org.id, machineId, true);
     expect(await hub.status(machineId)).toMatchObject({ online: false, standby: true, kind: "managed" });
+    // Who waits for the wake does it once, outside the hub (`callWhenBack`, `awakeForPerson`): a job never waits.
+    const asked = Date.now();
     await expect(hub.call(machineId, { op: "list", path: "", depth: 1 })).rejects.toBeInstanceOf(MachineOfflineError);
+    expect(Date.now() - asked).toBeLessThan(1_000);
     await until(async () => (await wakeEvents()).length > 0, "the wake");
     expect(await wakeEvents()).toEqual([{ orgId: f.org.id, data: { machineId, why: "call" } }]);
     expect((await machineRow(machineId)).wantedAt).toBeInstanceOf(Date);
+  });
+
+  test("standby said again keeps the wake's clock; taken out asleep, it reads waking until its hello, for one grace", async () => {
+    f = await setup();
+    const { machineId, token } = await managedComputer();
+    const heard: unknown[] = [];
+    f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+      const event = (e as { event?: { type?: string } }).event;
+      if (e.type === "org.broadcast" && event?.type === "machine.updated") heard.push(event);
+    });
+    await setMachineStandby(deps(), f.org.id, machineId, true);
+    const t = Date.now();
+    await wantMachine(f.db, machineId, "view", t);
+    // Said again while it wakes: the clock goes on.
+    await setMachineStandby(deps(), f.org.id, machineId, true);
+    expect((await machineRow(machineId)).wakeWantedAt?.getTime()).toBe(t);
+    // Said again once the wake is overdue: still down to people, and their apps hear so.
+    const old = new Date(t - TASK_OFFLINE_GRACE_MS - 1_000);
+    await f.db.update(schema.machines).set({ wakeWantedAt: old }).where(eq(schema.machines.id, machineId));
+    heard.length = 0;
+    await setMachineStandby(deps(), f.org.id, machineId, true);
+    expect(heard).toEqual([{ type: "machine.updated", machineId, standby: false }]);
+    expect((await listMachines(f.db, f.owner.id, f.org.id))[0]).toMatchObject({ online: false, standby: false });
+
+    // Taken out of standby while asleep: it is starting, and reads waking until its runner's hello.
+    await f.db.update(schema.machines).set({ wakeWantedAt: null }).where(eq(schema.machines.id, machineId));
+    heard.length = 0;
+    await setMachineStandby(deps(), f.org.id, machineId, false);
+    const row = await machineRow(machineId);
+    expect(row.standbyAt).toBeNull();
+    expect(row.wakeWantedAt).toBeInstanceOf(Date);
+    expect(heard).toEqual([{ type: "machine.updated", machineId, standby: true }]);
+    expect((await listMachines(f.db, f.owner.id, f.org.id))[0]).toMatchObject({ online: true, standby: true });
+    hub = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-a" });
+    // What waits for it waits on; operators see it out of standby.
+    expect(await hub.status(machineId)).toMatchObject({ online: false, standby: true });
+    expect((await operatorMachines(f.db, f.org.id))?.machines.find((m) => m.id === machineId)?.standby).toBe(false);
+    const at = row.wakeWantedAt?.getTime() ?? 0;
+    const jobs = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, WAKE_OVERDUE_JOB));
+    expect(jobs.map((j) => j.nextAttemptAt.getTime())).toContain(at + TASK_OFFLINE_GRACE_MS);
+    // Never started: down after one grace, and the apps hear so.
+    expect(shownOnline(row, new Date(at + TASK_OFFLINE_GRACE_MS))).toBe(false);
+    heard.length = 0;
+    await wakeOverdue(deps(), machineId, new Date(at + TASK_OFFLINE_GRACE_MS));
+    expect(heard).toEqual([{ type: "machine.updated", machineId, standby: false }]);
+
+    await hello(token);
+    expect(await machineRow(machineId)).toMatchObject({ standbyAt: null, wakeWantedAt: null });
+  });
+
+  test("a wake that never comes: online to people for one grace from the first want, then down; hello clears it", async () => {
+    f = await setup();
+    const { machineId, token } = await managedComputer();
+    const heard: unknown[] = [];
+    f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+      const event = (e as { event?: { type?: string } }).event;
+      if (e.type === "org.broadcast" && event?.type === "machine.updated") heard.push(event);
+    });
+    await setMachineStandby(deps(), f.org.id, machineId, true);
+    heard.length = 0;
+    // Asleep and nobody wants it: ready to people however long it sleeps.
+    const later = new Date(Date.now() + 10 * TASK_OFFLINE_GRACE_MS);
+    expect(shownOnline(await machineRow(machineId), later)).toBe(true);
+
+    const t = Date.now();
+    await wantMachine(f.db, machineId, "view", t);
+    await wantMachine(f.db, machineId, "run", t + 1_000);
+    // The first want starts the clock, and only it schedules the check.
+    expect((await machineRow(machineId)).wakeWantedAt?.getTime()).toBe(t);
+    const jobs = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, WAKE_OVERDUE_JOB));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.nextAttemptAt.getTime()).toBe(t + TASK_OFFLINE_GRACE_MS);
+
+    const row = await machineRow(machineId);
+    expect(shownOnline(row, new Date(t + TASK_OFFLINE_GRACE_MS - 1))).toBe(true);
+    expect(shownOnline(row, new Date(t + TASK_OFFLINE_GRACE_MS))).toBe(false);
+    // The check before its time says nothing; at it, the apps hear it is no longer in standby to them.
+    await wakeOverdue(deps(), machineId, new Date(t + TASK_OFFLINE_GRACE_MS - 1));
+    expect(heard).toEqual([]);
+    await wakeOverdue(deps(), machineId, new Date(t + TASK_OFFLINE_GRACE_MS));
+    expect(heard).toEqual([{ type: "machine.updated", machineId, standby: false }]);
+    // Operators still see the standby.
+    expect((await operatorMachines(f.db, f.org.id))?.machines.find((m) => m.id === machineId)?.standby).toBe(true);
+
+    // Settings > Devices too, while it wakes as it should and once it didn't.
+    await f.db.update(schema.machines).set({ wakeWantedAt: new Date() }).where(eq(schema.machines.id, machineId));
+    const device = async (now?: Date) =>
+      (await listDevices(f.db, f.org.id, f.owner.id, now)).devices.find((d) => d.id === machineId)?.status;
+    expect(await device()).toEqual({ kind: "ready" });
+    expect((await device(new Date(Date.now() + TASK_OFFLINE_GRACE_MS + 1_000)))?.kind).toBe("offline");
+
+    // Its hello: awake, the clock gone with the standby.
+    await hello(token);
+    expect(await machineRow(machineId)).toMatchObject({ standbyAt: null, wakeWantedAt: null });
   });
 });
 
@@ -460,6 +569,24 @@ describe("a run's wait while it wakes", () => {
     const justNow = new Date(Date.now() - 5_000).toISOString();
     expect(await computerBackSoon(gone(justNow), "m1", { waitMs: 10_000, justGone: false })).toBe(false);
     expect(looks).toBe(2);
+  });
+
+  test("a person's request: waits once for a computer in standby to wake; any other offline one fails at once", async () => {
+    const woke: string[] = [];
+    let looks = 0;
+    const waking = {
+      status: async () => statusOf(++looks >= 2 ? { online: true } : { standby: true }),
+      wake: async (id: string, why: string) => {
+        woke.push(`${id}:${why}`);
+      },
+    };
+    expect(await awakeForPerson(waking, statusOf({ standby: true }))).toBe(true);
+    expect(woke).toEqual(["m1:call"]);
+    expect(await awakeForPerson(waking, statusOf({ online: true }))).toBe(true);
+    const started = Date.now();
+    expect(await awakeForPerson(waking, statusOf({ lastSeenAt: new Date().toISOString() }))).toBe(false);
+    expect(await awakeForPerson(waking, null)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 
   test("callWhenBack: a request to a computer asleep goes again once it woke", async () => {

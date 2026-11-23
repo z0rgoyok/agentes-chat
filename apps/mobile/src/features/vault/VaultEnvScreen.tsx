@@ -1,9 +1,9 @@
 import { useImportVaultKeys, useVault, type VaultAccess, type VaultScope } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { plainInline } from "@agenteschat/client/lib/markdown";
 import {
   ENV_MAX_BYTES,
   ENV_MAX_KEYS,
-  type EnvFile,
   type EnvReviewRow,
   envImportInput,
   envReview,
@@ -12,46 +12,35 @@ import {
 } from "@agenteschat/client/lib/vault";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import { useState } from "react";
+import { Redirect } from "expo-router";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
+import { router } from "@/ui/navigation";
 import { Note } from "../ai/parts";
-import { Gap, SettingsPage } from "../settings/parts";
+import { Gap, SettingsPage, useUnsavedGuard } from "../settings/parts";
 import { useOrgId } from "../shared/hooks";
-import { goBack, MONO, successHaptic } from "../shared/parts";
+import { MONO, successHaptic } from "../shared/parts";
 import { TextArea } from "../shared/TextArea";
-import { defaultAccess } from "./logic";
+import { closeEnvDraft, type EnvDraft, envDraftNow, openEnvDraft } from "./env-draft";
+import { defaultAccess, vaultHref } from "./logic";
 import { AgentRows, ScopeRows } from "./parts";
 
 const DOTS = "••••••••••";
 
 /**
- * "Import .env" (ADR 0144 §11), the web's dialog as a pushed screen: a .env file (or a JSON object of names and
- * values) picked or pasted, read here on the phone, reviewed key by key, then saved in one request as Personal or
- * Team keys with one access. The file's text and its values live in this screen only.
+ * "Import .env" (ADR 0144 §11), the web's dialog as two pushed screens: here a .env file (or a JSON object of names
+ * and values) picked or pasted and read on the phone; Review pushes its keys' review (`VaultEnvReviewScreen`), and the
+ * system's back from there comes back to this paste as it was. The file's text and its values live in these screens
+ * only.
  */
 export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
-  const { t, i18n } = useTranslation();
-  const orgId = useOrgId();
-  const toast = useToast();
-  const vault = useVault(orgId);
-  const save = useImportVaultKeys(orgId);
-  const canTeam = vault.data?.canManageTeam ?? false;
+  const { t } = useTranslation();
   const [pasted, setPasted] = useState("");
-  const [file, setFile] = useState<EnvFile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<VaultScope>(asked);
-  const scope: VaultScope = chosen === "team" && canTeam ? "team" : "personal";
-  const [touched, setTouched] = useState<VaultAccess | null>(null);
-  const access = touched ?? defaultAccess(scope);
-  const [replace, setReplace] = useState<ReadonlySet<string>>(new Set());
-  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
-  const flip = (set: ReadonlySet<string>, name: string) => {
-    const next = new Set(set);
-    if (!next.delete(name)) next.add(name);
-    return next;
-  };
+  // Back with keys pasted and not saved asks first: they may exist nowhere else on the phone.
+  const leave = useUnsavedGuard(pasted.trim() !== "");
 
   const review = (text: string) => {
     if (text.length > ENV_MAX_BYTES) return setError(t("vault.env.tooLarge"));
@@ -59,8 +48,8 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
     if (parsed.entries.length === 0) return setError(t("vault.env.none"));
     if (parsed.entries.length > ENV_MAX_KEYS) return setError(t("vault.env.tooMany", { max: ENV_MAX_KEYS }));
     setError(null);
-    setFile(parsed);
-    setPasted("");
+    openEnvDraft({ file: parsed, scope: asked, leave });
+    router.push(vaultHref.envReview as never);
   };
   const pick = async () => {
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
@@ -73,6 +62,74 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
       setError(t("vault.import.unreadable"));
     }
   };
+
+  return (
+    <SettingsPage
+      title={t("vault.env.title")}
+      action={{ label: t("vault.env.review"), onPress: () => review(pasted), disabled: pasted.trim() === "" }}
+    >
+      <GroupedFooter>{t("vault.env.text")}</GroupedFooter>
+      <Gap />
+      <GroupedList>
+        <GroupedRow icon="file" label={t("vault.import.choose")} chevron onPress={() => void pick()} />
+      </GroupedList>
+      <GroupedHeader>{t("vault.env.paste")}</GroupedHeader>
+      <TextArea
+        value={pasted}
+        onChangeText={(text) => {
+          setPasted(text);
+          setError(null);
+        }}
+        minHeight={120}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        textContentType="none"
+        placeholder={"ACME_API_KEY="}
+        accessibilityLabel={t("vault.env.paste")}
+        style={styles.mono}
+      />
+      {error ? (
+        <View style={styles.note}>
+          <Note icon="x">{error}</Note>
+        </View>
+      ) : null}
+    </SettingsPage>
+  );
+}
+
+/**
+ * The second step of "Import .env": the file's keys one by one (a tap shows a value, another hides it; what can't be
+ * imported says why), which saved ones to replace, Personal or Team, and the agents that may use them, then all saved
+ * in one request. Saved, the whole flow closes back to the Vault. Opened without a draft (a link), it starts over.
+ */
+export function VaultEnvReviewScreen() {
+  // Taken once as the screen opens, dropped as it closes.
+  const [draft] = useState(envDraftNow);
+  useEffect(() => () => closeEnvDraft(draft), [draft]);
+  if (!draft) return <Redirect href={vaultHref.env("personal") as never} />;
+  return <EnvReview draft={draft} />;
+}
+
+function EnvReview({ draft }: { draft: EnvDraft }) {
+  const { t, i18n } = useTranslation();
+  const orgId = useOrgId();
+  const toast = useToast();
+  const vault = useVault(orgId);
+  const save = useImportVaultKeys(orgId);
+  const canTeam = vault.data?.canManageTeam ?? false;
+  const [chosen, setChosen] = useState<VaultScope>(draft.scope);
+  const scope: VaultScope = chosen === "team" && canTeam ? "team" : "personal";
+  const [touched, setTouched] = useState<VaultAccess | null>(null);
+  const access = touched ?? defaultAccess(scope);
+  const [replace, setReplace] = useState<ReadonlySet<string>>(new Set());
+  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
+  const flip = (set: ReadonlySet<string>, name: string) => {
+    const next = new Set(set);
+    if (!next.delete(name)) next.add(name);
+    return next;
+  };
   const pickScope = (next: VaultScope) => {
     setChosen(next);
     // Each scope's own starting access, and its own saved names.
@@ -80,7 +137,7 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
     setReplace(new Set());
   };
 
-  const rows = file ? envReview(file, savedKeyNames(vault.data?.items ?? [], scope)) : [];
+  const rows = envReview(draft.file, savedKeyNames(vault.data?.items ?? [], scope));
   const input = envImportInput(rows, replace, scope, access);
   const total = input.keys.length;
   const send = () => {
@@ -89,54 +146,20 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
       onSuccess: () => {
         successHaptic();
         toast({ title: t("mobile.vault.savedToVault"), icon: "lock" });
-        goBack();
+        // Saved: the paste on the step before is let go without asking, and the flow closes back to the Vault.
+        draft.leave();
+        router.dismissTo(vaultHref.list as never);
       },
       onError: (err) => toast({ title: errorText(t, err, i18n.language), icon: "x" }),
     });
   };
   const stateOf = (row: EnvReviewRow) =>
     row.state === "problem"
-      ? t(`vault.env.problem.${row.problem}`)
+      ? plainInline(t(`vault.env.problem.${row.problem}`))
       : row.state === "exists"
         ? t("vault.env.exists")
         : t("vault.env.new");
   const saved = rows.filter((row) => row.state === "exists");
-
-  if (!file)
-    return (
-      <SettingsPage
-        title={t("vault.env.title")}
-        action={{ label: t("vault.env.review"), onPress: () => review(pasted), disabled: pasted.trim() === "" }}
-      >
-        <GroupedFooter>{t("vault.env.text")}</GroupedFooter>
-        <Gap />
-        <GroupedList>
-          <GroupedRow icon="file" label={t("vault.import.choose")} chevron onPress={() => void pick()} />
-        </GroupedList>
-        <GroupedHeader>{t("vault.env.paste")}</GroupedHeader>
-        <TextArea
-          value={pasted}
-          onChangeText={(text) => {
-            setPasted(text);
-            setError(null);
-          }}
-          minHeight={120}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          autoComplete="off"
-          textContentType="none"
-          placeholder={"ACME_API_KEY="}
-          accessibilityLabel={t("vault.env.paste")}
-          style={styles.mono}
-        />
-        {error ? (
-          <View style={styles.note}>
-            <Note icon="x">{error}</Note>
-          </View>
-        ) : null}
-      </SettingsPage>
-    );
 
   return (
     <SettingsPage
@@ -170,8 +193,8 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
           />
         ))}
       </GroupedList>
-      {file.duplicates.length > 0 ? (
-        <GroupedFooter>{t("vault.env.duplicates", { names: file.duplicates.join(", ") })}</GroupedFooter>
+      {draft.file.duplicates.length > 0 ? (
+        <GroupedFooter>{t("vault.env.duplicates", { names: draft.file.duplicates.join(", ") })}</GroupedFooter>
       ) : null}
 
       {saved.length > 0 ? (
@@ -199,20 +222,6 @@ export function VaultEnvScreen({ scope: asked }: { scope: VaultScope }) {
       )}
       {scope === "team" ? <GroupedFooter>{t("mobile.vault.teamAudience")}</GroupedFooter> : null}
       <AgentRows scope={scope} access={access} onChange={setTouched} disabled={save.isPending} />
-
-      <Gap />
-      <GroupedList>
-        <GroupedRow
-          icon="undo"
-          label={t("vault.import.another")}
-          disabled={save.isPending}
-          onPress={() => {
-            setFile(null);
-            setReplace(new Set());
-            setShown(new Set());
-          }}
-        />
-      </GroupedList>
     </SettingsPage>
   );
 }

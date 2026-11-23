@@ -1,3 +1,4 @@
+import { PLAN_WINDOW_KINDS } from "@agenteschat/adapters";
 import {
   and,
   arrayOverlaps,
@@ -18,17 +19,21 @@ import {
 } from "@agenteschat/db";
 import { z } from "zod";
 import { audienceSql } from "./audience";
+import { confidentialThreadSql } from "./confidential";
+import { operatorInputDigest } from "./crypto";
 import { decodeCursor, encodeCursor } from "./cursor";
 import { ValidationError } from "./errors";
 import { cutText, stringsOf } from "./format";
 import { PLATFORM_CAP } from "./limits";
 import { machineOnline } from "./machines";
 import { type Message, parseMentionHandles, receiptsFor } from "./messages";
+import { NO_AI_CARD_REASONS } from "./no-ai";
 import { jobOf, jobsOfRun, OPERATOR_JOB_ERROR_MAX, selectJobs, spentColumns, spentOf } from "./operator-jobs";
 import {
   CODE,
   codeOf,
   errorText,
+  listedOf,
   ms,
   olderThan,
   orgExists,
@@ -36,8 +41,12 @@ import {
   pageOf,
   UuidCursor,
   uuidOf,
+  wordOf,
 } from "./operator-paging";
 import { rightHandReaches } from "./right-hand";
+import { DEFAULT_CAP, UNDER_NEED_GATE } from "./router";
+import { RELEASE_REASONS } from "./run-inbox";
+import { runClaims } from "./run-timings";
 import {
   computerWaitSql,
   KEPT_ON_HOLD,
@@ -46,10 +55,12 @@ import {
   passedSql,
   type RunStatus,
   runErrorDetail,
+  stopOf,
   usageWaitSql,
 } from "./runs";
 import { type BillingHold, isBillingHold, workRefusal } from "./standing";
 import { monthStartUtc, orgDefaultAgentBudget } from "./usage";
+import { planOfWaitKey } from "./usage-pause";
 
 /**
  * Runs and conversations for the operator API (ADR 0056): what an agent's run did and why a message did or did not
@@ -113,7 +124,7 @@ export const OPERATOR_RUN_SHOWN = [
   "canceled",
 ] as const;
 
-const shown = sql<(typeof OPERATOR_RUN_SHOWN)[number]>`(case when ${passedSql} then 'no_reply'
+export const runShownSql = sql<(typeof OPERATOR_RUN_SHOWN)[number]>`(case when ${passedSql} then 'no_reply'
   when ${computerWaitSql} = 'line' then 'waiting_line'
   when ${computerWaitSql} is not null then 'waiting_computer'
   when ${usageWaitSql} = 'budget' then 'waiting_budget'
@@ -139,12 +150,17 @@ const runColumns = {
     where s.run_id = ${RUN_ID} and s.kind = 'model_call' order by s.seq desc limit 1)`,
   turns: agentRuns.turns,
   status: agentRuns.status,
-  shown,
+  shown: runShownSql,
   waitCode: sql<string | null>`coalesce(${WAIT}->>'code', case when ${outageParkedSql} then 'provider_outage' end)`,
   waitSource: sql<string | null>`${WAIT}->>'source'`,
   waitResetsAt: sql<string | null>`${WAIT}->>'resetsAt'`,
+  accountId: sql<string | null>`${agentRuns.transcript}->'accountMove'->>'to'`,
+  // Which plan it waits on: only what `planOfWaitKey` reads out of it is returned.
+  waitPlan: sql<string | null>`${WAIT}->>'waitKey'`,
   waitingMachineId: agentRuns.waitingMachineId,
   error: agentRuns.error,
+  // Read by `runOf` and never answered: of a confidential thread (ADR 0190).
+  confidential: sql<boolean>`${confidentialThreadSql(sql`${agentRuns.orgId}`, sql`${agentRuns.threadRootId}`)}`,
   createdAt: ms(agentRuns.createdAt),
   startedAt: agentRuns.startedAt,
   finishedAt: agentRuns.finishedAt,
@@ -177,17 +193,29 @@ async function runsInOrder(db: Database, where: SQL | undefined, order: typeof a
   return page.flatMap(({ id }) => byId.get(id) ?? []);
 }
 
-const errorCodeOf = (error: string | null) => runErrorDetail(error)?.errorCode ?? null;
+// The app has no code for most of the system's reasons to stop a run (a routine's next firing, a mission closed):
+// such a run would read `run.failed` though nothing failed. Its reason is in `canceled`.
+function errorCodeOf(error: string | null, canceled: boolean) {
+  const code = runErrorDetail(error)?.errorCode ?? null;
+  return canceled && code === "run.failed" ? "run.canceled" : code;
+}
 
-function runOf({ error, model, waitCode, waitSource, waitResetsAt, ...run }: RunRow) {
+function runOf({ error, confidential, model, waitCode, waitSource, waitResetsAt, waitPlan, ...run }: RunRow) {
+  const plan = planOfWaitKey(waitPlan);
+  const stop = run.status === "canceled" ? stopOf(error) : null;
   return {
     ...run,
     model: codeOf(model),
     waitCode: codeOf(waitCode),
     waitSource: codeOf(waitSource),
     waitResetsAt: timeOf(waitResetsAt),
-    errorCode: errorCodeOf(error),
-    error: errorText(error, OPERATOR_RUN_ERROR_MAX),
+    waitAccountId: plan?.accountId ?? null,
+    waitAccountMachineId: plan?.machineId ?? null,
+    canceled: stop && { ...stop, userId: wordOf(stop.userId), agentId: uuidOf(stop.agentId) },
+    errorCode: errorCodeOf(error, run.status === "canceled"),
+    // A run of a confidential thread may have failed on what it read, and whoever reads this is outside the thread:
+    // its code above, none of its words.
+    error: confidential ? null : errorText(error, OPERATOR_RUN_ERROR_MAX),
   };
 }
 
@@ -224,22 +252,26 @@ const runsIn = (orgId: string, q: RunFilters) =>
 /** How many different stored errors a count by error reads, most frequent first. */
 export const OPERATOR_RUN_ERROR_TEXTS = 2000;
 
+const CANCELED = sql<boolean>`(${agentRuns.status} = 'canceled')`;
+
 /**
- * The stored errors of the runs matching `where`, with how many runs hold each. A run's code is worked out from its
- * text in code (`runErrorDetail`), so counting and filtering by code both start from the distinct texts.
+ * The stored errors of the runs matching `where`, with how many runs hold each, canceled or not. A run's code is
+ * worked out from its text in code (`errorCodeOf`), so counting and filtering by code both start from the distinct
+ * texts.
  */
 async function errorTexts(db: Database, where: SQL | undefined) {
   const rows = await db
     .select({
       error: sql<string>`${agentRuns.error}`,
+      canceled: CANCELED,
       runs: count(),
       firstAt: sql<Date>`min(${agentRuns.createdAt})`.mapWith((v: string | Date) => new Date(v)),
       lastAt: sql<Date>`max(${agentRuns.createdAt})`.mapWith((v: string | Date) => new Date(v)),
     })
     .from(agentRuns)
     .where(and(where, isNotNull(agentRuns.error)))
-    .groupBy(agentRuns.error)
-    .orderBy(desc(count()), asc(agentRuns.error))
+    .groupBy(agentRuns.error, CANCELED)
+    .orderBy(desc(count()), asc(agentRuns.error), asc(CANCELED))
     .limit(OPERATOR_RUN_ERROR_TEXTS + 1);
   return { texts: rows.slice(0, OPERATOR_RUN_ERROR_TEXTS), more: rows.length > OPERATOR_RUN_ERROR_TEXTS };
 }
@@ -252,19 +284,25 @@ export async function operatorRuns(db: Database, orgId: string, query: OperatorR
   const after = query.cursor ? decodeCursor(query.cursor, UuidCursor) : null;
   if (!(await orgExists(db, orgId))) return null;
   const where = runsIn(orgId, query);
-  let errors: string[] | null = null;
+  let errors: SQL | undefined;
   if (query.errorCode) {
     // ponytail: past OPERATOR_RUN_ERROR_TEXTS different texts in the range the rarest are missed; a stored code
     // column on the run would make this one indexed filter.
     const found = await errorTexts(db, where);
-    errors = found.texts.filter((e) => errorCodeOf(e.error) === query.errorCode).map((e) => e.error);
-    if (errors.length === 0) return { runs: [], next: null };
+    const coded = found.texts.filter((e) => errorCodeOf(e.error, e.canceled) === query.errorCode);
+    if (coded.length === 0) return { runs: [], next: null };
+    // The same text is another code on a canceled run: each side keeps its own texts.
+    const texts = (canceled: boolean) => coded.filter((e) => e.canceled === canceled).map((e) => e.error);
+    errors = or(
+      texts(true).length ? and(CANCELED, inArray(agentRuns.error, texts(true))) : undefined,
+      texts(false).length ? and(sql`not ${CANCELED}`, inArray(agentRuns.error, texts(false))) : undefined,
+    );
   }
   const rows = await runsInOrder(
     db,
     and(
       where,
-      errors ? inArray(agentRuns.error, errors) : undefined,
+      errors,
       after
         ? sql`(${runColumns.createdAt}, ${agentRuns.id}) < (${after[0]}::timestamptz, ${after[1]}::uuid)`
         : undefined,
@@ -290,7 +328,7 @@ export async function operatorRunErrors(db: Database, orgId: string, query: RunF
   const { texts, more } = await errorTexts(db, runsIn(orgId, { ...query, from, to }));
   const byCode = new Map<string, { errorCode: string; runs: number; firstAt: Date; lastAt: Date }>();
   for (const e of texts) {
-    const errorCode = errorCodeOf(e.error);
+    const errorCode = errorCodeOf(e.error, e.canceled);
     if (!errorCode || (query.errorCode && errorCode !== query.errorCode)) continue;
     const seen = byCode.get(errorCode);
     if (!seen) byCode.set(errorCode, { errorCode, runs: e.runs, firstAt: e.firstAt, lastAt: e.lastAt });
@@ -394,13 +432,93 @@ const KIND = agentRunSteps.kind;
 /** A tool call's step says its tool is the server's own (the Tool Gateway's mark): absent, it isn't known to be. */
 const builtInSql = (data: SQL) => sql<boolean>`coalesce(${data}->'builtIn' = 'true'::jsonb, false)`;
 
+// A tool call's input, hashed where it is stored: like its length, it says something of the input without the input
+// being read out (`inputDigestOf` keys it). Without its top-level `why`: the gateway stores the call as the agent
+// made it, its stated reason included, and two calls for the same thing rarely word that the same. A JSON null in
+// the input's place is no input, as its length says.
+const inputHashSql = (data: SQL) => sql<string | null>`encode(sha256(convert_to((case
+  when jsonb_typeof(${data}->'input') = 'object' then (${data}->'input') - 'why'
+  when jsonb_typeof(${data}->'input') <> 'null' then ${data}->'input' end)::text, 'UTF8')), 'hex')`;
+const inputDigestOf = (secret: string, orgId: string, hash: string | null) =>
+  hash && /^[0-9a-f]{64}$/.test(hash) ? operatorInputDigest(secret, orgId, hash) : null;
+
+/** How a failed tool result failed, in one word. */
+export const OPERATOR_ERROR_CLASSES = [
+  "unknown_tool",
+  "invalid_arguments",
+  "rate_limited",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "timeout",
+  "server_error",
+  "other",
+] as const;
+type ErrorClass = (typeof OPERATOR_ERROR_CLASSES)[number];
+
+// The number a failed call's thrown error carried, kept by the Tool Gateway beside its `tool.failed`: an HTTP status
+// or a JSON-RPC code. A result's `data` is its tool's own, and a tool keeps numbers of its own under `status` (a page
+// read fine has one), so only the gateway's is read: a failed result with that code, within what the gateway writes.
+const errorStatusSql = (data: SQL) => {
+  const status = sql`(${data}->'data'->>'status')::int`;
+  return sql<number | null>`(case
+    when ${data}->'isError' = 'true'::jsonb and ${data}->'data'->>'code' = 'tool.failed'
+      and jsonb_typeof(${data}->'data'->'status') = 'number' and ${data}->'data'->>'status' ~ '^-?[0-9]{3,5}$'
+    then case when ${status} between 100 and 599 or ${status} between -32768 and -32000 then ${status} end end)`;
+};
+
+// A failed result's class, worked out where the result is stored, so its text is never read out. The first that
+// answers wins: the stored status, then the gateway's own code, both exact; then what the result's first words say,
+// which is a guess (right for the gateway's own sentences, a hint for a connected app's). Null: it did not fail, or
+// the gateway refused it (`refusal` says that).
+// ponytail: a class read from words can only be as good as these patterns, and a result that states no status says
+// `other`; a code kept by each connector's adapter would make it exact.
+const errorClassSql = (data: SQL) => {
+  const status = errorStatusSql(data);
+  const code = sql`${data}->'data'->>'code'`;
+  const said = sql`left(${data}->>'content', 2000)`;
+  return sql<ErrorClass | null>`(case
+    when ${data}->'isError' = 'true'::jsonb is not true or ${data}->'data'->>'refusal' is not null then null
+    when ${status} = -32601 then 'unknown_tool'
+    when ${status} in (400, 422, -32602) then 'invalid_arguments'
+    when ${status} = 429 then 'rate_limited'
+    when ${status} = 401 then 'unauthorized'
+    when ${status} = 403 then 'forbidden'
+    when ${status} = 404 then 'not_found'
+    when ${status} in (408, 504, -32001) then 'timeout'
+    when ${status} between 500 and 599 then 'server_error'
+    when ${code} = 'tool.unknown' then 'unknown_tool'
+    when ${code} = 'tool.invalid_input' then 'invalid_arguments'
+    when ${said} ~* '^unknown tool ' then 'unknown_tool'
+    when ${said} ~* '^invalid input:|invalid (input|argument|param|request)|validation|missing required|bad request'
+      then 'invalid_arguments'
+    when ${said} ~* '\\m429\\M|rate.?limit|too many requests|quota' then 'rate_limited'
+    when ${said} ~* '\\m401\\M|unauthori[sz]ed|unauthenticated|invalid [^.]{0,40}(key|token)|token [^.]{0,40}expired'
+      then 'unauthorized'
+    when ${said} ~* '\\m403\\M|forbidden|permission denied|access denied|insufficient (scope|permission)'
+      then 'forbidden'
+    when ${said} ~* '\\m404\\M|not found|no such|does not exist' then 'not_found'
+    when ${said} ~* '\\m(408|504)\\M|timed out|timeout|deadline exceeded' then 'timeout'
+    when ${said} ~* '\\m(500|502|503)\\M|internal (server )?error|bad gateway|service unavailable'
+      then 'server_error'
+    else 'other' end)`;
+};
+
+/** What a long work paused near (`usage_wait` with a `pause`). */
+const PAUSE_SOURCES = ["plan", "budget"] as const;
+const USAGE_WAIT = sql`(${KIND} = 'error' and ${DATA}->>'reason' = 'usage_wait')`;
+/** An error step of a turn whose CLI the computer stopped for its silence (`brain_stalled`). */
+const STALLED = sql`(${KIND} = 'error' and ${DATA}->>'reason' = 'brain_stalled')`;
+
 // Each fact is read only from the kind of step that writes it: on another kind the same name may hold text.
 const stepColumns = {
   seq: agentRunSteps.seq,
   kind: KIND,
   at: agentRunSteps.createdAt,
   toolUseId: sql<string | null>`case when ${KIND} in ('tool_call', 'tool_result') then ${DATA}->>'toolUseId' end`,
-  tool: sql<string | null>`case when ${KIND} in ('tool_call', 'tool_result') then ${DATA}->>'name' end`,
+  // And the CLI's own tool a stalled turn hung in.
+  tool: sql<string | null>`case when ${KIND} in ('tool_call', 'tool_result') then ${DATA}->>'name'
+    when ${STALLED} then ${DATA}->>'tool' end`,
   // Only the call's step holds the mark: a result reads it from the call it answers.
   builtIn: sql<boolean | null>`case when ${KIND} = 'tool_call' then ${builtInSql(sql`${DATA}`)}
     when ${KIND} = 'tool_result' then coalesce((select ${builtInSql(sql`c.data`)} from ${agentRunSteps} c
@@ -414,12 +532,29 @@ const stepColumns = {
   refusal: sql<string | null>`case when ${KIND} = 'tool_result' then ${DATA}->'data'->>'refusal' end`,
   code: sql<string | null>`case when ${KIND} = 'error' then ${DATA}->>'code'
     when ${KIND} = 'tool_result' then ${DATA}->'data'->>'code' end`,
-  reason: sql<string | null>`case when ${KIND} = 'error' then ${DATA}->>'reason' end`,
+  errorClass: sql<ErrorClass | null>`case when ${KIND} = 'tool_result' then ${errorClassSql(sql`${DATA}`)} end`,
+  errorStatus: sql<number | null>`case when ${KIND} = 'tool_result' then ${errorStatusSql(sql`${DATA}`)} end`,
+  // A context step's: why a run's unread messages were handed on (`handOn`).
+  reason: sql<string | null>`case when ${KIND} = 'error'
+    or (${KIND} = 'context' and ${DATA} ? 'redispatchedMessageIds') then ${DATA}->>'reason' end`,
+  // The run a hand-on or a closed catch-up sent its messages to.
+  toRunId: sql<string | null>`case when ${KIND} = 'context'
+    then coalesce(${DATA}->>'toRunId', ${DATA}->'released'->>'toRunId') end`,
+  pauseSource: sql<string | null>`case when ${USAGE_WAIT} then ${DATA}->'pause'->>'source' end`,
+  pauseUsed: sql<number | null>`case when ${USAGE_WAIT} and jsonb_typeof(${DATA}->'pause'->'used') = 'number'
+    then (${DATA}->'pause'->>'used')::float8 end`.mapWith(Number),
+  pauseWindow: sql<string | null>`case when ${USAGE_WAIT} then ${DATA}->'pause'->>'window' end`,
   model: sql<string | null>`case when ${KIND} = 'model_call' then ${DATA}->>'model' end`,
   stopReason: sql<string | null>`case when ${KIND} = 'model_call' then ${DATA}->>'stopReason' end`,
   // Sizes are measured in the database: the text itself is never read out.
   chars: sql<number | null>`case when ${KIND} = 'tool_call' then length(${DATA}->>'input')
     when ${KIND} = 'tool_result' then length(${DATA}->>'content') end`.mapWith(Number),
+  inputHash: sql<string | null>`case when ${KIND} = 'tool_call' then ${inputHashSql(sql`${DATA}`)} end`,
+  // How long nothing came from the computer's CLI before a stall.
+  keptMs: sql<number | null>`case
+    when ${STALLED} and jsonb_typeof(${DATA}->'silentMs') = 'number' then (${DATA}->>'silentMs')::float8 end`.mapWith(
+    Number,
+  ),
   messageId: sql<string | null>`case when ${KIND} = 'message' then ${DATA}->>'messageId' end`,
   records: sql<string[] | null>`case when ${KIND} = 'context'
     then (select jsonb_agg(k) from jsonb_object_keys(${DATA}) k) end`.mapWith(namesOf),
@@ -427,10 +562,16 @@ const stepColumns = {
 
 /**
  * One run, start to end: its row, its steps in order (which tool, whether it failed, how big its input and its
- * result were, never either of them), what it asked of people, the jobs that started and woke it, what it spent and
- * the computer it is tied to. `beforeSeq` pages back from the end, `limit` steps at a time. Null: no such run.
+ * result were, never either of them), what it asked of people, the jobs that started and woke it, what it spent,
+ * where each of its claims' time went and the computer it is tied to. `beforeSeq` pages back from the end, `limit`
+ * steps at a time. Null: no such run.
  */
-export async function operatorRunTrace(db: Database, runId: string, query: { limit: number; beforeSeq?: number }) {
+export async function operatorRunTrace(
+  db: Database,
+  runId: string,
+  /** `secret`: the server's, which keys each tool call's `inputDigest`. */
+  query: { limit: number; beforeSeq?: number; secret: string },
+) {
   const [run] = await selectRuns(db).where(eq(agentRuns.id, runId));
   if (!run) return null;
   // No index is on the run: the agent's rows since it began are (org, agent, created_at).
@@ -440,7 +581,7 @@ export async function operatorRunTrace(db: Database, runId: string, query: { lim
     gte(usageRecords.createdAt, run.createdAt),
     eq(usageRecords.runId, runId),
   );
-  const [steps, counted, asks, jobs, usage, ranOn, agent] = await Promise.all([
+  const [steps, counted, asks, jobs, usage, ranOn, agent, kept] = await Promise.all([
     db
       .select(stepColumns)
       .from(agentRunSteps)
@@ -472,6 +613,8 @@ export async function operatorRunTrace(db: Database, runId: string, query: { lim
       .orderBy(desc(usageRecords.createdAt))
       .limit(1),
     db.select({ machineId: agents.machineId }).from(agents).where(eq(agents.id, run.agentId)),
+    // Apart from the run's row: a list of runs never reads their profiles.
+    db.select({ profiles: agentRuns.profiles }).from(agentRuns).where(eq(agentRuns.id, runId)),
   ]);
 
   // The run's row doesn't say where it ran: the computer it waits for, else the one its plan's usage names,
@@ -498,19 +641,32 @@ export async function operatorRunTrace(db: Database, runId: string, query: { lim
     : [];
 
   const called = new Map<string, Date>();
-  const trail = steps.reverse().map(({ toolUseId, ...s }) => {
+  const trail = steps.reverse().map(({ toolUseId, inputHash, pauseSource, pauseUsed, pauseWindow, keptMs, ...s }) => {
     if (s.kind === "tool_call" && toolUseId) called.set(toolUseId, s.at);
     const since = s.kind === "tool_result" && toolUseId ? called.get(toolUseId) : undefined;
+    const reason = s.kind === "context" ? listedOf(RELEASE_REASONS, s.reason) : codeOf(s.reason);
+    const paused = listedOf(PAUSE_SOURCES, pauseSource);
     return {
       ...s,
       tool: codeOf(s.tool),
       connector: s.connector ? cutText(s.connector, 100) : null,
       refusal: codeOf(s.refusal),
-      code: codeOf(s.code),
-      reason: codeOf(s.reason),
+      // Why a run had nothing to think with is one of a list: any other word in its place reads as absent.
+      code: s.kind === "error" && reason === NO_AI ? listedOf(NO_AI_CARD_REASONS, s.code) : codeOf(s.code),
+      errorClass: listedOf(OPERATOR_ERROR_CLASSES, s.errorClass),
+      reason,
+      toRunId: uuidOf(s.toRunId),
+      pause: paused
+        ? { source: paused, usedPercent: pauseUsed, window: listedOf(PLAN_WINDOW_KINDS, pauseWindow) }
+        : null,
       model: codeOf(s.model),
       stopReason: codeOf(s.stopReason),
-      durationMs: since ? s.at.getTime() - since.getTime() : null,
+      inputDigest: inputDigestOf(query.secret, run.orgId, inputHash),
+      durationMs: since
+        ? s.at.getTime() - since.getTime()
+        : typeof keptMs === "number" && Number.isFinite(keptMs) && keptMs >= 0
+          ? Math.round(keptMs)
+          : null,
       messageId: uuidOf(s.messageId),
       records: s.records ?? [],
     };
@@ -534,6 +690,7 @@ export async function operatorRunTrace(db: Database, runId: string, query: { lim
       }),
       byModel: usage.map(spentOf),
     },
+    claims: runClaims(kept[0]?.profiles),
     machine:
       tied && computer
         ? {
@@ -585,9 +742,12 @@ const toolCallColumns = {
   outcome: OUTCOME,
   refusal: sql<string | null>`res.data->'data'->>'refusal'`,
   code: sql<string | null>`res.data->'data'->>'code'`,
+  errorClass: errorClassSql(sql`res.data`),
+  errorStatus: errorStatusSql(sql`res.data`),
   // A null never reaches a decoder: the type says it may still come back.
   resultAt: ms(sql`res.created_at`) as SQL<Date | null>,
   inputChars: sql<number>`coalesce(length(${DATA}->>'input'), 0)`.mapWith(Number),
+  inputHash: inputHashSql(sql`${DATA}`),
   resultChars: sql<number | null>`length(res.data->>'content')`.mapWith(Number),
 };
 
@@ -656,7 +816,13 @@ async function toolCallsIn(db: Database, orgId: string, q: ToolCallFilters, now:
  * its result are, never either of them. The range is the last 7 days unless said, one run's from when it began.
  * Null: no such workspace, or no such run in it.
  */
-export async function operatorToolCalls(db: Database, orgId: string, query: OperatorToolCallQuery, now = new Date()) {
+export async function operatorToolCalls(
+  db: Database,
+  orgId: string,
+  /** `secret`: the server's, which keys each call's `inputDigest`. */
+  query: OperatorToolCallQuery & { secret: string },
+  now = new Date(),
+) {
   const after = query.cursor ? decodeCursor(query.cursor, UuidCursor) : null;
   const found = await toolCallsIn(db, orgId, query, now);
   if (!found) return null;
@@ -679,13 +845,15 @@ export async function operatorToolCalls(db: Database, orgId: string, query: Oper
   return {
     from: found.from,
     to: found.to,
-    calls: page.items.map(({ id, resultAt, ...call }) => ({
+    calls: page.items.map(({ id, resultAt, inputHash, ...call }) => ({
       ...call,
       tool: codeOf(call.tool),
       connector: call.connector ? cutText(call.connector, 100) : null,
       connectorKind: codeOf(call.connectorKind),
       refusal: codeOf(call.refusal),
       code: codeOf(call.code),
+      errorClass: listedOf(OPERATOR_ERROR_CLASSES, call.errorClass),
+      inputDigest: inputDigestOf(query.secret, orgId, inputHash),
       durationMs: resultAt ? resultAt.getTime() - call.at.getTime() : null,
     })),
     next: page.next,
@@ -775,6 +943,8 @@ const ROUTING_MARKERS: ReadonlySet<string> = new Set([
   "already answered by another agent",
   "for people",
   "held back",
+  UNDER_NEED_GATE,
+  DEFAULT_CAP,
   "every mentioned agent acts",
 ]);
 

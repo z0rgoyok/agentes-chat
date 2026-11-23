@@ -54,8 +54,8 @@ describe("offline computers", () => {
       bodyCode: "brain_unavailable",
       brainUnavailable: { brain: "claude_code", code },
     });
-    expect(serverBody(t, "…", note("busy"))).toBe("chat.body.brain_busy");
-    // Still in line after a long while: the only busy note posted now.
+    // One wording for every note still in line, older ones too.
+    expect(serverBody(t, "…", note("busy"))).toBe("chat.body.brain_queued");
     expect(
       serverBody(t, "…", {
         bodyCode: "brain_unavailable",

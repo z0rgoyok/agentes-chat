@@ -1,10 +1,12 @@
-import type { AuthMethod } from "@agenteschat/adapters";
+import { type AuthMethod, PLAN_WINDOW_KINDS } from "@agenteschat/adapters";
 import { and, type Database, desc, eq, gte, isNull, lt, schema, sql } from "@agenteschat/db";
 import { GEMINI_ENTERPRISE_PROVIDER, isPlanId } from "@agenteschat/providers/plans";
 import { z } from "zod";
 import { onLiveMachine } from "./claude-auth-policy";
 import { ANALYTICS_ROWS_MAX, analyticsRange, howMany } from "./connector-usage";
 import { decodeCursor, encodeCursor } from "./cursor";
+import { isJsonObject, numberIn } from "./format";
+import { instantOf, listedOf } from "./operator-paging";
 
 /**
  * The operator's reads of the AI accounts people connected (ADR 0150): counts over `machine_accounts` (the
@@ -224,6 +226,36 @@ export interface OperatorAiAccountQuery {
   status?: (typeof AI_ACCOUNT_STATUSES)[number];
 }
 
+/** The most windows of a plan an account's readings give. */
+export const AI_ACCOUNT_WINDOWS_MAX = 10;
+
+/**
+ * A plan's readings as an account's computer last reported them: `usage` as stored, which may hold anything. Each
+ * window's kind is a word of the protocol's list, never the provider's own name for it, and its `at` is its own
+ * reading's time where the snapshot kept an older one. Null: none stored.
+ */
+function planReadings(usage: unknown) {
+  if (!isJsonObject(usage)) return null;
+  const windows = (Array.isArray(usage.windows) ? usage.windows : []).flatMap((w: unknown) => {
+    if (!isJsonObject(w)) return [];
+    const usedPercent = numberIn(w.usedPercent, 0, 100);
+    if (usedPercent === null) return [];
+    return [
+      {
+        kind: listedOf(PLAN_WINDOW_KINDS, w.kind) ?? "other",
+        usedPercent,
+        resetsAt: instantOf(w.resetsAt),
+        at: instantOf(w.at),
+      },
+    ];
+  });
+  return {
+    limited: usage.limited === true,
+    checkedAt: instantOf(usage.checkedAt),
+    windows: windows.slice(0, AI_ACCOUNT_WINDOWS_MAX),
+  };
+}
+
 /** AI accounts on the computers not removed, newest first, in keyset pages. */
 export async function operatorListAiAccounts(db: Database, query: OperatorAiAccountQuery) {
   const after = query.cursor ? decodeCursor(query.cursor, AiAccountCursor) : null;
@@ -254,6 +286,7 @@ export async function operatorListAiAccounts(db: Database, query: OperatorAiAcco
       lastFailureAt: ma.lastFailureAt,
       usageAt: sql<string | null>`${ma.usage}->>'at'`,
       usageSource: sql<string | null>`${ma.usage}->>'source'`,
+      usage: ma.usage,
       runnerVersion: machines.runnerVersion,
       protocol: machines.protocol,
     })
@@ -279,5 +312,8 @@ export async function operatorListAiAccounts(db: Database, query: OperatorAiAcco
   const accounts = rows.slice(0, query.limit);
   const last = accounts.at(-1);
   const next = rows.length > query.limit && last ? encodeCursor([last.createdAt.toISOString(), last.id]) : null;
-  return { accounts: accounts.map((a) => ({ ...a, runnerVersion: a.runnerVersion || null })), next };
+  return {
+    accounts: accounts.map((a) => ({ ...a, usage: planReadings(a.usage), runnerVersion: a.runnerVersion || null })),
+    next,
+  };
 }

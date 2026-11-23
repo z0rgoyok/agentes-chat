@@ -1,9 +1,10 @@
 import { ApiError, useThreadInfo, useThreadMission } from "@agenteschat/client";
 import { isOpenMission } from "@agenteschat/client/lib/missions";
-import { EmptyState } from "@agenteschat/ui";
+import { EmptyState, OPEN_LAYER } from "@agenteschat/ui";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState } from "@/components/Loading";
+import { FileOrigin, isFileThread, useFileThread } from "@/components/live/TalkBits";
 import { Main } from "@/components/Main";
 import { MissionJoinNote, MissionThreadHeader } from "@/components/missions/MissionHeader";
 import { useOrg } from "@/components/org-context";
@@ -27,6 +28,7 @@ export function ThreadPage({
   onGone,
   onBack,
   onSeeInChannel,
+  escInside,
 }: {
   threadId: string;
   reply?: boolean;
@@ -40,19 +42,26 @@ export function ThreadPage({
   /** In the panel: "Ver em #canal" jumps to this message in the channel beside it instead of navigating (false: not
    * that channel's thread). */
   onSeeInChannel?: (messageId: string, channelId: string) => boolean;
+  /** Docked beside what it is about (a live file's conversation, ADR 0199): Esc closes it only from inside it. */
+  escInside?: boolean;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  useEscClose(onBack ?? onClose);
+  useEscClose(escInside ? undefined : (onBack ?? onClose));
   const info = useThreadInfo(org.id, threadId);
   const thread = info.data;
+  // A live file's conversation (ADR 0199): named after the file's kind, with where the file was made on top.
+  const file = useFileThread(thread);
   // A thread with a mission (ADR 0029): the mission header; who only reads gets a note.
   const mission = useThreadMission(org.id, threadId).data ?? null;
   const loaded = Boolean(thread);
-  // "Responder" (a closed thread's line, a message in the channel): straight to the composer.
+  // "Responder" (a closed thread's line, a message in the channel): straight to the composer. Never out of a card,
+  // menu or list the person opened meanwhile: losing the focus would close it under them.
   useEffect(() => {
     if (!reply || !loaded) return;
-    const timer = setTimeout(() => document.getElementById(`composer-${threadId}`)?.focus(), 80);
+    const timer = setTimeout(() => {
+      if (!document.activeElement?.closest(OPEN_LAYER)) document.getElementById(`composer-${threadId}`)?.focus();
+    }, 80);
     return () => clearTimeout(timer);
   }, [reply, loaded, threadId]);
   const gone = info.error instanceof ApiError && (info.error.status === 404 || info.error.status === 403);
@@ -76,7 +85,10 @@ export function ThreadPage({
   }
   const archived = thread.state === "archived";
   // A task's conversation (ADR 0145): its own header and box; the task's screen around it is its title and state.
+  // A live file's is the same (ADR 0199), the file beside it.
   const task = thread.channelKind === "task";
+  const isFile = isFileThread(thread);
+  const kind = file?.kind ?? "file";
   return (
     <ChannelPage
       channelId={thread.channelId}
@@ -93,14 +105,23 @@ export function ThreadPage({
       }}
       chrome={{
         // A mission's thread: its header is the mission's (no card floating over the messages).
-        header: task ? (
+        header: isFile ? (
+          <TaskConversationHeader
+            thread={thread}
+            onClose={onClose}
+            title={t(`live.conversation.title.${kind}` as "live.conversation.title.file")}
+            closeLabel={t("live.conversation.close")}
+          />
+        ) : task ? (
           <TaskConversationHeader thread={thread} onClose={onClose} />
         ) : mission && !onClose ? (
           <MissionThreadHeader thread={thread} mission={mission} />
         ) : (
           <ThreadHeader thread={thread} onClose={onClose} onBack={onBack} onSeeInChannel={onSeeInChannel} />
         ),
-        top: (
+        top: isFile ? (
+          file && <FileOrigin artifactId={file.artifactId} kind={file.kind} />
+        ) : (
           <>
             <ThreadOrigin thread={thread} />
             <ContextBlock thread={thread} />
@@ -110,13 +131,17 @@ export function ThreadPage({
           mission && isOpenMission(mission) && mission.role === "none" ? (
             <MissionJoinNote mission={mission} />
           ) : undefined,
-        composerLabel: task ? t("issues.commentPlaceholder") : t("threads.view.composer"),
+        composerLabel: isFile
+          ? t(`live.conversation.placeholder.${kind}` as "live.conversation.placeholder.file")
+          : task
+            ? t("issues.commentPlaceholder")
+            : t("threads.view.composer"),
         composerReplacement: archived ? <ArchivedNote thread={thread} /> : undefined,
         panel: Boolean(onClose),
         // A person's reply here makes it a "Responder" thread (its replies leave the channel's timeline),
         // except a mission's or a range's, which the channel already shows as their own card or marker.
-        openThread: !task && !thread.mission && !thread.context,
-        task,
+        openThread: !task && !isFile && !thread.mission && !thread.context,
+        task: task || isFile,
       }}
     />
   );

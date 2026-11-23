@@ -648,6 +648,7 @@ test("audit: who did what to what in a range of dates, never an entry's details"
       outcome: null,
       runId: null,
       onBehalfOfUserId: null,
+      facts: null,
     },
     {
       id: entry(3),
@@ -660,6 +661,7 @@ test("audit: who did what to what in a range of dates, never an entry's details"
       outcome: "refused",
       runId: RUN,
       onBehalfOfUserId: null,
+      facts: null,
     },
     {
       id: entry(2),
@@ -672,6 +674,7 @@ test("audit: who did what to what in a range of dates, never an entry's details"
       outcome: "done",
       runId: RUN,
       onBehalfOfUserId: "u-ada",
+      facts: null,
     },
     {
       id: entry(1),
@@ -684,6 +687,7 @@ test("audit: who did what to what in a range of dates, never an entry's details"
       outcome: null,
       runId: null,
       onBehalfOfUserId: null,
+      facts: null,
     },
   ]);
 
@@ -744,6 +748,114 @@ test("audit: a target with no id of its own goes by its name, and the contract s
   const doc = (await (await get("/openapi.json")).json()) as Doc;
   const said = JSON.stringify(doc.components.schemas.OperatorAuditPage?.properties.events);
   for (const [targetType] of named) expect(said).toContain(`\`${targetType}\``);
+});
+
+test("audit: three actions say what changed in listed words, counts and ids, and nothing else of their details", async () => {
+  const role = uid("0d0d0d0d", 1);
+  const audience = (mode: string, userIds: string[] = [], roleIds: string[] = []) => ({ mode, userIds, roleIds });
+  const two = audience("people", ["u-ada", "u-bob"], [role]);
+  const changed = { action: "agent.audience_changed", actorType: "person", actorId: "u-ada", targetType: "agent" };
+  const stopped = { action: "run.canceled", actorType: "system", targetType: "agent_run", targetId: RUN };
+  const entries: [entry: Record<string, unknown>, details: Record<string, unknown>, facts: unknown][] = [
+    // Whoever could talk to the agent, then two people and a role; then one of them out, by an invitation.
+    [
+      changed,
+      { from: audience("everyone"), to: two, planOwner: "canary owner" },
+      {
+        fromMode: "everyone",
+        toMode: "people",
+        peopleAdded: 2,
+        peopleRemoved: 0,
+        rolesAdded: 1,
+        rolesRemoved: 0,
+        via: null,
+      },
+    ],
+    [
+      changed,
+      { from: two, to: audience("people", ["u-ada"]), via: "invitation" },
+      {
+        fromMode: "people",
+        toMode: "people",
+        peopleAdded: 0,
+        peopleRemoved: 1,
+        rolesAdded: 0,
+        rolesRemoved: 1,
+        via: "invitation",
+      },
+    ],
+    // Anything else in a mode's or a list's place reads as absent.
+    [
+      changed,
+      { from: { mode: "canary mode", userIds: "canary" }, to: "canary", via: "canary via" },
+      {
+        fromMode: null,
+        toMode: null,
+        peopleAdded: 0,
+        peopleRemoved: 0,
+        rolesAdded: 0,
+        rolesRemoved: 0,
+        via: null,
+      },
+    ],
+    // A connected server whose two tools changed, one in its description and the other in its input.
+    [
+      { action: "connector.tool_definitions_changed", actorType: "system", targetType: "connector_connection" },
+      {
+        connection: "canary label",
+        tools: [
+          {
+            tool: "canary_tool",
+            from: "fake-print-1",
+            to: "fake-print-2",
+            descriptionBefore: "canary before",
+            descriptionAfter: "canary after",
+            inputChanged: false,
+          },
+          { tool: "canary_other", from: "fake-print-3", to: "fake-print-4", inputChanged: true },
+        ],
+      },
+      { tools: 2, descriptionsChanged: 1, inputsChanged: 1 },
+    ],
+    // A run its routine's next firing stopped, one a person stopped, and one a closed workspace's stop ended.
+    [
+      stopped,
+      { agentId: DEV, from: "waiting_input", reason: "routine_waiting_plan" },
+      { fromStatus: "waiting_input", reason: "routine_waiting_plan", agentId: DEV },
+    ],
+    [
+      { ...stopped, actorType: "person", actorId: "u-ada" },
+      { agentId: DEV, from: "running" },
+      { fromStatus: "running", reason: null, agentId: DEV },
+    ],
+    [
+      stopped,
+      { agentId: "canary", from: "canary", reason: "This workspace is on hold: canary reason" },
+      { fromStatus: null, reason: "workspace_paused", agentId: null },
+    ],
+    // Any other action says nothing of its details, whatever they are named.
+    [
+      { action: "agent.access_changed", actorType: "person", actorId: "u-ada", targetType: "agent" },
+      { fromMode: "everyone", tools: 3, reason: "agent_archived", agentId: DEV, label: "canary label" },
+      null,
+    ],
+  ];
+  await t.db.insert(schema.auditLog).values(
+    entries.map(([entry, details], n) => ({
+      orgId: ADA,
+      targetId: DEV,
+      ...(entry as { action: string; actorType: "person" | "system"; targetType: string }),
+      details,
+      createdAt: new Date(Date.UTC(2026, 0, 23, 0, n)),
+    })),
+  );
+  const { events } = await ok<Page<"events">>(
+    await get(`/orgs/${ADA}/audit?from=2026-01-23T00:00:00Z&to=2026-01-24T00:00:00Z`),
+  );
+  expect(events.map((e) => [e.action, e.facts])).toEqual(
+    entries.map(([entry, , facts]) => [entry.action, facts]).reverse(),
+  );
+  expect(JSON.stringify(events)).not.toContain("canary");
 });
 
 test("a page of the audit log continues from the stored time itself, in an order its index serves", async () => {

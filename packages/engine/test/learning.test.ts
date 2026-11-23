@@ -543,6 +543,38 @@ describe("agents learn on their own (ADR 0120)", () => {
     expect([ads?.agentId, ads?.channelIds]).toEqual([null, [f.general.id]]);
   });
 
+  test("a turn that sets up SSH keeps how to reach the server (host, port, user, key path), never the password", async () => {
+    f = await setup();
+    const { run } = await personRun("@dev configure o acesso SSH ao vps.example.com, porta 2222, usuário deploy");
+    await step(run, "computer_run", { command: "ssh-keygen -t ed25519 -f ~/.ssh/vps_example" }, "ok");
+    const ssh = "@dev reaches vps.example.com over SSH on port 2222 as deploy with the key at ~/.ssh/vps_example";
+    const access = (title: string, key: string, content: string) => ({
+      kind: "access",
+      scope: "own",
+      about_person: "",
+      title,
+      key,
+      content,
+      refs: ["m1", "s1"],
+    });
+    learnOutput = {
+      items: [
+        access(ssh, "@dev ssh vps.example.com", ssh),
+        access("deploy password", "@dev ssh password", "password: Fake-Pa55word-not-real"),
+      ],
+      skill_fixes: [],
+    };
+    const out = await learnRun(f.context, { orgId: f.org.id, runId: run.id });
+    const prompt = systemText(
+      f.provider.calls.find((c) => isLearn(systemText(c.request.system)))?.request.system ?? "",
+    );
+    expect(prompt).toContain("the path of a key file on the agent's own computer as an access");
+    expect(out.rejected.map((r) => r.reason)).toEqual(["secret"]);
+    const saved = await items();
+    expect(saved.map((i) => [i.kind, i.content])).toEqual([["fact", ssh]]);
+    for (const part of ["port 2222", "as deploy", "~/.ssh/vps_example"]) expect(saved[0]?.content).toContain(part);
+  });
+
   test("guards: daily cap, a live run, credentials, a person's item, update_skill rules, a run that saved already", async () => {
     f = await setup();
     const today = new Date().toISOString().slice(0, 10);

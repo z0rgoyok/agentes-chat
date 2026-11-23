@@ -94,6 +94,7 @@ test("the policy: setup-token by default, set for the listed workspaces, the sam
     method: "setup_token",
     rollout: "selected",
     orgIds: [],
+    percent: 0,
     changedAt: null,
     connections,
   });
@@ -111,7 +112,7 @@ test("the policy: setup-token by default, set for the listed workspaces, the sam
   // a runner that says it can do may use; elsewhere a sign-in for all agents is always Claude's own login.
   expect(await ok(await call("GET", `/orgs/${ada}/claude-auth`))).toEqual({
     effective: { method: "cli_login" },
-    policy: { method: "cli_login", rollout: "selected", orgIds: [ada], changedAt: set.changedAt },
+    policy: { method: "cli_login", rollout: "selected", orgIds: [ada], percent: 0, changedAt: set.changedAt },
     machines: [
       {
         id: machineIds.system,
@@ -154,6 +155,15 @@ test("the policy: setup-token by default, set for the listed workspaces, the sam
     supportsSelected: true,
     claudeLoginBlocked: null,
   });
+  // A percent on top of the listed ones: 0–100, else refused.
+  const pct = await ok(
+    await call("PUT", "/claude-auth", { method: "cli_login", rollout: "percent", orgIds: [ada], percent: 20 }),
+  );
+  expect(pct).toMatchObject({ rollout: "percent", orgIds: [ada], percent: 20 });
+  expect(
+    (await call("PUT", "/claude-auth", { method: "cli_login", rollout: "percent", orgIds: [], percent: 120 })).status,
+  ).toBe(400);
+  await ok(await call("PUT", "/claude-auth", { method: "setup_token", rollout: "selected", orgIds: [] }));
 });
 
 test("refusals: a bad body, too many workspaces, one that doesn't exist; an unknown workspace's view is a 404", async () => {

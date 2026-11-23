@@ -1,12 +1,13 @@
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
 import { agentTones, SPRITE, softTones, spriteTone } from "@agenteschat/ui/sky/math";
-import { Canvas, Group, Path, Skia, type SkPath, useClock } from "@shopify/react-native-skia";
+import { Canvas, Group, Path, Skia, type SkPath } from "@shopify/react-native-skia";
 import { useMemo, useState } from "react";
 import { type LayoutChangeEvent, type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { type SharedValue, useDerivedValue } from "react-native-reanimated";
 import { useLivePaused } from "@/agent/live";
 import { rectsToSvg } from "@/agent/recorder";
 import { useReducedMotion, useTheme } from "@/ui/theme";
+import { useDrawingClock } from "./clock";
 import { Dither } from "./Dither";
 import { COMPUTER_SPRITES, type ComputerSprite, computerSpriteAt, computerSpriteBlinks } from "./math";
 
@@ -28,7 +29,8 @@ export function ComputerSky({ color = "sky", style }: { color?: AgentColorName; 
   const { colors, scheme } = useTheme();
   const reduced = useReducedMotion();
   const paused = useLivePaused();
-  const clock = useClock();
+  // Its agents' clock runs only while they move: off screen it stops where it was (no frame callback, no redraw).
+  const clock = useDrawingClock(!reduced && !paused);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -55,7 +57,7 @@ export function ComputerSky({ color = "sky", style }: { color?: AgentColorName; 
               key={sprite.x}
               sprite={sprite}
               clock={clock}
-              moving={!reduced && !paused}
+              moving={!reduced}
               width={size.width}
               height={size.height}
               body={paths.body as SkPath}

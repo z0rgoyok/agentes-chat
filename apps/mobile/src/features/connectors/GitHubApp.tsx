@@ -128,8 +128,10 @@ export function GitHubAppGroup({ onConnectAccount }: { onConnectAccount: () => v
     chooseAction(
       i.accountLogin,
       [
-        ...(i.manageUrl ? [{ label: t("githubApp.manage"), onPress: () => openPage(i.manageUrl ?? "") }] : []),
-        { label: t("githubApp.remove"), destructive: true, onPress: () => drop(i) },
+        ...(i.manageUrl
+          ? [{ icon: "out" as const, label: t("githubApp.manage"), onPress: () => openPage(i.manageUrl ?? "") }]
+          : []),
+        { icon: "trash", label: t("githubApp.remove"), destructive: true, onPress: () => drop(i) },
       ],
       t("common.cancel"),
     );

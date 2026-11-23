@@ -86,6 +86,8 @@ export const STORED = {
   doubleTapTaught: "double-tap-taught",
   /** `<user id>.<org id>` entries (JSON list): the right hand's DM was opened there, so its "Novo" is gone. */
   rightHandSeen: "right-hand-seen",
+  /** The speed voice messages play at on this phone: "1", "1.5" or "2" (features/voice/speed.ts). */
+  voiceSpeed: "voice-speed",
   /** The person held the send button to stop an agent and send once: the composer's hint is over ("1"). */
   stopSendTaught: "stop-send-taught",
 } as const;

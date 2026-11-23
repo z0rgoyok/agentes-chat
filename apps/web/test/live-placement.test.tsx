@@ -242,7 +242,9 @@ describe("live row in the timeline", () => {
     expect(row()).toBeNull();
     expect(document.querySelector(".ac-msg--waiting, .ac-wait")).toBeNull();
     expect(bar().querySelector(".ac-typing__text")?.textContent).toBe("Ada pensando…");
-    expect(within(bar()).getByRole("button", { name: "Parar" })).toBeTruthy();
+    // The composer stops it; the bar has no stop of its own.
+    expect(within(bar()).queryByRole("button", { name: "Parar" })).toBeNull();
+    expect(screen().getByRole("button", { name: "Parar a Ada" })).toBeTruthy();
     // The step follows the run there.
     await ev({
       type: "agent.tool",
@@ -263,7 +265,7 @@ describe("live row in the timeline", () => {
     await settle(3);
     expect(row()).toBeNull();
     expect(bar().querySelector(".ac-typing__text")?.textContent).toBe("Ada escrevendo…");
-    expect(within(bar()).getByRole("button", { name: "Parar" })).toBeTruthy();
+    expect(screen().getByRole("button", { name: "Parar a Ada" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("O login devolve 401");
     await post(ev, "m-later", "Também confere o refresh");
     await settle(3);
@@ -358,7 +360,7 @@ describe("live row in the timeline", () => {
     expect(shownText(bar())).toBe("Ada e Atlas estão trabalhando…");
   });
 
-  test("steering: no mark while it waits for the pause, 'leu' under the message once read; 'Leu seu recado' in the reply's steps once it lands", async () => {
+  test("steering: no mark while it waits for the pause, 'leu' under the message once read; the reply repeats none of it", async () => {
     const { ev } = await open();
     await ev({ type: "agent.run", ...ids, status: "running" });
     await ev({ type: "agent.typing", ...ids });
@@ -393,8 +395,11 @@ describe("live row in the timeline", () => {
     await ev({ type: "agent.run", ...ids, status: "done" });
     await settle(4);
     const reply = document.querySelector('[data-message-id="m-reply"]') as HTMLElement;
-    expect(reply.querySelector(".live-work__steer")?.textContent).toContain("Leu seu recado");
-    expect(reply.querySelector(".live-work__steer")?.textContent).toContain("Olha também o refresh");
+    // The message it read says so itself, after the reply too; the reply carries no "Read your note" line quoting it.
+    expect(mine().textContent).toContain("Ada leu");
+    expect(reply.textContent).toContain("O refresh também estava errado.");
+    expect(reply.textContent).not.toContain("Leu seu recado");
+    expect(reply.textContent).not.toContain("Olha também o refresh");
   });
 
   test("no news for 3 min: 'Atualizar' asks the server and drops a run that no longer exists", async () => {

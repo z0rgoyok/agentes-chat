@@ -3,38 +3,53 @@ import { fillPluralGaps, type LocaleStrings } from "@agenteschat/i18n/plurals";
 import { deepMerge } from "@agenteschat/i18n/tree";
 import { mobileEn } from "./keys.en";
 import { mobilePtBR } from "./keys.pt-BR";
-import de from "./locales/de.json";
-import es from "./locales/es.json";
-import fr from "./locales/fr.json";
-import id from "./locales/id.json";
-import it from "./locales/it.json";
-import ja from "./locales/ja.json";
-import ko from "./locales/ko.json";
-import nl from "./locales/nl.json";
-import pl from "./locales/pl.json";
-import ru from "./locales/ru.json";
-import tr from "./locales/tr.json";
-import zhHans from "./locales/zh-Hans.json";
 
 export type { AppLocale };
 export { DEFAULT_LOCALE, deepMerge };
 
-/** The app's own strings per language (English is the source; a missing key falls back to it). */
+/**
+ * The app's own strings per language (English is the source; a missing key falls back to it). The other languages are
+ * getters, parsed on first use: the phone reads only the one it shows (`FEATURES` does the same).
+ */
 export const MOBILE: Record<AppLocale, LocaleStrings> = {
   en: mobileEn,
   "pt-BR": mobilePtBR,
-  es,
-  fr,
-  de,
-  it,
-  nl,
-  ja,
-  ko,
-  "zh-Hans": zhHans,
-  id,
-  tr,
-  pl,
-  ru,
+  get es() {
+    return require("./locales/es.json");
+  },
+  get fr() {
+    return require("./locales/fr.json");
+  },
+  get de() {
+    return require("./locales/de.json");
+  },
+  get it() {
+    return require("./locales/it.json");
+  },
+  get nl() {
+    return require("./locales/nl.json");
+  },
+  get ja() {
+    return require("./locales/ja.json");
+  },
+  get ko() {
+    return require("./locales/ko.json");
+  },
+  get "zh-Hans"() {
+    return require("./locales/zh-Hans.json");
+  },
+  get id() {
+    return require("./locales/id.json");
+  },
+  get tr() {
+    return require("./locales/tr.json");
+  },
+  get pl() {
+    return require("./locales/pl.json");
+  },
+  get ru() {
+    return require("./locales/ru.json");
+  },
 };
 
 type Strings = Record<string, unknown>;

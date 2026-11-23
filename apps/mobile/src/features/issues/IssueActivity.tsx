@@ -8,11 +8,15 @@ import { Chip, Icon, type IconName, SCREEN_X, SectionHeader, Text, useReducedMot
 import { MessageText } from "../chat/MessageText";
 import { MessageFiles } from "../files/MessageFiles";
 import { Face } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useConnection, useDirectory, useOrgId } from "../shared/hooks";
 
 const eventIcon = (a: IssueActivity): IconName => (a.event === "agent_asked" ? "agent" : "clock");
 
-/** "Atividade": what happened to the task, in order, with the comments between the events. */
+/**
+ * "Atividade": what happened to the task, in order, with the comments between the events; one that couldn't load says
+ * so with Retry (the task above it stays).
+ */
 export function IssueActivityFeed({ issue }: { issue: Issue }) {
   const { t, i18n } = useTranslation();
   const c = useColors();
@@ -29,7 +33,9 @@ export function IssueActivityFeed({ issue }: { issue: Issue }) {
   return (
     <>
       <SectionHeader title={t("issues.activity")} count={list.length} />
-      {activity.isSuccess && list.length === 0 ? (
+      {activity.isError && !activity.data ? (
+        <LoadFailed onRetry={() => void activity.refetch()} />
+      ) : activity.isSuccess && list.length === 0 ? (
         <Text variant="subhead" tone="faint" style={styles.none}>
           {t("issues.noActivity")}
         </Text>
@@ -43,7 +49,7 @@ export function IssueActivityFeed({ issue }: { issue: Issue }) {
                 <Text variant="small" tone="ink2" style={styles.bold}>
                   {dir.nameOf(a.author)}
                 </Text>
-                {` ${issueEventText(t, a)} · ${when(a.createdAt)}`}
+                {` ${issueEventText(t, a, (who) => dir.nameOf(who))} · ${when(a.createdAt)}`}
               </Text>
               {a.auto ? <Chip label={t("issues.auto")} /> : null}
             </Animated.View>

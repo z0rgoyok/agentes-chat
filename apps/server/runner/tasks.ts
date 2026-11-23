@@ -58,7 +58,7 @@ import { coAuthorLines } from "./co-authors";
 import { commandApproval, ownBranches } from "./command-gate";
 import { RunnerError } from "./errors";
 import { shellCommand, windowsTaskkill } from "./exec";
-import { envValue, findOnWindowsPath, NO_CWD_LOOKUP, winQuote } from "./executors";
+import { envValue, findOnWindowsPath, NO_CWD_LOOKUP, pickedCodex, winQuote } from "./executors";
 import { readJson, writeJson } from "./json-file";
 import {
   CODEX_MCP_ENV,
@@ -505,7 +505,7 @@ export function executorCommand(
     extra?: string[];
     /** Claude Code's permission mode (default `acceptEdits`; a mission's plan turn runs `dontAsk`). */
     permissionMode?: "acceptEdits" | "dontAsk";
-    /** Claude Code as the line starts it (default `claude`; on Windows its full path, quoted). */
+    /** The CLI as the line starts it, quoted (default `claude` / `codex`; Claude Code on Windows by its full path). */
     program?: string;
     /** Codex: where it works (`-C`), its sandbox, the file for its last message, the thread to resume. */
     codex?: { cwd: string; sandbox: "read-only" | "workspace-write"; lastFile: string; thread?: string };
@@ -532,7 +532,7 @@ export function executorCommand(
     const q = (v: string) => shellArg(v, options.platform);
     const c = options.codex;
     return [
-      "codex",
+      options.program ?? "codex",
       "exec",
       "--json",
       "--skip-git-repo-check",
@@ -1093,6 +1093,9 @@ export class TaskManager {
       if (!found) throw new RunnerError("not_found", "Claude Code is not installed on this computer.");
       program = winQuote(found);
     }
+    // The copy whose version the runner reported, not whichever the task's shell finds first.
+    const codexBin = executor === "codex" ? pickedCodex() : undefined;
+    if (codexBin) program = shellArg(codexBin);
     const signIn = executor === "shell" || hosted ? null : await this.signIn(executor, req.account, grant);
     if (signIn?.release) this.releases.set(taskId, signIn.release);
     const keyPlan = executor === "claude" && signIn?.planKey ? planOf(signIn.planKey.provider) : undefined;

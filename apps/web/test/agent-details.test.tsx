@@ -36,7 +36,11 @@ describe("an agent seen from outside its audience", () => {
   });
 
   test("Equipe's map card leaves out what it does and opens its public card, which offers to ask for access", async () => {
-    await renderApp(`/org/${ORG_ID}/team`, { api: createFakeApi(outside()) });
+    // Answering someone besides João, she isn't private: Equipe still lists her.
+    const state = outside();
+    const ada = state.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.audience = { mode: "people", userIds: ["u-someone"] };
+    await renderApp(`/org/${ORG_ID}/team`, { api: createFakeApi(state) });
     await settle(4);
     await act(async () => fireEvent.click(screen().getByRole("radio", { name: "Mapa" })));
     await settle(2);

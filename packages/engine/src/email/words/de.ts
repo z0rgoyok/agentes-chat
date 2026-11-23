@@ -237,6 +237,11 @@ export const words: EmailWords = {
     preheader: "Gib die Anfrage unter Mitglieder frei oder lehne sie ab. Bis du antwortest, passiert nichts.",
     headline: "Eine Beitrittsanfrage wartet",
     body: (org) => ["Die Person hat den Einladungslink von ", { b: org }, " geöffnet und möchte beitreten."],
+    outside: (by) => [
+      "Diese Person arbeitet für ",
+      { b: by },
+      " und möchte als externe Person beitreten. Sie belegt keinen Platz in deinem Tarif, und du kannst sie jederzeit entfernen.",
+    ],
     note: "Gib nur Personen frei, die du erwartest. Sie treten als Mitglied bei, außer du wählst auf der Seite eine andere Rolle.",
     approve: "Freigeben",
     deny: "Ablehnen",
@@ -309,6 +314,14 @@ export const words: EmailWords = {
   deletionCode: {
     subjectWorkspace: (code) => `${code} ist dein Code zum Löschen eines Workspace`,
     subjectAccount: (code) => `${code} ist dein Code zum Löschen deines ganzen Kontos`,
+    subjectReset: (code) => `${code} ist dein Code zum Zurücksetzen eines Workspace`,
+    reset: (org) => [
+      "Gib diesen Code ein, um den Workspace ",
+      { b: org },
+      " zurückzusetzen. Seine Agenten, Unterhaltungen, Dateien und Erinnerungen werden sofort und endgültig gelöscht, und er beginnt neu wie ein neuer Workspace.",
+    ],
+    whyReset: (org) =>
+      `Du erhältst diese E-Mail, weil über dein Konto das Zurücksetzen von ${org} auf agentes.chat angefragt wurde.`,
     preheader: "Gib ihn in agentes.chat ein, um zu bestätigen. Er gilt 10 Minuten lang.",
     headline: "Dein Code",
     workspace: (org) => [
@@ -566,5 +579,56 @@ export const words: EmailWords = {
       why: () =>
         "Du bekommst diese E-Mail, weil dieser Workspace auf agentes.chat dir gehört. Wir senden nur zwei solche Hinweise.",
     },
+  },
+  surface: {
+    linked: {
+      subject: (surface) => `${surface} wurde mit deinem agentes.chat-Konto verknüpft`,
+      preheader: "Dein Assistent antwortet dir jetzt dort. Wenn du das nicht warst, heb die Verknüpfung auf.",
+      headline: (surface) => `${surface} wurde verknüpft`,
+      body: (surface, display, org) => [
+        { b: display },
+        ` auf ${surface} spricht jetzt mit deinem Assistenten in `,
+        { b: org },
+        ".",
+      ],
+      notYou:
+        "Das warst nicht du? Heb die Verknüpfung auf. Nachrichten von dort erreichen dein Konto dann sofort nicht mehr.",
+      button: "Verknüpfung aufheben",
+      small:
+        "Wenn du das warst, musst du nichts tun. Du kannst die Verknüpfung jederzeit in den Einstellungen aufheben.",
+      why: (surface) => `Du erhältst diese E-Mail, weil ${surface} mit deinem agentes.chat-Konto verknüpft wurde.`,
+      picture: "Dein Assistent, jetzt auch auf deinem Handy",
+    },
+    unlinked: {
+      subject: (surface) => `${surface} wurde von deinem agentes.chat-Konto getrennt`,
+      preheader: "Die Identität hat sich geändert. Verknüpfe es in den Einstellungen neu, wenn du das warst.",
+      headline: (surface) => `${surface} wurde getrennt`,
+      body: (surface, display) => [
+        { b: display },
+        ` auf ${surface} wurde getrennt, weil sich die Identität geändert hat.`,
+      ],
+      small: "Verknüpfe es in den Einstellungen neu, wenn du das warst.",
+      why: (surface) => `Du erhältst diese E-Mail, weil ${surface} mit deinem agentes.chat-Konto verknüpft war.`,
+      picture: "Dein Assistent, nicht mehr auf deinem Handy",
+    },
+  },
+  supportReply: {
+    subject: "Eine Antwort auf deine Hilfeanfrage",
+    preheader: "Zu der Hilfe, um die du auf agentes.chat gebeten hast.",
+    headline: "Eine Antwort auf deine Hilfeanfrage",
+    answers: {
+      received: "Wir haben deine Anfrage erhalten und sehen sie uns an.",
+      need_more:
+        "Wir brauchen mehr Angaben, um dir zu helfen: was du gemacht hast, was du erwartet hast und was stattdessen passiert ist.",
+      resolved: "Was du gemeldet hast, ist behoben.",
+      handed_over: "Eine Person hat deine Anfrage jetzt übernommen und antwortet dir.",
+    },
+    from: (host) =>
+      host
+        ? atHost("Beantwortet von den Betreibern des agentes.chat-Servers", "auf", host)
+        : "Beantwortet von agentes.chat.",
+    ai: "Ein KI-Assistent hat diese Antwort geschrieben.",
+    reply: (address) => ["Zum Antworten schreib an ", { mail: address }, "."],
+    why: "Du erhältst diese E-Mail, weil du auf agentes.chat um Hilfe gebeten hast.",
   },
 };

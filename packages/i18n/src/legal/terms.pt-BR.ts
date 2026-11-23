@@ -3,13 +3,13 @@ import type { LegalDocument } from "./types";
 export const termsPtBR: LegalDocument = {
   title: "Termos de uso",
   summary: "O acordo para usar o agentes.chat: o seu workspace, os seus agentes e pelo que cada lado responde.",
-  updated: "2026-11-13",
+  updated: "2026-11-20",
   sections: [
     {
       id: "agreement",
       heading: "1. Acordo",
       blocks: [
-        'Estes Termos de uso (os "Termos") são um acordo vinculante entre a CODARI GLOBAL, LLC, sociedade de responsabilidade limitada do estado de Wyoming (EUA) que atua sob o nome agentes.chat ("agentes.chat", "nós"), e a pessoa ou entidade que cria uma conta ou um workspace ("você"). Ao criar uma conta, entrar num workspace ou usar de outra forma o agentes.chat na web, no app de Mac ou no app de celular (o "Serviço"), você aceita estes Termos e a nossa Política de privacidade. Se você usa o Serviço em nome de uma empresa ou outra entidade, declara que tem poderes para obrigá-la.',
+        'Estes Termos de uso (os "Termos") são um acordo vinculante entre a AGENTESCHAT, LLC, sociedade de responsabilidade limitada do estado de Delaware (EUA) que atua sob o nome agentes.chat ("agentes.chat", "nós"), e a pessoa ou entidade que cria uma conta ou um workspace ("você"). Ao criar uma conta, entrar num workspace ou usar de outra forma o agentes.chat na web, no app de Mac ou no app de celular (o "Serviço"), você aceita estes Termos e a nossa Política de privacidade. Se você usa o Serviço em nome de uma empresa ou outra entidade, declara que tem poderes para obrigá-la.',
         "Para usar o Serviço, você precisa ter pelo menos 18 anos e capacidade para firmar contratos.",
       ],
     },
@@ -33,7 +33,7 @@ export const termsPtBR: LegalDocument = {
       heading: "4. Os agentes e o que eles fazem",
       blocks: [
         "Os agentes agem conforme as instruções, permissões, conectores, orçamentos e computadores que você e o seu workspace dão a eles. O que um agente faz dentro dessas permissões, incluindo mensagens que envia, código que altera, dados que lê, escreve ou apaga e comandos que roda num computador, é feito em nome do seu workspace, e o seu workspace responde por isso nestes Termos. Cada agente tem uma pessoa responsável por ele.",
-        "Ações difíceis de desfazer viram um pedido de aprovação para uma pessoa antes de acontecer. Aprovar é decisão sua. O Serviço mostra o que será feito, mas cabe a você conferir.",
+        "Ações difíceis de desfazer viram um pedido de aprovação para uma pessoa antes de acontecer, a não ser que o seu workspace tenha configurado esse agente para agir sem perguntar. Aprovar é decisão sua. O Serviço mostra o que será feito, mas cabe a você conferir.",
         "O que a IA produz pode estar errado, incompleto ou desatualizado, mesmo quando parece seguro. Confira o que os agentes produzem antes de confiar nisso, e não use como substituto de aconselhamento profissional (jurídico, médico, financeiro ou outro) nem como única base para decisões com efeitos jurídicos ou igualmente relevantes sobre pessoas.",
       ],
     },
@@ -53,7 +53,7 @@ export const termsPtBR: LegalDocument = {
             "violar as políticas de uso dos provedores de modelos de IA que rodam os seus agentes.",
           ],
         },
-        "Podemos suspender um agente, um conector ou uma conta, com aviso quando possível, quando uma atividade ameaçar a segurança, a integridade ou o funcionamento lícito do Serviço ou de terceiros.",
+        "Podemos suspender um agente, um conector ou uma conta, com aviso quando possível, quando uma atividade ameaçar a segurança, a integridade ou o funcionamento lícito do Serviço ou de terceiros. Podemos investigar suspeitas de violação desta seção, inclusive lendo o Conteúdo do Workspace, como a Política de privacidade descreve.",
       ],
     },
     {
@@ -61,8 +61,8 @@ export const termsPtBR: LegalDocument = {
       heading: "6. O seu conteúdo",
       blocks: [
         '"Conteúdo do Workspace" é o que você e as outras pessoas do seu workspace colocam no Serviço e o que os seus agentes produzem nele. O seu workspace é dono do Conteúdo do Workspace dele e, entre você e nós, o que os agentes produzem para você é seu, sujeito aos termos do provedor de modelo que o produziu. O que um modelo produz pode ser parecido com o que ele produz para outras pessoas.',
-        "Você nos concede os direitos limitados necessários para operar o Serviço: armazenar, tratar, transmitir e exibir o Conteúdo do Workspace para fazer funcionar o seu workspace e os seus agentes, enviá-lo aos provedores que os seus agentes usam conforme a Política de privacidade e prestar suporte. Não vendemos o Conteúdo do Workspace e não o usamos para treinar modelos de aprendizado de máquina.",
-        "O seu workspace é o controlador dos dados pessoais no Conteúdo do Workspace dele, e nós tratamos esses dados conforme as instruções dele, como operador, nos termos da Política de privacidade e do Acordo de Tratamento de Dados.",
+        "Você nos concede os direitos limitados necessários para operar o Serviço: armazenar, tratar, transmitir e exibir o Conteúdo do Workspace para fazer funcionar o seu workspace e os seus agentes, enviá-lo aos provedores que os seus agentes usam e às empresas que o tratam para nós, conforme a Política de privacidade, prestar suporte, manter o Serviço funcionando e seguro, fazer cumprir estes Termos e cumprir a lei. Não vendemos o Conteúdo do Workspace e não o usamos para treinar modelos de aprendizado de máquina.",
+        "O seu workspace é o controlador dos dados pessoais no Conteúdo do Workspace dele, e nós tratamos esses dados conforme as instruções dele, como operador, nos termos da Política de privacidade e do Acordo de Tratamento de Dados. Para confiança e segurança, para a segurança do Serviço e para o que a lei exige de nós, agimos como controlador por conta própria, como descreve a Seção 6 da Política de privacidade.",
       ],
     },
     {
@@ -84,7 +84,7 @@ export const termsPtBR: LegalDocument = {
       id: "data-protection",
       heading: "9. Proteção de dados",
       blocks: [
-        "Quando a LGPD, o GDPR ou o UK GDPR se aplicarem a dados pessoais no seu Conteúdo do Workspace, cada parte cumprirá as suas obrigações sob essa lei. Um Acordo de Tratamento de Dados (DPA) com as Cláusulas Contratuais Padrão da Comissão Europeia e termos equivalentes da LGPD está disponível e, quando assinado, passa a fazer parte destes Termos. Peça em legal@agentes.chat.",
+        "Quando a LGPD, o GDPR ou o UK GDPR se aplicarem a dados pessoais no seu Conteúdo do Workspace, cada parte cumprirá as suas obrigações sob essa lei. Um Acordo de Tratamento de Dados (DPA) com as Cláusulas Contratuais Padrão da Comissão Europeia e termos equivalentes da LGPD está disponível e, quando assinado, passa a fazer parte destes Termos. Peça em legal@agentes.chat. A lista atual de suboperadores está na Política de privacidade. Um pedido de suporte que um membro do seu workspace nos envia é a instrução do seu workspace para lermos aquilo de que o pedido trata.",
       ],
     },
     {
@@ -94,10 +94,11 @@ export const termsPtBR: LegalDocument = {
         "Cada workspace paga o próprio plano do agentes.chat. Estas regras valem para todos os planos:",
         {
           list: [
+            "**Vendedora.** Toda compra é feita da AGENTESCHAT, LLC, empresa dos Estados Unidos constituída em Delaware, e cobrada por ela.",
             "**Preços.** Os planos do agentes.chat e os preços deles estão na nossa página de preços. Os preços são em dólares americanos, e os impostos são somados onde se aplicam. O seu banco ou meio de pagamento pode cobrar as próprias tarifas em compras do exterior, como o IOF no Brasil.",
             "**Renovação.** O plano do agentes.chat se renova sozinho a cada mês ou a cada ano, conforme o período escolhido, até ser cancelado. Avisamos antes de um plano anual se renovar.",
             "**Cancelamento.** Você pode cancelar a qualquer momento, e o cancelamento vale no fim do período já pago. Depois disso, os agentes do workspace param, o computador dele é apagado 7 dias depois, e as conversas e os arquivos ficam disponíveis para ler e baixar por 90 dias e depois são apagados.",
-            "**Sem reembolso.** Os pagamentos são definitivos e não são reembolsados, nem no todo nem em parte, inclusive pelo resto de um período depois de um cancelamento, exceto quando a lei exigir.",
+            "**Sem reembolso.** Cada plano gera custos de operação desde o momento da compra, como o uso de modelos de IA, os servidores e o computador do workspace. Por isso, as compras são definitivas e não são reembolsadas, nem no todo nem em parte, inclusive pelo resto de um período depois de um cancelamento.",
             "**Pagamento recusado.** Se um pagamento falhar, tentamos de novo nos dias seguintes. Se continuar falhando, o workspace fica bloqueado: os agentes param, e as pessoas continuam podendo ler e escrever nele. O computador fica guardado por 7 dias e depois é liberado e apagado. Pagar traz o workspace de volta, num computador novo se o antigo já tiver sido liberado.",
             "**Mudança de preço.** Podemos mudar os preços para clientes novos a qualquer momento. O preço de um plano do agentes.chat que você já tem só muda por causa de impostos novos, a partir da próxima renovação, com pelo menos 30 dias de aviso.",
             "**Uso justo.** Alguns recursos rodam em serviços de IA que oferecemos sem custo a mais, como escolher qual agente responde, avaliar memórias e ações, e achar onde clicar numa tela. Podemos limitá-los num workspace cujo uso esteja muito acima do normal.",
@@ -145,7 +146,7 @@ export const termsPtBR: LegalDocument = {
       id: "law",
       heading: "16. Lei aplicável",
       blocks: [
-        "Estes Termos são regidos pelas leis do estado de Wyoming, EUA, sem as suas regras de conflito de leis, e as partes se submetem à jurisdição exclusiva dos tribunais estaduais e federais de Wyoming. Se você é consumidor num país cuja lei lhe dá direitos ou foro irrenunciáveis, como o Brasil, esses direitos continuam valendo.",
+        "Estes Termos, e toda compra feita com base neles, são regidos pelas leis dos Estados Unidos e do estado de Delaware, sem as suas regras de conflito de leis, e as partes se submetem à jurisdição exclusiva dos tribunais estaduais e federais de Delaware.",
       ],
     },
     {
@@ -159,7 +160,7 @@ export const termsPtBR: LegalDocument = {
       id: "contact",
       heading: "18. Contato",
       blocks: [
-        "CODARI GLOBAL, LLC, que atua sob o nome agentes.chat. Endereço para notificações: 7345 W Sand Lake Rd Ste 210, Office 4592, Orlando, FL 32819, EUA · legal@agentes.chat · Para o resto: hello@agentes.chat",
+        "AGENTESCHAT, LLC, que atua sob o nome agentes.chat. Endereço para notificações: 2810 North Church Street, Ste 91038, Wilmington, DE 19802, EUA · legal@agentes.chat · Ajuda com o Serviço: support@agentes.chat · Para o resto: hello@agentes.chat",
       ],
     },
   ],

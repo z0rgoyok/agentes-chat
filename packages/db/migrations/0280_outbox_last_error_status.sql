@@ -1,0 +1,1 @@
+ALTER TABLE "outbox" ADD COLUMN "last_error_status" integer;

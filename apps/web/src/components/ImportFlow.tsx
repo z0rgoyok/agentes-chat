@@ -5,15 +5,12 @@ import type {
   ImportSkipReason,
   MigrationBundle,
 } from "@agenteschat/client";
-import { keys, useAgents, useApps, useMe } from "@agenteschat/client";
-import { aiAppImport } from "@agenteschat/client/lib/apps";
-import { errorText } from "@agenteschat/client/lib/errors";
+import { keys, useAgents, useMe } from "@agenteschat/client";
 import { formatBytes, MAX_UPLOAD_MB } from "@agenteschat/client/lib/files";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { frontmatter, PASTED } from "@agenteschat/client/lib/import/shared";
 import { can, makesAgents } from "@agenteschat/client/lib/permissions";
 import {
-  AffixInput,
   Alert,
   Button,
   Card,
@@ -23,49 +20,34 @@ import {
   type ChipTone,
   CountChip,
   driveFolder,
-  Field,
   HintLine,
   Icon,
   type IconName,
-  InfoHint,
   isIdHandle,
   normalizeAppearance,
   OptionCard,
-  Segmented,
-  Spinner,
-  SwapLabel,
   Switch,
-  Textarea,
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import {
-  type ComponentProps,
-  type ReactNode,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { failedOffline } from "@/chat/offline";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { ClientSteps } from "@/components/AiApps";
 import { HelpLink } from "@/components/HelpLink";
-import { ImportFailureNote } from "@/components/ImportFailure";
+import { type ImportFocus, ImportSheet, type ImportSheetKind, useFocusOn } from "@/components/ImportSheet";
 import { useOrg } from "@/components/org-context";
 import {
   type AgentFile,
-  EXPORT_PROMPT,
-  IMPORT_ACCEPT,
   type ImportFile,
+  type ImportWorkflow,
   type PickedFile,
   parsePackage,
   readImportFiles,
+  type SayKey,
+  type SayValues,
 } from "@/lib/import";
 import {
   agentsArrived,
@@ -77,7 +59,6 @@ import {
   cardName,
   choosable,
   copyAgentFiles,
-  defaultMethod,
   droppedFiles,
   type FileLeft,
   type FilesCopy,
@@ -90,14 +71,11 @@ import {
   type ImportMethod,
   importApplyErrorText,
   isGithubLink,
-  isRequestCard,
   itemId,
   kindsLine,
   MANY_FILES,
-  mcpClient,
   NOT_GITHUB,
   picksOf,
-  type RequestCard,
   todoLine,
 } from "@/lib/import-flow";
 import { hasFiles } from "@/lib/obsidian";
@@ -119,6 +97,7 @@ const TODO_ICON: Record<BundleTodo["kind"], IconName> = {
   secret: "key",
   model: "settings",
   file: "file",
+  webhook: "link",
 };
 /** Why the agents' files stay behind, in the order they're listed. */
 const FILE_LEFT: Record<FileLeft, IconName> = {
@@ -141,7 +120,6 @@ const SHOWN = 6;
 export const WATCH_POLL_MS = 5_000;
 
 type ReadInput = { files: PickedFile[] | Promise<PickedFile[]> } | { url: string } | { text: string };
-type Focus = "preview" | "report" | "drop" | null;
 
 /**
  * Bringing a workspace from another app (ADR 0055), the same in onboarding
@@ -166,6 +144,10 @@ export function useImportFlow(orgId: string | null) {
     files: AgentFile[];
     /** System files the reader dropped (dependencies, caches, `.git`). */
     junk: number;
+    /** What each workflow became, with its steps. */
+    workflows: ImportWorkflow[];
+    /** The agents a routine hands its answer to, by the routine's key. */
+    passes: Record<string, string[]>;
   } | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -183,7 +165,7 @@ export function useImportFlow(orgId: string | null) {
   const done = useRef(new Map<string, ImportItemResult>());
   const run = useRef(0);
   const last = useRef<ReadInput | null>(null);
-  const focus = useRef<Focus>(null);
+  const focus = useRef<ImportFocus>(null);
   const agentIds = useRef(new Map<string, string>());
   // Closing the page stops the copy (the browser sends each file): ask first.
   const copying = !!copy?.running;
@@ -232,7 +214,11 @@ export function useImportFlow(orgId: string | null) {
     };
   }, [refetch]);
   const setCard = (next: ImportCard | null) => {
-    if (next !== card) setSeen(null);
+    if (next !== card) {
+      setSeen(null);
+      // What went wrong with one source's file isn't the next one's.
+      if (busy === null) setFailure(null);
+    }
     pickCard(next);
   };
 
@@ -266,7 +252,10 @@ export function useImportFlow(orgId: string | null) {
       step = "plan";
       const list = await qc.fetchQuery({ queryKey: keys.models, queryFn: () => api.agents.models() });
       step = "parse";
-      const parsed = parsePackage(files, { models: list.models.map((m) => m.id), root, junk });
+      // What the import writes for the person to read (a workflow's request) is in their language. Each key takes some
+      // of these values, which i18next's types can't check for a key picked at run time.
+      const say = (key: SayKey, values: SayValues) => String(t(`onboarding.import.say.${key}`, values as never));
+      const parsed = parsePackage(files, { models: list.models.map((m) => m.id), root, junk, say });
       const { bundle } = parsed;
       if (!current()) return;
       step = "plan";
@@ -277,7 +266,15 @@ export function useImportFlow(orgId: string | null) {
       agentIds.current = new Map();
       sent.current = new Set();
       focus.current = "preview";
-      setPlanned({ bundle, items: plan.items, skipped, files: parsed.files, junk: junk.length });
+      setPlanned({
+        bundle,
+        items: plan.items,
+        skipped,
+        files: parsed.files,
+        junk: junk.length,
+        workflows: parsed.workflows,
+        passes: parsed.passes,
+      });
       setPick(new Set(plan.items.filter(choosable).map(itemId)));
       setReport(null);
       setCopyFiles(parsed.files.filter((f) => !f.skip).length <= MANY_FILES);
@@ -379,9 +376,15 @@ export function useImportFlow(orgId: string | null) {
     card,
     setCard,
     methods,
-    setMethod: (c: ImportCard, method: ImportMethod) => {
+    /** Picks a way for a source; null goes back to choosing one (an app on the computer's list of ways). */
+    setMethod: (c: ImportCard, method: ImportMethod | null) => {
       setFailure(null);
-      setMethods((m) => ({ ...m, [c]: method }));
+      setMethods((m) => {
+        const next = { ...m };
+        if (method) next[c] = method;
+        else delete next[c];
+        return next;
+      });
     },
     watch,
     /** The person's agents made since the source's MCP steps first showed: an embedder's way on, as `report` is. */
@@ -440,24 +443,6 @@ export function useImportFlow(orgId: string | null) {
 
 export type ImportFlowState = ReturnType<typeof useImportFlow>;
 
-/**
- * Moves focus to `el` once, when the flow asked for it (a step that replaced what had focus), or to `instead` where
- * `el` isn't shown.
- */
-function useFocusOn<T extends HTMLElement>(
-  flow: ImportFlowState,
-  target: Exclude<Focus, null>,
-  instead?: RefObject<HTMLElement | null>,
-) {
-  const el = useRef<T>(null);
-  useEffect(() => {
-    if (flow.focus.current !== target) return;
-    flow.focus.current = null;
-    (el.current ?? instead?.current)?.focus();
-  });
-  return el;
-}
-
 const applyErrorText = (t: TFunction, error: unknown) => importApplyErrorText(t, error, failedOffline);
 
 /** Why an item doesn't come, in plain words (an existing skill or channel says which). */
@@ -485,10 +470,43 @@ export function ImportFlow({
   standalone?: boolean;
   level?: 2 | 3;
 }) {
-  if (flow.planned && flow.report)
-    return <ImportReport flow={flow} orgId={orgId} level={level} onAnother={flow.reset} linked={standalone} />;
-  if (flow.planned) return <Preview flow={flow} orgId={orgId} standalone={standalone} level={level} />;
-  return <Picker flow={flow} orgId={orgId} linked={standalone} />;
+  // Every source has its sheet, over whichever step shows (ADR 0055, addendum 2026-11-16). Picked before this showed
+  // (the onboarding's own cards): its sheet is open from the start.
+  const [sheet, setSheet] = useState<ImportSheetKind | null>(() => (!flow.planned && flow.card ? flow.card : null));
+  const open = (kind: ImportSheetKind) => {
+    flow.setCard(kind === "file" ? null : kind);
+    setSheet(kind);
+  };
+  const close = () => {
+    // Back on the page, what it shows now takes the focus: the sheet's own opener may be gone.
+    if (flow.planned) flow.focus.current = flow.report ? "report" : "preview";
+    setSheet(null);
+  };
+  const index = useBundleIndex(flow);
+  const todo = flow.planned?.bundle.todo ?? [];
+  return (
+    <>
+      {flow.planned && flow.report ? (
+        <ImportReport flow={flow} orgId={orgId} level={level} onAnother={flow.reset} linked={standalone} />
+      ) : flow.planned ? (
+        <Preview flow={flow} orgId={orgId} standalone={standalone} level={level} />
+      ) : (
+        <Picker flow={flow} open={sheet} onOpen={open} />
+      )}
+      <ImportSheet
+        flow={flow}
+        sheet={sheet}
+        orgId={orgId}
+        onClose={close}
+        standalone={standalone}
+        todos={
+          todo.length > 0 ? (
+            <Todos todo={todo} nameOf={index.nameOf} orgId={orgId} linked={standalone && flow.report !== null} />
+          ) : null
+        }
+      />
+    </>
+  );
 }
 
 function Heading({ level, ...rest }: { level: 2 | 3 | 4 } & ComponentProps<"h2">) {
@@ -515,52 +533,27 @@ export function SourceMark({ card }: { card: ImportCard }) {
 }
 
 /**
- * This server's MCP way in and the way on screen for the flow's source, which an embedder reads to say what the step
- * asks. Prompt only for an app that takes no MCP, where MCP can't work now (`aiAppImport`), or when this server's
- * address couldn't be read. Null while it loads, so the default never changes under the person.
+ * The apps a team can come from, each opening its sheet, and one button for a file or link from any of them. A file
+ * dropped anywhere here opens that sheet already reading it.
  */
-export function useImportMethod(flow: ImportFlowState, orgId: string) {
+function Picker({
+  flow,
+  open,
+  onOpen,
+}: {
+  flow: ImportFlowState;
+  /** The sheet that is open, whose card shows pressed. */
+  open: ImportSheetKind | null;
+  onOpen: (kind: ImportSheetKind) => void;
+}) {
   const { t } = useTranslation();
-  const apps = useApps(orgId);
-  const standing = useMe().data?.organizations.find((o) => o.id === orgId)?.standing;
-  const mcp = aiAppImport(t, apps.data, standing);
-  const method: ImportMethod | null =
-    !flow.card || !mcpClient(flow.card)
-      ? "prompt"
-      : mcp
-        ? ((mcp.available ? flow.methods[flow.card] : undefined) ?? defaultMethod(flow.card, mcp.available))
-        : apps.isError
-          ? "prompt"
-          : null;
-  return { mcp, method };
-}
-
-/**
- * Pick the app, then connect it with MCP (where it takes it, and apps reach this server), or drop, choose, link or
- * paste: the source is recognized either way, and a dropped file is read on either path.
- */
-function Picker({ flow, orgId, linked }: { flow: ImportFlowState; orgId: string; linked: boolean }) {
-  const { t } = useTranslation();
-  const { mcp, method } = useImportMethod(flow, orgId);
-  const filesInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
-  const steps = useRef<HTMLElement>(null);
-  const drop = useFocusOn<HTMLButtonElement>(flow, "drop", steps);
+  // Back to the start with no sheet open: the file button. With one open, its drop zone takes it.
+  const file = useFocusOn<HTMLButtonElement>(flow, "drop", undefined, open === null);
   const [over, setOver] = useState(false);
-  const [text, setText] = useState("");
   const busy = flow.busy !== null;
-  const submit = (value: string) => {
-    const v = value.trim();
-    if (!v || busy) return;
-    void flow.read(/^https?:\/\//i.test(v) ? { url: v } : { text: v });
-  };
-  const picked = (list: FileList | null) => {
-    const files = Array.from(list ?? []);
-    if (files.length) void flow.read({ files });
-  };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a bigger drop target; the drop zone button and the pickers are the keyboard way
+    // biome-ignore lint/a11y/noStaticElementInteractions: a bigger drop target; the file button is the keyboard way
     <div
       className="imp-pick"
       data-over={over || undefined}
@@ -579,406 +572,35 @@ function Picker({ flow, orgId, linked }: { flow: ImportFlowState; orgId: string;
         if (!hasFiles(e.dataTransfer)) return;
         e.preventDefault();
         setOver(false);
-        if (!busy) void flow.read({ files: droppedFiles(e.dataTransfer) });
+        if (busy) return;
+        onOpen("file");
+        void flow.read({ files: droppedFiles(e.dataTransfer) });
       }}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: pressable cards, not a native fieldset */}
       <div className="imp-sources" role="group" aria-label={t("onboarding.import.sourcesLabel")}>
         {IMPORT_CARDS.map((c) => (
-          <OptionCard
-            key={c}
-            stacked
-            pressed={flow.card === c}
-            onClick={() => flow.setCard(flow.card === c ? null : c)}
-            className="imp-source"
-          >
+          <OptionCard key={c} stacked pressed={open === c} onClick={() => onOpen(c)} className="imp-source">
             <SourceMark card={c} />
             <span className="ac-option__title">{cardName(t, c)}</span>
           </OptionCard>
         ))}
       </div>
-
-      {flow.card && (
-        <SourceSteps
-          key={flow.card}
-          card={flow.card}
-          flow={flow}
-          orgId={orgId}
-          mcp={mcp}
-          method={method}
-          linked={linked}
-          stepsRef={steps}
-        />
-      )}
-
-      {busy ? (
-        <div className="imp-reading">
-          <span className="imp-reading__text" role="status">
-            <Spinner />
-            {flow.busy === "planning" ? t("onboarding.import.planning") : t("onboarding.import.reading")}
-          </span>
-          <Button size="sm" variant="ghost" onClick={flow.cancel}>
-            {t("common.cancel")}
-          </Button>
+      {over ? (
+        <div className="imp-drop">
+          <div className="imp-drop__area">
+            <Icon name="upload" />
+            <b>{t("onboarding.import.dropping")}</b>
+          </div>
         </div>
       ) : (
-        // With MCP the drop zone shows only while a file is dragged over: the file is still read.
-        (method === "prompt" || over) && (
-          <div className="imp-drop">
-            <button ref={drop} type="button" className="imp-drop__area" onClick={() => filesInput.current?.click()}>
-              <Icon name="upload" />
-              <b>{over ? t("onboarding.import.dropping") : t("onboarding.import.drop")}</b>
-              <span>{t("onboarding.import.dropHelp")}</span>
-            </button>
-            <Button size="sm" variant="ghost" icon="drive" onClick={() => folderInput.current?.click()}>
-              {t("onboarding.import.pickFolder")}
-            </Button>
-          </div>
-        )
-      )}
-      <input
-        ref={filesInput}
-        type="file"
-        multiple
-        hidden
-        accept={IMPORT_ACCEPT}
-        aria-label={t("onboarding.import.fileLabel")}
-        onChange={(e) => {
-          picked(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <input
-        ref={folderInput}
-        type="file"
-        multiple
-        hidden
-        aria-label={t("onboarding.import.folderLabel")}
-        // biome-ignore lint/suspicious/noExplicitAny: non-standard attribute React doesn't type
-        {...({ webkitdirectory: "" } as any)}
-        onChange={(e) => {
-          picked(e.target.files);
-          e.target.value = "";
-        }}
-      />
-
-      {method === "prompt" && (
-        <Field label={t("onboarding.import.paste")} id="import-paste">
-          <AffixInput
-            value={text}
-            placeholder={t("onboarding.import.pastePlaceholder")}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={busy}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={(e) => {
-              // A pasted reply is read right away, line breaks and all (a one-line field would drop them).
-              const pasted = e.clipboardData.getData("text");
-              if (!pasted.trim() || /^\s*https?:\/\//i.test(pasted)) return;
-              e.preventDefault();
-              setText("");
-              submit(pasted);
-            }}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              e.preventDefault();
-              submit(text);
-            }}
-            action={
-              <Button variant="ghost" size="sm" onClick={() => submit(text)} disabled={!text.trim() || busy}>
-                {t("onboarding.import.readPasted")}
-              </Button>
-            }
-          />
-        </Field>
-      )}
-
-      {flow.failure && <ImportFailureNote failure={flow.failure} retry={flow.retry} />}
-      {/* What a person needs before dropping a folder that holds keys: said on the line, the rest in its ⓘ. */}
-      {method === "prompt" && (
-        <p className="imp-note ac-iconline">
-          <Icon name="lock" size={16} />
-          <span className="ac-hintline">
-            <span>{t("onboarding.import.privacy")}</span>
-            <InfoHint name={t("common.about", { label: t("onboarding.import.privacyLabel") })}>
-              {t("onboarding.import.privacyMore")}
-            </InfoHint>
-          </span>
-        </p>
+        <div className="imp-pick__file">
+          <Button ref={file} icon="upload" onClick={() => onOpen("file")}>
+            {t("onboarding.import.haveFileButton")}
+          </Button>
+        </div>
       )}
     </div>
-  );
-}
-
-type McpOption = ReturnType<typeof aiAppImport>;
-
-/** How long the MCP step waits before it says what to check when nothing came. */
-const STUCK_MS = 2 * 60_000;
-
-/**
- * What to do in the picked source: the two ways in, MCP first where the app takes it and apps on the internet reach
- * this server, then that way's steps. With no MCP for the app, or no way to tell, its request or where its file is;
- * where MCP can't work now (a server apps can't reach, a workspace on hold), that and one line saying why. Nothing
- * while the server's address is still loading.
- */
-function SourceSteps({
-  card,
-  flow,
-  orgId,
-  mcp,
-  method,
-  linked,
-  stepsRef,
-}: {
-  card: ImportCard;
-  flow: ImportFlowState;
-  orgId: string;
-  mcp: McpOption;
-  method: ImportMethod | null;
-  linked: boolean;
-  stepsRef: RefObject<HTMLElement | null>;
-}) {
-  const { t } = useTranslation();
-  const orgs = useMe().data?.organizations ?? [];
-  const client = mcpClient(card);
-  // Another workspace of this person's on this server: its export one click away, in a tab of its own.
-  const others = card === "agenteschat" ? orgs.filter((o) => o.id !== orgId && can(o, "create_agents")) : [];
-  const other = others.length === 1 ? others[0] : undefined;
-  const prompt = isRequestCard(card) ? (
-    <OtherApp card={card} />
-  ) : other ? (
-    <p className="imp-tip ac-iconline">
-      <Icon name="info" size={16} />
-      <span className="ac-actline">
-        <span>{t("onboarding.import.whereOther")}</span>
-        <Link
-          className="ac-link"
-          to="/org/$orgId/settings/$section"
-          params={{ orgId: other.id, section: "import" }}
-          search={{}}
-          target="_blank"
-        >
-          {t("onboarding.import.whereOtherLink", { org: other.name })}
-        </Link>
-      </span>
-    </p>
-  ) : (
-    <p className="imp-tip ac-iconline">
-      <Icon name="info" size={16} />
-      <span>{t(`onboarding.import.where.${card}`)}</span>
-    </p>
-  );
-  if (!method) return null;
-  if (!client || !mcp) return prompt;
-  if (!mcp.available)
-    return (
-      <>
-        {prompt}
-        <p className="imp-note ac-iconline">
-          <Icon name="info" size={16} />
-          <span>{mcp.note}</span>
-        </p>
-      </>
-    );
-  return (
-    <>
-      <Segmented
-        block
-        label={t("onboarding.import.method.label")}
-        value={method}
-        onValueChange={(m) => flow.setMethod(card, m)}
-        options={[
-          { value: "mcp", label: t("onboarding.import.method.mcp") },
-          {
-            value: "prompt",
-            label: isRequestCard(card) ? t("onboarding.import.method.prompt") : t("onboarding.import.method.file"),
-          },
-        ]}
-      />
-      {method === "mcp" ? (
-        <section ref={stepsRef} tabIndex={-1} className="imp-other" aria-label={t("onboarding.import.method.mcp")}>
-          <p className="small muted">
-            {card === "other"
-              ? t("onboarding.import.aiApp.leadAny")
-              : card === "chatgpt-dots"
-                ? t("onboarding.import.aiApp.leadDots")
-                : t("onboarding.import.aiApp.lead", { app: cardName(t, card) })}
-          </p>
-          <ClientSteps client={client} url={mcp.url}>
-            <li>
-              <span className="apps-step">
-                <span>{t("onboarding.import.aiApp.paste")}</span>
-                <RequestBox
-                  text={mcp.prompt}
-                  label={t("onboarding.import.aiApp.promptLabel")}
-                  copy={t("onboarding.import.aiApp.copy")}
-                  copied={t("onboarding.import.aiApp.copied")}
-                />
-              </span>
-            </li>
-          </ClientSteps>
-          {(card === "openbotrun" || card === "other") && (
-            <p className="imp-help">
-              <HelpLink slug="apps-de-ia" section="connect">
-                {t("onboarding.import.aiApp.howTo")}
-              </HelpLink>
-            </p>
-          )}
-          <Arrivals flow={flow} orgId={orgId} linked={linked} />
-        </section>
-      ) : (
-        prompt
-      )}
-    </>
-  );
-}
-
-/**
- * The agents the app creates, as they arrive (the agents list, read again on `agents.changed` and back on the tab),
- * watched while the step shows: waiting (what to check once a while passes with nothing), then how many, each to its
- * page where the flow links out.
- */
-function Arrivals({ flow, orgId, linked }: { flow: ImportFlowState; orgId: string; linked: boolean }) {
-  const { t, i18n } = useTranslation();
-  const { watch, arrived, watchError } = flow;
-  useEffect(watch, [watch]);
-  const [late, setLate] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setLate(true), STUCK_MS);
-    return () => clearTimeout(timer);
-  }, []);
-  if (watchError)
-    return (
-      <div className="imp-failure">
-        <Alert>{errorText(t, watchError, i18n.language)}</Alert>
-        <Button size="sm" icon="refresh" onClick={flow.rewatch}>
-          {t("common.retry")}
-        </Button>
-      </div>
-    );
-  return (
-    <div className="imp-arrivals">
-      {arrived.length === 0 ? (
-        <>
-          <p className="imp-arrivals__line ac-iconline" role="status">
-            <Spinner />
-            <span>{t("onboarding.import.aiApp.waiting")}</span>
-          </p>
-          {late && (
-            <p className="small muted">{t("onboarding.import.aiApp.stuck", { access: t("apps.consent.manage") })}</p>
-          )}
-        </>
-      ) : (
-        <>
-          <p className="imp-arrivals__line ac-iconline" role="status">
-            <Icon name="check" size={16} />
-            <b>{t("onboarding.import.aiApp.arrived", { count: arrived.length })}</b>
-          </p>
-          {linked ? (
-            <span className="imp-made__links">
-              {arrived.map((a) => (
-                <Link
-                  key={a.id}
-                  to="/org/$orgId/agents/$agentId"
-                  params={{ orgId, agentId: a.id }}
-                  className="imp-link"
-                >
-                  <AgentAvatar name={a.name} appearance={normalizeAppearance(a.appearance)} size="sm" />
-                  {a.name}
-                </Link>
-              ))}
-            </span>
-          ) : (
-            <p className="small muted">
-              {joinNames(
-                arrived.map((a) => a.name),
-                t,
-              )}
-            </p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/** A request to paste in another app: selected whole on focus, and a copy button that says when it couldn't. */
-function RequestBox({
-  text,
-  label,
-  copy: copyLabel,
-  copied: copiedText,
-  rows = 4,
-}: {
-  text: string;
-  label: string;
-  copy: string;
-  copied: string;
-  rows?: number;
-}) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied("ok");
-    } catch {
-      setCopied("failed");
-    }
-  };
-  return (
-    <>
-      <Textarea
-        readOnly
-        rows={rows}
-        value={text}
-        aria-label={label}
-        className="imp-other__prompt"
-        onFocus={(e) => e.currentTarget.select()}
-      />
-      <div className="imp-other__copy">
-        <Button onClick={() => void copy()}>
-          <SwapLabel icon="copy" altIcon="check" label={copyLabel} alt={t("common.copied")} showAlt={copied === "ok"} />
-        </Button>
-        <span role="status" className="small muted">
-          {copied === "ok" ? copiedText : copied === "failed" ? t("onboarding.import.request.copyFailed") : ""}
-        </span>
-      </div>
-    </>
-  );
-}
-
-/**
- * The request to paste in the app, in Grok Bot's or ChatGPT dots' own words on their cards. For any other
- * app, where each one gives the file back is on the help page.
- */
-function OtherApp({ card }: { card: RequestCard }) {
-  const { t } = useTranslation();
-  return (
-    <section className="imp-other" aria-labelledby="imp-other-title">
-      <h3 id="imp-other-title" className="imp-other__title">
-        {t(`onboarding.import.request.${card}.title`)}
-      </h3>
-      <ol className="imp-other__steps">
-        <li>{t("onboarding.import.request.copyStep")}</li>
-        <li>{t(`onboarding.import.request.${card}.paste`)}</li>
-        <li>{t(`onboarding.import.request.${card}.back`)}</li>
-      </ol>
-      <RequestBox
-        text={EXPORT_PROMPT}
-        rows={6}
-        label={t("onboarding.import.request.prompt")}
-        copy={t("onboarding.import.request.copy")}
-        copied={t(`onboarding.import.request.${card}.copied`)}
-      />
-      {card === "other" && (
-        <p className="imp-help">
-          <HelpLink slug="import" section="other-apps">
-            {t("onboarding.import.request.where")}
-          </HelpLink>
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -1418,7 +1040,7 @@ function Row({
     </>
   );
   return (
-    <li className="imp-row ac-actrow" data-off={(!checked && item.action !== "unchanged") || undefined}>
+    <li className="imp-row ac-actrow ac-tailrow" data-off={(!checked && item.action !== "unchanged") || undefined}>
       {pickable ? (
         <Checkbox
           id={rowId}
@@ -1443,7 +1065,7 @@ function Row({
         <span className="imp-row__text ac-actrow__text">{text}</span>
       )}
       {status && (
-        <Chip id={`${rowId}-status`} icon={status.icon} tone={status.tone} className="imp-row__chip">
+        <Chip id={`${rowId}-status`} icon={status.icon} tone={status.tone} className="imp-row__chip ac-tail">
           {t(`onboarding.import.status.${status.key}`)}
         </Chip>
       )}
@@ -1466,6 +1088,13 @@ function TodoLink({ kind, orgId }: { kind: BundleTodo["kind"]; orgId: string }) 
   if (kind === "file") {
     return (
       <Link to="/org/$orgId/drive" params={{ orgId }} className="ac-link imp-todo__link">
+        {label}
+      </Link>
+    );
+  }
+  if (kind === "webhook") {
+    return (
+      <Link to="/org/$orgId/routines" params={{ orgId }} className="ac-link imp-todo__link">
         {label}
       </Link>
     );

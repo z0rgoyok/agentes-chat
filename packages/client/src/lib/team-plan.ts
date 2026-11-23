@@ -1,7 +1,8 @@
 import type { TFunction } from "i18next";
 import { ApiError } from "../api/http";
-import type { Message, ReplyChips, TeamPlan, TeamProposalCard } from "../api/types";
+import type { Agent, FormerAgent, Message, ReplyChips, TeamPlan, TeamProposalCard } from "../api/types";
 import { errorText } from "./errors";
+import { can } from "./permissions";
 
 /**
  * The right hand's team setup (ADR 0137 §10), platform-neutral: the business types, the answers tapped
@@ -187,6 +188,27 @@ export const teamUndoable = (card: TeamProposalCard, viewer: { userId: string; a
   !!card.decidedAt &&
   Date.parse(card.decidedAt) + TEAM_UNDO_MS > now &&
   (viewer.admin || card.decidedByUserId === viewer.userId);
+
+/**
+ * Whether I undo a team someone else created (`teamUndoable`'s `admin`, the server's `undoTeam`): "Edit agents" and
+ * managing every agent it made, archived ones too (`canManage`, ADR 0085 addendum of 2026-11-17). One still here says so
+ * in `agents` (the directory), an archived one in `former` (`FormerAgent.canManage`); a deleted one is a tombstone with
+ * no owner, which the key reaches (ADR 0082); one not known yet only an administrator, who reaches every agent.
+ */
+export function managesTeamAgents(
+  org: { permissions?: readonly string[] } | null | undefined,
+  agentIds: readonly string[],
+  agents: readonly Pick<Agent, "id" | "canManage">[],
+  former: readonly Pick<FormerAgent, "id" | "deleted" | "canManage">[] | undefined,
+): boolean {
+  if (!can(org, "manage_agents")) return false;
+  return agentIds.every((id) => {
+    const here = agents.find((a) => a.id === id);
+    if (here) return here.canManage === true;
+    const gone = former?.find((a) => a.id === id);
+    return gone ? gone.deleted || gone.canManage === true : can(org, "administrator");
+  });
+}
 
 /** The agents the receipt offers a first task for, once created: each with its new id. */
 export const firstTasks = (card: TeamProposalCard) =>

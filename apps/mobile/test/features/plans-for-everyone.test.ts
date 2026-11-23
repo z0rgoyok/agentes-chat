@@ -14,9 +14,12 @@ test("IA e uso: each row says who uses the plan, and its owner chooses in the ro
   const screen = source("usage/UsageScreen.tsx");
   expect(screen).toContain("servesText(t, account)");
   expect(screen).toContain("loginsText(t, account)");
-  expect(screen).toContain("{account.mine && account.accountId && account.serves ? (");
-  expect(screen).toContain("api.machines.setAccountServes(orgId, accountId, next)");
-  expect(screen).toContain('t("usageViews.serves.me")');
+  // The choice is on the account's own screen, two rows with the one in force checked.
+  const detail = source("usage/UsageAccountScreen.tsx");
+  expect(detail).toContain("{account.mine && account.accountId && account.serves ? (");
+  expect(detail).toContain("api.machines.setAccountServes(orgId, accountId, next)");
+  expect(detail).toContain('t("usageViews.serves.me")');
+  expect(detail).toContain('checked={serves === "owner"}');
   // Its note opens the usage screen, where the choice is.
   expect(notificationHref({ kind: "plan_serves", source: { accountId: "a1" } })).toBe("/usage");
 });
@@ -28,7 +31,9 @@ test("Conta › E-mail: the code sent to the current address, then a link to the
   expect(page).toContain("api.account.changeEmail(withCode ? { newEmail, code } : { newEmail })");
   expect(page).not.toContain("authClient().changeEmail");
   expect(page).toContain('textContentType="oneTimeCode"');
-  expect(page).toContain('t("proof.resendIn", { time: formatTimeLeft(left) })');
+  // Resend, with its countdown on a clock of its own (only the button repaints each second).
+  expect(page).toContain("<ResendCode resendAt={sent.resendAt} disabled={sending} onPress={() => void ask(false)} />");
+  expect(source("settings/parts.tsx")).toContain('t("proof.resendIn", { time: formatTimeLeft(left) })');
   // Can't open that inbox: the same dialog on the website, where a sign-in again stands in for the code.
   expect(page).toContain('label={t("shell.email.cantOpen")}');
   expect(page).toContain("/settings/account?account=email`)");

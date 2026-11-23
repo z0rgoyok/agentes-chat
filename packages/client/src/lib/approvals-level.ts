@@ -1,5 +1,5 @@
 import type { Agent, Approval, ApprovalsLevel, AuditRow } from "../api/types";
-import { can } from "./permissions";
+import { managesAgent } from "./audience";
 
 /** The levels as the choice lists them, the one that asks most first. */
 export const APPROVALS_LEVELS: readonly ApprovalsLevel[] = ["always", "risky", "never"];
@@ -26,13 +26,13 @@ export const ownApprovalsCount = (agents: readonly Pick<Agent, "approvalsLevelOw
   agents.filter((a) => a.approvalsLevelOwn === true).length;
 
 /**
- * "Mudar quando perguntar" on a waiting approval: for who decides it and may also set the agent's level
- * (`manage_agents`), so the choice it opens can be saved.
+ * "Mudar quando perguntar" on a waiting approval: for who decides it and may also set its agent's level (who manages
+ * the agent, `managesAgent`, ADR 0085 addendum of 2026-11-17), so the choice it opens can be saved.
  */
 export const changesWhenAsks = (
-  org: { permissions?: readonly string[] } | null | undefined,
+  agent: { canManage?: boolean } | null | undefined,
   approval: Pick<Approval, "status" | "canDecide">,
-) => approval.status === "pending" && approval.canDecide && can(org, "manage_agents");
+) => approval.status === "pending" && approval.canDecide && managesAgent(agent);
 
 /** What "Desfazer" puts back after a level was chosen: the workspace's level and each agent's own choice. */
 export interface LevelsBefore {
@@ -43,15 +43,17 @@ export interface LevelsBefore {
 
 /**
  * The levels a change can touch, before it: one agent's alone (`only`), or, for every agent, the workspace's and
- * every agent's own choice that the change clears.
+ * every agent's own choice that the change clears. Only the agents the person manages (`managesAgent`, ADR 0085
+ * addendum of 2026-11-17): "Undo" sets each one's level back, which the server refuses on any other, and a refusal
+ * would stop the agents after it from getting theirs back.
  */
 export const levelsBefore = (
   workspace: ApprovalsLevel,
-  agents: readonly Pick<Agent, "id" | "approvalsLevel" | "approvalsLevelOwn">[],
+  agents: readonly Pick<Agent, "id" | "approvalsLevel" | "approvalsLevelOwn" | "canManage">[],
   only?: string,
 ): LevelsBefore => ({
   workspace,
   agents: agents
-    .filter((a) => (only ? a.id === only : a.approvalsLevelOwn === true))
+    .filter((a) => (only ? a.id === only : a.approvalsLevelOwn === true && managesAgent(a)))
     .map((a) => ({ id: a.id, level: a.approvalsLevelOwn === false ? null : approvalsLevelOf(a) })),
 });

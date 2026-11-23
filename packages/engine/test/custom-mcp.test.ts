@@ -1078,6 +1078,20 @@ describe("custom MCP servers", () => {
     expect(defaults.seen.registeredScopes).toEqual([undefined]);
   });
 
+  test("a server's own sign-in started as personal ends as its person's own", async () => {
+    f = await setup();
+    const walter = await addMember(f.db, f.org.id, "member", "walter");
+    const auth = oauthServer();
+    const deps = depsOf(f, { connect: ticketsMcp().connect, http: auth.http });
+    const started = await connectCustomServer(deps, walter.id, f.org.id, { serverUrl: SERVER, personal: true });
+    if (started.status !== "oauth") throw new Error(`expected oauth, got ${started.status}`);
+    const url = new URL(started.authorizeUrl);
+    auth.seen.challenge = url.searchParams.get("code_challenge") ?? "";
+    const state = url.searchParams.get("state") ?? "";
+    const { connection } = await completeOAuth(deps, { id: walter.id }, { state, code: "code-1" });
+    expect(connection.ownerUserId).toBe(walter.id);
+  });
+
   test("a client registered without offline_access and still in use gets it on the next authorization", async () => {
     f = await setup();
     const before = oauthServer({ scopes: ["openid"] });

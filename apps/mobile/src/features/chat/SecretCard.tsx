@@ -40,12 +40,13 @@ import { router } from "@/ui/navigation";
 import { IconTile } from "../connectors/ConnectorIcon";
 import { chatHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId, useWhen } from "../shared/hooks";
+import { useColors, useOrgId, useWhen } from "../shared/hooks";
 import { successHaptic } from "../shared/parts";
 import { useSheetIfAny } from "../shared/SheetHost";
 import { codeComplete, codeLength, LIMITS, secretToVaultInput, vaultSaveOffered } from "../vault/logic";
 import { AgentPickSheet } from "../vault/parts";
 import { type AskAnswer, AskButtons, AskCard, AskFoot, ExpiryLine, useAskStore, useExpired } from "./asks";
+import { useRowDirectory, useRowMeId } from "./row-data";
 
 type AgentPick = Pick<VaultAccess, "allAgents" | "agentIds">;
 
@@ -67,8 +68,8 @@ export function SecretCard({ request }: { request: SecretRequest }) {
   const api = useApi();
   const orgId = useOrgId();
   const { org } = useOrg();
-  const meId = useMeId();
-  const dir = useDirectory();
+  const meId = useRowMeId();
+  const dir = useRowDirectory();
   const when = useWhen();
   const c = useColors();
   const toast = useToast();
@@ -361,6 +362,10 @@ export function SecretCard({ request }: { request: SecretRequest }) {
                             autoCapitalize="none"
                             autoCorrect={false}
                             spellCheck={false}
+                            // The card's last field: its return key sends, as the secret's own does.
+                            returnKeyType="send"
+                            onSubmitEditing={() => void send()}
+                            submitBehavior="submit"
                           />
                         </View>
                       ) : null}

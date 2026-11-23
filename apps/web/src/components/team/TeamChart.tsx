@@ -1,6 +1,7 @@
 import type { AgentGroup, Team, TeamAgent } from "@agenteschat/client";
 import { useRoles } from "@agenteschat/client";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   type ChartNode,
@@ -32,8 +33,8 @@ const LINE_SECTOR = "application/x-agentes-line-sector";
  * Equipe › Organograma (ADR 0148): the workspace on top with its right hand beside it (out of the line: it follows
  * everything with each person), then each person with the agents that report to them (a supervisor agent with its
  * reports under it, ADR 0148 addendum; else its owner, else its setor's lead), or each setor with its agents. Who
- * manages agents drags an agent onto another agent to make it report there, onto a person to clear it, or a setor's
- * frame onto an agent; and an agent to another setor.
+ * manages an agent (ADR 0085 addendum of 2026-11-17) drags it onto another agent to make it report there, onto a person
+ * to clear it, or to another setor; and a setor's frame onto an agent when they manage all of its agents.
  */
 export function TeamChart({ team, groups }: { team: Team; groups: AgentGroup[] }) {
   const { t } = useTranslation();
@@ -102,8 +103,10 @@ function AgentNode({
 }
 
 /**
- * Organograma's drags of a line (who manages agents): an agent onto another agent reports there, onto a person no
- * longer reports to an agent; a setor's frame onto an agent makes its agents report there. At once, with Desfazer.
+ * Organograma's drags of a line: an agent onto another agent reports there, onto a person no longer reports to an
+ * agent; a setor's frame onto an agent makes its agents report there. At once, with Desfazer. A line changes only for
+ * who manages its agent (`setReportsTo`, ADR 0085 addendum of 2026-11-17): only an agent I manage is dragged, a setor's
+ * frame only when I manage every agent in it (`setsSector`); any agent still takes a drop.
  */
 function useLineDrag(team: readonly TeamAgent[], groups: readonly AgentGroup[], lodiId: string | undefined) {
   const { t } = useTranslation();
@@ -116,10 +119,14 @@ function useLineDrag(team: readonly TeamAgent[], groups: readonly AgentGroup[], 
   };
   const accepts = (target: string | null) => {
     if (!dragging) return false;
-    if ("groupId" in dragging) return target !== null;
+    // A supervisor changes too when someone is put under it: only one the person manages (ADR 0085 addendum).
+    const supervises = (id: string) => team.find((a) => a.id === id)?.canManage === true;
+    if ("groupId" in dragging) return target !== null && supervises(target);
     if (target === null) return !!team.find((a) => a.id === dragging.agentId)?.reportsToAgentId;
     const agent = team.find((a) => a.id === dragging.agentId);
-    return !!agent && agent.reportsToAgentId !== target && mayReportTo(team, dragging.agentId, target);
+    return (
+      !!agent && agent.reportsToAgentId !== target && supervises(target) && mayReportTo(team, dragging.agentId, target)
+    );
   };
   const drop = (target: string | null) => {
     const what = dragging;
@@ -156,19 +163,24 @@ function useLineDrag(team: readonly TeamAgent[], groups: readonly AgentGroup[], 
       drop(id);
     },
   });
-  const agent = (id: string): NodeDrag =>
-    id === lodiId
-      ? {}
-      : {
-          draggable: true,
-          onDragStart: (e: DragEvent<HTMLElement>) => {
-            e.dataTransfer.setData(LINE_AGENT, id);
-            e.dataTransfer.effectAllowed = "link";
-            setDragging({ agentId: id });
-          },
-          onDragEnd: end,
-          ...target(id),
-        };
+  const agent = (id: string): NodeDrag => {
+    if (id === lodiId) return {};
+    if (!managesAgent(team.find((a) => a.id === id))) return target(id);
+    return {
+      draggable: true,
+      onDragStart: (e: DragEvent<HTMLElement>) => {
+        e.dataTransfer.setData(LINE_AGENT, id);
+        e.dataTransfer.effectAllowed = "link";
+        setDragging({ agentId: id });
+      },
+      onDragEnd: end,
+      ...target(id),
+    };
+  };
+  const setsSector = (groupId: string) => {
+    const ids = groups.find((g) => g.id === groupId)?.agentIds ?? [];
+    return team.filter((a) => ids.includes(a.id)).every((a) => managesAgent(a));
+  };
   const sector = (groupId: string) => ({
     draggable: true,
     onDragStart: (e: DragEvent<HTMLElement>) => {
@@ -179,7 +191,7 @@ function useLineDrag(team: readonly TeamAgent[], groups: readonly AgentGroup[], 
     },
     onDragEnd: end,
   });
-  return { agent, target, sector, dragging: dragging !== null };
+  return { agent, target, sector, setsSector, dragging: dragging !== null };
 }
 
 /** A supervisor and its reports under it, joined by a line, with how many report to it; agents with none alone. */
@@ -308,6 +320,7 @@ function BySector({ team, groups }: { team: Team; groups: AgentGroup[] }) {
     const others = agents.filter((a) => a.id !== drag.dragging);
     const lineAt = drag.over?.groupId === (group?.id ?? null) && group ? drag.over.index : null;
     const dropLine = <span className="sidebar__drop-line" aria-hidden="true" />;
+    const dragsSector = arranges && !!group && line.setsSector(group.id);
     return (
       <section
         key={key}
@@ -319,8 +332,8 @@ function BySector({ team, groups }: { team: Team; groups: AgentGroup[] }) {
       >
         <header
           className="team-frame__head"
-          {...(arranges && group ? line.sector(group.id) : {})}
-          title={arranges && group ? t("team.chart.dragSector") : undefined}
+          {...(dragsSector && group ? line.sector(group.id) : {})}
+          title={dragsSector ? t("team.chart.dragSector") : undefined}
         >
           {group && <span className="team-eyebrow">{t("agentGroups.group")}</span>}
           <span className="team-frame__title">
@@ -345,7 +358,8 @@ function BySector({ team, groups }: { team: Team; groups: AgentGroup[] }) {
             {lineAt === others.indexOf(a) && dropLine}
             <AgentNode
               agent={a}
-              drag={arranges ? drag.row(a.id) : undefined}
+              // Into another setor: only an agent I manage (`moveAgentToGroup`, ADR 0085 addendum of 2026-11-17).
+              drag={arranges && managesAgent(a) ? drag.row(a.id) : undefined}
               line={arranges && line.dragging ? line.target(a.id) : undefined}
             />
           </Fragment>

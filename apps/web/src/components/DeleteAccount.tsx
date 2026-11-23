@@ -142,7 +142,9 @@ export function DeleteAccountDialog({ open, onClose }: { open: boolean; onClose:
                       </DeletionLine>
                     ) : (
                       <DeletionLine key={o.id} icon="stageTodo">
-                        {t("deleteAccount.soleOwner", { name: named(o) })}
+                        {t(o.onlyOutside ? "deleteAccount.soleOwnerOutside" : "deleteAccount.soleOwner", {
+                          name: named(o),
+                        })}
                         <span className="deletion-acts">
                           <Link
                             className="ac-link"

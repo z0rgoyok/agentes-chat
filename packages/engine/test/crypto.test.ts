@@ -6,6 +6,7 @@ import {
   createLocalKeyWrapper,
   deriveSecret,
   openSecret,
+  operatorInputDigest,
   SealedValueError,
   sealSecret,
   sha256,
@@ -60,4 +61,17 @@ test("derived secrets differ per purpose and are stable", () => {
   expect(deriveSecret(SECRET, "sessions")).toBe(deriveSecret(SECRET, "sessions"));
   expect(deriveSecret(SECRET, "sessions")).not.toBe(deriveSecret(SECRET, "provider-credentials-kek"));
   expect(sha256("x")).toHaveLength(64);
+});
+
+test("an input's digest is the same for one workspace and one hash, and another for any other", () => {
+  const [orgA, orgB] = ["0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a", "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b"];
+  const hash = sha256("an input");
+  const digest = operatorInputDigest(SECRET, orgA, hash);
+  expect(digest).toMatch(/^[0-9a-f]{16}$/);
+  expect(operatorInputDigest(SECRET, orgA, hash)).toBe(digest);
+  expect(operatorInputDigest(SECRET, orgB, hash)).not.toBe(digest);
+  expect(operatorInputDigest(SECRET, orgA, sha256("another input"))).not.toBe(digest);
+  expect(operatorInputDigest("another-secret".padEnd(48, "y"), orgA, hash)).not.toBe(digest);
+  // Keyed: nobody without the server's secret makes it from the hash.
+  expect(hash).not.toContain(digest);
 });

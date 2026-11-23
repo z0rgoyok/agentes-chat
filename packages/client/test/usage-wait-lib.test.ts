@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 import { waitsForComputer } from "../src/lib/machine-outages";
 import { serverBody } from "../src/lib/message-body";
 import { modelLimitText, modelStandInKey, modelStandInText, usageWhen } from "../src/lib/plan-usage";
-import { planLimitNote, usageCheckedText, usageWaitFix } from "../src/lib/usage-pause";
+import { accountMovedText, chainWaitText, planLimitNote, usageCheckedText, usageWaitFix } from "../src/lib/usage-pause";
 
 /** Says the key and its values, so a test reads which words were picked. */
 const t = ((key: string, values: Record<string, unknown> = {}) => {
@@ -159,4 +159,44 @@ test("a plan limit's note says when the plan was last checked; no other note doe
   expect(usageCheckedText(t, { bodyCode: "plan_limit_wait" }, null, now)).toBeNull();
   expect(planLimitNote({ bodyCode: "plan_limit_cut_unknown" })).toBe(true);
   expect(planLimitNote({ bodyCode: "budget_wait" })).toBe(false);
+});
+
+test("every account of the order at its limit: how many and when the first resets, as a plan limit's note", () => {
+  const soon = new Date(Date.now() + 60_000).toISOString();
+  const body = serverBody(
+    t,
+    "fallback",
+    {
+      bodyCode: "plan_limit_all_wait",
+      bodyParams: { plan: "Claude", accounts: "3" },
+      usageWait: { code: "plan_limit", resetsAt: soon },
+    },
+    "en",
+  );
+  expect(body.startsWith("chat.body.plan_limit_all_wait ")).toBe(true);
+  expect(body).toContain('"accounts":"3"');
+  expect(body).toContain("chat.usageWhen.");
+  expect(planLimitNote({ bodyCode: "plan_limit_all_wait_unknown" })).toBe(true);
+  // The line of a move says which accounts, in the reader's words.
+  expect(serverBody(t, "x", { bodyCode: "plan_account_moved", bodyParams: { from: "Trabalho", to: "Pessoal" } })).toBe(
+    'chat.body.plan_account_moved {"from":"Trabalho","to":"Pessoal"}',
+  );
+});
+
+test("an agent's line with every account of the order at its limit: the note's words, with when the first resets", () => {
+  const now = new Date();
+  const soon = new Date(now.getTime() + 60_000).toISOString();
+  const all = chainWaitText(t, "en", { plan: "Claude", resetsAt: soon, chain: 3 }, now);
+  expect(all?.startsWith('chat.body.plan_limit_all_wait {"accounts":"3","plan":"Claude","when":"chat.usageWhen.')).toBe(
+    true,
+  );
+  expect(chainWaitText(t, "en", { plan: "Claude", resetsAt: null, chain: 2 })).toBe(
+    'chat.body.plan_limit_all_wait_unknown {"accounts":"2","plan":"Claude"}',
+  );
+  // One account waiting, or an older server: nothing to say about the order.
+  expect(chainWaitText(t, "en", { plan: "Claude", resetsAt: soon, chain: null })).toBeNull();
+  expect(chainWaitText(t, "en", { plan: "Claude", resetsAt: soon })).toBeNull();
+  expect(accountMovedText(t, { from: "Trabalho", to: "Pessoal" })).toBe(
+    'chat.body.plan_account_moved {"from":"Trabalho","to":"Pessoal"}',
+  );
 });

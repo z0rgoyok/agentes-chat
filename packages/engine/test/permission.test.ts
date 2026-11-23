@@ -16,6 +16,7 @@ import {
   orgOverview,
   postPersonMessage,
   RIGHT_HAND,
+  setAgentAudience,
 } from "../src";
 import { addMember, type Fixture, setup } from "./fixtures";
 import { runContext } from "./mail-fixtures";
@@ -209,4 +210,35 @@ test("turning on access is decided by who gives it on the agent's page, not by a
     "manage_agents",
     "manage_connectors",
   ]);
+});
+
+test("an access request from someone's private agent goes to who manages it, never to the key alone", async () => {
+  f = await setup({ permissionTools: true, reply });
+  const lead = await addMember(f.db, f.org.id, "member", "lead");
+  const walt = await addMember(f.db, f.org.id, "admin", "walt");
+  const manages = await createRole(f.db, f.owner.id, f.org.id, { name: "Agentes", permissions: ["manage_agents"] });
+  await f.db.insert(schema.organizationMemberRoles).values({ orgId: f.org.id, userId: lead.id, roleId: manages.id });
+  // Ana's @dev, kept to her: "Edit agents" doesn't reach it (ADR 0085 addendum of 2026-11-17).
+  await setAgentAudience(f.db, f.owner.id, f.org.id, f.agent.id, { mode: "owner", userIds: [] });
+  await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev open the site",
+  });
+  await drainOutbox(f.db, f.handlers);
+  const [row] = await f.db.select().from(schema.approvals);
+  if (!row) throw new Error("no approval");
+
+  expect((await approverIds(f.db, row)).sort()).toEqual([f.owner.id, walt.id].sort());
+  expect((await orgOverview(f.db, lead.id, f.org.id)).approvalsWaitingForMe).toBe(0);
+  const [leadView] = await listApprovals(f.db, lead.id, f.org.id, { status: "pending" });
+  expect(leadView?.canDecide ?? false).toBe(false);
+  await expect(
+    decideApproval({ db: f.db, pubsub: f.pubsub }, lead.id, f.org.id, row.id, { decision: "approve" }),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await scopes()).not.toContain("browser:use");
+
+  // An administrator manages every agent: theirs to decide.
+  expect((await orgOverview(f.db, walt.id, f.org.id)).approvalsWaitingForMe).toBe(1);
+  await decideApproval({ db: f.db, pubsub: f.pubsub }, walt.id, f.org.id, row.id, { decision: "approve" });
+  await drainOutbox(f.db, f.handlers);
+  expect(await scopes()).toContain("browser:use");
 });

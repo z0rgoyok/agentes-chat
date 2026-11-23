@@ -208,3 +208,25 @@ test("recent conversations: unread first, then the latest activity, channels I'm
   );
   expect(ids).toEqual(["unread", "new", "dm"]);
 });
+
+test("a chat's agents' questions and thread links are kept with its messages: opened from the snapshot, its rows are whole", async () => {
+  const qc = new QueryClient();
+  const store = memory();
+  qc.setQueryData(keys.me, me("u1"));
+  qc.setQueryData(keys.messages("o1", "c1"), [msg("m1")]);
+  qc.setQueryData(keys.consultations("o1", "c1"), [{ id: "q1" }]);
+  qc.setQueryData(keys.channelThreads("o1", "c1", "all"), { threads: [{ id: "m1", replyCount: 2 }] });
+  // Archived threads, and a chat whose messages aren't kept, are not.
+  qc.setQueryData(keys.channelThreads("o1", "c1", "archived"), { threads: [] });
+  qc.setQueryData(keys.consultations("o1", "c2"), [{ id: "q2" }]);
+  await createSnapshot(qc, store).flush();
+
+  const next = new QueryClient();
+  expect(await createSnapshot(next, store).restore()).toBe(true);
+  expect(next.getQueryData(keys.consultations("o1", "c1"))).toEqual([{ id: "q1" }]);
+  expect(next.getQueryData(keys.channelThreads("o1", "c1", "all"))).toEqual({ threads: [{ id: "m1", replyCount: 2 }] });
+  // Counted as fetched: the conversation doesn't wait on them to show.
+  expect(next.getQueryState(keys.consultations("o1", "c1"))?.dataUpdateCount ?? 0).toBeGreaterThan(0);
+  expect(next.getQueryData(keys.channelThreads("o1", "c1", "archived"))).toBeUndefined();
+  expect(next.getQueryData(keys.consultations("o1", "c2"))).toBeUndefined();
+});

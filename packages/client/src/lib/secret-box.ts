@@ -33,8 +33,15 @@ export function secretAad(input: { requestId: string; orgId: string; name: strin
  */
 export const accountCodeAad = (loginId: string, orgId: string) => `${loginId}|${orgId}|account`;
 
+/**
+ * `crypto.subtle` only exists on https or localhost: a page at a plain-http address has none, and reading it there
+ * throws a `TypeError` that `sendWaits` would take for a dropped connection.
+ */
+export const INSECURE_CONTEXT = "insecure_context";
+
 export async function sealSecret(recipientPublicKey: string, plaintext: string, aad: string): Promise<SecretBox> {
-  const subtle = globalThis.crypto.subtle;
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw Object.assign(new Error(INSECURE_CONTEXT), { code: INSECURE_CONTEXT });
   const data = new TextEncoder().encode(plaintext);
   if (data.byteLength === 0) throw new Error("empty");
   if (data.byteLength > MAX_SECRET_BYTES) throw new Error("too_large");

@@ -118,18 +118,6 @@ p {
 .ai-picker .ac-option__title {
   font-size: 14px;
 }
-/* A row's two lines: its check sits on the first, its name's (the padding, then half the line). */
-.ai-picker > .ac-option.ai-picker__key::after {
-  /* Browsers without the lh unit: the page's 22px line. */
-  top: calc(var(--space-3) + 11px - 9px);
-}
-/* Behind @supports: a declaration holding var() parses even where lh is unknown, so as a second `top` it would
-   replace the fallback there and then compute to auto. */
-@supports (top: 1lh) {
-  .ai-picker > .ac-option.ai-picker__key::after {
-    top: calc(var(--space-3) + 0.5lh - 9px);
-  }
-}
 /* What the person already has: its rows a list, and its line sits on them as a label on its field. */
 .ai-picker > .ac-option + .ac-option {
   margin-top: calc(var(--space-2) - var(--form-gap));
@@ -1150,7 +1138,7 @@ html:not([data-pointer]) .sidebar__user:focus-visible {
    above the composer. Its room opens and closes in a short glide, so the messages above (kept at the bottom) move with
    it instead of jumping its height. */
 /* Its room opens and closes in a glide: by its cap (`max-height`), since a name that wraps makes it taller. Work and a
-   return share the box: from one to the other the glass, its shadow and its words change in place. */
+   return share the box: from one to the other its words change in place. */
 .channel__composer > .ac-typing:not([data-active="true"]):not([data-rest="true"]) {
   min-height: 0;
   max-height: 0;
@@ -1160,9 +1148,7 @@ html:not([data-pointer]) .sidebar__user:focus-visible {
   .channel__composer > .ac-typing {
     transition:
       max-height 180ms ease-out,
-      margin 180ms ease-out,
-      background-color 180ms ease-out,
-      box-shadow 180ms ease-out;
+      margin 180ms ease-out;
   }
 }
 /* Messages fade out at the list's bottom edge, above the composer: a mask on the list itself, so a hovered
@@ -1574,8 +1560,8 @@ html:not([data-pointer]) .member-row--add:focus-visible {
   margin: 0;
   font-weight: 500;
 }
+/* Ends the chips' line, or starts its own under them (`.ac-tailrow`). */
 .memory-item__used {
-  margin-left: auto;
   font-size: 13px;
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
@@ -4524,6 +4510,53 @@ html:not([data-pointer]) .settings__link:focus-visible {
   padding: var(--row-py) var(--card-pad);
   border-top: 1px solid var(--line);
 }
+/* The workspace's accent (ADR 0193): the color it shows now, in the agent's shape, then its popover: the suggestions
+   (eight across the picker's width), the kit's picker, and a mention and a link in the color on the page's own
+   background, the one its contrast is worked out against. */
+.settings-accent__control {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+.settings-accent__swatch {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-agent);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.settings-accent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 220px;
+}
+.settings-accent .newag__swatches {
+  gap: 4px;
+}
+.settings-accent .newag__swatch {
+  width: 24px;
+  height: 24px;
+}
+.settings-accent__sample {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-r-md);
+  background: var(--bg);
+  color: var(--ink);
+}
+.settings-accent__mention {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--agent-soft);
+  color: var(--agent);
+  font-weight: 600;
+}
+.settings-accent__link {
+  color: var(--agent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 /* A text field of several lines (the right hand's guidance) keeps its rows: the kit's `textarea.ac-input` sizes it. */
 .settings-row
 :is(.ac-select__trigger, .ac-input:not(textarea), .ac-input-affix, .ac-btn:not(.ac-btn--glyph, .ac-btn--icon)) {
@@ -5199,6 +5232,56 @@ html:not([data-pointer]) .catalog-tile:focus-visible {
   min-width: 0;
   white-space: nowrap;
 }
+/* Someone else's personal connection on an agent: whose it is, on its own line under its name. */
+.level-row__owner {
+  gap: var(--space-1);
+}
+/* Desligar ends on the list's edge, as the level controls do, at every width. */
+.level-row > .ac-mediarow__end:not(.ac-mediarow__end--wrap) {
+  grid-area: 1 / 4;
+}
+.connected-row__meta {
+  gap: var(--space-1);
+}
+.connected-others {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.connected-others > button {
+  align-self: flex-start;
+}
+/* Pessoal's note under Equipe | Pessoal, in the settings panel's own stack: no browser margins of its own. */
+.connected-note {
+  margin: 0;
+}
+/* "Pessoal de <name>": one run of words that wraps, the name isolated in its own direction (`bdi`). */
+.owner-of {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Tirar de um agente: one agent per line, its face, its name cut at the edge, Tirar at the end. */
+.connected-takeoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connected-takeoff__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-md);
+}
+.connected-takeoff__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Cofre › a connection's buttons, under its details (its row stays open: it holds a link and what to fix). */
 .connected-row__actions {
   display: flex;
@@ -5315,6 +5398,10 @@ html:not([data-pointer]) .cflow__more summary:focus-visible {
   flex-direction: column;
   gap: var(--form-gap);
   margin-top: var(--space-3);
+}
+/* After "Para quem" the dialog's own gap is the space: a field ends on its own line, not on running text. */
+.ac-field + .cflow__key {
+  margin-top: 0;
 }
 /* A server by address's request headers: what they are for, the saved names, a name and a value per row, one more. */
 .cflow__headers {
@@ -7213,7 +7300,7 @@ html:not([data-pointer]) .msg-quote:focus-visible {
   }
 }
 
-/* What a reply said and read before its first tool call (its tools go in the ToolBlock, ToolCalls.tsx). */
+/* What a reply said before its first tool call (its tools go in the ToolBlock, ToolCalls.tsx). */
 .live-work-notes {
   display: flex;
   flex-direction: column;
@@ -7344,35 +7431,6 @@ html:not([data-pointer]) .run-continue:focus-visible {
   color: var(--ink2);
   font-weight: 600;
 }
-/* "Leu seu recado · …" inside the work: a well, like the design's mark. */
-.live-work__steer {
-  gap: 7px;
-  width: max-content;
-  max-width: 100%;
-  margin: 2px 0;
-  padding: 6px 10px 6px 8px;
-  border-radius: 11px 11px 11px 3px;
-  background: var(--card-well);
-  box-shadow: var(--card-well-shadow);
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.live-work__steer b {
-  color: var(--ink2);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.live-work__steer q {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--ink2);
-}
-.live-work__steer q::before,
-.live-work__steer q::after {
-  content: "";
-}
 /* Editing a routine still read in UTC: a quiet hint under the zone. */
 .routine-utc-hint {
   flex-wrap: wrap;
@@ -7380,18 +7438,15 @@ html:not([data-pointer]) .run-continue:focus-visible {
   margin: -4px 0 0;
   color: var(--ink2);
 }
-/* The activity bar while someone works: one low pill as wide as the composer under it, its edges on the composer's
-   (orbit · faces · words · time | Ver ■), the line that says who works while their words wait for the message: a
-   turning phrase, a ticking clock or a control coming and going never moves its edge, the words take what the rest
-   leaves. One line, unless an agent's name needs a second: a name is never cut. Solid: a blur here would redo itself
-   on every frame of what scrolls behind it. */
+/* The activity bar while someone works: one bare line as wide as the composer under it, its edges on the composer's
+   (faces · words · time | Ver), the line that says who works while their words wait for the message: a turning
+   phrase, a ticking clock or a control coming and going never moves its edge, the words take what the rest leaves.
+   No glass, no shadow, no band behind it: the faces and the words say it. One line, unless an agent's name needs a
+   second: a name is never cut. */
 .ac-typing[data-active="true"] {
   min-height: 28px;
   max-height: 64px;
   padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: var(--glass-solid);
-  box-shadow: var(--e1), var(--top);
 }
 /* Faces opening the pill sit as far in as the globe's ink at the other end. */
 .ac-typing[data-active="true"]:has(> .ac-typing__avatars):not(:has(> .ac-typing__dots, > .ac-pixspin)) {
@@ -7401,10 +7456,9 @@ html:not([data-pointer]) .run-continue:focus-visible {
 .ac-typing[data-browser="true"] {
   cursor: pointer;
 }
-/* The pill's buttons are round and fit it; the last one sits in its round end, 2px from the edge all around. */
+/* The line's buttons are round and fit it; the last one sits 2px from its end. */
 .ac-typing__browser.ac-btn,
-.ac-typing__menu.ac-btn,
-.ac-typing .stop-run {
+.ac-typing__menu.ac-btn {
   flex: none;
   width: 24px;
   height: 24px;
@@ -7418,20 +7472,20 @@ html:not([data-pointer]) .run-continue:focus-visible {
   margin-left: auto;
   color: var(--muted);
 }
-.ac-typing[data-active="true"] > :is(.stop-run-wrap, .ac-typing__browser):last-child,
+.ac-typing[data-active="true"] > .ac-typing__browser:last-child,
 .ac-typing[data-rest="true"] > .ac-typing__menu:last-child {
   margin-right: -6px;
 }
-/* At rest (ADR 0037 addendum of 2026-11-13): a return waits here and nobody works. The live pill's box, bare (no glass,
-   no shadow, no sky) and one line high, so work taking it moves nothing: faces · clock · "Ada retorna às 00:32 · her
-   words" · +1 · ⋯. The faces' plates take the conversation's ground. */
+/* At rest (ADR 0037 addendum of 2026-11-13): a return waits here and nobody works. The live line's box, one line high,
+   so work taking it moves nothing: faces · clock · "Ada retorna às 00:32 · her words" · +1 · ⋯. */
 .ac-typing[data-rest="true"] {
   min-height: 28px;
   max-height: 28px;
   padding: 2px 8px 2px 7px;
   border-radius: var(--radius-full);
 }
-.ac-typing[data-rest="true"] .ac-typing__tok {
+/* The faces' plates take the conversation's ground, at work and at rest. */
+.ac-typing .ac-typing__tok {
   background: var(--pane);
 }
 .ac-typing__rest-mark {
@@ -7898,29 +7952,6 @@ html:not([data-pointer]) .sky-welcome__close:focus-visible {
   .sky-welcome__crew {
     display: none;
   }
-}
-
-/* Channel activity bar: a light sweep in the working agent's color */
-.ac-typing[data-active="true"] {
-  position: relative;
-  overflow: hidden;
-}
-.ac-typing[data-active="true"] > :not(.ac-typing__sky) {
-  position: relative;
-}
-.ac-typing__sky {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: inherit;
-}
-/* Dark: the band stays a hint, so the words keep their contrast. */
-[data-theme="dark"] .ac-typing__sky {
-  opacity: 0.45;
-}
-/* A hand-off that waits on someone else (ADR 0095 addendum): its sky quieter still. */
-.ac-typing[data-consult="wait"] .ac-typing__sky {
-  opacity: 0.22;
 }
 
 /* The workspace opening */
@@ -8508,6 +8539,45 @@ html:not([data-pointer]) .izoom__stage:focus-visible {
 }
 .phone-code .machine-pair__steps {
   align-self: stretch;
+}
+/* Linking an outside chat app (ADR 0187): the QR code, the code and its time, the steps, the way to open the app.
+   The sender's name and display are the surface's untrusted words: they wrap anywhere, never cut. */
+.surface-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.surface-link .dv-steps {
+  align-self: stretch;
+}
+.surface-link__code {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.surface-link__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.surface-sender {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--line);
+  min-width: 0;
+}
+.surface-sender__display {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.surface-sender__line {
+  overflow-wrap: anywhere;
 }
 /* A step's words, then the stores under them, on the same left edge. */
 .phone-code__step {
@@ -10987,6 +11057,10 @@ html:not([data-pointer]) .agp-cell:focus-visible {
       "key label tail"
       "value value value";
     row-gap: 2px;
+  }
+  /* The value runs under the key, so the hairline does too: from the key's edge to the row's end. */
+  .agp-ficha__card .agp-frow + .agp-frow::before {
+    left: 12px;
   }
   /* The usage's words stay, its bar goes: a narrow card has no room for both on the value's line. */
   .agp-frow__usage .ac-meter {
@@ -13711,43 +13785,36 @@ html:not([data-pointer]) .channel__latest-btn.ac-btn:focus-visible {
 }
 
 /* The line above the composer for a block out of view: "· 12 s · Ver · Esc para parar". */
+/* Quiet as the words before it: the counts' weight (`.ac-num`) would make the seconds the loudest thing on the line. */
 .ac-typing__elapsed {
   flex: none;
   color: var(--faint);
+  font-weight: 400;
 }
-/* "Theo pensando…      2 s ■": the time at the bar's end, beside the stop. With someone typing after it
-   ("Ada · 2 s · Marina digitando…") it stays with the phrase, what follows kept at the end. One agent's step grows
-   nothing (its pieces are the bar's own): what ends the bar (the globe, Ver, the stop) is at its end before the time
-   comes too, which then comes in on their left and moves none of them. */
+/* "Theo pensando… · 2 s": the time right after the words (a bare line has no end of its own to hold it), and so with
+   someone typing after it ("Ada · 2 s · Marina digitando…"). One agent's step grows nothing (its pieces are the bar's
+   own): what ends the bar (the globe, Ver) is at its end before the time comes too, and the time comes in on their left
+   and moves none of them. */
 .ac-typing[data-active="true"] .ac-typing__text:has(+ .ac-typing__elapsed) {
   flex: 0 1 auto;
 }
-.ac-typing__text + .ac-typing__elapsed {
-  margin-left: auto;
-}
-/* A rule of its own: in one list with the time's, the build wraps both in `:is()` and the time's would take this one's
-   weight, winning over the time's 0 below. */
-.ac-typing__text:has(> .ac-typing__agents > .ac-typing__step)
-+ :is(.ac-typing__browser, .ac-typing__sep, .stop-run-wrap) {
-  margin-left: auto;
-}
-.ac-typing__text + .ac-typing__elapsed:has(+ .ac-typing__also) {
-  margin-left: 0;
-}
-.ac-typing__text + .ac-typing__elapsed:has(+ .ac-typing__also)::before {
+.ac-typing__text + .ac-typing__elapsed::before {
   content: "· ";
+}
+/* A rule of its own: in one list with the time's, the build wraps both in `:is()` and one would take the other's
+   weight. */
+.ac-typing__text:has(> .ac-typing__agents > .ac-typing__step) + :is(.ac-typing__browser, .ac-typing__sep) {
+  margin-left: auto;
+}
+.ac-typing__text + .ac-typing__elapsed + :is(.ac-typing__browser, .ac-typing__sep) {
+  margin-left: auto;
 }
 /* One agent: its name, its step, its time and who types beside it are the bar's own pieces. The name is never cut: it
    wraps onto a second line when the bar is that narrow. Its step gives way first, down to nothing (the whole step is
-   its tip); then what is typed beside it wraps too, ahead of the stop, never under it. */
+   its tip); then what is typed beside it wraps too, ahead of Ver, never under it. */
 .ac-typing[data-active="true"] .ac-typing__text:has(> .ac-typing__agents > .ac-typing__step),
 .ac-typing__agents:has(> .ac-typing__step) {
   display: contents;
-}
-/* With their boxes gone, the name and the step stand over the bar's sky themselves, as its other pieces do (the
-   bar's children); unpositioned, the sky would paint over them. */
-.ac-typing__agents:has(> .ac-typing__step) > * {
-  position: relative;
 }
 .ac-typing__agents:has(> .ac-typing__step) > b {
   white-space: normal;
@@ -14642,8 +14709,9 @@ html:not([data-pointer]) .app-icons__agent:focus-visible {
 /* On a phone the icon, the words and a switch stay on one line while the words keep their 24 characters there (the
    kit's `.ac-actrow` basis), else the switch goes under them, at the row's end: beside both, at 320, a long name would
    wrap a word a line. A chevron stays on its line, its words shrinking (a line that opens something has no ⓘ). Any
-   other control (a choice of several, a select, a field, buttons) goes under the words, from their edge (the 28px icon
-   and the 12px gap), so the rows of one card start their controls on one edge. */
+   other control (a choice of several, a select, a field) goes under the words, from their edge (the 28px icon and the
+   12px gap), so the rows of one card start their controls on one edge. One button stays on the name's line
+   (`.settings-row--button`). */
 @media (max-width: 760px) {
   .settings-row--lead {
     flex-wrap: wrap;
@@ -14705,6 +14773,35 @@ html:not([data-pointer]) .app-icons__agent:focus-visible {
     > .settings-row__status {
     flex-basis: 100%;
     order: 1;
+  }
+  /* A line with a status under its name and a control that is neither a switch nor a button at its end (a select, a
+     choice of several): the status under the name at the row's full width, the control under the status, from the
+     words' edge. A button keeps the name's line (`.settings-row--button`). */
+  .settings-row--lead:not(.settings-row--open, .settings-row--button, :has(> .settings-row__end > .ac-switch)):has(
+    > .settings-row__end
+  ) > .settings-row__text:has(> .settings-row__status) {
+    display: contents;
+  }
+  .settings-row--lead:not(.settings-row--open, .settings-row--button, :has(> .settings-row__end > .ac-switch)):has(
+      > .settings-row__end
+    )
+    > .settings-row__text:has(> .settings-row__status)
+    > :first-child {
+    flex: 1 1 24ch;
+    max-width: max-content;
+    min-width: 0;
+  }
+  .settings-row--lead:not(.settings-row--open, .settings-row--button, :has(> .settings-row__end > .ac-switch)):has(
+      > .settings-row__end
+    )
+    > .settings-row__text
+    > .settings-row__status {
+    flex-basis: 100%;
+    order: 1;
+  }
+  .settings-row--lead:not(.settings-row--open, .settings-row--button):has(> .settings-row__text > .settings-row__status)
+    > .settings-row__end:not(:has(> .ac-switch)) {
+    order: 2;
   }
   /* A line that opens something, with a status: the icon, the name and the chevron (a value before it) on one line,
      the status under them at the row's width, so the icon never owns a column beside three lines. */
@@ -14935,6 +15032,43 @@ html:not([data-pointer]) .rh-set__face-edit:focus-visible {
     padding-left: 44px;
     translate: none;
   }
+  /* A button row's state line starts at the name's words: past the icon and this panel's 14px column gap. */
+  .agp-card .settings-row--lead.settings-row--button > .settings-row__text > .settings-row__status {
+    padding-left: calc(28px + 14px);
+  }
+}
+/* A row that ends in one button (PrefRow's `settings-row--button`: Link, Open, Decline), at every width:
+   the button on the name's line at the row's end, centred on that line, never under a sentence. What is true now
+   (`__status`: the linked sender, an error) stays under the name, from the words' edge. The name keeps the room left
+   and wraps whole words: its basis is its longest word, so the button goes under it, still at the end, only when that
+   word and the button can't share the line. */
+.settings-row.settings-row--button {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.settings-row--button > .settings-row__text {
+  display: contents;
+}
+/* The name takes the room before the end's: up to its own length it grows, and the end gets what is left. */
+.settings-row--button > .settings-row__text > :first-child {
+  flex: 1000 1 0;
+  min-width: min-content;
+  max-width: max-content;
+}
+.settings-row--button > .settings-row__text > .settings-row__status {
+  flex-basis: 100%;
+  order: 1;
+}
+.settings-row--lead.settings-row--button > .settings-row__text > .settings-row__status {
+  box-sizing: border-box;
+  padding-left: calc(28px + var(--space-3));
+}
+/* The end takes the line's room left and holds the button at its end: under the name it is the row's width, so the
+   icon never owns a column beside the name's lines and the button's. */
+.settings-row.settings-row--button > .settings-row__end:not(:has(> .ac-switch)) {
+  flex: 1 0 auto;
+  justify-content: flex-end;
+  padding-left: 0;
 }
 /* Wide enough for its placeholder ("Padrão do workspace", longer in es, de, ru) after "US$". */
 .rh-set__budget .ac-input-affix {
@@ -14957,4 +15091,29 @@ html:not([data-pointer]) .rh-set__face-edit:focus-visible {
     width: auto;
     min-width: 0;
   }
+}
+
+/* A handed work's line under the reply that handed it (ADR 0121 addendum): the delegate's face inline, the state word
+   in the agent's colour while it works and amber while it waits on someone. */
+/* One text line tall, the face centred in it: the 18px face never makes the first line taller than the mark beside it. */
+.handed-line__who {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  vertical-align: top;
+  margin-inline-end: 4px;
+}
+@supports (top: 1lh) {
+  .handed-line__who {
+    height: 1lh;
+  }
+}
+.handed-line__state {
+  font-weight: 550;
+}
+.ac-workline--working .handed-line__state {
+  color: var(--agent);
+}
+.ac-workline--waiting .handed-line__state {
+  color: var(--warn);
 }

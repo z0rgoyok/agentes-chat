@@ -13,10 +13,11 @@ import { backToSignIn } from "./app/unauthorized";
 import { createBetterAuthClient } from "./auth/better-auth";
 import { copyPillAddresses } from "./chat/link-pill-copy";
 import { ErrorScreen } from "./components/ErrorScreen";
+import { onUnknownHost, showUnknownHost } from "./components/UnknownHost";
 import { withComposerDraftsSignOut } from "./hooks/useComposerDraft";
-import { loadI18n, savedLocale, translateTabTitle } from "./i18n";
+import { brandTabTitle, loadI18n, savedLocale, translateTabTitle } from "./i18n";
 import { accountInLink, followAccountChanges, takeAccountMove, watchAccount, withoutAccount } from "./lib/accounts";
-import { startAppIcon } from "./lib/app-icon";
+import { showHostIcon, startAppIcon } from "./lib/app-icon";
 import {
   checkAppVersion,
   createVersionWatch,
@@ -38,6 +39,7 @@ import { tolerateForeignDomEdits } from "./lib/dom-guard";
 import { announceConfirmation, emailConfirmedToast } from "./lib/email-confirmation";
 import { catchEarlyErrors, reportError, setErrorScope, startErrorReports } from "./lib/error-reports";
 import { pageScrollReset } from "./lib/page-scroll";
+import { WEB_PRODUCT_NAME } from "./lib/product-name";
 import { showReturnNotices } from "./lib/return-notices";
 import { snapshotStore } from "./lib/snapshot-store";
 import { installSounds } from "./lib/sounds";
@@ -46,6 +48,15 @@ import { createToastStore } from "./lib/toast";
 import { withWebPushSignOut } from "./lib/web-push";
 import { routeTree } from "./routeTree.gen";
 
+// A hostname the server doesn't answer for (ADR 0194): its one screen, and nothing else of the app starts there (no
+// session, router, socket, service worker or notifications).
+if (onUnknownHost()) {
+  const words = await loadI18n(savedLocale()).catch((error: unknown) => {
+    window.__agentesBootFailed?.();
+    throw error;
+  });
+  await showUnknownHost(words);
+}
 // Errors from the very start wait for the server to say where reports go (ADR 0104), asked before anything that can
 // fail to load (the locale's chunk): a boot that breaks is reported too.
 catchEarlyErrors();
@@ -62,7 +73,17 @@ const i18n = await loadI18n(savedLocale()).catch((error: unknown) => {
   throw error;
 });
 document.documentElement.lang = i18n.language;
+if (!document.documentElement.hasAttribute("data-host")) brandTabTitle(WEB_PRODUCT_NAME);
 translateTabTitle(i18n);
+// A registered host (ADR 0194): its name in the tabs' titles and its logo as their icon, on every page of it.
+void authConfig.then(
+  ({ host }) => {
+    if (!host) return;
+    brandTabTitle(host.name);
+    if (host.logoUrl) showHostIcon(host.logoUrl);
+  },
+  () => undefined,
+);
 // In the desktop app (ADR 0036): the site draws the window's title bar (desktop.css), with room for a Mac's
 // buttons only there; and "this Mac" is this computer's own name.
 const platform = desktopPlatform();

@@ -71,7 +71,7 @@ export async function listWorkingRuns(db: Database, userId: string, orgId: strin
     await db.execute(sql`with ${anchorsSql(orgId)}
       select r.id, r.agent_id, a.channel_id, r.status, a.thread_root_id, a.trigger_message_id,
         r.started_at, r.created_at, c.kind, c.name, t.title,
-        array_to_json(r.pending_message_ids) as pending, r.background,
+        array_to_json(r.pending_message_ids || r.after_message_ids) as pending, r.background,
         w.id as work_id, w.title as work_title, w.plan as work_plan, w.started_at as work_started,
         case when a.id <> r.id then an.for_agent end as for_agent,
         case when a.id <> r.id then a.reply_message_id end as anchor_message_id
@@ -102,6 +102,7 @@ export async function listWorkingRuns(db: Database, userId: string, orgId: strin
       startedAt: iso(r.started_at),
       createdAt: iso(r.created_at) as string,
       label: label || null,
+      // Unread, a separate request left for after the task (`after_message_ids`) too.
       pendingMessageIds: pendingIds(r.pending),
       background: r.background === true || r.background === "t",
       work: r.work_id

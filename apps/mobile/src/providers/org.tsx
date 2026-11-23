@@ -46,6 +46,12 @@ const OrgContext = createContext<OrgGate>({
 });
 
 /**
+ * The current organization's id alone (null until one is chosen): `me` changes often (a workspace's look, its standing,
+ * a prefs write), and the hundreds of readers that only need the id don't draw again with it.
+ */
+const OrgIdContext = createContext<string | null>(null);
+
+/**
  * The current organization: remembered in SecureStore for each server (ADR 0154), switched by `setOrgId` (and by a
  * push's `orgId`).
  */
@@ -111,7 +117,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     [server],
   );
 
-  const orgs = useMemo(() => openOrgs(me.data?.organizations ?? []), [me.data]);
+  const organizations = me.data?.organizations;
+  const orgs = useMemo(() => openOrgs(organizations ?? []), [organizations]);
   const orgId = remembered === undefined ? null : chooseOrg(orgs, remembered);
   const unreachable = accountFailed(me.isError, me.data);
   // From the top: one still null reads the session again at the end of its tries.
@@ -132,7 +139,11 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     };
   }, [me.isPending, stale, unreachable, retry, remembered, orgId, orgs, setOrgId]);
 
-  return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;
+  return (
+    <OrgContext.Provider value={value}>
+      <OrgIdContext.Provider value={value.state?.orgId ?? null}>{children}</OrgIdContext.Provider>
+    </OrgContext.Provider>
+  );
 }
 
 /** For the root gate: whether the organization is known yet. */
@@ -147,3 +158,16 @@ export function useOrg(): OrgState {
 
 /** Like `useOrg`, but null instead of throwing (providers that also run outside the app's screens). */
 export const useOrgMaybe = (): OrgState | null => useContext(OrgContext).state;
+
+/**
+ * The current organization's id, without the rest of `useOrg` (a change of `me` doesn't draw its reader again). Only
+ * inside the app's screens, as `useOrg`.
+ */
+export function useOrgId(): string {
+  const orgId = useContext(OrgIdContext);
+  if (!orgId) throw new Error("useOrgId is only available once an organization is chosen");
+  return orgId;
+}
+
+/** Like `useOrgId`, but null instead of throwing (providers that also run outside the app's screens). */
+export const useOrgIdMaybe = (): string | null => useContext(OrgIdContext);

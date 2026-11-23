@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { AuthConfig, InvitationPreview, JoinApproval } from "../api/types";
+import type { AuthConfig, InvitationPreview, JoinApproval, JoinRequest } from "../api/types";
 import { daysBetween, formatShortDate, relativeTime } from "./format";
 
 /**
@@ -30,6 +30,12 @@ export function approvalNews(result: JoinApproval): { said: "joined" | "invited"
   if (result.outcome === "joined") return { said: "joined" };
   return result.emailed ? { said: "invited" } : { send: result.url };
 }
+
+/**
+ * Whether a full workspace (`full`: `membersFull`) holds this request until there is room: any but an outside
+ * collaborator's (ADR 0191), who takes no seat.
+ */
+export const waitsForRoom = (r: Pick<JoinRequest, "outsideOf">, full: boolean) => full && !r.outsideOf;
 
 /** When a request came in: "Asked just now", "Asked 2 h ago", "Asked yesterday", "Asked on Oct 22". */
 export function askedLabel(t: TFunction, locale: string, iso: string, now = new Date()) {

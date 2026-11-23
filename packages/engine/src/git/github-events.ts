@@ -10,6 +10,7 @@ import { eligibleChannelAgents } from "../dispatch";
 import { isAgentOnlyDm, openPersonAgentDm } from "../dms";
 import { ConflictError, NotFoundError } from "../errors";
 import { cutText } from "../format";
+import { inMillisecondOf } from "../message-place";
 import { getMessage } from "../messages";
 import type { Notice } from "../notices";
 import { getMembership } from "../organizations";
@@ -460,7 +461,7 @@ export async function answerGitHubNotice(
         and(
           eq(messages.orgId, orgId),
           eq(messages.id, original.id),
-          eq(messages.createdAt, original.createdAt),
+          inMillisecondOf(messages.createdAt, original.createdAt),
           sql`${messages.meta}->'notice'->'refs'->>'answeredBy' is null`,
         ),
       )

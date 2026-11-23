@@ -21,7 +21,17 @@ export const BROWSER_UNWATCH_DELAY_MS = 1500;
  * Frames a second a view asks for (ADR 0040 §7.1): `preview` for a picture too small to need more, `control` while
  * a person drives. `max` (the server's `BROWSER_VIEW.maxFps`) adds no limit of its own: the stream's rate holds.
  */
-export const BROWSER_FPS = { preview: 1, control: 15, max: 15 } as const;
+export const BROWSER_FPS = {
+  preview: 1,
+  /**
+   * The phone's card in a conversation: its page always in view among the messages, a small picture that scrolls with
+   * them. Two a second follow the agent's work; every frame more is a JPEG through the app's JavaScript while the
+   * person scrolls (ADR 0040 §7.1).
+   */
+  card: 2,
+  control: 15,
+  max: 15,
+} as const;
 
 /** A view's rate as the server takes it: none is no limit of its own (`max`); anything else within 1..max. */
 export function browserFps(maxFps?: number): number {

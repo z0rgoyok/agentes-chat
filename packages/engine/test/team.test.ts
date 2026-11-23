@@ -10,16 +10,18 @@ import {
   createCredential,
   drainOutbox,
   enableCaches,
+  forgetTeam,
   insertMessage,
   type MachineStatus,
   NO_PERSON,
   postPersonMessage,
   rosterScopeNames,
+  setAgentAudience,
   summarizeScopes,
   teamPrompt,
   teamStatus,
 } from "../src";
-import { type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 
 let f: Fixture;
@@ -48,6 +50,8 @@ test("a big team is only a count with a pointer to find_agent", () => {
     audienceMode: "everyone" as const,
     audienceUserIds: [],
     audienceRoleIds: [],
+    editorUserIds: [],
+    editorRoleIds: [],
     consultable: true,
     brain: "model",
     autonomyBrakes: {},
@@ -205,6 +209,37 @@ test("a teammate's department is in the team context, by name", async () => {
 
   const prompt = systemText(requests[0]?.system ?? []);
   expect(prompt).toContain("@infra (Infrastructure, department: Plataforma)");
+});
+
+test("a private agent stays out of a teammate's find_agent, but not its owner's", async () => {
+  const results: string[] = [];
+  f = await setup({
+    askAgent: true,
+    reply: (req) => {
+      const last = JSON.stringify(req.messages.at(-1)?.content);
+      if (last.includes("tool_result")) {
+        results.push(last);
+        return { chunks: ["done"] };
+      }
+      return { chunks: [], toolUses: [{ name: "find_agent", input: {} }] };
+    },
+  });
+  const walt = await addMember(f.db, f.org.id, "member", "walt");
+  const duda = await addMember(f.db, f.org.id, "member", "duda");
+  for (const who of [walt, duda]) await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: who.id });
+  const bento = await addAgent("Bento", "bento", "Finanças pessoais");
+  await f.db.update(schema.agents).set({ ownerUserId: duda.id }).where(eq(schema.agents.id, bento.id));
+  // Owner-only, yet it takes consultations: before, any teammate's agent found it.
+  await setAgentAudience(f.db, duda.id, f.org.id, bento.id, { mode: "owner", userIds: [], roleIds: [] });
+  forgetTeam(f.org.id);
+  const ask = async (userId: string) => {
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, userId, f.org.id, f.general.id, { body: "@dev quem há?" });
+    await drainOutbox(f.db, f.handlers);
+    return results.at(-1) ?? "";
+  };
+
+  expect(await ask(walt.id)).not.toContain("@bento");
+  expect(await ask(duda.id)).toContain("@bento");
 });
 
 test("find_agent says which department an agent is in", async () => {

@@ -144,12 +144,27 @@ export function workMeta(meta: Record<string, unknown> | undefined): WorkMeta | 
  */
 const UNLISTED: ReadonlySet<ActivityKind> = new Set(["reacting", "findingTools"]);
 
-/** One of `meta.work`'s calls that is only lookups: ours by name, with no app it could share a logo with. */
-const onlyLookups = (c: WorkCall) => !c.connector && !c.service && UNLISTED.has(toolActivity(c.name).kind);
+/**
+ * The line an agent says before slow work (`say_now`, ADR 0207) is its own message in the conversation, never a step
+ * of the work: left out by its name, since its kind is `post_message`'s, which stays listed. Ours, also behind a
+ * computer brain's bridge (`mcp__agentes__say_now`). The server's `meta.work` leaves it out too.
+ */
+const SAY_NOW = /^(?:mcp__agentes__)?say_now$/;
+
+/** A call the block never lists: by what it does (`UNLISTED`), or the line before slow work by its name. */
+const unlisted = (tool: string, a: Pick<Activity, "kind">) =>
+  UNLISTED.has(a.kind) || SAY_NOW.test(tool.trim().toLowerCase());
+
+/** A live call the block lists: the ones it leaves out (`unlisted`) are never its lines, nor the step line's call. */
+const listedCall = (w: LiveWork): w is Extract<LiveWork, { kind: "call" }> =>
+  w.kind === "call" && !unlisted(w.tool, toolActivity(w.tool, w.connector, w.detail, w));
+
+/** One of `meta.work`'s calls the block never lists: ours by name, with no app it could share a logo with. */
+const neverListed = (c: WorkCall) => !c.connector && !c.service && unlisted(c.name, toolActivity(c.name));
 
 /** A saved reply's apps before its steps load (`meta.work.calls`): the ones `toolApps` gives once they do. */
 export const workApps = (calls: WorkCall[]) =>
-  uniqueApps(calls.filter((c) => !onlyLookups(c)).map((c) => toolActivity(c.name, c.connector, null, c)));
+  uniqueApps(calls.filter((c) => !neverListed(c)).map((c) => toolActivity(c.name, c.connector, null, c)));
 
 /**
  * How many calls a saved reply's block shows (0: no block). A reply saved before lookups were left out counted them.
@@ -157,7 +172,7 @@ export const workApps = (calls: WorkCall[]) =>
  * their count shows its total unless every call is skipped.
  */
 export function workSteps(w: WorkMeta, skip: (name: string) => boolean = () => false) {
-  if (w.calls.length > 0 && w.calls.every((c) => onlyLookups(c) || skip(c.name))) return 0;
+  if (w.calls.length > 0 && w.calls.every((c) => neverListed(c) || skip(c.name))) return 0;
   return w.calls.reduce((n, c) => (skip(c.name) && typeof c.n === "number" ? n - c.n : n), w.steps);
 }
 
@@ -205,7 +220,7 @@ export function workFromSteps(steps: RunStep[], run?: Pick<Run, "createdAt" | "f
       service: typeof s.data.service === "string" ? s.data.service : null,
       serviceIcon: typeof s.data.serviceIcon === "string" ? s.data.serviceIcon : null,
     });
-    if (UNLISTED.has(a.kind)) continue;
+    if (unlisted(name, a)) continue;
     const app = a.kind === "consulting" ? a.app : DRIVE.includes(a.kind) ? "Drive" : undefined;
     if (app && !connectors.includes(app)) connectors.push(app);
     const input = (s.data.input ?? {}) as Record<string, unknown>;
@@ -580,22 +595,21 @@ const sameLine = (a: ToolLine, b: Activity & { tool: string }) =>
 /**
  * The live work as the block's items: a call followed by the same kind of call (no code, nothing said in
  * between, neither failed) is one line counting both, so five browser steps read "Usou o navegador ×5".
- * Reactions and tool lookups are left out (`UNLISTED`), as in `workFromSteps`. `stopped`: the run is over, so the call
- * still running shows as stopped. A call refused for its arguments reads as still at it while the agent tries again,
- * and quietly once one of the same tool works; an error only if the run ends or moves on without that.
+ * Reactions, tool lookups and the line before slow work are left out (`unlisted`), as in `workFromSteps`. `stopped`:
+ * the run is over, so the call still running shows as stopped. A call refused for its arguments reads as still at it
+ * while the agent tries again, and quietly once one of the same tool works; an error only if the run ends or moves on
+ * without that.
  */
 export function toolItemsLive(work: LiveWork[], stopped = false): ToolItem[] {
   const items: ToolItem[] = [];
-  const listed = work.flatMap((w) =>
-    w.kind === "call" && !UNLISTED.has(toolActivity(w.tool, w.connector, w.detail, w).kind) ? [w] : [],
-  );
+  const listed = work.filter(listedCall);
   work.forEach((w) => {
     if (w.kind === "steer") {
       items.push({ kind: "steer", key: `steer-${w.messageId}`, messageId: w.messageId, now: w.now === true });
       return;
     }
     const a = toolActivity(w.tool, w.connector, w.detail, w);
-    if (UNLISTED.has(a.kind)) return;
+    if (unlisted(w.tool, a)) return;
     const later = listed.slice(listed.indexOf(w) + 1);
     const atIt = !stopped && later.every((c) => c.slip && c.tool === w.tool);
     const trying = w.slip === true && atIt && later.length === 0;
@@ -782,8 +796,10 @@ export function waitStep(t: TFunction, work: LiveWork[] | undefined, step?: Live
     return step?.tool ? `${capitalize(activityVerb(t, toolActivity(step.tool)))}…` : t("chat.wait.thinking");
   }
   const verb = capitalize(activityVerb(t, now));
-  // The folded line keeps its first call's hint; the step line names the call running now.
-  const hint = last?.kind === "call" && last.running ? toolHint(last.tool, now, last.detail) : now.hint;
+  // The folded line keeps its first call's hint; the step line names the call running now, one the block lists: a call
+  // it leaves out (the line before slow work, after a call refused for its arguments) never lends it its name.
+  const listed = (work ?? []).findLast(listedCall);
+  const hint = listed?.running ? toolHint(listed.tool, now, listed.detail) : now.hint;
   const target = hint ? shortTarget(hint) : "";
   return target ? `${verb} · ${target}…` : `${verb}…`;
 }
@@ -838,11 +854,16 @@ const QUIET_READS: ReadonlySet<ActivityKind> = new Set([
 /** The computer brain's own image tool (Codex's), as the runner names its call. */
 export const IMAGE_TOOL = "image_generation";
 
+/** Ours (ADR 0197): images made onto a canvas, as `agent.tool` names its call (a computer brain's through the bridge). */
+export const GENERATE_IMAGE_TOOL = "generate_image";
+const GENERATE_IMAGE_NAMES = new Set([GENERATE_IMAGE_TOOL, `mcp__agentes__${GENERATE_IMAGE_TOOL}`]);
+
 /**
- * It is making a picture now (its own image tool's step, `agent.step`): the conversation shows where the picture will
- * be until its reply, with the picture, takes its place.
+ * It is making a picture now (its own image tool's step, `agent.step`, or our `generate_image` while it runs,
+ * `agent.tool`): the conversation shows where the picture will be until its reply, with the picture, takes its place.
  */
-export const makingImage = (run: Pick<LiveRun, "step">) => run.step?.tool === IMAGE_TOOL;
+export const makingImage = (run: Pick<LiveRun, "step"> & Partial<Pick<LiveRun, "tool">>) =>
+  run.step?.tool === IMAGE_TOOL || GENERATE_IMAGE_NAMES.has(run.tool ?? "");
 
 /** A step running this long is no quick read: its card stays. */
 const LONG_STEP_MS = 4000;

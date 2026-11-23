@@ -8,6 +8,7 @@ setupDom();
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, ATLAS_ID, createFakeApi, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
 import { shownText } from "./hint";
+import { shareRow } from "./plan-rows";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -107,11 +108,14 @@ describe("IA e uso: the viewer's own accounts", () => {
     expect(head.textContent).toContain("Trabalho\u2002Team\u2002de Walter");
     expect(head.querySelector(".ac-planmeter__line")?.textContent).toBe("5h 84%");
     expect(within(head).getAllByRole("meter")).toHaveLength(1);
-    // Near its limit: what matters then on one line under them, and the row starts open.
-    expect(head.querySelector(".plan-row__alert")?.textContent).toMatch(/^Quase no limite · renova /);
-    expect(head.getAttribute("aria-expanded")).toBe("true");
-    expect(work?.textContent).toContain("Claude Code · walt@acme.com");
-    expect(work?.querySelector(".plan-shares__row")?.textContent).toBe("Ada · usa agora");
+    // Near its limit: just the words; each window's bar says when it renews. The row still starts closed.
+    expect(head.querySelector(".plan-row__alert")?.textContent).toBe("Quase no limite");
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    await opened(work);
+    // The logo names the maker: the address waits in Detalhes with the computer.
+    expect(work?.textContent).not.toContain("Claude Code ·");
+    expect(work?.querySelector(".plan-details")?.textContent).toContain("walt@acme.com · MacBook");
+    expect(shareRow(work?.querySelector(".plan-shares__row") as Element)).toBe("Ada · usa agora");
     // A coding plan's key, closed until asked: its last 4 and what its maker shares.
     expect(mm?.querySelector(".plan-row__head")?.getAttribute("aria-expanded")).toBe("false");
     expect(mm?.querySelector(".plan-row__body")?.textContent).toBe("");
@@ -353,8 +357,9 @@ describe("IA e uso: a plan with a login per agent", () => {
     ...over,
   });
   const LOGINS = [
-    glm("acct_ada", "Ada", { usage: usage(40, "2026-10-27T10:00:00.000Z") }),
-    glm("acct_theo", "Theo", { usage: usage(62, "2026-10-27T11:00:00.000Z") }),
+    // Read within the last hours: a reading older than 6 hours shows only its age.
+    glm("acct_ada", "Ada", { usage: usage(40, new Date(Date.now() - 2 * 3_600_000).toISOString()) }),
+    glm("acct_theo", "Theo", { usage: usage(62, new Date(Date.now() - 3_600_000).toISOString()) }),
     glm("acct_lia", "Lia"),
   ];
 
@@ -364,13 +369,15 @@ describe("IA e uso: a plan with a login per agent", () => {
     const row = await opened(rows()[0]);
     expect(row.querySelector(".plan-row__head .ac-planmeter__line")?.textContent).toBe("5h 62%");
     expect(row.textContent).toContain("chave …4f2a");
-    expect([...row.querySelectorAll(".plan-shares__row")].map((r) => r.textContent)).toEqual([
+    expect([...row.querySelectorAll(".plan-shares__row")].map(shareRow)).toEqual([
       "Ada · usa agora",
       "Theo · usa agora",
       "Lia · usa agora",
     ]);
     // What its owner does with it: one line of actions under everything else, starting on the words' edge.
-    const acts = row.querySelector(".plan-row__body > .ai-accounts__own:last-child > .ac-acts") as HTMLElement;
+    const acts = row.querySelector(
+      ".plan-row__body .plan-own > .ai-accounts__own:last-child > .ac-acts",
+    ) as HTMLElement;
     expect(
       within(acts)
         .getAllByRole("button")
@@ -406,7 +413,7 @@ describe("IA e uso: a plan with a login per agent", () => {
     expect(rows()).toHaveLength(2);
     const second = await opened(rows()[1]);
     expect(second.textContent).toContain("chave …9z9z");
-    expect(second.querySelector(".plan-shares__row")?.textContent).toBe("Bo · usa agora");
+    expect(shareRow(second.querySelector(".plan-shares__row") as Element)).toBe("Bo · usa agora");
     await click(within(second).getByRole("button", { name: "Desconectar" }));
     await click(within(screen().getByRole("dialog")).getByRole("button", { name: "Desconectar" }));
     await settle(4);
@@ -492,7 +499,7 @@ describe("IA e uso: a plan with a login per agent", () => {
     await renderApp(`/org/${ORG_ID}/settings/keys`, { api });
     await settle(6);
     const row = await opened(rows()[0]);
-    expect(row.querySelector(".plan-shares__row")?.textContent).toBe("Ada · usa agora");
+    expect(shareRow(row.querySelector(".plan-shares__row") as Element)).toBe("Ada · usa agora");
     await click(within(row).getByRole("button", { name: "Usar também para o Atlas" }));
     await settle(4);
     expect(state.calls.filter((c) => c.method === "agents.setBrain").map((c) => c.args)).toEqual([

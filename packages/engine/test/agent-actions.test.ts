@@ -121,7 +121,7 @@ describe("act with undo: issues", () => {
     const call = await toolsOf([createIssueToolSource(f.artifactDeps)], ctx);
     const created = await call("create_issue", {
       title: "Prompt de avaliação após a assinatura",
-      assignee: "me",
+      assignees: ["me"],
       due_date: "2026-10-23",
     });
     expect(created.content).toContain("Created #1");
@@ -170,12 +170,12 @@ describe("act with undo: issues", () => {
     const call = await toolsOf([createIssueToolSource(f.artifactDeps)], ctx);
     const issue = await createIssue(deps(f), person(f.owner.id), f.org.id, { title: "Login quebra" });
     await call("update_issue", { issue: "#1", priority: "high", labels: ["bug"], due_date: "2026-11-01" });
-    await call("update_issue", { issue: "#1", assignee: "me" });
+    await call("update_issue", { issue: "#1", assignees: ["me"] });
     const m = await reply(f, ctx);
     const actions = (await actionsFor(f.db, f.org.id, [m.id])).get(m.id) ?? [];
     expect(actions.map((a) => a.kind)).toEqual(["issue.updated", "issue.assigned"]);
     expect(actions[0]?.params).toMatchObject({ fields: ["priority", "labels", "dueDate"], priority: "high" });
-    expect(actions[1]?.params).toMatchObject({ assigneeType: "agent", assigneeIsSelf: true, assigneeName: "@dev" });
+    expect(actions[1]?.params).toMatchObject({ assigneeIsSelf: true, assigneeName: "@dev", assigneeNames: ["@dev"] });
 
     // Someone changed the priority after the agent: refused, nothing changes, the receipt stays undoable.
     await updateIssue(deps(f), person(f.owner.id), f.org.id, issue.id, { priority: "low" });
@@ -192,7 +192,7 @@ describe("act with undo: issues", () => {
     await undoAgentAction(deps(f), f.owner.id, f.org.id, first.id);
     const back = await getIssue(f.db, person(f.owner.id), f.org.id, { id: issue.id });
     expect(back).toMatchObject({ priority: "normal", labels: [], dueDate: null });
-    expect(back.assignee).toEqual({ type: "agent", id: f.agent.id });
+    expect(back.assignees).toEqual([{ type: "agent", id: f.agent.id }]);
   });
 
   test("update_issue: an agent's GitHub link is a receipt, and undo takes it off", async () => {
@@ -279,7 +279,7 @@ describe("act with undo: issues", () => {
           ? { chunks: ["Abri a #1 e deixei comigo."] }
           : {
               chunks: [],
-              toolUses: [{ name: "create_issue", input: { title: "Organizar o trabalho", assignee: "me" } }],
+              toolUses: [{ name: "create_issue", input: { title: "Organizar o trabalho", assignees: ["me"] } }],
             },
     });
     await grantScopes(f.db, f.org.id, f.agent.id, [

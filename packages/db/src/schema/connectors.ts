@@ -93,12 +93,20 @@ export const connectorConnections = pgTable(
     /** Why it needs reconnecting. */
     lastError: text(),
     createdByUserId: text().references(() => users.id, { onDelete: "set null" }),
+    /**
+     * A personal connection's person (the Vault's split, ADR 0144; ADR 0099 addendum): only they see its details and
+     * give it to agents, and its tools serve only runs they are behind. Null: the team's. It leaves with them.
+     */
+    ownerUserId: text().references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
-    uniqueIndex("connector_connections_one_active").on(t.orgId, t.connector).where(sql`${t.revokedAt} is null`),
+    // One live connection per catalog connector for the team, and one for each person.
+    uniqueIndex("connector_connections_one_active")
+      .on(t.orgId, t.connector, sql`coalesce(${t.ownerUserId}, '')`)
+      .where(sql`${t.revokedAt} is null`),
     uniqueIndex("connector_connections_tool_prefix").on(t.orgId, t.toolPrefix).where(sql`${t.revokedAt} is null`),
     index().on(t.orgId),
     index().on(t.composioAccountId),
@@ -138,6 +146,8 @@ export const oauthStates = pgTable(
     connectionId: uuid(),
     /** A Composio sign-in: the connected account its Connect Link made, the only one the return may complete. */
     composioAccountId: text(),
+    /** The connection it makes is its person's own (`user_id`), not the team's. */
+    personal: boolean().notNull().default(false),
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     usedAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

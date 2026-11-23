@@ -1,4 +1,4 @@
-import { PushError, type PushSender, type RateLimiter } from "@agenteschat/adapters";
+import { PushError, type PushSender, type RateLimiter, retryInSeconds } from "@agenteschat/adapters";
 import type { Database } from "@agenteschat/db";
 import {
   authenticateRelayInstance,
@@ -112,7 +112,7 @@ export function pushRelayRoutes(deps: PushRelayDeps) {
 }
 
 function limited(c: Context, resetAt: Date) {
-  c.header("retry-after", String(Math.max(1, Math.ceil((resetAt.getTime() - Date.now()) / 1000))));
+  c.header("retry-after", String(retryInSeconds(resetAt)));
   return apiError(c, 429, "rate_limited", "Too many requests. Try again later", { retryable: true });
 }
 

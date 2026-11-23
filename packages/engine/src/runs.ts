@@ -1,11 +1,16 @@
-import { and, type Executor, eq, type SQL, schema, sql } from "@agenteschat/db";
+import { and, type Executor, eq, notInArray, type SQL, schema, sql } from "@agenteschat/db";
 import { PROVIDERS, type ProviderCause, ProviderError, providerCause } from "@agenteschat/providers";
 import { wakeLineOfRun } from "./approval-order";
 import { BRAIN_NAMES, type ComputerBrainKind, planName } from "./brains/types";
+import { kickSignInLine } from "./computer-queue";
 import { cutText, pgSafeJson } from "./format";
 import { recordRunFinished } from "./operator-events";
 import { standingErrorDetail } from "./standing";
 import { cliErrorWords, redactCredentials } from "./tool-detail";
+
+/** How often a running run's worker says it is alive; after `RUN_STALE_MS` without it, the run is recovered. */
+export const RUN_HEARTBEAT_MS = 20_000;
+export const RUN_STALE_MS = 2 * 60_000;
 
 const { agentRuns, agentRunSteps } = schema;
 
@@ -89,9 +94,13 @@ export function usageWaitOf(run: Pick<AgentRun, "status" | "waitingMachineId" | 
  * that thread. The run keeps `threadRootId` (its trigger, when top-level) as
  * the conversation it belongs to. The one rule for the engine, its tools and
  * the bridge: cards and events of a run always land where its replies do.
+ * `confidential`: its thread holds a confidential result (ADR 0190), so it answers under the message that asked it
+ * even when that message is in the main timeline.
  */
-export function replyThreadOf(run: Pick<AgentRun, "threadRootId" | "triggerMessageId">): string | null {
-  return run.threadRootId === run.triggerMessageId ? null : run.threadRootId;
+export function replyThreadOf(
+  run: Pick<AgentRun, "threadRootId" | "triggerMessageId"> & { confidential?: boolean },
+): string | null {
+  return run.threadRootId === run.triggerMessageId && !run.confidential ? null : run.threadRootId;
 }
 
 /**
@@ -122,6 +131,8 @@ export const PERSON_LIMIT = "person_limit" as const;
 export const COMPUTER_BUSY = "computer_busy" as const;
 /** A run's error when it went in circles and its kind of run can't end with Continuar (a routine's). */
 export const STUCK_ERROR = "stuck" as const;
+/** A run's error when its computer's disk is full (`saysDiskFull`): every turn there fails until someone frees space. */
+export const DISK_FULL = "disk_full" as const;
 
 /** A run's error when its server stopped in the middle of a tool call (a deploy, a crash, a reboot). */
 export const INTERRUPTED_BY_RESTART = "Interrupted by a server restart";
@@ -329,6 +340,7 @@ export function runErrorDetail(error: string | null | undefined): {
     PERSON_LIMIT,
     COMPUTER_BUSY,
     STUCK_ERROR,
+    DISK_FULL,
     // A Codex turn on a Windows computer where MXC can't hold its commands (the runner's own words say what to do).
     "windows_sandbox",
   ];
@@ -440,6 +452,73 @@ export function personStopOf(error: string | null | undefined) {
   return { userId, agentId: tail.startsWith("agent:") ? tail.slice("agent:".length) : null };
 }
 
+/**
+ * Every reason the system stops a run with (`StopActor`), as its error holds it, then the three a closed workspace's
+ * stop is read as (its error holds the refusal's text, never returned), then `other`.
+ * ponytail: `routine_<code>` and `mission_<reason>` are put together where the stop is made (`routine-firing.ts`,
+ * `routines.ts`, `dashboards/refresh.ts`, `executor.ts`, `missions.ts`): a word added there reads `other` until it is
+ * listed here.
+ */
+export const SYSTEM_STOP_REASONS = [
+  "agent_archived",
+  "channel_deleted",
+  "consultation_expired",
+  "mission_stopped",
+  "mission_closed",
+  "mission_executor_changed",
+  "routine_superseded",
+  "routine_waiting_plan",
+  "routine_waiting_budget",
+  "routine_waiting_computer",
+  "routine_stalled",
+  "routine_stale",
+  "routine_waiting_plan_late",
+  "routine_waiting_budget_late",
+  "routine_stopped",
+  "routine_paused",
+  "routine_deleted",
+  "routine_creator_left",
+  "workspace_paused",
+  "workspace_suspended",
+  "workspace_deleting",
+  "other",
+] as const;
+export type SystemStopReason = (typeof SYSTEM_STOP_REASONS)[number];
+
+const WORKSPACE_STOPS: Record<string, SystemStopReason> = {
+  "run.org_paused": "workspace_paused",
+  "run.org_suspended": "workspace_suspended",
+  "run.org_deleting": "workspace_deleting",
+};
+
+/** The system's reason for a stop as one of `SYSTEM_STOP_REASONS`, from what the run's error or the audit kept of it. */
+export function systemStopReason(reason: string): SystemStopReason {
+  const listed = SYSTEM_STOP_REASONS.find((word) => word === reason);
+  return listed ?? WORKSPACE_STOPS[standingErrorDetail(reason)?.errorCode ?? ""] ?? "other";
+}
+
+export const STOPPED_BY = ["person", "agent", "system"] as const;
+
+/**
+ * Who or what stopped a canceled run, from its error (`stopError`): the person, the agent that stopped it at that
+ * person's word, or the system with its reason as a listed word. Never the error's text. Null: the run kept no error,
+ * so nothing says who stopped it.
+ */
+export function stopOf(error: string | null | undefined): {
+  by: (typeof STOPPED_BY)[number];
+  userId: string | null;
+  agentId: string | null;
+  reason: SystemStopReason | null;
+} | null {
+  if (!error) return null;
+  const person = personStopOf(error);
+  // Older rows hold `canceled_by:mission` for a mission's stop with nobody behind it: no person's id, and which of
+  // the mission's reasons it was is not kept.
+  if (person && person.userId !== "mission")
+    return { by: person.agentId ? "agent" : "person", ...person, reason: null };
+  return { by: "system", userId: null, agentId: null, reason: systemStopReason(error) };
+}
+
 /** Who canceled: the person behind the stop, also when the right hand did it at their word. */
 export const canceledBy = (error: string | null | undefined) => personStopOf(error)?.userId ?? null;
 
@@ -514,6 +593,10 @@ export async function transitionRun(
     })
     .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, from)))
     .returning();
+  // Out of work on a plan sign-in that has runs waiting for it: the first of them takes the slot now.
+  const ask = (row?.transcript as { roomAsk?: { machineId?: string; signIn?: string } } | null)?.roomAsk;
+  if (row && from === "running" && ask?.machineId && ask.signIn)
+    await kickSignInLine(db, ask.machineId, ask.signIn).catch(() => {});
   if (row && isTerminal(to)) {
     await recordRunFinished(
       db,
@@ -542,6 +625,42 @@ export type StepKind = (typeof schema.agentRunStepKindEnum.enumValues)[number];
 
 /** Tries for a free number: tool calls that run side by side each lose at most to the others. */
 const STEP_TRIES = 20;
+
+/**
+ * The tools a turn uses to talk, not to work: a reaction, a question card, the line it says before slow work, its
+ * background works' own tools (`REACT_TOOL`, `ASK_USER_TOOL`, `ASK_CHOICES_TOOL`, `SAY_NOW_TOOL` and the four of
+ * `work-tools.ts`, written out here: those modules import this one).
+ */
+const TALK_TOOLS = [
+  "react",
+  "ask_user",
+  "ask_choices",
+  "say_now",
+  "post_update",
+  "steer_work",
+  "stop_work",
+  "work_in_background",
+];
+
+/**
+ * Whether a run is at work on something: its trail has a call of a tool other than a way of talking (`TALK_TOOLS`).
+ * One that has only talked so far ("oi", a reaction, a question) is a conversation, not a task (ADR 0112 addendum of
+ * 2026-11-19): what the person adds is part of what it answers, in one message.
+ */
+export async function runAtWork(db: Executor, runId: string): Promise<boolean> {
+  const [step] = await db
+    .select({ id: schema.agentRunSteps.id })
+    .from(schema.agentRunSteps)
+    .where(
+      and(
+        eq(schema.agentRunSteps.runId, runId),
+        eq(schema.agentRunSteps.kind, "tool_call"),
+        notInArray(sql<string>`coalesce(${schema.agentRunSteps.data}->>'name', '')`, TALK_TOOLS),
+      ),
+    )
+    .limit(1);
+  return step !== undefined;
+}
 
 /**
  * Appends a step to a run's trail (numbered in order). Two at once read the same last number, and the unique

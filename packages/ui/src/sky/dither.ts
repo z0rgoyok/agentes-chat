@@ -3,7 +3,7 @@
  * (../agent/engine.js): a crisp SVG per color and grid, cached as a data URL.
  */
 
-import { bodySvg, bodyTones, ditherCells } from "../agent/engine.js";
+import { bodySvg, bodyTones, ditherCells, drawnKey, type SkyPair } from "../agent/engine.js";
 import type { AgentColor } from "../components/AgentLook";
 
 export { ditherCells };
@@ -16,9 +16,9 @@ export const ditherSvg = (color: AgentColor = "sky", cells = 14): string => body
 
 const cache = new Map<string, string>();
 
-/** The body as a data URL, cached per color and grid. */
-export function ditherUrl(color: AgentColor = "sky", cells = 14): string {
-  const key = `${color}:${cells}`;
+/** The body as a data URL, cached per color (or [top, bottom] pair) and grid. */
+export function ditherUrl(color: AgentColor | SkyPair = "sky", cells = 14): string {
+  const key = `${typeof color === "string" ? drawnKey(color) : color}:${cells}`;
   let url = cache.get(key);
   if (!url) {
     url = `data:image/svg+xml,${encodeURIComponent(bodySvg(color, cells))}`;

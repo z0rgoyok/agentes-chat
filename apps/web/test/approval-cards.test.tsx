@@ -168,8 +168,8 @@ describe("Approvals: the request beside the list", () => {
     await click(row("ap-merge"));
     const text = review().querySelector(".ap-review__text") as HTMLElement;
     expect(text.classList.contains("is-folded")).toBe(true);
-    // Under the words, as a message's: never in the card's head.
-    expect(text.closest(".ac-card")?.querySelector(".ac-card__head button")).toBeNull();
+    // On the request's one surface, no card around it: "Ver mais" goes under the words, as a message's.
+    expect(text.closest(".ac-card")).toBeNull();
     await click(within(text.parentElement as HTMLElement).getByRole("button", { name: "Ver mais" }));
     expect(text.classList.contains("is-folded")).toBe(false);
     expect(within(review()).queryByRole("button", { name: /^(Ver menos|Mostrar menos|Ver inteiro)$/ })).toBeNull();

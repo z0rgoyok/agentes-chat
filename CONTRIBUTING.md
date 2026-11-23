@@ -100,7 +100,7 @@ app, a package or the Docker files also boots the image with `docker-compose.yml
 - You keep the copyright in your contribution. It is licensed to everyone under the license of the
   code it goes into: here AGPL-3.0-only together with the additional permission under section 7
   for app stores (at the top of [NOTICE](NOTICE)), so your code ships in the phone and desktop
-  apps like the rest. Through the CLA you also grant Codari Global, LLC, which maintains
+  apps like the rest. Through the CLA you also grant AGENTESCHAT, LLC, which maintains
   agentes.chat, the right to license it on other terms, commercial ones included
   ([COMMERCIAL.md](COMMERCIAL.md), [ADR 0180](docs/adr/0180-dual-licensing-and-cla.md)).
 - Contributing for your employer: make sure it allows you to. If you accept the CLA on behalf of a

@@ -3,13 +3,12 @@ import { useMission, useMissionFiles } from "@agenteschat/client";
 import { formatTime, relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { editDiff, executorName, type MdLine, mdLines, newLineIndexes } from "@agenteschat/client/lib/missions";
-import { DetailsDialog, Diff, Icon, Segmented, Skeleton } from "@agenteschat/ui";
+import { codeAndBold, DetailsDialog, Diff, Icon, Segmented, Skeleton } from "@agenteschat/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
-import { codeAndBold } from "@/lib/markdown";
 
 /**
  * "Arquivos da missão": mission.md (plan and

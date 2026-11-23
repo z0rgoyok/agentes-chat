@@ -22,10 +22,11 @@ export const channelVisibilityEnum = pgEnum("channel_visibility", ["public", "pr
 /**
  * `channel`: a named channel. `dm`: a direct conversation (person↔person or person↔agent), participants only.
  * `task`: a task's conversation (ADR 0145): read by whoever sees the task, never listed; only agents are members.
+ * `file`: a live file's conversation (ADR 0199): read by whoever reads the file, never listed; only agents are members.
  * `forum` is unused: the forum was removed (migration 0216), and Postgres drops an enum value only by recreating the
  * type, which would rewrite `channels` under a lock.
  */
-export const channelKindEnum = pgEnum("channel_kind", ["channel", "dm", "forum", "task"]);
+export const channelKindEnum = pgEnum("channel_kind", ["channel", "dm", "forum", "task", "file"]);
 /** The kinds a channel has: no row is `forum` since migration 0216. */
 export type ChannelKind = Exclude<(typeof channelKindEnum.enumValues)[number], "forum">;
 
@@ -246,6 +247,8 @@ export const messages = pgTable(
     // Deleting a person or an agent sets their messages' author to null: without these it scans every partition.
     index().on(t.authorUserId).where(sql`${t.authorUserId} is not null`),
     index().on(t.authorAgentId).where(sql`${t.authorAgentId} is not null`),
+    // A run's messages (learning from its turn, the tools that look back at what it posted): no channel to bound by.
+    index().on(t.agentRunId).where(sql`${t.agentRunId} is not null`),
     check(
       "messages_author",
       sql`(${t.authorType} = 'person' and ${t.authorAgentId} is null) or (${t.authorType} = 'agent' and ${t.authorUserId} is null)`,
@@ -315,6 +318,30 @@ export const threads = pgTable(
     foreignKey({ columns: [t.orgId, t.channelId], foreignColumns: [channels.orgId, channels.id] }).onDelete("cascade"),
     unique().on(t.orgId, t.rootMessageId),
     index().on(t.orgId, t.channelId, t.state),
+  ],
+);
+
+/**
+ * Threads that hold a confidential tool result (ADR 0190): a run there reads on and sends nothing elsewhere, the
+ * thread's text reaches no model outside it, and what was kept of it is blanked after a while. A row from the first
+ * such result on; `connection_ids` are the connections whose results set the mark, and `thinks_with` is what thought
+ * for the run that read the first one (`model:<provider>`): the thread's words go to that and to nothing else. Keyed
+ * by the root message (no foreign key to the partitioned `messages`).
+ */
+export const confidentialThreads = pgTable(
+  "confidential_threads",
+  {
+    orgId: uuid().notNull(),
+    channelId: uuid().notNull(),
+    rootMessageId: uuid().notNull(),
+    connectionIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    thinksWith: text(),
+    markedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.orgId, t.rootMessageId] }),
+    foreignKey({ columns: [t.orgId, t.channelId], foreignColumns: [channels.orgId, channels.id] }).onDelete("cascade"),
+    index().on(t.markedAt),
   ],
 );
 

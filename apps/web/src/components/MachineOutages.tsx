@@ -1,5 +1,6 @@
 import type { ComputerBrain, MachineOutage, MachineOutages, OutageTarget } from "@agenteschat/client";
 import { useMachineOutages, useMachines, useMoveAgents } from "@agenteschat/client";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { awayText } from "@agenteschat/client/lib/computer-queue";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames, timeAgo } from "@agenteschat/client/lib/format";
@@ -37,9 +38,11 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useOrg } from "@/components/org-context";
+import { ReportProblem } from "@/components/ReportProblem";
 import { RequestDone, RequestOpen } from "@/components/RequestCard";
 import { ReconnectThisMacButton, useIsThisMac } from "@/components/ThisMac";
 import { useComputerEdition } from "@/components/WorkspaceComputer";
+import { useDirectory } from "@/hooks/useDirectory";
 import { STORAGE_KEYS, storage, storedStrings } from "@/lib/storage";
 import { useToast } from "@/lib/toast";
 
@@ -157,6 +160,7 @@ function OutageNotice({
             {t("outage.switch")}
           </Button>
         )}
+        <ReportProblem place="computer" code="computer.offline" context={{ machineId: o.machineId }} />
       </span>
       <Button
         variant="ghost"
@@ -340,7 +344,10 @@ export function WaitingCard({ notice, agentId }: { notice: BrainUnavailable; age
   const { org } = useOrg();
   // Only where people connect their own computers: a Cloud workspace has one, and nothing while that isn't known.
   const selfHost = useComputerEdition(org.id) === "selfhost";
-  const switches = selfHost && can(org, "manage_agents");
+  // Who manages the agent moves it (ADR 0085 addendum of 2026-11-17).
+  const who = notice.agentId ?? agentId;
+  const agent = useDirectory(org.id).agentById.get(who ?? "");
+  const switches = selfHost && managesAgent(agent);
   const [open, setOpen] = useState(false);
   const { outages, outage, mine, state, name } = useWaitState(notice, agentId);
   const waiting = mine ? waitingText(t, mine.waiting) : null;

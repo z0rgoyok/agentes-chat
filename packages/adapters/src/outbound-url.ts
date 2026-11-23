@@ -36,12 +36,16 @@ export function normalizeUrl(raw: string): string | null {
 }
 
 const URLS_IN_TEXT = /https?:\/\/[^\s<>"'`]+/gi;
+const TRAILING_PUNCTUATION = ".,;:!?)]}*";
 
 /** Every address written in a text, normalized (trailing punctuation dropped). */
 export function urlsIn(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(URLS_IN_TEXT)) {
-    const n = normalizeUrl(m[0].replace(/[.,;:!?)\]}*]+$/, ""));
+    // A walk back, not `/[…]+$/`: that pattern is quadratic on a long run of punctuation that does not end the text.
+    let end = m[0].length;
+    while (end > 0 && TRAILING_PUNCTUATION.includes(m[0][end - 1] as string)) end--;
+    const n = normalizeUrl(m[0].slice(0, end));
     if (n) out.push(n);
   }
   return out;

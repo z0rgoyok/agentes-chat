@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SYSTEM_RUNNER_HOME } from "@agenteschat/adapters/command-policy";
@@ -123,6 +133,33 @@ export function runnerHome(env: NodeJS.ProcessEnv = process.env): string {
 
 export function configPath(home = runnerHome()) {
   return path.join(home, "config.json");
+}
+
+/**
+ * The homes of the organizations a server's own computer serves (`agentes-runner host`, ADR 0153 §5): one connection
+ * per organization, each in its own home — `<home>/orgs/<orgId>`, or `<home>/host/orgs/<orgId>` where the app keeps
+ * its own on a Mac. Only the homes with a token and a server are connections: a folder an organization left behind
+ * keeps neither, and the machine's own top-level config (the `mode: "system"` this home runs in) never has a token.
+ * The same homes `doctor` reads (`doctor.ts`, `connections`).
+ */
+export function hostOrgHomes(home = runnerHome()): string[] {
+  const inside = (dir: string) => {
+    try {
+      return readdirSync(dir)
+        .sort()
+        .map((name) => path.join(dir, name));
+    } catch {
+      return [];
+    }
+  };
+  return [...new Set([...inside(path.join(home, "orgs")), ...inside(path.join(home, "host", "orgs"))])].filter((h) => {
+    try {
+      const stored = readStoredConfig(h);
+      return Boolean(stored?.token && stored.server);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Expands a leading `~` and makes the path absolute. */

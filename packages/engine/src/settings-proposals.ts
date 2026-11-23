@@ -4,7 +4,7 @@ import { accessInputOf, replaceableGrants, setAgentAccess } from "./access";
 import { moveAgentToGroup } from "./agent-groups";
 import { type Agent, archiveAgent, getAgent, unarchiveAgent, updateAgent, validateAgentFields } from "./agents";
 import { setAgentAppearance, validateAppearance } from "./appearance";
-import { audienceOf, setAgentAudience } from "./audience";
+import { agentEditorIds, agentManagerIds, audienceOf, editsAgent, managesAgent, setAgentAudience } from "./audience";
 import { normalizeBrainModel, setAgentBrain } from "./brain-settings";
 import { isComputerBrain } from "./brains/types";
 import { invalidateOrg } from "./cache";
@@ -14,7 +14,6 @@ import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishAgentsChanged } from "./events";
 import { setAgentComputerTarget } from "./machines";
 import { can, getMembership, requirePermission } from "./organizations";
-import { maySql } from "./permissions";
 import { reportsToRefusal, setReportsTo } from "./reporting";
 import { isRightHand } from "./right-hand";
 import { setAgentSkills } from "./skills";
@@ -29,7 +28,6 @@ const {
   channels,
   contextProposals,
   machineAccounts,
-  organizationMembers,
   skills,
 } = schema;
 
@@ -44,12 +42,13 @@ type Proposal = typeof contextProposals.$inferSelect;
 
 /**
  * Who decides a line (ADR 0137, amending 0092 §5): whoever may make that change on the agent's page. `admin`: who
- * manages agents (model, budget, owner, archive, delete, its skills); `admin_or_owner`: they or the agent's owner (who
- * talks to it, its channels and how it replies there); `account`: only the owner of the AI account, who must own the
- * agent too (a personal plan is assigned by its owner alone, ADR 0059 §3). One row per agent and group, so a row is
- * decided by one rule.
+ * manages that agent (`managesAgent`: model, budget, owner, archive, delete); `editor`: who edits it (`editsAgent`:
+ * its owner, who manages it, its "Quem pode editar"; its skills, ADR 0085 addendum of 2026-11-17); `admin_or_owner`:
+ * who manages it or its owner (who talks to it, its channels and how it replies there); `account`: only the owner of
+ * the AI account, who must own the agent too (a personal plan is assigned by its owner alone, ADR 0059 §3). One row
+ * per agent and group, so a row is decided by one rule.
  */
-export const SETTING_GROUP: Record<SettingField, "admin" | "admin_or_owner" | "account"> = {
+export const SETTING_GROUP: Record<SettingField, "admin" | "editor" | "admin_or_owner" | "account"> = {
   model: "admin",
   budget: "admin",
   owner: "admin",
@@ -59,13 +58,13 @@ export const SETTING_GROUP: Record<SettingField, "admin" | "admin_or_owner" | "a
   channel_add: "admin_or_owner",
   channel_remove: "admin_or_owner",
   reply_mode: "admin_or_owner",
-  // The page keeps skills for who manages agents, though `setAgentSkills` takes the owner too.
-  skill: "admin",
+  // Which skills it has is how it works: who edits it, as on its page.
+  skill: "editor",
   name: "admin",
   look: "admin_or_owner",
   // Who manages agents moves an agent between departments, as on the team screen (ADR 0148 addendum).
   group: "admin",
-  // Who manages agents sets a line, as on the page (ADR 0148 addendum).
+  // Who manages both the agent and its new supervisor sets a line, as on the page (ADR 0148 addendum, `maySettle`).
   reports_to: "admin",
   ai_account: "account",
 };
@@ -194,13 +193,14 @@ async function setValue(
 ) {
   const { db, pubsub } = deps;
   switch (line.field) {
-    // Whoever decides instructions, who needn't manage agents: the editor below would refuse its owner.
+    // Whoever decides instructions (`review_memory`), who needn't edit the agent, or who edits it (`editsAgent`, ADR
+    // 0085 addendum of 2026-11-17): written straight, as `updateAgent` would refuse the first.
     case "instructions": {
       const [membership, agent] = await Promise.all([
         requirePermission(db, actorId, orgId, "read"),
         getAgent(db, orgId, agentId),
       ]);
-      if (!can(membership, "review_memory") && !can(membership, "manage_agents") && agent?.ownerUserId !== actorId)
+      if (!can(membership, "review_memory") && !(agent && editsAgent(agent, actorId, membership)))
         throw new ForbiddenError("Only its owner or an admin can put its instructions back", "action.not_allowed");
       await db
         .update(agents)
@@ -286,7 +286,7 @@ async function setValue(
       if (!account) throw new NotFoundError("That AI account is gone", "account.not_found");
       const agent = await getAgent(db, orgId, agentId);
       if (agent?.machineId !== account.machineId)
-        await setAgentComputerTarget(deps, actorId, orgId, agentId, account.machineId);
+        await setAgentComputerTarget(deps, actorId, orgId, agentId, account.machineId, { wakeWaits: false });
       return void (await setAgentBrain(deps, actorId, orgId, agentId, { brain: to.brain, account: to.accountId }));
     }
     case "skill":
@@ -320,33 +320,59 @@ const accountOwner = async (db: Executor, orgId: string, lines: SettingLine[]) =
   return row?.createdBy ?? null;
 };
 
-/** Whether `actorId` may decide this row now (read at the click, never when it was proposed). */
+/**
+ * The agent a row's "Responde a" line puts its agent under (null: none). That changes the supervisor too, so only who
+ * manages it as well decides the row, as `setReportsTo` checks (ADR 0085 addendum of 2026-11-17).
+ */
+const supervisorOf = (p: Pick<Proposal, "settings">) => {
+  const to = (p.settings ?? []).find((l) => l.field === "reports_to")?.to;
+  return typeof to === "string" ? to : null;
+};
+
+/**
+ * Whether `actorId` may decide this row now (read at the click, never when it was proposed). Every line is about its
+ * one agent, so "admin" is who manages that agent (`managesAgent`, ADR 0085 addendum of 2026-11-17), never who merely
+ * holds the key; a line that puts it under another agent needs who manages that one too (`supervisorOf`).
+ */
 export async function maySettle(db: Database, actorId: string, p: Proposal) {
   const membership = await getMembership(db, actorId, p.orgId);
   if (!membership) return false;
   const group = settingsGroup(p);
-  const admin = can(membership, "manage_agents");
-  if (group === "admin") return admin;
   const agent = p.agentId ? await getAgent(db, p.orgId, p.agentId) : null;
-  if (group === "admin_or_owner") return admin || (!!agent && agent.ownerUserId === actorId);
-  return agent?.ownerUserId === actorId && (await accountOwner(db, p.orgId, p.settings ?? [])) === actorId;
+  if (!agent) return false;
+  const admin = managesAgent(agent, actorId, membership);
+  if (group === "admin") {
+    const under = admin ? supervisorOf(p) : null;
+    const supervisor = under ? await getAgent(db, p.orgId, under) : null;
+    // A supervisor gone since is left to `setReportsTo`, which refuses the line with its reason.
+    return admin && (!supervisor || managesAgent(supervisor, actorId, membership));
+  }
+  if (group === "editor") return editsAgent(agent, actorId, membership);
+  if (group === "admin_or_owner") return admin || agent.ownerUserId === actorId;
+  return agent.ownerUserId === actorId && (await accountOwner(db, p.orgId, p.settings ?? [])) === actorId;
 }
 
-/** Who the row goes to when the person who asked can't decide it ("Pedir a um admin"). */
+/**
+ * Who the row goes to when the person who asked can't decide it ("Pedir a um admin"), the people `maySettle` lets
+ * decide it: who manages its agent (`agentManagerIds`), its owner too when they may decide it, and for an `editor` row
+ * whoever edits the agent (`agentEditorIds`: the people its editors name too, as a change to its role is sent). A row
+ * that puts the agent under another goes only to who manages both (`supervisorOf`).
+ */
 export async function settingsDeciders(db: Database, p: Proposal): Promise<string[]> {
   const group = settingsGroup(p);
   if (group === "account") {
     const owner = await accountOwner(db, p.orgId, p.settings ?? []);
     return owner ? [owner] : [];
   }
-  const admins = await db
-    .select({ userId: organizationMembers.userId })
-    .from(organizationMembers)
-    .where(and(eq(organizationMembers.orgId, p.orgId), maySql(p.orgId, organizationMembers.userId, "manage_agents")));
-  const ids = new Set(admins.map((a) => a.userId));
-  if (group === "admin_or_owner" && p.agentId) {
-    const agent = await getAgent(db, p.orgId, p.agentId);
-    if (agent?.ownerUserId) ids.add(agent.ownerUserId);
+  const agent = p.agentId ? await getAgent(db, p.orgId, p.agentId) : null;
+  if (!agent) return [];
+  if (group === "editor") return agentEditorIds(db, p.orgId, agent.id);
+  const ids = new Set(await agentManagerIds(db, p.orgId, agent.id));
+  if (group === "admin_or_owner" && agent.ownerUserId) ids.add(agent.ownerUserId);
+  const under = group === "admin" ? supervisorOf(p) : null;
+  if (under && (await getAgent(db, p.orgId, under))) {
+    const theirs = new Set(await agentManagerIds(db, p.orgId, under));
+    return [...ids].filter((id) => theirs.has(id));
   }
   return [...ids];
 }

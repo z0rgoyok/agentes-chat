@@ -78,10 +78,10 @@ const DAY_MS = 86_400_000;
 
 /**
  * What a code emailed to a person's own address proves (ADR 0088 §2): deleting a workspace (`workspace:<id>`) or the
- * account, or a new address for it. One waits per person and purpose, in Better Auth's `verifications`, so a code proves
+ * account, resetting a workspace (`reset:<id>`), or a new address for it. One waits per person and purpose, in Better Auth's `verifications`, so a code proves
  * only its own purpose.
  */
-export type ProofPurpose = `workspace:${string}` | "account" | "email";
+export type ProofPurpose = `workspace:${string}` | `reset:${string}` | "account" | "email";
 
 /** Every purpose's rows start with `deletion-code:`, the first purpose's (`pruneDeletionCodes` clears them all). */
 const proofCodeId = (userId: string, purpose: ProofPurpose) => `deletion-code:${userId}:${purpose}`;

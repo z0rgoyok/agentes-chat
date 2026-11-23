@@ -104,7 +104,7 @@ import type { Spawn } from "./scope-gate";
  * checks them against a real CLI.
  */
 
-/** The first Codex whose app-server has `turn/steer` and the shapes below (the same as `CODEX_MIN_VERSION` today). */
+/** The first Codex whose app-server has `turn/steer` and the shapes below: older ones run their turns on `codex exec`. */
 export const CODEX_APP_MIN_VERSION = "0.163.0";
 export const CODEX_APP_IDLE_MS = 10 * 60_000;
 export const CODEX_APP_MAX_PROCESSES = 3;
@@ -1026,6 +1026,11 @@ export class CodexAppServers implements CodexAppRunner {
       client.close(0);
       return null;
     }
+    // The runner began to stop during the handshake: `close` has run, and nothing would close this process.
+    if (this.closed) {
+      client.close(0);
+      return null;
+    }
     const bridge: McpTaskInfo = {
       token,
       missionId: "",
@@ -1298,9 +1303,13 @@ export class CodexAppServers implements CodexAppRunner {
         if (turnId && turn.id !== turnId) return;
         flush();
         if (restart && turn.status !== "failed") {
-          // The next Codex turn starts with the urgent messages (and any that came while it stopped).
+          // The next Codex turn starts with the urgent messages (and any that came while it stopped). The answer of
+          // the one that ended is posted now when the server takes each answer as it comes, else it leads the last.
           const answer = mapper.nextTurn();
-          if (turn.status === "completed" && answer) held.push(answer);
+          if (turn.status === "completed" && answer) {
+            if (input.answers === "each") emit({ type: "answer", text: redact(answer) });
+            else held.push(answer);
+          }
           const batch = restart;
           restart = null;
           const clientId = (batch[0] as SteerMessage).uuid;

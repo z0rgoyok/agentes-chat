@@ -109,3 +109,45 @@ answers carry a code of their own now, `artifact.version_not_found` (was `not_fo
 - Narrowing a file, viewer and editor levels, and a notice to the people a file is shared with.
 - The download's own address, as §3 says.
 - Painéis, tasks and wiki pages keep their audiences (ADR 0135, 0151).
+
+## Amendment (2026-11-17): a file of the Drive itself lives with its maker (§1, §2)
+
+A file made in the Drive itself (no conversation: "Novo" in the Drive, an upload there) was always the whole
+workspace's, with nothing to choose. People expect Compartilhar to say who sees it there too, as it does for a
+conversation's file. So a Drive file now lives with its maker, the way a conversation's file lives in its
+conversation, and its sharing says who else sees it, with the same three modes:
+
+- `conversation`, shown as Só você (Só Ada to someone else who opens the dialog): its maker, and administrators, who
+  always see a list and every file of the Drive itself.
+- `people`: its maker, the people and roles chosen, and administrators.
+- `everyone`: the whole workspace, as before. Every Drive file made so far says so (migration
+  `0301_drive_files_shared.sql`), and a new one is made shared with everyone: nothing changes until someone chooses.
+
+**Who changes it**: its maker and administrators (`keepsDriveFile`); anyone else gets `artifact.sharing_forbidden`,
+including the people it was shared with. A public channel's file still has nothing to widen (`artifact.sharing_open`).
+This narrows only the Drive's own files, which never had a conversation to fall back to; a conversation's file still
+only widens.
+
+**Every path follows it**: `personCanRead` and `fileSeenSql` (with `driveKeeperSql`), the Drive's list and counts, the
+trash, a file's pill, search (a Drive file not shared with everyone takes its own id as its document's scope, so only
+those who read it find it, by `visibleFileScopes`), the file's own conversation (ADR 0199: who reads the file reads
+it, so a task or a page made there is limited to its maker, `audienceOfConversation`, `conversationOf`) and the
+notifications sent in it. An open live file hears a change of its sharing through the Drive's change event
+(`artifacts.changed`, which `setFileSharing` now publishes for every file) and reads its access again, closing for
+whoever no longer reads it.
+
+**Agents**: a Drive file not shared with everyone is out of an agent's own reach (`agentReaches`: what it lists and
+may change) unless it made it or its run is in the file's own conversation, where a person who reads the file
+mentions it (`admitFileAgents`). By id it reads one whose maker (or an administrator) is behind the run, or one shared
+by the wiki's rule (`runSharedSql`). `share_artifact` carries a copy into a conversation only when its maker asks,
+`fileReach` says who sees it, and a run's message carries only the Drive files shared with everyone (`filesOfRun`).
+
+**Copies and moves**: Duplicate and opening a Drive upload as a live file keep its sharing on the new file, whose maker
+is who made the copy, so it reaches nobody more. `shared_drive` (an agent moving a file out of its conversation)
+shares it with everyone. A limited task that takes its author's Drive file (ADR 0151) keeps a list it was shared with,
+and one shared with everyone becomes its conversation's alone.
+
+**Apps**: the web's dialog and the phone's sheet offer the three choices on a Drive file, the first one named Só você
+for its maker; the Drive lists a file not shared with everyone in its private section (`isPrivateArtifact`), and
+Copiar link of one only its maker sees opens the dialog (`onlyItsConversation`). The operator's access explanation
+says `owner` for a Drive file's maker and `workspace` only for one shared with everyone.

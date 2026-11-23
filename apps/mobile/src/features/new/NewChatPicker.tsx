@@ -5,7 +5,10 @@ import { ChatTargets } from "./ChatTargets";
 import { SheetHeader } from "./parts";
 import { useOpenDm } from "./useOpenDm";
 
-/** "Chat with…": an agent or a person; tapping opens the direct conversation. */
+/**
+ * "Chat with…": an agent or a person; tapping opens the direct conversation. The search waits for the person's tap
+ * (the sheet comes up with the keyboard down).
+ */
 export function NewChatPicker() {
   const { t } = useTranslation();
   const openDm = useOpenDm();
@@ -13,11 +16,19 @@ export function NewChatPicker() {
   return (
     <SheetScreen>
       <SheetHeader title={t("mobile.new.chat")} />
-      <SearchField value={q} onChangeText={setQ} placeholder={t("mobile.new.chatSearch")} autoCorrect={false} />
+      <SearchField
+        value={q}
+        onChangeText={setQ}
+        placeholder={t("mobile.new.chatSearch")}
+        accessibilityLabel={t("mobile.new.chatSearch")}
+        autoCorrect={false}
+        returnKeyType="search"
+      />
       <ChatTargets
         q={q}
         onAgent={(agentId) => void openDm({ agentId })}
         onPerson={(userId) => void openDm({ userId })}
+        onClear={() => setQ("")}
       />
     </SheetScreen>
   );

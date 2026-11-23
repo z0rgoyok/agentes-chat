@@ -23,6 +23,8 @@ import {
 
 /** The ids, in the order the pickers show them; the first is the icon the apps ship with. */
 export const APP_ICON_IDS = ["night", "moon", "sky", "peekNight", "peekSky"];
+/** The icon the phone ships with (packages/client's `PHONE_APP_ICON`); the web and desktop ship the first. */
+export const PHONE_APP_ICON_ID = "peekNight";
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 const by = (x, y) => BAYER[(x & 3) + (y & 3) * 4];

@@ -1,9 +1,10 @@
-import type {
-  ApiClient,
-  WikiImportNote,
-  WikiImportResult,
-  WikiImportSource,
-  WikiPageSummary,
+import {
+  type ApiClient,
+  newClientId,
+  type WikiImportNote,
+  type WikiImportResult,
+  type WikiImportSource,
+  type WikiPageSummary,
 } from "@agenteschat/client";
 import { readZip } from "@agenteschat/client/lib/zip";
 
@@ -521,7 +522,7 @@ export async function importVault(
     }
     return attachments;
   });
-  const importId = crypto.randomUUID();
+  const importId = newClientId();
   const sent = await sendVaultNotes(
     api,
     orgId,

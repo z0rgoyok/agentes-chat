@@ -22,6 +22,7 @@ import {
 } from "./agents";
 import type { AiStatusDeps } from "./ai-status";
 import { AGENT_LOOK, type AgentAppearance, setAgentAppearance, validateAppearance } from "./appearance";
+import { managesAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { setAgentBrain } from "./brain-settings";
 import { invalidateOrg } from "./cache";
@@ -640,8 +641,8 @@ export async function createTeam(deps: TeamDeps, userId: string, orgId: string, 
       }
       if (p.weekly) {
         const w = p.weekly;
-        // Who may manage the right hand's routines (its owner or `manage_routines`); else it is left out. Its
-        // savepoint keeps a refusal from aborting the rest.
+        // Who manages the right hand's routines (`managesRoutinesOf`); else it is left out. Its savepoint keeps a
+        // refusal from aborting the rest.
         const weekly = await raw
           .transaction(async (sp) =>
             createRoutine({ db: sp as unknown as Database, pubsub: events.pubsub }, userId, orgId, {
@@ -682,7 +683,9 @@ export async function createTeam(deps: TeamDeps, userId: string, orgId: string, 
     if (ai.kind === "none") noAi.push(agent.id);
     if (ai.kind !== "account") continue;
     try {
-      await setAgentComputerTarget({ db: deps.db, pubsub: deps.pubsub }, userId, orgId, agent.id, ai.machineId);
+      await setAgentComputerTarget({ db: deps.db, pubsub: deps.pubsub }, userId, orgId, agent.id, ai.machineId, {
+        wakeWaits: false,
+      });
       await setAgentBrain({ db: deps.db }, userId, orgId, agent.id, {
         brain: ai.brain,
         account: ai.accountId,
@@ -772,8 +775,8 @@ export async function denyTeam(deps: TeamDeps, userId: string, orgId: string, me
 }
 
 /**
- * "Desfazer" on the receipt, within a day, by whoever created it or who manages agents: its routines and skills go,
- * its agents and the channels it created are archived (they come back from Settings, as any archived ones).
+ * "Desfazer" on the receipt, within a day, by whoever created it or who manages each of its agents: its routines and
+ * skills go, its agents and the channels it created are archived (they come back from Settings, as any archived ones).
  */
 export async function undoTeam(deps: TeamDeps, userId: string, orgId: string, messageId: string) {
   const { message, card } = await teamMessage(deps.db, userId, orgId, messageId);
@@ -786,6 +789,16 @@ export async function undoTeam(deps: TeamDeps, userId: string, orgId: string, me
   if (card.state !== "created" || !made) throw decided();
   if (!card.decidedAt || Date.parse(card.decidedAt) + TEAM_UNDO_MS <= Date.now()) {
     throw new ConflictError("It is too late to undo this team", "team_proposal.undo_expired");
+  }
+  // Someone else's team: only who manages each of its agents (`managesAgent`, ADR 0085 addendum of 2026-11-17).
+  if (!mine && made.agentIds.length > 0) {
+    const rows = await deps.db
+      .select()
+      .from(agents)
+      .where(and(eq(agents.orgId, orgId), inArray(agents.id, made.agentIds)));
+    if (rows.some((a) => !managesAgent(a, userId, membership))) {
+      throw new ForbiddenError("Only who created the team or an admin undoes it");
+    }
   }
   const events = holdEvents(deps.pubsub);
   await deps.db.transaction(async (raw) => {

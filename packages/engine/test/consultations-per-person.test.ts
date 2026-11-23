@@ -108,7 +108,7 @@ describe("tell_agent", () => {
         .where(sql`${schema.messages.meta} ? 'agentNote'`);
 
     expect(await invoke(ctx, "tell_agent", { agent: "@infra", message: "Deploy finished on staging." })).toMatchObject({
-      output: { content: expect.stringContaining("Handed to @infra; it's on it, and the people here can see that.") },
+      output: { content: expect.stringContaining("Handed to @infra; it's on it") },
     });
     const again = await invoke(ctx, "tell_agent", { agent: "@infra", message: "deploy  finished on Staging!" });
     expect(again).toMatchObject({

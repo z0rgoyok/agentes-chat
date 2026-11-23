@@ -1,5 +1,6 @@
 import { and, eq, schema, sql } from "@agenteschat/db";
 import { getAgent } from "./agents";
+import { managesAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -21,7 +22,7 @@ import {
   requireMission,
   requireOpen,
 } from "./missions";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
 
 /**
  * "Configurações da missão" (ADR 0029): what the
@@ -32,12 +33,14 @@ import { can, requirePermission } from "./organizations";
  * and "Usar como padrão" for the agent's next missions.
  */
 
-/** Who may set an agent's defaults: an admin (`manage_agents`) or the agent's owner. */
+/**
+ * Who may set an agent's defaults: who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17) or its owner.
+ */
 async function mayManageAgent(deps: Pick<MissionDeps, "db">, userId: string, orgId: string, agentId: string) {
   const membership = await requirePermission(deps.db, userId, orgId, "read");
   const agent = await getAgent(deps.db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  return { agent, allowed: can(membership, "manage_agents") || agent.ownerUserId === userId };
+  return { agent, allowed: managesAgent(agent, userId, membership) || agent.ownerUserId === userId };
 }
 
 export interface MissionSettingsView {

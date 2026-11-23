@@ -42,7 +42,8 @@ describe("an internal id in a text on the phone", () => {
     expect(pill).toContain(
       'if (ref.kind === "file") return <FilePillText orgId={orgId} id={ref.id} title={ref.title} />;',
     );
-    expect(source("FileRefText.tsx")).toContain('router.push({ pathname: "/file/[id]", params: { id, ...(version ?');
+    // The way every file opens: a picture's name straight in the picture viewer, anything else in the file screen.
+    expect(source("FileRefText.tsx")).toContain("openFile({ id, title, ...(version ? { version } : {}) });");
     expect(pill).toMatch(/router\.push\(`\/issues\/\$\{ref\.number\}`\)/);
     expect(pill).toContain("<MessageRefText");
     expect(pill).toContain("if (query.isPending) {");

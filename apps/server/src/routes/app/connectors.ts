@@ -2,13 +2,15 @@ import { connectorOAuthApps } from "@agenteschat/config";
 import {
   abandonComposioOAuth,
   acceptCustomSuggestion,
+  agentScopesFor,
   appOAuthRedirect,
   BUILTIN_SCOPES,
   type ConnectorDeps,
   completeOAuth,
   composioConnectorsOf,
   composioUsageOf,
-  connectionView,
+  connectionFor,
+  connectionViewFor,
   connectOverHttp,
   connectorGrantValidator,
   connectorListing,
@@ -16,32 +18,33 @@ import {
   desktopOAuthRedirect,
   desktopReturnPath,
   GITHUB_APP_AUTH,
-  getAgent,
   isAgentesCloud,
   isAppReturn,
   isCustom,
   isDesktopReturn,
-  listAgentScopes,
   listConnections,
   listGitHubAppInstallations,
+  moveConnectionToTeam,
   NotFoundError,
   peekOAuthState,
+  personalAgents,
   presetForServer,
   renameConnection,
-  requirePermission,
   revokeAtProvider,
   revokeConnection,
   setAgentScopes,
   startOAuth,
   syncCustomTools,
+  takeConnectionOffAgent,
   uninstallInstallation,
+  ValidationError,
   withComposio,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
 import { sessionUser } from "../../auth";
 import { isExpectedError } from "../../http/errors";
 import { githubAccess } from "../github-app";
-import { Outcome } from "./connectors-custom";
+import { OthersQuery, Outcome, Personal } from "./connectors-custom";
 import {
   type AppDeps,
   body,
@@ -88,6 +91,13 @@ const Connection = z
     status: z.enum(["active", "needs_reconnect"]).openapi({
       description:
         "`needs_reconnect`: its sign-in stopped working (a refresh refused, a 401): no tools until reconnected.",
+    }),
+    ownerUserId: z.string().nullable().openapi({
+      description:
+        "A personal connection's person (ADR 0099 addendum): only they see its details and give it to agents, and its tools serve runs that person is behind. Someone else's comes with its service, name and person only (no address, account or sign-in), to who manages connectors. Null: the team's.",
+    }),
+    agentIds: z.array(z.uuid()).optional().openapi({
+      description: "A personal connection's agents (a grant of their own on it), in the list only.",
     }),
   })
   .openapi("ConnectorConnection");
@@ -212,12 +222,18 @@ export function connectorRoutes(deps: AppDeps) {
       tags,
       security,
       summary: "Connected MCP servers (no secrets)",
-      request: { params: OrgParams },
+      description:
+        "The team's connections and the person's own personal ones. With `others=1`, for who manages connectors, also everyone else's personal ones, with only their service, name and person.",
+      request: { params: OrgParams, query: OthersQuery },
       responses: { 200: json(z.object({ connections: z.array(Connection) })), ...errors },
     }),
     async (c) => {
-      const rows = await listConnections(db, c.get("user").id, c.req.valid("param").orgId);
-      return c.json({ connections: rows.map(connectionView) }, 200);
+      const userId = c.get("user").id;
+      const { orgId } = c.req.valid("param");
+      const others = c.req.valid("query").others === "1";
+      const rows = await listConnections(db, userId, orgId, { others });
+      const agents = await personalAgents(db, orgId, rows);
+      return c.json({ connections: rows.map((r) => connectionViewFor(r, userId, agents)) }, 200);
     },
   );
 
@@ -227,9 +243,9 @@ export function connectorRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/connectors",
       tags,
       security,
-      summary: "Connect with an API key (admins)",
+      summary: "Connect with an API key (the team's by admins, a personal one by any member)",
       description:
-        "Replaces an existing connection of the same connector; agents keep their grants. A first connection is every agent's, whole (`connector:*`); sensitive tools still ask for approval.",
+        "Replaces an existing connection of the same connector and owner (the team, or the person with `personal`); agents keep their grants. A first connection is every agent's, whole (`connector:*`), a personal one its person's own agents'; sensitive tools still ask for approval.",
       request: {
         params: OrgParams,
         body: body(
@@ -237,6 +253,7 @@ export function connectorRoutes(deps: AppDeps) {
             connector: z.string(),
             apiKey: z.string().min(8).max(2000).optional(),
             label: z.string().max(80).optional(),
+            personal: Personal,
           }),
         ),
       },
@@ -249,7 +266,7 @@ export function connectorRoutes(deps: AppDeps) {
         c.req.valid("param").orgId,
         c.req.valid("json"),
       );
-      return c.json(connectionView(row), 201);
+      return c.json(connectionViewFor(row, c.get("user").id), 201);
     },
   );
 
@@ -259,19 +276,23 @@ export function connectorRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/connectors/{connectionId}",
       tags,
       security,
-      summary: "Rename a connection, any kind (admins)",
+      summary: "Rename a connection, any kind, or move a personal one to the team",
       description:
-        "1 to 80 characters, and no other live connection of the workspace has it (409 `connector.label_taken`). Its tools keep their names, so grants and denials of single tools keep applying.",
+        "`label`: 1 to 80 characters, and no other live connection of the workspace has it (409 `connector.label_taken`). Its tools keep their names, so grants and denials of single tools keep applying. The team's by who manages connectors, a personal one by its person. `personal: false` moves the person's own connection to the team, when they also manage connectors (409 when the team already has that catalog connector).",
       request: {
         params: OrgParams.extend({ connectionId: z.uuid() }),
-        body: body(z.object({ label: z.string().max(200) })),
+        body: body(z.object({ label: z.string().max(200).optional(), personal: z.literal(false).optional() })),
       },
       responses: { 200: json(Connection), ...errors },
     }),
     async (c) => {
       const { orgId, connectionId } = c.req.valid("param");
-      const row = await renameConnection(db, c.get("user").id, orgId, connectionId, c.req.valid("json").label);
-      return c.json(connectionView(row), 200);
+      const userId = c.get("user").id;
+      const { label, personal } = c.req.valid("json");
+      let row = label === undefined ? null : await renameConnection(db, userId, orgId, connectionId, label);
+      if (personal === false) row = await moveConnectionToTeam(db, userId, orgId, connectionId);
+      if (!row) throw new ValidationError("Nothing to change: send a label, or personal: false");
+      return c.json(connectionViewFor(row, userId), 200);
     },
   );
 
@@ -283,15 +304,16 @@ export function connectorRoutes(deps: AppDeps) {
       security,
       summary: "Disconnect (agents lose its scopes)",
       description:
-        "GitHub (ADR 0156): an account's connection in a workspace with GitHub App installations stays as GitHub through the app alone (`authType: github_app`, the same id, grants kept); disconnecting that removes the installations too, and uninstalls the app from their GitHub accounts.",
+        "The team's by who manages connectors; a personal one by its person, or by who manages connectors. GitHub (ADR 0156): an account's connection in a workspace with GitHub App installations stays as GitHub through the app alone (`authType: github_app`, the same id, grants kept); disconnecting that removes the installations too, and uninstalls the app from their GitHub accounts.",
       request: { params: OrgParams.extend({ connectionId: z.uuid() }) },
       responses: { 204: noContent[204], ...errors },
     }),
     async (c) => {
       const { orgId, connectionId } = c.req.valid("param");
       const userId = c.get("user").id;
-      await requirePermission(db, userId, orgId, "manage_connectors");
-      const rows = await listConnections(db, userId, orgId);
+      // Who may remove it, before anything is undone at GitHub.
+      await connectionFor(db, userId, orgId, connectionId, "remove");
+      const rows = await listConnections(db, userId, orgId, { others: true });
       const github = githubAccess(deps);
       const githubApp = github.app;
       if (githubApp && rows.find((r) => r.id === connectionId)?.authType === GITHUB_APP_AUTH) {
@@ -307,15 +329,36 @@ export function connectorRoutes(deps: AppDeps) {
 
   app.openapi(
     createRoute({
+      method: "delete",
+      path: "/organizations/{orgId}/connectors/{connectionId}/agents/{agentId}",
+      tags,
+      security,
+      summary: "Take a connection off one agent",
+      description:
+        "Its person, who manages connectors or agents, or the agent's owner. Every grant the agent has on it goes; the connection stays. Someone else's personal connection reads as not found to anyone else.",
+      request: { params: OrgParams.extend({ connectionId: z.uuid(), agentId: z.uuid() }) },
+      responses: { 204: noContent[204], ...errors },
+    }),
+    async (c) => {
+      const { orgId, connectionId, agentId } = c.req.valid("param");
+      await takeConnectionOffAgent(db, c.get("user").id, orgId, connectionId, agentId);
+      return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
       method: "post",
       path: "/organizations/{orgId}/connectors/{connector}/oauth/start",
       tags,
       security,
-      summary: "Start connecting over OAuth (admins); open the returned URL",
+      summary:
+        "Start connecting over OAuth (the team's by admins, a personal one by any member); open the returned URL",
       request: {
         params: OrgParams.extend({ connector: z.string() }),
         body: body(
           z.object({
+            personal: Personal,
             returnTo: z.string().max(500).optional().openapi({
               description:
                 'Path to land on afterwards; "app:connectors" from the phone app, "desktop:" + the path from the desktop app\'s window (the callback hands the code back to the app, which finishes with `oauth/complete`).',
@@ -508,9 +551,7 @@ export function connectorRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      await requirePermission(db, c.get("user").id, orgId, "read");
-      if (!(await getAgent(db, orgId, agentId))) throw new NotFoundError("Agent not found");
-      return c.json({ scopes: await listAgentScopes(db, orgId, agentId) }, 200);
+      return c.json({ scopes: await agentScopesFor(db, c.get("user").id, orgId, agentId) }, 200);
     },
   );
 
@@ -528,7 +569,7 @@ export function connectorRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
       await setAgentScopes(db, c.get("user").id, orgId, agentId, c.req.valid("json").scopes, connectorGrantValidator);
-      return c.json({ scopes: await listAgentScopes(db, orgId, agentId) }, 200);
+      return c.json({ scopes: await agentScopesFor(db, c.get("user").id, orgId, agentId) }, 200);
     },
   );
 

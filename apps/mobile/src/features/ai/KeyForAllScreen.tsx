@@ -7,19 +7,22 @@ import { providerLabel } from "@agenteschat/client/lib/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
-import { Button, GroupedHeader, GroupedList, GroupedRow, ProviderLogo, Text, useToast } from "@/ui";
+import { Button, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, SkeletonList, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
+import { Gap } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory } from "../shared/hooks";
-import { PushedHeader } from "../shared/parts";
+import { BottomBar, PushedHeader } from "../shared/parts";
 import { Note } from "./parts";
 
 /*
  * "Usar em todos os agentes" on the phone, the web's dialog on a coding plan key's row as a screen of its own: the
- * key's models in runs by what the key did with each (`keyModelGroups`), the one picked checked, then every agent that
- * may take it (the server's preview). "Usar" saves it like "Usar em outros agentes" (`applySetup`).
+ * key's models in runs by what the key did with each (`keyModelGroups`), each run under its header (the untested ones
+ * too: this screen is the picker, nothing opens in place), the one picked checked, then how many agents take it (the
+ * server's preview). "Usar", pinned under the list, saves it like "Usar em outros agentes" (`applySetup`).
  */
 
 /** Opens "Usar em todos os agentes" for a coding plan key account, on `model` when the key may run it. */
@@ -50,7 +53,6 @@ export function KeyForAllScreen({
   const plan = planOf(account?.provider);
   const groups = plan ? keyModelGroups(plan, account?.usage) : null;
   const [picked, setPicked] = useState<string | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const usable = groups ? [...groups.works, ...groups.untested] : [];
   const model = picked ?? (groups ? keyModelFirst(groups, preferred) : "");
@@ -82,9 +84,13 @@ export function KeyForAllScreen({
     try {
       const results = await api.agents.applySetup(orgId, { setup, agentIds: can });
       const { done, missed } = setupOutcome(results, can.length);
-      if (done > 0)
-        toast({ title: t("aiAccounts.page.useAllDone", { count: done, model: chosen.label }), icon: "check" });
-      if (missed > 0) toast({ title: t("aiAccounts.page.useAllMissed", { count: missed }), icon: "x" });
+      // One toast for the whole save, never two in a row: what changed, and what didn't under it.
+      const [title, ...rest] = [
+        done > 0 ? t("aiAccounts.page.useAllDone", { count: done, model: chosen.label }) : null,
+        missed > 0 ? t("aiAccounts.page.useAllMissed", { count: missed }) : null,
+      ].filter((line) => line !== null);
+      if (title)
+        toast({ title, ...(rest.length > 0 ? { subtitle: rest.join(" ") } : {}), icon: done > 0 ? "check" : "x" });
       router.back();
     } catch {
       toast({ title: t("agentPage.work.failed"), icon: "x" });
@@ -96,31 +102,31 @@ export function KeyForAllScreen({
   };
   return (
     <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader title={t("aiAccounts.page.useAll")} solid={false} grouped />
+      <PushedHeader title={t("aiAccounts.page.useAll")} subtitle={plan?.label} solid={false} grouped />
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.in}>
         {ai.isPending ? (
-          <ActivityIndicator color={c.muted} style={styles.loading} />
+          <SkeletonList rows={4} />
         ) : !account || !plan || !groups ? (
-          <Note icon="x">{t("common.loadFailed")}</Note>
+          <LoadFailed onRetry={() => void ai.refetch()} />
         ) : (
           <>
-            <View style={styles.lead}>
-              <ProviderLogo id={account.provider ?? ""} size="tile" />
-              <View style={styles.leadText}>
-                <Text variant="label">{t("aiAccounts.page.useAllTitle", { plan: plan.label })}</Text>
-                <Text variant="footnote" tone="muted">
-                  {t("aiAccounts.page.useAllSub")}
-                </Text>
-              </View>
-            </View>
+            <GroupedFooter>{t("aiAccounts.page.useAllSub")}</GroupedFooter>
             {groups.works.length > 0 ? (
-              <View style={styles.group}>
+              <>
                 <GroupedHeader>{t("aiAccounts.page.useAllWorks")}</GroupedHeader>
                 <GroupedList>{groups.works.map((m) => row(m, t("aiAccounts.page.useAllAnswered")))}</GroupedList>
-              </View>
+              </>
+            ) : null}
+            {groups.untested.length > 0 ? (
+              <>
+                <GroupedHeader>{t("aiAccounts.page.useAllUntested", { count: groups.untested.length })}</GroupedHeader>
+                <GroupedList>
+                  {groups.untested.map((m) => row(m, m.maker ? providerLabel(m.maker) : maker))}
+                </GroupedList>
+              </>
             ) : null}
             {groups.refused.length > 0 ? (
-              <View style={styles.group}>
+              <>
                 <GroupedHeader>{t("aiAccounts.page.useAllRefused")}</GroupedHeader>
                 <GroupedList>
                   {groups.refused.map((m) =>
@@ -132,59 +138,43 @@ export function KeyForAllScreen({
                     ),
                   )}
                 </GroupedList>
-              </View>
-            ) : null}
-            {groups.untested.length > 0 ? (
-              <View style={styles.group}>
-                <GroupedList>
-                  <GroupedRow
-                    label={t("aiAccounts.page.useAllUntested", { count: groups.untested.length })}
-                    chevron
-                    onPress={() => setMoreOpen((o) => !o)}
-                  />
-                </GroupedList>
-                {moreOpen || groups.works.length === 0 || groups.untested.some((m) => m.value === model) ? (
-                  <View style={styles.gap}>
-                    <GroupedList>
-                      {groups.untested.map((m) => row(m, m.maker ? providerLabel(m.maker) : maker))}
-                    </GroupedList>
-                  </View>
-                ) : null}
-              </View>
+              </>
             ) : null}
             {chosen?.textOnly ? (
-              <Note icon="info">{t("aiAccounts.page.useAllTextOnly", { model: chosen.label })}</Note>
+              <Note icon="info" inset>
+                {t("aiAccounts.page.useAllTextOnly", { model: chosen.label })}
+              </Note>
             ) : null}
-            <View style={styles.group}>
-              <GroupedList>
-                <GroupedRow
-                  icon="members"
-                  label={t("aiAccounts.page.useAllAgents")}
-                  sub={
-                    preview.isPending
-                      ? undefined
-                      : can.length === 0
-                        ? t("aiAccounts.page.useAllNone")
-                        : t("aiAccounts.page.useAllAgentsLine", { count: can.length })
-                  }
-                  subLines={2}
-                  checked={can.length > 0}
-                  disabled
-                />
-              </GroupedList>
-            </View>
+            {/* Whom it goes to: every agent that may take it, said, never a choice to make here. */}
+            <Gap />
+            <GroupedList>
+              <GroupedRow
+                icon="members"
+                label={t("aiAccounts.page.useAllAgents")}
+                {...(preview.isPending
+                  ? {}
+                  : {
+                      sub:
+                        can.length === 0
+                          ? t("aiAccounts.page.useAllNone")
+                          : t("aiAccounts.page.useAllAgentsLine", { count: can.length }),
+                    })}
+                subLines={2}
+              />
+            </GroupedList>
           </>
         )}
       </ScrollView>
-      <View style={[styles.footer, { borderTopColor: c.line, paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <BottomBar bottom={insets.bottom}>
         <Button
           variant="primary"
           wide
           label={chosen ? t("aiAccounts.page.useAllGo", { count: can.length }) : t("aiAccounts.page.useAllPick")}
-          disabled={busy || !chosen || can.length === 0}
+          loading={busy}
+          disabled={!chosen || can.length === 0}
           onPress={() => void use()}
         />
-      </View>
+      </BottomBar>
     </View>
   );
 }
@@ -192,10 +182,4 @@ export function KeyForAllScreen({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   in: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
-  loading: { marginTop: 16 },
-  lead: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 4, paddingBottom: 16 },
-  leadText: { flex: 1, gap: 2 },
-  group: { marginBottom: 20 },
-  gap: { marginTop: 8 },
-  footer: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
 });

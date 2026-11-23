@@ -440,6 +440,32 @@ export function userServiceStatus(d: Pick<ServiceDefinition, "unit" | "label">, 
   return `systemd user unit ${file} (${active})`;
 }
 
+/** Whether systemd keeps `user`'s services running after they log out (loginctl's Linger); null: it can't say. */
+export function lingerOn(user: string, run: RunCommand = runSync): boolean | null {
+  const r = run("loginctl", ["show-user", user, "--property=Linger"]);
+  const value = r.code === 0 ? /^Linger=(yes|no)$/m.exec(r.output)?.[1] : undefined;
+  return value === undefined ? null : value === "yes";
+}
+
+/**
+ * Turns linger on for `user` (most systems let people do it for themselves), so a user unit outlives their logout.
+ * True when it is on.
+ */
+export function keepAfterLogout(user: string, run: RunCommand = runSync): boolean {
+  if (lingerOn(user, run)) return true;
+  run("loginctl", ["enable-linger", user]);
+  return lingerOn(user, run) === true;
+}
+
+/** With the runner installed as this user's systemd unit: whether it outlives their logout. Null otherwise. */
+export function userUnitLinger(
+  o: { platform?: NodeJS.Platform; home?: string; user?: string } = {},
+  run: RunCommand = runSync,
+): boolean | null {
+  if ((o.platform ?? process.platform) !== "linux" || !existsSync(systemdUnitPath(o.home))) return null;
+  return lingerOn(o.user ?? os.userInfo().username, run);
+}
+
 /** Installs and starts the service. Returns the process exit code. */
 export function installService(io: ServiceIo): number {
   const run = io.run ?? runSync;
@@ -454,7 +480,9 @@ export function installService(io: ServiceIo): number {
     if (!startUserUnit(SERVICE_NAME, systemdUnit(launch, io.args), { print, run })) return 1;
     print(`Installed ${systemdUnitPath()} and started it.`);
     print(`Logs: journalctl --user -u ${SERVICE_NAME} -f`);
-    print(`To keep it running after you log out: loginctl enable-linger ${os.userInfo().username}`);
+    const user = os.userInfo().username;
+    if (keepAfterLogout(user, run)) print(`Linger is on for ${user}: it keeps running after you log out.`);
+    else print(`It stops when you log out. To keep it running, run as root: loginctl enable-linger ${user}`);
     return 0;
   }
   if (process.platform === "darwin") {

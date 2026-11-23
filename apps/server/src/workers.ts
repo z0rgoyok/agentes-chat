@@ -6,6 +6,7 @@ import {
   type ContextDeps,
   claimStuckPhoneSetups,
   clearOldOutboxPayloads,
+  consolidateRunAt,
   createOutboxPump,
   type DesktopControl,
   enqueue,
@@ -17,6 +18,7 @@ import {
   enqueueRightHandChecks,
   enqueueSkillUpdates,
   enqueueVaultSyncs,
+  enqueueWaitingResets,
   enqueueWaitlistContacts,
   expireAgentProposalAsks,
   expireApprovals,
@@ -39,12 +41,14 @@ import {
   type OutboxJob,
   pollMailWatches,
   postAutonomyDigests,
+  pruneConfidential,
   pruneDeletionCodes,
   pruneEmailChanges,
   pruneJoinRequests,
   pruneMessageClientIds,
   pruneOperatorEvents,
   pruneRoutineHookCalls,
+  pruneSurfaceRows,
   purgeApps,
   purgeDeletedArtifacts,
   purgeDeletedWikiPages,
@@ -60,6 +64,7 @@ import {
   sweepEndedInboxes,
   sweepExpiredVoice,
   sweepFeedbackFiles,
+  sweepSupportRequests,
   sweepWidgetDrafts,
   type VoiceDeps,
   wakeSnoozedNotifications,
@@ -178,6 +183,10 @@ export const WORKER_INTERVALS_MS = {
   /** Wiki pages in the trash past 30 days are removed with their history. */
   wikiPurge: 6 * 3600_000,
   voiceExpiry: 24 * 3600_000,
+  /** Support requests past 90 days lose their words, past a year their row. */
+  supportRequests: 24 * 3600_000,
+  /** Confidential threads past their time lose their words (ADR 0190). */
+  confidentialPrune: 24 * 3600_000,
   /** How often watched IMAP folders are looked at (each is checked every `MAIL_POLL_SECONDS`). */
   mailPoll: 30_000,
   /** Composio accounts' state: mailboxes (expired → "Reconnect") and connectors marked to reconnect (working again → active). */
@@ -323,6 +332,8 @@ export function startWorkers(deps: WorkerDeps) {
     // Old send ids (idempotent resends) are no longer needed.
     const pruned = await pruneMessageClientIds(db);
     if (pruned > 0) log.info("pruned message client ids", { pruned });
+    const surfaceRows = await pruneSurfaceRows(db);
+    if (surfaceRows > 0) log.info("pruned surface rows", { pruned: surfaceRows });
     const events = await pruneOperatorEvents(db);
     if (events > 0) log.info("pruned operator events", { pruned: events });
     const cleared = await clearOldOutboxPayloads(db);
@@ -339,8 +350,9 @@ export function startWorkers(deps: WorkerDeps) {
     await pruneEmailChanges(db);
     const accounts = await enqueueOverdueAccountDeletions(db);
     const due = await enqueueOverdueDeletions(db);
-    if (due + accounts > 0) {
-      log.info("workspace deletions due", { due, accounts });
+    const resets = await enqueueWaitingResets(db);
+    if (due + accounts + resets > 0) {
+      log.info("workspace deletions due", { due, accounts, resets });
       void ticks.get("outbox")?.();
     }
   });
@@ -433,6 +445,16 @@ export function startWorkers(deps: WorkerDeps) {
     });
   }
 
+  every("supportRequests", WORKER_INTERVALS_MS.supportRequests, async () => {
+    const { blanked, deleted } = await sweepSupportRequests(db);
+    if (blanked + deleted > 0) log.info("old support requests swept", { blanked, deleted });
+  });
+
+  every("confidentialPrune", WORKER_INTERVALS_MS.confidentialPrune, async () => {
+    const pruned = await pruneConfidential({ db, pubsub: deps.pubsub, blobs: voice?.blobs });
+    if (pruned.sealed + pruned.messages + pruned.runs > 0) log.info("confidential threads pruned", pruned);
+  });
+
   every("notifications", WORKER_INTERVALS_MS.notifications, async () => {
     const woke = await wakeSnoozedNotifications({ db, pubsub: deps.pubsub });
     if (woke > 0) log.info("snoozed notifications back", { woke });
@@ -485,15 +507,18 @@ export function startWorkers(deps: WorkerDeps) {
       const queued = await enqueueIdleReflections(context);
       if (queued > 0) log.info("idle threads queued for reflection", { queued });
     });
-    // One consolidation job per organization per day (dedupe key = org + date: replicas don't double it).
+    // One consolidation job per organization per day (dedupe key = org + date: replicas don't double it), spread
+    // over hours: they share the long lane with agent runs.
     every("consolidation", WORKER_INTERVALS_MS.consolidation, async () => {
-      const day = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const day = now.toISOString().slice(0, 10);
       for (const org of await db.select({ id: schema.organizations.id }).from(schema.organizations)) {
         await enqueue(db, {
           orgId: org.id,
           kind: "context.consolidate",
           payload: {},
           dedupeKey: `context.consolidate:${org.id}:${day}`,
+          runAt: consolidateRunAt(org.id, now),
         });
       }
     });

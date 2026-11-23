@@ -7,41 +7,44 @@ import {
 } from "@agenteschat/client";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionSheetIOS, Alert, Platform } from "react-native";
-import { type IconName, useToast } from "@/ui";
+import { Alert } from "react-native";
+import { type HeaderAction, type HeaderMenuItem, type SFSymbolName, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
+import { chooseAction } from "../settings/parts";
 import { useOrgId } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
-import { type ActionItem, ActionList, goBack, successHaptic } from "../shared/parts";
-import { useSheet } from "../shared/SheetHost";
+import { goBack, successHaptic } from "../shared/parts";
 import { type BoardMenuKey, boardMenuKeys, HOME } from "./logic";
 
-interface MenuItem {
-  key: BoardMenuKey;
-  icon: IconName;
-  label: string;
-  danger?: boolean;
-  run: () => void;
-}
+/** A board menu's SF Symbols (iOS), beside each choice's line icon (Android). */
+const SF: Record<BoardMenuKey, SFSymbolName> = {
+  home: "house",
+  unhome: "house.slash",
+  organize: "square.grid.2x2",
+  share: "person.2",
+  edit: "pencil",
+  pin: "pin",
+  unpin: "pin.slash",
+  delete: "trash",
+};
 
 /**
  * A board's "…" (ADR 0135): Use on Home or Remove from Home (§18), Organize, Share, Rename, Pin to the top or Unpin,
- * and Delete (with a confirmation), only what the viewer may do. As the routines' menu: the system's action sheet on
- * iOS, the app's own list in a sheet on Android (the screen hosts it: `SheetHostProvider`). Called before the board
- * loads: it offers nothing until then.
+ * and Delete (with the system's confirmation), only what the viewer may do. On iOS the system's own menu opens from
+ * the bar button (`PushedHeader actions`); Android lists the same choices in the app's sheet (`chooseAction`). Null
+ * until the board loads, and with nothing to offer.
  */
-export function useBoardMenu(board: Dashboard | undefined) {
+export function useBoardMenu(board: Dashboard | undefined): HeaderAction | null {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const toast = useToast();
   const failed = useFailed();
-  const sheet = useSheet();
   const update = useUpdateDashboard(orgId);
   const remove = useDeleteDashboard(orgId);
   const list = useDashboards(orgId);
   const setHome = useSetHomeDashboard(orgId);
-  if (!board) return { any: false, open: () => {}, label: t("widgets.menu.label") };
+  if (!board) return null;
   const home = board.kind === "home";
   const chosen = list.data?.homeDashboardId ?? null;
   const onHome = home ? !chosen : chosen === board.id;
@@ -86,49 +89,38 @@ export function useBoardMenu(board: Dashboard | undefined) {
         },
       ],
     );
-  const all: Record<BoardMenuKey, Omit<MenuItem, "key">> = {
-    home: { icon: "home", label: t("dashboards.useOnHome"), run: () => showOnHome(home ? null : board.id) },
-    unhome: { icon: "home", label: t("dashboards.stopOnHome"), run: () => showOnHome(null) },
+  const all: Record<BoardMenuKey, Omit<HeaderMenuItem, "sf">> = {
+    home: { icon: "home", label: t("dashboards.useOnHome"), onPress: () => showOnHome(home ? null : board.id) },
+    unhome: { icon: "home", label: t("dashboards.stopOnHome"), onPress: () => showOnHome(null) },
     organize: {
       icon: "list",
       label: t("widgets.organize.start"),
-      run: () => router.push(`/board-organize/${home ? HOME : board.id}`),
+      onPress: () => router.push(`/board-organize/${home ? HOME : board.id}`),
     },
-    share: { icon: "share", label: t("dashboards.share.action"), run: () => router.push(`/board-share/${board.id}`) },
-    edit: { icon: "pen", label: t("dashboards.rename"), run: () => router.push(`/board-edit/${board.id}`) },
-    pin: { icon: "pin", label: t("dashboards.pinTop"), run: () => setPinned(true) },
-    unpin: { icon: "pin", label: t("dashboards.unpin"), run: () => setPinned(false) },
-    delete: { icon: "trash", label: t("dashboards.delete.action"), danger: true, run: confirmDelete },
+    share: {
+      icon: "share",
+      label: t("dashboards.share.action"),
+      onPress: () => router.push(`/board-share/${board.id}`),
+    },
+    edit: { icon: "pen", label: t("dashboards.rename"), onPress: () => router.push(`/board-edit/${board.id}`) },
+    pin: { icon: "pin", label: t("dashboards.pinTop"), onPress: () => setPinned(true) },
+    unpin: { icon: "pin", label: t("dashboards.unpin"), onPress: () => setPinned(false) },
+    delete: { icon: "trash", label: t("dashboards.delete.action"), destructive: true, onPress: confirmDelete },
   };
-  const items: MenuItem[] = boardMenuKeys(board, onHome).map((key) => ({ key, ...all[key] }));
-  const open = () => {
-    if (items.length === 0) return;
-    if (Platform.OS === "ios") {
-      const danger = items.findIndex((i) => i.danger);
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title,
-          options: [...items.map((i) => i.label), t("mobile.common.cancel")],
-          cancelButtonIndex: items.length,
-          ...(danger >= 0 ? { destructiveButtonIndex: danger } : {}),
-        },
-        (i) => items[i]?.run(),
-      );
-      return;
-    }
-    const list: ActionItem[] = items.map((i) => ({
-      key: i.key,
-      icon: i.icon,
-      label: i.label,
-      ...(i.danger ? { danger: true } : {}),
-      onPress: () => {
-        sheet.close();
-        i.run();
-      },
-    }));
-    sheet.open(<ActionList items={list} />);
+  const items: HeaderMenuItem[] = boardMenuKeys(board, onHome).map((key) => ({ ...all[key], sf: SF[key] }));
+  if (items.length === 0) return null;
+  return {
+    icon: "more",
+    sf: "ellipsis",
+    label: t("widgets.menu.label"),
+    menu: items,
+    onPress: () =>
+      chooseAction(
+        title,
+        items.map((i) => ({ label: i.label, icon: i.icon, destructive: i.destructive, onPress: i.onPress })),
+        t("mobile.common.cancel"),
+      ),
   };
-  return { any: items.length > 0, open, label: t("widgets.menu.label") };
 }
 
 /** One choice of a pick menu: its word, a second line (an agent's role), and what goes before it on Android. */

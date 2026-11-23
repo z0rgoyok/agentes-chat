@@ -1,7 +1,7 @@
 import type { AgentGroup, Team, TeamAgent } from "@agenteschat/client";
 import { useApprovals, useRoles } from "@agenteschat/client";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
-import { can } from "@agenteschat/client/lib/permissions";
+import { managesAgent } from "@agenteschat/client/lib/audience";
 import { filterTeam, sortTeam, type TeamFilter, type TeamSort } from "@agenteschat/client/lib/team-views";
 import {
   Button,
@@ -61,7 +61,9 @@ function AgentsTable({ agents, groups }: { agents: TeamAgent[]; groups: AgentGro
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const look = useTeamLookups(groups);
-  const manages = can(org, "manage_agents");
+  // A row's menu moves its agent between setores and sets who it reports to: only for who manages that agent (ADR 0085
+  // addendum of 2026-11-17), so the column is there while I manage one of them.
+  const manages = agents.some((a) => managesAgent(a));
   const approvals = useApprovals(org.id).data ?? [];
   const waiting = new Set(approvals.filter((a) => a.status === "pending" && a.canDecide).map((a) => a.agentId));
   const [q, setQ] = useState("");
@@ -194,7 +196,7 @@ function AgentsTable({ agents, groups }: { agents: TeamAgent[]; groups: AgentGro
         </td>
         {manages && (
           <td className="team-table__menu">
-            {directory && (
+            {directory && managesAgent(a) && (
               <AgentGroupMenu
                 agent={directory}
                 groups={groups}

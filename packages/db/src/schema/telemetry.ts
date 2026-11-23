@@ -27,6 +27,11 @@ export const instanceTelemetry = pgTable(
      * the next oldest never inherits them. No foreign key: a deleted owner's id keeps matching nobody.
      */
     ownerUserId: text(),
+    /**
+     * Whether the router may pick who answers on a person's own Claude or ChatGPT plan (`router-plan.ts`): true only
+     * on installations that already had a workspace when it became opt-in (migration 0304), false on new ones.
+     */
+    routerPlanFallback: boolean().notNull().default(false),
   },
   (t) => [check("instance_telemetry_one_row", sql`${t.id} = 1`)],
 );

@@ -256,6 +256,10 @@ describe("the entry's status line, first match wins", () => {
       browser: false,
     };
     expect(entryState(facts(asleep), NOW)).toEqual({ kind: "available" });
+    // The server says one in standby is online: the same.
+    const shown = { ...asleep, machine: { ...MAC, online: true, standby: true } };
+    expect(entryState(facts(shown), NOW)).toEqual({ kind: "available" });
+    expect(surfaceOf(facts(shown))).toBe("cover");
     expect(entryPortrait(entryState(facts(asleep), NOW), null)).toBe("online");
     expect(entryState(facts({ ...asleep, handoff: request() }), NOW)).toMatchObject({ kind: "needsYou" });
     const active = request({ status: "active", controllerUserId: "ana", expiresAt: null });

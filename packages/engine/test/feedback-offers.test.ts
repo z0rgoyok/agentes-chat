@@ -55,6 +55,9 @@ const limiter = () => {
       used.set(key, count);
       return { allowed: count <= rule.limit, remaining: Math.max(0, rule.limit - count), resetAt: new Date(0) };
     },
+    async release(key: string) {
+      used.set(key, Math.max(0, (used.get(key) ?? 0) - 1));
+    },
   };
 };
 
@@ -219,6 +222,20 @@ test("the person sends it: one email in their name with the agent's text, the ro
   );
   expect(feedbackOfferOf((await getMessage(f.db, f.org.id, message.id))?.meta)?.state).toBe("sent");
   expect(events.filter((e) => e.type === "feedback_offer.updated")).toHaveLength(1);
+  // Their own send is their request for help, about the reply it rode on; its words only where the server keeps them.
+  const requests = await f.db.select().from(schema.supportRequests);
+  expect(requests.map(({ id: _, createdAt: __, ...row }) => row)).toEqual([
+    {
+      orgId: f.org.id,
+      userId: bia.id,
+      source: "offer",
+      ref: view.id,
+      aboutKind: "agent_message",
+      messageId: message.id,
+      text: null,
+      about: null,
+    },
+  ]);
 });
 
 test("only the person it is for decides it, and putting it away sends nothing", async () => {
@@ -234,6 +251,7 @@ test("only the person it is for decides it, and putting it away sends nothing", 
   await expect(decide(bia.id, "send", crypto.randomUUID())).rejects.toBeInstanceOf(NotFoundError);
   expect((await decide(bia.id, "dismiss")).state).toBe("dismissed");
   expect(await queued()).toEqual([]);
+  expect(await f.db.select().from(schema.supportRequests)).toEqual([]);
 });
 
 test("sending counts toward the person's hour, the form's own", async () => {

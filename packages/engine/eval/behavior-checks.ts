@@ -3,6 +3,7 @@
  * and transcript checks that need no model. Pure functions, unit-tested in
  * `test/behavior-checks.test.ts`.
  */
+import { isSayNow, SAY_NOW_MAX, withoutSaidNow } from "../src";
 import { WHY_MIN_CHARS } from "../src/tools/run-policy";
 
 /** One model turn of a run: the text it wrote and the tools it called. */
@@ -19,6 +20,8 @@ export interface EvalToolCall {
   executed: boolean;
   isError?: boolean;
   result?: string;
+  /** The run that made it: the checks of the line before slow work go run by run. None: one run. */
+  runId?: string;
 }
 
 export interface CheckResult {
@@ -31,6 +34,8 @@ export interface CheckResult {
 export const NON_READ_TOOLS = new Set([
   "ask_user",
   "react",
+  // The line before slow work (ADR 0207) announces the look; it isn't one.
+  "say_now",
   "ask_agent",
   "tell_agent",
   "post_message",
@@ -41,6 +46,12 @@ export const NON_READ_TOOLS = new Set([
 
 /** Tools that are an answer on their own, with no text after them. */
 const ANSWER_TOOLS = new Set(["react", "send_gif", "send_sticker"]);
+
+/**
+ * Calls whose result is nothing read from anywhere (a question card, a reaction, the line before slow work): what an
+ * agent says it couldn't see is never in them.
+ */
+const NOTHING_READ = new Set(["ask_user", "react", "say_now"]);
 
 /** Names of tools that write or act (best effort, by verb); everything else that isn't chat counts as reading. */
 const WRITE_VERB =
@@ -156,10 +167,7 @@ const EMPTY_RESULT = /^\s*(no results|no issues|nothing|not found|none)\b/i;
 export function falseAccessClaims(text: string, calls: EvalToolCall[]) {
   const returned = norm(
     calls
-      .filter(
-        (c) =>
-          c.executed && !c.isError && c.name !== "ask_user" && c.name !== "react" && !EMPTY_RESULT.test(c.result ?? ""),
-      )
+      .filter((c) => c.executed && !c.isError && !NOTHING_READ.has(c.name) && !EMPTY_RESULT.test(c.result ?? ""))
       .map((c) => `${c.name.replace(/_/g, " ")} ${c.result ?? ""}`)
       .join(" "),
   );
@@ -232,7 +240,7 @@ export function executedForbidden(calls: EvalToolCall[], forbidden: string[]) {
 
 /** A tool returned content without an error (so "I have no access" would be false). */
 export const anyToolSucceeded = (calls: EvalToolCall[]) =>
-  calls.some((c) => c.executed && !c.isError && c.name !== "ask_user" && c.name !== "react");
+  calls.some((c) => c.executed && !c.isError && !NOTHING_READ.has(c.name));
 
 export interface Expectations {
   /** The agent should look with its tools before answering. */
@@ -274,12 +282,33 @@ export interface Expectations {
   maxAgentRuns?: number | Record<string, number>;
   /** A `conversation.note` case: whether what came of the note went back to its sender as a notice. */
   reported?: boolean;
+  /**
+   * The line before slow work (`say_now`, ADR 0207). `first`: exactly one call, before any work call of its run, one
+   * line of at most `SAY_NOW_MAX` characters, then a final reply that is more than the line. `never`: no call at all (a
+   * greeting, a thanks, a question answered from what it already knows).
+   */
+  ack?: "first" | "never";
+  /** Words the line never holds, a result (numbers from the fixtures): the final reply holds every one. */
+  ackNever?: string[];
+}
+
+/** A line said before slow work (`say_now`, ADR 0207) as people read it, with the run that said it. */
+export interface SaidLine {
+  runId?: string;
+  text: string;
+}
+
+/** One run of the agent: how it ended and what it replied where it answers. */
+export interface RunEnd {
+  runId: string;
+  status: string;
+  replies: string[];
 }
 
 export interface RunObservation {
   turns: EvalTurn[];
   calls: EvalToolCall[];
-  /** Everything the agent posted to the chat in this run, joined. */
+  /** Everything the agent posted to the chat in this run, joined (the line before slow work aside: `saidNow`). */
   reply: string;
   /** The routine run handed nothing off (silence). */
   noReply: boolean;
@@ -305,6 +334,10 @@ export interface RunObservation {
   agentRuns?: Record<string, number>;
   /** A `conversation.note` case: what came of the note went back to its sender. */
   reported?: boolean;
+  /** The lines said before slow work, as posted (never part of `reply`). None: read from the `say_now` calls. */
+  saidNow?: SaidLine[];
+  /** Each run of the agent under test. None: `reply` is every run's. */
+  byRun?: RunEnd[];
 }
 
 /** A `propose_mission` input that arrives investigated: at least one read/data finding, at most one decision. */
@@ -315,6 +348,161 @@ export function missionFindingsOk(input: Record<string, unknown>): { pass: boole
   if (evidence.length === 0) return { pass: false, detail: "no read/data findings" };
   if (decisions > 1) return { pass: false, detail: `${decisions} decisions (at most one)` };
   return { pass: true, detail: `${evidence.length} finding(s), ${decisions} decision` };
+}
+
+// ── The line before slow work (`say_now`, ADR 0207) ──────────────────────────
+
+/**
+ * Calls that are no work of their own, as `autonomy-report.ts` counts a run's steps: talking, passing, a status line,
+ * looking a tool or a skill up. Any other call is the work a line announces.
+ */
+const NOT_WORK = new Set([
+  "react",
+  "pass",
+  "set_status",
+  "ask_user",
+  "ask_choices",
+  "send_gif",
+  "send_sticker",
+  "load_skill",
+  "read_skill_file",
+  "find_tools",
+]);
+
+/** A call that is work: what the line before it announces. */
+export const isWorkCall = (name: string) => !isSayNow(name) && !NOT_WORK.has(name) && !name.endsWith("_find_tools");
+
+const cut = (s: string, n = 120) => (s.length > n ? `${s.slice(0, n)}…` : s);
+
+/** A `say_now` call whose line went out (the tool answers "Posted…"). */
+const posted = (c: EvalToolCall) => c.executed && !c.isError && (c.result ?? "").startsWith("Posted");
+
+/** A `say_now` call as a detail reads it: its words, and what it was answered when no line went out. */
+function sayNowCall(c: EvalToolCall) {
+  const words = `"${cut(String(c.input.text ?? ""))}"`;
+  return posted(c) ? words : `${words}: ${cut(c.result ?? "not run", 80)}`;
+}
+
+/** The lines a run said before its work: as posted, else from its `say_now` calls that posted one. */
+export function linesSaid(run: Pick<RunObservation, "calls" | "saidNow">): SaidLine[] {
+  if (run.saidNow) return run.saidNow;
+  return run.calls
+    .filter((c) => isSayNow(c.name) && posted(c))
+    .map((c) => ({ ...(c.runId ? { runId: c.runId } : {}), text: String(c.input.text ?? "") }));
+}
+
+/** Each run's calls in order (calls with no run are one run). */
+function callsByRun(calls: EvalToolCall[]) {
+  const runs = new Map<string, EvalToolCall[]>();
+  for (const c of calls) runs.set(c.runId ?? "", [...(runs.get(c.runId ?? "") ?? []), c]);
+  return runs;
+}
+
+/** What one run replied where it answers; without `byRun`, everything posted. */
+function repliesOf(run: Pick<RunObservation, "reply" | "byRun">, runId: string | undefined) {
+  if (run.byRun && runId !== undefined) return run.byRun.find((r) => r.runId === runId)?.replies ?? [];
+  return run.reply.trim() ? [run.reply] : [];
+}
+
+/** `ack: "first"`: one line, said before any work of its run, then a reply that is more than the line. */
+export function ackFirst(run: RunObservation): CheckResult {
+  const id = "ack_first";
+  const calls = run.calls.filter((c) => isSayNow(c.name));
+  const [call] = calls;
+  if (!call) return { id, pass: false, detail: "no line before the work: say_now never called" };
+  if (calls.length > 1)
+    return {
+      id,
+      pass: false,
+      detail: `${calls.length} say_now calls, one expected: ${calls.map(sayNowCall).join("; ")}`,
+    };
+  const [line] = linesSaid(run);
+  if (!line) return { id, pass: false, detail: `its line never went out: ${sayNowCall(call)}` };
+  const raw = String(call.input.text ?? "").trim();
+  if (raw.includes("\n") || raw.length > SAY_NOW_MAX)
+    return {
+      id,
+      pass: false,
+      detail: `not one line of ${SAY_NOW_MAX} characters at most (${raw.length}): "${cut(raw)}"`,
+    };
+  const own = callsByRun(run.calls).get(call.runId ?? "") ?? [];
+  const at = own.indexOf(call);
+  const before = [...new Set(own.slice(0, at).flatMap((c) => (isWorkCall(c.name) ? [c.name] : [])))];
+  if (before.length) return { id, pass: false, detail: `said after ${before.join(", ")}: "${line.text}"` };
+  const replies = repliesOf(run, call.runId ?? line.runId);
+  if (!withoutSaidNow(replies.join("\n\n"), [line]).trim())
+    return {
+      id,
+      pass: false,
+      detail: replies.some((r) => r.trim())
+        ? `the reply only says the line again: "${line.text}"`
+        : `no reply after the line: "${line.text}"`,
+    };
+  const next = own.slice(at + 1).find((c) => isWorkCall(c.name))?.name;
+  return { id, pass: true, detail: `"${line.text}"${next ? `, then ${next}` : ""}, then the reply` };
+}
+
+/** `ack: "never"`: a greeting, a thanks or a quick answer gets no line before it. */
+export function noAck(run: RunObservation): CheckResult {
+  const calls = run.calls.filter((c) => isSayNow(c.name));
+  return { id: "no_ack", pass: calls.length === 0, detail: calls.length ? calls.map(sayNowCall).join("; ") : "ok" };
+}
+
+/** `ackNever`: the line holds none of the words (a result): the reply brings every one of them. */
+export function ackHoldsNoResult(run: RunObservation, words: string[]): CheckResult[] {
+  const lines = linesSaid(run)
+    .map((l) => l.text)
+    .join("\n");
+  const inLine = citedEvidence(lines, words);
+  const inReply = citedEvidence(run.reply, words);
+  const missing = words.filter((w) => !inReply.includes(w));
+  return [
+    {
+      id: "ack_no_result",
+      pass: inLine.length === 0,
+      detail: inLine.length ? `the line holds ${inLine.join(", ")}: "${lines}"` : lines ? "ok" : "no line",
+    },
+    {
+      id: "result_in_reply",
+      pass: missing.length === 0,
+      detail: missing.length ? `the reply lacks ${missing.join(", ")}` : `holds ${words.join(", ")}`,
+    },
+  ];
+}
+
+/** Any run: one line before its work at most (a second call is answered "Already told them"). */
+export function ackOncePerRun(run: RunObservation): CheckResult {
+  const over = [...callsByRun(run.calls).values()]
+    .map((calls) => calls.filter((c) => isSayNow(c.name) && c.executed && !c.isError))
+    .filter((said) => said.length > 1);
+  const lines = linesSaid(run).length;
+  return {
+    id: "ack_once_per_run",
+    pass: over.length === 0,
+    detail: over.length
+      ? over.map((said) => `${said.length} say_now calls in one run: ${said.map(sayNowCall).join("; ")}`).join(" · ")
+      : lines
+        ? `${lines} line(s), one run each`
+        : "no line",
+  };
+}
+
+/** Any run: one that said a line before its work never ends without a reply (or a card waiting for a person). */
+export function noAckThenSilence(run: RunObservation): CheckResult {
+  const lines = linesSaid(run);
+  const statusOf = (line: SaidLine) => run.byRun?.find((r) => r.runId === line.runId)?.status ?? "";
+  const replied = (line: SaidLine) => repliesOf(run, line.runId).some((r) => r.trim());
+  // A run waiting on an approval or a question has its card under the line: the reply comes once a person answers.
+  const silent = lines.find((line) => !statusOf(line).startsWith("waiting_") && !replied(line));
+  return {
+    id: "no_ack_then_silence",
+    pass: !silent,
+    detail: silent
+      ? `said "${silent.text}", then ended${statusOf(silent) ? ` ${statusOf(silent)}` : ""} without a reply`
+      : lines.length
+        ? "a reply came after the line"
+        : "no line",
+  };
 }
 
 /** All deterministic checks a case asks for. */
@@ -404,6 +592,10 @@ export function deterministicChecks(expect: Expectations, run: RunObservation): 
     pass: !/\bNO[_\s-]?REPLY\b/i.test(text),
     detail: /\bNO[_\s-]?REPLY\b/i.test(text) ? "posted the silence word" : "ok",
   });
+  // Never, on any run (ADR 0207): a second line before the same work, or a line with no reply after it.
+  out.push(ackOncePerRun(run), noAckThenSilence(run));
+  if (expect.ack) out.push(expect.ack === "first" ? ackFirst(run) : noAck(run));
+  if (expect.ackNever?.length) out.push(...ackHoldsNoResult(run, expect.ackNever));
   if (expect.blockSpec) {
     const shows = run.calls.filter((c) => c.name === "show_block" && (c.input.spec !== undefined || c.input.html));
     const shown = shows.find((c) => c.executed && !c.isError);

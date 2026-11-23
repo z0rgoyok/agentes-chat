@@ -159,7 +159,8 @@ beforeAll(async () => {
   ]);
   const drawn = { ...written, orgId: ADA, kind: "document" as const, updatedByType: "person", updatedById: "u-ada" };
   await db.insert(schema.artifacts).values([
-    { ...drawn, id: file(1) },
+    // In the Drive itself: shared with everyone, as a Drive file is made; one kept to its maker (ADR 0157 amendment).
+    { ...drawn, id: file(1), share: "everyone" },
     { ...drawn, id: file(2), channelId: SECRET },
     { ...drawn, id: file(3), channelId: SECRET, share: "people", shareUserIds: ["u-cy"], shareRoleIds: [SUPPORT] },
     { ...drawn, id: file(4), channelId: SECRET, share: "everyone" },
@@ -167,6 +168,7 @@ beforeAll(async () => {
     { ...drawn, id: file(6), channelId: DM },
     { ...drawn, id: file(7), deletedAt: ago(1) },
     { ...drawn, id: file(8), channelId: TASK_TALK },
+    { ...drawn, id: file(9) },
   ]);
   const listed = { audienceMode: "people" as const, audienceUserIds: ["u-cy"], audienceRoleIds: [SUPPORT] };
   const computer = (n: number, name: string) => ({ id: box(n), orgId: ADA, name, tokenHash: `fake-machine-hash-${n}` });
@@ -285,6 +287,7 @@ beforeAll(async () => {
       status: "failed",
       attempts: 4,
       lastError: "push not delivered: 503",
+      lastErrorStatus: 503,
       createdAt: new Date(ago(1).getTime() + 1000),
     },
     // A snooze's wake, named by its time: not among a notification's own.
@@ -403,6 +406,7 @@ beforeAll(async () => {
       status: "failed",
       attempts: 6,
       lastError: "MillionSend refused the email (422 validation_error): the address is on a list",
+      lastErrorStatus: 422,
     }),
     email(3, ["ana@example.com"], { attempts: 2, lastError: "MillionSend refused the email (429):" }),
     email(4, ["ana@example.com"], { attempts: 1, lastError: "could not reach MillionSend: timeout" }),
@@ -463,6 +467,7 @@ test("notifications: what each tells of and points at, its pushes and the person
     lockedUntil: null,
     lockedBy: null,
     lastError: null,
+    lastErrorStatus: null,
     runId: null,
     cause: null,
     completedAt: null,
@@ -494,6 +499,7 @@ test("notifications: what each tells of and points at, its pushes and the person
           status: "failed",
           attempts: 4,
           lastError: "push not delivered: 503",
+          lastErrorStatus: 503,
           nextAttemptAt: expect.any(String),
           createdAt: new Date(ago(1).getTime() + 1000).toISOString(),
         },
@@ -620,6 +626,9 @@ test("access: whether a person reaches an agent, a channel, a task, a file or a 
     ["file", "u-ada", file(7), false, "gone"],
     ["file", "u-ada", file(8), true, "task_reader"],
     ["file", "u-cy", file(8), false, "not_shared"],
+    ["file", "u-ada", file(9), true, "owner"],
+    ["file", "u-fay", file(9), true, "administrator"],
+    ["file", "u-cy", file(9), false, "not_shared"],
 
     ["computer", "u-ada", box(1), true, "owner"],
     ["computer", "u-cy", box(1), true, "audience_person"],
@@ -757,6 +766,7 @@ test("email jobs: the emails queued to one address, found by it and never saying
     template: "invitation",
     errorCode: null,
     lastError: null,
+    lastErrorStatus: null,
     orgId: null,
     status: "pending",
   };
@@ -783,6 +793,8 @@ test("email jobs: the emails queued to one address, found by it and never saying
         // The provider's own name for its refusal; without one, its status.
         errorCode: "validation_error",
         lastError: "MillionSend refused the email (422 validation_error): the address is on a list",
+        // The number the provider answered, kept beside its words; a failure from before it was kept has none.
+        lastErrorStatus: 422,
         createdAt: ago(2).toISOString(),
       },
       {

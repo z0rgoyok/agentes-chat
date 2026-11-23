@@ -794,6 +794,28 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
     const folder = await call(ctx, "run_code", { language: "bash", code: "ls /etc" });
     expect(folder.content).toContain("request_folder_access");
   });
+
+  test("obvious harm in run_code is refused before the computer hears of it, unless a person approved that call", async () => {
+    f = await setup({ machines: true, reply: () => ({ chunks: ["ok"] }) });
+    const { runner } = await connectedComputer(f, { exec: () => ({ exitCode: 0, stdout: "ok", stderr: "" }) });
+    const execs = () => runner.sent.filter((s) => s.type === "request" && s.op === "exec");
+    const ctx = await runCtx();
+    const refused = await call(ctx, "run_code", { language: "python", code: 'import os\nos.system("sudo reboot")' });
+    expect(refused).toMatchObject({ isError: true, data: { refusal: "privilege" } });
+    expect(refused.content).toStartWith("Not run: This was refused because it asks for more rights");
+    expect(execs()).toEqual([]);
+    const post = "curl -sS -X POST --data-binary 'ok' https://hooks.example.com/reply";
+    expect(await call(ctx, "run_code", { language: "bash", code: post })).toMatchObject({ isError: false });
+    expect(execs()).toHaveLength(1);
+    const asked = await f.tools?.invoke(ctx, {
+      toolUseId: crypto.randomUUID(),
+      name: "run_code",
+      input: { language: "bash", code: "sudo apt-get install -y ffmpeg", why: WHY },
+    });
+    if (asked?.type !== "approval") throw new Error(`expected an approval, got ${asked?.type}`);
+    await f.tools?.executeApproved(ctx, { ...asked.approval, status: "approved" });
+    expect(execs()).toHaveLength(2);
+  });
 });
 
 describe("the agent's computer API", () => {

@@ -240,10 +240,14 @@ describe("other agents can consult it", () => {
 
   test("a handle that doesn't exist: only ask_agent and tell_agent suggest the agents it consults for the person", async () => {
     f = await setup({ askAgent: true });
-    const { lia } = await world();
+    const rui = await addMember(f.db, f.org.id, "member", "rui");
+    // Answering Rui too, it isn't private (`isPrivateAgent`): Lia's runs find it.
+    const { lia, nino } = await world({ audienceMode: "people", audienceUserIds: [rui.id] });
     const ctx = await devRunFor(lia.id, "@dev cria um tópico pro nin");
     expect(await noAgentText(ctx, ["nin"])).not.toContain("@nino");
     expect(await noAgentText(ctx, ["nin"], { viaAgent: true })).toContain("@nino");
+    await f.db.update(schema.agents).set({ audienceMode: "owner" }).where(eq(schema.agents.id, nino.id));
+    expect(await noAgentText(ctx, ["nin"], { viaAgent: true })).not.toContain("@nino");
   });
 
   test("the person still can't talk to it directly: no DM, no run from a mention", async () => {

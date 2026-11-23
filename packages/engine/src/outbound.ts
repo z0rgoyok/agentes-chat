@@ -8,7 +8,7 @@ import {
 } from "@agenteschat/adapters";
 import { and, desc, eq, gt, inArray, isNull, not, or, schema, sql } from "@agenteschat/db";
 import type { ToolContext, ToolOutput } from "./tools/types";
-import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from "./web-tools";
+import { IMAGE_SEARCH_TOOL, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from "./web-tools";
 
 const THREAD_LIMIT = 500;
 const CHANNEL_LIMIT = 50;
@@ -84,7 +84,7 @@ function browserPage(tool: string, data: unknown): string | null {
  * came from the server.
  */
 function addResult(reads: RunReads, tool: string, content: string, data?: unknown) {
-  const web = tool === WEB_SEARCH_TOOL || tool === WEB_FETCH_TOOL;
+  const web = tool === WEB_SEARCH_TOOL || tool === WEB_FETCH_TOOL || tool === IMAGE_SEARCH_TOOL;
   const page = browserPage(tool, data);
   if (page) reads.seen.add(page);
   const site = page && new URL(page).host;

@@ -15,6 +15,8 @@ export interface SegmentedOption<V extends string> {
   title?: string;
   /** A quiet number after the label, no chip (filters: "Tudo 14"); shown as given, hidden when absent. */
   hint?: number | string;
+  /** This one can't be chosen (the rest can): faded alone, so the chosen one still reads as chosen. */
+  disabled?: boolean;
 }
 
 /**
@@ -66,10 +68,14 @@ export function Segmented<V extends string>({
   });
   const move = (step: number) => {
     if (disabled) return;
-    const next = options[(index + step + options.length) % options.length];
-    if (!next) return;
-    onValueChange(next.value);
-    refs.current[(index + step + options.length) % options.length]?.focus();
+    for (let k = 1; k < options.length; k++) {
+      const i = (index + step * k + options.length * k) % options.length;
+      const next = options[i];
+      if (!next || next.disabled) continue;
+      onValueChange(next.value);
+      refs.current[i]?.focus();
+      return;
+    }
   };
   return (
     <div
@@ -109,7 +115,7 @@ export function Segmented<V extends string>({
           className="ac-seg__item"
           data-on={o.value === value || undefined}
           title={o.title}
-          disabled={disabled}
+          disabled={disabled || o.disabled}
           onClick={() => onValueChange(o.value)}
         >
           {o.mark}

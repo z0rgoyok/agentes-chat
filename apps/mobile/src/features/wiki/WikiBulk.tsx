@@ -3,16 +3,33 @@ import { relativeTime } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, RefreshControl, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOrg } from "@/providers/org";
-import { Button, Card, EmptyState, Icon, Locked, Row, SCREEN_X, Text, useToast } from "@/ui";
+import {
+  Button,
+  EmptyState,
+  GROUPED_ROW,
+  GroupedFooter,
+  GroupedList,
+  GroupedRow,
+  Icon,
+  LIST_AVATAR,
+  ListRow,
+  Locked,
+  SCREEN_X,
+  SkeletonList,
+  Text,
+  useToast,
+} from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
-import { Face } from "../shared/Face";
-import { useColors, useDirectory, useOrgId } from "../shared/hooks";
+import { Gap, SettingsPage } from "../settings/parts";
+import { AgentFace } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useOrgId, usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
-import { ActionList, PushedHeader, successHaptic, Tile } from "../shared/parts";
+import { successHaptic, Tile } from "../shared/parts";
 
 /** The wiki's Lixeira on the phone. */
 export const openWikiTrash = () => router.push("/wiki-trash");
@@ -72,6 +89,7 @@ export function WikiTrashScreen() {
   const toast = useToast();
   const failed = useFailed();
   const trash = useWikiTrash(orgId);
+  const pull = usePullRefresh(trash.refetch);
   const bulk = useWikiBulk(orgId);
   const writes = can(org, "edit_wiki");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -118,90 +136,83 @@ export function WikiTrashScreen() {
           ),
       },
     ]);
-  return (
-    <View style={styles.fill}>
-      <PushedLargeTitle title={t("wiki.trash.title")} bottomInset={picked.size ? 110 : 24}>
-        <Text variant="subhead" tone="muted" style={styles.lead}>
-          {t("wiki.trash.text")}
-        </Text>
-        {trash.isLoading ? <ActivityIndicator color={c.muted} style={styles.loading} /> : null}
-        {trash.isError && !trash.data ? (
-          <View style={styles.center}>
-            <Text tone="muted">{t("common.loadFailed")}</Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t("mobile.common.retry")}
-              onPress={() => void trash.refetch()}
-            />
-          </View>
-        ) : null}
-        {trash.isSuccess && pages.length === 0 ? <EmptyState icon="trash" title={t("wiki.trash.none")} /> : null}
-        {pages.length > 0 ? (
-          <Locked when={busy}>
-            <Card>
-              {pages.map((p, i) => {
-                const on = picked.has(p.id);
-                return (
-                  <Row
-                    key={p.id}
-                    divider={i > 0}
-                    leading={<Tile icon="file" />}
-                    title={p.title}
-                    subtitle={[
-                      p.folder || t("wiki.root"),
-                      p.deletedAt
-                        ? t("wiki.trash.deletedWhen", { when: relativeTime(t, i18n.language, p.deletedAt) })
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    {...(writes
-                      ? {
-                          meta: <Icon name={on ? "checkc" : "circle"} size={20} color={on ? c.ink : c.faint} />,
-                          onPress: () => toggle(p.id),
-                        }
-                      : {})}
-                  />
-                );
-              })}
-            </Card>
-            {writes ? (
-              <View style={styles.empty}>
-                <Button variant="secondary" size="sm" label={t("wiki.trash.empty")} onPress={() => purge()} />
-              </View>
-            ) : null}
-          </Locked>
-        ) : null}
-      </PushedLargeTitle>
-      {picked.size > 0 ? (
-        <View style={[styles.bar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}>
+  // Pages chosen: what to do with them stays at the screen's foot, over the list.
+  const bar =
+    picked.size > 0 ? (
+      <View style={[styles.bar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}>
+        <Button variant="secondary" label={t("wiki.trash.purge")} disabled={busy} onPress={() => purge([...picked])} />
+        <View style={styles.grow}>
           <Button
-            variant="secondary"
-            label={t("wiki.trash.purge")}
+            variant="primary"
+            wide
+            label={t("wiki.trash.restoreMany", { count: picked.size })}
+            loading={busy}
             disabled={busy}
-            onPress={() => purge([...picked])}
+            onPress={restore}
           />
-          <View style={styles.grow}>
-            <Button
-              variant="primary"
-              wide
-              label={t("wiki.trash.restoreMany", { count: picked.size })}
-              loading={busy}
-              disabled={busy}
-              onPress={restore}
-            />
-          </View>
         </View>
+      </View>
+    ) : null;
+  return (
+    // The large title's scroll view is the screen's own first view (the system folds the title as it scrolls): the
+    // chosen pages' bar goes in its dock, never in a view around it.
+    <PushedLargeTitle
+      title={t("wiki.trash.title")}
+      bottomInset={picked.size ? 110 : 24}
+      dock={bar}
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+    >
+      <Text variant="subhead" tone="muted" style={styles.lead}>
+        {t("wiki.trash.text")}
+      </Text>
+      {/* Loading: the rows' own shape; failed: what happened and the way to ask again; empty: says so. */}
+      {trash.isLoading ? <SkeletonList rows={4} /> : null}
+      {trash.isError && !trash.data ? <LoadFailed onRetry={() => void trash.refetch()} /> : null}
+      {trash.isSuccess && pages.length === 0 ? (
+        <EmptyState size="panel" icon="trash" title={t("wiki.trash.none")} />
       ) : null}
-    </View>
+      {pages.length > 0 ? (
+        <Locked when={busy}>
+          {/* The wiki's own rows (its tile, the title, where it was and when it went), chosen as the wiki's are. */}
+          {pages.map((p, i) => {
+            const on = picked.has(p.id);
+            return (
+              <ListRow
+                key={p.id}
+                divider={i > 0}
+                leading={<Tile icon="file" size={LIST_AVATAR} />}
+                title={p.title}
+                sub={[
+                  p.folder || t("wiki.root"),
+                  p.deletedAt ? t("wiki.trash.deletedWhen", { when: relativeTime(t, i18n.language, p.deletedAt) }) : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                subLines={1}
+                {...(writes
+                  ? {
+                      trailing: <Icon name={on ? "checkc" : "circle"} size={22} color={on ? c.ink : c.faint} />,
+                      accessibilityState: { selected: on },
+                      onPress: () => toggle(p.id),
+                    }
+                  : {})}
+              />
+            );
+          })}
+          {writes ? (
+            <View style={styles.empty}>
+              <Button variant="secondary" size="sm" label={t("wiki.trash.empty")} onPress={() => purge()} />
+            </View>
+          ) : null}
+        </Locked>
+      ) : null}
+    </PushedLargeTitle>
   );
 }
 
 /** Which agents read the chosen pages: every agent, or the ones ticked (none is a choice too). People's access stays. */
 export function WikiAgentsScreen({ ids }: { ids: string[] }) {
   const { t } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const dir = useDirectory();
   const toast = useToast();
@@ -222,55 +233,47 @@ export function WikiAgentsScreen({ ids }: { ids: string[] }) {
       },
     );
   return (
-    <View style={[styles.fill, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={t("wiki.bulk.agentsTitle", { count: ids.length })}
-        solid={false}
-        action={{ label: t("common.save"), onPress: save, disabled: bulk.isPending }}
-      />
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
-        <Locked when={bulk.isPending}>
-          <Text variant="footnote" tone="faint" style={styles.lead}>
-            {t("wiki.bulk.agentsText")}
-          </Text>
-          <ActionList
-            items={[{ key: "all", label: t("wiki.audienceAgentsAll"), checked: all, onPress: () => setAll(!all) }]}
-          />
-          {!all ? (
-            <Card>
-              {dir.agents.map((a, i) => {
-                const on = picked.has(a.id);
-                return (
-                  <Row
-                    key={a.id}
-                    divider={i > 0}
-                    leading={<Face who={{ type: "agent", id: a.id }} size={30} live={false} />}
-                    title={a.name}
-                    meta={<Icon name={on ? "checkc" : "circle"} size={20} color={on ? c.ink : c.faint} />}
-                    onPress={() => {
-                      const next = new Set(picked);
-                      if (on) next.delete(a.id);
-                      else next.add(a.id);
-                      setPicked(next);
-                    }}
-                  />
-                );
-              })}
-            </Card>
-          ) : null}
-        </Locked>
-      </ScrollView>
-    </View>
+    // A settings form: every agent, or the ones ticked, in groups on the grouped gray; Salvar in the bar.
+    <SettingsPage
+      title={t("wiki.bulk.agentsTitle", { count: ids.length })}
+      action={{ label: t("common.save"), onPress: save, disabled: bulk.isPending }}
+      busy={bulk.isPending}
+    >
+      <GroupedList>
+        <GroupedRow label={t("wiki.audienceAgentsAll")} toggle={all} onPress={() => setAll(!all)} />
+      </GroupedList>
+      <GroupedFooter>{t("wiki.bulk.agentsText")}</GroupedFooter>
+      {all ? null : (
+        <>
+          <Gap />
+          <GroupedList>
+            {dir.agents.map((a) => {
+              const on = picked.has(a.id);
+              return (
+                <GroupedRow
+                  key={a.id}
+                  leading={<AgentFace agentId={a.id} size={GROUPED_ROW.lead} live={false} />}
+                  label={a.name}
+                  checked={on}
+                  onPress={() => {
+                    const next = new Set(picked);
+                    if (on) next.delete(a.id);
+                    else next.add(a.id);
+                    setPicked(next);
+                  }}
+                />
+              );
+            })}
+          </GroupedList>
+        </>
+      )}
+    </SettingsPage>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
   grow: { flex: 1, minWidth: 0 },
   lead: { paddingHorizontal: SCREEN_X, paddingBottom: 8 },
-  loading: { marginVertical: 24 },
-  center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
-  content: { paddingTop: 8, paddingBottom: 40, gap: 12 },
   empty: { alignItems: "center", paddingTop: 16 },
   bar: {
     position: "absolute",

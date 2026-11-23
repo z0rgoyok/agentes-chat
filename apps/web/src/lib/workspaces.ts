@@ -44,6 +44,8 @@ export interface WorkspaceRow {
   id: string;
   name: string;
   logo: string | null;
+  /** Its accent "#rrggbb" (ADR 0193); absent or null: none, or not known (another server through the desktop app). */
+  accent?: string | null | undefined;
   unread: number;
   /** The workspace open now. */
   current: boolean;
@@ -102,7 +104,7 @@ export function workspaceGroups(input: {
   thisComputer?: boolean;
   /** In the desktop app (the default, as before accounts). */
   desktop?: boolean;
-  orgs: { id: string; name: string; logo?: string | null }[];
+  orgs: { id: string; name: string; logo?: string | null; accent?: string | null }[];
   currentOrgId: string;
   unread: { orgId: string; unread: number }[] | null;
   /** The accounts signed in on this browser, the current one included; empty: only the current one is known. */
@@ -138,6 +140,7 @@ export function workspaceGroups(input: {
       id: o.id,
       name: o.name,
       logo: o.logo ?? null,
+      accent: o.accent,
       unread: counts.get(o.id) ?? 0,
       current: o.id === input.currentOrgId,
     })),
@@ -152,6 +155,7 @@ export function workspaceGroups(input: {
         id: o.id,
         name: o.name,
         logo: o.logo ?? null,
+        accent: o.accent,
         unread: unread.get(o.id) ?? 0,
         current: false,
       })),

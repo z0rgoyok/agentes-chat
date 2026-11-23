@@ -63,6 +63,18 @@ export const machineRpcReplyTopic = (rpcId: string) => `machine-rpc-reply:${rpcI
 /** Server-side: the `brain.event` frames of one run's brain turn on a connected computer (ADR 0032). */
 export const brainTopic = (runId: string) => `brain:${runId}`;
 
+/**
+ * Server-side: one live file's stored changes and presence, between the processes that hold it (ADR 0196 §4): each
+ * change's number (and the change itself when it fits), presence updates. Never forwarded to clients as is.
+ */
+export const liveTopic = (fileId: string) => `live:${fileId}`;
+
+/**
+ * Server-side: who is in each live file, as each process sees it (ADR 0196 §5), every workspace's on one topic, since
+ * the process asked who is in a file may hold none of it. Ids only. Never forwarded.
+ */
+export const livePresenceTopic = "live-presence";
+
 function deliver(handlers: Set<(event: RealtimeEvent) => void> | undefined, event: RealtimeEvent) {
   for (const handler of handlers ?? []) {
     try {

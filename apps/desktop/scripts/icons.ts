@@ -2,11 +2,13 @@
  * Draws the desktop app's icons from the agent engine (packages/ui/src/agent/engine.js), so the
  * tray and the app icon are the same symbol as everywhere else: the body with the cut corner and
  * two pill eyes. Run by CI before `tauri build` (`bun apps/desktop/scripts/icons.ts`), then
- * `tauri icon app-icon.png` makes the .icns and the PNG sizes from the 1024 px master.
+ * `tauri icon` makes the .icns, .ico and PNG sizes from a 1024 px master: app-icon.png on macOS, app-icon-tile.png on
+ * Windows and Linux.
  *
  * Outputs (all ignored by git):
  *   src-tauri/icons/tray/{idle,working,paused,offline,update,browsing,needs}.png  36×36 template images (18 pt @2x)
- *   app-icon.png                                                   1024×1024 app icon master (ADR 0179)
+ *   app-icon.png                                                   1024×1024 app icon master, macOS's shape (ADR 0179)
+ *   app-icon-tile.png                                              1024×1024 the same, a full rounded square (Windows, Linux)
  *   src-tauri/icons/app/<id>.png, <id>-tile.png                    the icons a person may pick, Dock and window
  *
  * No dependencies: a tiny PNG encoder over node:zlib.
@@ -180,23 +182,35 @@ function trayPng(state: TrayState): Uint8Array {
 /* ---------- App icon (ADR 0179): from the app icons' generator (packages/ui/scripts/app-icons) ---------- */
 
 /**
- * The bundle's master (1024, macOS's shape and shadow: `tauri icon` makes the .icns, .ico and PNGs from it) is the
- * shipped icon; every icon's Dock picture (512) and window picture (256, a rounded square) are what the person may pick
+ * The bundle's masters (1024; `tauri icon` makes the .icns, .ico and PNGs from one) are the shipped icon: macOS's
+ * shape and shadow, which sits inside Apple's grid with a margin all round, for the .icns; and the full rounded square
+ * for Windows and Linux, whose taskbars draw an icon edge to edge, so the macOS margin would show it smaller than its
+ * neighbours. Every icon's Dock picture (512) and window picture (256, the rounded square) are what the person may pick
  * while the app runs (src/app_icon.rs embeds them).
  */
-function appIcons(): { master: Uint8Array; dock: Map<string, Uint8Array>; window: Map<string, Uint8Array> } {
+function appIcons(): {
+  master: Uint8Array;
+  tile: Uint8Array;
+  dock: Map<string, Uint8Array>;
+  window: Map<string, Uint8Array>;
+} {
   const dock = new Map<string, Uint8Array>();
   const window = new Map<string, Uint8Array>();
   let master: Uint8Array | null = null;
+  let tile: Uint8Array | null = null;
   for (const id of APP_ICON_IDS) {
     const scene = SCENES[id];
     const mac = render(1024, macLayers(scene.light()));
-    if (id === APP_ICON_IDS[0]) master = png(mac);
+    const square = render(1024, tiled(scene.light()));
+    if (id === APP_ICON_IDS[0]) {
+      master = png(mac);
+      tile = png(square);
+    }
     dock.set(id, png(resize(mac, 512)));
-    window.set(id, png(resize(render(1024, tiled(scene.light())), 256)));
+    window.set(id, png(resize(square, 256)));
   }
-  if (!master) throw new Error("icons: no app icons");
-  return { master, dock, window };
+  if (!master || !tile) throw new Error("icons: no app icons");
+  return { master, tile, dock, window };
 }
 
 /* ---------- Write ---------- */
@@ -208,8 +222,9 @@ for (const state of ["idle", "working", "paused", "offline", "update", "browsing
 }
 const icons = appIcons();
 writeFileSync(join(root, "app-icon.png"), icons.master);
+writeFileSync(join(root, "app-icon-tile.png"), icons.tile);
 const appDir = join(root, "src-tauri", "icons", "app");
 mkdirSync(appDir, { recursive: true });
 for (const [id, bytes] of icons.dock) writeFileSync(join(appDir, `${id}.png`), bytes);
 for (const [id, bytes] of icons.window) writeFileSync(join(appDir, `${id}-tile.png`), bytes);
-console.log(`icons: tray (7 states), app-icon.png and ${icons.dock.size} app icons written`);
+console.log(`icons: tray (7 states), app-icon.png, app-icon-tile.png and ${icons.dock.size} app icons written`);

@@ -5,6 +5,7 @@ import {
   type AccountKind,
   type AccountLoginFailure,
   type AccountLoginState,
+  ANTIGRAVITY_MAC_PROTOCOL,
   ANTIGRAVITY_PROTOCOL,
   type AuthMethod,
   accountCodeAad,
@@ -59,19 +60,30 @@ import {
   GEMINI_ENTERPRISE_PROVIDER,
   isPlanId,
   loginPerAgent,
+  NEXT_ACCOUNT_KINDS,
   type PlanId,
   planOf,
   SHARED_SIGN_INS,
   sharedSignIn,
 } from "@agenteschat/providers/plans";
-import { PLAN_PAUSE, planCheckedAt, planFull, planState } from "@agenteschat/ui/plan-state";
+import {
+  PLAN_PAUSE,
+  PLAN_STALE_MS,
+  planCheckedAt,
+  planFull,
+  planOwn,
+  planState,
+  resetSinceRead,
+  windowReadAt,
+  windowStale,
+} from "@agenteschat/ui/plan-state";
 import { recordAudit } from "./audit";
 import { liveModelLimits } from "./brains/select";
 import { BRAIN_PLAN_NAMES } from "./brains/types";
 import { caches } from "./cache";
 import { claudeAuthMethodFor, claudeAuthPolicy } from "./claude-auth-policy";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
-import { type MachineCaller, MachineRequestError } from "./machine-hub";
+import { awakeForPerson, type MachineCaller, MachineRequestError } from "./machine-hub";
 import {
   getMachine,
   MACHINE_CONTROL_TOPIC,
@@ -83,7 +95,7 @@ import { recordAccountFailure } from "./operator-events";
 import { can, requirePermission } from "./organizations";
 import { runnerUpdateWay } from "./runner-update";
 import { scrubSignIns } from "./tool-detail";
-import { usageWaitKey, wakeOnRoom } from "./usage-pause";
+import { agentsMovedOnto, usageWaitKey, wakeAgentsBrainWaits, wakeOnRoom } from "./usage-pause";
 
 const { machineAccounts, agents, machines, rightHandBrains, users } = schema;
 
@@ -131,6 +143,8 @@ export interface MachineAccountView {
   id: string;
   kind: AccountKind;
   label: string;
+  /** Its owner gave it its name (`isDefaultAccountLabel`): else the apps show it by its email. */
+  named: boolean;
   /** Its owner's eyes only. */
   email: string | null;
   plan: string | null;
@@ -158,6 +172,19 @@ export interface MachineAccountView {
   providerOrgId: string | null;
   /** Who it thinks for (ADR 0059 §3): everyone in the workspace, or only its owner. */
   serves: PlanServes;
+  /** Its place in the order of use of its computer's accounts of its kind (ADR 0041 §6); null: after the placed ones, oldest first. */
+  useOrder: number | null;
+  /**
+   * The id of the oldest login of the same account on its computer (`sameAccountWhere`), itself where it is the
+   * oldest or nothing tells it apart: the same for every login of one account, so anyone can group them, the email
+   * and key staying its owner's.
+   */
+  sameAs: string;
+  /**
+   * A run at another account's limit may go on with it (`nextAccountPlan`): Claude Code's or Codex's own sign-in (never
+   * a key), shared between agents and signed in. Only these have a place in the order of use.
+   */
+  movable: boolean;
 }
 
 /** Who a plan thinks for (`machine_accounts.serves`, ADR 0059 §3). */
@@ -188,7 +215,7 @@ export interface MachineAccountDeps {
 }
 
 export interface MachineAccountHubDeps extends MachineAccountDeps {
-  hub: Pick<MachineCaller, "call" | "status">;
+  hub: Pick<MachineCaller, "call" | "status" | "wake">;
   /** A sign-in that failed on the computer is logged here (an error line is reported, ADR 0104). */
   log?: {
     error(message: string, data?: Record<string, unknown>): void;
@@ -210,6 +237,22 @@ export function defaultAccountLabel(kind: AccountKind, taken: readonly string[] 
   const base = planOf(provider)?.label ?? BRAIN_PLAN_NAMES[kind];
   if (!taken.includes(base)) return base;
   for (let n = 2; ; n++) if (!taken.includes(`${base} ${n}`)) return `${base} ${n}`;
+}
+
+/** Words older automatic names carried: the plan, before ADR 0059's 2026-10-30 amendment ("Claude Max 2"), or "Code". */
+const OLD_LABEL_WORDS = /^(code|pro\+?|max|ultra|team|teams|enterprise|plus|business|free)$/i;
+
+/**
+ * Whether a name is still one `defaultAccountLabel` gives ("Claude", "Claude 2", an older "Claude Max 2"), so the apps
+ * show the account by its email (or as unnamed, where its sign-in says no email), never as "Claude 2". Any other name
+ * is its owner's.
+ */
+export function isDefaultAccountLabel(kind: AccountKind, label: string, provider?: string | null): boolean {
+  const base = planOf(provider)?.label ?? BRAIN_PLAN_NAMES[kind];
+  if (!label.startsWith(base)) return false;
+  const rest = label.slice(base.length).trim().split(/\s+/).filter(Boolean);
+  if (rest.length > 0 && /^\d+$/.test(rest[rest.length - 1] ?? "")) rest.pop();
+  return rest.length === 0 || (rest.length === 1 && OLD_LABEL_WORDS.test(rest[0] ?? "") && label[base.length] === " ");
 }
 
 /** The names of an owner's accounts in the organization (`exceptId`'s aside). */
@@ -235,12 +278,14 @@ function accountView(
   using: { id: string; name: string }[],
   viewerId: string | null,
   ownerName: string | null,
+  sameAs = row.id,
 ): MachineAccountView {
   const mine = viewerId !== null && row.createdBy === viewerId;
   return {
     id: row.id,
     kind: kindOf(row),
     label: row.label,
+    named: !isDefaultAccountLabel(kindOf(row), row.label, row.provider),
     email: mine ? row.email : null,
     plan: row.plan,
     status: statusOf(row.status),
@@ -256,16 +301,34 @@ function accountView(
     shared: row.shared,
     providerOrgId: mine ? row.providerOrgId : null,
     serves: servesOf(row.serves),
+    useOrder: row.useOrder,
+    sameAs,
+    movable: runMayMoveTo(row),
   };
 }
 
-/** People would see a difference: a window moved a point or more, its reset moved, one came or went, or the limit. */
+/** `MachineAccountView.movable`, as `chainWhere` in `spill.ts` reads it, short of whom the account serves. */
+const runMayMoveTo = (row: Pick<MachineAccountRow, "kind" | "provider" | "authMethod" | "shared" | "status">) =>
+  (NEXT_ACCOUNT_KINDS as readonly string[]).includes(row.kind) &&
+  row.provider === null &&
+  row.authMethod !== "api_key" &&
+  row.shared &&
+  row.status === "active";
+
+/** The accounts of an order of use that have a place in it (`MachineAccountView.movable`). */
+const movableRow = and(eq(machineAccounts.shared, true), eq(machineAccounts.status, "active"));
+
+/**
+ * People would see a difference: a window moved a point or more, its reset moved, it was read again or carried over
+ * (`PlanWindow.at`), one came or went, or the limit.
+ */
 export function usageMoved(prev: PlanUsage | null | undefined, next: PlanUsage | null | undefined): boolean {
   if (!prev || !next) return Boolean(prev) !== Boolean(next);
   if (Boolean(prev.limited) !== Boolean(next.limited) || prev.windows.length !== next.windows.length) return true;
   return next.windows.some((w) => {
     const p = prev.windows.find((x) => x.kind === w.kind && x.label === w.label);
-    return !p || Math.abs(p.usedPercent - w.usedPercent) >= 1 || p.resetsAt !== w.resetsAt;
+    // A window read again after its number went out of date shows a number again, not how old it is.
+    return !p || Math.abs(p.usedPercent - w.usedPercent) >= 1 || p.resetsAt !== w.resetsAt || p.at !== w.at;
   });
 }
 
@@ -308,13 +371,147 @@ export async function listMachineAccounts(
   ]);
   return rows.map(({ account, ownerName }) => {
     const on = [...using, ...people].filter((a) => a.accountId === account.id);
+    // Oldest first, as `sameLogins` orders them.
+    const first = rows.find((r) => sameAccountRow(r.account, account))?.account.id;
     return accountView(
       account,
       on.filter((a, i) => on.findIndex((b) => b.id === a.id) === i),
       viewerId,
       ownerName,
+      first,
     );
   });
+}
+
+/** One computer's accounts of one kind in their order of use (ADR 0041 §6). */
+export interface AccountOrderGroup {
+  machineId: string;
+  computer: string;
+  kind: AccountKind;
+  /** First to last: by `useOrder`, the unplaced after, oldest first. `canMove`: the viewer owns it or is an admin. */
+  accounts: (MachineAccountView & { canMove: boolean })[];
+}
+
+/** Accounts a run may go on with at its plan's limit (`nextAccountPlan`): the CLI's own sign-in, never a key. */
+const inOrder = (orgId: string) =>
+  and(
+    eq(machineAccounts.orgId, orgId),
+    inArray(machineAccounts.kind, [...NEXT_ACCOUNT_KINDS]),
+    inArray(machineAccounts.status, LISTED_ACCOUNT_STATUSES),
+    isNull(machineAccounts.provider),
+    sql`${machineAccounts.authMethod} is distinct from 'api_key'`,
+  );
+
+const orderOfUse = [
+  sql`${machineAccounts.useOrder} asc nulls last`,
+  machineAccounts.createdAt,
+  machineAccounts.id,
+] as const;
+
+/**
+ * `GET …/ai-accounts/order` (any member): every computer's Claude and ChatGPT accounts in the workspace's order of use,
+ * by computer and kind. Owner-only ones are listed too: they keep their place for their owner's agents. Those a run
+ * never moves to (a login for one agent, one signed out) come last, with no place.
+ */
+export async function listAccountOrder(
+  deps: Pick<MachineAccountDeps, "db">,
+  userId: string,
+  orgId: string,
+): Promise<AccountOrderGroup[]> {
+  const membership = await requirePermission(deps.db, userId, orgId, "read");
+  const admin = can(membership, "configure");
+  const rows = await deps.db
+    .select({ id: machineAccounts.id, machineId: machineAccounts.machineId, computer: machines.name })
+    .from(machineAccounts)
+    .innerJoin(machines, and(eq(machines.id, machineAccounts.machineId), isNull(machines.deletedAt)))
+    .where(inOrder(orgId))
+    .orderBy(machines.createdAt, machines.id, machineAccounts.kind, sql`${movableRow} desc`, ...orderOfUse);
+  const views = new Map<string, MachineAccountView>();
+  for (const machineId of new Set(rows.map((r) => r.machineId))) {
+    for (const v of await listMachineAccounts(deps, orgId, machineId, userId)) views.set(v.id, v);
+  }
+  const groups: AccountOrderGroup[] = [];
+  for (const r of rows) {
+    const view = views.get(r.id);
+    if (!view) continue;
+    let group = groups.find((g) => g.machineId === r.machineId && g.kind === view.kind);
+    if (!group) {
+      group = { machineId: r.machineId, computer: r.computer, kind: view.kind, accounts: [] };
+      groups.push(group);
+    }
+    group.accounts.push({ ...view, canMove: view.mine || admin });
+  }
+  return groups;
+}
+
+/**
+ * `PUT …/ai-accounts/{id}/order`: the account takes place `index` (0 first) among its computer's accounts of its kind
+ * that have a place (`movableRow`), the others keeping theirs in order. An account signed in once per agent is one
+ * place: its logins with a place (`sameAccountWhere`) move together, and `index` counts accounts, not logins. Its owner
+ * or an admin (`account.order_forbidden`). Audited as `account.order`.
+ */
+export async function moveAccountInOrder(
+  deps: MachineAccountDeps,
+  userId: string,
+  orgId: string,
+  accountId: string,
+  index: unknown,
+): Promise<AccountOrderGroup> {
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+    throw new ValidationError("The place is a whole number from 0", "account.invalid_order");
+  }
+  const membership = await requirePermission(deps.db, userId, orgId, "read");
+  const [row] = await deps.db
+    .select()
+    .from(machineAccounts)
+    .where(and(inOrder(orgId), movableRow, eq(machineAccounts.id, accountId)));
+  if (!row) throw new NotFoundError("Account not found", "account.not_found");
+  if (row.createdBy !== userId && !can(membership, "configure")) {
+    throw new ForbiddenError(
+      "Only the person who connected this account or an admin can change its place in the order",
+      "account.order_forbidden",
+    );
+  }
+  await deps.db.transaction(async (tx) => {
+    const group = await tx
+      .select()
+      .from(machineAccounts)
+      .where(
+        and(
+          inOrder(orgId),
+          movableRow,
+          eq(machineAccounts.machineId, row.machineId),
+          eq(machineAccounts.kind, row.kind),
+        ),
+      )
+      .orderBy(...orderOfUse)
+      .for("update");
+    const accounts: MachineAccountRow[][] = [];
+    for (const g of group) {
+      const account = accounts.find((a) => a[0] && sameAccountRow(g, a[0]));
+      if (account) account.push(g);
+      else accounts.push([g]);
+    }
+    const others = accounts.filter((a) => !a.some((g) => g.id === row.id));
+    others.splice(Math.min(index, others.length), 0, accounts.find((a) => a.some((g) => g.id === row.id)) ?? [row]);
+    const ids = others.flat().map((g) => g.id);
+    for (const [place, id] of ids.entries()) {
+      if (group.find((g) => g.id === id)?.useOrder === place) continue;
+      await tx.update(machineAccounts).set({ useOrder: place }).where(eq(machineAccounts.id, id));
+    }
+  });
+  await recordAudit(deps.db, {
+    orgId,
+    actor: { type: "person", id: userId },
+    action: "account.order",
+    target: { type: "machine_account", id: row.id },
+    details: { machineId: row.machineId, kind: row.kind, index },
+  });
+  await publishAccountsChanged(deps.pubsub, orgId, row.machineId);
+  const groups = await listAccountOrder(deps, userId, orgId);
+  const found = groups.find((g) => g.machineId === row.machineId && g.kind === row.kind);
+  if (!found) throw new NotFoundError("Account not found", "account.not_found");
+  return found;
 }
 
 async function accountViewOf(db: Database, orgId: string, row: MachineAccountRow, viewerId: string) {
@@ -352,7 +549,8 @@ export async function releaseAgents(
       brainAccountId: null,
       brainAccountLentBy: null,
       brain: sql`case when ${ownSignIn} then "agents"."brain" else 'model' end`,
-      // Someone else's plan leaves with its switches: its owner's own sign-in neither pays extra nor answers others.
+      // Someone else's plan leaves with its switch: its owner's own sign-in doesn't answer others.
+      // `brain_extra_usage` is unused here; the previous release still reads it during a deploy or after a rollback.
       brainExtraUsage: sql`case when ${lent} then false else "agents"."brain_extra_usage" end`,
       audienceMode: sql`case when ${lent} and ${ownSignIn} then 'owner' else "agents"."audience_mode" end`,
       updatedAt: now,
@@ -459,6 +657,26 @@ function sameAccountWhere(row: AccountKey, same: AccountIdentity) {
     row.provider ? eq(machineAccounts.provider, row.provider) : isNull(machineAccounts.provider),
     inArray(machineAccounts.status, LISTED_ACCOUNT_STATUSES),
     match,
+  );
+}
+
+/** `sameAccountWhere` between two listed rows of one computer, in memory: `row` is a login of the same account as `same`. */
+function sameAccountRow(row: MachineAccountRow, same: MachineAccountRow) {
+  if (row.id === same.id) return true;
+  if (
+    row.orgId !== same.orgId ||
+    row.machineId !== same.machineId ||
+    row.kind !== same.kind ||
+    row.createdBy !== same.createdBy ||
+    row.provider !== same.provider
+  ) {
+    return false;
+  }
+  if (row.provider) return Boolean(same.keyHint) && row.keyHint === same.keyHint;
+  return (
+    Boolean(same.email) &&
+    row.email?.toLowerCase() === same.email?.toLowerCase() &&
+    (!same.providerOrgId || !row.providerOrgId || row.providerOrgId === same.providerOrgId)
   );
 }
 
@@ -670,7 +888,11 @@ async function settleAccount(
  * engine keeps them, `noteModelLimit`), and on a plan whose models have their own limits a refusal with no window
  * full is a model's (`refusalScope`), not the account's.
  */
-function accountReading(provider: string | null, prev: PlanUsage | null | undefined, next: PlanUsage): PlanUsage {
+function accountReading(
+  provider: string | null,
+  prev: (PlanUsage & { checkedAt?: string }) | null | undefined,
+  next: PlanUsage,
+): PlanUsage & { checkedAt?: string } {
   const { limited, models: _, answered: __, ...rest } = next;
   const models = liveModelLimits(prev);
   const perModel = planOf(provider)?.limitsPerModel === true;
@@ -679,6 +901,8 @@ function accountReading(provider: string | null, prev: PlanUsage | null | undefi
     ...(limited && !(perModel && !planFull(next)) ? { limited } : {}),
     ...(models ? { models } : {}),
     ...(perModel && prev?.answered ? { answered: prev.answered } : {}),
+    // The sweep's last ask outlives a reading: it tells whether an out-of-date window was asked about already.
+    ...(prev?.checkedAt ? { checkedAt: prev.checkedAt } : {}),
   };
 }
 
@@ -825,6 +1049,7 @@ export async function syncMachineAccounts(
   });
   if (!out) return [];
   forgetAgents(orgId, out.released);
+  await wakeAgentsBrainWaits(deps, orgId, out.released);
   if (out.changed) await publishAccountsChanged(deps.pubsub, orgId, machineId);
   return out.remove;
 }
@@ -891,7 +1116,11 @@ export async function refreshAiAccounts(deps: MachineAccountHubDeps, userId: str
 /**
  * The sweep (every minute) that notices a plan freed before its stored reset (Claude's "reset for free", extra usage
  * bought, a new week): every account whose last reading is at its limit, or at the long-work pause line (`PLAN_PAUSE`)
- * with work waiting on it, is read again on its computer. A CLI login or a key gets the free probe every
+ * with work waiting on it, is read again on its computer, and so, once, is one whose window reset since its reading
+ * (`resetSinceRead`), so the meter doesn't keep a day-old reading. Also read again, while turns ran on the account
+ * since: once, a window whose own reading went out of date (`windowStale`: a turn's event that doesn't name a window
+ * keeps its old number, and a provider can start a new week early); and, for `PLAN_STALE_MS` after a refusal for
+ * the limit that a turn since got past, a window read before that refusal. A CLI login or a key gets the free probe every
  * `PLAN_RECHECK_MS`; a Claude setup token, which can't read its usage without a model call, a one-shot check on the
  * cheapest model every `TOKEN_RECHECK_MS` (`list.recheck`, protocol 62), refused while still full. A computer's own
  * sign-ins (`executors.ownUsage`, asked as `OWN_USAGE_ID`s) get the free probe too. A reading with room goes on from
@@ -907,6 +1136,9 @@ export async function recheckStuckPlans(deps: Pick<MachineAccountHubDeps, "db" |
       kind: machineAccounts.kind,
       authMethod: machineAccounts.authMethod,
       usage: machineAccounts.usage,
+      lastSuccessAt: machineAccounts.lastSuccessAt,
+      lastFailureAt: machineAccounts.lastFailureAt,
+      lastFailureCause: machineAccounts.lastFailureCause,
     })
     .from(machineAccounts)
     .where(
@@ -915,7 +1147,14 @@ export async function recheckStuckPlans(deps: Pick<MachineAccountHubDeps, "db" |
         isNotNull(machineAccounts.usage),
         sql`(${machineAccounts.usage}->>'limited' = 'true' or exists (
           select 1 from jsonb_array_elements(coalesce(${machineAccounts.usage}->'windows', '[]'::jsonb)) w
-          where (w->>'usedPercent')::numeric >= ${PLAN_PAUSE}))`,
+          where (w->>'usedPercent')::numeric >= ${PLAN_PAUSE}
+            or (w->>'resetsAt' <= ${new Date(now).toISOString()}
+              and w->>'resetsAt' > greatest(${machineAccounts.usage}->>'at', ${machineAccounts.usage}->>'checkedAt'))
+            or (coalesce(w->>'at', ${machineAccounts.usage}->>'at') < ${new Date(now - PLAN_STALE_MS).toISOString()}
+              and ${machineAccounts.lastSuccessAt} > (coalesce(w->>'at', ${machineAccounts.usage}->>'at'))::timestamptz)
+            or (${machineAccounts.lastFailureCause} = 'quota'
+              and ${machineAccounts.lastFailureAt} > ${new Date(now - PLAN_STALE_MS).toISOString()}::timestamptz
+              and ${machineAccounts.lastSuccessAt} > ${machineAccounts.lastFailureAt})))`,
       ),
     );
   const owned = (
@@ -953,19 +1192,23 @@ export async function recheckStuckPlans(deps: Pick<MachineAccountHubDeps, "db" |
     accountId: string | undefined,
     usage: NonNullable<(typeof rows)[number]["usage"]>,
     token: boolean,
+    turns?: Pick<(typeof rows)[number], "lastSuccessAt" | "lastFailureAt" | "lastFailureCause">,
   ) => {
     const { state, used } = planState(usage, now);
     const key = usageWaitKey({ code: "plan_limit", machineId, kind, accountId });
-    if (state !== "limited" && !(used >= PLAN_PAUSE && waiting.has(key))) return;
-    const last = Date.parse(planCheckedAt(usage) ?? "") || 0;
-    if (now - last < (token ? TOKEN_RECHECK_MS : PLAN_RECHECK_MS)) return;
+    const every = token ? TOKEN_RECHECK_MS : PLAN_RECHECK_MS;
+    const asked = Date.parse(usage.checkedAt ?? "") || 0;
+    const stuck = state === "limited" || (used >= PLAN_PAUSE && waiting.has(key)) || resetSinceRead(usage, now);
+    if (!stuck || now - (Date.parse(planCheckedAt(usage) ?? "") || 0) < every) {
+      if (!turns || !outdated(usage, turns, asked, every, now)) return;
+    }
     const m = byMachine.get(machineId) ?? { fresh: [], tokens: [], own: [] };
     m.fresh.push(accountId ?? OWN_USAGE_ID[kind]);
     if (token && accountId) m.tokens.push(accountId);
     if (!accountId) m.own.push(kind);
     byMachine.set(machineId, m);
   };
-  for (const r of rows) if (r.usage) consider(r.machineId, kindOf(r), r.id, r.usage, r.authMethod === "setup_token");
+  for (const r of rows) if (r.usage) consider(r.machineId, kindOf(r), r.id, r.usage, r.authMethod === "setup_token", r);
   for (const o of owned) consider(o.machineId, o.kind, undefined, o.usage, false);
   const asked: string[] = [];
   await Promise.all(
@@ -997,6 +1240,33 @@ export async function recheckStuckPlans(deps: Pick<MachineAccountHubDeps, "db" |
     }),
   );
   return asked;
+}
+
+/**
+ * A reading that turns on the account outran (`recheckStuckPlans`): a window whose own reading went out of date
+ * before the last turn, not asked about since it did; or, within `PLAN_STALE_MS` of a refusal for the limit that a
+ * turn since got past, a window of the plan's own (`planOwn`) read before that refusal, asked at most every `every`.
+ * `asked`: the sweep's last ask.
+ */
+function outdated(
+  usage: PlanUsage & { checkedAt?: string },
+  turns: { lastSuccessAt: Date | null; lastFailureAt: Date | null; lastFailureCause: string | null },
+  asked: number,
+  every: number,
+  now = Date.now(),
+) {
+  const worked = turns.lastSuccessAt?.getTime() ?? 0;
+  const readAt = (w: PlanUsage["windows"][number]) => Date.parse(windowReadAt(usage, w) ?? "") || 0;
+  const stale = usage.windows.filter((w) => windowStale(usage, w, now) && readAt(w) < worked);
+  if (stale.some((w) => asked < readAt(w) + PLAN_STALE_MS)) return true;
+  const refused = turns.lastFailureCause === "quota" ? (turns.lastFailureAt?.getTime() ?? 0) : 0;
+  return (
+    refused > now - PLAN_STALE_MS &&
+    worked > refused &&
+    now - asked >= every &&
+    // The plan's own: extra usage or a model's week the check never names again would ask every time.
+    usage.windows.some((w) => planOwn(w) && readAt(w) < refused)
+  );
 }
 
 /** The runner protocol from which a sign-in of that kind can be made for all agents where each is its own OS user. */
@@ -1046,6 +1316,15 @@ export async function touchMachineAccount(db: Executor, orgId: string, accountId
     .update(machineAccounts)
     .set({ lastUsedAt: now, lastSuccessAt: now })
     .where(and(eq(machineAccounts.orgId, orgId), eq(machineAccounts.id, accountId)));
+}
+
+/** Whether a turn ever answered with the account (`touchMachineAccount`). */
+export async function accountEverWorked(db: Executor, orgId: string, accountId: string) {
+  const [row] = await db
+    .select({ at: machineAccounts.lastSuccessAt })
+    .from(machineAccounts)
+    .where(and(eq(machineAccounts.orgId, orgId), eq(machineAccounts.id, accountId)));
+  return Boolean(row?.at);
 }
 
 /**
@@ -1126,11 +1405,14 @@ const runnerOld = (machine: Pick<MachineRow, "name" | "kind" | "executors">) =>
     { name: machine.name },
   );
 
-/** On a runner that knows accounts (`protocol`: and what is asked of it), and online now: the protocol it speaks. */
+/**
+ * On a runner that knows accounts (`protocol`: and what is asked of it), and online now (one in standby woken for it):
+ * the protocol it speaks.
+ */
 async function requireLive(deps: MachineAccountHubDeps, machine: MachineRow, protocol = ACCOUNTS_PROTOCOL) {
   if (machine.protocol < protocol) throw runnerOld(machine);
   const status = await deps.hub.status(machine.id);
-  if (!status?.online) throw new MachineOfflineError(machine.name, machine.kind);
+  if (!status || !(await awakeForPerson(deps.hub, status))) throw new MachineOfflineError(machine.name, machine.kind);
   if (status.protocol < protocol) throw runnerOld(machine);
   return status.protocol;
 }
@@ -1271,7 +1553,9 @@ export async function beginAccountLogin(
     kind === "cursor"
       ? CURSOR_PROTOCOL
       : kind === "antigravity"
-        ? ANTIGRAVITY_PROTOCOL
+        ? machine.os === "darwin"
+          ? ANTIGRAVITY_MAC_PROTOCOL
+          : ANTIGRAVITY_PROTOCOL
         : kind === "grok"
           ? GROK_PROTOCOL
           : kind === "opencode"
@@ -1483,6 +1767,7 @@ export async function accountLoginStatus(
   if (info.id !== row.id) return { state: "failed", error: "The computer reported another account." };
   const settled = await deps.db.transaction((tx) => settleAccount(tx, orgId, machine, info, true));
   forgetAgents(orgId, settled.released);
+  await wakeAgentsBrainWaits(deps, orgId, settled.released);
   if (settled.other) {
     if (settled.changed) await publishAccountsChanged(deps.pubsub, orgId, machine.id);
     const { email, duplicate } = settled.other;
@@ -1628,6 +1913,7 @@ export async function removeMachineAccount(
   }
   const released = await deps.db.transaction((tx) => tombstone(tx, orgId, [account.id]));
   forgetAgents(orgId, released);
+  await wakeAgentsBrainWaits(deps, orgId, [...released, ...(await agentsMovedOnto(deps.db, orgId, [account.id]))]);
   await recordAudit(deps.db, {
     orgId,
     actor: { type: "person", id: userId },
@@ -1748,8 +2034,17 @@ export async function releaseAgentLogin(db: Executor, orgId: string, agentId: st
  * After `releaseMemberAccounts`, `releaseOrgAccounts` or `releaseAgentLogin`: pages refetch, and the replica holding
  * each machine's runner removes them.
  */
-export async function announceReleasedAccounts(pubsub: PubSub | undefined, released: ReleasedAccounts) {
-  for (const a of released.agents) forgetAgents(a.orgId, a.agentIds);
+export async function announceReleasedAccounts(
+  deps: { db: Database; pubsub?: PubSub },
+  released: ReleasedAccounts,
+  /** false: the agents or the workspace are being deleted, nothing of theirs is left to answer. */
+  options: { wakeWaits?: boolean } = {},
+) {
+  const { pubsub } = deps;
+  for (const a of released.agents) {
+    forgetAgents(a.orgId, a.agentIds);
+    if (options.wakeWaits !== false) await wakeAgentsBrainWaits(deps, a.orgId, a.agentIds);
+  }
   for (const m of released.machines) {
     await publishAccountsChanged(pubsub, m.orgId, m.machineId);
     await pubsub

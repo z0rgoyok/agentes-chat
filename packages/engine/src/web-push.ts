@@ -2,6 +2,7 @@ import { generateVapidKeys, type KeyWrapper, type VapidKeys } from "@agenteschat
 import { and, type Database, eq, isNull, schema } from "@agenteschat/db";
 import { openSecret, type SealedSecret, SealedValueError, sealSecret } from "./crypto";
 import { isPublicHostName } from "./net-guard";
+import { withoutTrailingSlashes } from "./url-text";
 
 const { instancePush } = schema;
 
@@ -43,13 +44,35 @@ export interface VapidConfig {
  */
 export function vapidSubject(config: Pick<VapidConfig, "PUBLIC_URL" | "EMAIL_FROM">): string {
   const site = urlOf(config.PUBLIC_URL);
-  if (site?.protocol === "https:" && isPublicHostName(site.hostname)) return config.PUBLIC_URL.replace(/\/+$/, "");
+  if (site?.protocol === "https:" && isPublicHostName(site.hostname)) return withoutTrailingSlashes(config.PUBLIC_URL);
   const from = config.EMAIL_FROM?.trim() ?? "";
   // `Name <ops@example.com>` or a bare address.
-  const address = /<([^<>\s]+@[^<>\s]+)>/.exec(from)?.[1] ?? from;
+  const address = bracketedAddress(from) ?? from;
   const domain = /^[^\s@<>]+@([^\s@<>]+)$/.exec(address)?.[1];
   if (domain && isPublicHostName(domain)) return `mailto:${address}`;
   return VAPID_FALLBACK_SUBJECT;
+}
+
+/**
+ * What the first `<…>` holding an address has inside: text, an `@`, text, none of it a space, `<` or `>` (what
+ * `/<([^<>\s]+@[^<>\s]+)>/` finds). Read by index: that pattern tries each `@` of a long run against all that
+ * follows it, quadratic in the run's length.
+ */
+function bracketedAddress(text: string): string | undefined {
+  let open = text.indexOf("<");
+  while (open >= 0) {
+    // The run after `<` up to the first space, `<` or `>`; the first `@` with text before it in the run.
+    let end = open + 1;
+    let at = -1;
+    for (; end < text.length; end++) {
+      const ch = text.charAt(end);
+      if (ch === "<" || ch === ">" || /\s/.test(ch)) break;
+      if (ch === "@" && at < 0 && end > open + 1) at = end;
+    }
+    if (text.charAt(end) === ">" && at >= 0 && at < end - 1) return text.slice(open + 1, end);
+    open = text.indexOf("<", end);
+  }
+  return undefined;
 }
 
 function urlOf(value: string): URL | null {

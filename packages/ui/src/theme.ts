@@ -17,10 +17,15 @@ export function switchTheme(theme: Theme, root: HTMLElement = document.documentE
   else setTimeout(release, 0);
 }
 
-/** Calls `redraw` in the same frame `data-theme` changes on <html>; returns the cleanup. */
+/** On <html> while a workspace's accent is shown (ADR 0193): its hex, so drawings that repaint on a theme switch repaint. */
+export const ACCENT_ATTR = "data-accent";
+/** What a drawing in script watches on <html> to repaint: the theme and the workspace's accent. */
+export const PAINT_ATTRS = ["data-theme", ACCENT_ATTR];
+
+/** Calls `redraw` in the same frame `data-theme` or `data-accent` changes on <html>; returns the cleanup. */
 export function onThemeChange(redraw: () => void): () => void {
   if (typeof MutationObserver === "undefined" || typeof document === "undefined") return () => {};
   const watch = new MutationObserver(redraw);
-  watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  watch.observe(document.documentElement, { attributes: true, attributeFilter: PAINT_ATTRS });
   return () => watch.disconnect();
 }

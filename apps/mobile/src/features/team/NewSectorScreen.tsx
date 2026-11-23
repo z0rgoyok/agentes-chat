@@ -12,7 +12,10 @@ import { successHaptic } from "../shared/parts";
 /** The web's name field (the server takes up to this many characters). */
 const NAME_MAX = 80;
 
-/** The first setor from the phone: its name is all it needs. Its color, icon and lead are set on the web. */
+/**
+ * The first setor from the phone: its name is all it needs. Its color, icon and lead are set on the web. The field waits
+ * for the person's tap: a screen that opens never raises the keyboard by itself.
+ */
 export function NewSectorScreen() {
   const { t } = useTranslation();
   const c = useColors();
@@ -48,7 +51,6 @@ export function NewSectorScreen() {
             placeholderTextColor={c.faint}
             maxLength={NAME_MAX}
             editable={!action.isPending}
-            autoFocus
             autoCapitalize="words"
             returnKeyType="done"
             onSubmitEditing={save}

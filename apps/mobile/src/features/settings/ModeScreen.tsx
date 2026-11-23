@@ -31,7 +31,8 @@ import { Gap, SettingsPage } from "./parts";
  * Going to a team's it says what comes into sight and asks the workspace's name; going to personal it says what
  * changes and, with other members, that they see it too. What stays is said apart. Only the view changes: every
  * agent, conversation, file and permission stays as it is, and every member's apps reshape on the server's `org.mode`.
- * Done, it goes back where it came from (inviting goes on there, now in a team's words).
+ * Done, it goes back where it came from (inviting goes on there, now in a team's words). The switch is docked under
+ * the page, as a guide's one action.
  */
 export function ModeScreen() {
   const { t } = useTranslation();
@@ -74,7 +75,25 @@ export function ModeScreen() {
   };
 
   return (
-    <SettingsPage title={t(`personalMode.${words}.title`)} locked={update.isPending}>
+    <SettingsPage
+      title={t(`personalMode.${words}.title`)}
+      locked={update.isPending}
+      // The switch is the page's one action: docked under it, in reach however long the list above it.
+      {...(editable
+        ? {
+            bottom: (
+              <Button
+                variant="primary"
+                wide
+                label={t(`personalMode.${words}.confirm`)}
+                disabled={!ready}
+                loading={update.isPending}
+                onPress={submit}
+              />
+            ),
+          }
+        : {})}
+    >
       <Gap />
       <Text variant="body" tone="ink2" style={styles.intro}>
         {t(`personalMode.${words}.lead`)}
@@ -111,20 +130,11 @@ export function ModeScreen() {
           </GroupedList>
         </>
       ) : null}
-      <View style={styles.action}>
-        {editable ? (
-          <Button
-            variant="primary"
-            wide
-            label={t(`personalMode.${words}.confirm`)}
-            disabled={!ready}
-            loading={update.isPending}
-            onPress={submit}
-          />
-        ) : (
+      {editable ? null : (
+        <View style={styles.action}>
           <Note icon="lock">{t("settings.readOnly")}</Note>
-        )}
-      </View>
+        </View>
+      )}
     </SettingsPage>
   );
 }

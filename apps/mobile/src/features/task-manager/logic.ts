@@ -57,7 +57,7 @@ export const isHeld = (state: RowState): state is HeldState =>
   state === "computerBusy" || state === "computerOffline" || state === "plan" || state === "budget";
 
 /**
- * A task's state on its row: a wait says what holds it and what comes next ("Pausada: plano a 95% da semana", "Volta
+ * A task's state on its row: a wait says what holds it and what comes next ("Pausada: plano a 99% da semana", "Volta
  * sáb às 18:00"; "Na fila · 2º", "começa em ~3 min").
  */
 export function taskStateWords(

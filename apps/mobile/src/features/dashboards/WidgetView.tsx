@@ -24,17 +24,12 @@ import {
   smoothPath,
 } from "@agenteschat/ui/sky/chart";
 import { Canvas, Path, Rect, Skia } from "@shopify/react-native-skia";
-import { type ComponentRef, memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentRef, memo, type ReactNode, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { Easing, useAnimatedStyle } from "react-native-reanimated";
+import { useLivePaused } from "@/agent/live";
+import { useDrawingClock } from "@/sky/clock";
 import {
   CardHorizon,
   CHROME_MAX_SCALE,
@@ -79,6 +74,9 @@ import {
 /** The card's padding: the edge-to-edge chart cancels it. */
 const PAD_X = 18;
 const PAD_Y = 16;
+/** The build's band crosses the field once in this long, easing in and out. */
+const SWEEP_MS = 1400;
+const SWEEP_EASE = Easing.inOut(Easing.quad);
 
 function useWidth(): [number, (e: LayoutChangeEvent) => void] {
   const [width, setWidth] = useState(0);
@@ -214,15 +212,24 @@ function Kpi({
   );
   return (
     <View>
-      <Text
-        variant="display"
-        numberOfLines={1}
-        style={[styles.num, big ? styles.numBig : compact ? styles.numCompact : null, { color: c.ink }]}
-      >
-        {spec.prefix ? <Text style={[styles.affix, { color: c.muted }]}>{`${spec.prefix} `}</Text> : null}
-        {formatWidgetNumber(spec.value, i18n.language)}
-        {spec.suffix ? <Text style={[styles.affix, { color: c.muted }]}>{` ${spec.suffix}`}</Text> : null}
-      </Text>
+      {/* What comes before the number ("US$") is a text of its own on the number's baseline: as the first, smaller
+          part of the number's text, Android set the line's height by it and cut the top off the digits. */}
+      <View style={styles.figure}>
+        {spec.prefix ? <Text style={[styles.affix, { color: c.muted }]}>{spec.prefix}</Text> : null}
+        <Text
+          variant="display"
+          numberOfLines={1}
+          style={[
+            styles.num,
+            big ? styles.numBig : compact ? styles.numCompact : null,
+            styles.shrink,
+            { color: c.ink },
+          ]}
+        >
+          {formatWidgetNumber(spec.value, i18n.language)}
+          {spec.suffix ? <Text style={[styles.affix, { color: c.muted }]}>{` ${spec.suffix}`}</Text> : null}
+        </Text>
+      </View>
       {spec.delta || spec.note ? (
         <Text variant="footnote" tone="ink2" numberOfLines={compact ? 1 : 2}>
           {/* On the strip the change is a quiet word (one accent per screen: the waiting strip's); on a board, its color. */}
@@ -586,14 +593,14 @@ export function BuildingSweep({
   const tones = widgetTones(color, scheme === "dark");
   const [width, onLayout] = useWidth();
   const band = Math.max(24, Math.round(width * 0.4));
-  const at = useSharedValue(0);
-  useEffect(() => {
-    if (reduced || width === 0) return;
-    at.value = 0;
-    at.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }), -1, false);
-    return () => cancelAnimation(at);
-  }, [reduced, width, at]);
-  const sweep = useAnimatedStyle(() => ({ transform: [{ translateX: -band + at.value * (width + band) }] }));
+  // Off screen (a tab not shown, a screen pushed over the home) its time stops where it was, and it carries on from
+  // there when it shows again: each pass is the eased crossing of `SWEEP_MS` on that time.
+  const paused = useLivePaused();
+  const clock = useDrawingClock(!reduced && !paused && width > 0);
+  const sweep = useAnimatedStyle(() => {
+    const at = SWEEP_EASE((clock.get() % SWEEP_MS) / SWEEP_MS);
+    return { transform: [{ translateX: -band + at * (width + band) }] };
+  });
   const box = roundRectPath(0, 0, width, height, 6);
   return (
     <View style={styles.building} accessibilityRole={still ? "text" : "progressbar"} accessibilityLabel={text}>
@@ -896,6 +903,10 @@ const styles = StyleSheet.create({
   num: { fontSize: 30, lineHeight: 34, fontWeight: "700", letterSpacing: -0.9, fontVariant: ["tabular-nums"] },
   numBig: { fontSize: 40, lineHeight: 44, letterSpacing: -1.2 },
   affix: { fontSize: 15, fontWeight: "600", letterSpacing: 0 },
+  // The prefix and the number on one baseline, a space's width apart.
+  figure: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  // A long number gives way (and ends in "…"), never the prefix beside it.
+  shrink: { flexShrink: 1, minWidth: 0 },
   strong: { fontWeight: "600" },
   spark: { marginTop: 6 },
   track: {

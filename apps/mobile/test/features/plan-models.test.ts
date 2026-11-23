@@ -28,7 +28,7 @@ describe("Uso: a plan's models at a limit of their own", () => {
   });
 
   test("the workspace's accounts, the agent's Agora and its AI's glance list them under the windows", async () => {
-    for (const file of ["usage/UsageScreen.tsx", "usage/AgentUsageScreen.tsx"]) {
+    for (const file of ["usage/UsageAccountScreen.tsx", "usage/AgentUsageScreen.tsx"]) {
       expect(await source(file)).toMatch(
         /<PlanModels usage=\{(account|current)\.usage\} provider=\{\1\.provider\} \/>/,
       );

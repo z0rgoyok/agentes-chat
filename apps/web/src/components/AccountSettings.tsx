@@ -3,6 +3,7 @@ import {
   ApiError,
   keys,
   useAiAccounts,
+  useAuthConfig,
   useSetAgentStyle,
   useSetShowActivity,
 } from "@agenteschat/client";
@@ -28,8 +29,10 @@ import {
   Dialog,
   DialogBody,
   DialogFooter,
+  Disclosure,
   Field,
   Icon,
+  type IconName,
   Input,
   Locked,
   PlanMeter,
@@ -40,7 +43,7 @@ import {
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import type { AuthResult } from "@/auth/client";
@@ -48,7 +51,7 @@ import { useAuth } from "@/auth/context";
 import { AppIconDialog, AppIconPicture, useAppIcon, useAppIconName } from "@/components/AppIconPicker";
 import { ChangeAvatarDialog } from "@/components/AvatarBuilder";
 import { ChatLookSettings } from "@/components/ChatLookSettings";
-import { DeleteWorkspaceDialog } from "@/components/DeleteWorkspace";
+import { DeleteWorkspaceDialog, DeletionLine, ResetWorkspaceDialog } from "@/components/DeleteWorkspace";
 import { PrefRow } from "@/components/NoticePrefs";
 import { OpenOnPhoneDialog } from "@/components/OpenOnPhone";
 import { useOrg } from "@/components/org-context";
@@ -101,6 +104,10 @@ export function AccountSection() {
   const [, setAccount] = useOpenParam("account");
   const owner = org.role === "owner";
   const [deletingOrg, setDeletingOrg] = useOpenParam("delete");
+  const [resettingOrg, setResettingOrg] = useState(false);
+  // Started here: the row says so until the workspace starts over (`org.reset` reads every list again).
+  const [resetting, setResetting] = useState(false);
+  const config = useAuthConfig().data;
   const mine = dir.memberById.get(me.user.id);
   const zone = mine?.timezone || browserTimezone() || "UTC";
   return (
@@ -291,32 +298,105 @@ export function AccountSection() {
         <AppIconDialog open={iconPicker} onClose={() => setIconPicker(false)} />
       </Card>
       <Card aria-labelledby="account-delete" className="settings-danger">
-        <CardHeader
-          id="account-delete"
-          icon="trash"
-          title={t(owner ? "deleteAccount.card.title" : "deleteAccount.menu")}
-        />
-        <div className="danger-pair">
-          <div className="danger-pair__way">
-            <p className="small muted">{t("deleteAccount.card.text")}</p>
-            <Button size="sm" variant="danger" onClick={() => setAccount("delete")}>
-              {t("deleteAccount.menu")}
-            </Button>
-          </div>
+        <CardHeader id="account-delete" icon="trash" title={t(owner ? "resetOrg.cardTitle" : "deleteAccount.menu")} />
+        <div className="settings-rows">
           {owner && (
-            <div className="danger-pair__way">
-              <p className="small muted">{t("deleteOrg.card.text", { name: org.name })}</p>
+            <DangerRow
+              icon="refresh"
+              title={t("resetOrg.row.title")}
+              text={resetting ? t("resetOrg.resetting", { name: org.name }) : t("resetOrg.row.text")}
+            >
+              <ul className="deletion-lines">
+                <DeletionLine icon="trash">{t("resetOrg.goes")}</DeletionLine>
+                <DeletionLine icon="check">{t("resetOrg.stays")}</DeletionLine>
+                {config?.billingUrl && <DeletionLine icon="coin">{t("resetOrg.plan")}</DeletionLine>}
+                <DeletionLine icon="refresh">{t("resetOrg.fresh")}</DeletionLine>
+              </ul>
+              <p className="small muted deletion-note">{t("resetOrg.now")}</p>
+              <Button size="sm" variant="danger" disabled={resetting} onClick={() => setResettingOrg(true)}>
+                {t("resetOrg.submit")}
+              </Button>
+            </DangerRow>
+          )}
+          {owner && (
+            <DangerRow
+              icon="trash"
+              title={t("deleteOrg.card.title")}
+              text={t("deleteOrg.card.text", { name: org.name })}
+            >
+              <ul className="deletion-lines">
+                <DeletionLine icon="message">{t("deleteOrg.goes.content")}</DeletionLine>
+                <DeletionLine icon="members">{t("deleteOrg.goes.peopleQuiet")}</DeletionLine>
+              </ul>
               <Button size="sm" variant="danger" onClick={() => setDeletingOrg(1)}>
                 {t("deleteOrg.card.title")}
               </Button>
-            </div>
+            </DangerRow>
           )}
+          <DangerRow icon="person" title={t("deleteAccount.menu")} text={t("deleteAccount.card.text")}>
+            <ul className="deletion-lines">
+              <DeletionLine icon="person">{t("deleteAccount.intro")}</DeletionLine>
+              <DeletionLine icon="message">{t("deleteAccount.messages")}</DeletionLine>
+            </ul>
+            <Button size="sm" variant="danger" onClick={() => setAccount("delete")}>
+              {t("deleteAccount.menu")}
+            </Button>
+          </DangerRow>
         </div>
         {owner && <DeleteWorkspaceDialog org={org} open={deletingOrg !== null} onClose={() => setDeletingOrg(null)} />}
+        {owner && (
+          <ResetWorkspaceDialog
+            org={org}
+            open={resettingOrg}
+            onClose={() => setResettingOrg(false)}
+            onStarted={() => {
+              setResettingOrg(false);
+              setResetting(true);
+            }}
+          />
+        )}
       </Card>
       <ProfileDialog focus={profile} onClose={() => setProfile(null)} />
       <OpenOnPhoneDialog open={phone} onClose={() => setPhone(false)} />
     </>
+  );
+}
+
+/**
+ * One way to reset or delete, as a row of Sua conta's last card: its icon and title, its line under them at the row's
+ * full width (a MediaRow: the tile never owns a column beside a sentence that wraps); opened, what it does and its
+ * button.
+ */
+function DangerRow({
+  icon,
+  title,
+  text,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  text: string;
+  children: ReactNode;
+}) {
+  return (
+    <Disclosure
+      className="danger-row"
+      summary={
+        <span className="ac-mediarow">
+          <span className="ac-mediarow__face" aria-hidden="true">
+            <span className="settings-row__icon">
+              <Icon name={icon} size={16} />
+            </span>
+          </span>
+          <span className="ac-mediarow__head">
+            <b>{title}</b>
+          </span>
+          <span className="ac-mediarow__body settings-row__status">{text}</span>
+        </span>
+      }
+    >
+      {children}
+    </Disclosure>
   );
 }
 

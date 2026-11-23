@@ -80,6 +80,7 @@ export const iphoneHere = (phones: readonly RunnerPhone[] | undefined) =>
 const PHONE_STEP: Partial<Record<string, IphoneSetupStep>> = {
   xcode_missing: "xcode",
   xcode_too_old: "xcode",
+  ios_behind_xcode: "helper",
   device_support: "tools",
   untrusted: "connected",
   locked: "connected",

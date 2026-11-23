@@ -186,7 +186,7 @@ describe("Responder inside a thread", () => {
     expect(row("t-1").className).toContain("ac-msg--focus");
   });
 
-  test("an original this view can't reach says so, and the person stays where they were", async () => {
+  test("an original this view doesn't hold says it isn't available, and the person stays where they were", async () => {
     const far = {
       replyTo: {
         messageId: "t-far",
@@ -202,7 +202,7 @@ describe("Responder inside a thread", () => {
     scroller.scrollTop = 40;
     await click(within(row("t-3")).getByRole("button", { name: /Resposta a Ada/ }));
     await settle(6);
-    expect(document.body.textContent).toContain("Essa mensagem está longe demais para abrir daqui.");
+    expect(document.body.textContent).toContain("Essa mensagem não está disponível.");
     expect(scroller.scrollTop).toBe(40);
   });
 

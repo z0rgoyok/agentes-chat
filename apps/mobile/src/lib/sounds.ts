@@ -1,8 +1,9 @@
 import { type SoundName, setSoundPlayer } from "@agenteschat/client/lib/sounds";
 import { DEFAULT_SOUND_STYLE, isSoundStyle, renderSound, SOUNDS, type SoundStyle, wavBytes } from "@agenteschat/ui/sfx";
-import { type AudioPlayer, createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { type AudioPlayer, createAudioPlayer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 import { useEffect, useSyncExternalStore } from "react";
+import { appAudio } from "./audio-mode";
 import { readValueSync, STORED, writeValue } from "./storage";
 
 /**
@@ -95,11 +96,7 @@ function warm(style: SoundStyle) {
 /** In the signed-in app: the player for the shared code, the audio session, the files made after the start. */
 export function useSounds() {
   useEffect(() => {
-    void setAudioModeAsync({
-      playsInSilentMode: false,
-      interruptionMode: "mixWithOthers",
-      shouldPlayInBackground: false,
-    }).catch(() => {});
+    void appAudio();
     setSoundPlayer(play);
     const timer = setTimeout(() => {
       if (choice !== "off") warm(choice);

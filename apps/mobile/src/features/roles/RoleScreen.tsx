@@ -14,7 +14,7 @@ import { goBack, successHaptic } from "../shared/parts";
 import { OWNER_ROLE, tabValues } from "./logic";
 import { ask, CargoHead, CargoMark, Gone, rolesHref, useFail, useRolesData, Waiting } from "./parts";
 
-/** A cargo's page (P3; `owner`: the owners', W11). */
+/** A cargo's page (`owner`: the owners'). */
 export function RoleScreen({ roleId }: { roleId: string }) {
   const { t } = useTranslation();
   const { data, people, failed, error, retry } = useRolesData();
@@ -27,8 +27,9 @@ export function RoleScreen({ roleId }: { roleId: string }) {
 }
 
 /**
- * A cargo (P3): its mark, name and glance on top, a lock note when it reads only, then its tabs as rows (Permissões,
- * Canais, Agentes, Pessoas, Nome, cor e ícone) and what can be done with it. Todos has no people, copy or delete.
+ * A cargo: its name in the bar, its mark and glance on top, a lock note when it reads only, then its tabs as rows
+ * (Permissões, Canais, Agentes, Pessoas, Nome, cor e ícone) and what can be done with it. Todos has no people, copy or
+ * delete.
  */
 function CargoPage({ role, people }: { role: OrgRole; people: Person[] }) {
   const { t, i18n } = useTranslation();
@@ -154,7 +155,7 @@ const OWNER_ITEMS: { icon: IconName; key: "transfer" | "owners" | "delete" }[] =
   { icon: "trash", key: "delete" },
 ];
 
-/** The owners as a cargo (W11): what only they do, each explained behind its ⓘ, and who they are. */
+/** The owners as a cargo: what only they do, each explained behind its ⓘ, and who they are. */
 function OwnerScreen({ people }: { people: Person[] }) {
   const { t } = useTranslation();
   const fail = useFail();

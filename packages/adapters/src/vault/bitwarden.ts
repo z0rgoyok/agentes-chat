@@ -69,6 +69,12 @@ const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_SYNC_BYTES = 32 * 1024 * 1024;
 /** Bitwarden's device type for SDK clients. */
 const DEVICE_TYPE = "21";
+/**
+ * The version this client claims. Bitwarden refuses a request without a client version (400 `version_header`) and
+ * reads the value for its own compatibility rules; the login and the API both take it. Keep it a plausible released
+ * client version rather than inventing one from our own package's.
+ */
+const CLIENT_VERSION = "2026.1.0";
 const DEVICE_NAME = "agentes.chat";
 const DEFAULT_FOLDER = "Agents";
 const CIPHER_TYPE_LOGIN = 1;
@@ -290,10 +296,20 @@ function failureOf(http: Http, answer: Answer, notFound: VaultSourceError): Vaul
   return fail("unreachable", MESSAGES.unreadable);
 }
 
+/**
+ * What every call to the identity and API servers carries: the device it claims to be and the client version, which
+ * Bitwarden requires (a request without it is answered 400 `version_header`).
+ */
+const clientHeaders = {
+  "bitwarden-client-name": "cli",
+  "bitwarden-client-version": CLIENT_VERSION,
+  "device-type": DEVICE_TYPE,
+};
+
 const apiHeaders = (accessToken: string) => ({
   authorization: `Bearer ${accessToken}`,
   accept: "application/json",
-  "device-type": DEVICE_TYPE,
+  ...clientHeaders,
 });
 
 async function apiGet(
@@ -386,7 +402,7 @@ async function requestToken(
       headers: {
         "content-type": "application/x-www-form-urlencoded; charset=utf-8",
         accept: "application/json",
-        "device-type": DEVICE_TYPE,
+        ...clientHeaders,
       },
       body: form.toString(),
     },

@@ -29,7 +29,7 @@ import { pendingCommandsSql } from "./mission-command-rules";
 import { quietNoticeSql } from "./notices";
 import { can, type Membership, requirePermission } from "./organizations";
 import { maySql } from "./permissions";
-import { taskReaderSql } from "./task-access";
+import { fileConversationReaderSql, taskReaderSql } from "./task-access";
 
 const { threads, messages, channels, channelMembers } = schema;
 
@@ -1495,7 +1495,7 @@ function unreadReplySql(orgId: string, userId: string, root: SQL, joinedAt: SQL)
     and (ur.author_user_id is null or ur.author_user_id <> ${userId})
     and not ${quietNoticeSql(sql`ur.meta`)} and ur.meta->>'mediaAfter' is null
     and ${landedAfterSql({ createdAt: sql`ur.created_at`, id: sql`ur.id` }, sql`greatest(${joinedAt}, ${threadReadAtSql(userId, root)})`)}
-    and not exists (select 1 from ${threads} mt where mt.root_message_id = ${root}
+    and not exists (select 1 from ${threads} mt where mt.org_id = ${orgId}::uuid and mt.root_message_id = ${root}
       and ur.id = any(mt.context_moved_message_ids))`;
 }
 
@@ -1574,6 +1574,41 @@ export async function unreadTaskConversations(db: Database, userId: string, orgI
   );
   return rows.map((r) => ({
     issueId: r.id,
+    unread: Number(r.following === true ? r.n : r.m),
+    mentions: Number(r.m),
+  }));
+}
+
+/** A live file's conversation with something I haven't read (ADR 0199): replies, and of them those that mention me. */
+export interface UnreadFile {
+  artifactId: string;
+  /** Replies I haven't read: every one in a conversation I follow, else only those that mention me. */
+  unread: number;
+  mentions: number;
+}
+
+/**
+ * The live files whose conversation has a reply I haven't read, by the threads' rule (`unreadReplySql`, at most
+ * `MAX_THREAD_UNREAD` each), only where I read the file now (`unreadTaskConversations` for files): people are never
+ * members of a file's channel, and a mention counts until I read it there.
+ */
+export async function unreadFileConversations(db: Database, userId: string, orgId: string): Promise<UnreadFile[]> {
+  await requirePermission(db, userId, orgId, "read");
+  const rows = rowsOf<{ id: string; following: boolean; n: number | string; m: number | string }>(
+    await db.execute(sql`select fa.id, f.following, u.n, u.m from ${schema.artifacts} fa
+        cross join lateral (select ${followsThreadSql(orgId, userId, sql`fa.conversation_root_id`)} as following) f
+        cross join lateral (select count(*)::int as n,
+            count(*) filter (where ${userId} = any(ur.mentioned_user_ids))::int as m
+          from (select ur.mentioned_user_ids from ${messages} ur
+            where ${unreadReplySql(orgId, userId, sql`fa.conversation_root_id`, sql`'-infinity'::timestamptz`)}
+            limit ${MAX_THREAD_UNREAD}) ur) u
+        where fa.org_id = ${orgId}::uuid and fa.conversation_channel_id is not null
+          and fa.conversation_root_id is not null and fa.deleted_at is null
+          and (u.m > 0 or (f.following and u.n > 0))
+          and ${fileConversationReaderSql(sql`fa.conversation_channel_id`, sql`${userId}`)}`),
+  );
+  return rows.map((r) => ({
+    artifactId: r.id,
     unread: Number(r.following === true ? r.n : r.m),
     mentions: Number(r.m),
   }));

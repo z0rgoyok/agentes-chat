@@ -14,6 +14,8 @@ export const TOKEN_H = 32;
 export const TOKEN_GAP = 6;
 /** The ×'s own box at the pill's end; `hitSlop` grows its target to a finger's 44. */
 const X_BOX = 24;
+/** A token just added fades in (built once: a builder made in render is a new animation every time). */
+const TOKEN_IN = FadeIn.duration(motion.fast).easing(motion.easeOut);
 
 export interface TokenProps {
   label: string;
@@ -104,7 +106,7 @@ export function Token({ label, leading, note, tone = "neutral", onPress, onRemov
     </View>
   );
   return (
-    <Animated.View style={styles.shrink} entering={fresh && !reducedMotion ? FadeIn.duration(motion.fast) : undefined}>
+    <Animated.View style={styles.shrink} entering={fresh && !reducedMotion ? TOKEN_IN : undefined}>
       {body}
     </Animated.View>
   );

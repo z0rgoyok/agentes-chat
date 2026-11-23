@@ -1,22 +1,35 @@
 import { useDashboards, useHomeDashboard, usePinWidget, type WidgetSchedule } from "@agenteschat/client";
 import { chartBlockToWidgetSpec, sizeToLayout, type WidgetSize } from "@agenteschat/ui/widgets/spec";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Locked, Text, useTheme, useToast } from "@/ui";
+import {
+  EmptyState,
+  Filters,
+  GroupedFooter,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
+  Locked,
+  useTheme,
+  useToast,
+} from "@/ui";
+import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
 import { useOrgId } from "../shared/hooks";
 import { goBack, PushedHeader, successHaptic } from "../shared/parts";
 import { useAgentLook } from "./hooks";
 import { destinationsOf, HOME, pinDraftNow, realBoardId, sizeFor } from "./logic";
-import { ChoiceChips, ScheduleChoice, SizeChoice } from "./parts";
+import { closeOptionPick, openOptionPick } from "./option-pick";
+import { ScheduleChoice, SizeChoice } from "./parts";
 import { WidgetCard } from "./WidgetView";
 
 /**
  * "Pin to a dashboard", pushed from a message's actions (ADR 0135): the chart as a widget (which one, when the message
- * has several), whether its agent keeps it updated and how often (or "just pin" as it is), and where it goes. "Pin"
- * in the bar. The message's charts come from the actions (`setPinDraft`): a route can't carry them.
+ * has several), whether its agent keeps it updated and how often (or "just pin" as it is), and where it goes (the
+ * boards on the app's picker, pushed, as New widget's). "Pin" in the bar. The message's charts come from the actions
+ * (`setPinDraft`): a route can't carry them; opened without them, it says the chart is gone.
  */
 export function PinScreen() {
   const { t } = useTranslation();
@@ -44,6 +57,22 @@ export function PinScreen() {
   const target = destination ? realBoardId(destination.id, home.data?.id) : null;
   const where = destination?.home ? t("dashboards.home") : (destination?.title ?? "");
   const ready = Boolean(draft && block && chart && target) && !pin.isPending;
+  // The boards' screen writes back here while it is open; leaving ends it.
+  useEffect(() => () => closeOptionPick(), []);
+  /** Where it goes: the boards, pushed (the choice comes back through `option-pick`). */
+  const openDestinations = () => {
+    openOptionPick({
+      title: t("dashboards.newWidget.destination"),
+      value: destination?.id ?? null,
+      options: destinations.map((d) => ({
+        key: d.id,
+        icon: d.home ? "home" : "chart",
+        label: d.home ? t("dashboards.home") : (d.title ?? ""),
+      })),
+      apply: setDest,
+    });
+    router.push("/option-pick");
+  };
   const submit = () => {
     if (!ready || !draft || !block || !target) return;
     const every: WidgetSchedule = keep ? schedule : "manual";
@@ -102,7 +131,7 @@ export function PinScreen() {
                 <>
                   <GroupedHeader>{t("mobile.dashboards.pin.which")}</GroupedHeader>
                   <View style={styles.bleed}>
-                    <ChoiceChips
+                    <Filters
                       items={draft.blocks.map((b, i) => ({
                         key: String(i),
                         label: chartBlockToWidgetSpec(b)?.title ?? String(i + 1),
@@ -142,23 +171,19 @@ export function PinScreen() {
                 </>
               ) : null}
 
-              <GroupedHeader>{t("dashboards.newWidget.destination")}</GroupedHeader>
+              <View style={styles.gap} />
               <GroupedList>
-                {destinations.map((d) => (
-                  <GroupedRow
-                    key={d.id}
-                    icon={d.home ? "home" : "chart"}
-                    label={d.home ? t("dashboards.home") : (d.title ?? "")}
-                    checked={d.id === destination?.id}
-                    onPress={() => setDest(d.id)}
-                  />
-                ))}
+                {/* With My Home alone, nothing to pick: the row says where it goes. */}
+                <GroupedRow
+                  icon={destination?.home ? "home" : "chart"}
+                  label={t("dashboards.newWidget.destination")}
+                  value={where}
+                  {...(destinations.length > 1 ? { chevron: true, onPress: openDestinations } : {})}
+                />
               </GroupedList>
             </>
           ) : (
-            <Text tone="muted" style={styles.gone}>
-              {t("dashboards.errors.blockNotFound")}
-            </Text>
+            <EmptyState size="panel" icon="chart" title={t("dashboards.errors.blockNotFound")} />
           )}
         </Locked>
       </ScrollView>
@@ -172,5 +197,4 @@ const styles = StyleSheet.create({
   preview: { paddingTop: 4 },
   bleed: { marginHorizontal: -16 },
   gap: { height: 14 },
-  gone: { textAlign: "center", paddingTop: 48, paddingHorizontal: 16 },
 });

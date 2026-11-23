@@ -10,18 +10,21 @@ import {
 import { layoutToSize, sizeToLayout, WIDGET_SIZES, type WidgetSize } from "@agenteschat/ui/widgets/spec";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { GestureDetector, ScrollView, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
+  Easing,
   FadeOut,
   type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 import {
+  EmptyState,
   GroupedFooter,
   haptics,
   IconButton,
@@ -33,19 +36,24 @@ import {
   useToast,
 } from "@/ui";
 import { useFailed } from "../routines/hooks";
+import { useUnsavedGuard } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
 import { useDirectory, useOrgId } from "../shared/hooks";
 import { goBack, PushedHeader, successHaptic, useSurface } from "../shared/parts";
 import { useBoard } from "./hooks";
 import { layoutChanged, moveWidgetItem, shownWidgetTitle, widgetPlace } from "./logic";
 import { dragTarget, footprint, moveIndex, orderWidgets } from "./organize-logic";
+import { MissingScreen } from "./parts";
 
 /** A hold this long picks a widget up; a quicker swipe still scrolls. */
 const HOLD_MS = 280;
 const GAP = 10;
 /** A row's height before it is measured (they are all alike: a title line, then the size line). */
 const ROW_GUESS = 104;
-const SPRING = { damping: 22, stiffness: 260, mass: 0.9 };
+/** Rows sliding to their places and a size's drawing settling: a reposition, no overshoot past it. */
+const SPRING = { duration: 400, dampingRatio: 0.8 };
+/** The held row lifting: a press's quick ease-out, not a bounce. */
+const LIFT = { duration: 150, easing: Easing.bezier(0.23, 1, 0.32, 1) };
 /** The size's small drawing: a square of two columns and two rows. */
 const FOOT_W = 22;
 const FOOT_H = 22;
@@ -54,29 +62,22 @@ const FOOT_GAP = 2;
 /**
  * Organize a board on the phone, pushed from its "…" (ADR 0135): each widget in the board's order, held and dragged
  * to a new place (the others slide out of its way) or moved with Move up and Move down, its size (S, M, L, drawn as
- * the room it takes) and Remove. "Done" saves the order and sizes at once; a home board's tiles keep their places.
+ * the room it takes) and Remove. "Done" saves the order and sizes at once (leaving without it asks first); a home
+ * board's tiles keep their places.
  * `id` is `home` for My Home.
  */
 export function OrganizeScreen({ id }: { id: string }) {
   const { t } = useTranslation();
-  const { colors: c } = useTheme();
-  const { board, loading } = useBoard(id);
-  if (!board) {
+  const { board, loading, failed, refetch } = useBoard(id);
+  if (!board)
     return (
-      <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-        <PushedHeader title={t("widgets.organize.start")} solid={false} grouped />
-        <View style={styles.center}>
-          {loading ? (
-            <ActivityIndicator color={c.muted} />
-          ) : (
-            <Text tone="muted" style={styles.centerText}>
-              {t("dashboards.errors.notFound")}
-            </Text>
-          )}
-        </View>
-      </View>
+      <MissingScreen
+        title={t("widgets.organize.start")}
+        state={loading ? "loading" : failed ? "failed" : "gone"}
+        onRetry={() => void refetch()}
+        gone={t("dashboards.errors.notFound")}
+      />
     );
-  }
   return <Arrange key={board.id} board={board} />;
 }
 
@@ -95,6 +96,13 @@ function Arrange({ board }: { board: Dashboard }) {
   const [items, setItems] = useState<BoardItem[]>(before);
   const home = board.kind === "home";
   const widgets = items.flatMap((item) => (item.type === "widget" ? [item] : []));
+  // A new order or size not saved asks before a back swipe drops it (a widget removed here is already gone).
+  const leave = useUnsavedGuard(
+    layoutChanged(
+      before.filter((x) => items.some((i) => i.id === x.id)),
+      items,
+    ),
+  );
 
   // The rows stand in a column of their own, each at its place in `order` (shared with the UI thread): a drag or a
   // move changes the order and every row springs to its new place; the screen's state follows on the drop.
@@ -109,16 +117,14 @@ function Arrange({ board }: { board: Dashboard }) {
   const settled = useSharedValue(false);
   const [lifted, setLifted] = useState<string | null>(null);
   useEffect(() => {
-    order.value = ids ? ids.split(",") : [];
+    order.set(ids ? ids.split(",") : []);
   }, [ids, order]);
   useEffect(() => {
-    step.value = rowH + GAP;
+    step.set(rowH + GAP);
   }, [rowH, step]);
   useEffect(() => {
     // First drawn in place; from then on every change springs.
-    const timer = setTimeout(() => {
-      settled.value = true;
-    }, 0);
+    const timer = setTimeout(() => settled.set(true), 0);
     return () => clearTimeout(timer);
   }, [settled]);
 
@@ -152,6 +158,7 @@ function Arrange({ board }: { board: Dashboard }) {
         onSuccess: () => {
           successHaptic();
           toast({ title: t("mobile.dashboards.organize.saved") });
+          leave();
           goBack();
         },
         onError: failed,
@@ -202,11 +209,7 @@ function Arrange({ board }: { board: Dashboard }) {
         contentContainerStyle={[styles.in, { paddingBottom: 24 + insets.bottom }]}
       >
         <GroupedFooter>{t("mobile.dashboards.organize.hint")}</GroupedFooter>
-        {widgets.length === 0 ? (
-          <Text variant="subhead" tone="muted" style={styles.empty}>
-            {t("dashboards.empty.text")}
-          </Text>
-        ) : null}
+        {widgets.length === 0 ? <EmptyState size="inline" title={t("dashboards.empty.text")} /> : null}
         <Locked when={save.isPending}>
           <View style={{ height: widgets.length ? widgets.length * (rowH + GAP) - GAP : 0 }}>
             {widgets.map((item) => (
@@ -278,43 +281,44 @@ function OrganizeRow({
     activateAfterLongPress: HOLD_MS,
     onActivate: () => {
       "worklet";
-      held.value = id;
-      from.value = Math.max(0, order.value.indexOf(id));
-      offset.value = 0;
+      held.set(id);
+      from.set(Math.max(0, order.get().indexOf(id)));
+      offset.set(0);
       scheduleOnRN(onLift, id);
     },
     onUpdate: (e) => {
       "worklet";
-      if (held.value !== id) return;
-      offset.value = e.translationY;
-      const ids = order.value;
+      if (held.get() !== id) return;
+      offset.set(e.translationY);
+      const ids = order.get();
       const at = ids.indexOf(id);
-      const to = dragTarget(from.value, e.translationY, step.value, ids.length);
+      const to = dragTarget(from.get(), e.translationY, step.get(), ids.length);
+      // Only when the row crosses into another place: the others move and one tick is felt.
       if (at < 0 || to === at) return;
-      order.value = moveIndex(ids, at, to);
+      order.set(moveIndex(ids, at, to));
       scheduleOnRN(haptics.selection);
     },
     onDeactivate: () => {
       "worklet";
-      if (held.value !== id) return;
-      held.value = null;
-      scheduleOnRN(onDrop, order.value);
+      if (held.get() !== id) return;
+      held.set(null);
+      scheduleOnRN(onDrop, order.get());
     },
   });
   const placed = useAnimatedStyle(() => {
-    const y = Math.max(0, order.value.indexOf(id)) * step.value;
-    if (held.value === id)
+    const y = Math.max(0, order.get().indexOf(id)) * step.get();
+    if (held.get() === id)
       return {
         zIndex: 2,
         transform: [
-          { translateY: from.value * step.value + offset.value },
-          { scale: reduced ? 1 : withSpring(1.03, SPRING) },
+          { translateY: from.get() * step.get() + offset.get() },
+          { scale: reduced ? 1 : withTiming(1.03, LIFT) },
         ],
       };
-    const still = reduced || !settled.value;
+    const still = reduced || !settled.get();
     return {
       zIndex: 0,
-      transform: [{ translateY: still ? y : withSpring(y, SPRING) }, { scale: still ? 1 : withSpring(1, SPRING) }],
+      transform: [{ translateY: still ? y : withSpring(y, SPRING) }, { scale: still ? 1 : withTiming(1, LIFT) }],
     };
   });
   return (
@@ -337,9 +341,8 @@ function OrganizeRow({
                 {t("mobile.dashboards.organize.position", { at: place.at, count: place.count })}
               </Text>
             </View>
-            {/* `send` is the line icons' up arrow, `down`'s mirror. */}
             <IconButton
-              icon="send"
+              icon="up"
               label={t("mobile.dashboards.organize.up")}
               disabled={place.at <= 1}
               onPress={() => onMove(-1)}
@@ -394,9 +397,6 @@ function Footprint({ size }: { size: WidgetSize }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   in: { paddingHorizontal: 16, paddingTop: 4, gap: 10 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
-  centerText: { textAlign: "center" },
-  empty: { textAlign: "center", paddingVertical: 32 },
   slot: { position: "absolute", top: 0, left: 0, right: 0 },
   row: {
     borderTopLeftRadius: 20,

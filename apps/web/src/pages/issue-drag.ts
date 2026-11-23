@@ -18,7 +18,8 @@ import {
  * card out and draws a line, works on no phone and has no keyboard way, hence pointer events.
  *
  * What it reads in the page, under `root`:
- * - `[data-drop="<group>"]`: where cards land; its `[data-slot="<id>"]` elements are the cards, in order;
+ * - `[data-drop="<group>"]`: where cards land; its `[data-slot="<slot>"]` elements are the cards, in order (the slot
+ *   is what `slot` of the hook gives: the item's id, or the item and its group where an item repeats);
  * - `[data-col]` around a drop zone: the box the pointer is measured against (a column, a group of the list);
  * - `[data-card]` inside a slot: what lifts and what gets the focus;
  * - `[data-count="<group>"]`: a group's count, which pops when a card arrives or leaves.
@@ -64,6 +65,11 @@ export interface IssueDragOptions<T extends { id: string }> {
   /** On the board Left and Right go across groups; in the list Up and Down go on into the next one. */
   layout: "board" | "list";
   onDrop: (move: CardMove) => DropResult;
+  /**
+   * The same item shows in several groups (a task under each of who has it): a card is then named by its item and its
+   * group, and one that moves leaves only the group it was taken from.
+   */
+  repeats?: boolean;
   /** What a screen reader hears. */
   words: DragWords<T>;
 }
@@ -74,11 +80,14 @@ type Move =
   /** A card picked with Space: it moves itself with the arrows until Space, Enter or Esc. */
   | { kind: "pick"; id: string; from: string; fromIndex: number; to: string; index: number }
   /** Dropped: shown where it fell until the data has its move. */
-  | { kind: "held"; id: string; to: string; index: number; item: unknown }
+  | { kind: "held"; id: string; from: string; to: string; index: number; item: unknown }
   /** Sent back: hidden in its place until its copy lands there. */
-  | { kind: "home"; id: string };
+  | { kind: "home"; id: string; from: string };
 
 type PickMove = Extract<Move, { kind: "pick" }>;
+
+/** What names a card on screen (`data-slot`): its item, with its group where an item shows in several. */
+const slotKey = (id: string, group: string, repeats?: boolean) => (repeats ? `${id}@${group}` : id);
 
 const HOLD_MS = 260;
 const MOUSE_SLOP = 5;
@@ -292,7 +301,9 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
   const remember = () => {
     flip = rects();
   };
-  const cardOf = (id: string) => ctx.root.current?.querySelector<HTMLElement>(`[data-slot="${id}"] [data-card]`);
+  const slotOf = (id: string, group: string) => slotKey(id, group, ctx.options().repeats);
+  const cardOf = (id: string, group: string) =>
+    ctx.root.current?.querySelector<HTMLElement>(`[data-slot="${slotOf(id, group)}"] [data-card]`);
 
   function start(p: Press, x: number, y: number) {
     const slot = p.card.closest<HTMLElement>("[data-slot]");
@@ -364,8 +375,9 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
       else if (r.width > 0 && g.x < r.left + EDGE) board.scrollLeft -= SCROLL_STEP;
       scrolled ||= board.scrollLeft !== was;
     }
-    // A column whose cards scroll on their own (a board that fills the window) scrolls under the card near its ends.
-    for (const list of el?.querySelectorAll<HTMLElement>(".issues-col__cards") ?? []) {
+    // A column whose cards scroll on their own (a board that fills the window), and the list's table where it does,
+    // scroll under the card near their ends.
+    for (const list of el?.querySelectorAll<HTMLElement>(".issues-col__cards, .issue-tablewrap") ?? []) {
       if (list.scrollHeight <= list.clientHeight) continue;
       const r = list.getBoundingClientRect();
       if (g.x < r.left || g.x > r.right || g.y < r.top || g.y > r.bottom) continue;
@@ -442,9 +454,9 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
       ctx.setMove(null);
       return;
     }
-    ctx.setMove({ kind: "home", id: g.id });
+    ctx.setMove({ kind: "home", id: g.id, from: g.from });
     after = () =>
-      fly(g.ghost, cardOf(g.id)?.getBoundingClientRect(), 260, () => {
+      fly(g.ghost, cardOf(g.id, g.from)?.getBoundingClientRect(), 260, () => {
         g.ghost.remove();
         ctx.setMove((m) => (m?.kind === "home" && m.id === g.id ? null : m));
       });
@@ -453,19 +465,21 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
   function commit(g: Gesture, spot: DOMRect | undefined) {
     g.ghost.remove();
     const before = rects();
-    if (spot) before.set(g.id, spot);
+    if (spot) before.set(slotOf(g.id, g.to), spot);
     flip = before;
     const item = itemOf(g.id);
     const result = item
       ? ctx.options().onDrop({ id: g.id, from: g.from, to: g.to, index: g.index, fromIndex: g.fromIndex })
       : { changed: false };
-    ctx.setMove(result.changed && item ? { kind: "held", id: g.id, to: g.to, index: g.index, item } : null);
+    ctx.setMove(
+      result.changed && item ? { kind: "held", id: g.id, from: g.from, to: g.to, index: g.index, item } : null,
+    );
     after = () => landed(g.id, g.from, g.to, result);
   }
 
   /** The card settles with a small bounce, the counts pop, a task done gives off its pixels. */
   function landed(id: string, from: string, to: string, result: DropResult) {
-    const card = cardOf(id);
+    const card = cardOf(id, to);
     card?.focus({ preventScroll: true });
     if (!card || reduced()) return;
     animate(card, [{ transform: "scale(1.03)" }, { transform: "scale(.99)" }, { transform: "none" }], {
@@ -509,7 +523,7 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
     }
     remember();
     ctx.setMove({ ...m, to, index });
-    after = () => cardOf(m.id)?.focus();
+    after = () => cardOf(m.id, to)?.focus();
     const item = itemOf(m.id);
     if (item) ctx.say(words.moved(item, to, index + 1, room(to) + 1));
   }
@@ -525,14 +539,14 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
     }
     remember();
     const result = onDrop({ id: m.id, from: m.from, to: m.to, index: m.index, fromIndex: m.fromIndex });
-    ctx.setMove(result.changed ? { kind: "held", id: m.id, to: m.to, index: m.index, item } : null);
+    ctx.setMove(result.changed ? { kind: "held", id: m.id, from: m.from, to: m.to, index: m.index, item } : null);
     after = () => landed(m.id, m.from, m.to, result);
   }
 
   function cancelPick(m: PickMove, refocus: boolean) {
     remember();
     ctx.setMove(null);
-    if (refocus) after = () => cardOf(m.id)?.focus();
+    if (refocus) after = () => cardOf(m.id, m.from)?.focus();
     const item = itemOf(m.id);
     if (item) ctx.say(ctx.options().words.canceled(item));
   }
@@ -627,7 +641,7 @@ function createEngine<T extends { id: string }>(ctx: EngineContext<T>) {
       const onDown = (e: PointerEvent) => {
         const m = ctx.move();
         if (m?.kind !== "pick") return;
-        if (!(e.target instanceof Node && cardOf(m.id)?.contains(e.target))) cancelPick(m, false);
+        if (!(e.target instanceof Node && cardOf(m.id, m.to)?.contains(e.target))) cancelPick(m, false);
       };
       const onKey = (e: KeyboardEvent) => {
         if (gesture) {
@@ -774,13 +788,15 @@ export function useIssueDrag<T extends { id: string }>(options: IssueDragOptions
     const card = (item: T, state?: "hidden" | "landing" | "picked"): DragEntry<T> => ({ kind: "card", item, state });
     const m = move;
     if (!m) return items.map((i) => card(i));
-    if (m.kind === "home") return items.map((i) => card(i, i.id === m.id ? "landing" : undefined));
+    // Where an item repeats, only its card in the group it was taken from moves; its others stay as they are.
+    const taken = (i: T) => i.id === m.id && group === m.from;
+    if (m.kind === "home") return items.map((i) => card(i, taken(i) ? "landing" : undefined));
     if (m.kind === "drag") {
       const out: DragEntry<T>[] = [];
       const spot: DragEntry<T> = { kind: "spot", key: `spot:${m.to}:${m.index}`, style: m.style };
       let k = 0;
       for (const i of items) {
-        if (i.id === m.id) {
+        if (taken(i)) {
           out.push(card(i, "hidden"));
           continue;
         }
@@ -793,7 +809,8 @@ export function useIssueDrag<T extends { id: string }>(options: IssueDragOptions
     }
     // Picked or just dropped: the card shows where it goes.
     const item = itemOf(m.id) ?? (m.kind === "held" ? (m.item as T) : undefined);
-    const rest = items.filter((i) => i.id !== m.id);
+    // It shows once where it goes: the card it had there already gives way to it.
+    const rest = group === m.from || group === m.to ? items.filter((i) => i.id !== m.id) : items;
     if (m.to !== group || !item) return rest.map((i) => card(i));
     const at = Math.min(m.index, rest.length);
     return [
@@ -814,6 +831,8 @@ export function useIssueDrag<T extends { id: string }>(options: IssueDragOptions
     /** The group the moving card would land in. */
     over: moving?.to ?? null,
     live,
+    /** A card's `data-slot` in a group. */
+    slot: (item: T, group: string) => slotKey(item.id, group, options.repeats),
     card: (item: T, group: string) => ({
       draggable: false as const,
       onDragStart: (e: ReactDragEvent) => e.preventDefault(),

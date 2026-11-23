@@ -176,8 +176,8 @@ test("on a phone the screen and its covers ship as one box, one block with its l
   expect(glide.some((d) => d.startsWith("transition:flex-grow"))).toBe(true);
 });
 
-test("watching, the person's own pointer ships over the screen, past noVNC's inline cursor", async () => {
-  const shipped = await ships(DESKTOP, `src/${DESKTOP}`, ".dsk-screen:not(.is-control) canvas");
+test("watching or in control, the person's own pointer ships over the screen, past noVNC's inline cursor", async () => {
+  const shipped = await ships(DESKTOP, `src/${DESKTOP}`, ".dsk-screen canvas");
   expect(shipped).toContain("cursor:default!important");
 });
 

@@ -8,24 +8,25 @@ import {
   receiptRows,
   receiptUnder,
 } from "@agenteschat/client/lib/actions";
+import { managesRoutinesOf } from "@agenteschat/client/lib/audience";
 import { handedTasksOf } from "@agenteschat/client/lib/issues";
-import { can } from "@agenteschat/client/lib/permissions";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type GestureResponderEvent, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, LayoutAnimationConfig } from "react-native-reanimated";
-import { useOrg } from "@/providers/org";
-import { CARD_PAD, Card, LineIcon, Text, useReducedMotion, useToast } from "@/ui";
+import { Disclosure, GroupedFooter, LineIcon, Text, useReducedMotion, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { agoOf } from "../agents/logic";
 import { agoText } from "../agents/work";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useBubblePart } from "../shared/bubble-part";
+import { useColors, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
-import { copyText, tapHaptic } from "../shared/parts";
+import { ActionList, copyText, tapHaptic } from "../shared/parts";
 import { useSheetIfAny } from "../shared/SheetHost";
 import { groupStart, receiptIcon, receiptLayout, targetHref } from "./actions";
 import { DOUBLE_TAP_MS } from "./logic";
-import { useCardTop } from "./look";
+import { useCardTop, useMessageCardCorners } from "./look";
+import { useRowDirectory, useRowMeId } from "./row-data";
 
 /**
  * What the agent changed with this reply (ADR 0037 round 2), on the card of the reply's tools (a hairline, the cut
@@ -47,8 +48,10 @@ export function Receipts({
 }) {
   const { t } = useTranslation();
   const c = useColors();
-  const meId = useMeId();
-  const dir = useDirectory();
+  const part = useBubblePart();
+  const cardCorners = useMessageCardCorners();
+  const meId = useRowMeId();
+  const dir = useRowDirectory();
   const sheet = useSheetIfAny();
   // A task the right hand handed on is its chip (`HandedTaskChips`): its agent is at work on it already.
   const handed = new Set(handedTasksOf(m.meta).map((h) => h.issueId));
@@ -95,17 +98,21 @@ export function Receipts({
     );
   };
   const start = groupStart(list);
+  // In a conversation of bubbles, a bubble of the message it came with (its fill, joined to it); else the card.
+  const frame = part
+    ? [styles.card, { backgroundColor: part.fill, borderWidth: 0 }, cardCorners, part.edge]
+    : [styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners];
   // What changes while it shows (undone from somewhere else) fades in; what is there when it mounts just shows.
   return (
     <View style={cardTop}>
       <LayoutAnimationConfig skipEntering>
         {layout === "one" ? (
-          <View style={[styles.one, styles.card, { backgroundColor: c.raised, borderColor: c.line2 }]}>
+          <View style={[styles.one, frame]}>
             <LineIcon name={receiptIcon((list[0] as AgentAction).kind)} size={15} color={c.muted} variant="small" />
             {row(rows[0] as ReceiptRow, "one")}
           </View>
         ) : (
-          <View style={[styles.group, styles.card, { backgroundColor: c.raised, borderColor: c.line2 }]}>
+          <View style={[styles.group, frame]}>
             <View style={styles.hd}>
               <Text variant="small" tone="muted" style={styles.fit}>
                 <Text variant="small" tone="ink" style={styles.bold}>
@@ -155,7 +162,7 @@ function Sentence({
   onLongPress?: () => void;
 }) {
   const { t } = useTranslation();
-  const meId = useMeId();
+  const meId = useRowMeId();
   const waiting = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -212,7 +219,10 @@ function Sentence({
   );
 }
 
-/** A row's changes whole, one a line, each opening its own thing where the phone has it (no tip on a phone). */
+/**
+ * A row's changes whole, one a line, each opening its own thing where the phone has it (no tip on a phone): the
+ * sheets' own list (`ActionList`), its words wrapping whole, the row's own lines under it as the list's footer.
+ */
 function ChangesSheet({
   row,
   channelId,
@@ -228,53 +238,30 @@ function ChangesSheet({
   close: (then?: unknown) => void;
 }) {
   const { t } = useTranslation();
-  const meId = useMeId();
-  const c = useColors();
+  const meId = useRowMeId();
   return (
     <>
       <SheetTitle title={title} />
-      <Card>
-        {receiptLines(row, t, meId ?? undefined).map((l, i) => {
+      <ActionList
+        items={receiptLines(row, t, meId ?? undefined).map((l) => {
           const href = targetHref(l.action.target, channelId);
-          const body = (pressed: boolean) => (
-            <View
-              style={[
-                styles.change,
-                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line2 },
-                pressed && { backgroundColor: c.plate },
-              ]}
-            >
-              <LineIcon name={receiptIcon(l.action.kind)} size={15} color={c.muted} />
-              <View style={styles.grow}>
-                <Text variant="body" tone={href ? "ink" : "ink2"}>
-                  {l.text}
-                </Text>
-                {l.files ? (
-                  <Text variant="small" tone="muted">
-                    {l.files}
-                  </Text>
-                ) : null}
-              </View>
-              {href ? <LineIcon name="right" size={15} color={c.faint} /> : null}
-            </View>
-          );
-          if (!href) return <View key={l.action.id}>{body(false)}</View>;
-          return (
-            <Pressable
-              key={l.action.id}
-              onPress={() => close(() => router.push(href))}
-              accessibilityRole="link"
-              accessibilityLabel={l.files ? `${l.text}, ${l.files}` : l.text}
-            >
-              {({ pressed }) => body(pressed)}
-            </Pressable>
-          );
+          return {
+            key: l.action.id,
+            icon: receiptIcon(l.action.kind),
+            label: l.text,
+            ...(l.files ? { hint: l.files } : {}),
+            // A change that opens its own thing says so with the chevron; one with nowhere to go is only read.
+            ...(href
+              ? {
+                  trailing: <Disclosure />,
+                  onPress: () => close(() => router.push(href)),
+                }
+              : {}),
+          };
         })}
-      </Card>
+      />
       {under.map((line) => (
-        <Text key={line} variant="small" tone="muted" style={styles.sheetUnder}>
-          {line}
-        </Text>
+        <GroupedFooter key={line}>{line}</GroupedFooter>
       ))}
     </>
   );
@@ -282,14 +269,14 @@ function ChangesSheet({
 
 /**
  * A webhook routine the agent just made: its address, kept out of the message text, copied from here by who may
- * manage the routine (the person who asked, admins; the server checks again).
+ * manage the routine (the person who asked, who sets up that agent's routines; the server checks again).
  */
 function CopyHook({ action: a }: { action: AgentAction }) {
   const { t } = useTranslation();
   const api = useApi();
   const orgId = useOrgId();
-  const meId = useMeId();
-  const manages = can(useOrg().org, "manage_routines");
+  const meId = useRowMeId();
+  const manages = managesRoutinesOf(useRowDirectory().agentById.get(a.agentId));
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const routineId = hookToCopy(a, { userId: meId, managesRoutines: manages });
@@ -340,7 +327,6 @@ function UndoneLine({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  grow: { flex: 1, minWidth: 0 },
   // The words in a card as wide as they are: they shrink and wrap where the column ends (`flex: 1` would collapse them).
   fit: { flexShrink: 1, minWidth: 0 },
   bold: { fontWeight: "600" },
@@ -361,9 +347,6 @@ const styles = StyleSheet.create({
   under: { marginTop: 2 },
   copyHook: { alignSelf: "flex-start", marginTop: 6, paddingVertical: 2 },
   group: { overflow: "hidden" },
-  sheetUnder: { paddingHorizontal: CARD_PAD, paddingTop: 10 },
-  // A change in the sheet, a list row's room: its words wrap whole there.
-  change: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: CARD_PAD, paddingVertical: 14 },
   hd: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   it: {
     flexDirection: "row",

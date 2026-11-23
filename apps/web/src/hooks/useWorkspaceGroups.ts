@@ -10,7 +10,7 @@ import { type WorkspaceGroup, workspaceGroups } from "@/lib/workspaces";
  * stays a plain list there.
  */
 export function useWorkspaceGroups(input: {
-  orgs: { id: string; name: string; logo?: string | null }[];
+  orgs: { id: string; name: string; logo?: string | null; accent?: string | null }[];
   currentOrgId: string;
 }): WorkspaceGroup[] | null {
   const on = desktopListsWorkspaces();

@@ -16,6 +16,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   rowsOf,
   schema,
@@ -24,6 +25,7 @@ import {
 import type { EmbeddingResult } from "@agenteschat/providers";
 import { agentIdsSeen, isPlaybook } from "./audience";
 import { caches } from "./cache";
+import { CONFIDENTIAL_STUB, isConfidential } from "./confidential";
 import { ACCESS_WORD, HOW_TO_WORD } from "./context/items";
 import { personAgentDmKey } from "./dms";
 import { cutText } from "./format";
@@ -62,8 +64,9 @@ registerDocumentBuilder("message", async (db, orgId, id) => {
     .select()
     .from(messages)
     .where(and(eq(messages.id, id), eq(messages.orgId, orgId)));
-  // A notice only its agent reads, or one written for the agent that is never news, is nobody's to find.
-  if (!m || m.deletedAt || isQuietNotice(m.meta)) return null;
+  // A notice only its agent reads, or one written for the agent that is never news, is nobody's to find. Nor is a
+  // message of a confidential thread (ADR 0190): the job that asks for it deletes what was indexed before the mark.
+  if (!m || m.deletedAt || isQuietNotice(m.meta) || isConfidential(m.meta)) return null;
   return { orgId, kind: "message", sourceId: m.id, channelIds: [m.channelId], body: m.body, createdAt: m.createdAt };
 });
 
@@ -378,21 +381,44 @@ async function issueSearchScopes(db: Database, orgId: string, userId: string) {
 
 /**
  * The files a list shares with this person (ADR 0157), by id: their documents carry their conversation, which they may
- * not read, so they're found by their own id (`visibleFileScopes`).
+ * not read, so they're found by their own id (`visibleFileScopes`). So are the files of the Drive itself not shared
+ * with everyone that they read, whose documents carry their own id (amendment 2026-11-17).
  */
 async function fileSearchScopes(db: Database, orgId: string, userId: string) {
+  const user = sql`${userId}::text`;
   const rows = await db
     .select({ id: schema.artifacts.id })
     .from(schema.artifacts)
     .where(
       and(
         eq(schema.artifacts.orgId, orgId),
-        eq(schema.artifacts.share, "people"),
         isNull(schema.artifacts.deletedAt),
-        fileSharedSql(sql`${userId}::text`),
+        or(
+          and(eq(schema.artifacts.share, "people"), fileSharedSql(user)),
+          and(isNull(schema.artifacts.channelId), ne(schema.artifacts.share, "everyone"), fileSeenSql(user)),
+        ),
       ),
     );
   return rows.map((r) => r.id);
+}
+
+export type QueryEmbedding = Awaited<ReturnType<ModelGateway["embed"]>>;
+
+/**
+ * One query embedding for several searches of the same words (a run's memory and its wiki both search the trigger
+ * message): asked by the first search that needs it, for every kind they search, then shared.
+ */
+export function sharedQueryEmbedding(
+  deps: Pick<SearchDeps, "gateway">,
+  orgId: string,
+  text: string,
+  kinds: SearchKind[],
+) {
+  let embedded: Promise<QueryEmbedding> | null = null;
+  return () => {
+    embedded ??= deps.gateway.embed({ orgId, texts: [text], inputType: "query", kinds }).catch(() => null);
+    return embedded;
+  };
 }
 
 /** Hybrid search with the query embedded when possible (else full-text only). */
@@ -405,6 +431,13 @@ export async function searchVisible(
     kinds?: SearchKind[];
     limit?: number;
     match?: "all" | "any";
+    /**
+     * The query's words go to no embeddings provider: asked from a confidential thread (ADR 0190), they may repeat
+     * what was read there.
+     */
+    wordsOnly?: boolean;
+    /** The query's embedding from `sharedQueryEmbedding`, in place of its own. */
+    queryEmbedding?: () => Promise<QueryEmbedding>;
   } & Pick<
     SearchQuery,
     "after" | "before" | "messages" | "sort" | "visibleIssueScopes" | "visibleFileScopes" | "minTextRank"
@@ -412,15 +445,16 @@ export async function searchVisible(
 ): Promise<SearchHit[]> {
   // A list by date ranks by no vector: no embedding to pay for. A provider that fails or is slow leaves the words.
   const embedded =
-    input.text.trim() && (input.sort ?? "relevance") === "relevance"
-      ? await deps.gateway
-          .embed({
-            orgId: input.orgId,
-            texts: [input.text],
-            inputType: "query",
-            kinds: input.messages ? ["message"] : input.kinds,
-          })
-          .catch(() => null)
+    !input.wordsOnly && input.text.trim() && (input.sort ?? "relevance") === "relevance"
+      ? await (input.queryEmbedding?.() ??
+          deps.gateway
+            .embed({
+              orgId: input.orgId,
+              texts: [input.text],
+              inputType: "query",
+              kinds: input.messages ? ["message"] : input.kinds,
+            })
+            .catch(() => null))
       : null;
   const index = await deps.search.forOrg(input.orgId);
   return index.query({
@@ -455,7 +489,7 @@ export async function searchForUser(
   deps: SearchDeps,
   userId: string,
   orgId: string,
-  input: { text: string; kinds?: SearchKind[]; limit?: number } & UserSearchFilters,
+  input: { text: string; kinds?: SearchKind[]; limit?: number; wordsOnly?: boolean } & UserSearchFilters,
 ) {
   const membership = await requirePermission(deps.db, userId, orgId, "read");
   const { channelIds, reach, ...rest } = input;
@@ -630,10 +664,16 @@ export async function describeHits<H extends SearchHit>(
     }
     const m = h.kind === "message" ? byId.get(h.sourceId) : undefined;
     if (!m) return { ...h, messageId: null, threadId: null, threadTitle: null, author: null };
-    // A voice message is found by its words, and shows as its audio (ADR 0100).
-    const snippet = readableBody(h.snippet, m.meta);
+    // A voice message is found by its words, and shows as its audio, or as the text typed beside it (ADR 0100).
+    const voice = voiceOf(m.meta);
+    // A hit's snippet is the index's own copy: one made before its thread turned confidential may still be there.
+    const snippet = isConfidential(m.meta)
+      ? CONFIDENTIAL_STUB
+      : voice
+        ? replyExcerpt(readableBody(h.snippet, m.meta))
+        : readableBody(h.snippet, m.meta);
     const media = mediaOf(m.meta);
-    const mediaKind = voiceOf(m.meta) ? ("voice" as const) : media?.kind;
+    const mediaKind = voice ? (voice.text ? undefined : ("voice" as const)) : media?.kind;
     const author =
       m.authorType === "agent" && m.agentId
         ? { type: "agent" as const, id: m.agentId, name: m.agentName ?? "" }

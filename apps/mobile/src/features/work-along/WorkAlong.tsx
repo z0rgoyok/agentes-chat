@@ -2,17 +2,20 @@ import { useTaskManager } from "@agenteschat/client";
 import { markedPieces, markInk } from "@agenteschat/client/lib/activity";
 import { taskTitle, todayStart } from "@agenteschat/client/lib/task-manager";
 import type { WorkItem } from "@agenteschat/client/lib/working";
+import { useIsFocused } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
-import type { TFunction } from "i18next";
+import { useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet, View } from "react-native";
+import { AppState, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, { SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LivePause } from "@/agent/live";
 import { haptics, PixelOrbit, Text, useReducedMotion, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useWaitingItems } from "../chats/useWaitingItems";
+import { chooseAction } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { useDirectory, useNow, useOrgId } from "../shared/hooks";
+import { useDirectory, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { useActiveWork } from "../shared/queries";
 import { askToStop, useStopper } from "../task-manager/hooks";
@@ -28,11 +31,73 @@ import {
   workAlong,
 } from "./logic";
 
-/** The work the line carries across the tabs, or null: the layout's accessory and the tab roots' strip read it. */
-export function useWorkAlong() {
+/** How often the line looks again at how long each piece of work has gone on (a run shows once it is long). */
+const ALONG_TICK_MS = 15_000;
+
+/**
+ * One clock for the line and for whether there is one: the tabs' layout and the line read the same moment, so the
+ * layout never holds a place for a line that isn't there yet. It ticks only while something listens and the app is in
+ * use; back in front it reads the time at once, as work may have grown long meanwhile.
+ */
+const alongClock = (() => {
+  let now = Date.now();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let appSub: { remove(): void } | null = null;
+  const listeners = new Set<() => void>();
+  const tick = () => {
+    now = Date.now();
+    for (const l of [...listeners]) l();
+  };
+  // `again`: coming back from the background, the time kept is old; on the first listener it is just read.
+  const follow = (again: boolean, app: string | null | undefined = AppState.currentState) => {
+    const run = listeners.size > 0 && app !== "background" && app !== "inactive";
+    if (run && timer === null) {
+      if (again) tick();
+      else now = Date.now();
+      timer = setInterval(tick, ALONG_TICK_MS);
+    } else if (!run && timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+  return {
+    now: () => now,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      appSub ??= AppState.addEventListener("change", (state) => follow(true, state));
+      follow(false);
+      return () => {
+        listeners.delete(listener);
+        follow(false);
+        if (listeners.size === 0) {
+          appSub?.remove();
+          appSub = null;
+        }
+      };
+    },
+  };
+})();
+
+/** The work the line may show (`alongWork`): mine to answer first, then the rest. */
+function useAlongPool() {
   const mine = useWaitingItems().items;
   const work = useActiveWork();
-  return workAlong(alongWork(work, mine), useNow(15_000));
+  return useMemo(() => alongWork(work, mine), [work, mine]);
+}
+
+/** The work the line carries across the tabs, or null: the accessory and the tab roots' strip read it. */
+export function useWorkAlong() {
+  const pool = useAlongPool();
+  return workAlong(pool, useSyncExternalStore(alongClock.subscribe, alongClock.now));
+}
+
+/**
+ * Whether there is a line at all, for the tabs' layout: it changes only when a line comes or goes, so the layout (and
+ * the system tab bar it draws) isn't drawn again at every tick of the line's clock.
+ */
+export function useHasWorkAlong(): boolean {
+  const pool = useAlongPool();
+  return useSyncExternalStore(alongClock.subscribe, () => workAlong(pool, alongClock.now()) !== null);
 }
 
 /**
@@ -46,6 +111,9 @@ export function WorkAlongLine({ lead, others, inline = false }: { lead: WorkItem
   const { colors } = useTheme();
   const dir = useDirectory();
   const runMenu = useRunMenu();
+  // Its face and orbit move only while the screen it is on shows (a tab root's strip, or the tabs under a pushed
+  // screen for the accessory).
+  const focused = useIsFocused();
   const agent = dir.anyAgent(lead.agentId);
   // An agent the directory doesn't know yet (just made, or gone) still reads as a sentence.
   const name = agent?.name ?? t("mobile.along.agent");
@@ -56,58 +124,68 @@ export function WorkAlongLine({ lead, others, inline = false }: { lead: WorkItem
   const pieces = markedPieces(alongWords(t, lead, name, forName, markInk));
   const runId = alongRunId(lead);
   return (
-    <Pressable
-      onPress={() => router.push(alongHref(lead, others))}
-      onLongPress={runId ? () => void runMenu(lead, runId, words) : undefined}
-      accessibilityRole="button"
-      accessibilityLabel={others > 0 ? `${words}, ${t("mobile.along.more", { count: others })}` : words}
-      style={({ pressed }) => [styles.row, inline && styles.inline, pressed && styles.pressed]}
-    >
-      <AgentFace agentId={lead.agentId} size={24} mode={lead.waiting ? "idle" : "run"} live />
-      <View style={styles.words}>
-        {pieces.map((p, i) => (
-          <Text
-            // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one sentence, in order
-            key={i}
-            variant="subhead"
-            numberOfLines={1}
-            style={[
-              givesWay(p) ? styles.give : styles.keep,
-              lead.waiting ? { color: colors.amber, fontWeight: "600" } : null,
-            ]}
-          >
-            {p.text}
-          </Text>
-        ))}
-      </View>
-      {!inline ? (
-        <View style={styles.end}>
-          {lead.waiting ? null : <PixelOrbit color={agentLook(agent).color} size={14} />}
-          {others > 0 ? (
-            <Text variant="footnote" tone="muted" style={styles.count}>
-              {t("mobile.along.more", { count: others })}
+    <LivePause paused={!focused}>
+      <Pressable
+        onPress={() => router.push(alongHref(lead, others))}
+        onLongPress={runId ? () => void runMenu(lead, runId, words) : undefined}
+        accessibilityRole="button"
+        accessibilityLabel={others > 0 ? `${words}, ${t("mobile.along.more", { count: others })}` : words}
+        style={({ pressed }) => [styles.row, inline && styles.inline, pressed && styles.pressed]}
+      >
+        <AgentFace agentId={lead.agentId} size={24} mode={lead.waiting ? "idle" : "run"} live />
+        <View style={styles.words}>
+          {pieces.map((p, i) => (
+            <Text
+              // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one sentence, in order
+              key={i}
+              variant="subhead"
+              numberOfLines={1}
+              style={[
+                givesWay(p) ? styles.give : styles.keep,
+                lead.waiting ? { color: colors.amber, fontWeight: "600" } : null,
+              ]}
+            >
+              {p.text}
             </Text>
-          ) : null}
+          ))}
         </View>
-      ) : null}
-    </Pressable>
+        {!inline ? (
+          <View style={styles.end}>
+            {lead.waiting ? null : <PixelOrbit color={agentLook(agent).color} size={14} />}
+            {others > 0 ? (
+              <Text variant="footnote" tone="muted" style={styles.count}>
+                {t("mobile.along.more", { count: others })}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </Pressable>
+    </LivePause>
   );
 }
 
-/** iOS 26's tab bar accessory: the system draws two copies, the full line over the bar and a short one beside it. */
-export function AccessoryLine({ lead, others }: { lead: WorkItem; others: number }) {
+/**
+ * iOS 26's tab bar accessory: the system draws two copies, the full line over the bar and a short one beside it. It
+ * reads the line itself, so its clock redraws only it.
+ */
+export function AccessoryLine() {
   const placement = NativeTabs.BottomAccessory.usePlacement();
-  return <WorkAlongLine lead={lead} others={others} inline={placement === "inline"} />;
+  const along = useWorkAlong();
+  if (!along) return null;
+  return <WorkAlongLine lead={along.lead} others={along.others} inline={placement === "inline"} />;
 }
 
 /**
  * Android and iOS before 26 (no accessory there): the same line in a 48-point strip on the tab bar's top edge, on the
- * tab roots, sliding up from behind the bar. The lists keep its height at their end (`ALONG_STRIP`).
+ * tab roots, sliding up from behind the bar. The lists keep its height at their end (`ALONG_STRIP`). It reads the line
+ * itself, so its clock redraws only it.
  */
-export function AlongStrip({ lead, others }: { lead: WorkItem; others: number }) {
+export function AlongStrip() {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const safe = useSafeAreaInsets();
+  const along = useWorkAlong();
+  if (!along) return null;
   return (
     <View pointerEvents="box-none" style={[styles.room, { bottom: alongStripBottom(Platform.OS, safe.bottom) }]}>
       <Animated.View
@@ -115,7 +193,7 @@ export function AlongStrip({ lead, others }: { lead: WorkItem; others: number })
         exiting={reduced ? undefined : SlideOutDown.duration(200)}
         style={[styles.strip, { backgroundColor: colors.raised, borderTopColor: colors.line }]}
       >
-        <WorkAlongLine lead={lead} others={others} />
+        <WorkAlongLine lead={along.lead} others={along.others} />
       </Animated.View>
     </View>
   );
@@ -143,45 +221,25 @@ function useRunMenu() {
       return;
     }
     const name = dir.anyAgent(task.agentId)?.name || t("mobile.along.agent");
-    showMenu(
-      t,
+    chooseAction(
       words,
       items.map((item) =>
         item === "steps"
-          ? { label: t("taskManager.actions.steps"), run: () => router.push(`/task-manager/${runId}`) }
+          ? {
+              icon: "list" as const,
+              label: t("taskManager.actions.steps"),
+              onPress: () => router.push(`/task-manager/${runId}`),
+            }
           : {
+              icon: "stop" as const,
               label: t("taskManager.actions.stop"),
-              danger: true,
-              run: () => askToStop(t, task, taskTitle(t, task), name, stop),
+              destructive: true,
+              onPress: () => askToStop(t, task, taskTitle(t, task), name, stop),
             },
       ),
+      t("mobile.common.cancel"),
     );
   };
-}
-
-/** The system's own menu: an action sheet on iOS, an alert's buttons on Android. */
-function showMenu(t: TFunction, title: string, items: { label: string; danger?: boolean; run: () => void }[]) {
-  if (Platform.OS === "ios") {
-    const danger = items.findIndex((i) => i.danger);
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title,
-        options: [...items.map((i) => i.label), t("mobile.common.cancel")],
-        cancelButtonIndex: items.length,
-        ...(danger >= 0 ? { destructiveButtonIndex: danger } : {}),
-      },
-      (i) => items[i]?.run(),
-    );
-    return;
-  }
-  Alert.alert(title, undefined, [
-    { text: t("mobile.common.cancel"), style: "cancel" },
-    ...items.map((i) => ({
-      text: i.label,
-      style: i.danger ? ("destructive" as const) : ("default" as const),
-      onPress: i.run,
-    })),
-  ]);
 }
 
 const styles = StyleSheet.create({

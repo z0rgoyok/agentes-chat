@@ -1,4 +1,13 @@
-import { ApiError, keys, useApi, useWikiAction, useWikiPage, useWikiTree, type WikiPage } from "@agenteschat/client";
+import {
+  ApiError,
+  keys,
+  useApi,
+  useWikiAction,
+  useWikiPage,
+  useWikiTree,
+  type WikiPage,
+  type WikiPageSummary,
+} from "@agenteschat/client";
 import { type AudienceChoice, EVERYONE } from "@agenteschat/client/lib/who-sees";
 import { prefixLines, wikiQuery, wrapSelection } from "@agenteschat/client/lib/wiki";
 import { diffLines } from "@agenteschat/ui/diff";
@@ -17,31 +26,36 @@ import {
   type TextInputSelectionChangeEvent,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
+import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Animated, { FadeInDown, FadeOut, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Button,
   DiffView,
-  fieldText,
+  GroupedField,
   GroupedFooter,
+  GroupedHeader,
   GroupedList,
-  GroupedRow,
   Icon,
   type IconName,
   Locked,
+  RowPressable,
   SCREEN_X,
   Segmented,
   SheetScreen,
   Text,
+  useFieldText,
   useReducedMotion,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
+import { SheetHeader } from "../new/parts";
 import { useFailed } from "../routines/hooks";
+import { NEXT_FIELD } from "../settings/parts";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useOrgId } from "../shared/hooks";
 import { goBack, MONO, PushedHeader, successHaptic, Tile, tapHaptic } from "../shared/parts";
-import { useWhoSeesDraft, useWhoSeesLabel, WhoSeesRows } from "../shared/WhoSees";
+import { useWhoSeesDraft, WhoSeesRows } from "../shared/WhoSees";
 import { foldersIn, suggestPages } from "./logic";
 import { WikiDoc } from "./WikiDoc";
 import { cleanFolder, FolderChips, openWikiPage } from "./WikiScreen";
@@ -54,13 +68,16 @@ type Sel = { start: number; end: number };
  * Markdown with a bar over the keyboard (negrito, itálico, título, lista, tarefa, [[link]], código, hide the
  * keyboard); typing `[[` suggests pages (or "Criar"). Ver is the page as it will read, not saved yet. A page that
  * changed meanwhile shows the conflict (the web's): the difference, and which one stays. Leaving with changes
- * asks first. `slug` edits a page; `title` and `folder` write a new one (created on Salvar).
+ * asks first. `slug` edits a page; `title` and `folder` write a new one (created on Salvar). The keyboard comes up
+ * only when the person taps the text, a new page too: a screen never opens with it up.
  */
 export function WikiWriteScreen(props: { slug: string } | { title: string; folder: string; who?: string }) {
   const orgId = useOrgId();
   const slug = "slug" in props ? props.slug : null;
   const page = useWikiPage(orgId, slug);
-  if (slug && !page.data) return <View style={styles.fill} />;
+  // The page to edit not here yet (it usually is: it was just open): its bar from the first frame, and if it failed
+  // to load, what happened and the way to ask again, never a blank screen.
+  if (slug && !page.data) return <WriterWaiting failed={page.isError} retry={() => void page.refetch()} />;
   return (
     <Writer
       page={page.data ?? null}
@@ -68,6 +85,18 @@ export function WikiWriteScreen(props: { slug: string } | { title: string; folde
       folder={"folder" in props ? props.folder : (page.data?.folder ?? "")}
       audience={"who" in props && props.who ? { mode: "people", userIds: props.who.split(",") } : EVERYONE}
     />
+  );
+}
+
+function WriterWaiting({ failed, retry }: { failed: boolean; retry: () => void }) {
+  const { t } = useTranslation();
+  const c = useColors();
+  return (
+    <View style={[styles.fill, { backgroundColor: c.bg }]}>
+      {/* The writing's opaque bar from the first frame (a clear one here stayed clear over the text once it came). */}
+      <PushedHeader title={t("wiki.edit")} />
+      <ScrollView>{failed ? <LoadFailed onRetry={retry} /> : null}</ScrollView>
+    </View>
   );
 }
 
@@ -91,6 +120,10 @@ function Writer({
   const qc = useQueryClient();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
+  // The room kept under the tools for the home indicator gives way as the keyboard rises: open, the tools sit right
+  // on the keys (the keyboard already clears the indicator); closed, they sit above it.
+  const keyboard = useReanimatedKeyboardAnimation();
+  const homeRoom = useAnimatedStyle(() => ({ height: insets.bottom * (1 - keyboard.progress.get()) }));
   const tree = useWikiTree(orgId);
   const action = useWikiAction(orgId);
   const [mode, setMode] = useState<Mode>("write");
@@ -187,9 +220,12 @@ function Writer({
   };
 
   const done = (saved: WikiPage, created: boolean) => {
+    // Already left while it saved (the discard alert): it is saved all the same, and nothing moves them again.
+    const left = leaving.current;
     leaving.current = true;
     successHaptic();
     toast({ title: created ? t("wiki.created") : t("wiki.saved") });
+    if (left) return;
     if (created) router.replace(`/wiki/${encodeURIComponent(saved.slug)}`);
     else goBack();
   };
@@ -225,17 +261,19 @@ function Writer({
     }
   };
 
+  // A link in the preview opens its page over the writing (back returns to it, nothing lost); one to a page that
+  // doesn't exist yet says so, instead of a tap that does nothing.
+  const previewLink = (_title: string, linked: WikiPageSummary | undefined) => {
+    if (linked) openWikiPage(linked.slug);
+    else toast({ title: t("wiki.missingTitle") });
+  };
+
   if (conflict && page) {
     return (
       <View style={[styles.fill, { backgroundColor: c.bg }]}>
-        <PushedHeader title={t("wiki.conflictTitle")} solid={false} />
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={[styles.conflict, { paddingBottom: insets.bottom + 24 }]}
-        >
-          <Text variant="title2" accessibilityRole="header">
-            {t("wiki.conflictTitle")}
-          </Text>
+        <PushedHeader title={t("wiki.conflictTitle")} />
+        <ScrollView contentContainerStyle={[styles.conflict, { paddingBottom: insets.bottom + 24 }]}>
+          {/* The bar says what this is ("Conflito"); the words under it say what happened. */}
           <Text variant="subhead" tone="muted">
             {t("mobile.wiki.conflictText", { version: conflict.version })}
           </Text>
@@ -300,7 +338,7 @@ function Writer({
           </Text>
           <View style={styles.body}>
             {body.trim() ? (
-              <WikiDoc body={body} pages={pages} onOpenLink={() => undefined} />
+              <WikiDoc body={body} pages={pages} onOpenLink={previewLink} />
             ) : (
               <Text variant="body" tone="faint">
                 {t("mobile.wiki.blank")}
@@ -309,7 +347,9 @@ function Writer({
           </View>
         </ScrollView>
       ) : (
-        <KeyboardAvoidingView behavior="padding" style={styles.fill}>
+        // Measured where it really is on the screen (under the bar), so the keyboard's room is the keys' whole height and
+        // the tools ride on top of them instead of a bar's height behind them.
+        <KeyboardAvoidingView behavior="padding" automaticOffset style={styles.fill}>
           <View style={styles.head}>
             <Text variant="title" numberOfLines={1}>
               {title}
@@ -334,7 +374,6 @@ function Writer({
               }}
               {...(pending ? { selection: pending } : {})}
               multiline
-              autoFocus={!page}
               textAlignVertical="top"
               autoCapitalize="sentences"
               placeholder={t("mobile.wiki.placeholder")}
@@ -351,11 +390,7 @@ function Writer({
               style={[styles.suggest, { backgroundColor: c.raised, borderColor: c.line2 }]}
             >
               {suggestions.map((p) => (
-                <Pressable
-                  key={p.id}
-                  onPress={() => pick(p.title)}
-                  style={({ pressed }) => [styles.suggestRow, pressed && { backgroundColor: c.sunken }]}
-                >
+                <RowPressable key={p.id} onPress={() => pick(p.title)} style={styles.suggestRow}>
                   <Tile icon="file" size={30} />
                   <View style={styles.grow}>
                     <Text variant="callout" numberOfLines={1}>
@@ -367,7 +402,7 @@ function Writer({
                       </Text>
                     ) : null}
                   </View>
-                </Pressable>
+                </RowPressable>
               ))}
               {token?.query.trim() && !suggestions.some((p) => p.title === token.query.trim()) ? (
                 <Pressable
@@ -417,7 +452,7 @@ function Writer({
               </Pressable>
             </View>
           </Locked>
-          <View style={{ height: insets.bottom }} />
+          <Animated.View style={homeRoom} />
         </KeyboardAvoidingView>
       )}
     </View>
@@ -425,8 +460,10 @@ function Writer({
 }
 
 /**
- * "Nova página" (a short sheet over the wiki): the title, the folder with the folders in use as shortcuts, and
- * "Criar e escrever", which closes the sheet and opens the writing. Nothing is created until Salvar there.
+ * "Nova página" (a sheet over the wiki): the sheet's bar, then the title and the folder as a form's fields, the folders
+ * in use as one-tap choices, who sees it (the web's three choices, the people under them when it's some of them), and
+ * "Criar e escrever", which closes the sheet and opens the writing. Nothing is created until Salvar there. The sheet
+ * comes up with the keyboard down: the person taps the field.
  */
 export function WikiNewSheet({
   title: initialTitle = "",
@@ -437,14 +474,13 @@ export function WikiNewSheet({
 }) {
   const { t } = useTranslation();
   const c = useColors();
+  const words = useFieldText("body");
   const orgId = useOrgId();
   const toast = useToast();
   const tree = useWikiTree(orgId);
   const [title, setTitle] = useState(initialTitle);
   const [folder, setFolder] = useState(initialFolder);
   const sees = useWhoSeesDraft(EVERYONE);
-  const seesLabel = useWhoSeesLabel();
-  const [choosing, setChoosing] = useState(false);
   const folders = foldersIn(tree.data ?? []);
   const existing = (tree.data ?? []).find((p) => p.title.toLowerCase() === title.trim().toLowerCase());
   const go = () => {
@@ -460,55 +496,48 @@ export function WikiNewSheet({
       router.push({ pathname: "/wiki-write", params: { title: name, folder: cleanFolder(folder), ...who } });
     }
   };
-  const field = [styles.field, fieldText("body"), { backgroundColor: c.sunken, color: c.ink }];
+  const input = [styles.input, words, { color: c.ink }];
   return (
     <SheetScreen>
-      <Text variant="title2" accessibilityRole="header">
-        {t("wiki.newPage")}
-      </Text>
-      <TextInput
-        value={title}
-        onChangeText={setTitle}
-        autoFocus={!initialTitle}
-        placeholder={t("wiki.form.titlePlaceholder")}
-        placeholderTextColor={c.faint}
-        accessibilityLabel={t("wiki.form.title")}
-        returnKeyType="next"
-        style={field}
-      />
-      <TextInput
-        value={folder}
-        onChangeText={setFolder}
-        placeholder={t("wiki.form.folder")}
-        placeholderTextColor={c.faint}
-        accessibilityLabel={t("wiki.form.folder")}
-        autoCapitalize="words"
-        returnKeyType="done"
-        onSubmitEditing={go}
-        style={field}
-      />
-      {folders.length > 0 ? <FolderChips folders={folders} value={cleanFolder(folder)} onPick={setFolder} /> : null}
-      {existing ? (
-        <Text variant="footnote" tone="faint">
-          {t("mobile.wiki.exists")}
-        </Text>
-      ) : (
+      <SheetHeader title={t("wiki.newPage")} />
+      <View>
         <GroupedList>
-          <GroupedRow
-            icon={sees.choice.mode === "everyone" ? "globe" : "lock"}
-            label={t("whoSees.label")}
-            value={seesLabel(sees.choice)}
-            chevron
-            onPress={() => setChoosing((v) => !v)}
-          />
+          <GroupedField label={t("wiki.form.title")}>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder={t("wiki.form.titlePlaceholder")}
+              placeholderTextColor={c.faint}
+              {...NEXT_FIELD}
+              style={input}
+            />
+          </GroupedField>
+          <GroupedField label={t("wiki.form.folder")}>
+            <TextInput
+              value={folder}
+              onChangeText={setFolder}
+              placeholder={t("wiki.form.folderPlaceholder")}
+              placeholderTextColor={c.faint}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={go}
+              style={input}
+            />
+          </GroupedField>
         </GroupedList>
-      )}
-      {choosing && !existing ? (
-        <>
-          <WhoSeesRows draft={sees} />
+        {existing ? <GroupedFooter>{t("mobile.wiki.exists")}</GroupedFooter> : null}
+      </View>
+      {folders.length > 0 ? <FolderChips folders={folders} value={cleanFolder(folder)} onPick={setFolder} /> : null}
+      {/* Who sees it, always in sight as a choice of three: never a row that opens a list under itself. */}
+      {existing ? null : (
+        <View>
+          <GroupedHeader>{t("whoSees.label")}</GroupedHeader>
+          <View style={styles.sees}>
+            <WhoSeesRows draft={sees} />
+          </View>
           <GroupedFooter>{t("whoSees.admins")}</GroupedFooter>
-        </>
-      ) : null}
+        </View>
+      )}
       <Button
         variant="primary"
         wide
@@ -558,5 +587,8 @@ const styles = StyleSheet.create({
   conflict: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
   gapTop: { marginTop: 8 },
   acts: { gap: 6, marginTop: 12 },
-  field: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  // A form field's input in its row (the label's column beside it).
+  input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
+  // The three choices and the people under them, apart as two groups.
+  sees: { gap: 12 },
 });

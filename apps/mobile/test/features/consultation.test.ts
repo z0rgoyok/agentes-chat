@@ -8,6 +8,7 @@ import {
   takeComposerRequest,
 } from "../../src/features/chat/composer-request";
 import { consultationHref } from "../../src/features/links/logic";
+import { chatScreenSource } from "./chat-screen-source";
 
 test("two agents' conversation opens on its screen, with the conversation that asked", () => {
   expect(consultationHref("q1", "c1")).toBe("/consultation/q1?channel=c1");
@@ -53,7 +54,7 @@ test("the two agents' line is always one line: the subject gives way first, the 
 
 test("two agents' conversation is a sheet over the one that asked, as the web's dialog", () => {
   const layout = readFileSync(join(import.meta.dir, "../../app/(app)/_layout.tsx"), "utf8");
-  expect(layout).toContain('<Stack.Screen name="consultation/[id]" options={formSheet} />');
+  expect(layout).toContain('<Sheet.Screen name="consultation/[id]" options={full} />');
   const screen = readFileSync(join(import.meta.dir, "../../src/features/chat/ConsultationScreen.tsx"), "utf8");
   expect(screen).toContain("<SheetSurface>");
   expect(screen).not.toContain("PushedHeader");
@@ -66,8 +67,6 @@ test("two agents' conversation is a sheet over the one that asked, as the web's 
 test("the composer names whom it writes to in its placeholder only: no face in an agent's field", () => {
   const composer = readFileSync(join(import.meta.dir, "../../src/ui/Composer.tsx"), "utf8");
   expect(composer).not.toMatch(/\bface\?:/);
-  for (const screen of ["chat/ChatScreen.tsx", "computer/AgentScreen.tsx"])
-    expect(readFileSync(join(import.meta.dir, "../../src/features", screen), "utf8")).not.toMatch(
-      /\bface[=:]\s*[{<]<?AgentFace/,
-    );
+  const agentScreen = readFileSync(join(import.meta.dir, "../../src/features/computer/AgentScreen.tsx"), "utf8");
+  for (const screen of [chatScreenSource(), agentScreen]) expect(screen).not.toMatch(/\bface[=:]\s*[{<]<?AgentFace/);
 });

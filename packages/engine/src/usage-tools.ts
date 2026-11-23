@@ -1,10 +1,12 @@
-import { planState, planWindows } from "@agenteschat/ui/plan-state";
+import type { PubSub } from "@agenteschat/adapters";
+import { planState, planWindows, windowReadAt } from "@agenteschat/ui/plan-state";
 import { ago, zoneOf } from "./context";
 import { defaultAccountLabel } from "./machine-accounts";
 import { type AgentPlanUsageView, type ApiAgentUsage, agentUsageFor, type PlanAccountUsage } from "./plan-usage";
 import { personBehindCall } from "./requester";
 import { describeWhen } from "./schedule";
 import type { ToolDefinition, ToolSource } from "./tools/types";
+import { grantUsageOverride, IGNORE_LIMIT_TOOL } from "./usage-pause";
 
 export const USAGE_TOOL = "get_my_usage";
 
@@ -39,6 +41,9 @@ function planText(a: PlanAccountUsage, agentId: string, zone: string, now: Date)
     const resets = w.resetsAt && Date.parse(w.resetsAt) > at ? `, resets ${when(w.resetsAt)}` : "";
     // Null: a window of unknown length has no estimate.
     const part = w.used > 0 && w.agents ? (w.agents.find((p) => p.agentId === agentId)?.percent ?? 0) : null;
+    // Read too long ago it may have reset early (the apps show only its age): never a number to plan on.
+    if (w.stale)
+      return `- ${name}: ${w.used}% used when last read ${ago(new Date(windowReadAt(usage, w) ?? usage.at), at)}; it may have reset since.`;
     return `- ${name}: ${w.used}% used${resets}.${part === null ? "" : ` Your part: about ${part}%.`}`;
   });
   const { state, until } = planState(usage, at);
@@ -84,7 +89,7 @@ function budgetText(api: ApiAgentUsage, zone: string, now: Date) {
  * agent's numbers, an account's email or money, whoever asks: the result stays in the run, whose steps the agent's
  * owner reads without `view_usage`, and the answer may go to a channel where not everyone may see costs.
  */
-export function createUsageToolSource(): ToolSource {
+export function createUsageToolSource(deps: { pubsub?: PubSub } = {}): ToolSource {
   const tool: ToolDefinition = {
     name: USAGE_TOOL,
     description:
@@ -112,5 +117,34 @@ export function createUsageToolSource(): ToolSource {
       return { content: parts.filter(Boolean).join("\n\n") };
     },
   };
-  return { name: "usage", tools: async () => [tool] };
+  /**
+   * `ignore_usage_limit`: a person in the chat told the agent to ignore its usage limit, so its long work goes on past
+   * the pause line up to the plan's own allowance, for this run and its paused ones (`grantUsageOverride`). Who may
+   * is who may press Continuar agora.
+   */
+  const ignore: ToolDefinition = {
+    name: IGNORE_LIMIT_TOOL,
+    description:
+      "Call it only when a person in this conversation tells you to ignore your usage limit or to keep going past it. Your long work then goes on past the usage pause up to the plan's own limit, and your work paused on usage picks up now.",
+    scope: "",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    async execute(_input, ctx) {
+      const person = await personBehindCall(ctx);
+      const done = person
+        ? await grantUsageOverride({ db: ctx.db, pubsub: deps.pubsub }, person, ctx.orgId, ctx.agentId, ctx.runId)
+        : null;
+      if (!done?.granted) {
+        return {
+          content:
+            "Not allowed: only who asked for this work, your owner or an admin can tell you to go past the usage limit. Tell the person so.",
+          isError: true,
+        };
+      }
+      const paused = done.continued > 0 ? ` ${done.continued} of your paused tasks picked up now.` : "";
+      return {
+        content: `Done: you go on past the usage pause until the plan's own limit (100%).${paused} Tell the person, then keep working.`,
+      };
+    },
+  };
+  return { name: "usage", tools: async () => [tool, ignore] };
 }

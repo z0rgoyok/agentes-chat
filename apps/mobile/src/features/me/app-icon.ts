@@ -1,9 +1,4 @@
-import {
-  type AppIconId,
-  DEFAULT_APP_ICON,
-  type MadeIconPose,
-  type MadeIconSky,
-} from "@agenteschat/client/lib/app-icons";
+import { type AppIconId, type MadeIconPose, type MadeIconSky, PHONE_APP_ICON } from "@agenteschat/client/lib/app-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { requireOptionalNativeModule } from "expo";
 import { Platform } from "react-native";
@@ -73,9 +68,9 @@ export function useAppIcon() {
     queryKey: KEY,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async (): Promise<{ supported: boolean; icon: PhoneIcon }> => {
-      if (!native) return { supported: false, icon: DEFAULT_APP_ICON };
+      if (!native) return { supported: false, icon: PHONE_APP_ICON };
       const supported = await native.supported(NAMES).catch(() => false);
-      if (!supported) return { supported: false, icon: DEFAULT_APP_ICON };
+      if (!supported) return { supported: false, icon: PHONE_APP_ICON };
       const name = await native.get(NAMES).catch(() => null);
       return { supported: true, icon: iconOfNativeName(name, Platform.OS) };
     },

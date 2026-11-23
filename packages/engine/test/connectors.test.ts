@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { eq, schema } from "@agenteschat/db";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -495,6 +495,36 @@ describe("OAuth (state + PKCE)", () => {
     return { http, seen, setChallenge: (c: string) => (challenge = c) };
   }
 
+  test("a team sign-in's return still needs its person to manage connectors", async () => {
+    f = await setup();
+    const ana = await addMember(f.db, f.org.id, "admin", "ana");
+    const token = tokenEndpoint();
+    const deps = depsOf(f, {
+      http: token.http,
+      oauthApps: { linear: { clientId: "lin-client", clientSecret: "lin-secret" } },
+    });
+    const { authorizeUrl, state } = await startOAuth(deps, ana.id, f.org.id, "linear");
+    token.setChallenge(new URL(authorizeUrl).searchParams.get("code_challenge") ?? "");
+    await f.db.delete(schema.organizationMemberRoles).where(eq(schema.organizationMemberRoles.userId, ana.id));
+    await expect(completeOAuth(deps, { id: ana.id }, { state, code: "good-code" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  test("a sign-in started as personal ends as its person's own connection", async () => {
+    f = await setup();
+    const walter = await addMember(f.db, f.org.id, "member", "walter");
+    const token = tokenEndpoint();
+    const deps = depsOf(f, {
+      http: token.http,
+      oauthApps: { linear: { clientId: "lin-client", clientSecret: "lin-secret" } },
+    });
+    const { authorizeUrl, state } = await startOAuth(deps, walter.id, f.org.id, "linear", { personal: true });
+    token.setChallenge(new URL(authorizeUrl).searchParams.get("code_challenge") ?? "");
+    const { connection } = await completeOAuth(deps, { id: walter.id }, { state, code: "good-code" });
+    expect(connection).toMatchObject({ connector: "linear", ownerUserId: walter.id });
+  });
+
   test("start → callback stores sealed tokens; state is single use, per person, and expires", async () => {
     f = await setup();
     const token = tokenEndpoint();
@@ -723,5 +753,162 @@ describe("a sign-in that stops working", () => {
     });
     expect(fresh.status).toBe("active");
     expect((await source.tools(ctxOf(f))).length).toBeGreaterThan(0);
+  });
+});
+
+describe("listing a server's tools", () => {
+  afterEach(() => setSystemTime());
+  const ctxOf = (fx: Fixture) => ({
+    db: fx.db,
+    orgId: fx.org.id,
+    agentId: fx.agent.id,
+    runId: crypto.randomUUID(),
+    channelId: fx.general.id,
+    threadRootId: crypto.randomUUID(),
+    triggerMessageId: crypto.randomUUID(),
+  });
+  const github = (fx: Fixture) =>
+    createApiKeyConnection(depsOf(fx), fx.owner.id, fx.org.id, { connector: "github", apiKey: "ghp_FAKE_123456" });
+
+  test("past its minute the last list comes at once, and one refresh runs behind it", async () => {
+    f = await setup();
+    const options: { issueWrite?: boolean } = {};
+    const mcp = fakeGithubMcp(options);
+    let hold: Promise<void> | null = null;
+    const connect: typeof mcp.connect = async (c, headers) => {
+      await hold;
+      return mcp.connect(c, headers);
+    };
+    await github(f);
+    const source = createConnectorToolSource({ ...depsOf(f), connect });
+    const listed = (await source.tools(ctxOf(f))).map((t) => t.name);
+    expect(mcp.sessions).toHaveLength(1);
+
+    setSystemTime(new Date(Date.now() + 61_000));
+    let release = () => {};
+    hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    // The server hangs: both claims still get the old list, and only one listing is asked for.
+    expect((await source.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    expect((await source.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    // The server now has one more tool: the refreshed list shows once the refresh wrote it.
+    options.issueWrite = true;
+    hold = null;
+    release();
+    let names = listed;
+    for (let i = 0; i < 200 && names.length === listed.length; i++) {
+      await Bun.sleep(5);
+      names = (await source.tools(ctxOf(f))).map((t) => t.name);
+    }
+    expect(names).toContain("github_issue_write");
+    // The refreshed list is fresh: no further listing.
+    expect(mcp.sessions).toHaveLength(2);
+  });
+
+  test("a failed refresh keeps the last list", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    let down = false;
+    let failures = 0;
+    const connect: typeof mcp.connect = async (c, headers) => {
+      if (down) {
+        failures++;
+        throw new Error("connect ETIMEDOUT");
+      }
+      return mcp.connect(c, headers);
+    };
+    await github(f);
+    const source = createConnectorToolSource({ ...depsOf(f), connect });
+    const listed = (await source.tools(ctxOf(f))).map((t) => t.name);
+    expect(listed.length).toBeGreaterThan(0);
+
+    down = true;
+    setSystemTime(new Date(Date.now() + 61_000));
+    expect((await source.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    await Bun.sleep(50);
+    expect(failures).toBe(1);
+    // The failure counts as a try: no new one inside the minute, and the list stays.
+    expect((await source.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    expect(failures).toBe(1);
+  });
+
+  test("a list older than ten minutes isn't served: the claim waits for a new listing", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    let down = false;
+    const connect: typeof mcp.connect = async (c, headers) => {
+      if (down) throw new Error("connect ECONNREFUSED");
+      return mcp.connect(c, headers);
+    };
+    await github(f);
+    const source = createConnectorToolSource({ ...depsOf(f), connect });
+    expect((await source.tools(ctxOf(f))).length).toBeGreaterThan(0);
+
+    down = true;
+    setSystemTime(new Date(Date.now() + 601_000));
+    expect(await source.tools(ctxOf(f))).toEqual([]);
+  });
+
+  test("a failed listing is kept for a minute, then asked again", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    let down = true;
+    let tries = 0;
+    const connect: typeof mcp.connect = async (c, headers) => {
+      tries++;
+      if (down) throw new Error("connect ECONNREFUSED");
+      return mcp.connect(c, headers);
+    };
+    await github(f);
+    const source = createConnectorToolSource({ ...depsOf(f), connect });
+    expect(await source.tools(ctxOf(f))).toEqual([]);
+    down = false;
+    expect(await source.tools(ctxOf(f))).toEqual([]);
+    expect(tries).toBe(1);
+
+    setSystemTime(new Date(Date.now() + 61_000));
+    expect((await source.tools(ctxOf(f))).length).toBeGreaterThan(0);
+    expect(tries).toBe(2);
+  });
+
+  test("a change to the connection lists again at once", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    const c = await github(f);
+    const source = createConnectorToolSource({ ...depsOf(f), connect: mcp.connect });
+    await source.tools(ctxOf(f));
+    await source.tools(ctxOf(f));
+    expect(mcp.sessions).toHaveLength(1);
+    await f.db
+      .update(schema.connectorConnections)
+      .set({ updatedAt: new Date(c.updatedAt.getTime() + 1000) })
+      .where(eq(schema.connectorConnections.id, c.id));
+    await source.tools(ctxOf(f));
+    expect(mcp.sessions).toHaveLength(2);
+  });
+
+  test("connections list at the same time: a slow server doesn't hold the others", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    await github(f);
+    await createApiKeyConnection(depsOf(f), f.owner.id, f.org.id, { connector: "linear", apiKey: "lin_api_FAKE_1234" });
+    const started: string[] = [];
+    let bothStarted = () => {};
+    const both = new Promise<void>((resolve) => {
+      bothStarted = resolve;
+    });
+    const connect: typeof mcp.connect = async (c, headers) => {
+      started.push(c.serverUrl);
+      if (started.length === 2) bothStarted();
+      // Listed one after the other, the first would wait here alone and give up.
+      const together = await Promise.race([both.then(() => true), Bun.sleep(1000).then(() => false)]);
+      if (!together) throw new Error("listed one at a time");
+      return mcp.connect(c, headers);
+    };
+    const source = createConnectorToolSource({ ...depsOf(f), connect });
+    const names = (await source.tools(ctxOf(f))).map((t) => t.name);
+    expect(started).toHaveLength(2);
+    expect(names).toContain("github_pull_request_read");
   });
 });

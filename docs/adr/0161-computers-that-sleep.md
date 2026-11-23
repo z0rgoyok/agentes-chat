@@ -42,8 +42,8 @@ A run that finds its computer in standby asks for it and waits up to `COMPUTER_W
 working, nothing posted or stored, however long the computer slept (`computerBackSoon`, beside the 30-second wait for a
 computer just gone): at its start, and again when it comes back from another wait (a plan's reset, the end of a drop's
 grace). The browser's and the desktop's tools (`callWhenBack`) and the sandbox's (`withConnectedMachine`) wait the same
-way. Not back by then, something is wrong: the existing path follows (the model brain stands in, or the note and the
-wait for the computer's return).
+way. Not back by then, something is wrong: the existing path follows (the note and the
+wait for the computer's return; the model brain no longer stands in, ADR 0032's 2026-11-15 addendum).
 
 ### 4. Nothing is wrong to its people
 

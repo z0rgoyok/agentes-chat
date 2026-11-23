@@ -1,8 +1,9 @@
 import type { Artifact, ArtifactContent, ArtifactFileContent, ArtifactRef } from "@agenteschat/client";
-import { useArtifact } from "@agenteschat/client";
+import { isLiveFileKind, useArtifact } from "@agenteschat/client";
 import { documentStart, KIND_ICON, parseDelimited, patchCounts } from "@agenteschat/client/lib/artifacts";
 import { fileIcon, formatBytes, pictureRatio, previewKind, previewKindOfName } from "@agenteschat/client/lib/files";
 import { Button, Icon, type IconName, Menu, Tip } from "@agenteschat/ui";
+import { useNavigate } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +11,8 @@ import { ChoicesCard } from "@/components/blocks/ChoicesCard";
 import { LiveBlockCard } from "@/components/blocks/LiveBlock";
 import { PollCard } from "@/components/blocks/PollCard";
 import { MenuEntries } from "@/components/DesktopMenus";
+import { LiveCover } from "@/components/live/LiveCover";
+import { openLivePage } from "@/components/live/open";
 import { useOrg } from "@/components/org-context";
 import { contextMenuHandler, type MenuEntry } from "@/lib/context-menu";
 import { Markdown } from "@/lib/markdown";
@@ -46,6 +49,10 @@ export function ArtifactCard({ artifact: ref }: { artifact: ArtifactRef }) {
   const remove = useDeleteArtifact();
   const query = useArtifact(org.id, ref.deleted ? null : ref.id, ref.version, undefined, true);
   const a = query.data;
+  const navigate = useNavigate();
+  // A live file is the file as it is now (ADR 0196 §7), whichever version the message named: its head's preview.
+  const live = Boolean(a && isLiveFileKind(a.kind));
+  const head = useArtifact(org.id, live && ref.version ? ref.id : null).data;
   // Deleted (to the trash): a quiet placeholder, never a broken card.
   if (ref.deleted) {
     return (
@@ -67,8 +74,13 @@ export function ArtifactCard({ artifact: ref }: { artifact: ArtifactRef }) {
   if (a.kind === "block") return <LiveBlockCard id={a.id} version={ref.version ?? a.shownVersion} />;
   if (a.kind === "poll") return <PollCard id={a.id} version={a.shownVersion} />;
   if (a.kind === "choices") return <ChoicesCard id={a.id} version={a.shownVersion} />;
-  const open = () => viewer.open(a.id, a.shownVersion < a.version ? a.shownVersion : undefined);
-  const save = () => void download.save(a, undefined, a.shownVersion, a.content);
+  // A live file opens on its own page, as it is now (ADR 0196 §9); the rest in the viewer, at the version they name.
+  const open = () => {
+    if (live) openLivePage(navigate, org.id, a.id);
+    else viewer.open(a.id, a.shownVersion < a.version ? a.shownVersion : undefined);
+  };
+  // A live file downloads as it is now (its versions are checkpoints behind it, ADR 0196 §7).
+  const save = () => void download.save(a, undefined, live ? undefined : a.shownVersion, a.content);
   // Open, download, Compartilhar, its link (through the share dialog while only its conversation sees it), and the
   // trash for who may delete it: the right click and the More menu.
   const actions = (): MenuEntry[] => [
@@ -107,7 +119,18 @@ export function ArtifactCard({ artifact: ref }: { artifact: ArtifactRef }) {
       {share.dialog}
     </>
   );
-  const content = a.content;
+  const content = live ? (head?.content ?? a.content) : a.content;
+  if (
+    content.kind === "document" ||
+    content.kind === "spreadsheet" ||
+    content.kind === "slides" ||
+    content.kind === "canvas"
+  )
+    return tile({
+      icon: KIND_ICON[a.kind],
+      meta: metaOf(t, content, a.shownVersion),
+      cover: <LiveCover content={content} fileId={a.id} size="tile" />,
+    });
   if (content.kind !== "file")
     return tile({
       icon: KIND_ICON[a.kind],
@@ -218,6 +241,17 @@ function metaOf(t: TFunction, content: ArtifactContent, version: number) {
       }
       return `${t("artifacts.files", { count: content.files.length })} · ${t("artifacts.counts", total)}`;
     }
+    // Live files (ADR 0196): how many sheets or slides; a canvas by its kind alone.
+    case "spreadsheet":
+      return content.preview.sheets > 1
+        ? `${kind} · ${t("live.kinds.sheetCount", { count: content.preview.sheets })}`
+        : kind;
+    case "slides":
+      return `${kind} · ${t("live.kinds.slideCount", { count: content.preview.count })}`;
+    case "canvas":
+    // A document is a live file (ADR 0200): no versions to count on its card.
+    case "document":
+      return kind;
     default:
       return `${kind} · ${t("artifacts.version", { version })}`;
   }
@@ -326,17 +360,6 @@ function TileActions({
 function Cover({ content, title }: { content: ArtifactContent; title: string }) {
   const { t } = useTranslation();
   switch (content.kind) {
-    case "document":
-      // Its own headings, paragraphs and lists, smaller, fading at the foot; a first heading equal to the title isn't
-      // drawn again.
-      return (
-        <Markdown
-          source={documentStart(content.markdown, COVER_CHARS)}
-          title={title}
-          excerpt
-          className="artifact-tile__doc"
-        />
-      );
     case "table":
       return <CoverTable columns={content.columns} rows={content.rows} />;
     case "diff":

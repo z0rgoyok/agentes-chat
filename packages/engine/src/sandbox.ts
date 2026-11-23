@@ -1,6 +1,7 @@
 import { AGENT_FOLDERS_PROTOCOL, type PubSub, type SandboxProvider } from "@agenteschat/adapters";
 import { type Database, eq, schema } from "@agenteschat/db";
 import { getAgent, getAgentCached } from "./agents";
+import { managesAgent } from "./audience";
 import { recordAudit } from "./audit";
 import type { WorkspaceComputer } from "./context";
 import { checkDeviceUse, noteDeviceInUse, pickDevice, seenAgo, waitHint, workspaceDevices } from "./device-resolve";
@@ -17,7 +18,7 @@ import {
   REMOVED_COMPUTER_MESSAGE,
 } from "./machines";
 import { missionOfRun } from "./mission-context";
-import { can, requirePermission } from "./organizations";
+import { requirePermission } from "./organizations";
 import { isRightHand } from "./right-hand";
 import { machineScope, NO_HOME_MESSAGE, type ScopeContext, toolMachineId } from "./right-hand-seats";
 import { runnerUpdateWay } from "./runner-update";
@@ -351,12 +352,12 @@ export interface AgentComputerView {
   target: ComputerTarget;
 }
 
-/** The agent's owner or an admin (`manage_agents`). */
+/** The agent's owner or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17). */
 export async function requireComputerManager(db: Database, actorId: string, orgId: string, agentId: string) {
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (!can(membership, "manage_agents") && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
     throw new ForbiddenError("Only an admin or the agent's owner can manage its computer");
   }
 }

@@ -37,7 +37,8 @@ export type PhoneStage =
 export function phoneStage(f: AgentComputerFacts): PhoneStage {
   const surface = surfaceOf(f);
   if (surface !== "cover") return surface;
-  if (f.machine && !f.machine.online) return f.machine.standby ? "joining" : "offline";
+  if (f.machine?.standby) return "joining";
+  if (f.machine && !f.machine.online) return "offline";
   if (!f.machine) return f.edition === "cloud" ? "joining" : "noComputer";
   return f.desktop?.reason === "no_desktop" && !f.browserGranted ? "noScreen" : "unavailable";
 }

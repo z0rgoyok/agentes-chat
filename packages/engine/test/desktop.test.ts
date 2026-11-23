@@ -377,7 +377,7 @@ describe("pause (protocol 9)", () => {
     expect(listed?.find((t) => t.name === "run_code")?.description).toContain("The owner paused the computer MacBook");
   });
 
-  test("a computer brain treats a paused computer like an offline one; with fallback on, the API answers", async () => {
+  test("a computer brain treats a paused computer like an offline one, and the API never answers for it", async () => {
     const until = new Date(Date.now() + 3600_000).toISOString();
     const status = (over: Partial<MachineStatus> = {}): MachineStatus => ({
       id: "m1",
@@ -421,24 +421,17 @@ describe("pause (protocol 9)", () => {
       brains: { claude_code: () => brain },
       machines: { status: async (id) => status({ id, orgId: f.org.id }) },
     });
-    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    // Though the workspace has a key: the agent says the computer is paused and waits (until the pause ends, or it
+    // resumes).
+    const asked = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
       body: "@dev oi",
     });
     await drainOutbox(f.db, handlers);
     expect(seen).toEqual([]);
-    const timeline = await listMessages(f.db, f.owner.id, f.org.id, f.general.id);
-    expect(timeline.at(-1)?.body).toBe("Respondi pela API.");
-    expect(timeline.at(-1)?.meta.brainFallback).toMatchObject({ from: "claude_code", code: "machine_paused" });
-
-    // Fallback off: the agent says the computer is paused and waits (until the pause ends, or it resumes).
-    await f.db.update(schema.agents).set({ brainFallback: false }).where(eq(schema.agents.id, f.agent.id));
-    const again = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
-      body: "@dev e agora?",
-    });
-    await drainOutbox(f.db, handlers);
-    const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, again.id));
+    const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, asked.id));
     expect(run).toMatchObject({ status: "waiting_input", waitingMachineId: paired.machineId });
     const waiting = await listMessages(f.db, f.owner.id, f.org.id, f.general.id);
+    expect(waiting.map((m) => m.body)).not.toContain("Respondi pela API.");
     expect(waiting.at(-1)?.meta).toMatchObject({ brainUnavailable: { code: "machine_paused", resetsAt: until } });
     expect(waiting.at(-1)?.body).toContain("paused");
   });
@@ -960,6 +953,9 @@ describe("folders and tools on the machine (protocol 10)", () => {
     expect(text).toContain('exit code 137, "Killed"');
     // A finished build's daemons hold their memory for hours unless stopped.
     expect(text).toContain("./gradlew --stop");
+    // Each agent's home is private there: a path handed to another agent leads nowhere.
+    expect(text).toContain("as a git branch or pull request");
+    expect(text).toContain("never as a path in your own home");
     // A size the runner never reported: no numbers.
     expect(sharingText("Build box", null)).toContain("share its CPUs and memory, with no part");
   });

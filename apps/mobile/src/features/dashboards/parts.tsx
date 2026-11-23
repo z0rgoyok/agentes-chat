@@ -10,12 +10,15 @@ import {
 } from "@agenteschat/client";
 import { WIDGET_SCHEDULES, WIDGET_SIZES, type WidgetSize } from "@agenteschat/ui/widgets/spec";
 import { Canvas } from "@shopify/react-native-skia";
-import { type ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import {
   Button,
+  Disclosure,
+  EmptyState,
+  GROUPED_ROW,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
@@ -24,19 +27,22 @@ import {
   type IconName,
   MEDIA_ROW,
   MediaRow,
-  PressScale,
   RoleMark,
+  RowPressable,
   Segmented,
+  SkeletonList,
   Text,
   useTheme,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFailed } from "../routines/hooks";
+import { Gap } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useDirectory, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
-import { successHaptic, useSurface } from "../shared/parts";
+import { PushedHeader, successHaptic, useSurface } from "../shared/parts";
 import { DitherShape } from "./Dither";
 import { closeEditRoles, openEditRoles } from "./edit-roles";
 import { useAgentLook, useCustomRoles } from "./hooks";
@@ -46,14 +52,50 @@ import {
   roleNamesOf,
   roundRectPath,
   thumbRects,
-  toggleRole,
   widgetTones,
   withAudience,
   withEditors,
+  withRoles,
 } from "./logic";
 import { usePickMenu } from "./menu";
+import { closeOptionPick, openOptionPick } from "./option-pick";
 
 /** Pieces the dashboards' screens share (ADR 0135). */
+
+/**
+ * A pushed screen whose subject isn't here (a board, a widget, a routine): its bar over the grouped gray, then the
+ * rows' shape while it loads, why it couldn't load with Retry, or that it is gone (deleted, or not the viewer's to
+ * see). Never a bare spinner, never a dead end.
+ */
+export function MissingScreen({
+  title,
+  state,
+  onRetry,
+  gone,
+}: {
+  title: string;
+  state: "loading" | "failed" | "gone";
+  onRetry: () => void;
+  /** What "gone" means here ("Este painel não existe, ou você não o vê."). */
+  gone: string;
+}) {
+  const { t } = useTranslation();
+  const { colors: c } = useTheme();
+  return (
+    <View style={[styles.screen, { backgroundColor: c.grouped }]}>
+      <PushedHeader title={title} solid={false} grouped />
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.missing}>
+        {state === "loading" ? (
+          <SkeletonList rows={3} />
+        ) : state === "failed" ? (
+          <LoadFailed onRetry={onRetry} />
+        ) : (
+          <EmptyState size="panel" icon="search" title={t("mobile.notFound.title")} subtitle={gone} />
+        )}
+      </ScrollView>
+    </View>
+  );
+}
 
 const THUMB_W = 56;
 const THUMB_H = 44;
@@ -108,7 +150,11 @@ export function useBoardByline() {
   };
 }
 
-/** A board in the Dashboards list: its thumbnail, its name (a lock when not the whole workspace's), who made it. */
+/**
+ * A board in the Dashboards list: its thumbnail, its name (a lock when not the whole workspace's), who made it, and the
+ * chevron, on a grouped row's measures (`GROUPED_ROW`). Its own row because the thumbnail is wider than a row's
+ * leading column; it lights a beat after the finger lands, as the grouped rows do.
+ */
 export function BoardRow({
   board,
   title,
@@ -124,11 +170,12 @@ export function BoardRow({
 }) {
   const { colors: c } = useTheme();
   return (
-    <Pressable
+    <RowPressable
+      hold
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[title, sub].join(", ")}
-      style={({ pressed }) => [styles.boardRow, pressed ? { backgroundColor: c.sunken } : null]}
+      style={styles.boardRow}
     >
       <BoardThumb thumbs={board.thumbs} />
       <View style={styles.grow}>
@@ -142,8 +189,8 @@ export function BoardRow({
           {sub}
         </Text>
       </View>
-      <Icon name="right" size={15} color={c.faint} />
-    </Pressable>
+      <Disclosure />
+    </RowPressable>
   );
 }
 
@@ -281,49 +328,6 @@ export function KindGlyph({ kind, size = 16, color }: { kind: WidgetFormat; size
   );
 }
 
-/** Pills to pick one of, each with its glyph; the picked one in ink. One row that scrolls sideways. */
-export function ChoiceChips<K extends string>({
-  items,
-  value,
-  onChange,
-}: {
-  items: { key: K; label: string; icon?: (color: string) => ReactNode }[];
-  value: K;
-  onChange: (key: K) => void;
-}) {
-  const { colors: c } = useTheme();
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.chips}
-    >
-      {items.map((item) => {
-        const on = item.key === value;
-        const ink = on ? c.bg : c.ink2;
-        return (
-          <PressScale
-            key={item.key}
-            onPress={() => onChange(item.key)}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: on }}
-            fill={false}
-            // 34 tall: the slop gives it a finger's 44 without spacing the row out.
-            hitSlop={{ top: 5, bottom: 5 }}
-            contentStyle={[styles.chip, { backgroundColor: on ? c.ink : c.chip }]}
-          >
-            {item.icon ? item.icon(ink) : null}
-            <Text variant="subhead" numberOfLines={1} style={[styles.semibold, { color: ink }]}>
-              {item.label}
-            </Text>
-          </PressScale>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
 /** How often it updates: the five schedules, the shortest words, in a row that scrolls on a small phone. */
 export function ScheduleChoice({
   value,
@@ -371,9 +375,11 @@ export function SizeChoice({ value, onChange }: { value: WidgetSize; onChange: (
 }
 
 /**
- * Who sees and who edits a board (Share and New dashboard): the whole workspace, some roles (picked as chips), or only
- * you; then, unless it's only yours, who edits it: a row saying who that opens a pick menu (whoever sees it, only you
- * and admins, or "Some roles…", a pushed screen to check them). Under it, what showing a board exposes.
+ * Who sees and who edits a board (Share and New dashboard): the whole workspace, some roles, or only you. With roles,
+ * a row under the choice names the ones picked and pushes the app's picker to check them (picking "Cargos" with none
+ * yet opens it at once). Then, unless it's only yours, who edits it: a row saying who that opens the app's picker
+ * (whoever sees it, only you and admins, or "Some roles…", a pushed screen to check them). Under it, what showing a
+ * board exposes.
  */
 export function AudienceFields({
   draft,
@@ -386,12 +392,36 @@ export function AudienceFields({
   members: number;
 }) {
   const { t } = useTranslation();
-  const { colors: c } = useTheme();
   const roles = useCustomRoles();
   const pickMenu = usePickMenu();
-  const pick = (audience: AudienceDraft["audience"]) => onChange(withAudience(draft, audience));
-  // The roles' screen writes back here while it is open; leaving the form ends it.
-  useEffect(() => () => closeEditRoles(), []);
+  // The roles' screens write back here while they are open; leaving the form ends them.
+  useEffect(
+    () => () => {
+      closeEditRoles();
+      closeOptionPick();
+    },
+    [],
+  );
+  /** The roles that see it, checked on the app's picker, pushed. `base`: the draft as it is when it opens. */
+  const openSeers = (base: AudienceDraft) => {
+    openOptionPick({
+      many: true,
+      title: t("dashboards.audience.roles"),
+      values: base.roleIds,
+      options: roles.map((r) => ({
+        key: r.id,
+        label: r.name,
+        leading: <RoleMark color={r.color} icon={r.icon} size={22} />,
+      })),
+      apply: (ids) => onChange(withRoles(base, ids)),
+    });
+    router.push("/option-pick");
+  };
+  const pick = (audience: AudienceDraft["audience"]) => {
+    const next = withAudience(draft, audience);
+    onChange(next);
+    if (audience === "roles" && next.roleIds.length === 0 && roles.length > 0) openSeers(next);
+  };
   const openRoles = () => {
     openEditRoles({
       audience: draft.audience,
@@ -411,6 +441,7 @@ export function AudienceFields({
       draft.editPolicy,
       (key) => (key === "roles" ? openRoles() : onChange(withEditors(draft, key))),
     );
+  const seers = roleNamesOf(draft.roleIds, roles);
   return (
     <>
       <GroupedHeader>{t("dashboards.audience.label")}</GroupedHeader>
@@ -426,50 +457,37 @@ export function AudienceFields({
         <GroupedRow
           icon="members"
           label={t("dashboards.audience.roles")}
-          sub={t("dashboards.audience.rolesHint")}
-          subLines={2}
           checked={draft.audience === "roles"}
           onPress={() => pick("roles")}
         />
-        {draft.audience === "roles" ? (
-          <View style={styles.roles}>
-            {roles.length === 0 ? (
-              <Text variant="footnote" tone="faint">
-                {t("dashboards.audience.noRoles")}
-              </Text>
-            ) : (
-              roles.map((r) => {
-                const on = draft.roleIds.includes(r.id);
-                return (
-                  <PressScale
-                    key={r.id}
-                    onPress={() => onChange(toggleRole(draft, r.id))}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                    fill={false}
-                    contentStyle={[styles.roleChip, { backgroundColor: on ? c.ink : c.chip }]}
-                  >
-                    <View style={on ? null : styles.faded}>
-                      <RoleMark color={r.color} icon={r.icon} size={18} />
-                    </View>
-                    <Text variant="subhead" style={[styles.semibold, { color: on ? c.bg : c.ink2 }]}>
-                      {r.name}
-                    </Text>
-                  </PressScale>
-                );
-              })
-            )}
-          </View>
-        ) : null}
         <GroupedRow
           icon="lock"
           label={t("dashboards.audience.private")}
-          sub={t("dashboards.audience.privateHint")}
-          subLines={2}
           checked={draft.audience === "private"}
           onPress={() => pick("private")}
         />
       </GroupedList>
+      {draft.audience === "roles" ? (
+        roles.length === 0 ? (
+          <GroupedFooter>{t("dashboards.audience.noRoles")}</GroupedFooter>
+        ) : (
+          <>
+            <Gap />
+            <GroupedList>
+              <GroupedRow
+                icon="members"
+                label={seers.length > 0 ? seers.join(", ") : t("dashboards.edit.someRoles")}
+                labelLines={2}
+                {...(seers.length === 0
+                  ? { sub: t("dashboards.errors.rolesRequired"), subTone: "amber" as const }
+                  : {})}
+                chevron
+                onPress={() => openSeers(draft)}
+              />
+            </GroupedList>
+          </>
+        )
+      ) : null}
       {draft.audience === "private" ? null : (
         <>
           <GroupedHeader>{t("dashboards.edit.label")}</GroupedHeader>
@@ -477,7 +495,7 @@ export function AudienceFields({
             <GroupedRow
               icon={draft.editPolicy === "viewers" ? "eye" : draft.editPolicy === "owner" ? "lock" : "members"}
               label={editorsText(t, editorsSummary(draft, roles))}
-              chevron
+              menu
               onPress={openEditors}
             />
           </GroupedList>
@@ -494,12 +512,20 @@ export function AudienceFields({
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  missing: { paddingHorizontal: 16, paddingTop: 8 },
   grow: { flex: 1, minWidth: 0 },
   shrink: { flexShrink: 1 },
   semibold: { fontWeight: "600" },
   thumb: { width: THUMB_W, height: THUMB_H, borderRadius: 10, overflow: "hidden" },
-  // GroupedRow's 14 sides and 12 gap.
-  boardRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  boardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: GROUPED_ROW.minHeight,
+    paddingHorizontal: GROUPED_ROW.padX,
+    paddingVertical: GROUPED_ROW.padY,
+  },
   titleLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   audience: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   role: { flexDirection: "row", alignItems: "center", gap: 4 },
@@ -511,27 +537,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
-  proposalActions: { flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 8 },
-  chips: { gap: 6, paddingHorizontal: 16 },
-  // Min heights: with a large text size the label grows past them instead of being clipped.
-  chip: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 34, paddingHorizontal: 12, borderRadius: 17 },
+  // From the card's edge, as the face and the words above them (the web's row drops them under at its start too).
+  proposalActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   segments: { paddingHorizontal: 16 },
-  // In GroupedRow's text column: its 14 side, the 32 leading column and the 12 gap.
-  roles: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    paddingLeft: 14 + 32 + 12,
-    paddingRight: 14,
-    paddingBottom: 12,
-  },
-  roleChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    minHeight: 32,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  faded: { opacity: 0.35 },
 });

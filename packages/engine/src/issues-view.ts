@@ -6,8 +6,8 @@ const { organizationMembers } = schema;
 /**
  * How a person looks at Tarefas in a workspace (`organization_members.issues_view`): a board or a list, grouped by
  * stage, assignee or priority, the order inside each group, what the cards show, the assignee, priority and label
- * filters, which finished tasks show (and whether canceled ones do), whether empty groups show, and the groups
- * folded shut. It lives on the server so the web, the desktop app and the phone open the screen
+ * filters, which finished tasks show (and whether canceled ones do), whether empty groups show, the groups
+ * folded shut, and the widths the person gave the list's columns. It lives on the server so the web, the desktop app and the phone open the screen
  * the same way; the search text is never kept. Mirrors `ISSUES_VIEW_DEFAULT` in packages/client/src/lib/issues-view.ts.
  */
 export const ISSUES_LAYOUTS = ["board", "list"] as const;
@@ -41,6 +41,23 @@ export const ISSUES_VIEW_MAX_LABELS = 20;
 /** A folded group: a board column's id, an assignee filter's key or a priority, whatever the view is grouped by. */
 export const ISSUES_VIEW_GROUP = /^[A-Za-z0-9:_-]{1,120}$/;
 export const ISSUES_VIEW_MAX_COLLAPSED = 100;
+/**
+ * The list's columns a person can give a width, in pixels: the task's title and one per card field. `base` is the
+ * width a column has until someone drags it (the title's is the least it keeps while it takes the room left over);
+ * `min` and `max` are how far a drag goes. Mirrors `ISSUE_COLUMN_WIDTHS` in packages/client/src/lib/issues-view.ts.
+ */
+export const ISSUE_COLUMN_WIDTHS = {
+  title: { base: 240, min: 200, max: 960 },
+  project: { base: 120, min: 80, max: 320 },
+  label: { base: 128, min: 96, max: 320 },
+  priority: { base: 104, min: 72, max: 220 },
+  due: { base: 104, min: 80, max: 220 },
+  criteria: { base: 88, min: 72, max: 220 },
+  pullRequest: { base: 116, min: 80, max: 320 },
+  assignee: { base: 160, min: 120, max: 360 },
+} as const satisfies Record<"title" | IssueCardField, { base: number; min: number; max: number }>;
+export type IssueListColumn = keyof typeof ISSUE_COLUMN_WIDTHS;
+export const ISSUE_LIST_COLUMNS = Object.keys(ISSUE_COLUMN_WIDTHS) as IssueListColumn[];
 
 /** A type, not an interface: the row's jsonb column takes it as a plain record. */
 export type IssuesView = {
@@ -60,6 +77,8 @@ export type IssuesView = {
   hideEmpty: boolean;
   /** The groups folded to their name and count. */
   collapsed: string[];
+  /** The list's columns the person gave a width, in pixels; a column not named has its own. */
+  widths: Partial<Record<IssueListColumn, number>>;
 };
 
 /** What someone who never changed the screen sees: today's board by stage, every field, no filter. */
@@ -75,6 +94,7 @@ export const ISSUES_VIEW_DEFAULT: IssuesView = {
   showCanceled: false,
   hideEmpty: false,
   collapsed: [],
+  widths: {},
 };
 
 const pick = <T extends string>(list: readonly T[], value: unknown, fallback: T): T =>
@@ -82,6 +102,22 @@ const pick = <T extends string>(list: readonly T[], value: unknown, fallback: T)
 
 const record = (raw: unknown): Record<string, unknown> =>
   raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+
+/**
+ * The widths a view keeps: known columns only, each a whole number of pixels held between its column's least and
+ * most; anything that is not a number is dropped.
+ */
+function widthsOf(raw: unknown): IssuesView["widths"] {
+  const given = record(raw);
+  const widths: IssuesView["widths"] = {};
+  for (const column of ISSUE_LIST_COLUMNS) {
+    const value = given[column];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    const { min, max } = ISSUE_COLUMN_WIDTHS[column];
+    widths[column] = Math.min(max, Math.max(min, Math.round(value)));
+  }
+  return widths;
+}
 
 /**
  * A view from what a row (or a request) holds: known keys with known values only, each missing or unknown one at its
@@ -119,6 +155,7 @@ export function issuesViewOf(raw: unknown): IssuesView {
     collapsed: [
       ...new Set(collapsed.filter((g): g is string => typeof g === "string" && ISSUES_VIEW_GROUP.test(g))),
     ].slice(0, ISSUES_VIEW_MAX_COLLAPSED),
+    widths: widthsOf(v.widths),
   };
 }
 

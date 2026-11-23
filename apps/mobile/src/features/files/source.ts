@@ -1,8 +1,9 @@
-import { type ApiClient, type ArtifactDetail, keys, useApi } from "@agenteschat/client";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { type ApiClient, type ArtifactDetail, isLiveFileKind, keys, useApi } from "@agenteschat/client";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Directory, File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
+import { useId } from "react";
 import { Platform } from "react-native";
 import { appHeaders, readCookie } from "@/lib/auth";
 import { serverUrl } from "@/lib/server";
@@ -16,11 +17,16 @@ import { resolveDownloadUrl, type ShareSource, safeFileName, shareSource } from 
 
 /** The server's links live 5 minutes; refetch a bit before. */
 const LINK_STALE_MS = 4 * 60 * 1000;
+/** A view that keeps its link may start from the shared one while that one has most of its life ahead. */
+const LINK_SEED_MS = 60 * 1000;
 
 export interface RemoteFile {
   uri: string;
   headers: Record<string, string>;
 }
+
+const linkKey = (orgId: string, id: string | null, version?: number) =>
+  ["org", orgId, "artifacts", "link", id ?? "", version ?? "latest"] as const;
 
 async function remote(api: ApiClient, orgId: string, id: string, version?: number): Promise<RemoteFile> {
   const { url } = await api.artifacts.download(orgId, id, version);
@@ -28,16 +34,59 @@ async function remote(api: ApiClient, orgId: string, id: string, version?: numbe
   return { uri: r.uri, headers: r.needsSession ? appHeaders(await readCookie()) : {} };
 }
 
-/** The link to show a picture or a PDF (refreshed before it expires). */
-export function useRemoteFile(orgId: string, id: string | null, version?: number) {
+/**
+ * Files this phone just sent, by id: the photo or video it sent is drawn from the phone's own copy, so a message never
+ * fades its picture out and back in when the server's copy takes the place of the one on its way (`LocalFiles`). Kept
+ * while the app stays open.
+ */
+const localCopies = new Map<string, string>();
+export const rememberLocalCopy = (id: string, uri: string) => localCopies.set(id, uri);
+
+/**
+ * Pictures already drawn once in this run, by their cache key: one coming back (its row mounted again as the list
+ * scrolls, the conversation opened again) shows at once from the cache, where a fade each time read as a flicker.
+ */
+const drawn = new Set<string>();
+/** A picture's fade in, its first time only (`drawn`). */
+export const pictureFade = (key: string) => (drawn.has(key) ? 0 : 160);
+/** Its `onLoad`: drawn once, it never fades in again in this run. */
+export const pictureDrawn = (key: string) => {
+  drawn.add(key);
+};
+
+/**
+ * The link to show a file; a file this phone just sent, from its own copy. Shared and refreshed before it expires, for
+ * a picture (its cache entry is `id@version`, whatever the link). `once`: read when the view opens and kept while it
+ * stays, for what a new link would start over (a video back at 0:00, a PDF at its first page): a link of the view's
+ * own that nothing reads again (no refetch on focus or reconnect, and `static` so no invalidation does either), only
+ * its `refetch` ("Try again"); gone with the view, so the next one starts from a fresh link.
+ */
+export function useRemoteFile(orgId: string, id: string | null, version?: number, options?: { once?: boolean }) {
   const api = useApi();
-  return useQuery({
-    queryKey: ["org", orgId, "artifacts", "link", id ?? "", version ?? "latest"] as const,
+  const qc = useQueryClient();
+  const view = useId();
+  const local = id ? localCopies.get(id) : undefined;
+  const once = options?.once === true;
+  const shared = linkKey(orgId, id, version);
+  const query = useQuery<RemoteFile>({
+    queryKey: once ? [...shared, "once", view] : shared,
     queryFn: () => remote(api, orgId, id ?? "", version),
-    enabled: Boolean(id),
-    staleTime: LINK_STALE_MS,
-    gcTime: LINK_STALE_MS,
+    enabled: Boolean(id) && !local,
+    ...(once
+      ? {
+          staleTime: "static" as const,
+          gcTime: 0,
+          refetchOnWindowFocus: false,
+          refetchOnReconnect: false,
+          // The shared link, when it was read moments ago: the view starts at once, with most of the link's life left.
+          initialData: () => {
+            const state = qc.getQueryState<RemoteFile>(shared);
+            return state?.data && Date.now() - state.dataUpdatedAt < LINK_SEED_MS ? state.data : undefined;
+          },
+        }
+      : { staleTime: LINK_STALE_MS, gcTime: LINK_STALE_MS }),
   });
+  return local ? ({ ...query, data: { uri: local, headers: {} }, isError: false } as typeof query) : query;
 }
 
 /** Several artifacts at once (a message's files), sharing the cache of `useArtifact`. */
@@ -86,7 +135,11 @@ export async function localCopy(
   const r =
     source.from === "export"
       ? {
-          uri: api.artifacts.fileUrl(orgId, a.id, { version: a.shownVersion, format: source.format }),
+          // A live file is exported as it stands now (ADR 0198): its versions are snapshots, not what people see.
+          uri: api.artifacts.fileUrl(orgId, a.id, {
+            ...(isLiveFileKind(a.kind) ? {} : { version: a.shownVersion }),
+            ...(source.format ? { format: source.format } : {}),
+          }),
           headers: appHeaders(await readCookie()),
         }
       : await remote(api, orgId, a.id, a.shownVersion);

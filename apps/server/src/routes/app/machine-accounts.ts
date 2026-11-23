@@ -4,7 +4,9 @@ import {
   beginAccountLogin,
   cancelAccountLogin,
   getMachineAccounts,
+  listAccountOrder,
   listAiAccounts,
+  moveAccountInOrder,
   publishMachineAgentsChanged,
   refreshAiAccounts,
   removeMachineAccount,
@@ -27,7 +29,7 @@ import {
   requireSession,
   security,
 } from "./context";
-import { AccountKind, BrainUnavailable, CodexVersionRequirement, MachineAccount, PlanUsage } from "./schemas";
+import { AccountKind, BrainUnavailable, MachineAccount, PlanUsage } from "./schemas";
 import { SecretBox } from "./secrets";
 
 const tags = ["Connected computers"];
@@ -75,6 +77,19 @@ const AccountLoginStatus = z
     }),
   })
   .openapi("AccountLoginStatus");
+
+const AccountOrderGroup = z
+  .object({
+    machineId: z.uuid(),
+    computer: z.string(),
+    kind: AccountKind,
+    accounts: z.array(
+      MachineAccount.extend({
+        canMove: z.boolean().openapi({ description: "The caller may move it in the order: its owner or an admin." }),
+      }),
+    ),
+  })
+  .openapi("AccountOrderGroup", { description: "One computer's accounts of one kind, first to last." });
 
 const offline = {
   409: errorResponse("The computer is offline (`machine.offline`) or its runner is too old (`account.runner_old`)"),
@@ -279,7 +294,6 @@ export function machineAccountRoutes(deps: AppDeps) {
                   off: z
                     .record(z.string(), BrainUnavailable)
                     .openapi({ description: "Why a CLI of `brains` can't think there, by its kind." }),
-                  codexVersion: CodexVersionRequirement.optional(),
                   brains: z
                     .object({
                       claude_code: z.boolean(),
@@ -434,6 +448,52 @@ export function machineAccountRoutes(deps: AppDeps) {
       );
       if (result.agentIds.length) await publishMachineAgentsChanged(pubsub, orgId);
       return c.json(result, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/organizations/{orgId}/ai-accounts/order",
+      tags,
+      security,
+      summary: "The order of use of the workspace's Claude and ChatGPT accounts, by computer and kind (any member)",
+      description:
+        "ADR 0041 §6: at a plan's limit a run goes on with the next account of its computer and kind, its agent's owner's own first and then the others that serve everyone, each in this order. Only the CLI's own sign-ins (never a key). Owner-only accounts keep their place for their owner's agents. Changes come as `machine.updated` org events with `accounts: true`.",
+      request: { params: OrgParams },
+      responses: { 200: json(z.object({ groups: z.array(AccountOrderGroup) })), ...errors },
+    }),
+    async (c) => {
+      const groups = await listAccountOrder({ db }, c.get("user").id, c.req.valid("param").orgId);
+      return c.json({ groups }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/ai-accounts/{accountId}/order",
+      tags,
+      security,
+      summary: "Move an account to a place in its order of use (its owner or an admin)",
+      description:
+        "`index` counts accounts, not logins: 0 is first; past the end, last. An account signed in once per agent moves with all its logins, named by any of them that has a place in the order (one with none: `account.not_found`). The other accounts of its computer and kind keep their order. Someone else's account: `account.order_forbidden`. Audited as `account.order`.",
+      request: {
+        params: PlanParams,
+        body: body(z.object({ index: z.number().int().min(0) })),
+      },
+      responses: { 200: json(AccountOrderGroup), ...errors },
+    }),
+    async (c) => {
+      const { orgId, accountId } = c.req.valid("param");
+      const group = await moveAccountInOrder(
+        { db, pubsub },
+        c.get("user").id,
+        orgId,
+        accountId,
+        c.req.valid("json").index,
+      );
+      return c.json(group, 200);
     },
   );
 

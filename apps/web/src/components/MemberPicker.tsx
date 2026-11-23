@@ -1,4 +1,5 @@
-import { listsAgent } from "@agenteschat/client/lib/audience";
+import type { Agent } from "@agenteschat/client";
+import { listsAgent, managesAgent } from "@agenteschat/client/lib/audience";
 import { joinsChannels } from "@agenteschat/client/lib/right-hand";
 import { Checkbox, InfoHint, SearchField, Token, TokenList } from "@agenteschat/ui";
 import { useState } from "react";
@@ -20,20 +21,24 @@ export interface PickRow {
 /**
  * People and agents of the org as pickable rows, minus `exclude`, filtered by `query`. Agents only as far as my lists
  * show them (`listsAgent`), plus the ones in `keep` (already picked), so they can still be taken out. For a channel
- * (`channel`), only the agents that join channels (`joinsChannels`).
+ * (`channel`), only the agents that join channels (`joinsChannels`) and that I may place there: mine, or one I manage
+ * (the server's `requirePlacesAgent`, ADR 0085 addendum of 2026-11-17). I am left out, as a channel adds who creates
+ * it by itself; `me` lists me too, first (a task's assignees).
  */
 export function useMemberRows(
   query: string,
   exclude: Set<PickKey> = new Set(),
   keep?: Set<PickKey>,
-  { channel = false }: { channel?: boolean } = {},
+  { channel = false, me: withMe = false }: { channel?: boolean; me?: boolean } = {},
 ) {
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const q = query.trim().toLowerCase();
+  const offered = (a: Agent) => (channel ? a.ownerUserId === me.user.id || managesAgent(a) : listsAgent(org, a));
   const rows: PickRow[] = [
     ...dir.members
-      .filter((m) => m.userId !== me.user.id)
+      .filter((m) => withMe || m.userId !== me.user.id)
+      .sort((a, b) => Number(b.userId === me.user.id) - Number(a.userId === me.user.id))
       .map((m) => ({
         key: `person:${m.userId}` as PickKey,
         kind: "person" as const,
@@ -42,7 +47,7 @@ export function useMemberRows(
         sub: m.email,
       })),
     ...dir.agents
-      .filter((a) => (!channel || joinsChannels(a)) && (listsAgent(org, a) || keep?.has(`agent:${a.id}`)))
+      .filter((a) => (!channel || joinsChannels(a)) && (offered(a) || keep?.has(`agent:${a.id}`)))
       .map((a) => ({
         key: `agent:${a.id}` as PickKey,
         kind: "agent" as const,
@@ -102,6 +107,7 @@ export function PeoplePicker({
   selected,
   onChange,
   channel = false,
+  me = false,
 }: {
   label: string;
   searchLabel: string;
@@ -112,11 +118,13 @@ export function PeoplePicker({
   onChange: (next: Set<PickKey>) => void;
   /** Picking a channel's members: `useMemberRows`'s `channel`. */
   channel?: boolean;
+  /** I am one of the rows too: `useMemberRows`'s `me`. */
+  me?: boolean;
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const rows = useMemberRows(query, undefined, selected, { channel });
-  const all = useMemberRows("", undefined, selected, { channel });
+  const rows = useMemberRows(query, undefined, selected, { channel, me });
+  const all = useMemberRows("", undefined, selected, { channel, me });
   const picked = all.filter((r) => selected.has(r.key));
   const toggle = (key: PickKey, on: boolean) => {
     const next = new Set(selected);

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { PubSub } from "@agenteschat/adapters";
 import { PERMISSION_TOOL } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, gt, inArray, isNull, or, schema, sql } from "@agenteschat/db";
+import { managesAgent, REACH_COLUMNS } from "./audience";
 import { accountablePerson, messageRoot, type RunAuthority } from "./authority";
 import {
   AUTONOMY_DEFAULTS,
@@ -20,7 +21,7 @@ import { publishMessageCreated } from "./events";
 import { cutText } from "./format";
 import type { Judge } from "./judge";
 import { insertMessage, type Message, messageView } from "./messages";
-import { can, requireActiveMembership } from "./organizations";
+import { requireActiveMembership } from "./organizations";
 import { enqueue } from "./outbox";
 import { ACTIVE_RUN_STATUSES } from "./run-inbox";
 import { deliverNoticeToRun } from "./run-resume";
@@ -313,7 +314,7 @@ export async function decideCostlyProposal(
     .where(and(eq(messages.orgId, orgId), eq(messages.id, signal.messageId)));
   const card = proposalCardOf(message?.meta);
   const [agent] = await db
-    .select({ ownerUserId: agents.ownerUserId, autonomy: agents.autonomyBrakes, handle: agents.handle })
+    .select({ autonomy: agents.autonomyBrakes, handle: agents.handle, ...REACH_COLUMNS })
     .from(agents)
     .where(and(eq(agents.orgId, orgId), eq(agents.id, signal.agentId)));
   const membership = await requireActiveMembership(db, actorId, orgId);
@@ -322,7 +323,8 @@ export async function decideCostlyProposal(
     .from(organizationMembers)
     .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, actorId)));
   if (!card || !agent || !member) throw new NotFoundError("Proposal not found");
-  const manages = actorId === agent.ownerUserId || can(membership, "manage_agents");
+  // Its owner, or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17).
+  const manages = actorId === agent.ownerUserId || managesAgent(agent, actorId, membership);
   if (actorId !== card.forUserId && !manages) throw new NotFoundError("Proposal not found");
   // "Always" and "never" change the agent for everyone's work: only who may change the agent.
   if ((decision === "always" || decision === "never") && !manages)

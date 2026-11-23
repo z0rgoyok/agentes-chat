@@ -2,7 +2,10 @@ import type { PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, desc, type Executor, eq, gte, inArray, isNull, schema, sql } from "@agenteschat/db";
 import { serverText } from "@agenteschat/i18n";
 import type { AppLocale } from "@agenteschat/i18n/locale";
+import { plainLines } from "@agenteschat/ui/markdown";
 import { runAuthority } from "./authority";
+import { confidentialThreadSql, threadIsConfidential } from "./confidential";
+import { answersHandOffs, consultationOrigin } from "./consultations";
 import { getChannelCached } from "./context";
 import type { ContextDeps } from "./context/summaries";
 import { deliverNotice, publishDelivery } from "./delivery";
@@ -26,7 +29,8 @@ import { ago, stepLine } from "./talker-snapshot";
 import { nameConversation } from "./thread-assess";
 import { maskCredentials } from "./tool-detail";
 
-const { agentQuestions, agentRunSteps, agentWorks, agentRuns, messages, threadFollows, users } = schema;
+const { agentConsultations, agentQuestions, agentRunSteps, agentWorks, agentRuns, messages, threadFollows, users } =
+  schema;
 
 export type WorkRow = typeof agentWorks.$inferSelect;
 export type WorkPlanItem = schema.WorkPlanItem;
@@ -80,9 +84,18 @@ export const setWorkOrgCap = (n: number) => {
 /** The executor of a run hears its move here (the tool may have run on another replica, through the bridge). */
 export const workTopic = (runId: string) => `run-work:${runId}`;
 
+type HomeFields = Pick<WorkRow, "how" | "homeThreadId" | "handedThreadId">;
+
+/**
+ * Where a work reports, in its `channelId`: the thread the ask was in. A handed work's run answers in another
+ * conversation (the agents' DM, a task's), where `homeThreadId` is its own reply thread; the person's thread is
+ * `handedThreadId`.
+ */
+export const workHomeThreadOf = (w: HomeFields) => (w.how === "handed" ? w.handedThreadId : w.homeThreadId);
+
 /** Where a work's updates go: its anchor's own thread, or the thread the ask was in. */
-export const updatesThreadOf = (w: Pick<WorkRow, "ownThread" | "anchorMessageId" | "homeThreadId">) =>
-  w.ownThread ? w.anchorMessageId : w.homeThreadId;
+export const updatesThreadOf = (w: Pick<WorkRow, "ownThread" | "anchorMessageId"> & HomeFields) =>
+  w.how === "handed" ? w.handedThreadId : w.ownThread ? w.anchorMessageId : w.homeThreadId;
 
 const clampNext = (n: unknown) =>
   Math.min(
@@ -130,7 +143,7 @@ export interface WorkView {
   status: WorkStatus;
   /** While live, what its run does: works, waits on a person, its plan or its computer, or waits in line. */
   state: "working" | "waiting_approval" | "waiting_input" | "paused" | "waiting_computer" | "queued" | null;
-  how: "agent" | "auto";
+  how: "agent" | "auto" | "handed";
   anchorMessageId: string;
   /** Where its updates are (the anchor's thread, or the thread the ask was in). */
   threadId: string | null;
@@ -155,6 +168,21 @@ export interface WorkView {
   /** The right hand that made that stop at their word. */
   canceledByAgentId: string | null;
   errorCode: string | null;
+  /** Handed over by another agent (`handOverWork`): that agent and its hand-off. */
+  handedBy: { agentId: string; consultationId: string } | null;
+  /** A handed work: the run that handed it, whose last message here carries its line. */
+  askerRunId: string | null;
+  /** Where its plan is: the first step not done, 1-based, never past the last. */
+  planStep: { current: number; total: number } | null;
+  /** Done: the first line of its report. */
+  result: { text: string; messageId: string } | null;
+}
+
+/** The first step of a plan not done yet, 1-based (the last one once every step is done). */
+export function planStepOf(plan: WorkPlanItem[]): WorkView["planStep"] {
+  if (plan.length === 0) return null;
+  const open = plan.findIndex((p) => p.state !== "done");
+  return { current: open === -1 ? plan.length : open + 1, total: plan.length };
 }
 
 /** Views of these works (by id), with their current runs' sub-states. */
@@ -248,6 +276,32 @@ export async function workViews(db: Executor, orgId: string, ids: string[]): Pro
         ).map((m) => [m.id, m.code]),
       )
     : new Map<string, string | null>();
+  const handedIds = rows.flatMap((r) => (r.consultationId ? [r.consultationId] : []));
+  const handOffs = handedIds.length
+    ? new Map(
+        (
+          await db
+            .select({
+              id: agentConsultations.id,
+              agentId: agentConsultations.askerAgentId,
+              runId: agentConsultations.askerRunId,
+            })
+            .from(agentConsultations)
+            .where(and(eq(agentConsultations.orgId, orgId), inArray(agentConsultations.id, handedIds)))
+        ).map((c) => [c.id, c]),
+      )
+    : new Map<string, { id: string; agentId: string; runId: string }>();
+  const doneIds = rows.flatMap((r) => (r.status === "done" && r.resultMessageId ? [r.resultMessageId] : []));
+  const results = doneIds.length
+    ? new Map(
+        (
+          await db
+            .select({ id: messages.id, body: messages.body })
+            .from(messages)
+            .where(and(eq(messages.orgId, orgId), inArray(messages.id, doneIds), isNull(messages.deletedAt)))
+        ).map((m) => [m.id, replyExcerpt(plainLines(m.body)[0] ?? m.body, 160)]),
+      )
+    : new Map<string, string>();
   for (const w of rows) {
     const run = runs.find((r) => r.workId === w.id);
     const status = w.status as WorkStatus;
@@ -272,6 +326,8 @@ export async function workViews(db: Executor, orgId: string, ids: string[]): Pro
       state === "waiting_input" ? questions.find((q) => q.runId === run?.id && q.channelId === w.channelId) : undefined;
     const detail = status === "failed" ? runErrorDetail(run?.error) : null;
     const stop = status === "canceled" ? personStopOf(run?.error) : null;
+    const handOff = w.consultationId ? handOffs.get(w.consultationId) : undefined;
+    const resultText = w.resultMessageId ? results.get(w.resultMessageId) : undefined;
     out.set(w.id, {
       id: w.id,
       agentId: w.agentId,
@@ -279,10 +335,10 @@ export async function workViews(db: Executor, orgId: string, ids: string[]): Pro
       title: w.title,
       status,
       state,
-      how: w.how === "auto" ? "auto" : "agent",
+      how: w.how === "auto" || w.how === "handed" ? w.how : "agent",
       anchorMessageId: w.anchorMessageId,
       threadId: updatesThreadOf(w),
-      homeThreadId: w.homeThreadId,
+      homeThreadId: workHomeThreadOf(w),
       runId: run?.id ?? null,
       requestedByUserId: w.requestedByUserId,
       startedAt: w.startedAt.toISOString(),
@@ -307,6 +363,10 @@ export async function workViews(db: Executor, orgId: string, ids: string[]): Pro
       canceledByUserId: stop?.userId ?? null,
       canceledByAgentId: stop?.agentId ?? null,
       errorCode: detail?.errorCode ?? (w.resultMessageId ? (reportCodes.get(w.resultMessageId) ?? null) : null),
+      handedBy: handOff ? { agentId: handOff.agentId, consultationId: handOff.id } : null,
+      askerRunId: handOff?.runId ?? null,
+      planStep: planStepOf(w.plan),
+      result: resultText && w.resultMessageId ? { text: resultText, messageId: w.resultMessageId } : null,
     });
   }
   return out;
@@ -352,7 +412,36 @@ type RunLike = Pick<
  * not a mission's thread, not a routine's run and not one that already is.
  */
 export async function workEligible(db: Executor, run: RunLike): Promise<boolean> {
-  return !run.workId && !isTerminal(run.status) && movableRun(db, run);
+  if (run.workId || isTerminal(run.status)) return false;
+  return (await movableRun(db, run)) || Boolean(await handedHome(db, run));
+}
+
+/**
+ * Where a run another agent handed work to (in an agents' DM or a task's conversation, `answersHandOffs`) reports
+ * for the person behind the chain: the conversation where that person asked (`consultationOrigin`), on their
+ * authority. Null when no person is behind it (a routine's chain) or it answers agents only.
+ */
+export async function handedHome(db: Executor, run: RunLike) {
+  if (run.background) return null;
+  const channel = await getChannelCached(db as Database, run.orgId, run.channelId);
+  if (!channel || !answersHandOffs(channel)) return null;
+  // Only a run a hand-off started: one a note joined keeps its own course (`handOverWork`).
+  const [started] = await db
+    .select({ id: agentConsultations.id })
+    .from(agentConsultations)
+    .where(
+      and(
+        eq(agentConsultations.orgId, run.orgId),
+        eq(agentConsultations.targetRunId, run.id),
+        eq(agentConsultations.messageId, run.triggerMessageId),
+      ),
+    )
+    .limit(1);
+  if (!started) return null;
+  const origin = await consultationOrigin(db, run.orgId, run.id);
+  if (!origin) return null;
+  const authority = await runAuthority(db, run);
+  return authority.kind === "person" ? { ...origin, personId: authority.personId, consultationId: started.id } : null;
 }
 
 /** Whether a run's work may leave where it answers now (`moveRun`, `moveToBackground`). */
@@ -389,10 +478,27 @@ export async function moveToBackground(
   now = new Date(),
 ): Promise<{ work: WorkRow; anchor: Message; queued: boolean } | null> {
   const { db } = deps;
+  const [current] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
+  const handedFrom = current && !current.workId ? await handedHome(db, current) : null;
+  if (handedFrom) {
+    // A run answering another agent: its work reports where the person asked, anchored on the hand-off.
+    const handed = await handOverWork(
+      deps,
+      handedFrom.consultationId,
+      { title: input.title, plan: input.plan ?? null },
+      now,
+    );
+    if (!handed) return null;
+    const [anchor] = await db.select().from(messages).where(eq(messages.id, handed.anchorMessageId));
+    return anchor ? { work: handed, anchor: anchor as Message, queued: handed.status === "queued" } : null;
+  }
   const title = await workTitle(deps, runId, input.title);
   const moved = await db.transaction(async (tx) => {
     const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, runId)).for("update");
     if (!run || run.workId || isTerminal(run.status)) return null;
+    // A run of a confidential thread (ADR 0190) answers there and nowhere else: an anchor of its own would be a
+    // second place for what it read.
+    if (await threadIsConfidential(tx, run.orgId, run.threadRootId)) return null;
     await lockWorkCaps(tx, run.orgId);
     const home = replyThreadOf(run);
     const ownThread = home === null;
@@ -505,6 +611,90 @@ export async function moveToBackground(
   }
   const [fresh] = await db.select().from(agentWorks).where(eq(agentWorks.id, work.id));
   return { work: fresh ?? work, anchor, queued: moved.queued };
+}
+
+/**
+ * Work another agent handed over (`tell_agent`, or the right hand handing a task, ADR 0121 addendum): the run that
+ * took the hand-off becomes background work that reports where the person behind the chain asked (`handedHome`), so
+ * its updates, its questions and its report reach them as its own messages, and its card moves by itself. Anchored
+ * on the hand-off's message (one per hand-off); the run keeps answering where it was handed the work. Nothing for a
+ * heads-up, a run nobody is behind, one that answers agents only, or one already at work on something else.
+ */
+export async function handOverWork(
+  deps: { db: Database; pubsub?: PubSub; context?: ContextDeps },
+  consultationId: string,
+  input: { title?: string; plan?: WorkPlanItem[] | null } = {},
+  now = new Date(),
+): Promise<WorkRow | null> {
+  const { db } = deps;
+  const [c] = await db.select().from(agentConsultations).where(eq(agentConsultations.id, consultationId));
+  if (!c?.targetRunId) return null;
+  const [note] = await db
+    .select({ meta: messages.meta })
+    .from(messages)
+    .where(and(eq(messages.orgId, c.orgId), eq(messages.id, c.messageId)));
+  if ((note?.meta.agentNote as { headsUp?: unknown } | undefined)?.headsUp === true) return null;
+  const [target] = await db.select().from(agentRuns).where(eq(agentRuns.id, c.targetRunId));
+  // Only a run the hand-off started: one it joined is at work on something else, which keeps its own course.
+  if (!target || target.workId || isTerminal(target.status) || target.triggerMessageId !== c.messageId) return null;
+  const home = await handedHome(db, target);
+  if (!home) return null;
+  const title =
+    plainText(input.title, WORK_LIMITS.titleMax) || plainText(c.question.split("\n")[0], WORK_LIMITS.titleMax);
+  const work = await db.transaction(async (tx) => {
+    const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, target.id)).for("update");
+    if (!run || run.workId || isTerminal(run.status)) return null;
+    await lockWorkCaps(tx, run.orgId);
+    const [live] = await tx
+      .select({
+        agent: sql<number>`count(*) filter (where ${agentWorks.agentId} = ${run.agentId})::int`,
+        org: sql<number>`count(*)::int`,
+      })
+      .from(agentWorks)
+      .where(and(eq(agentWorks.orgId, run.orgId), eq(agentWorks.status, "live")));
+    const queued = (live?.agent ?? 0) >= WORK_LIMITS.perAgent || (live?.org ?? 0) >= perOrgCap;
+    const [row] = await tx
+      .insert(agentWorks)
+      .values({
+        orgId: run.orgId,
+        agentId: run.agentId,
+        channelId: home.channelId,
+        // Its own reply thread where it runs: the executor posts its report there (`meta.workEnd`), copied home.
+        homeThreadId: replyThreadOf(run),
+        handedThreadId: home.threadId,
+        anchorMessageId: c.messageId,
+        ownThread: false,
+        title,
+        plan: input.plan ?? [],
+        status: queued ? "queued" : "live",
+        how: "handed",
+        consultationId: c.id,
+        requestedByUserId: home.personId,
+        lastUpdateAt: now,
+        nextUpdateAt: queued ? null : new Date(now.getTime() + WORK_LIMITS.nextDefault * 60_000),
+        startedAt: now,
+      })
+      .onConflictDoNothing({ target: agentWorks.anchorMessageId })
+      .returning();
+    if (!row) return null;
+    await tx
+      .update(agentRuns)
+      .set({ workId: row.id, updatedAt: now })
+      .where(and(eq(agentRuns.id, run.id), isNull(agentRuns.workId)));
+    if (!queued) await scheduleCheckIn(tx, row);
+    return row;
+  });
+  if (!work) return null;
+  localMoves.add(target.id);
+  // Its card from the start (the task it was handed, or a new one): it moves with the work from here on.
+  await ensureWorkCard(deps, work.id, {}).catch(() => null);
+  if (deps.pubsub)
+    await deps.pubsub
+      .publish(workTopic(target.id), { type: "run.work", runId: target.id, workId: work.id })
+      .catch(() => {});
+  await announceWork(deps.pubsub, db, work.orgId, work.id);
+  const [fresh] = await db.select().from(agentWorks).where(eq(agentWorks.id, work.id));
+  return fresh ?? work;
 }
 
 /**
@@ -850,7 +1040,7 @@ export async function endWork(
   const ended = await db.transaction(async (tx) => {
     const [reply] = run.replyMessageId
       ? await tx
-          .select({ id: messages.id, meta: messages.meta })
+          .select({ id: messages.id, meta: messages.meta, body: messages.body, channelId: messages.channelId })
           .from(messages)
           .where(and(eq(messages.orgId, run.orgId), eq(messages.id, run.replyMessageId)))
       : [];
@@ -865,6 +1055,19 @@ export async function endWork(
     if (!work) return null;
     let resultId = report?.id ?? null;
     let end: Message | null = null;
+    // Handed work: its report was posted where it was handed the work, which no person reads. A copy goes home, as it.
+    if (report && work.how === "handed" && report.channelId !== work.channelId) {
+      const { memoryUpdates: _m, consulted: _c, stepLimit: _s, ...kept } = report.meta;
+      end = await insertMessage(tx, {
+        orgId: work.orgId,
+        channelId: work.channelId,
+        threadId: work.handedThreadId,
+        author: { type: "agent", agentId: work.agentId, runId: run.id, hop: run.hop },
+        body: report.body,
+        meta: { ...kept, handedReport: { fromMessageId: report.id } },
+      });
+      resultId = end.id;
+    }
     if (!resultId) {
       const detail = status === "failed" ? runErrorDetail(run.error) : null;
       const minutes = Math.max(1, Math.round((now.getTime() - work.startedAt.getTime()) / 60_000));
@@ -881,7 +1084,7 @@ export async function endWork(
       end = await insertMessage(tx, {
         orgId: work.orgId,
         channelId: work.channelId,
-        threadId: work.homeThreadId,
+        threadId: workHomeThreadOf(work),
         author: { type: "agent", agentId: work.agentId, runId: run.id, hop: run.hop },
         body: [
           endText(locale, status, minutes, by?.name),
@@ -1084,7 +1287,7 @@ export async function followUpWork(
       const home = await reaches(personId, work.channelId);
       if (!home && (last.channelId === work.channelId || !(await reaches(personId, last.channelId)))) continue;
       const place = home
-        ? { channelId: work.channelId, threadId: work.homeThreadId }
+        ? { channelId: work.channelId, threadId: workHomeThreadOf(work) }
         : { channelId: last.channelId, threadId: last.threadId };
       // Their words as conversation lines ("[Bia]: …"), each with what it attached.
       const quoted = await renderSteered(
@@ -1288,6 +1491,9 @@ export async function liveWorksHere(db: Executor, run: Pick<AgentRun, "orgId" | 
 const BRIEF_STEPS = 8;
 const BRIEF_UPDATES = 3;
 
+/** The heading of a run's context block on the agent's live works here (`workBrief`). */
+export const WORK_BRIEF_HEADING = "# Your background work here";
+
 /**
  * "# Your background work here" (§6): what a new run in the conversation knows of the agent's live works, enough to
  * answer a person about one at once (its title, plan, updates and latest steps) and to pass a change on.
@@ -1320,7 +1526,15 @@ export async function workBrief(db: Executor, run: Pick<AgentRun, "orgId" | "age
           .select({ kind: agentRunSteps.kind, data: agentRunSteps.data, createdAt: agentRunSteps.createdAt })
           .from(agentRunSteps)
           .innerJoin(agentRuns, eq(agentRuns.id, agentRunSteps.runId))
-          .where(and(eq(agentRuns.workId, w.id), eq(agentRuns.orgId, w.orgId)))
+          .where(
+            and(
+              eq(agentRuns.workId, w.id),
+              eq(agentRuns.orgId, w.orgId),
+              // What a run of a confidential thread said between its calls may repeat what it read (ADR 0190), and
+              // this is handed to the agent's other runs in the conversation.
+              sql`not ${confidentialThreadSql(sql`${agentRuns.orgId}`, sql`${agentRuns.threadRootId}`)}`,
+            ),
+          )
           .orderBy(desc(agentRunSteps.createdAt))
           .limit(BRIEF_STEPS),
       ]);
@@ -1339,7 +1553,7 @@ export async function workBrief(db: Executor, run: Pick<AgentRun, "orgId" | "age
     }),
   );
   return [
-    "# Your background work here",
+    WORK_BRIEF_HEADING,
     "You are already working on this in the background (each one reports here by itself when it ends):",
     ...lines,
     `A person's message here comes to you, not to the work, which keeps running: answer it now. A question about the work (how it goes, what it covers, what it found): answer from the lines above, plainly, without starting that work again. If the message changes the work (a correction, a narrower or wider scope, more detail) or asks for a next step once it is done, pass it on with ${STEER_WORK_TOOL} and tell them in one short line what it answers: the work takes it on, or, from someone who didn't ask for the work, it runs once the work ends or is stopped, as them. Never say you will do it yourself later: this turn ends here. To stop one, ${STOP_WORK_TOOL}. Anything else, answer it normally here. Never poll or wait for your own work.`,

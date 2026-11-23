@@ -1,22 +1,36 @@
 import {
   type ConnectorDef,
+  type MailAccount,
   useCatalog,
   useComposioUsage,
   useConnections,
+  useCustomServerAction,
   useCustomServers,
+  useDisconnect,
   useMailAccounts,
+  useMailAction,
+  useMembers,
+  useTakeConnectionOffAgent,
 } from "@agenteschat/client";
 import { composioOffText, composioUsageText, nearComposioLimit } from "@agenteschat/client/lib/composio";
-import { type ConnectedItem, connectedItems, isMcpItem, itemName } from "@agenteschat/client/lib/connected";
+import {
+  type ConnectedItem,
+  connectedItems,
+  connectionActs,
+  isMcpItem,
+  itemName,
+  personalAllowed,
+  personalOfText,
+} from "@agenteschat/client/lib/connected";
 import { settingsFrozen } from "@agenteschat/client/lib/deletion";
-import { choiceOf, MAIL_BRANDS } from "@agenteschat/client/lib/mail";
+import { choiceOf, MAIL_BRANDS, mailboxName } from "@agenteschat/client/lib/mail";
 import { can } from "@agenteschat/client/lib/permissions";
 import { connectorDescription, connectorName } from "@agenteschat/client/lib/scopes";
-import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
+import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { useLocalSearchParams } from "expo-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -30,22 +44,29 @@ import Animated, {
 import { useOrg } from "@/providers/org";
 import {
   Button,
+  CodeWords,
   EmptyState,
   Filters,
+  GroupedHeader,
+  GroupedList,
+  GroupedRow,
   Icon,
-  IconButton,
   LineIcon,
   Locked,
   PressScale,
+  RowPressable,
   SearchField,
   SectionHeader,
+  Segmented,
   SkeletonList,
   Text,
   useReducedMotion,
+  useToast,
 } from "@/ui";
-import { AgentFace } from "../shared/Face";
-import { firstUseCopy } from "../shared/first-use";
-import { useColors, useDirectory, useOrgId, usePullRefresh } from "../shared/hooks";
+import { Note } from "../ai/parts";
+import { chooseAction, confirmAction } from "../settings/parts";
+import { FirstUse, LoadFailed } from "../shared/FirstUse";
+import { useColors, useDirectory, useErrorToast, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { useSurface } from "../shared/parts";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
@@ -54,7 +75,9 @@ import { ConnectorIcon } from "./ConnectorIcon";
 import { AddressSheet, ConnectSheet, ServerSheet } from "./ConnectSheet";
 import {
   CATEGORIES,
+  type ConnectionTab,
   connectionOf,
+  connectionTabs,
   galleryTiles,
   isHttpsUrl,
   SUGGESTED,
@@ -94,29 +117,48 @@ function Gallery() {
   const sheet = useSheet();
   const catalog = useCatalog();
   const composio = useComposioUsage(orgId);
-  const connections = useConnections(orgId);
+  const me = useMeId() ?? "";
+  const members = useMembers(orgId).data?.length ?? 0;
+  // The team's connections are for who manages connectors; every member connects their own (Pessoal). Being deleted,
+  // nothing connects, as on the web: what is connected still opens.
+  const frozen = settingsFrozen(org, "connectors");
+  const manages = can(org, "manage_connectors");
+  // Who manages connectors also gets other people's personal ones, as bare rows.
+  const others = { others: manages };
+  const connections = useConnections(orgId, true, others);
   // Servers connected by address (a vendor's own, like Sentry's) come from their own list, as on the web.
-  const servers = useCustomServers(orgId);
+  const servers = useCustomServers(orgId, true, others);
   // Mailboxes (ADR 0038): rows of what is connected; they connect on the web.
-  const mailAccounts = useMailAccounts(orgId);
-  const mailboxes = shownMailboxes(mailAccounts.data ?? []);
+  const mailAccounts = useMailAccounts(orgId, true, others);
   const pull = usePullRefresh(async () => {
     await Promise.all([catalog.refetch(), connections.refetch(), servers.refetch(), mailAccounts.refetch()]);
   });
-  // Connecting is for who manages connectors (the server checks it too). Being deleted, nothing connects, as on the
-  // web: what is connected still opens.
-  const frozen = settingsFrozen(org, "connectors");
-  const admin = can(org, "manage_connectors") && !frozen;
+  const [picked, setPicked] = useState<ConnectionTab | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
-  const list = catalog.data?.connectors ?? [];
-  const items = useMemo(
+  const everything = useMemo(
     () => connectedItems(connections.data ?? [], servers.data ?? [], catalog.data?.connectors ?? []),
     [connections.data, servers.data, catalog.data],
   );
+  const tabs = connectionTabs({
+    items: everything,
+    mailboxes: shownMailboxes(mailAccounts.data ?? []),
+    me,
+    members,
+    manages,
+    picked,
+  });
+  const personal = tabs.tab === "personal";
+  const { items, mailboxes } = tabs;
+  const admin = manages && !frozen;
+  // Adding: the team's for who manages connectors, one's own for everyone.
+  const mayAdd = !frozen && (manages || personal);
+  // GitHub connects for the team only: not offered on Pessoal.
+  const list = (catalog.data?.connectors ?? []).filter((d) => !personal || personalAllowed(d.id));
   const apps = items.filter((i) => !isMcpItem(i));
   const mcps = items.filter(isMcpItem);
-  const connectedCount = items.length + mailboxes.length;
+  const rowMail = personal ? [] : mailboxes;
+  const connectedCount = items.length + rowMail.length;
   const name = (d: ConnectorDef) => connectorName(t, d);
   const suggestions = useMemo(() => suggestionsOf(list, items, 2), [list, items]);
   const searching = q.trim().length > 0;
@@ -131,28 +173,47 @@ function Gallery() {
   const rows = galleryTiles(rest, items).filter((x) => x.opens && (searching || !x.connected));
   // What waits on the person among the connected: a sign-in that stopped, tools that couldn't be read, tools to
   // decide (admins).
-  const waiting = items.filter((i) => i.needsReconnect || i.toolsError || (admin && i.pending > 0));
+  const waiting = items.filter(
+    (i) => i.needsReconnect || i.toolsError || (connectionActs(i, me, manages).change && i.pending > 0),
+  );
   // Without Composio here, the services that connect only through it are left out: admins read why.
   const composioOff = admin ? composioOffText(t, list, SUGGESTED) : null;
   const open = (def: ConnectorDef) => {
     const existing = connectionOf(def, items);
     if (existing) openConnection(existing.id);
-    else sheet.open(<ConnectSheet def={def} />);
+    else sheet.open(<ConnectSheet def={def} personal={personal} />);
   };
   // Connecting by an address: the one typed in the search when it is one.
-  const openAddress = () => sheet.open(<AddressSheet {...(isHttpsUrl(q.trim()) ? { url: q.trim() } : {})} />);
+  const openAddress = () =>
+    sheet.open(<AddressSheet personal={personal} {...(isHttpsUrl(q.trim()) ? { url: q.trim() } : {})} />);
   // A connection opens its own screen (a server connected by an address we don't know included).
   const openItem = (item: ConnectedItem) => openConnection(item.id);
+  const mailTile = (a: (typeof mailboxes)[number]) => (
+    <MiniTile
+      key={a.id}
+      onPress={() => sheet.open(<MailboxSheet accountId={a.id} />)}
+      label={t("mobile.connectors.connectedCheck", { name: a.label })}
+    >
+      <ConnectorIcon def={MAIL_BRANDS[choiceOf(a)] ?? null} label={a.label} size={48} check />
+      <Text variant="caption" tone="muted" numberOfLines={1}>
+        {a.label}
+      </Text>
+    </MiniTile>
+  );
   // From an agent's card in the chat (`?connect=<catalog id>` or `?mcp=<address>`, `?mcp=` alone: any address): the
   // same sheet the gallery opens, once the catalog is in.
   const { connected, connect, mcp } = useLocalSearchParams<{ connected?: string; connect?: string; mcp?: string }>();
   const offered = useRef(false);
   useEffect(() => {
-    if (offered.current || (connect === undefined && mcp === undefined) || !catalog.data || !admin) return;
+    if (offered.current || (connect === undefined && mcp === undefined) || !catalog.data || frozen) return;
+    // Who may not add the team's connects it as their own, on Pessoal; GitHub stays with who manages connectors.
+    if (!manages && !personalAllowed(connect)) return;
     offered.current = true;
     const def = connect ? catalog.data.connectors.find((d) => d.id === connect) : undefined;
-    if (def) open(def);
-    else sheet.open(<AddressSheet url={mcp || undefined} />);
+    const theirs = !manages || personal;
+    if (!manages) setPicked("personal");
+    if (def) sheet.open(<ConnectSheet def={def} personal={theirs} />);
+    else sheet.open(<AddressSheet url={mcp || undefined} personal={theirs} />);
   });
   // Back from a sign-in that finished on the link route (`?connected=<id>`): the confirmation, as the web shows
   // for the connection that just came in (admins; anyone else had the toast).
@@ -160,26 +221,46 @@ function Gallery() {
   useEffect(() => {
     if (!connected || returned.current === connected || !connections.data || !servers.data || !catalog.data) return;
     returned.current = connected;
-    const item = items.find((i) => i.id === connected);
-    if (!item || !admin) return;
+    const item = everything.find((i) => i.id === connected);
+    if (!item || frozen || !connectionActs(item, me, manages).change) return;
+    if (item.ownerUserId) setPicked("personal");
     sheet.open(
-      item.def ? <ConnectSheet def={item.def} item={item} start="done" /> : <ServerSheet item={item} start="done" />,
+      item.def ? (
+        <ConnectSheet def={item.def} item={item} start="done" personal={Boolean(item.ownerUserId)} />
+      ) : (
+        <ServerSheet item={item} start="done" />
+      ),
     );
-  }, [connected, connections.data, servers.data, catalog.data, items, admin, sheet]);
+  }, [connected, connections.data, servers.data, catalog.data, everything, me, manages, frozen, sheet]);
 
   return (
     <PushedLargeTitle
       title={t("mobile.connectors.title")}
       // Adding by an address lives in the bar, as every list's "+".
-      {...(admin
-        ? { right: <IconButton icon="plus" label={t("connectors.otherConnect")} onPress={openAddress} /> }
+      {...(mayAdd
+        ? { actions: [{ icon: "plus", sf: "plus", label: t("connectors.otherConnect"), onPress: openAddress }] }
         : {})}
       refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+      // The search's results make room for the keyboard, which a drag takes away.
+      keyboard
     >
       {composio.data && nearComposioLimit(composio.data) ? (
         <Text variant="small" tone="muted" style={styles.usage}>
           {composioUsageText(t, i18n.language, composio.data)}
         </Text>
+      ) : null}
+      {tabs.shown && connections.isSuccess && servers.isSuccess ? (
+        <View style={styles.tabs}>
+          <Segmented
+            wide
+            items={[
+              { key: "team", label: t(modeKey(org, "vault.tab.team")), count: tabs.team },
+              { key: "personal", label: t("vault.tab.personal"), count: tabs.mine },
+            ]}
+            value={tabs.tab}
+            onChange={(k) => setPicked(k as ConnectionTab)}
+          />
+        </View>
       ) : null}
       <View style={styles.search}>
         <SearchField
@@ -194,24 +275,32 @@ function Gallery() {
         // Loading: the rows' own shape, never a spinner.
         <SkeletonList rows={4} />
       ) : catalog.isError && !catalog.data ? (
-        <View style={styles.center}>
-          <Text tone="muted" style={styles.centerText}>
-            {t("mobile.connectors.loadFailed")}
-          </Text>
-          <Button
-            variant="secondary"
-            size="sm"
-            label={t("mobile.common.retry")}
-            onPress={() => void catalog.refetch()}
-          />
-        </View>
+        // A catalog that didn't load is not an empty one: what happened, and the way to ask again.
+        <LoadFailed onRetry={() => void catalog.refetch()} />
       ) : (
         <>
           {/* A pasted address connects a server by it, from the search itself. */}
-          {searching && admin && isHttpsUrl(q.trim()) ? <AddressRow url={q.trim()} onPress={openAddress} /> : null}
+          {searching && mayAdd && isHttpsUrl(q.trim()) ? <AddressRow url={q.trim()} onPress={openAddress} /> : null}
           {searching ? null : (
             <>
-              {admin || connectedCount > 0 ? (
+              {/* On Pessoal a person's mailboxes are a group of their own: they keep their own rule (ADR 0038). */}
+              {personal && mailboxes.length > 0 ? (
+                <>
+                  <SectionHeader title={t("connectors.personal.mailTitle")} count={mailboxes.length} />
+                  <View style={styles.personalNote}>
+                    <Note icon="mail">{t("connectors.personal.mailNote")}</Note>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+                    {mailboxes.map(mailTile)}
+                  </ScrollView>
+                </>
+              ) : null}
+              {personal && items.length > 0 ? (
+                <View style={styles.personalNote}>
+                  <Note icon="lock">{t("connectors.personal.note")}</Note>
+                </View>
+              ) : null}
+              {mayAdd || connectedCount > 0 ? (
                 <>
                   <SectionHeader
                     title={t("mobile.connectors.connected")}
@@ -221,42 +310,45 @@ function Gallery() {
                     {/* A connection made or removed while the row is in sight fades, and the others slide over. */}
                     <LayoutAnimationConfig skipEntering>
                       {/* Mailboxes first, as on the web, by their name ("Suporte"). */}
-                      {mailboxes.map((a) => (
-                        <MiniTile
-                          key={a.id}
-                          onPress={() => sheet.open(<MailboxSheet accountId={a.id} />)}
-                          label={t("mobile.connectors.connectedCheck", { name: a.label })}
-                        >
-                          <ConnectorIcon def={MAIL_BRANDS[choiceOf(a)] ?? null} label={a.label} size={48} check />
-                          <Text variant="caption" tone="muted" numberOfLines={1}>
-                            {a.label}
-                          </Text>
-                        </MiniTile>
-                      ))}
+                      {rowMail.map(mailTile)}
                       {/* Services, then servers connected by address (oldest first, as on the web). */}
                       {[...apps, ...mcps].map((item) => (
                         <ConnectedTile
                           key={item.id}
                           item={item}
-                          review={admin && item.pending > 0}
+                          review={connectionActs(item, me, manages).change && item.pending > 0}
                           fresh={item.id === connected}
                           onPress={() => openItem(item)}
                         />
                       ))}
                       {/* Adding comes after what is there: the row reads what is connected first. */}
-                      {admin ? <AddTile onPress={() => sheet.open(<AddressSheet />)} /> : null}
+                      {mayAdd ? <AddTile onPress={() => sheet.open(<AddressSheet personal={personal} />)} /> : null}
                     </LayoutAnimationConfig>
                   </ScrollView>
                   {waiting.length > 0 ? (
                     <WaitLine
                       items={waiting}
                       admin={admin}
-                      onOpen={(i) => (admin && i.pending > 0 ? openTools(i.id) : openItem(i))}
+                      onOpen={(i) =>
+                        connectionActs(i, me, manages).change && i.pending > 0 ? openTools(i.id) : openItem(i)
+                      }
                     />
                   ) : null}
                 </>
               ) : null}
-              {connectedCount === 0 ? <EmptyHint acts={admin} /> : null}
+              {/* Nothing connected yet: what connecting gives, as every empty place says it. No button: the
+                  catalog right under it is the next step (who can't connect is told who does). */}
+              {connectedCount === 0 ? (
+                <FirstUse
+                  place="connectors"
+                  acts={mayAdd}
+                  size="inline"
+                  {...(personal ? { copy: PERSONAL_EMPTY } : {})}
+                />
+              ) : null}
+              {tabs.others.length + tabs.othersMail.length > 0 ? (
+                <OthersPersonal items={tabs.others} mailboxes={tabs.othersMail} />
+              ) : null}
             </>
           )}
           {!searching && suggestions.length > 0 ? (
@@ -264,7 +356,7 @@ function Gallery() {
               {/* A personal workspace's are suggested for its person, never "for Personal" (ADR 0159). */}
               <SectionHeader
                 title={
-                  isPersonal(org)
+                  isPersonal(org) || personal
                     ? t("connectors.suggestedPersonal")
                     : t("mobile.connectors.suggested", { org: org?.name ?? "" })
                 }
@@ -300,7 +392,7 @@ function Gallery() {
               size="inline"
               title={t("mobile.connectors.noResults")}
               action={
-                admin ? (
+                mayAdd ? (
                   <Button variant="secondary" size="sm" label={t("connectors.otherConnect")} onPress={openAddress} />
                 ) : (
                   <Button
@@ -332,7 +424,7 @@ function Gallery() {
           )}
           {composioOff ? (
             <Text variant="small" tone="muted" style={styles.note}>
-              {composioOff}
+              <CodeWords text={composioOff} />
             </Text>
           ) : null}
         </>
@@ -341,34 +433,148 @@ function Gallery() {
   );
 }
 
+/** The Pessoal side's own empty words. */
+const PERSONAL_EMPTY = { title: "connectors.personal.emptyTitle", text: "connectors.personal.emptyText" };
+
 /**
- * Nothing connected yet: who would use it, in a line, with the real faces. No button: the catalog right under it is
- * the next step (who can't connect is told who does).
+ * Other people's personal connections and mailboxes, for who manages connectors, in a quiet group under the team's:
+ * the service, its name and whose it is, the agents that hold it. Never its account, tools or settings. A tap offers
+ * only "Tirar de um agente" (a connection some agent holds) and "Remover".
  */
-function EmptyHint({ acts }: { acts: boolean }) {
+function OthersPersonal({
+  items,
+  mailboxes,
+}: {
+  items: ConnectedItem[];
+  mailboxes: Pick<MailAccount, "id" | "label" | "provider" | "preset" | "ownerUserId" | "agents">[];
+}) {
   const { t } = useTranslation();
-  const copy = firstUseCopy("connectors", acts);
-  const c = useColors();
+  const orgId = useOrgId();
   const dir = useDirectory();
-  const faces = dir.agents.slice(0, 3);
+  const toast = useToast();
+  const failed = useErrorToast();
+  const takeOff = useTakeConnectionOffAgent(orgId);
+  const { disconnect: removeMail } = useMailAction(orgId);
+  const { disconnect: removeServer } = useCustomServerAction(orgId);
+  const removeConnection = useDisconnect(orgId);
+  const busy = takeOff.isPending || removeMail.isPending || removeServer.isPending || removeConnection.isPending;
+  const ownerOf = (id: string | null | undefined) =>
+    personalOfText(t, (id && dir.memberById.get(id)?.name) || t("channel.unknownPerson"));
+  const holders = (ids: string[]) =>
+    ids.map((id) => dir.agentById.get(id)).filter((a): a is NonNullable<typeof a> => Boolean(a));
+  const remove = (name: string, run: (done: { onSuccess: () => void; onError: (e: unknown) => void }) => void) =>
+    confirmAction({
+      title: t("connectors.personal.removeTitle", { name }),
+      action: t("connectors.personal.remove"),
+      cancel: t("common.cancel"),
+      onConfirm: () =>
+        run({
+          onSuccess: () => toast({ title: t("mobile.connectors.disconnected", { name }), icon: "check" }),
+          onError: failed,
+        }),
+    });
+  const offAgent = (item: ConnectedItem, name: string) =>
+    chooseAction(
+      t("connectors.personal.takeOffTitle", { name }),
+      holders(item.agentIds).map((a) => ({
+        label: a.name,
+        onPress: () =>
+          takeOff.mutate(
+            { connectionId: item.id, agentId: a.id },
+            {
+              onSuccess: () =>
+                toast({ title: t("connectors.personal.takenOff", { name, agent: a.name }), icon: "check" }),
+              onError: failed,
+            },
+          ),
+      })),
+      t("common.cancel"),
+    );
+  const actions = (item: ConnectedItem) => {
+    const name = itemName(t, item);
+    chooseAction(
+      name,
+      [
+        ...(item.agentIds.length > 0
+          ? [{ label: t("connectors.personal.takeOff"), onPress: () => offAgent(item, name) }]
+          : []),
+        {
+          label: t("connectors.personal.remove"),
+          destructive: true,
+          onPress: () =>
+            remove(name, (done) =>
+              item.custom ? removeServer.mutate(item.id, done) : removeConnection.mutate(item.id, done),
+            ),
+        },
+      ],
+      t("common.cancel"),
+    );
+  };
+  const usedBy = (ids: string[]) =>
+    holders(ids)
+      .map((a) => a.name)
+      .join(", ");
   return (
-    <View style={[styles.empty, { borderColor: c.line }]}>
-      <View style={styles.faces}>
-        {faces.map((a, i) => (
-          <View key={a.id} style={i > 0 ? styles.overlap : undefined}>
-            <AgentFace agentId={a.id} size={34} live={false} />
-          </View>
-        ))}
+    <>
+      <GroupedHeader>{`${t("connectors.personal.others")} · ${items.length + mailboxes.length}`}</GroupedHeader>
+      <View style={styles.others}>
+        <GroupedList>
+          {mailboxes.map((m) => {
+            const name = mailboxName(t, m);
+            return (
+              <GroupedRow
+                key={`mail-${m.id}`}
+                icon="mail"
+                label={name}
+                sub={ownerOf(m.ownerUserId)}
+                labelLines={0}
+                subLines={0}
+                {...(m.agents.length > 0 ? { below: <UsedBy names={usedBy(m.agents.map((a) => a.agentId))} /> } : {})}
+                more
+                disabled={busy}
+                // The same choice a connection's row opens, with only Remover: a mailbox has no take-off here.
+                onPress={() =>
+                  chooseAction(
+                    name,
+                    [
+                      {
+                        label: t("connectors.personal.remove"),
+                        destructive: true,
+                        onPress: () => remove(name, (done) => removeMail.mutate(m.id, done)),
+                      },
+                    ],
+                    t("common.cancel"),
+                  )
+                }
+              />
+            );
+          })}
+          {items.map((item) => (
+            <GroupedRow
+              key={item.id}
+              leading={<ConnectorIcon def={item.def} image={item.image} label={itemName(t, item)} size={30} />}
+              label={itemName(t, item)}
+              sub={ownerOf(item.ownerUserId)}
+              labelLines={0}
+              subLines={0}
+              {...(item.agentIds.length > 0 ? { below: <UsedBy names={usedBy(item.agentIds)} /> } : {})}
+              more
+              disabled={busy}
+              onPress={() => actions(item)}
+            />
+          ))}
+        </GroupedList>
       </View>
-      <View style={styles.hintText}>
-        <Text variant="body" style={styles.bold}>
-          {t(copy.title)}
-        </Text>
-        <Text variant="small" tone="muted">
-          {t(copy.text)}
-        </Text>
-      </View>
-    </View>
+    </>
+  );
+}
+
+/** The agents that hold someone else's connection, wrapping as the row needs. */
+function UsedBy({ names }: { names: string }) {
+  return (
+    <Text variant="footnote" tone="faint">
+      {names}
+    </Text>
   );
 }
 
@@ -399,11 +605,15 @@ function WaitLine({
         : "";
   const names = items.map((i) => itemName(t, i)).join(", ");
   return (
-    <Pressable
+    // It opens a screen: the press shows, with no haptic (plain navigation).
+    <PressScale
+      haptic={false}
+      fill={false}
       onPress={() => onOpen(first)}
       accessibilityRole="button"
       accessibilityLabel={`${what} · ${names}`}
-      style={({ pressed }) => [styles.wait, pressed && styles.pressed]}
+      style={styles.waitPress}
+      contentStyle={styles.wait}
     >
       <LineIcon variant="small" name="wait" size={16} color={c.amber} />
       <Text variant="small" numberOfLines={1} style={styles.grow}>
@@ -414,7 +624,7 @@ function WaitLine({
           {` · ${names}`}
         </Text>
       </Text>
-    </Pressable>
+    </PressScale>
   );
 }
 
@@ -513,21 +723,27 @@ function MiniTile({ onPress, label, children }: { onPress: () => void; label: st
 function AddressRow({ url, onPress }: { url: string; onPress: () => void }) {
   const { t } = useTranslation();
   const surface = useSurface();
+  // The suggestions' own card, with "Conectar" where the eye lands: it opens the sheet, so no haptic of its own.
   return (
-    <Pressable
+    <PressScale
+      haptic={false}
+      fill={false}
       onPress={onPress}
       accessibilityRole="button"
-      style={({ pressed }) => [styles.card, styles.address, surface, pressed && styles.pressed]}
+      accessibilityLabel={`${t("connectors.otherConnect")}. ${url}`}
+      style={[styles.card, styles.address, surface]}
+      contentStyle={styles.cardIn}
     >
-      <View style={[styles.cardText, styles.addressText]}>
+      <View style={styles.grow}>
         <Text variant="body" numberOfLines={1} style={styles.bold}>
           {t("connectors.otherConnect")}
         </Text>
-        <Text variant="small" tone="muted" numberOfLines={1}>
+        <Text variant="subhead" tone="muted" numberOfLines={1}>
           {url}
         </Text>
       </View>
-    </Pressable>
+      <ConnectWord />
+    </PressScale>
   );
 }
 
@@ -612,11 +828,12 @@ function ServiceRow({
 }) {
   const c = useColors();
   return (
-    <Pressable
+    // A row of a list: it lights as the settings' rows do, a beat late so a scroll never flashes it.
+    <RowPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${name}. ${text}`}
-      style={({ pressed }) => [styles.service, pressed && { backgroundColor: c.sunken }]}
+      style={styles.service}
     >
       {divider ? <View style={[styles.serviceLine, { backgroundColor: c.line2 }]} /> : null}
       <ConnectorIcon def={def} label={name} size={ROW_MARK} check={connected} />
@@ -629,16 +846,17 @@ function ServiceRow({
         </Text>
       </View>
       {connected ? null : <ConnectWord />}
-    </Pressable>
+    </RowPressable>
   );
 }
 
 const styles = StyleSheet.create({
   search: { paddingHorizontal: 16, paddingBottom: 6 },
+  tabs: { paddingHorizontal: 16, paddingBottom: 12 },
+  personalNote: { paddingHorizontal: 16, paddingBottom: 8 },
+  others: { paddingHorizontal: 16 },
   note: { paddingHorizontal: 16, paddingTop: 16 },
   usage: { paddingHorizontal: 16, paddingBottom: 8 },
-  center: { alignItems: "center", gap: 12, paddingVertical: 48, paddingHorizontal: 24 },
-  centerText: { textAlign: "center" },
   row: { gap: 16, paddingHorizontal: 16, paddingBottom: 6 },
   mini: { width: 64 },
   miniIn: { alignItems: "center", gap: 6 },
@@ -651,30 +869,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // On the margin of 16, under the connected row: the icon on the line's first row of text.
-  wait: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginHorizontal: 16, marginTop: 6 },
-  // A column: the team's faces on top, then the line, its text and "Pelo endereço" (in a row the faces
-  // took a third of the width and the text wrapped into a narrow block).
-  empty: {
-    gap: 10,
-    marginHorizontal: 16,
-    marginTop: 8,
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  faces: { flexDirection: "row" },
-  overlap: { marginLeft: -8 },
+  // On the margin of 16, under the connected row: one line with its icon beside it, its row a finger's 44 points tall
+  // (the line alone was a 20-point target), so the space above and below it is part of the tap.
+  waitPress: { marginHorizontal: 16 },
+  wait: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
   grow: { flex: 1, minWidth: 0 },
   bold: { fontWeight: "600" },
-  hintText: { gap: 2 },
   suggestions: { gap: 12, paddingHorizontal: 16 },
   filters: { paddingBottom: 4 },
   // The app's card with its cut corner (no hairline box), as every card standing on the page.
   card: { borderRadius: 20, borderBottomLeftRadius: 6 },
   cardIn: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
-  cardText: { flex: 1, minWidth: 0, paddingVertical: 12, paddingRight: 14 },
-  pressed: { opacity: 0.85 },
   list: { paddingTop: 4 },
   service: {
     flexDirection: "row",
@@ -703,6 +908,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  address: { marginHorizontal: 16, marginTop: 8, flexDirection: "row", alignItems: "center", overflow: "hidden" },
-  addressText: { paddingLeft: 16 },
+  address: { marginHorizontal: 16, marginTop: 8 },
 });

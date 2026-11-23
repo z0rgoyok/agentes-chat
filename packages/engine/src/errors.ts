@@ -1,3 +1,5 @@
+import { wholeIn } from "./format";
+
 /**
  * Domain errors. The HTTP layer maps them to status codes (`apps/server/src/http/errors.ts`).
  * Each may carry a stable `code` and `params` the app translates (`t(code, params)`);
@@ -202,3 +204,10 @@ export function isUnexpectedError(error: unknown): boolean {
   if (!(error instanceof Error)) return true;
   return error.constructor !== Error && !DOMAIN_ERRORS.has(error.name);
 }
+
+/**
+ * The whole number a thrown error carries under `name` (an HTTP status, a JSON-RPC error's code), when it is within
+ * `min` to `max`, else null: a number says how something failed without any of its words.
+ */
+export const errorNumber = (error: unknown, name: "status" | "code", min: number, max: number) =>
+  wholeIn((error as Record<string, unknown> | null)?.[name], min, max);

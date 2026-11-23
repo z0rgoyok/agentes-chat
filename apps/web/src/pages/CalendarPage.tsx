@@ -8,6 +8,7 @@ import {
   collapseRoutines,
   type ItemSource,
   isBarItem,
+  itemOwners,
   myRsvp,
   onDay,
   rangeLabel,
@@ -148,7 +149,8 @@ export function CalendarPage({ today: todayProp, day }: { today?: Date; day?: st
     all.filter((it) => filters[it.source]),
     days,
   );
-  const ownerShown = (it: CalItem) => !it.owner || !hidden.has(actorKey(it.owner));
+  // An item of several (a task due) shows while one of them does.
+  const ownerShown = (it: CalItem) => !it.owner || itemOwners(it).some((o) => !hidden.has(actorKey(o)));
   const items = sourced.filter(ownerShown).map((it) => {
     const r = it.routineId ? routineById.get(it.routineId) : undefined;
     if (!r) return it;

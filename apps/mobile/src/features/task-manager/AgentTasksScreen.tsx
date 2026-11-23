@@ -9,16 +9,16 @@ import {
   taskTitle,
 } from "@agenteschat/client/lib/task-manager";
 import { useTranslation } from "react-i18next";
-import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Alert, RefreshControl, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
-import { EmptyState, haptics, Icon, SCREEN_X, SkeletonList, Text, useReducedMotion } from "@/ui";
+import { Disclosure, EmptyState, haptics, RowPressable, SCREEN_X, SkeletonList, Text, useReducedMotion } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AgentFace, OpensAgent } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useNow, usePullRefresh } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { SheetHostProvider } from "../shared/SheetHost";
-import { RetryLine } from "../shared/TeamSkyEmpty";
 import { useAgentTasks, useStopper } from "./hooks";
 import { type Place, type RowState, rowState, taskStateWords } from "./logic";
 import { TaskMark, useAgentColor, WaitLines } from "./parts";
@@ -96,7 +96,7 @@ function AgentTasks({ agentId, from }: { agentId: string; from: Place | null }) 
       {query.isLoading ? (
         <SkeletonList rows={4} />
       ) : query.isError && !query.data ? (
-        <RetryLine onRetry={() => void query.refetch()} />
+        <LoadFailed onRetry={() => void query.refetch()} />
       ) : (
         // Loaded, the list fades in over the skeleton; the rows it starts with don't each fade again.
         <Animated.View {...fade}>
@@ -160,11 +160,12 @@ function TaskRow({
   const place = here ? t("taskManager.where.here") : taskPlace(t, task);
   const words = taskStateWords(t, i18n.language, task, state, now);
   return (
-    <Pressable
+    <RowPressable
+      hold
       onPress={() => router.push(`/task-manager/${task.runId}`)}
       accessibilityRole="button"
       accessibilityLabel={[title, place, words.state, words.next].filter(Boolean).join(", ")}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.sunken }]}
+      style={styles.row}
     >
       {divider ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
       <TaskMark state={state} color={color} />
@@ -177,8 +178,8 @@ function TaskRow({
           {taskTime(t, task, now)}
         </Text>
       )}
-      <Icon name="right" size={15} color={c.faint} />
-    </Pressable>
+      <Disclosure />
+    </RowPressable>
   );
 }
 
@@ -196,17 +197,13 @@ function ActionRow({
 }) {
   const c = useColors();
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [styles.action, pressed && { backgroundColor: c.sunken }]}
-    >
+    <RowPressable hold onPress={onPress} accessibilityRole="button" style={styles.action}>
       {divider ? <View style={[styles.divider, { backgroundColor: c.line2 }]} /> : null}
       <Text variant="body" style={[styles.grow, danger ? { color: c.danger } : null]} numberOfLines={1}>
         {label}
       </Text>
-      {danger ? null : <Icon name="right" size={15} color={c.faint} />}
-    </Pressable>
+      {danger ? null : <Disclosure />}
+    </RowPressable>
   );
 }
 

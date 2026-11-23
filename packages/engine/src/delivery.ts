@@ -24,6 +24,8 @@ export interface DeliverNoticeInput {
   trigger?: RunTrigger;
   /** It relays what a run read outside (`meta.readOutside`, ADR 0117). */
   readOutside?: boolean;
+  /** The run it is for or about: a notice of a confidential thread's run is that thread's (ADR 0190). */
+  forRunId?: string;
 }
 
 /**
@@ -43,7 +45,14 @@ export async function deliverNotice(
     orgId: input.orgId,
     channelId: input.channelId,
     threadId: input.threadId ?? undefined,
-    author: { type: "agent", agentId: input.agentId, runId: null, hop: input.hop, stretchId: input.stretchId },
+    author: {
+      type: "agent",
+      agentId: input.agentId,
+      runId: null,
+      hop: input.hop,
+      stretchId: input.stretchId,
+      ...(input.forRunId ? { forRunId: input.forRunId } : {}),
+    },
     body: input.body ?? input.notice.text,
     meta: { notice: input.notice, ...(input.readOutside ? { readOutside: true } : {}) },
   });

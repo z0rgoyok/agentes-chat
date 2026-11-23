@@ -107,6 +107,7 @@ describe("Usar em outros agentes", () => {
   });
 
   test("on the phone the setup is the agent's saved one, on a computer only", () => {
+    // An older server still sends the removed switch: it is not carried into the setup.
     const view = {
       brain: "claude_code",
       model: "opus",
@@ -125,7 +126,6 @@ describe("Usar em outros agentes", () => {
       model: "opus",
       effort: "high",
       contextTokens: 400_000,
-      fallback: false,
       onlyOwner: true,
     });
     expect(setupOfBrain({ ...view, brain: "model" })).toBeNull();
@@ -142,10 +142,18 @@ describe("a new agent starts with the last setup", () => {
     key: null,
     contextTokens: null,
     computer: { machineId: "m1", name: "MacBook" },
-    account: { id: "acc", label: "Claude", provider: null, mine: true, free: true },
+    account: {
+      id: "acc",
+      label: "Claude",
+      named: false,
+      email: "ana@acme.com",
+      plan: "max",
+      provider: null,
+      mine: true,
+      free: true,
+    },
     ownSignIn: false,
     effort: "high",
-    fallback: true,
   };
 
   const mine = { ownerIsMe: true, usable: new Set(["claude-opus-5-5"]), keys: [{ id: "k" }] };
@@ -171,14 +179,23 @@ describe("a new agent starts with the last setup", () => {
       brain: "claude_code",
       machineId: "m1",
       computer: "MacBook",
-      account: { id: "acc", label: "Claude" },
+      account: {
+        id: "acc",
+        kind: "claude_code",
+        label: "Claude",
+        named: false,
+        email: "ana@acme.com",
+        plan: "max",
+        mine: true,
+        keyHint: null,
+        provider: null,
+      },
       input: {
         brain: "claude_code",
         account: "acc",
         model: "opus",
         effort: "high",
         contextTokens: null,
-        fallback: true,
       },
     });
     expect(newAgentStart(plan, { ...mine, ownerIsMe: false })).toBeNull();
@@ -220,7 +237,17 @@ describe("a new agent starts with the last setup", () => {
       brain: "claude_code" as const,
       machineId: "m1",
       computer: "MacBook",
-      account: { id: "acc", label: "GLM Coding" },
+      account: {
+        id: "acc",
+        kind: "claude_code" as const,
+        label: "GLM Coding",
+        named: false,
+        email: null,
+        plan: null,
+        mine: true,
+        keyHint: null,
+        provider: "zai",
+      },
       input: { brain: "claude_code" as const, model: "sonnet", effort: "medium" as const },
     };
     // The model by the plan that pays for it, never the program it runs in.

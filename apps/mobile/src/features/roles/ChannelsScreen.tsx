@@ -45,9 +45,10 @@ function useSaveChannel() {
 }
 
 /**
- * A cargo's Canais (P6): which channels its people see, grouped as the sidebar, each saying who sees it now. A tap
- * follows W5: a public one asks who sees it (P6b), a limited one saves at once (asking first when people leave), an
- * invite-only one asks before it opens. #general and channels the viewer doesn't manage say why on a tap.
+ * A cargo's Canais: which channels its people see, grouped as the sidebar, each saying who sees it now. A tap
+ * (`channelIntent`): a public one asks who sees it (`ChannelWhoScreen`), a limited one saves at once (asking first when
+ * people leave), an invite-only one asks before it opens. #general and channels the viewer doesn't manage say why on a
+ * tap.
  */
 export function RoleChannelsScreen({ roleId }: { roleId: string }) {
   const { t } = useTranslation();
@@ -143,6 +144,18 @@ export function RoleChannelsScreen({ roleId }: { roleId: string }) {
   };
   return (
     <SettingsPage title={title} subtitle={name}>
+      {/* The search first under the title, as every list's. */}
+      {admin ? null : (
+        <View style={styles.search}>
+          <SearchField
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t("mobile.roles.channels.search")}
+            accessibilityLabel={t("mobile.roles.channels.search")}
+            returnKeyType="search"
+          />
+        </View>
+      )}
       <GroupedHeader hint={{ name: t("common.about", { label: header }), text: t("mobile.roles.channels.hint") }}>
         {header}
       </GroupedHeader>
@@ -152,13 +165,6 @@ export function RoleChannelsScreen({ roleId }: { roleId: string }) {
         </View>
       ) : (
         <>
-          <SearchField
-            value={query}
-            onChangeText={setQuery}
-            placeholder={t("mobile.roles.channels.search")}
-            accessibilityLabel={t("mobile.roles.channels.search")}
-            returnKeyType="search"
-          />
           {groups.map((g) => (
             <View key={g.id ?? "none"}>
               <GroupedHeader>{g.name ?? t("mobile.roles.channels.ungrouped")}</GroupedHeader>
@@ -210,7 +216,7 @@ export function RoleChannelsScreen({ roleId }: { roleId: string }) {
 }
 
 /**
- * Quem vê #canal (P6b), pushed with Salvar: Todos, only some cargos (which), or only who is added, as the channel's own
+ * Quem vê #canal, pushed with Salvar: Todos, only some cargos (which), or only who is added, as the channel's own
  * details say it. The line under it says who leaves, who stops seeing it, or that its history opens.
  */
 export function ChannelWhoScreen({ roleId, channelId }: { roleId: string; channelId: string }) {
@@ -322,4 +328,5 @@ export function ChannelWhoScreen({ roleId, channelId }: { roleId: string; channe
 
 const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
+  search: { paddingTop: 10 },
 });

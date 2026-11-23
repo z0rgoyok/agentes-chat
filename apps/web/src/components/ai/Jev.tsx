@@ -19,6 +19,7 @@ import {
   CardHeader,
   Chip,
   type ChipTone,
+  codeAndBold,
   Dialog,
   DialogFooter,
   Icon,
@@ -530,7 +531,7 @@ function JevCard({ routing }: { routing?: AiRouting["by"] }) {
                     </Fragment>
                   ))}
                 </span>
-                {note && <SettingNote icon={view.state === "ok" ? "info" : "alert"}>{note}</SettingNote>}
+                {note && <SettingNote icon={view.state === "ok" ? "info" : "alert"}>{codeAndBold(note)}</SettingNote>}
               </span>
               {actions && <span className="ac-acts ac-captail">{actions}</span>}
             </div>

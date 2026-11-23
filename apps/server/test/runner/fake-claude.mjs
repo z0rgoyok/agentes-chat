@@ -14,7 +14,9 @@
 // deltas, each 150 ms before the next line, "KEY401" is refused by the endpoint and retries for good
 // (as Claude Code 2.1.310 does, ten times with backoff), "ASKCONTROL" asks for an elicitation on stdout and answers
 // with what it got back, "ECHOSHAPE" prints a token-shaped text in two deltas, "ECHOLONGSHAPE" one that goes on over
-// three after its prefix, "KEY403" is forbidden by it (a model or account switched off). Control requests: `initialize`, and `get_usage`
+// three after its prefix, "KEY403" is forbidden by it (a model or account switched off), "HANG…" (the API's pings
+// going on in "HANGPING", inside an open thinking block in "HANGTHINK"), "LONGTHINK", "LONGTOOL", "OURTOOLWAIT",
+// "RETRYWAIT" and "QUIETWAIT" go quiet (see below). Control requests: `initialize`, and `get_usage`
 // as $FAKE_CLAUDE_USAGE says ("" a Max plan's windows, "signed_out", "error",
 // "hang": never).
 // With `--json-schema` it is a route (`brain.route`): the prompt on stdin, one JSON result whose
@@ -25,6 +27,7 @@
 // config folder ($CLAUDE_CONFIG_DIR, else ~/.claude: a `.credentials.json` there); otherwise its result is
 // "Not logged in · Please run /login" (exit 1). "SLOWTASK" takes 30 s, "SLOWKEY" 3 s, "ECHOKEY" answers with
 // $ANTHROPIC_AUTH_TOKEN, "NOSESSION" refuses its session flag after 1.5 s (exit 1).
+import { spawn } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -331,6 +334,102 @@ async function answer(line) {
     await sleep(20);
     process.exit(3);
   }
+  // Silence: "HANGMODEL" starts the model's answer and goes quiet, once (its resumed process answers); "HANGPING" the
+  // same while the API's pings go on every 40 ms (as Claude Code passes them on over an answer that stopped coming);
+  // "HANGTHINK" the same inside an open thinking block (a think whose text is omitted, that never ends); "LONGTHINK"
+  // thinks 900 ms with only pings inside its open block, then answers;
+  // "HANGTOOL" runs a shell command with a 50 ms timeout that never ends, once, in a process group of its own as Claude
+  // Code starts one (its pid in "<marker>-child"); "LONGTOOL" a command with a 2500 ms timeout, quiet 2000 ms till its
+  // result; "HANGEVER" goes quiet every time;
+  // "OURTOOLWAIT" calls one of our tools, quiet 700 ms till its result; "RETRYWAIT" says it retries in 800 ms and is
+  // quiet 600 ms; "QUIETWAIT" is quiet 1500 ms, then answers.
+  const hung = marker ? `${marker}-hung` : "";
+  const hangOnce =
+    (prompt.includes("HANGMODEL") ||
+      prompt.includes("HANGPING") ||
+      prompt.includes("HANGTHINK") ||
+      prompt.includes("HANGTOOL")) &&
+    hung &&
+    !existsSync(hung);
+  if (hangOnce || prompt.includes("HANGEVER")) {
+    if (hung) writeFileSync(hung, "");
+    if (prompt.includes("HANGTOOL")) {
+      const child = spawn("sleep", ["999"], { detached: true, stdio: "ignore" });
+      writeFileSync(`${marker}-child`, String(child.pid));
+      out({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id: "h1", name: "Bash", input: { command: "sleep 999\nmore", timeout: 50 } }],
+        },
+        parent_tool_use_id: null,
+      });
+    } else {
+      out({
+        type: "stream_event",
+        event: { type: "message_start", message: { id: "msg_hang" } },
+        parent_tool_use_id: null,
+      });
+      if (prompt.includes("HANGTHINK")) {
+        out({
+          type: "stream_event",
+          event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+          parent_tool_use_id: null,
+        });
+      }
+      if (prompt.includes("HANGPING") || prompt.includes("HANGTHINK")) {
+        setInterval(() => out({ type: "stream_event", event: { type: "ping" }, parent_tool_use_id: null }), 40);
+      }
+    }
+    await sleep(600_000);
+    return;
+  }
+  if (prompt.includes("LONGTHINK")) {
+    const ev = (event) => out({ type: "stream_event", event, parent_tool_use_id: null });
+    ev({ type: "message_start", message: { id: "msg_think" } });
+    ev({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } });
+    const pings = setInterval(() => ev({ type: "ping" }), 40);
+    await sleep(900);
+    clearInterval(pings);
+    ev({ type: "content_block_stop", index: 0 });
+  }
+  if (prompt.includes("LONGTOOL")) {
+    out({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "l1", name: "Bash", input: { command: "make", timeout: 2500 } }] },
+      parent_tool_use_id: null,
+    });
+    await sleep(2000);
+    out({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "l1", content: "built" }] },
+      parent_tool_use_id: null,
+    });
+  }
+  if (prompt.includes("OURTOOLWAIT")) {
+    out({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "o1", name: "mcp__agentes__search_context", input: { q: "x" } }] },
+      parent_tool_use_id: null,
+    });
+    await sleep(700);
+    out({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "o1", content: "found" }] },
+      parent_tool_use_id: null,
+    });
+  }
+  if (prompt.includes("RETRYWAIT")) {
+    out({
+      type: "system",
+      subtype: "api_retry",
+      attempt: 1,
+      max_retries: 10,
+      retry_delay_ms: 800,
+      error: "overloaded",
+    });
+    await sleep(600);
+  }
+  if (prompt.includes("QUIETWAIT")) await sleep(1500);
   if (prompt.includes("ASKCONTROL")) {
     out({
       type: "control_request",
