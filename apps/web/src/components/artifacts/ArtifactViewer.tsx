@@ -32,6 +32,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { BlockActionButtons } from "@/components/blocks/LiveBlock";
 import { knownLive, openLivePage } from "@/components/live/open";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -166,7 +167,9 @@ export function ArtifactViewer({
   const toast = useToast();
   const authorName = useAuthorName();
   const channels = useChannels(org.id);
-  const query = useArtifact(org.id, id, version);
+  const original = useArtifact(org.id, id, version);
+  const localizedBlock = useArtifact(org.id, original.data?.kind === "block" ? id : null, version, i18n.language);
+  const query = original.data?.kind === "block" ? localizedBlock : original;
   const [editing, setEditing] = useState(false);
   const remover = useDeleteArtifact(onClose);
   const a = query.data;
@@ -457,6 +460,7 @@ export function ArtifactViewer({
                 onSwipe={many ? move : undefined}
               />
             )}
+            {a.kind === "block" && <BlockActionButtons block={a} />}
             {next && (
               <Button
                 ref={nextRef}

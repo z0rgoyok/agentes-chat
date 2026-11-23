@@ -262,6 +262,7 @@ export function createMockArtifacts(
       };
     },
     get: async (orgId, id, version) => detail(orgId, await find(orgId, id), version),
+    invokeBlockAction: async () => {},
     // A live file's conversation (ADR 0199): a stable channel and root per file, as the server makes on first use.
     conversation: async (orgId, id) => {
       record("artifacts.conversation", orgId, id);

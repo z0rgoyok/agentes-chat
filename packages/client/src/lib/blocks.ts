@@ -20,6 +20,8 @@ export interface BlockHost {
   who?: Record<string, BlockChange>;
   /** `@font-face` CSS with the font inlined: a block has no network. */
   fontFace?: string;
+  /** Local disclosure of named details elements in an extension-rendered block. */
+  disclosures?: Record<string, boolean>;
   /** The app's font stack when it isn't our own (the phone's system font). */
   font?: string;
 }
@@ -44,6 +46,7 @@ export function blockPage(html: string, host: BlockHost): string {
 export type BlockEvent =
   | { type: "ready" }
   | { type: "height"; height: number }
+  | { type: "disclosure"; key: string; open: boolean }
   /** `used`: the person touched the page, so what it holds now is theirs to share (a page's own start isn't). */
   | { type: "state"; state: Record<string, unknown>; used: boolean }
   /** The page asks for a random pick, which the server makes once for everyone; only after the person touched it. */
@@ -84,6 +87,10 @@ export function blockEvent(raw: unknown): BlockEvent | null {
     case "height":
       return typeof e.height === "number" && e.height >= 0
         ? { type: "height", height: Math.min(MAX_HEIGHT, Math.ceil(e.height)) }
+        : null;
+    case "disclosure":
+      return typeof e.key === "string" && /^[\w.:-]{1,256}$/.test(e.key) && typeof e.open === "boolean"
+        ? { type: "disclosure", key: e.key, open: e.open }
         : null;
     case "state":
       return e.state && typeof e.state === "object" && !Array.isArray(e.state)

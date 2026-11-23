@@ -4979,7 +4979,7 @@ export const TimelineMessage = memo(function TimelineMessage({
               <ImageSet refs={artifacts}>
                 <div className="artifact-cards">
                   {artifacts.map((r) => (
-                    <ArtifactCard key={`${r.id}@${r.version}`} artifact={r} />
+                    <ArtifactCard key={r.id} artifact={r} />
                   ))}
                 </div>
               </ImageSet>

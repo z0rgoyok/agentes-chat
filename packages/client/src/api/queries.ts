@@ -4611,11 +4611,26 @@ export function useFileConversation(
   return known ?? made.data ?? null;
 }
 
-export const useArtifact = (orgId: string, id: string | null, version?: number) => {
+export const useArtifact = (
+  orgId: string,
+  id: string | null,
+  version?: number,
+  locale?: string,
+  retainBlock = false,
+) => {
   const api = useApi();
+  const key = keys.artifact(orgId, id ?? "", version);
   return useQuery({
-    queryKey: keys.artifact(orgId, id ?? "", version),
-    queryFn: () => api.artifacts.get(orgId, id ?? "", version),
+    queryKey: locale ? [...key, locale] : key,
+    queryFn: () => api.artifacts.get(orgId, id ?? "", version, locale),
+    placeholderData: retainBlock
+      ? (previous, query) =>
+          previous?.rememberBlockOpen &&
+          previous.id === id &&
+          key.slice(0, -1).every((part, i) => part === query?.queryKey[i])
+            ? previous
+            : undefined
+      : undefined,
     enabled: Boolean(id),
     // Old versions never change.
     staleTime: version ? Number.POSITIVE_INFINITY : 0,
@@ -4660,6 +4675,15 @@ export const useAnswerChoices = (orgId: string, id: string) => {
     onSuccess: (out) => qc.setQueryData(keys.choices(orgId, id), out.choices),
     // The card says it itself, and says nothing when someone answered first.
     meta: { silent: true },
+  });
+};
+
+export const useBlockAction = (orgId: string, id: string, version: number) => {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (actionId: string) => api.artifacts.invokeBlockAction(orgId, id, version, actionId),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.artifact(orgId, id).slice(0, -1) }),
   });
 };
 

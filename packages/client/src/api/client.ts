@@ -1870,13 +1870,14 @@ export interface ApiClient {
     /** One page of what the viewer can see (`cursor`: the page before's `nextCursor`), the first with counts. */
     page(orgId: string, filters?: ArtifactFilters, cursor?: string): Promise<ArtifactPage>;
     /** One artifact at `version` (default: latest), with content. */
-    get(orgId: string, id: string, version?: number): Promise<ArtifactDetail>;
+    get(orgId: string, id: string, version?: number, locale?: string): Promise<ArtifactDetail>;
     /**
      * A live file's conversation (ADR 0199), made on first use: its channel and thread root, for the chat's routes.
      * 404 for a file the person doesn't read, 400 `artifact.no_conversation` for a kind without one.
      */
     conversation(orgId: string, id: string): Promise<FileConversationRef>;
     /** Keeps a block in the Drive (ADR 0113). */
+    invokeBlockAction(orgId: string, id: string, version: number, actionId: string): Promise<void>;
     keep(orgId: string, id: string): Promise<Artifact>;
     /** Sends what a person picked in a block to the agent that made it, as their own message. */
     reply(orgId: string, id: string, text: string, clientId: string): Promise<{ id: string }>;

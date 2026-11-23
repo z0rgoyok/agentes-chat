@@ -41,6 +41,8 @@ export function storedStrings(key: string): string[] {
 
 export const STORAGE_KEYS = {
   theme: "agentes.theme",
+  /** Prefix (user, organization and artifact ID): an extension block's disclosure in this tab. */
+  blockDisclosure: "agentes.block-disclosure",
   lastOrg: "agentes.lastOrg",
   /** The last page shown in each workspace (JSON, by workspace id): where "Onde você parou" opens (ADR 0108). */
   lastPlace: "agentes.lastPlace",

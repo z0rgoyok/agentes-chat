@@ -93,7 +93,7 @@ import { type AgentesModule, type Edition, type ModuleContext, resolveAdapters }
 import { createModelProviders, enableOpenRouterModels } from "@agenteschat/providers";
 import { createApp } from "./app";
 import { createAuth } from "./auth";
-import { buildEngine } from "./engine";
+import { buildEngine, type EngineOptions } from "./engine";
 import { watchEventLoopLag } from "./event-loop-lag";
 import { startFreezeWatch } from "./freeze-watch";
 import { checkHumanCheckAtBoot, createHumanCheck } from "./http/human-check";
@@ -104,6 +104,7 @@ import { createLiveSockets } from "./realtime/live";
 import { createMachineSockets } from "./realtime/machines";
 import { createStreamSockets } from "./realtime/streams";
 import { createRealtime, type SocketData } from "./realtime/ws";
+import type { BlockActions } from "./routes/app/extras";
 import type { AppDeps } from "./routes/app/context";
 import { workerHealth } from "./routes/health";
 import { startTelemetry } from "./telemetry";
@@ -124,6 +125,10 @@ const EXIT_FLUSH_MS = 2_000;
 export interface StartOptions {
   edition: Edition;
   modules?: AgentesModule[];
+  /** Native actions below a live block, available only through the signed-in person API. */
+  blockActions?(ctx: ModuleContext): BlockActions;
+  /** Extra tools for agent runs, using the same gateway and run context as built-in tools. */
+  toolSources?(ctx: ModuleContext): NonNullable<EngineOptions["toolSources"]>;
   /**
    * Answer only requests addressed to this server's own names (`127.0.0.1:<PORT>`, `localhost:<PORT>`
    * and `PUBLIC_URL`'s host), with a 421 for any other: native mode listens on loopback, where a web
@@ -197,7 +202,7 @@ export async function startServer(options: StartOptions) {
 
 /** Everything of the boot after the config, so `startServer` can report what fails in it. */
 async function boot(
-  { edition, modules = [], ownHostsOnly = false }: StartOptions,
+  { edition, modules = [], ownHostsOnly = false, toolSources, blockActions }: StartOptions,
   config: Config,
   log: Logger,
   release: string,
@@ -414,6 +419,7 @@ async function boot(
     log.warn("emails' pictures not found: they won't show", { dir: join(webDir, "email"), missing });
   }
   const engine = buildEngine({
+    toolSources: toolSources?.(ctx),
     db: database.db,
     config,
     adapters,
@@ -547,6 +553,7 @@ async function boot(
       embed: engine.gateway.embed,
       storage: engine.storage,
       artifacts: engine.artifacts,
+      blockActions: blockActions?.(ctx),
       context: engine.context,
       sandbox: engine.sandbox,
       browserLive: engine.browserLive,
