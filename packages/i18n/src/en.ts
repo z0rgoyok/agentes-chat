@@ -13624,13 +13624,13 @@ export const en = {
   },
   githubApp: {
     title: "GitHub repositories",
-    text: "Where the agentes.chat app is installed, agents open pull requests, issues, comments and commits as the app, with the agent's name and who asked.",
-    install: "Install the agentes.chat app",
+    text: "Where the Tich Rooms app is installed, agents open pull requests, issues, comments and commits as the app, with the agent's name and who asked.",
+    install: "Install the Tich Rooms app",
     installMore: "Install on another account",
-    none: "No GitHub account yet.",
+    none: "No GitHub App installation in this workspace. Token connections are listed above.",
     /** Nothing installed yet, and agents use the workspace's GitHub account: who they show up as today. */
     usingAccount:
-      "Today agents show up on GitHub as {{account}}. Install the app so they show up as the agentes.chat app.",
+      "Today agents show up on GitHub as {{account}}. Install the app so they show up as the Tich Rooms app.",
     allRepos: "All repositories",
     someRepos: "Selected repositories",
     suspended: "Suspended on GitHub",
@@ -13641,7 +13641,7 @@ export const en = {
     removeName: "Remove {{account}}",
     removeTitle: "Remove the app from {{account}}?",
     removeText:
-      "The agentes.chat app is uninstalled from {{account}} on GitHub, and agents stop using that account's repositories through it.",
+      "The Tich Rooms app is uninstalled from {{account}} on GitHub, and agents stop using that account's repositories through it.",
     /** After removeText when it's the app's last account and no GitHub account is connected. */
     removeLast: "It's the last one, so agents lose GitHub until someone installs the app or connects an account.",
     removed: "App removed from {{account}} and uninstalled on GitHub.",
@@ -13649,16 +13649,16 @@ export const en = {
     notUninstalled: "App removed here, but GitHub didn't confirm the uninstall from {{account}}. Uninstall it there.",
     /** That toast's button, short enough to leave its words room beside it on a phone. */
     openPage: "Open",
-    installed: "agentes.chat app installed.",
-    /** An installation approved on GitHub never links here: the account's owner installs it from agentes.chat. */
+    installed: "Tich Rooms app installed.",
+    /** An installation approved on GitHub never links here: the account's owner installs it from Tich Rooms. */
     requested:
       "Only the GitHub account's owner can install the app. Ask them to install it from Connectors › GitHub in this workspace.",
     notVisible: "Your GitHub account can't see that installation. Install it with an account that has access to it.",
     otherWorkspace:
       "That GitHub account is already linked to another workspace. Remove the app there before installing it here.",
-    /** The app was installed on GitHub itself, not from agentes.chat (`github_app_error=installed_outside`). */
+    /** The app was installed on GitHub itself, not from Tich Rooms (`github_app_error=installed_outside`). */
     installedOutside:
-      "The app was installed on that GitHub account outside agentes.chat. Remove it on GitHub and install it again from Connectors › GitHub.",
+      "The app was installed on that GitHub account outside Tich Rooms. Remove it on GitHub and install it again from Connectors › GitHub.",
     /**
      * GitHub refused to say whether the person owns the organization (`github_app_error=owner_unknown`, a 403): most
      * likely this server's own GitHub App was made without the organization permission Members, which only whoever
@@ -13674,24 +13674,24 @@ export const en = {
       "The GitHub app has the wrong secret key on the server, so the install can't finish. Whoever runs the server needs to replace the key in the app's settings.",
     /** GitHub is the app alone: an account too (agents use it where the app isn't installed, and for a person's own GitHub Projects). */
     connectAccount: "Connect a GitHub account",
-    /** For admins who aren't the server's owner, on a server without the app (never on agentes.chat). */
+    /** For admins who aren't the server's owner, on a server without the app (never on Tich Rooms). */
     ownerHint: "This server's owner can create its GitHub app here in Connectors.",
     /** A connected row of GitHub through the app alone: the accounts it is installed on. */
-    viaApp: "Through the agentes.chat app on {{accounts}}",
-    disconnectApp: "The agentes.chat app is also uninstalled from {{accounts}} on GitHub.",
-    disconnectKeepsApp: "Agents stay on GitHub through the agentes.chat app on {{accounts}}.",
-    keptApp: "GitHub account disconnected. Agents stay on GitHub through the agentes.chat app.",
+    viaApp: "Through the Tich Rooms app on {{accounts}}",
+    disconnectApp: "The Tich Rooms app is also uninstalled from {{accounts}} on GitHub.",
+    disconnectKeepsApp: "Agents stay on GitHub through the Tich Rooms app on {{accounts}}.",
+    keptApp: "GitHub account disconnected. Agents stay on GitHub through the Tich Rooms app.",
     /** The line under what an agent writes on GitHub (pull requests, issues, comments), in the workspace's language. */
     signature: {
-      forPerson: "{{agent}}, agent for {{person}} on agentes.chat",
-      alone: "{{agent}}, an agent on agentes.chat",
+      forPerson: "{{agent}}, agent for {{person}} on Tich Rooms",
+      alone: "{{agent}}, an agent on Tich Rooms",
     },
     /** The server's page that sends its owner to GitHub to create the app (it goes on by itself). */
     manifestPage: {
       title: "Creating the GitHub app",
       continue: "Continue on GitHub",
     },
-    /** Settings › Connectors for the server's owner (never on agentes.chat): the app every workspace here installs. */
+    /** Settings › Connectors for the server's owner (never on Tich Rooms): the app every workspace here installs. */
     server: {
       title: "This server's GitHub app",
       lead: "With it, agents show up on GitHub as the app, not as someone's account.",
