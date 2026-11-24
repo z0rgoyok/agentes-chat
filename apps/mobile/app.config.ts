@@ -118,20 +118,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version,
   // Upright everywhere (the plugin below); only the agent's screen, in control, lies down (`useSideways`).
   orientation: "default",
-  // The icon the app ships with (ADR 0179): the agent leaning in, Espiando, on the night sky (packages/client's
-  // `PHONE_APP_ICON`); the others a person may pick are added by ./plugins/with-app-icons. All of them come from
-  // packages/ui/scripts/app-icons.mjs.
+  // Android retains its existing icon until its next branded release.
   icon: `${ICONS}/peekNight/ios.png`,
   userInterfaceStyle: "automatic",
   ios: {
     bundleIdentifier: iosBundleIdentifier,
     ...(process.env.APPLE_TEAM_ID ? { appleTeamId: process.env.APPLE_TEAM_ID } : {}),
     ...(process.env.IOS_BUILD_NUMBER ? { buildNumber: process.env.IOS_BUILD_NUMBER } : {}),
-    // Light, dark and tinted (iOS 18).
+    // Tich Rooms artwork; iOS derives tinted presentation when no dedicated tint is supplied.
     icon: {
-      light: `${ICONS}/peekNight/ios.png`,
-      dark: `${ICONS}/peekNight/ios-dark.png`,
-      tinted: `${ICONS}/peekNight/ios-tinted.png`,
+      light: "./assets/tich-rooms/icon.png",
+      dark: "./assets/tich-rooms/icon.png",
     },
     supportsTablet: false,
     usesAppleSignIn: true,

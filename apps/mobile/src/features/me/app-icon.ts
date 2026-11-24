@@ -38,8 +38,14 @@ export const APP_ICON_PICTURES: Record<AppIconId, { light: number; dark: number 
     dark: require("../../../assets/app-icons/sky/preview-dark.png"),
   },
   peekNight: {
-    light: require("../../../assets/app-icons/peekNight/preview.png"),
-    dark: require("../../../assets/app-icons/peekNight/preview-dark.png"),
+    light:
+      Platform.OS === "ios"
+        ? require("../../../assets/tich-rooms/icon.png")
+        : require("../../../assets/app-icons/peekNight/preview.png"),
+    dark:
+      Platform.OS === "ios"
+        ? require("../../../assets/tich-rooms/icon.png")
+        : require("../../../assets/app-icons/peekNight/preview-dark.png"),
   },
   peekSky: {
     light: require("../../../assets/app-icons/peekSky/preview.png"),
