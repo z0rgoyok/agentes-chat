@@ -5,6 +5,7 @@ import { formatShortDate } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { memoryLine, pendingOnAgent, proposalTitle, proposalWhy } from "@agenteschat/client/lib/proposals";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
+import { canMakeTeamMemory } from "@agenteschat/client/lib/team-memory";
 import {
   Button,
   Card,
@@ -165,7 +166,7 @@ function LearnedRow({ m }: { m: Memory }) {
         {draft === null ? (
           <>
             {/* Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived. */}
-            {can(org, "review_memory") && m.canMakeTeam === true && (
+            {can(org, "review_memory") && canMakeTeamMemory(m) && (
               <Button
                 variant="link"
                 disabled={act.isPending}

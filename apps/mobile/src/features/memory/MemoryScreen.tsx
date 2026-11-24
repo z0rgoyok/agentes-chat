@@ -4,6 +4,7 @@ import { relativeTime } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { memoryLine } from "@agenteschat/client/lib/proposals";
 import { rightHandOf } from "@agenteschat/client/lib/right-hand";
+import { canMakeTeamMemory } from "@agenteschat/client/lib/team-memory";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
@@ -256,7 +257,7 @@ function MemoryDetail({ id }: { id: string }) {
       },
     ]);
   // Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived.
-  const teams = can(org, "review_memory") && m.canMakeTeam === true;
+  const teams = can(org, "review_memory") && canMakeTeamMemory(m);
   const makeTeam = () =>
     action.mutate(
       { type: "team", id: m.id },
