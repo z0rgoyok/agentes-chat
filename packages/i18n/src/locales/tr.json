@@ -6484,6 +6484,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Yalnızca güncel bilgiler, notlar, kararlar, tercihler ve kurallar paylaşılabilir. Kişisel anılar ve dahili notlar gizli kalır.",
     "title": "Ekip hafızası",
     "help": "İnsanların tüm ajanlardan saklamasını istedikleri, kimin ne zaman söylediğiyle birlikte. Her ajan bunu tüm işlerinde okur.",
     "empty": "Henüz bir şey yok. Biri tüm ajanlardan bir şeyi hatırlamasını istediğinde burada görünür.",

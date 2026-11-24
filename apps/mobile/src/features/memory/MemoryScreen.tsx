@@ -256,7 +256,7 @@ function MemoryDetail({ id }: { id: string }) {
       },
     ]);
   // Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived.
-  const teams = can(org, "review_memory") && !m.howTo && !m.playbook && m.kind !== "lesson";
+  const teams = can(org, "review_memory") && m.canMakeTeam === true;
   const makeTeam = () =>
     action.mutate(
       { type: "team", id: m.id },

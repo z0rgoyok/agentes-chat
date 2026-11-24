@@ -7,9 +7,12 @@ import {
   insertContextItem,
   insertMessage,
   makeTeamMemory,
+  NotFoundError,
   retrieveForRun,
   type ToolContext,
   teamMemoryForPrompt,
+  teamMemoryKind,
+  ValidationError,
 } from "../src";
 import { addMember, type Fixture, queuedReviews, settleQueued, setup, withReview } from "./fixtures";
 
@@ -195,4 +198,112 @@ describe("team memory every agent reads (ADR 0167)", () => {
       .where(and(eq(schema.contextItems.orgId, f.org.id), eq(schema.contextItems.supersededBy, team.id)));
     expect(rows.map((r) => r.id).sort()).toEqual([mine.id, theirs.id].sort());
   });
+});
+
+test("sharing a person's note preserves its words, author and sources, and concurrent retries reuse the fact", async () => {
+  f = await setup();
+  const author = await addMember(f.db, f.org.id, "member", "bia");
+  const sourceIds = [crypto.randomUUID()];
+  const note = await insertContextItem(f.db, {
+    orgId: f.org.id,
+    agentId: f.agent.id,
+    kind: "note",
+    scopeType: "channel",
+    scopeId: f.general.id,
+    channelIds: [f.general.id],
+    title: "Release checklist",
+    content: "First check the migrations.\nThen publish the release notes.",
+    sourceIds,
+    evidence: [{ type: "human", ref: author.id, at: new Date().toISOString() }],
+    createdByKind: "person",
+    createdById: author.id,
+  });
+  expect(teamMemoryKind(note)).toBe("fact");
+  const [first, retry] = await Promise.all([
+    makeTeamMemory(f.db, f.owner.id, f.org.id, note.id),
+    makeTeamMemory(f.db, f.owner.id, f.org.id, note.id),
+  ]);
+  expect(retry.id).toBe(first.id);
+  expect(first).toMatchObject({
+    kind: "fact",
+    title: note.title,
+    content: note.content,
+    sourceIds,
+    evidence: expect.arrayContaining(note.evidence),
+    createdByKind: "person",
+    createdById: author.id,
+    agentId: null,
+    scopeType: "org",
+  });
+  const rows = await f.db.select().from(schema.contextItems);
+  expect(rows).toHaveLength(2);
+  expect(rows.find((r) => r.id === note.id)).toMatchObject({ status: "archived", supersededBy: first.id });
+});
+
+test("private, internal and summary records cannot become team memory or be archived as matching copies", async () => {
+  f = await setup();
+  const base = {
+    orgId: f.org.id,
+    agentId: f.agent.id,
+    kind: "note" as const,
+    scopeType: "channel" as const,
+    scopeId: f.general.id,
+    channelIds: [f.general.id],
+    subject: "release steps",
+    content: "Check migrations before publishing.",
+    createdByKind: "person" as const,
+    createdById: f.owner.id,
+  };
+  const shareable = await insertContextItem(f.db, base);
+  const excluded = await Promise.all([
+    insertContextItem(f.db, { ...base, scopeType: "person", scopeId: f.owner.id }),
+    insertContextItem(f.db, { ...base, scopeType: "agent", scopeId: f.agent.id, createdByKind: "agent" }),
+    insertContextItem(f.db, { ...base, subject: "howto release steps" }),
+    insertContextItem(f.db, { ...base, kind: "thread_summary" }),
+  ]);
+  for (const item of excluded) {
+    expect(teamMemoryKind(item)).toBeNull();
+    await expect(makeTeamMemory(f.db, f.owner.id, f.org.id, item.id)).rejects.toBeInstanceOf(ValidationError);
+  }
+  await makeTeamMemory(f.db, f.owner.id, f.org.id, shareable.id);
+  const rows = await f.db.select().from(schema.contextItems);
+  for (const item of excluded)
+    expect(rows.find((r) => r.id === item.id)).toMatchObject({ status: "active", supersededBy: null });
+});
+
+test("concurrent promotions of two agents' copies produce one team record", async () => {
+  f = await setup();
+  const other = await ops();
+  const base = {
+    orgId: f.org.id,
+    kind: "fact" as const,
+    scopeType: "channel" as const,
+    scopeId: f.general.id,
+    channelIds: [f.general.id],
+    content: "Deploys require a migration check.",
+  };
+  const first = await insertContextItem(f.db, { ...base, agentId: f.agent.id });
+  const second = await insertContextItem(f.db, { ...base, agentId: other.id });
+  const results = await Promise.all([first, second].map((item) => makeTeamMemory(f.db, f.owner.id, f.org.id, item.id)));
+  expect(results[0]?.id).toBe(results[1]?.id);
+  const rows = await f.db.select().from(schema.contextItems);
+  expect(rows.filter((r) => !r.agentId)).toHaveLength(1);
+});
+
+test("sharing cannot cross organizations or reveal a memory from an unreadable channel", async () => {
+  f = await setup();
+  const note = await insertContextItem(f.db, {
+    orgId: f.org.id,
+    agentId: f.agent.id,
+    kind: "note",
+    scopeType: "channel",
+    scopeId: crypto.randomUUID(),
+    channelIds: [crypto.randomUUID()],
+    content: "Private channel note.",
+  });
+  await expect(makeTeamMemory(f.db, f.owner.id, f.org.id, note.id)).rejects.toBeInstanceOf(NotFoundError);
+  await expect(makeTeamMemory(f.db, f.owner.id, crypto.randomUUID(), note.id)).rejects.toBeInstanceOf(ForbiddenError);
+  const rows = await f.db.select().from(schema.contextItems);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.status).toBe("active");
 });

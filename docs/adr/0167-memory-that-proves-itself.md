@@ -47,7 +47,10 @@ judgment marked it done.
    under the org's context ("# Team memory", about 1,500 characters, the rest by title), so the right hand reads them
    too; one conversation's come in every run there; team facts and decisions by search. Settings › General (web,
    phone) lists them with who and when, Editar and Remover; "Tornar do time" makes an agent's item the team's and
-   archives the copies agents kept of it.
+   archives the copies agents kept of it. Ordinary notes become facts, preserving their full text, sources and
+   human authorship. Personal memories, internal playbooks, how-tos and summaries are excluded. The API exposes
+   record eligibility to both apps, and the command separately requires `review_memory` and source visibility.
+   Promotions are serialized per workspace so retries and concurrent promotions of matching copies reuse one item.
 3. **One save for "pessoal, lembrem".** `remember`'s description says to save once for the team; a save in a run
    another agent started is refused with a pointer to the team save (a copy would hold only in that DM); every save
    reply says where it holds.

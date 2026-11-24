@@ -31,6 +31,7 @@ import {
   SERVER_REASONS,
   SETTING_GROUP,
   settingsGroup,
+  teamMemoryKind,
   undoProposal,
   userVisibleChannels,
   WAITING_GROUP,
@@ -70,6 +71,7 @@ const Memory = z
     lastUsedAt: z.string().nullable(),
     pinned: z.boolean(),
     archived: z.boolean(),
+    canMakeTeam: z.boolean().optional(),
     lowTrust: z
       .boolean()
       .openapi({ description: "Came from outside the team (webhook, tool output, public comment)." }),
@@ -335,6 +337,7 @@ async function memoryViews(db: Database, items: ContextItem[], visible: readonly
       supersedes: previous.get(i.id) ?? null,
       editedByUserId: i.createdByKind === "person" ? i.createdById : null,
       learned: i.kind !== "rule" && (i.createdByKind !== "person" || i.sourceIds.length > 0 || viaApp),
+      canMakeTeam: teamMemoryKind(i) !== null,
       howTo: isHowTo(i),
       summary: i.title.trim() && i.title.trim() !== i.content.trim() ? i.title.trim() : null,
       playbook: isPlaybook(i),

@@ -2571,6 +2571,8 @@ export interface ScopeGrant {
 export type MemoryKind = "fact" | "decision" | "lesson" | "preference" | "rule";
 
 export interface Memory {
+  /** Record can become team memory. The viewer still needs review_memory. */
+  canMakeTeam?: boolean;
   id: string;
   agentId: string;
   kind: MemoryKind;

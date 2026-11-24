@@ -6508,6 +6508,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Nur aktuelle Fakten, Notizen, Entscheidungen, Vorlieben und Regeln können geteilt werden. Persönliche Erinnerungen und interne Notizen bleiben privat.",
     "title": "Team-Gedächtnis",
     "help": "Was alle Agenten auf Wunsch der Leute behalten, mit wer es sagte und wann. Jeder Agent liest es bei all seiner Arbeit.",
     "empty": "Noch nichts. Wenn jemand alle Agenten bittet, sich etwas zu merken, erscheint es hier.",

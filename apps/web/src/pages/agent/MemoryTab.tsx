@@ -165,7 +165,7 @@ function LearnedRow({ m }: { m: Memory }) {
         {draft === null ? (
           <>
             {/* Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived. */}
-            {can(org, "review_memory") && !m.howTo && !m.playbook && m.kind !== "lesson" && (
+            {can(org, "review_memory") && m.canMakeTeam === true && (
               <Button
                 variant="link"
                 disabled={act.isPending}

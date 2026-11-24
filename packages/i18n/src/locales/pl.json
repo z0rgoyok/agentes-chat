@@ -7012,6 +7012,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Można udostępniać tylko aktualne fakty, notatki, decyzje, preferencje i zasady. Osobiste wspomnienia i notatki wewnętrzne pozostają prywatne.",
     "title": "Pamięć zespołu",
     "help": "To, co ludzie poprosili wszystkich agentów zapamiętać, z tym, kto to powiedział i kiedy. Każdy agent czyta to w całej swojej pracy.",
     "empty": "Na razie nic. Gdy ktoś poprosi wszystkich agentów, by coś zapamiętali, pojawi się to tutaj.",

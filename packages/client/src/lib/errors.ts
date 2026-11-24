@@ -20,6 +20,7 @@ export const REAUTH_PASSWORD = "reauth.password";
  * takes `untranslatedText`; a guard test (`error-words.test.ts`) fails on a new code that isn't here or on its list.
  */
 const KNOWN = {
+  "memory.team_unavailable": "teamMemory.unavailable",
   // Moving a plan to another workspace (ADR 0079).
   "plan_move.not_payer": "errors.planMove.notPayer",
   "plan_move.same": "errors.planMove.same",

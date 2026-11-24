@@ -6274,6 +6274,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Hanya fakta, catatan, keputusan, preferensi, dan aturan yang masih berlaku yang dapat dibagikan. Ingatan pribadi dan catatan internal tetap privat.",
     "title": "Memori tim",
     "help": "Apa yang orang minta agar diingat semua agen, dengan siapa yang mengatakannya dan kapan. Setiap agen membacanya dalam semua pekerjaannya.",
     "empty": "Belum ada. Saat seseorang meminta semua agen mengingat sesuatu, itu muncul di sini.",
