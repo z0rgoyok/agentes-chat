@@ -238,4 +238,36 @@ describe("agents apply their improvements (ADR 0219)", () => {
     });
     expect(await instructions()).toBe("Answer briefly.");
   });
+
+  test("the review reads what the person wrote, never the run's outside content, to tell their wish", async () => {
+    f = await setup();
+    const words = "Duda, a partir de agora comece cada revisão de PR dizendo o nível de risco, em uma linha.";
+    const { proposals } = await proposeChange(
+      { db: f.db, pubsub: f.pubsub, judge: f.context.judge },
+      {
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        target: "agent_instructions",
+        change: "Comece cada revisão de PR dizendo o nível de risco, em uma linha.",
+        rationale: "",
+        requesterId: f.owner.id,
+        words,
+      },
+    );
+    const [p] = proposals;
+    if (!p) throw new Error("not proposed");
+    const [job] = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, SETTLE_JOB));
+    expect(job?.payload).toEqual({ ids: [p.id], origin: "outside", words });
+    verdicts = [{ apply: true, why: "É o que a pessoa pediu." }];
+    await settleProposals(
+      { context: f.context },
+      { orgId: f.org.id, ids: [p.id], origin: "outside", words: String(job?.payload.words) },
+    );
+    const review = f.provider.calls.find((c) => isReview(systemText(c.request.system)));
+    const asked = (review?.request.messages ?? [])
+      .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+      .join("\n");
+    expect(asked).toContain(`What the person wrote: """${words}`);
+    expect((await row(p.id))?.status).toBe("accepted");
+  });
 });

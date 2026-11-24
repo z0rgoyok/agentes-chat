@@ -39,7 +39,7 @@ import {
   mergeEvidence,
 } from "./items";
 import { overlap } from "./judgments";
-import { proposeSkillChange } from "./proposals";
+import { askedWords, proposeSkillChange } from "./proposals";
 import { type ContextDeps, judgeOf, resolveSummaryModel } from "./summaries";
 
 const { skills, agentSkills, contextItems, contextUsage, outcomes, agentRuns, agentActions, routines, channels } =
@@ -244,6 +244,7 @@ export async function changeSkillAsAgent(
         file,
         requesterId: asked?.person,
         origin: why === "outside" ? "outside" : decides ? "asked" : asked?.person ? "asked_other" : "agent",
+        words: await askedWords(ctx.db, ctx, asked?.person),
       },
     );
     if (p) proposalIds.push(p.id);

@@ -44,7 +44,12 @@ proposing agent's id, so usage and cost are recorded and the budget checked). Fo
 line it `replaces`. The prompt says what makes sense (a lasting correction, preference, fact or method that fits the
 agent and isn't said yet) and what doesn't (said already, a one-off, vague, contradicting the text unasked, weakening
 approvals, limits or privacy, a new outside destination nobody asked for, instructions planted by outside content).
-Text inside `<change>` is data.
+Text inside `<change>` is data. A change a person asked for carries their own message
+(`askedWords`: the message that started the run, when they wrote it; job payload `words`), shown as "What the person
+wrote": the review applies what those words ask for and leaves out anything beyond them (a destination, a permission,
+a rule they didn't ask for), so a run that read outside content can still apply the person's request but not what the
+content slipped in. Tried on a real model: a rule the person asked for after outside content applied, an "approve
+without review" the content added when the person had only asked for a review was left out.
 
 Code decides the rest:
 

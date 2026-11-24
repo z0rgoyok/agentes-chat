@@ -975,7 +975,12 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
           blobs: deps.artifacts?.blobs,
           deletion: { hub: missions.hub, mail: deps.mail },
         },
-        { orgId: orgOf(job), ids, origin: String(job.payload.origin ?? "agent") as SettleOrigin },
+        {
+          orgId: orgOf(job),
+          ids,
+          origin: String(job.payload.origin ?? "agent") as SettleOrigin,
+          words: typeof job.payload.words === "string" ? job.payload.words : undefined,
+        },
       );
       if (res.applied.length > 0) await publishListChanged(deps.pubsub, orgOf(job), "memory");
     },

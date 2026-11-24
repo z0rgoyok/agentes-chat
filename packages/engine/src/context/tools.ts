@@ -78,7 +78,7 @@ import {
 } from "./items";
 import { kindFamily, overlap } from "./judgments";
 import { learnTrust, ownWords } from "./learn";
-import { CARD_MAX_AGENTS, proposeChange } from "./proposals";
+import { askedWords, CARD_MAX_AGENTS, proposeChange } from "./proposals";
 import { type ContextDeps, ensureThreadSummary, judgeOf, memoryJudging } from "./summaries";
 
 const { agentRuns, contextItems, messages, outcomes } = schema;
@@ -1008,6 +1008,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
             rationale: str(input.reason),
             requesterId: requester,
             atOnce: (await ownWords(ctx)) === requester ? ctx : undefined,
+            words: await askedWords(ctx.db, ctx, requester),
           });
           const done = applied.length
             ? `Applied ${applied.length} of it at once: the person sees it with Undo under your reply, so say it is done. `
@@ -1298,6 +1299,7 @@ async function saveForTeam(
       change: input.content,
       rationale: "Asked to keep it for the whole team.",
       requesterId: input.person,
+      words: input.words,
     });
     const [first] = proposals;
     if (!first) return { content: "Not proposed: the team already keeps this.", isError: true };
