@@ -6,11 +6,14 @@
 /** Frames kept running at once: each is a browser of its own in memory, and the rest wait for a tap. */
 export const MAX_LIVE_BLOCKS = 3;
 
-/**
- * In the conversation a block is always this tall, from its first frame: the list never jumps while it loads or
- * grows. A taller page is cut with a fade and "Show all" opens it in place; its own screen shows it all.
- */
+/** Preview cap for a long block in the conversation. */
 export const INLINE_HEIGHT = 380;
+
+/** Leave room for the loading indicator or the tap to wake a suspended page. */
+export function inlineBlockHeight(height: number, open: boolean): number {
+  const measured = Math.max(44, height);
+  return open ? measured : Math.min(measured, INLINE_HEIGHT);
+}
 
 /**
  * A web view for what an agent writes (a block, a page; ADR 0019): its page loads and nothing else does, and it gets

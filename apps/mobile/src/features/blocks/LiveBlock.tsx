@@ -17,7 +17,7 @@ import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useErrorToast, useOrgId, useWhen } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { PushedHeader } from "../shared/parts";
-import { hostScript, INLINE_HEIGHT, ISOLATED_WEB_VIEW, themeScript, withLiveBlock } from "./logic";
+import { hostScript, INLINE_HEIGHT, ISOLATED_WEB_VIEW, inlineBlockHeight, themeScript, withLiveBlock } from "./logic";
 import { SpecBlock } from "./SpecBlock";
 
 const SYSTEM_FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,system-ui,sans-serif';
@@ -67,7 +67,7 @@ const liveStore = {
 /**
  * The block's page in a web view: no cookies, no storage, no files, no windows, no way off the page, and it scrolls
  * with the conversation instead of holding on to the finger (on Android a web view set to scroll never gives a drag
- * back to the list). As tall as its page (the card cuts it). Off the list, on its own screen, it scrolls by itself.
+ * back to the list). The frame supplies its height. On its own screen the page scrolls by itself.
  */
 function BlockWebView({
   blockKey,
@@ -91,7 +91,6 @@ function BlockWebView({
   const { scheme } = useTheme();
   const web = useRef<WebView<object>>(null);
   const [life, setLife] = useState(0);
-  const [height, setHeight] = useState(keptOf(blockKey).height ?? 0);
   // Until the page says it started, a spinner over it: a blank box reads as broken.
   const [ready, setReady] = useState(false);
   const c = useColors();
@@ -134,7 +133,7 @@ function BlockWebView({
     setLife((n) => n + 1);
   };
   return (
-    <View style={scrolls ? styles.fill : undefined}>
+    <View style={styles.fill}>
       <WebView
         key={life}
         ref={web}
@@ -145,14 +144,10 @@ function BlockWebView({
         bounces={false}
         overScrollMode="never"
         showsVerticalScrollIndicator={false}
-        style={[styles.web, !scrolls && { height: height || INLINE_HEIGHT }]}
+        style={styles.web}
         onMessage={(e) => {
           const event = blockEvent(e.nativeEvent.data);
           if (!event) return;
-          if (event.type === "height") {
-            keptOf(blockKey).height = event.height;
-            setHeight(event.height);
-          }
           if (event.type === "ready") {
             setReady(true);
             // What moved while it was starting.
@@ -226,7 +221,10 @@ export function LiveBlock({
 
   const onEvent = useCallback(
     (e: BlockEvent) => {
-      if (e.type === "height") setHeight(e.height);
+      if (e.type === "height" && !screen) {
+        keptOf(blockKey).height = e.height;
+        setHeight(e.height);
+      }
       if (e.type === "state") fromPage(e.state, e.used);
       if (e.type === "draw") void draw(e.name, e.options);
       if (e.type !== "draft") return;
@@ -235,7 +233,7 @@ export function LiveBlock({
         return e;
       });
     },
-    [fromPage, draw],
+    [blockKey, screen, fromPage, draw],
   );
 
   const send = () => {
@@ -282,7 +280,7 @@ export function LiveBlock({
   const time = sent ? when.time(sent.at) : "";
   return (
     <View style={screen ? styles.fill : undefined}>
-      <View style={screen ? styles.fill : [styles.view, { height: tall && open ? height : INLINE_HEIGHT }]}>
+      <View style={screen ? styles.fill : [styles.view, { height: inlineBlockHeight(height, open) }]}>
         {(screen || allowed) && !shared.loaded ? (
           // Everyone's state first: a page that started from its own would show something else for a moment. On its
           // own screen, the page's shape meanwhile; in the card, its wheel.

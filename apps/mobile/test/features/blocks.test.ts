@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   blockMayLoad,
   faceOverlap,
   hostScript,
+  inlineBlockHeight,
   MAX_LIVE_BLOCKS,
   themeScript,
   withLiveBlock,
@@ -45,4 +47,19 @@ describe("live blocks on the phone", () => {
 test("a vote's voters stack as the web's do: 6 under a photo, past initials only the rings over each other", () => {
   expect(faceOverlap(true)).toEqual({ marginLeft: -6 });
   expect(faceOverlap(false)).toEqual({ marginLeft: -4 });
+});
+
+test("the native page fills the inline frame, including after the first height report", () => {
+  const source = readFileSync(new URL("../../src/features/blocks/LiveBlock.tsx", import.meta.url), "utf8");
+  const page = source.slice(source.indexOf("function BlockWebView("), source.indexOf("export function LiveBlock("));
+  expect(page).toMatch(/<View style=\{styles.fill\}>\s*<WebView/);
+  expect(page).toContain("scrollEnabled={scrolls}");
+});
+
+test("a short block fits its content and a long block can expand in the conversation", () => {
+  expect(inlineBlockHeight(0, false)).toBe(44);
+  expect(inlineBlockHeight(96, false)).toBe(96);
+  expect(inlineBlockHeight(650, false)).toBe(380);
+  expect(inlineBlockHeight(650, true)).toBe(650);
+  expect(inlineBlockHeight(96, true)).toBe(96);
 });
