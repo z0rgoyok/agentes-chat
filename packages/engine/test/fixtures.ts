@@ -13,7 +13,7 @@ import {
 } from "@agenteschat/adapters";
 import { and, arrayContains, type Database, eq, schema, sql } from "@agenteschat/db";
 import { createTestDatabase } from "@agenteschat/db/testing";
-import { PROVIDER_IDS } from "@agenteschat/providers";
+import { PROVIDER_IDS, systemText, textOf } from "@agenteschat/providers";
 import { createFakeEmbeddings, createFakeProvider, type FakeProvider } from "@agenteschat/providers/testing";
 import {
   type AgentRun,
@@ -61,13 +61,16 @@ import {
   localDateTimeOf,
   type RunExecutorDeps,
   type SandboxDeps,
+  SETTLE_JOB,
   type ServerCatalog,
+  type SettleOrigin,
   type StorageDeps,
   type ToolGateway,
   type ToolSource,
   type WorkspaceComputer,
   zonedParts,
 } from "../src";
+import { settleProposals } from "../src/context/proposal-review";
 import { type LiveSteeringHooks, listenLiveSteering } from "../src/live-steer";
 
 export const SECRET = "test-secret-".padEnd(48, "x");
@@ -178,6 +181,8 @@ export async function setup(
   options: {
     reply?: Parameters<typeof createFakeProvider>[0];
     budgetNanoUsd?: number | null;
+    /** The server's output cap of an agent's call (`AGENT_MAX_OUTPUT_TOKENS`); null: unset. Default 1000. */
+    maxOutputTokens?: number | null;
     platform?: PlatformCredentials;
     /** Tool sources for the Tool Gateway (none = agents only chat). */
     toolSources?: ToolSource[];
@@ -422,7 +427,7 @@ export async function setup(
     db,
     gateway,
     pubsub,
-    maxOutputTokens: 1000,
+    ...(options.maxOutputTokens === null ? {} : { maxOutputTokens: options.maxOutputTokens ?? 1000 }),
     contextMessages: 30,
     workspaceComputer: options.workspaceComputer,
     maxHops: 100,
@@ -482,6 +487,55 @@ export async function setup(
 }
 
 export type Fixture = Awaited<ReturnType<typeof setup>>;
+
+/** What the review of proposals (ADR 0219) answers for each change it is shown. */
+export interface ReviewVerdict {
+  apply: boolean;
+  why: string;
+  rule?: string;
+  replaces?: string;
+}
+
+type Reply = NonNullable<Parameters<typeof createFakeProvider>[0]>;
+
+/**
+ * A fake model that answers the review of proposals (its system prompt, `context/proposal-review.ts`) with `verdict`
+ * for every change it is shown, and any other call with `reply` ("ok" without one).
+ */
+export function withReview(verdict: ReviewVerdict | (() => ReviewVerdict), reply?: Reply): Reply {
+  return (request, call) => {
+    if (!systemText(request.system).includes("You look after how a team of AI agents is set up."))
+      return reply ? reply(request, call) : { chunks: ["ok"] };
+    const v = typeof verdict === "function" ? verdict() : verdict;
+    const last = request.messages.at(-1)?.content ?? "";
+    const ids = [...textOf(last).matchAll(/<change id="(c\d+)">/g)].map((m) => m[1]);
+    return { chunks: [JSON.stringify({ changes: ids.map((id) => ({ id, rule: "", replaces: "", ...v })) })] };
+  };
+}
+
+/** The reviews queued for new proposals (job `proposals.settle`): each one's ids and origin, oldest first. */
+export async function queuedReviews(f: Pick<Fixture, "db" | "org">) {
+  const jobs = await f.db
+    .select()
+    .from(schema.outbox)
+    .where(and(eq(schema.outbox.orgId, f.org.id), eq(schema.outbox.kind, SETTLE_JOB)))
+    .orderBy(schema.outbox.createdAt);
+  return jobs.map((j) => j.payload as { ids: string[]; origin: SettleOrigin });
+}
+
+/** Runs the reviews queued for new proposals, as the worker would (with the fixture's model and skill files). */
+export async function settleQueued(f: Fixture) {
+  const out = { applied: [] as string[], left: [] as string[] };
+  for (const job of await queuedReviews(f)) {
+    const res = await settleProposals(
+      { context: f.context, blobs: f.artifactDeps.blobs, deletion: { hub: f.machineHub } },
+      { orgId: f.org.id, ...job },
+    );
+    out.applied.push(...res.applied);
+    out.left.push(...res.left);
+  }
+  return out;
+}
 
 /**
  * What the executor of a run set to `running` by hand would do: answer a message steered into the run at once

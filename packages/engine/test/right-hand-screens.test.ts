@@ -352,7 +352,7 @@ test("asking how its screen is makes no seat and asks the computer nothing", asy
   expect((await f.db.select().from(schema.rightHandSeats)).map((s) => s.userId)).toEqual([bia.id]);
 });
 
-test("why it has no computer is told apart: no computer of the workspace's own, or one user for every agent", async () => {
+test("it has no computer only where the workspace has none of its own, whatever users its computer keeps", async () => {
   f = await setup({ machines: true, reply: () => ({ chunks: ["ok"] }) });
   const lodi = await rightHand();
   const none = await desktopStatus({ db: f.db }, f.owner.id, f.org.id, lodi.id);
@@ -361,10 +361,10 @@ test("why it has no computer is told apart: no computer of the workspace's own, 
   await f.close();
 
   const single = await home(false);
-  const shared = await desktopStatus({ db: f.db, hub: single.hub }, f.owner.id, f.org.id, single.lodi.id);
-  expect(shared).toMatchObject({ available: false, reason: "not_system" });
-  expect(await stream(single.lodi.id, f.owner.id, TERMINAL)).toMatchObject({ reason: "not_system" });
-  expect(await f.db.select().from(schema.rightHandSeats)).toEqual([]);
+  expect(await stream(single.lodi.id, f.owner.id, TERMINAL)).toMatchObject({
+    machineId: single.machineId,
+    agent: { id: await seatId(f.owner.id) },
+  });
 });
 
 test("its prompt names a computer only while a tool of one is on for it", async () => {

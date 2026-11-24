@@ -1,6 +1,7 @@
 import type { Channel, OrgRole, OrgRoles, Person } from "@agenteschat/client";
 import { channelMembersQuery, keys, useApi, useChannelCategories, useChannels } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { edit, optimistic, patchIn } from "@agenteschat/client/lib/optimistic";
 import { managesChannel } from "@agenteschat/client/lib/permissions";
 import {
   channelLeavers,
@@ -70,12 +71,15 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
   const save = useMutation({
     mutationFn: ({ channel, next }: { channel: Channel; next: ChannelInput }) =>
       api.chat.update(org.id, channel.id, next),
+    // The tick (and who sees it) changes at once; a refusal puts it back.
+    ...optimistic(qc, ({ channel, next }: { channel: Channel; next: ChannelInput }) => [
+      edit<Channel[]>(keys.channels(org.id), patchIn<Channel>(channel.id, next)),
+    ]),
     onSuccess: () => setSaved(true),
-    onSettled: () =>
-      Promise.all([
-        qc.invalidateQueries({ queryKey: keys.channels(org.id) }),
-        qc.invalidateQueries({ queryKey: keys.roles(org.id) }),
-      ]),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.channels(org.id) });
+      void qc.invalidateQueries({ queryKey: keys.roles(org.id) });
+    },
   });
   const base = isEveryone(role);
   const name = roleName(t, role);
@@ -151,7 +155,6 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
     const reach = channelReach(c);
     const on = general(c) || roleSees(role, c);
     const mine = managesChannel(c, me.user.id, org);
-    const busy = save.isPending && save.variables?.channel.id === c.id;
     const why = general(c)
       ? t("rolesPage.channels.general")
       : !mine
@@ -171,7 +174,7 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
         <Checkbox
           id={id}
           checked={on}
-          disabled={Boolean(why) || lock || busy}
+          disabled={Boolean(why) || lock}
           onCheckedChange={(next) => void change(c, next)}
         />
         <Icon name={c.visibility === "private" ? "lock" : "channel"} size={18} />

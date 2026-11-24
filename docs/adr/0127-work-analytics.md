@@ -33,3 +33,9 @@ Each read is four statements with `grouping sets`, so the totals, the series and
 - Operators see a workspace whose agents mostly talk to each other, whose turns wait for room or fail busy, and what its plan would cost through the API, and can check a fix by the day or the hour.
 - Waits of runs created before the dates aren't counted, and a peak is read only where a wait starts or ends.
 - Two more indexes to keep on every run and every model call, and a small one on the rare wait steps.
+
+## Addendum (2026-11-21): each cause's waits through an index, and a time limit on every read
+
+`totals.waitsByCause` holds the waits for a computer (`brain_unavailable:<code>`) and for a provider (`provider_outage`). A partial index serves the condition it was made with and no wider one, so a statement asking for both reasons at once read every step of every run in the dates. It reads each reason by its own equality, the two joined with `union all`, and `agent_run_steps` has a second partial index on `run_id`, for its `provider_outage` errors, built concurrently (migration `0311_provider_outage_wait_index`). The answer is what it was. A test holds each index's condition and the statement together.
+
+Each statement of a read runs with a 20-second limit, as the run timings' do (ADR 0056, its addendum of 2026-11-18): one that outlives it ends in an error, the request answers 500, and its connection is free again.

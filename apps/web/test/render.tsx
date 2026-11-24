@@ -1,5 +1,6 @@
 import type { ApiClient, SocketFactory } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { shownWhole } from "@agenteschat/client/lib/message-length";
 import { domWindow } from "@agenteschat/ui/testing/dom";
 import {
   createMemoryHistory,
@@ -193,6 +194,8 @@ export async function renderApp(
     forgetComposerDrafts();
     sessionStore.remove(STORAGE_KEYS.flowReturn);
   }
+  // Messages shown whole live as long as the app does: a reload, or the next test, starts with none.
+  shownWhole.clear();
   // Each app starts in its own language (pt-BR), whatever page language a test before it showed (`showIn`).
   document.documentElement.lang = "";
   forgetExits();

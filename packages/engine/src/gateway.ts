@@ -1,5 +1,5 @@
 import type { ErrorReporter, KeyWrapper, PlatformCredentials, PubSub, SearchKind } from "@agenteschat/adapters";
-import { and, type Database, desc, type Executor, eq, gte, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
+import { and, type Database, desc, type Executor, eq, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
 import {
   costNanoUsd,
   customModelOf,
@@ -50,6 +50,7 @@ import {
   type ToolSpec,
 } from "@agenteschat/providers";
 import { type Agent, getAgent } from "./agents";
+import { agentOwnerIds } from "./audience";
 import { caches } from "./cache";
 import { decryptCredential, usableCredentialRow } from "./credentials";
 import { loadEndpointModels } from "./endpoints";
@@ -59,7 +60,7 @@ import { maySql, type RolePermission } from "./permissions";
 import { addPersonSpend, assertPersonUnderLimit, personSpendAdded } from "./person-usage";
 import { assertCanWork, standingRefusal } from "./standing";
 import { maskValues, redactCredentials } from "./tool-detail";
-import { budgetPercent, monthStartUtc, withEffectiveBudget } from "./usage";
+import { budgetPercent, monthStartUtc, budgetPeriodOf as periodOf, withEffectiveBudget } from "./usage";
 
 const {
   usageRecords,
@@ -217,8 +218,6 @@ export type KeyCheck =
   | { state: "ok"; record(credentialId: string): Promise<void> }
   | { state: "unchecked" }
   | { state: "refused"; refusal: KeyRefusal; said: string };
-
-const periodOf = (now: Date) => monthStartUtc(now).toISOString().slice(0, 10);
 
 /** The call's own key first: a key of an unusual shape is one no pattern knows. */
 const withoutKey = (text: string, apiKey: string) => redactCredentials(maskValues(text, [apiKey]));
@@ -1118,6 +1117,8 @@ export function createModelGateway(deps: ModelGatewayDeps) {
       kind: "router" | "agent";
       provider: string;
       model: string;
+      /** What was asked for, when it isn't the model: a Jev call's judgment (`auto_model`), so spend per judgment shows. */
+      requestedModel?: string;
       inputTokens: number;
       outputTokens: number;
       costNanoUsd: number;
@@ -1132,7 +1133,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
           credentialId: null,
           provider: input.provider,
           model: input.model,
-          requestedModel: input.model,
+          requestedModel: input.requestedModel ?? input.model,
           inputTokens: input.inputTokens,
           outputTokens: input.outputTokens,
           costNanoUsd: input.costNanoUsd,
@@ -1322,29 +1323,15 @@ export function createModelGateway(deps: ModelGatewayDeps) {
 
 export type ModelGateway = ReturnType<typeof createModelGateway>;
 
-/** Reserved and spent amounts of an agent this month (from the gateway's counter). */
-export async function agentBudgetState(db: Database, orgId: string, agentId: string, at = new Date()) {
-  const [row] = await db
-    .select()
-    .from(agentBudgetPeriods)
-    .where(
-      and(
-        eq(agentBudgetPeriods.orgId, orgId),
-        eq(agentBudgetPeriods.agentId, agentId),
-        gte(agentBudgetPeriods.periodStart, periodOf(at)),
-      ),
-    );
-  return { spentNanoUsd: row?.spentNanoUsd ?? 0, reservedNanoUsd: row?.reservedNanoUsd ?? 0 };
-}
-
 /**
  * Budget hook that tells the agent's owner over the WebSocket
- * (`budget.warning` / `budget.exhausted`); an agent without an owner tells
+ * (`budget.warning` / `budget.exhausted`), or everyone holding its owner role; an agent with neither tells
  * the organization's admins.
  */
 export function notifyOwnerOnBudget(pubsub: PubSub, db?: Database): NonNullable<ModelGatewayDeps["onBudgetThreshold"]> {
   return async ({ agent, level, spentNanoUsd, budgetNanoUsd }) => {
-    const recipients = agent.ownerUserId ? [agent.ownerUserId] : db ? await adminIds(db, agent.orgId) : [];
+    const owners = db ? await agentOwnerIds(db, agent.orgId, agent) : agent.ownerUserId ? [agent.ownerUserId] : [];
+    const recipients = owners.length > 0 ? owners : db ? await adminIds(db, agent.orgId) : [];
     for (const userId of recipients) {
       // A percentage only: owners who aren't admins never see money.
       await publishUserEvent(pubsub, agent.orgId, userId, {

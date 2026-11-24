@@ -47,10 +47,10 @@ export const DEFAULT_CHAT_TONE: ChatTone = "light";
 /** Owner's decision: smaller words than before the setting existed, which `lg` comes close to. */
 export const DEFAULT_TEXT_SIZE: ChatTextSize = "md";
 /**
- * Owner's decision: a conversation opens at its latest message, at once, with no wait for the fresh page and no
- * scroll up to a "New" line. Only an explicit `openAt` is stored, so whoever picked "read" keeps it.
+ * Owner's decision: a conversation opens where the person stopped reading, at a "New" line. Only an explicit `openAt`
+ * is stored, so whoever picked "latest" keeps it.
  */
-export const DEFAULT_OPEN_AT: ChatOpenAt = "latest";
+export const DEFAULT_OPEN_AT: ChatOpenAt = "read";
 
 export const textSizeOf = (prefs: ChatPrefs | undefined): ChatTextSize => prefs?.textSize ?? DEFAULT_TEXT_SIZE;
 export const openAtOf = (prefs: ChatPrefs | undefined): ChatOpenAt => prefs?.openAt ?? DEFAULT_OPEN_AT;

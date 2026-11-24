@@ -38,8 +38,8 @@ describe("SearchSelect", () => {
       .getAllByRole("option")
       .find((o) => o.getAttribute("aria-selected") === "true");
     expect(chosen?.hasAttribute("data-active")).toBe(true);
-    // The check closes the row, so every name starts at one edge.
-    expect(chosen?.lastElementChild?.className).toBe("ac-tz__check");
+    // No check column: the chosen one is its state (its plate and heavier name).
+    expect(chosen?.querySelector(".ac-tz__check")).toBeNull();
     expect(chosen?.firstElementChild?.className).toBe("ac-menu__label");
     const search = within(document.body).getByRole("combobox", { name: "Buscar modelos" });
     const shown = () =>

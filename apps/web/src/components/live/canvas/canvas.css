@@ -1117,7 +1117,7 @@ html:not([data-pointer]) .cnv-colors__swatch:focus-visible {
   gap: 2px;
   padding: 2px 6px 2px 2px;
   border: 0;
-  border-radius: 14px 14px 14px 3px;
+  border-radius: 8px 8px 8px 3px;
   background: var(--raised);
   box-shadow:
     var(--e2),
@@ -1130,6 +1130,10 @@ html:not([data-pointer]) .cnv-colors__swatch:focus-visible {
   transform: translate(0, -100%);
   pointer-events: auto;
   cursor: pointer;
+}
+/* Its corners follow the face's own (the face's radius plus the 2px around it); the face's corner at the tail is sharp. */
+.cnv-pin .ac-avatar {
+  border-bottom-left-radius: 1px;
 }
 /* A bigger target than it looks, for a finger. */
 .cnv-pin::after {

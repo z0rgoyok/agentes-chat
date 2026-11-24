@@ -322,7 +322,8 @@ describe("a message's attachments", () => {
     expect(document.querySelector(".artifact-tile--loading")).toBeNull();
     const picture = tiles[1]?.querySelector(".artifact-tile__picture") as HTMLElement;
     const img = picture.querySelector("img") as HTMLImageElement;
-    expect(img.getAttribute("src")).toStartWith("blob:");
+    // The server's small copy, never the whole file.
+    expect(img.getAttribute("src")).toEndWith("/thumb?version=1&w=480");
     // No attribute, class or size of its own marks the picture as loading or loaded: the tile's box is its box.
     const marks = () => [picture.className, picture.getAttribute("style"), img.getAttribute("style"), img.className];
     const loading = marks();

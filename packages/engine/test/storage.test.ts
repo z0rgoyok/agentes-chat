@@ -105,6 +105,29 @@ describe("S3 client against the fake server", () => {
     expect(error).toBeInstanceOf(StorageError);
     expect((error as StorageError).code).toBe("auth");
   });
+
+  test("a range streams only its part; a link downloads under the name as is, as the type given; none when off", async () => {
+    f = await setup();
+    const settings = { ...bucket(), accessKeyId: "AKIATEST", secretAccessKey: SECRET };
+    const store = createS3BlobStore(settings, { fetch: f.s3.fetch });
+    await store.put("a/clip", new TextEncoder().encode("0123456789"), { contentType: "application/octet-stream" });
+    expect(await new Response(await store.stream?.("a/clip", { start: 2, end: 5 })).text()).toBe("2345");
+    const options = { expiresInSeconds: 60, filename: "relatório final.mp4", contentType: "video/mp4" };
+    const res = await f.s3.fetch((await store.signedUrl("a/clip", options)) ?? "", { method: "GET" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("video/mp4");
+    expect(res.headers.get("content-disposition")).toBe(
+      `attachment; filename="relat_rio final.mp4"; filename*=UTF-8''relat%C3%B3rio%20final.mp4`,
+    );
+    const off = createS3BlobStore(settings, { fetch: f.s3.fetch, presign: false });
+    expect(await off.signedUrl("a/clip", options)).toBeNull();
+    // An http bucket's link can't load in a page served over https: its files go through the server.
+    const plain = createS3BlobStore({ ...settings, endpoint: "http://minio.example.com:9000" }, { fetch: f.s3.fetch });
+    expect(await plain.signedUrl("a/clip", options)).toBeNull();
+    // A store that answers a range with the whole object would play garbage: refused.
+    const whole = createS3BlobStore(settings, { fetch: async () => new Response("0123456789", { status: 200 }) });
+    await expect(whole.stream?.("a/clip", { start: 2, end: 5 })).rejects.toBeInstanceOf(StorageError);
+  });
 });
 
 describe("org storage", () => {

@@ -22,6 +22,7 @@ const APPS: Record<string, string> = {
   gcal: "Google Calendar",
   gmail: "Gmail",
   figma: "Figma",
+  canva: "Canva",
   vercel: "Vercel",
   sentry: "Sentry",
   stripe: "Stripe",
@@ -45,6 +46,10 @@ const APPS: Record<string, string> = {
   pinterest: "Pinterest",
   reddit: "Reddit",
   whatsapp: "WhatsApp",
+  telegram: "Telegram",
+  x: "X",
+  tiktok: "TikTok",
+  metaads: "Meta Ads",
 };
 
 /** Not an app, only where a tool came from: `mcp__server__tool`, `mcp.server.ai`. */

@@ -150,6 +150,15 @@ describe("Anthropic-compatible providers (scripted transport)", () => {
     }
   });
 
+  test("max goes as high to an endpoint whose models don't list it", async () => {
+    const { provider, requests } = compat(
+      "moonshot",
+      sse([start("kimi-k3.1-pro"), ...text(0, "{}"), ...end("end_turn", { output_tokens: 2 })]),
+    );
+    await provider.stream(request({ model: "kimi-k3.1-pro", effort: "max" }), quiet);
+    expect(requests[0]?.body.output_config).toEqual({ effort: "high" });
+  });
+
   test("thinking replays unchanged to the provider that wrote it; another provider's is left out", async () => {
     const { provider, requests } = compat(
       "moonshot",

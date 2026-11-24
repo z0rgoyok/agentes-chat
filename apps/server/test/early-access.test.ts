@@ -12,6 +12,7 @@ import {
   googleSignIn,
   signUp,
   type TestServer,
+  unconfirm,
 } from "./harness";
 
 const TOKEN = "operator-test-token-".padEnd(48, "x");
@@ -23,8 +24,8 @@ afterEach(async () => {
   current = undefined;
 });
 
-async function server(env: Record<string, string> = {}) {
-  current = await createTestServer({ env: { OPERATOR_API_TOKEN: TOKEN, ...env } });
+async function server(env: Record<string, string> = {}, options: { unconfirmedSignUps?: boolean } = {}) {
+  current = await createTestServer({ ...options, env: { OPERATOR_API_TOKEN: TOKEN, ...env } });
   return current;
 }
 
@@ -198,6 +199,7 @@ test("agentes.chat Cloud: a member makes no workspace until the address is allow
   const token = ((await asked.json()) as { url: string }).url.split("/invite/")[1] ?? "";
   const bia = cloudBrowser(t);
   expect((await signUpWith(bia, "bia@acme.test")).status).toBe(200);
+  await unconfirm(t, "bia@acme.test");
   expect((await bia(`/api/app/invitations/${token}/accept`, { json: {} })).status).toBe(200);
   expect((await me(bia)).canCreateWorkspace).toBe(false);
   const refused = await bia("/api/app/organizations", { json: { name: "Bia's" } });
@@ -406,7 +408,10 @@ test("through GitHub: the link signs up only an address the provider verified, a
 });
 
 test("open sign-up through a provider that hasn't verified the address doesn't use the invitation", async () => {
-  const t = await server({ GITHUB_CLIENT_ID: "gh-client", GITHUB_CLIENT_SECRET: "gh-secret" });
+  const t = await server(
+    { GITHUB_CLIENT_ID: "gh-client", GITHUB_CLIENT_SECRET: "gh-secret" },
+    { unconfirmedSignUps: true },
+  );
   await signUp(browser(t), "owner@acme.test");
   const access = await invite(t, "ana@acme.test");
   expect((await operator(t)("PUT", "/signup", { mode: "open" })).status).toBe(200);

@@ -11,27 +11,13 @@ import { GITHUB_APP_AUTH } from "@agenteschat/client/lib/connected";
 import {
   githubAppPanel,
   installationReach,
-  missingEventsText,
   removedText,
   removeInstallationText,
 } from "@agenteschat/client/lib/github-app";
 import { can } from "@agenteschat/client/lib/permissions";
-import {
-  Button,
-  Card,
-  CardHeader,
-  Chip,
-  codeAndBold,
-  Dialog,
-  DialogFooter,
-  Icon,
-  InfoHint,
-  List,
-  SettingNote,
-} from "@agenteschat/ui";
+import { Button, Chip, Dialog, DialogFooter, Icon, InfoHint, List } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { KEY_STATE_CHIP } from "@/components/GifKeyCard";
 import { useOrg } from "@/components/org-context";
 import { navigateAway } from "@/lib/navigate";
 import { useToast } from "@/lib/toast";
@@ -195,115 +181,50 @@ function RemoveInstallationDialog({
   );
 }
 
-/**
- * Settings → Conectores, for the server's pinned owner only (the API answers `setup: null` to everyone else and on
- * agentes.chat): this server's GitHub App. None yet: Criar o app no GitHub sends GitHub the manifest, which makes the
- * app under their account and comes back here. Made here: its name, its page and Remover o app. From `GITHUB_APP_*`:
- * read-only, and it says where it is set.
- */
-export function GitHubAppServerCard() {
-  const { t } = useTranslation();
+/** Starts creating this server's GitHub app on GitHub (its manifest); GitHub sends the owner back to Conectores. */
+export function useCreateServerApp() {
   const { org } = useOrg();
-  const setup = useGitHubApp(org.id).data?.setup;
   const start = useStartGitHubAppManifest();
+  return {
+    pending: start.isPending,
+    run: () => start.mutate(connectorsPath(org.id), { onSuccess: (url) => navigateAway(url) }),
+  };
+}
+
+/** "Remove the app": forgets the GitHub app saved in this server's settings, after asking. */
+export function RemoveServerAppDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
   const remove = useRemoveGitHubAppSettings();
   const toast = useToast();
-  const [removing, setRemoving] = useState(false);
-  if (!setup) return null;
-  const chip = KEY_STATE_CHIP[setup.state];
-  const note =
-    setup.source === "env"
-      ? t("githubApp.server.line.env")
-      : setup.state === "invalid"
-        ? t("githubApp.server.line.invalid")
-        : null;
-  const events = missingEventsText(t, setup);
   return (
-    <Card aria-labelledby="sec-github-app-server">
-      <CardHeader
-        id="sec-github-app-server"
-        mark="github"
-        title={t("githubApp.server.title")}
-        subtitle={t("githubApp.server.lead")}
-        action={
-          <Chip icon={chip.icon} tone={chip.tone}>
-            {t(`githubApp.server.state.${chip.word}`)}
-          </Chip>
-        }
-      />
-      <List>
-        {setup.canCreate ? (
-          <div className="ac-list__row jev__body">
-            <span className="small muted">{t("githubApp.server.without")}</span>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={start.isPending}
-              disabled={start.isPending}
-              onClick={() => start.mutate(connectorsPath(org.id), { onSuccess: (url) => navigateAway(url) })}
-            >
-              {t("githubApp.server.create")}
-            </Button>
-          </div>
-        ) : (
-          <div className="ac-list__row jev__key">
-            <span className="list-col">
-              <span className="ai-accounts__name">{setup.slug ?? t("githubApp.server.title")}</span>
-              {setup.htmlUrl && (
-                <a className="ac-link small" href={setup.htmlUrl} target="_blank" rel="noopener noreferrer">
-                  {t("githubApp.server.open")}
-                </a>
-              )}
-              {note && <SettingNote icon={setup.state === "ok" ? "info" : "alert"}>{codeAndBold(note)}</SettingNote>}
-              {events && <SettingNote icon="alert">{events}</SettingNote>}
-            </span>
-            {(setup.events || setup.source === "settings") && (
-              <span className="ac-acts">
-                {setup.events && (
-                  <Button asChild size="sm">
-                    <a href={setup.events.url} target="_blank" rel="noopener noreferrer">
-                      <Icon name="external" size={14} />
-                      {t("githubApp.server.events")}
-                    </a>
-                  </Button>
-                )}
-                {setup.source === "settings" && (
-                  <Button variant="link" className="ac-link--danger" onClick={() => setRemoving(true)}>
-                    {t("githubApp.server.remove")}
-                  </Button>
-                )}
-              </span>
-            )}
-          </div>
-        )}
-      </List>
-      <Dialog
-        open={removing}
-        onOpenChange={setRemoving}
-        title={t("githubApp.server.removeTitle")}
-        description={t("githubApp.server.removeText")}
-        closeLabel={t("common.close")}
-        width={440}
-      >
-        <DialogFooter>
-          <Button onClick={() => setRemoving(false)}>{t("common.cancel")}</Button>
-          <Button
-            variant="danger"
-            disabled={remove.isPending}
-            loading={remove.isPending}
-            onClick={() =>
-              remove.mutate(undefined, {
-                onSuccess: () => {
-                  setRemoving(false);
-                  toast.show(t("githubApp.server.removed"));
-                },
-              })
-            }
-          >
-            {t("githubApp.server.remove")}
-          </Button>
-        </DialogFooter>
-      </Dialog>
-    </Card>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      title={t("githubApp.server.removeTitle")}
+      description={t("githubApp.server.removeText")}
+      closeLabel={t("common.close")}
+      width={440}
+    >
+      <DialogFooter>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
+        <Button
+          variant="danger"
+          disabled={remove.isPending}
+          loading={remove.isPending}
+          onClick={() =>
+            remove.mutate(undefined, {
+              onSuccess: () => {
+                onClose();
+                toast.show(t("githubApp.server.removed"));
+              },
+            })
+          }
+        >
+          {t("githubApp.server.remove")}
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }

@@ -24,6 +24,7 @@ import {
   resourcesOf,
 } from "@agenteschat/client/lib/access-levels";
 import { channelsAfter, sameAudience } from "@agenteschat/client/lib/agent-edit";
+import { ownerPatchOf, ownerValueOf, ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import {
   audienceModeKey,
   audienceModeTextKey,
@@ -90,17 +91,18 @@ import {
 } from "@/components/AccessLevels";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ModelSelect, modelOptions, NO_OWNER, OwnerSelect } from "@/components/AgentFields";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
 import { PlanReplies } from "@/components/ai/PlanReplies";
-import { useConnectAi } from "@/components/ConnectAi";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { useChannelActions } from "@/components/channel-actions";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { SetupBand } from "@/components/new-agent/SetupBand";
 import { PersonalChip } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
 import { useWidenAsk } from "@/components/ReachLines";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useMyRoleIds } from "@/hooks/useMyRoleIds";
 import { usePersonalView } from "@/hooks/usePersonalView";
 import { useToast } from "@/lib/toast";
 import { useVisibleChannels } from "@/pages/agent/pieces";
@@ -277,6 +279,8 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
   const onPlan = Boolean(agent.brain && agent.brain.kind !== "model");
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
   const ownerIsMe = agent.ownerUserId === me.user.id;
+  // A role that answers for it is named by its name (ADR 0085, addendum of 2026-11-21).
+  const ownerRole = agent.ownerRoleId ? dir.roleName(agent.ownerRoleId) : undefined;
 
   const rowOf = (step: AgentSetupStep) =>
     setupRow(t, step, done.has(step), {
@@ -292,7 +296,7 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
         : null,
       firstChannel: firstChannel ? `#${firstChannel.name}` : null,
       audience: audience.mode,
-      otherOwner: !ownerIsMe && owner ? (owner.name.split(" ")[0] ?? owner.name) : null,
+      otherOwner: ownerRole ?? (!ownerIsMe && owner ? (owner.name.split(" ")[0] ?? owner.name) : null),
       onPlan,
       personal: isPersonal(org),
     });
@@ -934,29 +938,34 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
   const brain = useAgentBrain(org.id, agent.id, planKind !== null).data;
   const saved = audienceOf(agent);
   const [audience, setAudience] = useState<AgentAudience>(saved);
-  const [ownerId, setOwnerId] = useState(agent.ownerUserId ?? NO_OWNER);
+  // A person's id, a role's `role:<id>` or `NO_OWNER` (ADR 0085, addendum of 2026-11-21).
+  const [ownerId, setOwnerId] = useState(ownerValueOf(agent, NO_OWNER));
   const [share, setShare] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
-  const owner = ownerId === NO_OWNER ? null : ownerId;
+  const { ownerUserId: owner, ownerRoleId } = ownerPatchOf(ownerId, NO_OWNER);
   const ownerName = owner ? dir.memberById.get(owner)?.name : undefined;
+  const ownerRole = ownerRoleId ? dir.roleName(ownerRoleId) : undefined;
   const pickedPeople = new Set(audience.userIds);
   const pickedRoles = new Set(audience.roleIds ?? []);
   // A personal workspace's family picks people first, and a role only when one is worth it (ADR 0159).
   const personal = isPersonal(org);
   const allRoles = roles.data?.roles ?? [];
   const roleList = rolePicksInSight(org, allRoles, audience.roleIds ?? [])
-    ? sortRoles(allRoles.filter((r) => !isEveryone(r)))
+    ? sortRoles(allRoles.filter((r) => !isEveryone(r) && r.id !== ownerRoleId))
     : [];
   const people = dir.members.filter((m) => m.userId !== owner);
   const modeText = (mode: AudienceMode) =>
     mode === "owner"
-      ? ownerName
-        ? t("audience.modeText.owner", { ...g, owner: owner === me.user.id ? t("agentSetup.who.you") : ownerName })
-        : t("audience.modeText.noOwner")
+      ? ownerRole
+        ? t("audience.modeText.ownerRole", { ...g, role: ownerRole })
+        : ownerName
+          ? t("audience.modeText.owner", { ...g, owner: owner === me.user.id ? t("agentSetup.who.you") : ownerName })
+          : t("audience.modeText.noOwner")
       : t(audienceModeTextKey(org, mode), g);
+  const owned = Boolean(owner || ownerRoleId);
   const valid =
     audience.mode === "everyone" ||
-    (audience.mode === "owner" ? Boolean(owner) : pickedPeople.size > 0 || pickedRoles.size > 0 || Boolean(owner));
+    (audience.mode === "owner" ? owned : pickedPeople.size > 0 || pickedRoles.size > 0 || owned);
   const shareOn = share ?? (brain ? !brain.onlyOwner : false);
   const ownerIsMe = owner === me.user.id;
   const picked = pickedPeople.size > 0 || pickedRoles.size > 0;
@@ -967,13 +976,17 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
       : t("audience.pickSomeone");
   const planOwner = dir.memberById.get(agent.ownerUserId ?? "")?.name.split(" ")[0];
   // "Você sempre pode, como responsável" under the people picked.
-  const always = ownerName
-    ? t("audience.ownerAlways", { name: ownerIsMe ? t("agentSetup.who.youCap") : ownerName })
-    : undefined;
+  const always = ownerRole
+    ? t("audience.ownerRoleAlways", { role: ownerRole })
+    : ownerName
+      ? t("audience.ownerAlways", { name: ownerIsMe ? t("agentSetup.who.youCap") : ownerName })
+      : undefined;
   const save = async () => {
     setBusy(true);
     try {
-      if (owner !== (agent.ownerUserId ?? null)) await update.mutateAsync({ ownerUserId: owner });
+      // A person or a role (ADR 0085, addendum of 2026-11-21): the server clears the other one.
+      if (owner !== (agent.ownerUserId ?? null) || ownerRoleId !== (agent.ownerRoleId ?? null))
+        await update.mutateAsync(ownerRoleId ? { ownerRoleId } : { ownerUserId: owner });
       if (!sameAudience(audience, saved)) {
         // The one save that asks first when it takes mailboxes away or opens someone else's plan (`useWidenAsk`).
         const next = audiencePatch(audience);
@@ -1107,7 +1120,10 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
       {admin && (
         <Field
           label={t("newAgent.owner")}
-          hint={{ name: t("common.about", { label: t("newAgent.owner") }), text: t("agentSetup.who.ownerHelp", g) }}
+          hint={{
+            name: t("common.about", { label: t("newAgent.owner") }),
+            text: ownerRole ? t("newAgent.ownerRoleHelp", { ...g, role: ownerRole }) : t("agentSetup.who.ownerHelp", g),
+          }}
         >
           <OwnerSelect value={ownerId} onChange={setOwnerId} members={dir.members} meId={me.user.id} />
         </Field>
@@ -1120,6 +1136,7 @@ function WhoDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
 function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => void; onSaved: () => void }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
+  const myRoleIds = useMyRoleIds();
   const update = useUpdateAgent(org.id, agent.id);
   const models = useModels();
   const credentials = useCredentials(org.id, can(org, "manage_credentials"));
@@ -1132,7 +1149,7 @@ function HowDialog({ agent, onClose, onSaved }: { agent: Agent; onClose: () => v
   // from its owner. A save with a field the person may not change would be refused whole.
   const manages = managesAgent(agent);
   const seesBudget = onApi && manages && agent.monthlyBudgetUsd !== undefined;
-  const picksModel = onApi && (manages || agent.ownerUserId === me.user.id);
+  const picksModel = onApi && (manages || ownsAgentAs(agent, me.user.id, myRoleIds));
   const [instructions, setInstructions] = useState(agent.instructions);
   const [budget, setBudget] = useState(agent.monthlyBudgetUsd == null ? "" : String(agent.monthlyBudgetUsd));
   const [model, setModel] = useState(agent.model);

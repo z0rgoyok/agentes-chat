@@ -1,4 +1,5 @@
 import { setAudioModeAsync } from "expo-audio";
+import { allowFeedbackWhileRecording } from "./voice-session";
 
 /**
  * The app's audio session, one owner at a time (ADR 0070, ADR 0100). By default it is the app's own sounds: mixed with
@@ -27,10 +28,17 @@ export function appAudio(): Promise<void> {
   }).catch(() => undefined);
 }
 
-/** A voice plays (`recording` false) or records: heard in silent mode, alone. */
+/**
+ * A voice plays (`recording` false) or records: heard in silent mode, alone. Recording, the take's haptics still reach
+ * the hand: iOS mutes them while the session records unless told otherwise, and the audio library never does.
+ */
 export function voiceAudio(recording: boolean): Promise<void> {
   cancelRelease();
-  return setAudioModeAsync({ allowsRecording: recording, playsInSilentMode: true, interruptionMode: "doNotMix" });
+  return setAudioModeAsync({ allowsRecording: recording, playsInSilentMode: true, interruptionMode: "doNotMix" }).then(
+    () => {
+      if (recording) allowFeedbackWhileRecording();
+    },
+  );
 }
 
 /** A voice stopped: the app's sounds get the session back in a moment, unless another voice takes it first. */

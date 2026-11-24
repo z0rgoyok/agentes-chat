@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
 import {
   type ContextItem,
+  consolidateOrg,
+  createChannel,
   ensurePeriodSummary,
   loadThread,
   mergeProfileNote,
@@ -113,6 +115,21 @@ test("a long thread loads its newest replies, so its summary follows the convers
   for (let i = 1; i <= 6; i++) await post(`reply ${i}`, root.id);
   const thread = await loadThread(f.db, f.org.id, root.id, 3);
   expect(thread?.messages.map((m) => m.body)).toEqual(["routine thread", "reply 4", "reply 5", "reply 6"]);
+});
+
+test("the nightly pass summarizes the week of each busy channel, and of no quieter one", async () => {
+  f = await setup({ reply: () => ({ chunks: ["Resumo da semana."] }) });
+  const quiet = await createChannel(f.db, f.owner.id, f.org.id, { name: "quiet" });
+  const post = (channelId: string, body: string) =>
+    postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, channelId, { body });
+  for (let i = 0; i < 30; i++) await post(f.general.id, `busy ${i}`);
+  for (let i = 0; i < 29; i++) await post(quiet.id, `quiet ${i}`);
+  await consolidateOrg(f.context, f.org.id, new Date(Date.now() + 1000));
+  const summaries = await f.db
+    .select({ scopeId: schema.contextItems.scopeId })
+    .from(schema.contextItems)
+    .where(eq(schema.contextItems.kind, "period_summary"));
+  expect(summaries).toEqual([{ scopeId: f.general.id }]);
 });
 
 test("a channel keeps one period summary: each nightly refresh replaces the last", async () => {

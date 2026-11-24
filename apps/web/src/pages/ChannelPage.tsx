@@ -9,6 +9,7 @@ import type {
   ArtifactRef,
   Channel,
   HeldPlace,
+  LiveSelection,
   Member,
   MemoryUpdate,
   MessageMedia,
@@ -24,7 +25,7 @@ import {
   agentStateOfRun,
   browserHandoffOf,
   browserTrailOf,
-  type ConnectionStatus,
+  codeSuggestionOf,
   consultsIn,
   desktopTrailOf,
   fileConversationOf,
@@ -145,7 +146,7 @@ import { supersededBrainNotices } from "@agenteschat/client/lib/machine-outages"
 import { hasWideBlock } from "@agenteschat/client/lib/markdown";
 import { isMediaAfterReply, isMediaAlone, messageMediaOf, quoteText } from "@agenteschat/client/lib/media";
 import { serverBody } from "@agenteschat/client/lib/message-body";
-import { joinDrafts, tooLongToSend } from "@agenteschat/client/lib/message-length";
+import { answerIds, joinDrafts, tooLongToSend } from "@agenteschat/client/lib/message-length";
 import {
   isOpenMission,
   missionCommandOf,
@@ -177,7 +178,8 @@ import { usageWaitOf } from "@agenteschat/client/lib/usage-pause";
 import { appVia, surfaceVia } from "@agenteschat/client/lib/via";
 import { listedText, voiceOf } from "@agenteschat/client/lib/voice";
 import { waitingAway, waitingNotification } from "@agenteschat/client/lib/waiting";
-import { barStep, makingImage, showsActivity, splitCanceled } from "@agenteschat/client/lib/work";
+import { barStep, makingImage, splitCanceled } from "@agenteschat/client/lib/work";
+import { CodeConversation, useShowsWork } from "@agenteschat/client/lib/work-context";
 import {
   AffixInput,
   Avatar,
@@ -186,6 +188,7 @@ import {
   type ComposerCommand,
   ComposerFile,
   type ComposerFormatLabels,
+  type ComposerProps,
   type ComposerVoice,
   cx,
   DayDivider,
@@ -215,11 +218,14 @@ import {
   mayTakeFocus,
   OPEN_LAYER,
   PixelSpinner,
+  pastedFiles,
   SavedNote,
+  SettingRow,
   Skeleton,
   SkeletonConversationRows,
   SkeletonGroup,
   Spinner,
+  Switch,
   skeletonOnScreen,
   type VoiceNotice,
 } from "@agenteschat/ui";
@@ -252,7 +258,6 @@ import { ClippedBody } from "@/chat/ClippedBody";
 import { LongDraftNotice } from "@/chat/LongDraftNotice";
 import { useConversationLook, useConversationWallpaper } from "@/chat/look";
 import { MessageBody } from "@/chat/MessageBody";
-import { useBrowserOffline } from "@/chat/offline";
 import { readingLanding } from "@/chat/reading";
 import {
   blockRowByRun,
@@ -274,14 +279,15 @@ import { AgentPanelContext, AgentPanelShownContext, useOpenAgentPanel } from "@/
 import { AgentSidebar } from "@/components/agents/AgentSidebar";
 import { ModelStandInLine } from "@/components/ai/ModelPicker";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
-import { ImageSet } from "@/components/artifacts/ArtifactViewer";
 import { objectUrls } from "@/components/artifacts/FileView";
 import { ImageMaking } from "@/components/artifacts/ImageMaking";
+import { ImageSet } from "@/components/artifacts/viewer-context";
 import { HandedWorkLine, MessageWorkLine } from "@/components/BackgroundWork";
 import { HeldBrowserCard, RunBrowserCard, useHeldTakeover } from "@/components/browser/BrowserCard";
 import { BrowserHandoffCard } from "@/components/browser/BrowserHandoffCard";
 import { BrowserTrailCard } from "@/components/browser/BrowserTrailCard";
 import { requestBrowserCard } from "@/components/browser/open";
+import { ScreenPanelContext } from "@/components/browser/screen-panel";
 import { CategorySelect } from "@/components/ChannelCategoryDialogs";
 import { ChannelHeader } from "@/components/ChannelHeader";
 import { ChannelPermissions } from "@/components/ChannelPermissions";
@@ -315,6 +321,7 @@ import {
 } from "@/components/ConsultGroup";
 import { CorrectionAsk } from "@/components/CorrectionAsk";
 import { type ChannelActions, ChannelActionsContext, useChannelActions } from "@/components/channel-actions";
+import { CodeSuggestionCard } from "@/components/code/CodeSuggestionCard";
 import { DatePill, type DatePillHandle } from "@/components/DatePill";
 import { DeleteChannelDialog } from "@/components/DeleteChannelDialog";
 import { MenuEntries } from "@/components/DesktopMenus";
@@ -330,6 +337,8 @@ import { useLeaveChannelWithUndo } from "@/components/LeaveChannelDialog";
 import { useUploadFailed } from "@/components/Limits";
 import { LiveCodeToggle } from "@/components/LiveCode";
 import { ErrorState, LoadingConversation } from "@/components/Loading";
+import { ResolveButton, ResolvedLine } from "@/components/live/media/ResolveBits";
+import { ChatCommentsLine } from "@/components/live/media/ViewerBits";
 import { LiveQuoteBar, LiveRefLine } from "@/components/live/TalkBits";
 import { useFileTalk } from "@/components/live/talk";
 import { AwayPill, WaitingCard } from "@/components/MachineOutages";
@@ -362,7 +371,7 @@ import { NavToggle } from "@/components/NavDrawer";
 import { CHANNEL_NAME, ChannelAccessChoice, toChannelName } from "@/components/NewChannelDialog";
 import { FailedRunFix, KeyGuardDialog, NoAiBanner, NoAiCard, useNoAiAutoOpen } from "@/components/NoAi";
 import { useNotificationOpener } from "@/components/NotificationOpen";
-import { useNewAgent } from "@/components/new-agent/NewAgentDialog";
+import { useNewAgent } from "@/components/new-agent/new-agent-context";
 import { OpensAgent } from "@/components/OpensAgent";
 import { useOrg } from "@/components/org-context";
 import { AuthorStatus } from "@/components/Presence";
@@ -388,8 +397,9 @@ import { isStoppable, StopButton, useContinueRun, useStopRun, useWasContinued } 
 import { SearchResultsPanel } from "@/components/search/SearchResultsPanel";
 import { TeamChecks } from "@/components/TeamChecks";
 import { ReplyChips } from "@/components/TeamPlan";
+import { TeamStalledBanner } from "@/components/TeamStalled";
 import { ToLatest } from "@/components/ToLatest";
-import { LiveTools, SavedTools } from "@/components/ToolCalls";
+import { LiveSubagents, LiveTools, SavedTools } from "@/components/ToolCalls";
 import { AgentTasksPanel } from "@/components/tasks/AgentTasksPanel";
 import { AgentTasksContext } from "@/components/tasks/agent-tasks-context";
 import { RangeBar, RangeRows, useRangeAdjust } from "@/components/threads/RangeSelect";
@@ -398,8 +408,11 @@ import {
   ChannelThreadsContext,
   type ChannelThreadsView,
   ClosedThreadLine,
+  OpenThreadContext,
+  ThreadReplyingLine,
   ThreadReplyLine,
   ThreadStartLine,
+  useChannelThread,
   useChannelThreadsView,
 } from "@/components/threads/ThreadLines";
 import { UsageWaitCancel, UsageWaitClosed } from "@/components/UsagePauseCard";
@@ -407,8 +420,9 @@ import { PushAskContext, PushAskInline, usePushAsk } from "@/components/WebPush"
 import { useWikiLinkRenderer } from "@/components/WikiLinks";
 import { BarAlsoTyping, BarPhrase, BarStep, ConsultClock, TypingMark, WorkingStack } from "@/components/WorkingLine";
 import { useChannelSearch } from "@/hooks/useChannelSearch";
-import { useComposerDraft } from "@/hooks/useComposerDraft";
+import { type DraftStore, useComposerDraft, useDraftText } from "@/hooks/useComposerDraft";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useFileDrop } from "@/hooks/useFileDrop";
 import { useDmSidebar, useMembersColumn } from "@/hooks/useMembersColumn";
 import { useMentionSearch } from "@/hooks/useMentionSearch";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
@@ -418,7 +432,7 @@ import { useHeaderSearch } from "@/hooks/useWorkspaceSearch";
 import { TYPED_VALUES } from "@/i18n";
 import { onAgentPanel, takeAgentPanel } from "@/lib/agent-panel-ask";
 import { onChannelDetails, takeChannelDetails } from "@/lib/channel-details";
-import { selectingIn } from "@/lib/context-menu";
+import { inTextField, selectingIn } from "@/lib/context-menu";
 import { desktopPlatform, thisMac, useDocumentTitle } from "@/lib/desktop";
 import { holdOnScreen } from "@/lib/island";
 import { composes, typingInField } from "@/lib/keys";
@@ -426,10 +440,10 @@ import { lookOf } from "@/lib/look";
 import { type AgentPanelPlace, agentPanelSearch, threadSearch, useAgentPanel, useThreadPanel } from "@/lib/open-param";
 import { reportPainted } from "@/lib/perf";
 import { useToast } from "@/lib/toast";
+import { useValueStore } from "@/lib/value-store";
 import {
   reconcileChannelRuns,
   useChannelRealtime,
-  useConnectionStatus,
   useDismissRun,
   useLive,
   useLiveStore,
@@ -511,6 +525,8 @@ export interface ChannelChrome {
   composerReplacement?: ReactNode;
   /** Under the composer (a mission someone only reads: "para pedir algo, peça para participar"). */
   composerNote?: ReactNode;
+  /** Behind the composer and what sits on it, from the conversation's floor (a code session's light sky). */
+  composerSky?: ReactNode;
   /** A thread in the panel beside its channel: a section, not the page's main. */
   panel?: boolean;
   /** A thread view where a person's reply makes it a "Responder" thread (`openThread` on the post). */
@@ -537,6 +553,12 @@ const GESTURE_MS = 1500;
 const IDLE_CATCH_UP_MS = 20_000;
 /** Older messages per scroll-up page. */
 const OLDER_PAGE = 50;
+/** Messages a conversation pinned to its end keeps (`trimNow`): older ones come back as pages on scrolling up. */
+export const MESSAGES_KEPT = 300;
+/** Trimmed once this many more came, not at each one: every trim draws the conversation again. */
+const TRIM_SLACK = 50;
+/** Pinned this long, it lets go of what is far above (shorter in tests). */
+export const trimming = { afterMs: 10_000 };
 /** Older pages a channel already loaded, and whether there are no more. */
 type OlderPages = { pages: MessageType[]; done: boolean };
 /** Same limit as the server (`MAX_MESSAGE_ATTACHMENTS`). */
@@ -551,6 +573,8 @@ interface PendingFile {
   /** An image's local thumbnail (an object URL, revoked when the file leaves the composer). */
   preview?: string;
   status: "uploading" | "done" | "failed";
+  /** The share sent so far, 0 to 1, once the upload reports it. */
+  progress?: number;
   ref?: ArtifactRef;
 }
 
@@ -567,6 +591,46 @@ function highlightMessage(scroller: HTMLElement | null, messageId: string) {
   el.classList.add("ac-msg--focus");
   setTimeout(() => el.classList.remove("ac-msg--focus"), HIGHLIGHT_MS);
   return true;
+}
+
+/**
+ * The composer with its text (`DraftStore`): a key typed draws this box and what depends on the text (the hint to
+ * finish a handed task, the too-long notice, the send button's hold), never the conversation around it.
+ */
+function DraftComposer({
+  draft,
+  handed,
+  uploading,
+  finishingHint,
+  longNotice,
+  onTyped,
+  header,
+  ...props
+}: Omit<ComposerProps, "value" | "onChange" | "sendBlocked" | "notice"> & {
+  draft: DraftStore;
+  /** Text handed here to finish ("…para este cliente:"): `finishingHint` shows until the first key. */
+  handed: string | undefined;
+  uploading: boolean;
+  finishingHint: ReactNode;
+  longNotice: (text: string) => ReactNode;
+  onTyped: (text: string) => void;
+}) {
+  const text = useDraftText(draft);
+  const finishing = handed !== undefined && /:\s*$/.test(handed) && text === handed;
+  const tooLong = tooLongToSend(text);
+  return (
+    <Composer
+      {...props}
+      header={header || (finishing ? finishingHint : undefined)}
+      value={text}
+      onChange={(v) => {
+        draft.set(v);
+        onTyped(v);
+      }}
+      sendBlocked={uploading || tooLong}
+      notice={tooLong ? longNotice(text) : undefined}
+    />
+  );
 }
 
 /** "Respondendo a Ana" on top of the composer; its × or Esc drops it. Marked so Esc goes here before the panel. */
@@ -865,15 +929,16 @@ function ChannelView({
   const sendTyping = useTypingSender(channel.id, thread?.id);
   // ⌘K "Pedir a um agente" leaves the text for this DM's composer.
   const draftKey = chrome?.dmAgentId ? `agent:${chrome.dmAgentId}` : null;
-  // What I typed and didn't send stays in this browser: switching conversations or reloading keeps it.
-  const [draft, setDraft] = useComposerDraft(
+  // What I typed and didn't send stays in this browser: switching conversations or reloading keeps it. Only the box
+  // reads it as it changes (`DraftComposer`): a key typed never draws this view.
+  const draft = useComposerDraft(
     me.user.id,
     draftKeyOf(channel.id, thread?.id),
     draftKey ? peekDraft(draftKey) : undefined,
   );
+  const setDraft = draft.set;
   // A first task handed with a blank at its end ("…para este cliente:"): a hint to finish it, gone at the first key.
   const [handed] = useState(() => (draftKey ? peekDraft(draftKey) : undefined));
-  const finishing = handed !== undefined && /:\s*$/.test(handed) && draft === handed;
   // Stopping is immediate, nothing asked (what it did stays, "Continuar" picks it up): the composer's
   // button when the box is empty, or Esc anywhere on the page (composer empty, nothing open).
   const { canStop: mayStop, stop: stopRun } = useStopRun();
@@ -895,10 +960,9 @@ function ChannelView({
         .filter((r) => isStoppable(r) && !r.stopping && mayStop(r))
         .at(-1)
     : undefined;
-  const draftRef = useRef("");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || draftRef.current.trim()) return;
+      if (e.key !== "Escape" || e.defaultPrevented || draft.get().trim()) return;
       if (document.querySelector(OPEN_LAYER)) return;
       // An Esc in another field (the search, a card's answer) is that field's: the composer stops agents on its own.
       if (typingInField(e.target)) return;
@@ -1048,7 +1112,6 @@ function ChannelView({
   const [ephemeral, setEphemeral] = useState<{ kind: "summary" | "plan"; missionId: string } | null>(null);
   // `/mission` with several agents and none named: "Nova missão" with the goal filled in.
   const [missionDraft, setMissionDraft] = useState<string | null>(null);
-  draftRef.current = draft;
   // Once per conversation (each one mounts its own view): the cursor waits in the box, at the end of a draft.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only on opening; a thread opened with it takes the focus
   useEffect(() => {
@@ -1136,6 +1199,7 @@ function ChannelView({
     <LiveQuoteBar
       kind={fileHere.kind}
       selection={fileHere.about}
+      thumb={fileHere.aboutThumb}
       onDrop={() => {
         fileHere.dropAbout();
         composer.current?.focus();
@@ -1231,7 +1295,6 @@ function ChannelView({
     onRefused: (error) =>
       toast.show(errorCode(error) === "voice_limit" ? t("voice.limit") : errorText(t, error), "error"),
   });
-  const status = useConnectionStatus();
 
   const api = useApi();
   // Reading the channel marks it read: the sidebar's badges (channel and DM) clear at once. Only while the tab is
@@ -1266,17 +1329,6 @@ function ChannelView({
     document.addEventListener("visibilitychange", mark);
     return () => document.removeEventListener("visibilitychange", mark);
   }, [markThreadRead, threadId, isMember, lastReplyId]);
-
-  // The skeleton was on screen: the real messages fade in (once).
-  const hadSkeleton = useRef(messages.isLoading);
-  const [fresh, setFresh] = useState(false);
-  useEffect(() => {
-    if (!serverRead || !hadSkeleton.current) return;
-    hadSkeleton.current = false;
-    setFresh(true);
-    const timer = setTimeout(() => setFresh(false), 400);
-    return () => clearTimeout(timer);
-  }, [serverRead]);
 
   // Person messages loaded over HTTP start their receipts.
   useEffect(() => {
@@ -1384,10 +1436,10 @@ function ChannelView({
     if (thread) return null;
     return {
       byId: new Map(threadList.filter((x) => x.state !== "archived").map((x) => [x.id, x])),
-      open: panel?.id ?? null,
       lines: threadLines,
     };
-  }, [thread, threadList, threadLines, panel?.id]);
+  }, [thread, threadList, threadLines]);
+  const threadsStore = useValueStore(threadsView);
   // Messages that are a thread's context and still in the channel: the gutter mark.
   const contextMarkIds = useMemo(
     () => (thread ? NO_MARKS : contextMarks(threadList, [...older, ...(channelMessages.data ?? [])], channel.id)),
@@ -1398,12 +1450,14 @@ function ChannelView({
       // The thread's conversation. One made from a range: not its root (the channel's marker) nor the
       // moved messages (written before the root; the context block lists them).
       const mine = (channelMessages.data ?? []).filter((m) => m.local && m.threadId === thread.id);
-      // A task's conversation: not its root, which stands for the task beside it (ADR 0145); a live file's the same
-      // (ADR 0199).
+      // A task's conversation: not its root, which stands for the task beside it (ADR 0145); a live file's and a code
+      // session's the same (ADR 0199, 0215).
       const list = mergeTimeline(threadMessages.data ?? [], [mine]).filter(
         (m) =>
           !taskConversationOf(m.meta) &&
           !fileConversationOf(m.meta) &&
+          // A code session's root stands for the session, whose page is around it (ADR 0215).
+          !(m.meta && "codeSession" in m.meta) &&
           (!thread.context || m.local || (m.id !== thread.id && m.createdAt > thread.createdAt)),
       );
       const passed = supersededBrainNotices(list);
@@ -1489,8 +1543,19 @@ function ChannelView({
   // More than a screen above the end: the round button shows even with nothing new below. Never while pinned to
   // the end, so it stays gone while its own click glides down.
   const [far, setFar] = useState(false);
-  const measureFar = (el: HTMLElement) =>
-    setFar(!stick.current && screenAboveEnd(el.scrollHeight - el.scrollTop - el.clientHeight, el.clientHeight));
+  // Once a frame, however many scroll events or changes ask: reading the list's heights lays it out. Pinned as of
+  // the last ask, as a scroll handler sees it before it unpins.
+  const farFrame = useRef(0);
+  const farPinned = useRef(false);
+  const measureFar = (el: HTMLElement) => {
+    farPinned.current = stick.current;
+    if (farFrame.current) return;
+    farFrame.current = requestAnimationFrame(() => {
+      farFrame.current = 0;
+      setFar(!farPinned.current && screenAboveEnd(el.scrollHeight - el.scrollTop - el.clientHeight, el.clientHeight));
+    });
+  };
+  useEffect(() => () => cancelAnimationFrame(farFrame.current), []);
   const datePill = useRef<DatePillHandle>(null);
   // "Última mensagem lida" with something unread: it opens at the "Novas" line, kept as it was on opening because
   // reading moves it. Threads open at their end.
@@ -1528,10 +1593,47 @@ function ChannelView({
   const markScrollGesture = () => {
     lastScrollGesture.current = Date.now();
   };
+  // Pinned to the end a while, the conversation keeps only its newest messages: the pages loaded above leave and the
+  // latest list keeps `MESSAGES_KEPT`, so a long session on a busy channel stops growing (rows, memory, the work of
+  // every new message). Scrolling up loads them again, as pages.
+  const trimTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trimNow = useRef(() => {});
+  trimNow.current = () => {
+    if (thread || gap || olderState === "loading" || !stick.current) return;
+    if (older.length > 0) {
+      setOlder([]);
+      setOlderState("idle");
+      qc.removeQueries({ queryKey: olderKey, exact: true });
+    }
+    qc.setQueryData<MessageType[]>(keys.messages(org.id, channel.id), (list) =>
+      list && list.length > MESSAGES_KEPT ? list.slice(-MESSAGES_KEPT) : list,
+    );
+  };
+  const trimSoon = () => {
+    if (trimTimer.current) return;
+    trimTimer.current = setTimeout(() => {
+      trimTimer.current = null;
+      trimNow.current();
+    }, trimming.afterMs);
+  };
+  useEffect(
+    () => () => {
+      if (trimTimer.current) clearTimeout(trimTimer.current);
+    },
+    [],
+  );
+  // A conversation pinned to its end that holds more than it keeps (pages from before, a busy channel's new messages).
+  const holdsMore = older.length > 0 || (channelMessages.data?.length ?? 0) > MESSAGES_KEPT + TRIM_SLACK;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: checked again as the lists change
+  useEffect(() => {
+    if (holdsMore && stick.current) trimSoon();
+  }, [holdsMore, older.length, channelMessages.data]);
   // Scrolling up always lets go at once: no waiting to leave the "near bottom" band or for a glide to end.
   const letGo = () => {
     stick.current = false;
     autoScrollUntil.current = 0;
+    if (trimTimer.current) clearTimeout(trimTimer.current);
+    trimTimer.current = null;
   };
   // Long answers open at their start: rows by someone else (`data-read-id`; an agent's is the run's
   // id, shared by the live row and its final message) that already landed, and whether one is held
@@ -1816,6 +1918,11 @@ function ChannelView({
   const rowDrawn = useCallback(() => setRowsDrawn((n) => n + 1), []);
   const inView = useBlocksInView(scroller, `${slots.map((x) => x.runId).join(" ")} ${rowsDrawn}`);
   const outOfView = useMemo(() => (runId: string) => !inView.has(runId), [inView]);
+  // Hand-offs whose line under the reply that handed them is on screen (`HandedWorkLine`): the bar leaves those out.
+  const handoffsKey = timeline
+    .flatMap((i) => (i.kind === "message" ? (i.message.handedWorks ?? []).map((w) => w.id) : []))
+    .join(" ");
+  const handoffsInView = useBlocksInView(scroller, `${handoffsKey} ${rowsDrawn}`, "data-handoff");
   // Requests waiting for you that scrolled out of view: the same line says so first (waiting beats working).
   // Their cards register with this view's scroller (`RowsProvider` around it, not around the panels).
   const [askRegistry] = useState(createAskRegistry);
@@ -2160,7 +2267,7 @@ function ChannelView({
         { key, name: file.name, icon: fileIcon(file.name, file.type), size: file.size, preview, status: "uploading" },
       ]);
       api.artifacts
-        .upload(org.id, file, { channelId: channel.id })
+        .upload(org.id, file, { channelId: channel.id }, { onProgress: (progress) => update({ progress }) })
         .then((saved) => update({ status: "done", ref: { id: saved.id, version: saved.version, title: saved.title } }))
         .catch((error) => {
           update({ status: "failed" });
@@ -2169,9 +2276,36 @@ function ChannelView({
     }
     composer.current?.focus();
   };
+  const canAttach =
+    isMember &&
+    !adjustThreadId &&
+    !org.deletion &&
+    !chrome?.composerReplacement &&
+    !chrome?.locked &&
+    channel.can?.post !== false;
+  const fileDrop = useFileDrop(addFiles, canAttach);
+  const column = useRef<HTMLDivElement>(null);
+  const addFilesNow = useRef(addFiles);
+  addFilesNow.current = addFiles;
+  // A picture pasted after a click in the history (focus on the page, not the box) still joins the draft. The
+  // composer's own paste runs first and takes its files.
+  useEffect(() => {
+    if (!canAttach) return;
+    const paste = (e: globalThis.ClipboardEvent) => {
+      const target = e.target;
+      if (e.defaultPrevented || !(target instanceof Element) || inTextField(target)) return;
+      if (target !== document.body && !column.current?.contains(target)) return;
+      const pasted = pastedFiles(e.clipboardData);
+      if (pasted.length === 0) return;
+      e.preventDefault();
+      addFilesNow.current(pasted);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [canAttach]);
   // A draft past the length limit goes as a text file instead, which agents open like any other.
   const draftAsFile = () => {
-    addFiles([new File([draft], t("channel.tooLong.fileName"), { type: "text/plain" })]);
+    addFiles([new File([draft.get()], t("channel.tooLong.fileName"), { type: "text/plain" })]);
     setDraft("");
   };
   const attached = files.flatMap((f) => (f.status === "done" && f.ref ? [f.ref] : []));
@@ -2207,20 +2341,23 @@ function ChannelView({
     setDraft("");
     const meta = localMeta(quote, quote ? dir.authorName(quote.author) : "", attached);
     setQuote(null);
-    // About what is selected in the file beside it (ADR 0199): the message carries it, then the quote goes.
-    if (fileHere?.about) {
-      meta.liveRef = {
-        artifactId: fileHere.artifactId,
-        kind: fileHere.kind,
-        title: fileHere.title,
-        selection: fileHere.about,
-      };
-      fileHere.dropAbout();
-    }
-    // From the thread panel or page: the reply makes it a "Responder" thread (out of the channel's timeline).
-    if (thread && chrome?.openThread) meta[OPEN_THREAD] = true;
-    // "Parar e mandar" (⌘↵): the agent drops the step it is on and reads this now.
-    send(text, thread ? thread.id : null, meta, opts?.interrupt ? { steer: "now" } : undefined);
+    // About what is selected in the file beside it (ADR 0199): the message carries it, then the quote goes. A comment
+    // on a picture, a video or a PDF uploads its pictures of the place first (ADR 0208), so only a sent one keeps them.
+    const file = fileHere?.about ? fileHere : null;
+    const about = file?.about ?? null;
+    const prepared = about && file?.prepareAbout ? file.prepareAbout(about) : null;
+    file?.dropAbout();
+    const go = (selection: LiveSelection | null) => {
+      if (file && selection) {
+        meta.liveRef = { artifactId: file.artifactId, kind: file.kind, title: file.title, selection };
+      }
+      // From the thread panel or page: the reply makes it a "Responder" thread (out of the channel's timeline).
+      if (thread && chrome?.openThread) meta[OPEN_THREAD] = true;
+      // "Parar e mandar" (⌘↵): the agent drops the step it is on and reads this now.
+      send(text, thread ? thread.id : null, meta, opts?.interrupt ? { steer: "now" } : undefined);
+    };
+    if (prepared) void prepared.then(go, () => go(about));
+    else go(about);
     dropFiles(() => false);
   };
   // A GIF or a sticker from the picker (ADR 0091): one click sends it here, as a message of its own (no text), shown
@@ -2253,7 +2390,7 @@ function ChannelView({
           // message comes); the throttle makes it one frame every 3 s, and holds the upload's while they write.
           onRecording: () => sendTyping(undefined, "voice"),
           onTake: ({ blob, durationMs, peaks }) => {
-            const typed = draft.trim();
+            const typed = draft.get().trim();
             const found = looksLikeApiKey(typed);
             const text = found ? "" : typed;
             toBottom(true);
@@ -2468,7 +2605,7 @@ function ChannelView({
       qc.setQueryData<MessageType[]>(keys.messages(org.id, channel.id), (list) =>
         list?.filter((m) => m.id !== local.id),
       );
-      setDraft(joinDrafts(local.body, draft));
+      setDraft((now) => joinDrafts(local.body, now));
       composer.current?.focus();
     },
     resend: (body) => send(body),
@@ -2482,6 +2619,7 @@ function ChannelView({
     },
     letGo,
     channelAgents,
+    channelName: channel.name,
     // "Responder": in a thread view the next message answers this one (there are no threads in a thread); in a
     // channel, the message's thread opens in the panel (a reply there starts it).
     reply: thread
@@ -2534,6 +2672,7 @@ function ChannelView({
       followBottom: () => now().followBottom(),
       letGo: () => now().letGo(),
       channelAgents,
+      channelName: channel.name,
       reply: replies ? (message) => now().reply(message) : undefined,
       // A thread view has no panel: its links go to the thread's page.
       openThread: inThread ? undefined : (id, focus) => now().openThread(id, focus),
@@ -2543,7 +2682,7 @@ function ChannelView({
       jumpTo: (messageId) => now().jumpTo(messageId),
       replyToMission: (missionId, label) => now().replyToMission(missionId, label),
     };
-  }, [channelAgents, inThread, replies]);
+  }, [channelAgents, channel.name, inThread, replies]);
 
   // A DM with an agent (not one of its threads): its side column.
   const agentDm = Boolean(chrome?.dmAgentId) && !thread;
@@ -2588,7 +2727,7 @@ function ChannelView({
       <AgentPanelContext.Provider value={chrome?.panel ? outerPanel : openAgentPanel}>
         <MessageLookContext.Provider value={look}>
           <ChannelActionsContext.Provider value={actions}>
-            <ChannelThreadsContext.Provider value={threadsView}>
+            <ChannelThreadsContext.Provider value={threadsStore}>
               {/* A DM with an agent reads as one centered column; channels, threads and DMs between people
             are a left-aligned team chat. */}
               <Tag
@@ -2621,7 +2760,24 @@ function ChannelView({
                 )}
                 {/* Under the header: the conversation, and the members beside it (the header spans both, as Discord's). */}
                 <div className="channel__body">
-                  <div className="channel__col" data-wallpaper={wallpaper?.wallpaper.kind} style={wallpaper?.vars}>
+                  <div
+                    ref={column}
+                    className="channel__col"
+                    data-wallpaper={wallpaper?.wallpaper.kind}
+                    style={wallpaper?.vars}
+                    {...fileDrop.props}
+                  >
+                    {fileDrop.over && (
+                      <div className="channel__file-drop" role="status">
+                        <div className="channel__file-drop-card">
+                          <span className="channel__file-drop-icon" aria-hidden="true">
+                            <Icon name="upload" size={20} />
+                          </span>
+                          <strong>{t("channel.dropFileTitle")}</strong>
+                          <span>{t("channel.dropFileNote")}</span>
+                        </div>
+                      </div>
+                    )}
                     {wallpaper && <ChatWallpaper wallpaper={wallpaper.wallpaper} strength={wallpaper.strength} />}
                     {isMember && (
                       <ChannelPinnedBar
@@ -2681,6 +2837,7 @@ function ChannelView({
                             rightHandId,
                             dm: Boolean(chrome?.dmAgentId || chrome?.dmPersonId || thread?.channelKind === "dm"),
                           }}
+                          code={thread?.channelKind === "code"}
                         >
                           <section
                             ref={scroller}
@@ -2688,7 +2845,6 @@ function ChannelView({
                             data-look={look.style}
                             data-faces={look.faces ? undefined : "false"}
                             data-wallpaper={wallpaper?.wallpaper.kind}
-                            data-fresh={fresh || undefined}
                             aria-label={t("channel.messages")}
                             aria-live="polite"
                             aria-relevant="additions"
@@ -2739,6 +2895,7 @@ function ChannelView({
                               if (near && byPerson) {
                                 markRead();
                                 if (holdingRef.current) setHold(false);
+                                trimSoon();
                               }
                             }}
                           >
@@ -2827,6 +2984,7 @@ function ChannelView({
                                   seenId={thread ? null : seenId}
                                   marks={contextMarkIds}
                                   progressive={opensAtEnd}
+                                  openThreadId={panel?.id ?? null}
                                 />
                                 {/* A thread's root is on screen from the channel: only its replies are loading. */}
                                 {thread && messages.isPlaceholderData && thread.replyCount > 0 && (
@@ -2871,9 +3029,12 @@ function ChannelView({
                           </div>
                         )}
                         <div className="channel__composer">
-                          <ConnectionBanner status={status} />
+                          {chrome?.composerSky}
                           {!chrome?.intro && !org.deletion && (
                             <NoAiBanner agentIds={channelAgents.map((a) => a.id)} dmAgentId={chrome?.dmAgentId} />
+                          )}
+                          {channel.name === "general" && !thread && !chrome?.dmAgentId && !org.deletion && (
+                            <TeamStalledBanner />
                           )}
                           <ActivityBar
                             channelId={channel.id}
@@ -2887,6 +3048,7 @@ function ChannelView({
                             waiting={waitingHere}
                             onSeeWaiting={seeWaiting}
                             consultBlocks={consultGroups.nearEnd}
+                            handoffsInView={handoffsInView}
                             member={isMember}
                           />
                           {adjustThreadId ? (
@@ -2923,7 +3085,27 @@ function ChannelView({
                             </p>
                           ) : (
                             <>
-                              <Composer
+                              <DraftComposer
+                                draft={draft}
+                                handed={handed}
+                                uploading={uploading}
+                                finishingHint={
+                                  <div className="composer-quote" role="note">
+                                    <Icon name="edit" size={16} />
+                                    <span className="composer-quote__who">{t("teamPlan.firstTask.finish")}</span>
+                                  </div>
+                                }
+                                longNotice={(text) => (
+                                  <LongDraftNotice
+                                    length={text.trim().length}
+                                    onAsFile={
+                                      chrome?.locked || files.length >= MAX_ATTACHMENTS ? undefined : draftAsFile
+                                    }
+                                  />
+                                )}
+                                onTyped={(v) => {
+                                  if (v.trim()) sendTyping(v);
+                                }}
                                 header={
                                   quote ? (
                                     <>
@@ -2936,14 +3118,9 @@ function ChannelView({
                                       />
                                       {aboutBar}
                                     </>
-                                  ) : aboutBar ? (
+                                  ) : (
                                     aboutBar
-                                  ) : finishing ? (
-                                    <div className="composer-quote" role="note">
-                                      <Icon name="edit" size={16} />
-                                      <span className="composer-quote__who">{t("teamPlan.firstTask.finish")}</span>
-                                    </div>
-                                  ) : undefined
+                                  )
                                 }
                                 attachments={
                                   files.length > 0
@@ -2955,6 +3132,7 @@ function ChannelView({
                                           preview={f.preview}
                                           detail={formatBytes(i18n.language, f.size)}
                                           status={f.status}
+                                          progress={f.progress}
                                           statusLabel={
                                             f.status === "uploading"
                                               ? t("channel.uploading")
@@ -2968,19 +3146,8 @@ function ChannelView({
                                       ))
                                     : undefined
                                 }
-                                onFiles={chrome?.locked ? undefined : addFiles}
+                                onFiles={canAttach ? addFiles : undefined}
                                 canSendEmpty={attached.length > 0}
-                                sendBlocked={uploading || tooLongToSend(draft)}
-                                notice={
-                                  tooLongToSend(draft) ? (
-                                    <LongDraftNotice
-                                      length={draft.trim().length}
-                                      onAsFile={
-                                        chrome?.locked || files.length >= MAX_ATTACHMENTS ? undefined : draftAsFile
-                                      }
-                                    />
-                                  ) : undefined
-                                }
                                 format={formatLabels}
                                 emoji={mediaTabs ? { ...emojiLabels, button: mediaTabs.button } : emojiLabels}
                                 pickerTabs={mediaTabs?.tabs}
@@ -2988,11 +3155,6 @@ function ChannelView({
                                 id={`composer-${thread?.id ?? channel.id}`}
                                 textareaRef={composer}
                                 keepsEsc={Boolean(stopTarget) && !chrome?.panel}
-                                value={draft}
-                                onChange={(v) => {
-                                  setDraft(v);
-                                  if (v.trim()) sendTyping(v);
-                                }}
                                 onSend={onSend}
                                 working={chrome?.locked ? null : working}
                                 agentBusy={Boolean(busyTarget)}
@@ -3306,6 +3468,7 @@ const Timeline = memo(function Timeline({
   seenId = null,
   marks,
   progressive = false,
+  openThreadId = null,
 }: {
   items: ReturnType<typeof buildTimeline>;
   /** The first page loaded: rows from then on slide in. */
@@ -3329,6 +3492,8 @@ const Timeline = memo(function Timeline({
   marks: ReadonlySet<string>;
   /** It opens at its end: the last rows are drawn first, the ones above them right after (`FIRST_ROWS`). */
   progressive?: boolean;
+  /** The thread open in the panel beside the channel: only its line reads it (`OpenThreadContext`). */
+  openThreadId?: string | null;
 }) {
   const { t, i18n } = useTranslation();
   // A conversation opening at its end shows its last rows: they are drawn first and the rest in a transition, which
@@ -3446,6 +3611,11 @@ const Timeline = memo(function Timeline({
     [heldPlaces, channelId, runVisible, slots, lastByRun],
   );
   const shownMessages = useMemo(() => items.flatMap((i) => (i.kind === "message" ? [i.message] : [])), [items]);
+  const myId = useOrg().me.user.id;
+  const answers = useMemo(
+    () => answerIds(shownMessages.map((m) => ({ id: m.id, mine: m.author.type === "person" && m.author.id === myId }))),
+    [shownMessages, myId],
+  );
   // One stop, one pill: a stopped task's notice goes into its reply's pill while that reply (or its block) is here.
   const stops = useMemo(() => stopsOf(shownMessages, slots), [shownMessages, slots]);
   const rows: ReactElement<{ message?: MessageType }>[] = [];
@@ -3506,6 +3676,7 @@ const Timeline = memo(function Timeline({
           replyContext={item.context}
           lastOfRun={lastByRun.get(m.agentRunId) === item.key}
           run={run}
+          answer={answers.has(m.id)}
         />
       ) : (
         <TimelineMessage
@@ -3521,6 +3692,7 @@ const Timeline = memo(function Timeline({
           seen={m.id === seenId}
           helping={m.agentRunId && !isMediaAfterReply(m.meta) ? consultGroups.helping.get(m.agentRunId) : undefined}
           run={run}
+          answer={answers.has(m.id)}
         />
       ),
     );
@@ -3532,20 +3704,22 @@ const Timeline = memo(function Timeline({
   // sidebar and the composer keep working. Its message changing draws it again: a live block that broke has none,
   // so streaming never retries it, and its final message landing does.
   return (
-    <ConsultGroupsProvider value={consultGroups}>
-      <StopsProvider value={stops}>
-        {rows.map((row) => (
-          <ErrorBoundary
-            key={row.key}
-            resetKey={row.props.message}
-            onError={() => markUnshown(row.key)}
-            fallback={unshownLine}
-          >
-            {row}
-          </ErrorBoundary>
-        ))}
-      </StopsProvider>
-    </ConsultGroupsProvider>
+    <OpenThreadContext.Provider value={openThreadId}>
+      <ConsultGroupsProvider value={consultGroups}>
+        <StopsProvider value={stops}>
+          {rows.map((row) => (
+            <ErrorBoundary
+              key={row.key}
+              resetKey={row.props.message}
+              onError={() => markUnshown(row.key)}
+              fallback={unshownLine}
+            >
+              {row}
+            </ErrorBoundary>
+          ))}
+        </StopsProvider>
+      </ConsultGroupsProvider>
+    </OpenThreadContext.Provider>
   );
 });
 
@@ -3619,6 +3793,7 @@ function RunBlock({
   replyContext?: ReplyRef;
   lastOfRun?: boolean;
   run?: RunPosition;
+  answer?: boolean;
 }) {
   const run = useStreams((s) => (message ? undefined : s.runs[runId]));
   const last = useRef<LiveRun | undefined>(undefined);
@@ -3732,29 +3907,34 @@ const RowStopContext = createContext<string | undefined>(undefined);
 const RowDrawnContext = createContext<(() => void) | undefined>(undefined);
 
 /**
- * What the conversation's rows read from their view: the requests' registry, which row stops, "a row drew", and
- * which place the right hand's cards in them show (`seat`: its work here is on that one, not on the viewer's own).
+ * What the conversation's rows read from their view: the requests' registry, which row stops, "a row drew", which
+ * place the right hand's cards in them show (`seat`: its work here is on that one, not on the viewer's own) and
+ * whether it is a code session's (`code`: the agents' work always shows, ADR 0215).
  */
 function RowsProvider({
   asks,
   stop,
   drawn,
   seat,
+  code,
   children,
 }: {
   asks: AskRegistry;
   stop: string | undefined;
   drawn: () => void;
   seat: Omit<Parameters<typeof ConversationSeat>[0], "children">;
+  code: boolean;
   children: ReactNode;
 }) {
   return (
     <ConversationSeat {...seat}>
-      <AskRegistryProvider value={asks}>
-        <RowDrawnContext.Provider value={drawn}>
-          <RowStopContext.Provider value={stop}>{children}</RowStopContext.Provider>
-        </RowDrawnContext.Provider>
-      </AskRegistryProvider>
+      <CodeConversation.Provider value={code}>
+        <AskRegistryProvider value={asks}>
+          <RowDrawnContext.Provider value={drawn}>
+            <RowStopContext.Provider value={stop}>{children}</RowStopContext.Provider>
+          </RowDrawnContext.Provider>
+        </AskRegistryProvider>
+      </CodeConversation.Provider>
     </ConversationSeat>
   );
 }
@@ -3942,66 +4122,25 @@ function useAfter(ms: number, on: boolean) {
   return on && late;
 }
 
-/**
- * Above the composer when the connection drops: "Sem conexão. O que você mandar sai sozinho quando
- * voltar." (what is sent meanwhile waits and goes out on its own), then "Conectado de novo" for 1.6 s.
- * A socket that only reconnects for a moment says nothing.
- */
-function ConnectionBanner({ status }: { status: ConnectionStatus }) {
-  const { t } = useTranslation();
-  const offline = useBrowserOffline();
-  const reconnecting = status === "reconnecting";
-  const [longReconnect, setLongReconnect] = useState(false);
-  useEffect(() => {
-    if (!reconnecting) {
-      setLongReconnect(false);
-      return;
-    }
-    const timer = setTimeout(() => setLongReconnect(true), 1500);
-    return () => clearTimeout(timer);
-  }, [reconnecting]);
-  const down = offline || (reconnecting && longReconnect);
-  const [back, setBack] = useState(false);
-  const wasDown = useRef(false);
-  useEffect(() => {
-    if (down) {
-      wasDown.current = true;
-      setBack(false);
-      return;
-    }
-    if (!wasDown.current) return;
-    wasDown.current = false;
-    setBack(true);
-    const timer = setTimeout(() => setBack(false), 1600);
-    return () => clearTimeout(timer);
-  }, [down]);
-  if (!down && !back) return null;
-  return (
-    <p className="channel__conn ac-iconline" data-back={!down || undefined} role="status">
-      <Icon name={down ? "cloud" : "check"} size={16} />
-      {down ? t("channel.offline") : t("channel.backOnline")}
-    </p>
-  );
-}
-
 const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
 
 /**
- * The live blocks (`data-run-id`) at least partly inside the scroller: measured once when they come
- * (no frame of the line above the composer for a block in plain sight), then by an IntersectionObserver.
+ * The live blocks (`data-run-id`, or another `data-*` attribute's values) at least partly inside the scroller: measured
+ * once when they come (no frame of the line above the composer for a block in plain sight), then by an
+ * IntersectionObserver.
  */
-function useBlocksInView(scroller: { current: HTMLElement | null }, key: string) {
+function useBlocksInView(scroller: { current: HTMLElement | null }, key: string, attr = "data-run-id") {
   const [inView, setInView] = useState<Set<string>>(() => new Set());
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` changes when blocks come or go
   useLayoutEffect(() => {
     const root = scroller.current;
     if (!root) return;
-    const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-run-id]"));
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(`[${attr}]`));
     const box = root.getBoundingClientRect();
     const now = new Set<string>();
     for (const row of rows) {
       const r = row.getBoundingClientRect();
-      if (r.height > 0 && r.bottom > box.top && r.top < box.bottom) now.add(row.dataset.runId ?? "");
+      if (r.height > 0 && r.bottom > box.top && r.top < box.bottom) now.add(row.getAttribute(attr) ?? "");
     }
     setInView((prev) => (sameSet(prev, now) ? prev : now));
     if (typeof IntersectionObserver === "undefined" || rows.length === 0) return;
@@ -4010,7 +4149,7 @@ function useBlocksInView(scroller: { current: HTMLElement | null }, key: string)
         setInView((prev) => {
           const next = new Set(prev);
           for (const e of entries) {
-            const id = (e.target as HTMLElement).dataset.runId ?? "";
+            const id = (e.target as HTMLElement).getAttribute(attr) ?? "";
             if (e.isIntersecting) next.add(id);
             else next.delete(id);
           }
@@ -4107,6 +4246,7 @@ function ActivityBar({
   waiting,
   onSeeWaiting,
   consultBlocks,
+  handoffsInView,
   member,
 }: {
   channelId: string;
@@ -4130,6 +4270,8 @@ function ActivityBar({
   onSeeWaiting: (item: WaitingItem) => void;
   /** Runs whose questions a block near the end shows (`ConsultGroup`): the line doesn't say them again. */
   consultBlocks: ReadonlySet<string>;
+  /** Hand-offs whose line under the reply that handed them is on screen: it says them, with its own Ver. */
+  handoffsInView: ReadonlySet<string>;
   /** The reader is in this conversation (may answer here). */
   member: boolean;
 }) {
@@ -4150,7 +4292,9 @@ function ActivityBar({
     sameList,
   );
   // A reply near the end shows its questions with where each is and its clock: the asker's own work stays here. Work
-  // handed off (ADR 0095 addendum) stays for as long as it is out, wherever its divider is: the bar never toggles.
+  // handed off (ADR 0095 addendum) stays for as long as it is out, wherever its divider is, unless its line under the
+  // reply that handed it is on screen: that line says the same with its own Ver. One whose card waits on the reader
+  // stays, since its Ver goes to that card.
   const consultList = useConsultations(org.id, channelId).data;
   const agentLines = useAgentLines();
   const consults = [
@@ -4159,15 +4303,17 @@ function ActivityBar({
       consultBlocks,
     ),
     ...heard.filter((c) => c.kind === "note"),
-  ].map((c) => ({
-    ...c,
-    ...consultDetails(
-      c,
-      consultList ?? [],
-      (id, run) => askOf(pendingAsks, id, run)?.on ?? null,
-      (id) => lineStep(t, agentLines.get(id)),
-    ),
-  }));
+  ]
+    .map((c) => ({
+      ...c,
+      ...consultDetails(
+        c,
+        consultList ?? [],
+        (id, run) => askOf(pendingAsks, id, run)?.on ?? null,
+        (id) => lineStep(t, agentLines.get(id)),
+      ),
+    }))
+    .filter((c) => !(c.kind === "note" && !c.yours && c.id && handoffsInView.has(c.id)));
   asking.current = consults.length > 0;
   const ids = typingIn({ [channelId]: typing ?? {} }, channelId, now, me.user.id, threadId);
   // At work, its row shows only what it has to show meanwhile (its browser card): the bar says what it does, for how
@@ -4381,6 +4527,7 @@ export const TimelineMessage = memo(function TimelineMessage({
   helping,
   readOnly = false,
   run = "solo",
+  answer = false,
 }: {
   message: MessageType;
   grouped: boolean;
@@ -4406,6 +4553,8 @@ export const TimelineMessage = memo(function TimelineMessage({
   readOnly?: boolean;
   /** Its place in its author's run (`runPosition`): on my own rows, which bubble corners square off. */
   run?: RunPosition;
+  /** The newest message, or one after my latest (`answerIds`): it shows whole however long. */
+  answer?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -4425,8 +4574,10 @@ export const TimelineMessage = memo(function TimelineMessage({
   const dir = useDirectory(org.id);
   const actions = useChannelActions();
   const pushAsk = useContext(PushAskContext);
-  const threadsView = useChannelThreadsView();
-  const threadLine = threadsView?.lines.get(m.id);
+  // Its own thread only: a reply landing in another thread doesn't draw this row again.
+  const threadLine = useChannelThread((view) => view?.lines.get(m.id));
+  const inChannel = useChannelThread((view) => view !== null);
+  const threadKnown = useChannelThread((view) => view?.byId.has(m.id) ?? false);
   const [active, setActive] = useState(false);
   const agent = m.author.type === "agent" ? dir.agentById.get(m.author.id ?? "") : undefined;
   const person = m.author.type === "person" ? dir.memberById.get(m.author.id ?? "") : undefined;
@@ -4478,7 +4629,8 @@ export const TimelineMessage = memo(function TimelineMessage({
   // A long work's end after its AI provider failed: Continuar under it as well.
   const providerCut = m.author.type === "agent" && Boolean(workContinuable(m.meta));
 
-  const channelName = useChannels(org.id).data?.find((c) => c.id === m.channelId)?.name;
+  // From the conversation: a row that read the channels list would draw again at every unread count that moves.
+  const channelName = actions?.channelName;
   // A plain reminder: the agent's own message, with a small "Reminder" label.
   const reminder = isReminderMessage(m.meta);
   const via = m.author.type === "person" ? appVia(m.meta) : null;
@@ -4527,7 +4679,10 @@ export const TimelineMessage = memo(function TimelineMessage({
   // Where it browsed (`meta.browser`) and what it did on its desktop (`meta.desktop`): each card stays
   // after the run, and its steps leave the work list.
   // Step summaries, no picture: activity, so the person's setting hides them like the tool block.
-  const trailsShown = m.author.type === "agent" && showsActivity(org);
+  // A code session's screen line (ADR 0215) is its way to the panel's screen: shown whatever that setting says.
+  const screenPanel = useContext(ScreenPanelContext);
+  const shows = useShowsWork(org);
+  const trailsShown = m.author.type === "agent" && (shows || screenPanel !== null);
   const browserTrail = useMemo(() => (trailsShown ? browserTrailOf(m.meta) : []), [trailsShown, m.meta]);
   const desktopTrail = useMemo(() => (trailsShown ? desktopTrailOf(m.meta) : []), [trailsShown, m.meta]);
   const onCards = useMemo(
@@ -4563,6 +4718,8 @@ export const TimelineMessage = memo(function TimelineMessage({
   const missionSuggestion = m.author.type === "person" ? missionSuggestionOf(meta) : null;
   // A mission proposed from here whose thread lives elsewhere: its link card under the reply.
   const missionLink = m.author.type === "agent" ? missionLinkOf(meta) : null;
+  // A code session it suggested for a change asked here (ADR 0215 §11): the person's card under the reply.
+  const codeSuggestion = m.author.type === "agent" && !m.local ? codeSuggestionOf(meta) : null;
   // Preparing the mission's copy of the project failed (ADR 0044): the card with "Tentar de novo".
   const missionSetup = missionSetupOf(meta);
   const missionCard = Boolean(
@@ -4629,7 +4786,7 @@ export const TimelineMessage = memo(function TimelineMessage({
     readOnly,
     agentName: agent?.name ?? t("channel.unknownAgent"),
   });
-  // A row with a bar has the same actions in a menu that a tap opens on touch (an agent's sticker gets a person's).
+  // A row with a bar has the same actions in a menu a long press opens on touch (an agent's sticker gets a person's).
   const personBar = (m.author.type === "person" || mediaAfter) && !m.local;
   const barred = !readOnly && (feedback || personBar);
   // Watched live here: the steps it took stay in the block, folded ("3 passos"), instead of the summary.
@@ -4827,6 +4984,8 @@ export const TimelineMessage = memo(function TimelineMessage({
           <Parts resetKey={m}>
             <LiveRunStatus run={live} />
             {makingImage(live) && <ImageMaking color={colorOf(agent)} />}
+            {/* Its subagents and workflows at work, in a code session (ADR 0215). */}
+            <LiveSubagents work={live.work ?? []} agentName={name} color={colorOf(agent)} />
             <RunBrowserCard run={live} name={name} />
             <span className="ac-visually-hidden">{t("channel.writing")}</span>
           </Parts>
@@ -4866,7 +5025,7 @@ export const TimelineMessage = memo(function TimelineMessage({
             {routine && report && reportOpen && <RoutineReport text={report} />}
             {bodyShown && (
               <MessageText key="body" style={workOver ? { opacity: 0.6 } : undefined}>
-                <ClippedBody lead={talk?.lead}>
+                <ClippedBody id={m.id} addressed={answer || mentionsMe} lead={talk?.lead}>
                   {(clip, lead) => (
                     <MessageBody
                       className={clip}
@@ -4972,6 +5131,7 @@ export const TimelineMessage = memo(function TimelineMessage({
             {missionReport && <MissionReportExtras report={missionReport} message={m} />}
             {missionStart && <MissionStartLink message={m} />}
             {missionLink && <MissionLinkCard link={missionLink} />}
+            {codeSuggestion && <CodeSuggestionCard message={m} suggestion={codeSuggestion} />}
             {issueWork && (
               <IssueWorkCard work={issueWork} authorId={m.author.type === "person" ? (m.author.id ?? null) : null} />
             )}
@@ -4979,10 +5139,14 @@ export const TimelineMessage = memo(function TimelineMessage({
               <ImageSet refs={artifacts}>
                 <div className="artifact-cards">
                   {artifacts.map((r) => (
-                    <ArtifactCard key={r.id} artifact={r} />
+                    <ArtifactCard key={r.id} artifact={r} alone={artifacts.length === 1} />
                   ))}
                 </div>
               </ImageSet>
+            )}
+            {/* A picture, a video or a PDF with comments (ADR 0208): its line, to its page. */}
+            {artifacts.map((r) =>
+              r.deleted ? null : <ChatCommentsLine key={`talk:${r.id}`} artifactId={r.id} version={r.version} />,
             )}
             {/* Its tools after its words and what it changed: the same place live, kept and saved. */}
             {keptSteps?.length && seenLive ? (
@@ -4999,6 +5163,7 @@ export const TimelineMessage = memo(function TimelineMessage({
               !m.meta?.workUpdate && (
                 <SavedTools
                   runId={replyRun}
+                  messageId={m.id}
                   meta={m.meta}
                   agentName={agent?.name ?? name}
                   color={colorOf(agent)}
@@ -5041,7 +5206,7 @@ export const TimelineMessage = memo(function TimelineMessage({
               <MessageWorkLine
                 message={m}
                 threaded={Boolean(threadLine)}
-                inThread={!threadsView && (m.threadId ?? m.id) === (m.longWork.threadId ?? m.longWork.anchorMessageId)}
+                inThread={!inChannel && (m.threadId ?? m.id) === (m.longWork.threadId ?? m.longWork.anchorMessageId)}
               />
             )}
             {/* Work this run handed over, reporting here: one line each, under the reply that handed it. */}
@@ -5050,13 +5215,24 @@ export const TimelineMessage = memo(function TimelineMessage({
             ))}
             {/* A "Responder" thread went on from here: its line (opens the panel). */}
             {threadLine && <ThreadReplyLine thread={threadLine.thread} count={threadLine.count} />}
+            {/* Its agents answer in its thread (ADR 0214) and no reply is there yet: who is replying. */}
+            {inChannel && !threadLine && !m.threadId && !m.local && !threadKnown && (
+              <ThreadReplyingLine messageId={m.id} channelId={m.channelId} />
+            )}
+            {/* A comment on a picture, a video or a PDF that was resolved (ADR 0208): by whom, when. */}
+            {liveRef && <ResolvedLine message={m} />}
             {feedback && (
               <MessageFeedback
                 messageId={m.id}
                 agentName={agent?.name ?? t("channel.unknownAgent")}
                 active={active}
                 initial={m.reactions}
-                quick={<ReplyButton message={m} />}
+                quick={
+                  <>
+                    <ReplyButton message={m} />
+                    <ResolveButton message={m} />
+                  </>
+                }
                 more={<MessageMoreMenu entries={menu.more} />}
               />
             )}
@@ -5312,7 +5488,8 @@ function ChannelDetails({
     handle: m.handle ?? "",
     email: m.type === "person" ? (dir.memberById.get(m.id)?.email ?? "") : "",
     autoReply: Boolean(m.autoReply),
-    setsReply: m.type === "agent" && setsAutoReply(channel, dir.agentById.get(m.id), me.user.id, org),
+    setsReply:
+      m.type === "agent" && setsAutoReply(channel, dir.agentById.get(m.id), me.user.id, org, dir.rolesOf(me.user.id)),
   }));
   const shown = all.filter((r) => !needle || `${r.name} ${r.handle} ${r.email}`.toLowerCase().includes(needle));
   const agents = shown.filter((r) => r.kind === "agent");
@@ -5574,6 +5751,29 @@ function ChannelDetails({
                   <Field label={t("channelCategories.category")} id="channel-edit-category">
                     <CategorySelect value={channel.categoryId ?? null} onChange={moveTo} canCreate={editable} />
                   </Field>
+                  <SettingRow
+                    title={t("channel.replyInThreads")}
+                    hint={{
+                      name: t("common.about", { label: t("channel.replyInThreads") }),
+                      text: t("channel.replyInThreadsHelp"),
+                    }}
+                    htmlFor="channel-edit-threads"
+                  >
+                    <Switch
+                      id="channel-edit-threads"
+                      checked={Boolean(channel.replyInThreads)}
+                      onCheckedChange={(on) =>
+                        update.mutate(
+                          { replyInThreads: on },
+                          {
+                            onSuccess: () => setSaved(true),
+                            onError: (e) => toast.show(errorText(t, e), "error"),
+                          },
+                        )
+                      }
+                      disabled={!editable || update.isPending}
+                    />
+                  </SettingRow>
                 </DialogBody>
               )}
               {section === "permissions" && (

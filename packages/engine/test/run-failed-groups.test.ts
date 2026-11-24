@@ -21,6 +21,7 @@ const run = (agentId: string) => ({
   channelId: f.general.id,
   threadRootId: id(Number.parseInt(agentId.slice(-3), 10) + 500),
   triggerMessageId: id(Number.parseInt(agentId.slice(-3), 10) + 500),
+  replyInThread: false,
 });
 const signedOut = { code: "not_logged_in", plan: "Claude" };
 const fail = (agentId: string, reason = "brain_unavailable: signed out", cause: object | undefined = signedOut) =>

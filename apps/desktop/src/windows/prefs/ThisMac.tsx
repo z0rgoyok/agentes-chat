@@ -51,8 +51,11 @@ import { MacPermissionCard, useMacGrants } from "../../ui/permissions";
 import { CardTitle, hintFor, PrefCard, PrefRow } from "../../ui/settings";
 import { useToast } from "../../ui/Toast";
 
-/** How often the devices are asked while Preferences is open (the runner's own phone changes ask at once). */
-const POLL_MS = 5000;
+/**
+ * How often the devices are asked while Preferences shows (the runner's own phone changes ask at once): each ask is a
+ * request to each home's server, with the window's session.
+ */
+const POLL_MS = 30_000;
 
 /** The iPhone setup, in the welcome window (it reads the pref once it shows). */
 export function openIphoneSetup(host: Host) {
@@ -95,7 +98,9 @@ function useDevices(homes: readonly Home[]) {
   }, [host, key]);
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    const timer = setInterval(() => {
+      if (!document.hidden) void load();
+    }, POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
   // The runner saw a phone come, go or change state: its server heard it at the same moment.

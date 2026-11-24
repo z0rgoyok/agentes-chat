@@ -1,4 +1,5 @@
 import { type ComputerDevice, useWifiIphones } from "@agenteschat/client";
+import { mayChangeTasks, taskChoices } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { computerKind } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -6,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useOrg } from "@/providers/org";
 import { Button, GroupedFooter, GroupedHeader, GroupedList, GroupedRow, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
-import { Gap } from "../settings/parts";
+import { chooseAction, Gap } from "../settings/parts";
 import { useMeId, useOrgId } from "../shared/hooks";
 import { openPhone } from "./DevicesScreen";
 import { DevicePortrait, StatusLine, useAudienceText } from "./parts";
@@ -29,8 +30,24 @@ export function ComputerSection({ device: d, name }: { device: ComputerDevice; n
   const spill = useDeviceMutation((api, orgId, input: { own?: boolean; others?: boolean }) =>
     api.devices.updateComputer(orgId, d.id, { spill: input }),
   );
+  const tasks = useDeviceMutation((api, orgId, maxTasks: number) =>
+    api.devices.updateComputer(orgId, d.id, { maxTasks }),
+  );
   const brought = d.machineKind === "connected";
   const admin = can(org, "configure");
+  const maxTasks = (tasks.isPending ? tasks.variables : undefined) ?? d.maxTasks;
+  const askTasks = (current: number) =>
+    chooseAction(
+      t("devices.maxTasks"),
+      taskChoices(current).map((n) => ({
+        label: String(n),
+        checked: n === current,
+        onPress: () => {
+          if (n !== current) tasks.mutate(n, { onError: (err) => toast({ title: errorText(t, err), icon: "x" }) });
+        },
+      })),
+      t("common.cancel"),
+    );
   // What is being saved shows at once: a switch moves as it is tapped. Each change stays pending until the computers
   // are read again (`useDeviceMutation`), so the saved value takes over with no flicker.
   const spillOn = (key: "own" | "others") => (spill.isPending ? spill.variables?.[key] : undefined) ?? d.spill[key];
@@ -56,6 +73,22 @@ export function ComputerSection({ device: d, name }: { device: ComputerDevice; n
                   }
                 : {})}
             />
+            {/* Only once the computer says its limit: a guess here would be a setting that changes nothing. */}
+            {maxTasks !== null ? (
+              <GroupedRow
+                label={t("devices.maxTasks")}
+                hint={{ name: t("common.about", { label: t("devices.maxTasks") }), text: t("devices.maxTasksHint") }}
+                value={String(maxTasks)}
+                {...(mayChangeTasks(d, meId ?? "", admin)
+                  ? {
+                      menu: true,
+                      // The computer applies it: offline, nothing would.
+                      disabled: tasks.isPending || d.status.kind === "offline",
+                      onPress: () => askTasks(maxTasks),
+                    }
+                  : {})}
+              />
+            ) : null}
             {/* Spill-over: its owner turns these on; an admin may only turn them off. */}
             {brought && d.mayManage && !d.systemMode
               ? (["own", "others"] as const).map((key) => {

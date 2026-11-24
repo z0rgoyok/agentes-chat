@@ -17,6 +17,8 @@ type PushedLargeTitleProps = {
   action?: HeaderWordAction;
   refreshControl?: ReactElement<RefreshControlProps>;
   onScrollBeginDrag?: () => void;
+  /** The content came to rest after a scroll (let go without a glide, or at the glide's end). */
+  onScrollEnd?: () => void;
   /** Room under the content (a bottom bar over it needs more). */
   bottomInset?: number;
   /** The large title folded away (a search in progress). */
@@ -49,6 +51,7 @@ function SystemLargeTitle({
   action,
   refreshControl,
   onScrollBeginDrag,
+  onScrollEnd,
   bottomInset = 24,
   collapsed = false,
   grouped = false,
@@ -74,6 +77,8 @@ function SystemLargeTitle({
           contentInsetAdjustmentBehavior="automatic"
           style={[styles.screen, { backgroundColor: grouped ? c.grouped : c.bg }]}
           onScrollBeginDrag={onScrollBeginDrag}
+          onScrollEndDrag={onScrollEnd}
+          onMomentumScrollEnd={onScrollEnd}
           refreshControl={refreshControl}
           keyboardDismissMode={keyboard ? "interactive" : "on-drag"}
           automaticallyAdjustKeyboardInsets={keyboard}
@@ -96,6 +101,7 @@ function DrawnLargeTitle({
   action,
   refreshControl,
   onScrollBeginDrag,
+  onScrollEnd,
   bottomInset = 24,
   collapsed = false,
   grouped = false,
@@ -123,8 +129,14 @@ function DrawnLargeTitle({
           ref={scroll.ref}
           onScroll={scroll.onScroll}
           onScrollBeginDrag={onScrollBeginDrag}
-          onScrollEndDrag={scroll.onScrollEndDrag}
-          onMomentumScrollEnd={scroll.onMomentumScrollEnd}
+          onScrollEndDrag={(e) => {
+            scroll.onScrollEndDrag(e);
+            onScrollEnd?.();
+          }}
+          onMomentumScrollEnd={(e) => {
+            scroll.onMomentumScrollEnd(e);
+            onScrollEnd?.();
+          }}
           scrollEventThrottle={16}
           contentInsetAdjustmentBehavior="automatic"
           refreshControl={refreshControl}

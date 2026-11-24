@@ -1,0 +1,123 @@
+/* The one "Quem pensa" picker (AiChoice.tsx): Conta on its row, then Modelo and Esforço side by side. */
+.aa-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.aa-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.aa-pair--one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* An account option: the name, then its plan and owner muted, its room at the end, on one line. */
+.ac-tz__option:has(> .aa-opt) {
+  align-items: center;
+}
+.aa-opt {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  line-height: 20px;
+}
+.aa-opt__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aa-meta {
+  /* The plan and owner give way first; the room keeps its place at the row's end. */
+  display: flex;
+  flex: 1 100 auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 7em;
+  font-weight: 400;
+}
+.aa-meta__plan {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.aa-room {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.aa-room__bar {
+  width: 28px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.aa-room__bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink-muted);
+}
+.aa-room[data-level="almost"] {
+  color: var(--warn);
+}
+.aa-room[data-level="almost"] .aa-room__bar > i {
+  background: var(--warn);
+}
+.aa-room[data-level="limited"] {
+  color: var(--danger);
+}
+.ac-tz__option[aria-disabled="true"]:has(> .aa-opt) > :is(.ac-menu__leading, .aa-opt) {
+  opacity: 0.55;
+}
+
+/* The closed field: the same line; the name gives way first, the plan beside it never shrinks. */
+.ac-select__value:has(> .aa-value) {
+  flex: 1;
+  min-width: 0;
+}
+.aa-value {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.aa-value > .ac-select__lead {
+  flex: none;
+}
+.aa-value .aa-meta {
+  flex: 1 0 auto;
+  min-width: max-content;
+  margin-left: var(--space-1);
+}
+
+@media (max-width: 560px) {
+  /* One line on a phone too: the name and the room; the plan and owner are the tooltip's. */
+  .aa-opt > .aa-meta {
+    min-width: 0;
+  }
+  .aa-meta__plan {
+    display: none;
+  }
+  .aa-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

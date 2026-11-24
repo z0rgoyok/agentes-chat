@@ -20,7 +20,9 @@ import {
   type OutboxJob,
   PermanentJobError,
   POOL_SLOW_MS,
+  poolNeededFor,
   processOutbox,
+  pruneDoneJobs,
   RUN_MEMORY_BYTES,
   releaseJobs,
   renewLease,
@@ -372,6 +374,34 @@ test("createOutboxPump: a slow job doesn't hold back jobs claimed after it, and 
   expect((await rows()).every((r) => r.status === "done")).toBe(true);
 });
 
+test("createOutboxPump: after a restart, runs start as a ramp; quick jobs don't wait for it", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  const pump = createOutboxPump(
+    db,
+    { "agent_run.execute": () => held, "message.posted": async () => {} },
+    { workerId: "w", maxInFlight: 20, quickSlots: 2, startupRamp: { perSecond: 2, forMs: 60_000 } },
+  );
+  for (let i = 0; i < 10; i++) await enqueue(db, job("agent_run.execute"));
+  for (let i = 0; i < 2; i++) await enqueue(db, job("message.posted"));
+  // The first moment lets one run start, and both quick jobs.
+  expect(await pump.pump()).toBe(3);
+  expect(await pump.pump()).toBe(0);
+  await Bun.sleep(1_100);
+  const started = await pump.pump();
+  expect(started).toBeGreaterThanOrEqual(1);
+  expect(started).toBeLessThanOrEqual(3);
+  release();
+  await pump.idle();
+});
+
+test("poolNeededFor: one database connection per 4 job slots", () => {
+  expect(poolNeededFor(48)).toBe(12);
+  expect(poolNeededFor(49)).toBe(13);
+});
+
 test("createOutboxPump: routines hold at most half of the slots, so other work always finds one", async () => {
   let release: () => void = () => {};
   const held = new Promise<void>((r) => {
@@ -561,13 +591,15 @@ test("resizeLanes: a lane that waits doubles within its limit and the total, qui
   });
 });
 
-test("laneLimits: runs as far as half the memory holds them, quick jobs 4 per connection, a cap over both", () => {
+test("laneLimits: runs as far as half the memory holds them, quick jobs 4 per connection, 8 jobs per connection in all", () => {
   const base = { quick: 12, long: 36 };
   const gb = 1024 ** 3;
   const host = { memoryBytes: 4 * gb, rssBytes: 0.5 * gb, dbConnections: 20 };
   const runs = Math.floor((2 * gb - 0.5 * gb) / RUN_MEMORY_BYTES);
-  expect(laneLimits(base, host)).toEqual({ lanes: { quick: 80, long: runs }, total: 80 + runs });
+  expect(laneLimits(base, host)).toEqual({ lanes: { quick: 80, long: runs }, total: 160 });
+  // The ceiling set says more than the connections.
   expect(laneLimits(base, host, 200).total).toBe(200);
+  expect(laneLimits(base, { ...host, memoryBytes: gb / 4, rssBytes: gb / 8 }).total).toBe(80 + 36);
   // A small box never goes below where the slots start.
   expect(laneLimits(base, { memoryBytes: gb / 2, rssBytes: gb / 2, dbConnections: 2 })).toEqual({
     lanes: base,
@@ -843,9 +875,14 @@ test("finished jobs lose their content after 30 days and keep their row and dedu
   for (const kind of ["old", "failed", "recent", "waiting"]) await enqueue(db, job(kind, { dedupeKey: kind }));
   const set = (kind: string, values: Partial<typeof schema.outbox.$inferInsert>) =>
     db.update(schema.outbox).set(values).where(eq(schema.outbox.kind, kind));
-  await set("old", { status: "done", completedAt: at(-31 * day), lastError: "a@example.com bounced" });
+  await set("old", {
+    status: "done",
+    createdAt: at(-31 * day),
+    completedAt: at(-31 * day),
+    lastError: "a@example.com bounced",
+  });
   await set("failed", { status: "failed", createdAt: at(-31 * day), lastError: "a@example.com bounced" });
-  await set("recent", { status: "done", completedAt: at(-29 * day) });
+  await set("recent", { status: "done", createdAt: at(-31 * day), completedAt: at(-29 * day) });
   await set("waiting", { createdAt: at(-31 * day) });
 
   expect(await clearOldOutboxPayloads(db)).toBe(2);
@@ -860,6 +897,86 @@ test("finished jobs lose their content after 30 days and keep their row and dedu
   await enqueue(db, job("old", { dedupeKey: "old" }));
   expect(await rows()).toHaveLength(4);
   expect(await clearOldOutboxPayloads(db)).toBe(0);
+});
+
+const keysKept = async () => (await db.select().from(schema.outboxDedupe)).map((r) => r.dedupeKey).sort();
+
+test("done jobs leave the outbox after two weeks; their keys still refuse a second enqueue until they expire", async () => {
+  const day = 86_400_000;
+  const put = async (kind: string, dedupeKey: string, values: Partial<typeof schema.outbox.$inferInsert>) => {
+    await enqueue(db, job(kind, { dedupeKey }));
+    await db.update(schema.outbox).set(values).where(eq(schema.outbox.dedupeKey, dedupeKey));
+  };
+  const old = { status: "done" as const, createdAt: at(-15 * day), completedAt: at(-15 * day) };
+  await put("email.send", "email:a", old);
+  await put("message.posted", "message.posted:m1", old);
+  await put("right_hand.said", "right_hand.said:o:hello", old);
+  await put("email.send", "email:b", { ...old, status: "failed" });
+  await put("email.send", "email:c", { createdAt: at(-15 * day) });
+  await put("email.send", "email:d", { ...old, createdAt: at(-13 * day) });
+
+  expect(await pruneDoneJobs(db)).toEqual({ jobs: 2, keys: 0 });
+  expect((await rows()).map((r) => r.dedupeKey).sort()).toEqual([
+    "email:b",
+    "email:c",
+    "email:d",
+    "right_hand.said:o:hello",
+  ]);
+  // A message's job names a message that is never posted again: its key isn't kept.
+  expect(await keysKept()).toEqual(["email:a"]);
+
+  await enqueue(db, job("email.send", { dedupeKey: "email:a" }));
+  await enqueue(db, job("message.posted", { dedupeKey: "message.posted:m1" }));
+  expect((await rows()).map((r) => r.dedupeKey)).not.toContain("email:a");
+  expect((await rows()).map((r) => r.dedupeKey)).toContain("message.posted:m1");
+
+  // 90 days after its job was queued, the key goes and the job may come again.
+  expect(await pruneDoneJobs(db, { now: at(76 * day) })).toEqual({ jobs: 1, keys: 1 });
+  expect(await keysKept()).toEqual(["email:d"]);
+  await enqueue(db, job("email.send", { dedupeKey: "email:a" }));
+  expect((await rows()).map((r) => r.dedupeKey)).toContain("email:a");
+});
+
+test("pruning goes on past the rows it leaves, and keeps the jobs of a run that hasn't ended", async () => {
+  const day = 86_400_000;
+  const [agent] = await db
+    .insert(schema.agents)
+    .values({ orgId, name: "Dev", handle: "dev", model: "claude-sonnet-5-5" })
+    .returning();
+  const run = (status: "waiting_input" | "done") => ({
+    orgId,
+    agentId: agent?.id ?? "",
+    channelId: crypto.randomUUID(),
+    threadRootId: crypto.randomUUID(),
+    triggerMessageId: crypto.randomUUID(),
+    trigger: "mention" as const,
+    hop: 1,
+    status,
+  });
+  const [open, ended] = await db
+    .insert(schema.agentRuns)
+    .values([run("waiting_input"), run("done")])
+    .returning();
+  const jobs = [
+    ["agent_run.execute", `agent_run.execute:${open?.id}:secret:s1`],
+    ["right_hand.said", "right_hand.said:o:hello"],
+    ["agent_run.execute", `agent_run.execute:${ended?.id}`],
+    ["team.hello", "team.hello:o"],
+    ["email.send", "email:x"],
+  ] as const;
+  for (const [i, [kind, dedupeKey]] of jobs.entries()) {
+    await enqueue(db, job(kind, { dedupeKey }));
+    await db
+      .update(schema.outbox)
+      .set({ status: "done", createdAt: at(-20 * day + i * 1000) })
+      .where(eq(schema.outbox.dedupeKey, dedupeKey));
+  }
+
+  expect(await pruneDoneJobs(db, { batch: 1 })).toEqual({ jobs: 2, keys: 0 });
+  expect((await rows()).map((r) => r.dedupeKey).sort()).toEqual(
+    [`agent_run.execute:${open?.id}:secret:s1`, "right_hand.said:o:hello", "team.hello:o"].sort(),
+  );
+  expect(await keysKept()).toEqual(["email:x"]);
 });
 
 test("drainOutbox follows chains of jobs", async () => {

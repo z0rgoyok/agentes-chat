@@ -49,6 +49,6 @@ test("a message sent slides up into view in one motion and is there at once, who
   expect(chat).toMatch(
     /if \(glide === 0\) return;\s*if \(!covered\.current\) freeze\.value = true;\s*const timer = setTimeout\(\(\) => \{\s*setGlide\(0\);\s*if \(!covered\.current\) freeze\.value = false;\s*\}, GLIDE_MS\);/,
   );
-  // My own words never fade in; someone else's still rise in.
+  // My own words never fade in; someone else's still rise in, but in a file's sheet, which stays still over the file.
   expect(chat).toContain("entering={fresh && m.author.id !== meId ? ENTER : undefined}");
 });

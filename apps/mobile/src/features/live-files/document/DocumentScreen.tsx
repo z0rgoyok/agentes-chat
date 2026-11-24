@@ -53,6 +53,7 @@ import {
   weights,
 } from "@/ui";
 import { router } from "@/ui/navigation";
+import { RADIUS } from "@/ui/radius";
 import { Face } from "../../shared/Face";
 import { useDirectory } from "../../shared/hooks";
 import { pickOne, showActionSheet } from "../../shared/PickerSheet";
@@ -703,7 +704,7 @@ const BlockView = memo(function BlockView({
     }
     case "blockquote":
       return (
-        <View style={[styles.quote, { borderLeftColor: c.line2 }]}>
+        <View style={[styles.quote, { backgroundColor: c.plate }]}>
           {block.blocks.map((inner, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: a quote's inner blocks have no ids
             <BlockView key={i} block={inner} fileId={fileId} orgId={orgId} number={undefined} />
@@ -872,7 +873,8 @@ function BlockField({
         styles.field,
         { color: c.ink },
         code && [styles.mono, styles.codeIn, { backgroundColor: c.plate, borderRadius: 8 }],
-        block.type === "blockquote" && [styles.quote, { borderLeftColor: c.line2 }],
+        // A quote on a plate, never a bar at its left edge (as it reads in the conversation).
+        block.type === "blockquote" && [styles.quote, { backgroundColor: c.plate }],
       ]}
     >
       {runs.map((run, i) => (
@@ -1106,7 +1108,8 @@ const styles = StyleSheet.create({
   block: { marginVertical: 4, borderRadius: 6 },
   item: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   marker: { minWidth: 18, textAlign: "right" },
-  quote: { borderLeftWidth: 3, paddingLeft: 12 },
+  // A plate, as a quote in the conversation: the plates' room and the scale's item corner.
+  quote: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: RADIUS.md },
   code: { borderRadius: 8 },
   codeIn: { padding: 12 },
   mono: { fontFamily: MONO, fontSize: 13, lineHeight: 19 },

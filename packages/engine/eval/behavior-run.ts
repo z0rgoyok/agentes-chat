@@ -39,6 +39,7 @@ import {
   createFakeJudge,
   createFakeScheduleReader,
   createFindAgentToolSource,
+  createFollowUpToolSource,
   createHandOffToolSource,
   createIssue,
   createIssueToolSource,
@@ -206,6 +207,8 @@ export interface BehaviorCase {
   web?: WebFixture;
   /** The computer's `request_secret` (recorded only, no computer): the secure way to ask for a key. */
   secretRequest?: boolean;
+  /** `follow_up`, to come back to the conversation at a time it sets. */
+  followUps?: boolean;
   expect: Expectations & {
     /** What a good answer does, for the judge. */
     behavior: string;
@@ -282,6 +285,8 @@ export interface CaseRun {
   saidNow?: { runId: string; text: string; afterMs: number | null; replyAfterMs: number | null }[];
   /** Each run of the agent under test: how it ended and its own replies where it answers. */
   byRun?: { runId: string; status: string; replies: string[] }[];
+  /** The rules of the turn-end checks that sent its runs back. */
+  nudged?: string[];
   error?: string;
 }
 
@@ -441,6 +446,7 @@ export async function runCase(c: BehaviorCase, options: RunOptions): Promise<Cas
     const sources: ToolSource[] = [
       createAskUserToolSource({ judge: resourceful, tools: () => tools }),
       ...(c.schedule ? [createAskAgentToolSource({ pubsub }), createScheduleToolSource({ pubsub, context })] : []),
+      ...(c.followUps ? [createFollowUpToolSource({ pubsub })] : []),
       // Colleagues that really run: who they are, and ask_agent and tell_agent to reach them.
       ...(together ? [createFindAgentToolSource()] : []),
       ...(together && !c.schedule ? [createAskAgentToolSource({ pubsub })] : []),
@@ -500,7 +506,8 @@ export async function runCase(c: BehaviorCase, options: RunOptions): Promise<Cas
       ...fakes.map((f) => f.source),
     ];
     const tools: ToolGateway = createToolGateway({ sources });
-    if (together || c.web) {
+    // A `firstTurn` case is judged at its turn's end as in production: right on its first turn, nothing sends it back.
+    if (together || c.web || c.expect.firstTurn) {
       // How agents work together is judged as in production (ADR 0089, ADR 0095): Jev, the cheap model as fallback.
       const llmJudge = createLlmJudge({ gateway, resolveModel: async () => "claude-haiku-5-5" });
       const real =
@@ -1109,6 +1116,10 @@ export async function runCase(c: BehaviorCase, options: RunOptions): Promise<Cas
       agentRuns,
       ...(saidNow.length ? { saidNow } : {}),
       byRun,
+      nudged: steps.flatMap((s) => {
+        const d = (s.data as { continuation?: { outcome?: unknown; rule?: unknown } }).continuation;
+        return s.kind === "context" && d?.outcome === "continue" ? [String(d.rule)] : [];
+      }),
       ...(noteId
         ? {
             reported: here.some(

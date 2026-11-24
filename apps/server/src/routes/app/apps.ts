@@ -29,7 +29,7 @@ const tags = ["AI apps"];
 
 const Access = z.enum(APP_SCOPES).openapi({
   description:
-    "`read`: reads. `write`: also sends tasks. `manage`: also creates and edits agents, routines and skills.",
+    "`read`: reads. `write`: also sends tasks. `manage`: also creates and edits agents, routines and skills and writes wiki pages.",
 });
 const DisplayKind = z.enum(["verified", "https", "loopback", "app_scheme"]);
 const Person = z.object({ id: z.string(), name: z.string() });
@@ -154,7 +154,7 @@ export function appRoutes(deps: AppDeps) {
       security,
       summary: "Allow or deny the app",
       description:
-        "Answers once. `allow` needs `orgId` (a workspace of yours that isn't paused) and `access` (`write` by default: reads and sends tasks; `read`: only reads; `manage`: also creates and edits agents, routines and skills, when the app asked for it). Either way `redirectTo` is where the browser goes, back in the app (with `error=access_denied` on deny); go there once. 403 `not_member`, 409 `workspace_paused` or `request_used`, 410 `request_expired`.",
+        "Answers once. `allow` needs `orgId` (a workspace of yours that isn't paused) and `access` (`write` by default: reads and sends tasks; `read`: only reads; `manage`: also creates and edits agents, routines and skills and writes wiki pages, when the app asked for it). Either way `redirectTo` is where the browser goes, back in the app (with `error=access_denied` on deny); go there once. 403 `not_member`, 409 `workspace_paused` or `request_used`, 410 `request_expired`.",
       request: {
         params: RequestParams,
         body: body(

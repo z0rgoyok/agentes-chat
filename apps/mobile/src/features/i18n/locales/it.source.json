@@ -234,7 +234,7 @@
     "value": "Agents"
   },
   "tabs.activity": {
-    "value": "Activity"
+    "value": "Inbox"
   },
   "tabs.search": {
     "value": "Search"
@@ -392,6 +392,9 @@
   "approval.onlyOwner": {
     "value": "Only {{name}} or an admin can decide."
   },
+  "approval.onlyOwnerRole": {
+    "value": "Only whoever holds {{role}} or an admin can decide."
+  },
   "approval.onlyAdmins": {
     "value": "Only an admin can decide."
   },
@@ -455,8 +458,23 @@
   "chats.recent": {
     "value": "Recent"
   },
+  "chats.view.title": {
+    "value": "Show chats"
+  },
+  "chats.view.sectors": {
+    "value": "Sectors"
+  },
+  "chats.view.dms": {
+    "value": "Direct messages"
+  },
+  "chats.view.channels": {
+    "value": "Channels"
+  },
   "chats.seeAll": {
     "value": "See all chats"
+  },
+  "chats.splitEmpty": {
+    "value": "Your chats open here."
   },
   "chats.wait.verb.approval": {
     "value": "needs your ok"
@@ -653,11 +671,11 @@
   "new.search": {
     "value": "Person or agent"
   },
-  "new.create": {
-    "value": "Create"
-  },
   "new.agentHint": {
     "value": "A name and what it does"
+  },
+  "new.create": {
+    "value": "Create"
   },
   "new.chatShort": {
     "value": "Conversation"
@@ -763,6 +781,13 @@
   },
   "chat.someone": {
     "value": "Someone"
+  },
+  "chat.handedTo": {
+    "value": "Handed to {{name}}",
+    "female": "Handed to {{name}}"
+  },
+  "chat.pairAsked": {
+    "value": "{{from}} asked"
   },
   "chat.messageTo": {
     "value": "Message {{name}}"
@@ -967,12 +992,6 @@
   },
   "chat.unseen.divider": {
     "value": "New"
-  },
-  "chat.connection.down": {
-    "value": "No connection. What you send goes out on its own when it's back."
-  },
-  "chat.connection.back": {
-    "value": "Connected again"
   },
   "chat.longPressHint": {
     "value": "Hold to react and see more actions"
@@ -1300,6 +1319,12 @@
   },
   "plus.file": {
     "value": "File"
+  },
+  "plus.paste": {
+    "value": "Paste"
+  },
+  "plus.pasteGone": {
+    "value": "The copied picture couldn't be read. Copy it again, then tap Paste."
   },
   "plus.media": {
     "value": "GIFs"
@@ -1805,8 +1830,14 @@
   "threads.section.threads": {
     "value": "Threads"
   },
+  "threads.splitEmpty": {
+    "value": "Your threads open here."
+  },
   "agents.title": {
     "value": "Agents"
+  },
+  "agents.splitEmpty": {
+    "value": "Your agents' pages open here."
   },
   "agents.subtitle": {
     "value": {
@@ -2045,7 +2076,7 @@
     "female": "{{name}} asks again before this kind of work."
   },
   "activity.title": {
-    "value": "Activity"
+    "value": "Inbox"
   },
   "activity.chooseModel": {
     "value": "Choose another model"
@@ -2087,6 +2118,24 @@
     "value": {
       "one": "{{names}} proposes an improvement",
       "other": "{{names}} propose improvements"
+    }
+  },
+  "activity.kind.proposal_applied": {
+    "value": {
+      "one": "{{names}} applied an improvement",
+      "other": "{{names}} applied {{count}} improvements"
+    }
+  },
+  "activity.kind.proposal_applied_agents": {
+    "value": {
+      "one": "{{names}} applied an improvement",
+      "other": "{{names}} applied {{count}} improvements"
+    }
+  },
+  "activity.kind.proposal_applied_auto": {
+    "value": {
+      "one": "An improvement was applied automatically",
+      "other": "{{count}} improvements were applied automatically"
     }
   },
   "activity.kind.mention": {
@@ -2508,6 +2557,114 @@
   "mention.added": {
     "value": "{{name}} joined the channel"
   },
+  "settingsSearch.open": {
+    "value": "Search settings"
+  },
+  "settingsSearch.title": {
+    "value": "Search"
+  },
+  "settingsSearch.placeholder": {
+    "value": "Search You and settings"
+  },
+  "settingsSearch.workspace": {
+    "value": "Workspace settings"
+  },
+  "settingsSearch.words.status": {
+    "value": "away, busy, presence, online"
+  },
+  "settingsSearch.words.account": {
+    "value": "name, photo, email, time zone, password, handle"
+  },
+  "settingsSearch.words.deleteAccount": {
+    "value": "delete, remove, close account"
+  },
+  "settingsSearch.words.workspaces": {
+    "value": "switch, servers, accounts"
+  },
+  "settingsSearch.words.notifications": {
+    "value": "alerts, push, badges"
+  },
+  "settingsSearch.words.approvals": {
+    "value": "approve, delegate"
+  },
+  "settingsSearch.words.start": {
+    "value": "open, home, first screen"
+  },
+  "settingsSearch.words.activity": {
+    "value": "tools, what agents did"
+  },
+  "settingsSearch.words.chatLook": {
+    "value": "bubbles, messages, conversation"
+  },
+  "settingsSearch.words.wallpaper": {
+    "value": "background, wallpaper, photo"
+  },
+  "settingsSearch.words.agentStyle": {
+    "value": "technical, simple, tone"
+  },
+  "settingsSearch.words.sounds": {
+    "value": "sound, quiet, silent"
+  },
+  "settingsSearch.words.appearance": {
+    "value": "theme, dark, light, mode"
+  },
+  "settingsSearch.words.appIcon": {
+    "value": "icon"
+  },
+  "settingsSearch.words.language": {
+    "value": "English, Portuguese, Spanish"
+  },
+  "settingsSearch.words.about": {
+    "value": "version, licenses"
+  },
+  "settingsSearch.words.aiAccounts": {
+    "value": "key, API, provider, plan, model"
+  },
+  "settingsSearch.words.general": {
+    "value": "name, logo, time zone, context"
+  },
+  "settingsSearch.words.media": {
+    "value": "GIFs, stickers"
+  },
+  "settingsSearch.words.members": {
+    "value": "people, team"
+  },
+  "settingsSearch.words.invites": {
+    "value": "invite, link"
+  },
+  "settingsSearch.words.roles": {
+    "value": "permissions"
+  },
+  "settingsSearch.words.usage": {
+    "value": "costs, spend, plan, tokens, budget"
+  },
+  "settingsSearch.words.connectors": {
+    "value": "integrations, MCP, services"
+  },
+  "settingsSearch.words.skills": {
+    "value": "abilities"
+  },
+  "settingsSearch.words.vault": {
+    "value": "passwords, keys, logins, secrets"
+  },
+  "settingsSearch.words.access": {
+    "value": "permissions, agents' access"
+  },
+  "settingsSearch.words.apps": {
+    "value": "AI apps, MCP"
+  },
+  "settingsSearch.words.computers": {
+    "value": "devices, machines, computer, phone"
+  },
+  "settingsSearch.words.storage": {
+    "value": "files, S3, storage"
+  },
+  "settingsSearch.words.import": {
+    "value": "export, import, migrate"
+  },
+  "settingsSearch.words.audit": {
+    "value": "log, history"
+  },
   "me.title": {
     "value": "You"
   },
@@ -2631,12 +2788,6 @@
       "other": "{{count}} with you"
     }
   },
-  "me.proposalsWaiting": {
-    "value": {
-      "one": "{{count}} waiting",
-      "other": "{{count}} waiting"
-    }
-  },
   "me.drive": {
     "value": "Drive"
   },
@@ -2684,6 +2835,12 @@
   },
   "me.notificationsKindsHint": {
     "value": "Activity keeps everything. This applies to this workspace, on all your devices."
+  },
+  "me.liveActivity": {
+    "value": "Agents in the Dynamic Island"
+  },
+  "me.liveActivityHint": {
+    "value": "When an agent works on something you asked for, it shows at the top of the screen, in any app, and on the Lock Screen. With the app closed, it needs iOS 17.2 or later."
   },
   "me.version": {
     "value": "agentes.chat · version {{version}}"
@@ -3048,6 +3205,15 @@
   "files.video.cantPlay": {
     "value": "This video can't play on this phone."
   },
+  "files.talk.hint.pdf": {
+    "value": "Touch and hold the page to mark a point"
+  },
+  "files.talk.pdfPage": {
+    "value": "Page {{page}} of {{count}}"
+  },
+  "files.talk.pdfFailed": {
+    "value": "Couldn't show this PDF."
+  },
   "issues.title": {
     "value": "Tasks"
   },
@@ -3173,6 +3339,9 @@
   },
   "issues.linkMessagePlain": {
     "value": "The original message"
+  },
+  "issues.removeFileText": {
+    "value": "The file stays in the Drive."
   },
   "issues.subIssues": {
     "value": "Subtasks"
@@ -3390,12 +3559,6 @@
   "memory.confirmed": {
     "value": "Confirmed by a person"
   },
-  "memory.confirm": {
-    "value": "Confirm"
-  },
-  "memory.confirmedToast": {
-    "value": "Confirmed"
-  },
   "memory.details": {
     "value": "Technical details"
   },
@@ -3410,6 +3573,41 @@
   },
   "memory.forgetText": {
     "value": "{{name}} stops using this in future conversations."
+  },
+  "proposals.title": {
+    "value": "Agent improvements"
+  },
+  "proposals.emptyTitle": {
+    "value": "Nothing changed yet"
+  },
+  "proposals.empty": {
+    "value": "When an agent improves its instructions or a teammate's, the change shows here, with Undo."
+  },
+  "proposals.more": {
+    "value": "Show more"
+  },
+  "proposals.reviewing": {
+    "value": "Reviewing…"
+  },
+  "proposals.appliedBy": {
+    "value": "Applied by {{name}}",
+    "female": "Applied by {{name}}"
+  },
+  "proposals.appliedAuto": {
+    "value": "Applied automatically"
+  },
+  "proposals.leftOutBy": {
+    "value": "Left out by {{name}}",
+    "female": "Left out by {{name}}"
+  },
+  "proposals.leftOut": {
+    "value": "Left out"
+  },
+  "proposals.undoneBy": {
+    "value": "Undone by {{name}}"
+  },
+  "proposals.undoneByYou": {
+    "value": "Undone by you"
   },
   "wiki.map": {
     "value": "Page map"
@@ -3518,6 +3716,33 @@
   },
   "routines.when.lastDay": {
     "value": "Last day"
+  },
+  "coding.pill": {
+    "value": "{{who}}. See the code"
+  },
+  "coding.seeChanges": {
+    "value": "See the changes"
+  },
+  "coding.project": {
+    "value": "Project"
+  },
+  "coding.whereSearch": {
+    "value": "Search or type a name"
+  },
+  "coding.listed": {
+    "value": "The agent's"
+  },
+  "coding.commit": {
+    "value": "Commit {{short}}"
+  },
+  "coding.waiting": {
+    "value": "Waiting on you"
+  },
+  "coding.next.pr": {
+    "value": "Branch sent, no pull request yet"
+  },
+  "coding.next.mergeLocal": {
+    "value": "Ready to merge into {{base}}"
   },
   "taskManager.loadFailed": {
     "value": "Couldn't load the tasks."
@@ -3779,6 +4004,9 @@
   "intentAgents.knows.footOwner": {
     "value": "Only {{name}} or an admin can correct these."
   },
+  "intentAgents.knows.footOwnerRole": {
+    "value": "Only whoever holds {{role}} or an admin can correct these."
+  },
   "intentAgents.knows.footAdmins": {
     "value": "Only an admin can correct these."
   },
@@ -3893,6 +4121,9 @@
   },
   "intentAgents.uses.asksOwner": {
     "value": "Merging and publishing ask for {{name}}'s approval, unless the agent never asks."
+  },
+  "intentAgents.uses.asksOwnerRole": {
+    "value": "Merging and publishing ask for approval from whoever holds {{role}}, unless the agent never asks."
   },
   "intentAgents.uses.asksAdmins": {
     "value": "Merging and publishing ask for an admin's approval, unless the agent never asks."
@@ -4986,12 +5217,6 @@
   "connectors.addMcp": {
     "value": "Add MCP"
   },
-  "connectors.add": {
-    "value": "Add"
-  },
-  "connectors.allServices": {
-    "value": "All services"
-  },
   "connectors.waitLine": {
     "value": {
       "one": "{{count}} tool needs you",
@@ -5010,11 +5235,8 @@
   "connectors.connected": {
     "value": "Connected"
   },
-  "connectors.suggested": {
-    "value": "Suggested for {{org}}"
-  },
-  "connectors.all": {
-    "value": "All"
+  "connectors.seeAll": {
+    "value": "See all"
   },
   "connectors.noResults": {
     "value": "No service by that name. Try its address."
@@ -5024,9 +5246,6 @@
   },
   "connectors.loadFailed": {
     "value": "Couldn't load the connectors."
-  },
-  "connectors.connectedCheck": {
-    "value": "{{name}}, connected"
   },
   "connectors.adminsOnly": {
     "value": "Only an admin of {{org}} connects services. Ask one of them."
@@ -5154,6 +5373,72 @@
       "one": "{{names}} uses it",
       "other": "{{names}} use it"
     }
+  },
+  "connectors.page.missing": {
+    "value": "This service isn't in the catalog anymore."
+  },
+  "connectors.page.connected": {
+    "value": "Connected"
+  },
+  "connectors.page.open": {
+    "value": "Open the connection"
+  },
+  "connectors.page.category": {
+    "value": "Category"
+  },
+  "connectors.page.tools": {
+    "value": "Tools"
+  },
+  "connectors.page.toolsAsk": {
+    "value": {
+      "one": "{{count}} asks for approval",
+      "other": "{{count}} ask for approval"
+    }
+  },
+  "connectors.page.toolsAskNone": {
+    "value": "none asks for approval"
+  },
+  "connectors.page.toolsLater": {
+    "value": "once connected"
+  },
+  "connectors.page.who": {
+    "value": "Who connects"
+  },
+  "connectors.page.whoAdmins": {
+    "value": "{{org}} admins"
+  },
+  "connectors.page.whoRuns": {
+    "value": "Who runs the workspace"
+  },
+  "connectors.page.whoYou": {
+    "value": "You, for yourself"
+  },
+  "connectors.page.signIn": {
+    "value": "Signs in with"
+  },
+  "connectors.page.how.signIn": {
+    "value": "Your account"
+  },
+  "connectors.page.how.key": {
+    "value": "A key"
+  },
+  "connectors.page.how.either": {
+    "value": "Account or key"
+  },
+  "connectors.page.canTitle": {
+    "value": "What agents do with it"
+  },
+  "connectors.page.address": {
+    "value": "Address"
+  },
+  "connectors.page.addressNote": {
+    "value": "Agents use this address with the connected account. Each one gets only what you allow."
+  },
+  "connectors.page.host": {
+    "value": "Connects to"
+  },
+  "connectors.page.more": {
+    "value": "More in {{category}}"
   },
   "connectors.fromAgent": {
     "value": "Connect a service"
@@ -6724,6 +7009,12 @@
   "empty.tasks.viewerTitlePersonal": {
     "value": "Follow your agents' work"
   },
+  "empty.coding.title": {
+    "value": "Code with your agents"
+  },
+  "empty.coding.text": {
+    "value": "Each session is a conversation with an agent working on its own branch, on its computer."
+  },
   "empty.routines.title": {
     "value": "Leave repeated work to your agents"
   },
@@ -7467,6 +7758,153 @@
   },
   "live.doc.notHere": {
     "value": "This part is edited on the computer"
+  },
+  "aiHub.accounts": {
+    "value": "Accounts"
+  },
+  "aiHub.accountsHint": {
+    "value": "Every plan and API key in this workspace, whoever connected it. Tap an account for its limits and who may use it."
+  },
+  "aiHub.order": {
+    "value": "Order of use"
+  },
+  "aiHub.orderSub": {
+    "value": "At a limit, agents go on with the next account."
+  },
+  "aiHub.skipped": {
+    "value": "skipped"
+  },
+  "aiHub.orderGroup": {
+    "value": "{{plan}} · {{computer}}"
+  },
+  "aiHub.noOrder": {
+    "value": "With two accounts of the same AI on one computer, their order shows here."
+  },
+  "aiHub.keyFallback": {
+    "value": "Go on with the API key when every plan is at its limit"
+  },
+  "aiHub.keyFallbackHint": {
+    "value": "After the last account, agents go on with the workspace's API key, which is paid per use. Missions never move to the key."
+  },
+  "aiHub.keyFallbackLocked": {
+    "value": "Only an admin changes this."
+  },
+  "aiHub.limits": {
+    "value": "Limits"
+  },
+  "aiHub.permissions": {
+    "value": "Permissions"
+  },
+  "aiHub.manage": {
+    "value": "Manage"
+  },
+  "aiHub.manageSub": {
+    "value": "Rename, sign in again, remove"
+  },
+  "aiHub.manageHint": {
+    "value": "Who may rename this account, sign in to it again and remove it. Only whoever connected it changes this."
+  },
+  "aiHub.use": {
+    "value": "Use in agents"
+  },
+  "aiHub.useSub": {
+    "value": "Pick it in Who thinks"
+  },
+  "aiHub.useHint": {
+    "value": "Whose agents may think with this account, and whose Lodi. Whoever manages it changes this."
+  },
+  "aiHub.reply": {
+    "value": "Answer everyone"
+  },
+  "aiHub.replySub": {
+    "value": "Who the agents talk to"
+  },
+  "aiHub.replyHint": {
+    "value": "Who an agent on this account answers besides its own owner. Claude's terms ask that a plan is used by the person who pays for it: check them before opening it to everyone."
+  },
+  "aiHub.audience.owner": {
+    "value": "Only you"
+  },
+  "aiHub.audience.ownerOf": {
+    "value": "Only {{name}}"
+  },
+  "aiHub.audience.admins": {
+    "value": "You and admins"
+  },
+  "aiHub.audience.adminsOf": {
+    "value": "{{name}} and admins"
+  },
+  "aiHub.audience.roles": {
+    "value": "Roles…"
+  },
+  "aiHub.audience.people": {
+    "value": "People…"
+  },
+  "aiHub.audience.everyone": {
+    "value": "Everyone"
+  },
+  "aiHub.audience.agentOwner": {
+    "value": "Only the agent's owner"
+  },
+  "aiHub.audience.rolesCount": {
+    "value": {
+      "one": "{{count}} role",
+      "other": "{{count}} roles"
+    }
+  },
+  "aiHub.audience.peopleCount": {
+    "value": {
+      "one": "{{count}} person",
+      "other": "{{count}} people"
+    }
+  },
+  "aiHub.pickRoles": {
+    "value": "Roles"
+  },
+  "aiHub.pickPeople": {
+    "value": "People"
+  },
+  "aiHub.pickNone": {
+    "value": "Pick at least one."
+  },
+  "aiHub.choice.account": {
+    "value": "Account"
+  },
+  "aiHub.choice.model": {
+    "value": "Model"
+  },
+  "aiHub.choice.effort": {
+    "value": "Effort"
+  },
+  "aiHub.choice.yours": {
+    "value": "Yours"
+  },
+  "aiHub.choice.others": {
+    "value": "Team's"
+  },
+  "aiHub.choice.keys": {
+    "value": "API keys"
+  },
+  "aiHub.choice.workspace": {
+    "value": "The workspace's"
+  },
+  "aiHub.choice.workspaceSub": {
+    "value": "The workspace's API key"
+  },
+  "aiHub.choice.key": {
+    "value": "API key"
+  },
+  "aiHub.choice.keyDefault": {
+    "value": "workspace default"
+  },
+  "aiHub.choice.api": {
+    "value": "API"
+  },
+  "aiHub.missionAi": {
+    "value": "AI"
+  },
+  "aiHub.missionLocked": {
+    "value": "Who does the work is chosen before Start. The model can change any time."
   },
   "surface.on": {
     "value": "On"

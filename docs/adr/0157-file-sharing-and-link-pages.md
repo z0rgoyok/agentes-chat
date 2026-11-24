@@ -3,6 +3,7 @@
 - Status: Accepted (built)
 - Date: 2026-11-07
 - Amends: 0151 §8 (Drive files kept their conversation as their only audience), 0111 (who sees a file)
+- Amended by: 0202 (Compartilhar sets a level per row: who sees and who edits, people, roles and agents)
 - Code: engine `artifacts.ts` (`FileSharing`, `personCanRead`, `readsWhereItLives`, `runSharedSql`, `canRead`,
   `listArtifacts`, `setFileSharing`, `withPersonFacts` `canShare`, `fileReach`, the `file` search document),
   `task-access.ts` (`fileSharedSql`, `fileSeenSql`), `search.ts` (`fileSearchScopes`, the file hits' check); adapters

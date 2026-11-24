@@ -21,10 +21,10 @@ import { AvatarStack, HintLine, Icon, type IconName, PixelSpinner, Popover } fro
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar, AgentAvatar } from "@/components/AgentAvatar";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { useOpenBilling } from "@/components/BillingLinkButton";
 import { FanOutStrip } from "@/components/ComputerQueue";
-import { useConnectAi } from "@/components/ConnectAi";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { HelpLink } from "@/components/HelpLink";
 import { ReportProblem, useProblemReports } from "@/components/ReportProblem";
 import { useDirectory } from "@/hooks/useDirectory";

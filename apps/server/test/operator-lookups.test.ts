@@ -56,7 +56,7 @@ let get: (path: string, token?: string | null) => Promise<Response>;
 let lastSeen: Date;
 
 beforeAll(async () => {
-  t = await createTestServer({ env: { OPERATOR_API_TOKEN: TOKEN } });
+  t = await createTestServer({ env: { OPERATOR_API_TOKEN: TOKEN }, unconfirmedSignUps: true });
   const deps = { db: t.db, config: t.config, version: "test", log: createLogger("error") };
   const app = createOperatorApp(deps, TOKEN, READ);
   get = async (path, token = READ) =>

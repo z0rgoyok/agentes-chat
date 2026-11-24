@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { useDeleteArtifact } from "@/components/artifacts/ArtifactActions";
-import { useAuthorName } from "@/components/artifacts/ArtifactViewer";
+import { useAuthorName } from "@/components/artifacts/viewer-context";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { useRightHandLook } from "@/hooks/useRightHandLook";

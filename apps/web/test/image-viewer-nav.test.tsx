@@ -7,8 +7,8 @@ import { keys } from "@agenteschat/client";
 import { formatBytes } from "@agenteschat/client/lib/files";
 import { keepWhole } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { fileSaver } from "@/components/artifacts/ArtifactViewer";
 import { objectUrls } from "@/components/artifacts/FileView";
+import { fileSaver } from "@/components/artifacts/fileSaver";
 import { ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 

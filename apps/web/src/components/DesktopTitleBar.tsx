@@ -3,10 +3,10 @@ import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { AgoraButton } from "./Agora";
-import { openPalette } from "./CommandMenu";
 import { useNavDrawer } from "./NavDrawer";
-import { useSidebarCollapsed } from "./Sidebar";
+import { openPalette } from "./palette";
 import { WorkspaceSky } from "./Sky";
+import { useSidebarCollapsed } from "./sidebar-state";
 
 /**
  * The Mac app's title bar (ADR 0036): room for the
@@ -86,9 +86,4 @@ export function DesktopTitleBar() {
       <AgoraButton below size="sm" className="titlebar__agora" />
     </header>
   );
-}
-
-/** Outside the workspace (sign-in, onboarding): an empty strip on top that drags the window. */
-export function DesktopDragStrip() {
-  return <div className="titlebar-strip" data-tauri-drag-region="deep" aria-hidden="true" />;
 }

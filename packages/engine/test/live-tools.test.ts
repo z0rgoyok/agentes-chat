@@ -151,8 +151,16 @@ describe("the tools and their group", () => {
     const listed = await lazy.tools(ctxOf(run));
     const names = listed.map((t) => t.name).sort();
     // No image model in this workspace (an Anthropic key only): generate_image isn't offered. `image_search` is in the
-    // group too, but the web's tool source offers it.
-    expect(names).toEqual([...LIVE_FILE_TOOLS].filter((n) => n !== "generate_image" && n !== "image_search").sort());
+    // group too, but the web's tool source offers it; so are a picture's, a video's or a PDF's comment tools, which
+    // their own source offers only in such a file's conversation (ADR 0208).
+    const elsewhere = new Set([
+      "generate_image",
+      "image_search",
+      "look_at_comment",
+      "comment_on_file",
+      "resolve_comment",
+    ]);
+    expect(names).toEqual([...LIVE_FILE_TOOLS].filter((n) => !elsewhere.has(n)).sort());
     for (const tool of listed) {
       expect(toolGroupKey(tool)).toBe(LIVE_FILES_GROUP);
       const read = tool.name.startsWith("read_");

@@ -4,6 +4,7 @@
 - Date: 2026-11-17
 - Amends: 0019 (artifacts, versions), 0010 (realtime: a socket of its own for documents), 0157 (who sees a file is
   also who edits a live file)
+- Amended by: 0202 (who sees edits only while nobody limits it; agents get levels of their own)
 - Code: `packages/live` (`@agenteschat/live`: the documents' shape, formulas, number formats, rich text, the sync
   protocol, presence), engine `packages/engine/src/live/*` (`createLiveDocs`, tools, assets, checkpoints), server
   `apps/server/src/realtime/live.ts` (`/api/live`) and `apps/server/src/routes/app/live.ts`, client

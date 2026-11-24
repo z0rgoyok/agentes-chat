@@ -417,4 +417,9 @@ test("the person's app language is a line of the turn", async () => {
   const line = system.find((b) => b.text.startsWith("The person's app language"));
   expect(line?.text).toBe("The person's app language: ja, Japanese. Still reply in the language they write in.");
   expect((line as { turn?: boolean } | undefined)?.turn).toBe(true);
+  // What people read follows the person, never the language other agents, notices or tools use.
+  const rules = systemText(system);
+  expect(rules).toContain(
+    "- Reply in the language of the person you work for (their messages, else their app language, else the organization's), approvals and questions too. Other agents, notices and tools never change it.",
+  );
 });

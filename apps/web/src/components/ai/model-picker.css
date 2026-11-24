@@ -56,16 +56,30 @@
   color: var(--muted);
 }
 
-/* The popover: wider than a menu, never past the window, scrolling inside past its room. */
-.ac-popover.mp {
-  width: min(420px, calc(100vw - 32px));
-  max-width: min(420px, calc(100vw - 32px));
+/* The dialog: the agent's sky at its top, scrolling inside past its room. */
+.ac-dialog.mp {
   padding: 0;
   overflow: hidden auto;
-  border-radius: var(--radius-lg, 16px);
 }
-.mp__loading {
-  height: 220px;
+/* The way out, over the sky: white, whatever the theme. */
+.mp__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  color: #fff;
+}
+.mp__close:hover {
+  background: #ffffff2e;
+  color: #fff;
+}
+/* Still reading: the picker's own shape (its AIs, its account, its models, its effort), so nothing jumps. */
+.mp__loading .ac-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-block: var(--space-3) var(--space-4);
 }
 .mp__body {
   display: flex;
@@ -80,66 +94,55 @@
   margin-inline: var(--space-3);
 }
 
-/* One logo tile per AI: they wrap to a second line, never scroll. The one shown is held down. */
+/* The AIs: the kit's segmented control of their bare marks (many scroll sideways in it), connecting another beside. */
 .mp__tiles {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.mp__tile {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-btn);
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--line2);
-  color: var(--ink2);
-  cursor: pointer;
-  transition:
-    box-shadow 0.15s,
-    background 0.15s;
-}
-.mp__tile:hover {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 35%, transparent);
-}
-.mp__tile[aria-pressed="true"] {
-  background: var(--chosen-bg);
-  box-shadow:
-    var(--chosen-shadow),
-    inset 0 0 0 2px var(--ink);
+.mp__ais {
+  min-width: 0;
 }
 
-/* The AI's name and account on one line, its use as one quiet line under them. */
+/* The AI and its account as one control, its use as one quiet line under it. */
 .mp__head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 6px;
   margin-top: var(--space-3);
 }
-.mp__who {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--space-2);
-}
-.mp__plan,
-.mp__account {
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-.mp__account {
+/* The kit's split at the small size, as the git button: the AI's name, a line, its account (which opens the rest). */
+.mp__who.ac-split {
+  --split-r: var(--control-r-sm);
   max-width: 100%;
-  padding: 0 var(--space-4) 0 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-sm);
-  color: var(--ink2);
-  cursor: pointer;
+  height: var(--control-h-sm);
+}
+.mp__ai {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 12px;
+  color: var(--ink);
+  font-size: var(--control-fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mp__account {
+  min-width: 0;
+  gap: 6px;
+}
+.mp__account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp__account > .ac-icon {
+  flex: none;
+  color: var(--muted);
 }
 .mp__usage {
   color: var(--muted);
@@ -151,6 +154,10 @@
 .mp__search {
   margin-top: var(--space-3);
 }
+/* The kit's field is as wide as its box: here the box's margins come off that width. */
+.mp__body > .mp__search {
+  width: calc(100% - 2 * var(--space-3));
+}
 
 /* The models: the kit's menu rows (`.ac-menu__item`), Automático first, the one it runs checked, a
    refused one dimmed. */
@@ -158,7 +165,13 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: var(--space-2);
+  /* A menu of its own in the dialog: its first row stands the menu's own pad under its top. */
+  margin-top: calc(var(--space-2) - var(--menu-pad, var(--space-1)));
+  padding-top: var(--menu-pad, var(--space-1));
+}
+/* Their names start on the line the AI's name does: the rows' own inset taken from the column's. */
+.mp__body > .mp__models {
+  margin-inline: calc(var(--space-3) - var(--menu-item-px));
 }
 .mp__model[data-refused] .ac-menu__label {
   opacity: 0.55;
@@ -169,6 +182,15 @@
 .mp__model-name {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+/* Why a model the plan has isn't in the list (the computer's app too old, the account's plan): one quiet line, on the
+   models' own left edge (the menu rows' inset). */
+.mp__missing {
+  margin: var(--space-2) 0 0;
+  padding-inline: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .mp__effort {
@@ -192,4 +214,37 @@
   .channel__acts .mp-trigger .mp-label__text {
     display: none;
   }
+}
+/* A code session's status line (ADR 0215): quiet words under the composer, a plate only under the pointer or open. */
+.mp-trigger[data-size="status"],
+.mp-label[data-size="status"] {
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+.mp-trigger[data-size="status"]:hover,
+.mp-trigger[data-size="status"][aria-expanded="true"] {
+  background: var(--plate-soft);
+  box-shadow: none;
+  color: var(--ink2);
+}
+/* One line, never wrapping: its marks centered on it (the 2-line rule above nudges them onto a first line). */
+.mp-trigger[data-size="status"],
+.mp-label[data-size="status"] {
+  align-items: center;
+}
+.mp-trigger[data-size="status"] > *,
+.mp-label[data-size="status"] > * {
+  translate: none;
+}
+.mp-trigger[data-size="status"] .mp-label__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

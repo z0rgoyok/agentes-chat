@@ -2,13 +2,14 @@
 //! which calm its styles on the CPU and tag its error reports) and for the person to copy (Preferências ›
 //! Atualizações, `app_info`). Anonymous facts only: never a host name, a user or a path.
 //!
-//! On Linux the person chooses it (Compatibility mode in Preferences › General, on unless turned off): on, WebKitGTK
-//! draws without the graphics card (`WEBKIT_DISABLE_DMABUF_RENDERER`); off, with it. The choice is read before
-//! anything starts (`choose`), since WebKitGTK reads that variable once. An opening with the graphics card whose page
-//! arrived from its server and never painted turns it back on for the next one, so a black window is never more than
-//! one opening away from a window. Without painting anything, `--compatibility-mode` turns it on too (and reopens an
-//! app already running). A server older than the site's `page_ready` never clears the opening's marker: with the
-//! switch off, every other opening there falls back.
+//! On Linux the person chooses it (Compatibility mode in Preferences › General): on, WebKitGTK draws without the
+//! graphics card (`WEBKIT_DISABLE_DMABUF_RENDERER`); off, with it. Until they choose, it is off on a stack known to
+//! draw well with the graphics card (`good_stack`: Intel's or AMD's cards on their Mesa drivers, from a package) and on
+//! anywhere else. The choice is read before anything starts (`choose`), since WebKitGTK reads that variable once. An
+//! opening with the graphics card whose page arrived from its server and never painted turns it on for the next one,
+//! so a black window is never more than one opening away from a window. Without painting anything,
+//! `--compatibility-mode` turns it on too (and reopens an app already running). A server older than the site's
+//! `page_ready` never clears the opening's marker: with the switch off, every other opening there falls back.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,6 +41,8 @@ pub const GPU_LOADED: &str = "gpu";
 pub enum Why {
     /// Compatibility mode, on or off.
     Chosen,
+    /// Nobody chose: the graphics card on a stack known to draw well with it, without it anywhere else.
+    Default,
     /// The last opening, with the graphics card, never painted.
     Fallback,
     /// The person's own `WEBKIT_DISABLE_DMABUF_RENDERER`.
@@ -51,6 +54,7 @@ impl Why {
     fn as_str(self) -> &'static str {
         match self {
             Why::Chosen => "chosen",
+            Why::Default => "default",
             Why::Fallback => "fallback",
             Why::Variable => "own variable",
         }
@@ -58,6 +62,8 @@ impl Why {
 }
 
 static WHY: OnceLock<Why> = OnceLock::new();
+/// This computer draws well with the graphics card (`good_stack`), read once as the app starts.
+static GOOD_STACK: OnceLock<bool> = OnceLock::new();
 /// The fallback is said once, by the first Preferences that asks (`compat_get`).
 static FELL_BACK_UNSAID: AtomicBool = AtomicBool::new(false);
 
@@ -70,22 +76,42 @@ pub fn fell_back() -> bool {
     why() == Why::Fallback
 }
 
-/// The switch's state from its file's text: only "off" is off. On by default, since WebKitGTK's DMA-BUF renderer leaves
-/// the window blank with NVIDIA's driver, in virtual machines and in many AppImage setups.
-fn compat_on(text: Option<&str>) -> bool {
-    text.map(str::trim) != Some("off")
+/// The switch as its file says it: "on" or "off", or nothing chosen (no file, or anything else in it).
+fn chosen(text: Option<&str>) -> Option<bool> {
+    match text.map(str::trim) {
+        Some("on") => Some(true),
+        Some("off") => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether Compatibility mode is on: as chosen, or, with nothing chosen, unless the stack is a good one.
+fn compat_on(text: Option<&str>, good: bool) -> bool {
+    chosen(text).unwrap_or(!good)
+}
+
+/// Drawing with the graphics card is known to work: every graphics card is Intel's or AMD's on its Mesa driver, and
+/// the app came in a package. WebKitGTK's DMA-BUF renderer leaves the window blank with NVIDIA's driver and in
+/// virtual machines, and an AppImage brings its own copies of libraries that must match the system's Mesa.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn good_stack(drivers: &[String], appimage: bool) -> bool {
+    !appimage && !drivers.is_empty() && drivers.iter().all(|d| matches!(d.as_str(), "i915" | "xe" | "amdgpu"))
 }
 
 /// How this opening draws (true: without the graphics card), and why. `own`: the person's own variable, which always
-/// wins. `last_unpainted`: what the last opening that never painted wrote in its marker (`marker`): only one whose
-/// page arrived on the graphics card counts, never one that was offline, found its server down or quit first.
+/// wins. `chosen`: the switch, when the person set it. `good`: the stack draws well with the graphics card
+/// (`good_stack`). `last_unpainted`: what the last opening that never painted wrote in its marker (`marker`): only one
+/// whose page arrived on the graphics card counts, never one that was offline, found its server down or quit first.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn decide(own: Option<&str>, compat: bool, last_unpainted: Option<&str>) -> (bool, Why) {
-    match own {
-        Some(value) => (value != "0", Why::Variable),
-        None if compat => (true, Why::Chosen),
-        None if last_unpainted.map(str::trim) == Some(GPU_LOADED) => (true, Why::Fallback),
-        None => (false, Why::Chosen),
+fn decide(own: Option<&str>, chosen: Option<bool>, good: bool, last_unpainted: Option<&str>) -> (bool, Why) {
+    let unpainted = last_unpainted.map(str::trim) == Some(GPU_LOADED);
+    match (own, chosen) {
+        (Some(value), _) => (value != "0", Why::Variable),
+        (None, Some(true)) => (true, Why::Chosen),
+        (None, None) if !good => (true, Why::Default),
+        (None, _) if unpainted => (true, Why::Fallback),
+        (None, Some(false)) => (false, Why::Chosen),
+        (None, None) => (false, Why::Default),
     }
 }
 
@@ -132,8 +158,10 @@ pub fn choose() {
         std::env::set_var(ARG_TAKEN_VAR, "1");
     }
     let last = read(crate::cover::PENDING_FILE);
-    let compat = asked || compat_on(read(COMPAT_FILE).as_deref());
-    let (cpu, why) = decide(own.as_deref(), compat, last.as_deref());
+    let good = good_stack(&cards().into_iter().map(|(_, driver)| driver).collect::<Vec<_>>(), std::env::var_os("APPIMAGE").is_some());
+    let _ = GOOD_STACK.set(good);
+    let choice = if asked { Some(true) } else { chosen(read(COMPAT_FILE).as_deref()) };
+    let (cpu, why) = decide(own.as_deref(), choice, good, last.as_deref());
     if why != Why::Variable {
         if cpu {
             std::env::set_var(DMABUF_VAR, "1");
@@ -180,27 +208,30 @@ pub struct Compat {
     own: bool,
 }
 
-/// Preferences › General: Compatibility mode as it will be at the next opening.
+/// Preferences › General: Compatibility mode as it will be at the next opening. Async, as every command that reads a
+/// file: a sync command runs on the main thread.
 #[tauri::command]
-pub fn compat_get(app: AppHandle) -> Compat {
+pub async fn compat_get(app: AppHandle) -> Result<Compat, String> {
     let fell_back = FELL_BACK_UNSAID.swap(false, Ordering::Relaxed);
     if why() == Why::Variable {
         let on = std::env::var(DMABUF_VAR).is_ok_and(|v| v != "0");
-        return Compat { on, fell_back, own: true };
+        return Ok(Compat { on, fell_back, own: true });
     }
-    let text = app
-        .path()
-        .app_config_dir()
-        .ok()
-        .and_then(|d| std::fs::read_to_string(d.join(COMPAT_FILE)).ok());
-    Compat { on: compat_on(text.as_deref()), fell_back, own: false }
+    let dir = app.path().app_config_dir().ok();
+    let text = tauri::async_runtime::spawn_blocking(move || dir.and_then(|d| std::fs::read_to_string(d.join(COMPAT_FILE)).ok()))
+        .await
+        .map_err(|e| e.to_string())?;
+    let good = GOOD_STACK.get().copied().unwrap_or(false);
+    Ok(Compat { on: compat_on(text.as_deref(), good), fell_back, own: false })
 }
 
 /// Preferences › General: Compatibility mode for the next opening (WebKitGTK reads it only when the app starts).
 #[tauri::command]
-pub fn compat_set(app: AppHandle, on: bool) -> Result<(), String> {
+pub async fn compat_set(app: AppHandle, on: bool) -> Result<(), String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    write_compat(&dir, on).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || write_compat(&dir, on).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// The line people copy (Preferences › Updates, the cover's Copy details) on every system: the app's version and
@@ -367,11 +398,12 @@ fn gpu_of(vendor: &str, driver: &str) -> String {
     }
 }
 
-/// The graphics cards the kernel shows (`/sys/class/drm/cardN`, never its connectors `cardN-HDMI-A-1`).
+/// The graphics cards the kernel shows (`/sys/class/drm/cardN`, never its connectors `cardN-HDMI-A-1`), in order, each
+/// as its vendor id and kernel driver.
 #[cfg(target_os = "linux")]
-fn gpus() -> String {
-    let Ok(entries) = std::fs::read_dir("/sys/class/drm") else { return String::new() };
-    let mut cards: Vec<(String, String)> = entries
+fn cards() -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir("/sys/class/drm") else { return Vec::new() };
+    let mut cards: Vec<(String, String, String)> = entries
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -383,12 +415,22 @@ fn gpus() -> String {
                     .ok()
                     .and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
                     .unwrap_or_default();
-                (name, gpu_of(&vendor, &driver))
+                (name, vendor, driver)
             })
         })
         .collect();
     cards.sort();
-    cards.into_iter().map(|(_, gpu)| gpu).filter(|g| !g.is_empty()).collect::<Vec<_>>().join(" + ")
+    cards.into_iter().map(|(_, vendor, driver)| (vendor, driver)).collect()
+}
+
+#[cfg(target_os = "linux")]
+fn gpus() -> String {
+    cards()
+        .into_iter()
+        .map(|(vendor, driver)| gpu_of(&vendor, &driver))
+        .filter(|g| !g.is_empty())
+        .collect::<Vec<_>>()
+        .join(" + ")
 }
 
 #[cfg(test)]
@@ -442,30 +484,55 @@ mod tests {
     #[test]
     fn how_an_opening_draws_and_why() {
         // The person's own variable wins over everything, "0" included.
-        assert_eq!(decide(Some("1"), false, Some("gpu")), (true, Why::Variable));
-        assert_eq!(decide(Some("0"), true, None), (false, Why::Variable));
-        // Compatibility mode on: without the graphics card, as before the switch existed.
-        assert_eq!(decide(None, true, None), (true, Why::Chosen));
-        assert_eq!(decide(None, true, Some("gpu")), (true, Why::Chosen));
-        // Off: with the graphics card...
-        assert_eq!(decide(None, false, None), (false, Why::Chosen));
-        assert_eq!(decide(None, false, Some("cpu")), (false, Why::Chosen));
+        assert_eq!(decide(Some("1"), Some(false), true, Some("gpu")), (true, Why::Variable));
+        assert_eq!(decide(Some("0"), Some(true), false, None), (false, Why::Variable));
+        // Compatibility mode on: without the graphics card, on any stack.
+        assert_eq!(decide(None, Some(true), true, None), (true, Why::Chosen));
+        assert_eq!(decide(None, Some(true), false, Some("gpu")), (true, Why::Chosen));
+        // Off: with the graphics card, on any stack...
+        assert_eq!(decide(None, Some(false), false, None), (false, Why::Chosen));
+        assert_eq!(decide(None, Some(false), true, Some("cpu")), (false, Why::Chosen));
         // ...unless the last opening with it never painted.
-        assert_eq!(decide(None, false, Some("gpu")), (true, Why::Fallback));
+        assert_eq!(decide(None, Some(false), true, Some("gpu")), (true, Why::Fallback));
         // A marker from before the mode was written in it says nothing.
-        assert_eq!(decide(None, false, Some("")), (false, Why::Chosen));
+        assert_eq!(decide(None, Some(false), true, Some("")), (false, Why::Chosen));
         // Nor an opening whose page never arrived from its server (offline, the server down, quit first).
-        assert_eq!(decide(None, false, Some(GPU_LOADING)), (false, Why::Chosen));
+        assert_eq!(decide(None, Some(false), true, Some(GPU_LOADING)), (false, Why::Chosen));
+        // Nothing chosen: the graphics card on a good stack, with the same fallback; without it anywhere else.
+        assert_eq!(decide(None, None, true, None), (false, Why::Default));
+        assert_eq!(decide(None, None, true, Some("gpu")), (true, Why::Fallback));
+        assert_eq!(decide(None, None, false, None), (true, Why::Default));
     }
 
     #[test]
-    fn the_switch_is_on_unless_its_file_says_off() {
-        assert!(compat_on(None));
-        assert!(compat_on(Some("")));
-        assert!(compat_on(Some("on")));
-        assert!(compat_on(Some("\u{0}garbled")));
-        assert!(!compat_on(Some("off")));
-        assert!(!compat_on(Some("off\n")));
+    fn the_switch_as_chosen_and_the_default_by_stack() {
+        for good in [true, false] {
+            assert!(compat_on(Some("on"), good));
+            assert!(compat_on(Some("on\n"), good));
+            assert!(!compat_on(Some("off"), good));
+            assert!(!compat_on(Some("off\n"), good));
+        }
+        // Nothing chosen (no file, an empty or a garbled one): off on a good stack, on anywhere else.
+        for text in [None, Some(""), Some("\u{0}garbled")] {
+            assert!(!compat_on(text, true));
+            assert!(compat_on(text, false));
+        }
+    }
+
+    #[test]
+    fn a_good_stack_is_intel_or_amd_on_mesa_from_a_package() {
+        let drivers = |list: &[&str]| list.iter().map(|d| d.to_string()).collect::<Vec<_>>();
+        assert!(good_stack(&drivers(&["i915"]), false));
+        assert!(good_stack(&drivers(&["xe"]), false));
+        assert!(good_stack(&drivers(&["amdgpu"]), false));
+        assert!(good_stack(&drivers(&["i915", "amdgpu"]), false));
+        // NVIDIA's driver, beside Intel's too; nouveau; virtual machines; no card; an AppImage.
+        assert!(!good_stack(&drivers(&["i915", "nvidia"]), false));
+        assert!(!good_stack(&drivers(&["nouveau"]), false));
+        assert!(!good_stack(&drivers(&["virtio-pci"]), false));
+        assert!(!good_stack(&drivers(&["vmwgfx"]), false));
+        assert!(!good_stack(&drivers(&[]), false));
+        assert!(!good_stack(&drivers(&["i915"]), true));
     }
 
     #[test]

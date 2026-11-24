@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { agentPanelSearch } from "@/lib/open-param";
+import { prefetchThread } from "@/lib/prefetch";
 import { ThreadPage } from "@/pages/ThreadPage";
 
 /**
@@ -15,6 +16,8 @@ export const Route = createFileRoute("/org/$orgId/threads/$threadId")({
     ...(search.reply === true || search.reply === "true" ? { reply: true } : {}),
     ...(typeof search.m === "string" && search.m ? { m: search.m } : {}),
   }),
+  loader: ({ context: { queryClient, api }, params: { orgId, threadId } }) =>
+    prefetchThread(queryClient, api, orgId, threadId),
   component: function Thread() {
     const { reply, m } = Route.useSearch();
     return <ThreadPage threadId={Route.useParams().threadId} reply={reply} focusMessageId={m} />;

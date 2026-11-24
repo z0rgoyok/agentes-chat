@@ -535,6 +535,7 @@ async function actorOfRequest(db: Executor, row: RequestRow, channelOfFile: stri
         channelId: agentRuns.channelId,
         threadRootId: agentRuns.threadRootId,
         triggerMessageId: agentRuns.triggerMessageId,
+        replyInThread: agentRuns.replyInThread,
       })
       .from(agentRuns)
       .where(and(eq(agentRuns.id, row.runId), eq(agentRuns.orgId, row.orgId)));
@@ -748,9 +749,10 @@ export interface AgentImageContext {
   agentId: string;
   runId?: string | null;
   channelId: string;
-  /** The run's thread root and trigger: its reply goes in a thread when they differ (`replyThreadOf`). */
+  /** The run's thread root, trigger and `replyInThread`: where its reply goes (`replyThreadOf`). */
   threadRootId?: string | null;
   triggerMessageId?: string | null;
+  replyInThread?: boolean;
   /** Or the reply's thread itself (null: the channel), which wins over the two above. */
   threadId?: string | null;
   signal?: AbortSignal;
@@ -760,7 +762,11 @@ export interface AgentImageContext {
 function threadOfContext(ctx: AgentImageContext): string | null {
   if (ctx.threadId !== undefined) return ctx.threadId;
   if (ctx.threadRootId && ctx.triggerMessageId)
-    return replyThreadOf({ threadRootId: ctx.threadRootId, triggerMessageId: ctx.triggerMessageId });
+    return replyThreadOf({
+      threadRootId: ctx.threadRootId,
+      triggerMessageId: ctx.triggerMessageId,
+      replyInThread: ctx.replyInThread === true,
+    });
   return ctx.threadRootId ?? null;
 }
 

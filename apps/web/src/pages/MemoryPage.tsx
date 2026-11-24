@@ -1,5 +1,5 @@
 import type { Agent, Memory, MemoryKind } from "@agenteschat/client";
-import { useMemory, useMemoryAction, useProposals } from "@agenteschat/client";
+import { useMemory, useMemoryAction } from "@agenteschat/client";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { daysBetween, relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -160,7 +160,6 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const memory = useMemory(org.id, agent.id);
-  const proposals = useProposals(org.id);
   const action = useMemoryAction(org.id, agent.id);
   const g = agentGrammar(agent.name);
   const [picked, setTab] = useState<MemoryTab | null>(null);
@@ -174,7 +173,6 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
   useLandOn(page, item, Boolean(linked));
   const items = filterMemories(all, tab, q);
   const count = (x: MemoryTab) => all.filter((m) => inMemoryTab(m, x)).length;
-  const pendingProposals = (proposals.data ?? []).filter((p) => p.agentId === agent.id && p.status === "pending");
 
   return (
     <div className="page page--full" ref={page}>
@@ -182,20 +180,7 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
         <Icon name="chevronLeft" />
         {t("memory.back", g)}
       </Link>
-      <PageHeader
-        title={t("memory.title", g)}
-        meta={t(modeKey(org, "memory.subtitle"), g)}
-        actions={
-          pendingProposals.length > 0 && (
-            <Button asChild>
-              <Link to="/org/$orgId/proposals" params={{ orgId: org.id }} search={{ agent: agent.id }}>
-                <Icon name="waiting" />
-                {t("memory.proposals", { count: pendingProposals.length })}
-              </Link>
-            </Button>
-          )
-        }
-      />
+      <PageHeader title={t("memory.title", g)} meta={t(modeKey(org, "memory.subtitle"), g)} />
 
       <div className="tabs-bar">
         <Tabs
@@ -265,16 +250,6 @@ function MemoryView({ agent, item }: { agent: Agent; item?: string }) {
               </span>
               {/* A row of ghosts: their words 16px apart, the last one on the item's padding line. */}
               <div className="ac-acts">
-                {(m.lowTrust || !m.verified) && (
-                  <Button
-                    variant="link"
-                    title={t("memory.confirmTitle")}
-                    disabled={action.isPending}
-                    onClick={() => action.mutate({ type: "confirm", id: m.id })}
-                  >
-                    {t("memory.confirm")}
-                  </Button>
-                )}
                 <Button variant="link" onClick={() => setEditing(m)}>
                   {t("memory.edit")}
                 </Button>

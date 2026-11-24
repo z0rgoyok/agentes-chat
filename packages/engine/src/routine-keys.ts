@@ -1,5 +1,6 @@
 import { and, type Executor, eq, isNull, schema } from "@agenteschat/db";
 import { decidesAgentApprovals, MAX_OWN_ACTIONS } from "./approval-rules";
+import { OWNER_COLUMNS } from "./audience";
 import { UUID } from "./authority";
 import { approvalsLevelOf } from "./tools/run-policy";
 
@@ -42,7 +43,7 @@ export async function routineKeysAllowed(
   if (level === "never") return true;
   if (level === "always" || names.length === 0) return false;
   const [row] = await db
-    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: agents.ownerUserId })
+    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: OWNER_COLUMNS })
     .from(routines)
     .innerJoin(agents, and(eq(agents.id, routines.agentId), eq(agents.orgId, routines.orgId)))
     .where(
@@ -74,7 +75,7 @@ export async function routineKeysLent(
 ): Promise<boolean> {
   if (names.length === 0 || !UUID.test(at.routineId)) return false;
   const [row] = await db
-    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: agents.ownerUserId })
+    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: OWNER_COLUMNS })
     .from(routines)
     .innerJoin(agents, and(eq(agents.id, routines.agentId), eq(agents.orgId, routines.orgId)))
     .where(and(eq(routines.id, at.routineId), eq(routines.orgId, at.orgId), isNull(routines.deletedAt)));
@@ -96,7 +97,7 @@ export async function routineKeysKind(
   names: readonly string[],
 ) {
   const [row] = await db
-    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: agents.ownerUserId })
+    .select({ ownActions: routines.ownActions, creator: routines.createdByUserId, owner: OWNER_COLUMNS })
     .from(routines)
     .innerJoin(agents, and(eq(agents.id, routines.agentId), eq(agents.orgId, routines.orgId)))
     .where(and(eq(routines.id, at.routineId), eq(routines.orgId, at.orgId), isNull(routines.deletedAt)));

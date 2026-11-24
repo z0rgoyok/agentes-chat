@@ -526,16 +526,23 @@ export function awayRun(entries: ActivityEntry[], runs: LiveRun[]): LiveRun | un
 }
 
 /**
- * Who may press "Parar" (the web's `useStopRun`): admins, the agent's owner,
- * or the person whose message started the run. The server checks it again.
+ * Who may press "Parar" (the web's `useStopRun`): admins, the agent's owner (or one who holds the role that answers
+ * for it: `owns`, ADR 0085, addendum of 2026-11-21), or the person whose message started the run. The server checks it
+ * again.
  */
 export function mayStopRun(
   run: Pick<LiveRun, "agentId" | "threadId" | "triggerMessageId">,
-  who: { meId: string | null; manageAgents: boolean; agentOwnerId: string | null | undefined; messages: Message[] },
+  who: {
+    meId: string | null;
+    manageAgents: boolean;
+    agentOwnerId: string | null | undefined;
+    owns?: boolean;
+    messages: Message[];
+  },
 ): boolean {
   if (who.manageAgents) return true;
   if (!who.meId) return false;
-  if (who.agentOwnerId === who.meId) return true;
+  if (who.owns || who.agentOwnerId === who.meId) return true;
   const rootId = run.triggerMessageId ?? run.threadId;
   const root = who.messages.find((m) => m.id === rootId);
   return root?.author.type === "person" && root.author.id === who.meId;

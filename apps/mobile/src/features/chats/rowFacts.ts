@@ -61,6 +61,8 @@ export interface RowFacts {
   orbit: AgentColorName;
   /** The faint line over the name ("Missão · #canal"). */
   place: string | null;
+  /** An agent's role (its Função, "Redator"), on its DM's row: a tag beside its name. */
+  role: string | null;
   line: RowLine;
   /** What the second line says, for screen readers. */
   label: string;
@@ -223,6 +225,7 @@ export function rowFacts(r: ConversationRow, agent: AgentRowState | undefined, c
     face: away ? "rest" : working ? "run" : "idle",
     orbit,
     place,
+    role: agentDm ? dir.agentById.get(r.with.id)?.role?.trim() || null : null,
     line,
     label,
     presence: presenceWord,

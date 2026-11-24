@@ -212,7 +212,7 @@ test("a run at the channel's top level has nothing to move there", async () => {
   expect(run?.threadRootId).toBe(run?.triggerMessageId as string);
 });
 
-test("in a thread without move_here, the result says how to leave it", async () => {
+test("in a thread without move_here, a post to its own channel lands at the channel's top level", async () => {
   f = await setup({
     chatTools: true,
     reply: (req) => {
@@ -225,7 +225,8 @@ test("in a thread without move_here, the result says how to leave it", async () 
   const root = await thread();
   await say("@dev manda no canal", root.id);
   await drainOutbox(f.db, f.handlers);
-  expect((await toolContents()).at(-1)?.content).toContain("`move_here`");
+  expect((await toolContents()).at(-1)?.content).toStartWith("Posted in #general");
+  expect((await agentPosts()).find((m) => m.body === "Oi.")).toMatchObject({ threadId: null });
 });
 
 test("a brain that moves inside its turn: its first words after the move don't bring the row back to the thread", async () => {

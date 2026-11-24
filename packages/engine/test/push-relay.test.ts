@@ -4,6 +4,7 @@ import {
   createMemoryRateLimiter,
   createPhonePushSender,
   type KeyWrapper,
+  type LiveActivityMessage,
   PushError,
   type PushMessage,
   type PushSender,
@@ -18,6 +19,7 @@ import {
   type RelayInstance,
   RelayRateLimitError,
   registerRelayInstance,
+  relayLiveActivities,
   relaySend,
 } from "../src/push-relay";
 import { relayCredentials } from "../src/push-relay-client";
@@ -251,6 +253,99 @@ describe("relay sending", () => {
     expect((error as PushError).retryable).toBe(true);
     const [row] = await db.select().from(pushRelayInstances).where(eq(pushRelayInstances.id, instance.id));
     expect(row?.sent).toBe(0);
+  });
+});
+
+/** A Live Activity's push token (ADR 0210). */
+const activityToken = (n: number) => String(n).padStart(160, "d");
+
+const activity = (n: number, extra: Partial<LiveActivityMessage> = {}): LiveActivityMessage => ({
+  to: activityToken(n),
+  event: "update",
+  contentState: { name: "AgentsActivity", props: '{"v":1,"tone":"working"}' },
+  timestamp: 1_800_000_000,
+  staleDate: 1_800_001_800,
+  priority: 5,
+  apns: { topic: "chat.agentes.app", sandbox: true },
+  ...extra,
+});
+
+describe("relay sending, Live Activities (ADR 0210)", () => {
+  test("forwards only the fields Apple gets, in order, counted with the installation's messages", async () => {
+    const { instance } = await registered();
+    const sender = createFakePushSender({ unregistered: [activityToken(2)] });
+    const deps = { db, sender, rateLimiter: createMemoryRateLimiter() };
+    const start = activity(1, {
+      event: "start",
+      alert: { title: "Iris", body: "Programando" },
+      attributesType: "LiveActivityAttributes",
+      attributes: { url: "agenteschat://island?org=o&channel=c" },
+      inputPushToken: true,
+      priority: 10,
+    });
+    const extra = { ...start, sound: "loud", contentState: { ...start.contentState, x: 1 } } as unknown;
+    const results = await relayLiveActivities(deps, instance, [extra, activity(2)]);
+    expect(results).toEqual([
+      { token: activityToken(1), ok: true, unregistered: false },
+      { token: activityToken(2), ok: false, unregistered: true, error: "DeviceNotRegistered" },
+    ]);
+    expect(sender.liveActivities).toEqual([start]);
+    expect(sender.sent).toEqual([]);
+    const [row] = await db.select().from(pushRelayInstances).where(eq(pushRelayInstances.id, instance.id));
+    expect(row?.sent).toBe(2);
+  });
+
+  test("a malformed one refuses the whole request", async () => {
+    const { instance } = await registered();
+    const sender = createFakePushSender();
+    const deps = { db, sender, rateLimiter: createMemoryRateLimiter() };
+    const bad: unknown[] = [
+      activity(1, { to: "not-a-token" }),
+      activity(1, { to: "0".repeat(63) }),
+      activity(1, { event: "pause" as never }),
+      activity(1, { contentState: { name: "has spaces", props: "{}" } }),
+      activity(1, { contentState: { name: "AgentsActivity", props: { v: 1 } as never } }),
+      activity(1, { contentState: null as never }),
+      activity(1, { timestamp: 1.5 }),
+      activity(1, { staleDate: -1 }),
+      activity(1, { dismissalDate: "soon" as never }),
+      activity(1, { priority: 7 as never }),
+      activity(1, { alert: { title: "x".repeat(PUSH_RELAY_LIMITS.title + 1), body: "" } }),
+      activity(1, { alert: { title: "Iris" } as never }),
+      activity(1, { attributesType: "Live Activity" }),
+      activity(1, { attributes: [1] as never }),
+      activity(1, { attributes: { blob: "x".repeat(PUSH_RELAY_LIMITS.attributesBytes) } }),
+      activity(1, { inputPushToken: 1 as never }),
+      activity(1, { apns: { topic: "not a bundle id" } }),
+      activity(1, { contentState: { name: "AgentsActivity", props: "x".repeat(PUSH_RELAY_LIMITS.activityBytes) } }),
+      "text",
+      null,
+    ];
+    for (const m of bad) {
+      await expect(relayLiveActivities(deps, instance, [activity(0), m])).rejects.toBeInstanceOf(ValidationError);
+    }
+    await expect(relayLiveActivities(deps, instance, [])).rejects.toBeInstanceOf(ValidationError);
+    expect(sender.liveActivities).toHaveLength(0);
+  });
+
+  test("one activity over its hourly share gets rate_limited; a relay with no APNs key answers skipped", async () => {
+    const { instance } = await registered();
+    const sender = createFakePushSender();
+    const rateLimiter = createMemoryRateLimiter();
+    for (let i = 0; i < PUSH_RELAY_LIMITS.perActivityToken.limit; i++) {
+      await rateLimiter.consume(`push-relay:la:${activityToken(7)}`, PUSH_RELAY_LIMITS.perActivityToken);
+    }
+    const results = await relayLiveActivities({ db, sender, rateLimiter }, instance, [activity(6), activity(7)]);
+    expect(results.map((r) => [r.token, r.ok, r.error ?? null])).toEqual([
+      [activityToken(6), true, null],
+      [activityToken(7), false, "rate_limited"],
+    ]);
+
+    const noKey = createPhonePushSender({ android: createFakePushSender(), ios: null });
+    const skipped = await relayLiveActivities({ db, sender: noKey, rateLimiter: createMemoryRateLimiter() }, instance, [
+      activity(8),
+    ]);
+    expect(skipped[0]).toMatchObject({ token: activityToken(8), ok: false, unregistered: false, skipped: true });
   });
 });
 

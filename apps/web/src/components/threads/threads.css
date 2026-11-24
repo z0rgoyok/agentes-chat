@@ -282,9 +282,10 @@ html:not([data-pointer]) .pins-pop__item:has(> .thread-pop__row:focus-visible) {
 }
 /* "DM com Theo · 4 respostas · há 2 min": the place may shorten, the count and time never do. */
 .thread-head__meta {
+  --meta-gap: 6px;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--meta-gap);
   min-width: 0;
   white-space: nowrap;
 }
@@ -297,10 +298,9 @@ html:not([data-pointer]) .pins-pop__item:has(> .thread-pop__row:focus-visible) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* What two agents' conversation is about: its own line over the meta, wrapped whole (the meta never wraps). */
-.thread-head__subject {
-  display: block;
-  overflow-wrap: anywhere;
+/* A "·" inside the place's own words: the line's gap on each side, as between the line's parts. */
+.thread-head__dot {
+  margin-inline: var(--meta-gap);
 }
 /* A phone: the back and the actions keep the top row, and the faces, the title and its line take the row under it,
    whole. Beside the back and three actions the line had 42px at 320 and cut its replies and time. */

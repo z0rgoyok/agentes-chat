@@ -77,6 +77,12 @@ const proposal = (id: string, over: Partial<Proposal> = {}): Proposal => ({
   decider: { type: "admins" },
   createdAt: new Date().toISOString(),
   decidedBy: null,
+  decidedByAgent: null,
+  review: null,
+  reviewed: false,
+  undoable: false,
+  undoneBy: null,
+  undoneAt: null,
   decidedAt: null,
   ...over,
 });
@@ -230,7 +236,9 @@ test("what still waits on the person is a row with the agent's face and a chevro
   expect(waits.querySelector(".tw__chev")).toBeTruthy();
   expect(waits.hasAttribute("aria-expanded")).toBe(false);
   await click(waits);
-  expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/waiting`);
+  // The inbox, on what waits (ADR 0218).
+  expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
+  expect(router.state.location.search).toEqual({ filter: "waiting" });
 });
 
 test("approvals are a row that opens them under it, as the conversation draws them, and closes them again", async () => {
@@ -327,53 +335,75 @@ test("each agent's suggestions under one face, in the order it first shows; the 
   ]);
 });
 
-test("archiving starts unmarked and goes only when marked; Dismiss is on an unmarked one that can be put away", async () => {
-  const s = lodiWeek(
-    card({
-      stats: { done: 12, stuck: 0, waiting: 0, spentNanoUsd: 0, budgetNanoUsd: 0 },
-      worked: [],
-      proposalIds: ["p-retire", "p-model"],
-      rows: [
-        { id: "unanswered:g", kind: "unanswered", channelId: GENERAL_ID, count: 4 },
-        { id: `retire:${ADA_ID}`, kind: "retire", agentId: ADA_ID, proposalId: "p-retire" },
-        { id: `model:${ADA_ID}`, kind: "model", agentId: ADA_ID, proposalId: "p-model", from: "big-1", to: "mid-1" },
-      ],
-      skipped: { "unanswered:g": { byUserId: "u-walter", at: new Date().toISOString() } },
-    }),
-  );
+test("Lodi's own fixes are its review's: never marked or applied here; Reviewing…, then how each ended and Undo", async () => {
+  const week = () =>
+    lodiWeek(
+      card({
+        stats: { done: 12, stuck: 0, waiting: 0, spentNanoUsd: 0, budgetNanoUsd: 0 },
+        worked: [],
+        proposalIds: ["p-retire", "p-model"],
+        rows: [
+          { id: "unanswered:g", kind: "unanswered", channelId: GENERAL_ID, count: 4 },
+          { id: `retire:${ADA_ID}`, kind: "retire", agentId: ADA_ID, proposalId: "p-retire" },
+          { id: `model:${ADA_ID}`, kind: "model", agentId: ADA_ID, proposalId: "p-model", from: "big-1", to: "mid-1" },
+        ],
+        skipped: { "unanswered:g": { byUserId: "u-walter", at: new Date().toISOString() } },
+      }),
+    );
+  /** Each of Ada's rows: its title, then its lines. */
+  const adaRows = (group: HTMLElement) =>
+    [...within(group).getByRole("group", { name: "Ada" }).querySelectorAll(".tw__item")].map((item) =>
+      [...item.querySelectorAll(".tw__title, .tw__line")].map((l) => l.textContent),
+    );
+  const s = week();
   s.proposals.push(proposal("p-retire"), proposal("p-model"));
   await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api: createFakeApi(s) });
   await settle(8);
   const group = screen.getByRole("group", { name: "Semana da equipe" });
-  expect(group.textContent).toContain("Sem trabalho há 4 semanas, sem rotina e sem tarefa aberta.");
-  expect(group.textContent).toContain("Hoje usa o big-1.");
   // The one already put away says so, with nothing left to mark.
   expect(group.textContent).toContain("Dispensada");
-  expect(within(group).queryByRole("checkbox", { name: /perguntas de #general/ })).toBeNull();
-  expect(group.textContent).toContain("2 sugestões");
-  const ada = within(group).getByRole("group", { name: "Ada" });
-  const archive = within(ada).getByRole("checkbox", { name: "Arquivar" });
-  const model = within(ada).getByRole("checkbox", { name: "Pode usar o mid-1" });
-  expect(checked(archive)).toBe(false);
-  expect(checked(model)).toBe(true);
-  // Only the unmarked one that can be put away has "Dismiss"; the button applies the model alone.
-  expect(within(group).getAllByRole("button", { name: "Dispensar" })).toHaveLength(1);
-  expect(within(group).getByRole("button", { name: "Aplicar a sugestão" })).toBeTruthy();
-  await click(within(group).getByRole("button", { name: "Dispensar" }));
-  expect(s.calls.find((c) => c.method === "orgs.actOnTeamWeek")?.args).toEqual([
-    ORG_ID,
-    "m-week",
-    { rowId: `retire:${ADA_ID}`, skip: true },
-  ]);
-  // Nothing marked, no button; each unmarked one can be put away.
-  await click(model);
+  // The fixes are weighed by the review (ADR 0219): no mark, no count of suggestions, nothing to apply or dismiss.
+  expect(within(group).queryByRole("checkbox")).toBeNull();
+  expect(group.textContent).not.toContain("sugest");
   expect(within(group).queryByRole("button", { name: /Aplicar/ })).toBeNull();
-  expect(within(group).getAllByRole("button", { name: "Dispensar" })).toHaveLength(2);
-  expect(within(group).getByRole("button", { name: "Agora não" })).toBeTruthy();
-  // Marked by the reader, archiving is what the button applies, and nothing else.
-  await click(archive);
-  await click(within(group).getByRole("button", { name: "Aplicar a sugestão" }));
-  expect(s.calls.filter((c) => c.method === "proposals.accept").map((c) => c.args[1])).toEqual(["p-retire"]);
+  expect(within(group).queryByRole("button", { name: "Dispensar" })).toBeNull();
+  expect(within(group).queryByRole("button", { name: "Agora não" })).toBeNull();
+  expect(adaRows(group)).toEqual([
+    ["Arquivar", "Avaliando…"],
+    ["Pode usar o mid-1", "Avaliando…"],
+  ]);
+  cleanup();
+
+  // Left out and applied by Lodi's review: each says so and why; only the applied one can be put back.
+  const lodi = { agentId: LODI_ID, name: "Lodi" };
+  const ended = week();
+  ended.proposals.push(
+    proposal("p-retire", {
+      status: "refused",
+      reviewed: true,
+      decidedByAgent: lodi,
+      review: "A Ada ainda responde em #eng.",
+    }),
+    proposal("p-model", {
+      status: "accepted",
+      reviewed: true,
+      decidedByAgent: lodi,
+      review: "Custa menos e dá conta.",
+      undoable: true,
+    }),
+  );
+  await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api: createFakeApi(ended) });
+  await settle(8);
+  const done = screen.getByRole("group", { name: "Semana da equipe" });
+  expect(adaRows(done)).toEqual([
+    ["Arquivar", "Não aplicado pelo Lodi", "A Ada ainda responde em #eng."],
+    ["Pode usar o mid-1", "Aplicado pelo Lodi", "Custa menos e dá conta."],
+  ]);
+  expect(within(done).getAllByRole("button", { name: "Desfazer" })).toHaveLength(1);
+  await click(within(done).getByRole("button", { name: "Desfazer" }));
+  expect(ended.calls.filter((c) => c.method === "proposals.undo").map((c) => c.args[1])).toEqual(["p-model"]);
+  expect(adaRows(screen.getByRole("group", { name: "Semana da equipe" }))[1]?.[1]).toBe("Desfeito por você");
+  expect(ended.calls.some((c) => c.method === "proposals.accept")).toBe(false);
 });
 
 test("a suggestion applied from the card: the ok check, how it ended, and Undo while its receipt allows", async () => {

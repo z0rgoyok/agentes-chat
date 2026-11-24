@@ -1,4 +1,4 @@
-import type { BrowserHandoff, LiveKind, LiveRun } from "@agenteschat/client";
+import type { BrowserHandoff, LiveRun, TalkKind } from "@agenteschat/client";
 import type { ConversationWait } from "@agenteschat/client/lib/computer-queue";
 import { issueTakenOf } from "@agenteschat/client/lib/issues";
 import { messageMediaOf } from "@agenteschat/client/lib/media";
@@ -14,8 +14,10 @@ export type Row =
       newTurn?: boolean;
     })
   | { kind: "marker"; key: string; text: string }
-  /** A live file's conversation (ADR 0199): where the file was made, at its top. */
-  | { kind: "origin"; key: string; artifactId: string; fileKind: LiveKind }
+  /** A file's conversation (ADR 0199, 0208): where the file was made or sent from, at its top. */
+  | { kind: "origin"; key: string; artifactId: string; fileKind: TalkKind }
+  /** A code session's conversation (ADR 0215 §11): where a suggestion opened it from, at its top. */
+  | { kind: "codeOrigin"; key: string; sessionId: string }
   /** A run in line for its computer (`conversationWaits`): no live row of its own, this one for all its messages. */
   | { kind: "wait"; key: string; wait: ConversationWait }
   /** An agent's browser card: its live run in the browser, or (no run row) a take over held here. */

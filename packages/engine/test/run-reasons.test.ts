@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { ProviderError } from "@agenteschat/providers";
+import { SYSTEM_REFUSED } from "../src/brains/types";
 import { routineFailureCode } from "../src/routine-ledger";
 import {
   brainFailureText,
@@ -285,4 +286,23 @@ test("a CLI whose sandbox can't start on its computer: said as that, never as it
   // Another program's words that only name bubblewrap stay that program's.
   const other = "Grok Build exited with code 1: error: bwrap exec failed: No such file or directory";
   expect(cliFailureText({ code: "grok_failed", message: other })).toStartWith("cli_failed: Grok Build: ");
+});
+
+test("Grok Build's own sandbox that can't start (no Landlock or Seatbelt there) reads as its sandbox, at once", () => {
+  for (const said of [
+    "Grok Build exited with code 1: Error: Sandbox initialization failed: Landlock is not available",
+    "Grok Build exited with code 1: Error: Platform not supported: windows",
+  ]) {
+    expect(cliRefusedStart({ code: "grok_failed", message: said })).toBe(true);
+    expect(cliFailureText({ code: "grok_failed", message: said })).toBe("cli_sandbox: Grok Build");
+  }
+});
+
+test("a brain refused for its computer's system reads as that, in the person's words, never as not supported", () => {
+  const refused = { code: SYSTEM_REFUSED, message: "Grok Build doesn't run on this computer's system yet." };
+  expect(brainFailureText(refused, "grok")).toBe("cli_system: Grok Build");
+  expect(runErrorDetail("cli_system: Grok Build")).toEqual({
+    errorCode: "run.cli_system",
+    errorParams: { brain: "Grok Build" },
+  });
 });

@@ -8,22 +8,23 @@ import { usePageTextSize } from "@/chat/look";
 import { useFollowPickedAgent } from "@/components/AppIconPicker";
 import { Arrival } from "@/components/arrival/Arrival";
 import { FeedbackHost } from "@/components/arrival/FeedbackDialog";
-import { ArtifactViewerProvider } from "@/components/artifacts/ArtifactViewer";
+import { ArtifactViewerProvider } from "@/components/artifacts/viewer-context";
 import { CommandMenu } from "@/components/CommandMenu";
-import { ConnectAiProvider } from "@/components/ConnectAi";
-import { ComputerDialogProvider } from "@/components/computer/ComputerDialog";
+import { ConfirmEmailBanner } from "@/components/ConfirmEmail";
+import { ComputerDialogProvider } from "@/components/computer/provider";
+import { ConnectAiProvider } from "@/components/connect-ai-context";
+import { DesktopDragStrip } from "@/components/DesktopDragStrip";
 import { MenuBarActions } from "@/components/DesktopMenus";
-import { DesktopDragStrip, DesktopTitleBar } from "@/components/DesktopTitleBar";
+import { DesktopTitleBar } from "@/components/DesktopTitleBar";
 import { DetailsHost } from "@/components/DetailsHost";
 import { InviteDialogProvider } from "@/components/invite/InviteDialog";
 import { LeaveChannelDialog } from "@/components/LeaveChannelDialog";
-import { RefetchBar } from "@/components/Loading";
 import { OutageNotices } from "@/components/MachineOutages";
 import { NavDrawerProvider, NavScrim, ShellBar } from "@/components/NavDrawer";
 import { NoticeIsland } from "@/components/NoticeIsland";
 import { PushOpens } from "@/components/NotificationOpen";
 import { NotMember } from "@/components/NotMember";
-import { NewAgentProvider } from "@/components/new-agent/NewAgentDialog";
+import { NewAgentProvider } from "@/components/new-agent/new-agent-context";
 import { OrgProvider } from "@/components/org-context";
 import { RemoveMemberProvider } from "@/components/RemoveMember";
 import { Sidebar } from "@/components/Sidebar";
@@ -34,6 +35,8 @@ import { ComputerSetupNotice } from "@/components/WorkspaceComputer";
 import { HeaderSearchProvider } from "@/hooks/useWorkspaceSearch";
 import { useServerLocale } from "@/i18n";
 import { inDesktopApp } from "@/lib/desktop";
+import { preloadDialogs } from "@/lib/lazy-dialog";
+import { prefetchShell } from "@/lib/prefetch";
 import { notePlace } from "@/lib/return-to";
 import { rememberPlace, showWorkspace } from "@/lib/start";
 import { STORAGE_KEYS, storage } from "@/lib/storage";
@@ -55,6 +58,8 @@ export const Route = createFileRoute("/org/$orgId")({
       throw redirect({ to: "/onboarding" });
     return { me, membership };
   },
+  // The shell's lists start with the page's own reads (`prefetchShell`), not after its code loads.
+  loader: ({ context: { queryClient, api }, params: { orgId } }) => prefetchShell(queryClient, api, orgId),
   component: OrgLayout,
   // Opening the workspace takes a moment (the session check): the sky rises meanwhile.
   pendingComponent: BootSplash,
@@ -82,6 +87,9 @@ function OrgLayout() {
   useWorkspaceAccent(membership?.accent);
   // An agent picked as the app icon follows its name and look in its workspace (ADR 0179).
   useFollowPickedAgent(orgId);
+  // The dialogs the shell and its pages open (Connect AI, a new agent, a file, a computer, details) left the first
+  // load: their code comes in the background once this page is up, so opening one doesn't wait for it either.
+  useEffect(() => preloadDialogs(), []);
   useEffect(() => {
     if (!membership) return;
     storage.set(STORAGE_KEYS.lastOrg, membership.id);
@@ -142,7 +150,6 @@ function OrgLayout() {
                     {/* One new agent's dialog for every way in (ADR 0164): the sidebar, the pages and the menus. */}
                     <NewAgentProvider>
                       <div className="shell">
-                        <RefetchBar />
                         <CommandMenu />
                         <LeaveChannelDialog />
                         {!focused && (
@@ -159,6 +166,7 @@ function OrgLayout() {
                           {membership.deletion && <DeletingBanner />}
                           {!focused && !membership.deletion && (
                             <>
+                              <ConfirmEmailBanner />
                               <HoldBanner />
                               <ComputerSetupNotice />
                               <OutageNotices />

@@ -27,7 +27,7 @@ async function resetToken(server: TestServer, email: string) {
 }
 
 test("a password account not confirmed yet: Google links nothing and signs nobody in, on every app; a new password by email ends the one nobody proved, then Google joins", async () => {
-  t = await createTestServer({ env: GOOGLE_ENV });
+  t = await createTestServer({ env: GOOGLE_ENV, unconfirmedSignUps: true });
   const server = t;
   // Whoever made this account may not own the address.
   const maker = browser(server);

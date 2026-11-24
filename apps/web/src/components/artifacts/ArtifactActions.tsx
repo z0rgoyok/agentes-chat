@@ -35,6 +35,8 @@ export function useDeleteArtifact(onDeleted?: (ids: string[]) => void) {
   const [busy, setBusy] = useState(false);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: keys.artifacts(org.id) });
+    // A task lists only its files outside the trash: one moved there (or back) leaves (or returns to) its "Anexos".
+    void qc.invalidateQueries({ queryKey: keys.issues(org.id) });
   };
   const restore = async (ids: string | string[]) => {
     const list = typeof ids === "string" ? [ids] : ids;

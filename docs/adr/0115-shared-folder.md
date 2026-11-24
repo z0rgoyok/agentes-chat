@@ -34,3 +34,12 @@ Replaces the `PATH` part of decision 3. In system mode every agent's user can wr
 - The prompt tells agents the folder is not on their `PATH`: read a tool there first, then run it by its full path. They do so on their own, with no approval.
 
 Single-user mode is unchanged: every agent is the same user there, and its `PATH` was never extended.
+
+## Addendum (2026-11-21): files brought in become the group's
+
+The default ACL covers only what is created in the folder. A file moved in keeps its mode and group, and one copied in (`cp`, `tar`, `unzip`, a renderer that copies its output) takes its source's mode, typically 0644. The other agents then can't write it, and only its owner may `chmod` it, so agents ended up running their own `chmod` loops. The prompt's advice (decision 4) wasn't enough.
+
+- Every minute, in system mode, the runner (`shareAgentFiles` in `shared-folder.ts`) lists as root, with `find -P`, the owners of entries in the folder that the group can't change: not of the group, a folder without the setgid bit (made elsewhere, so without the default ACL), or a file without the group's read and write.
+- Each listed agent then fixes its own entries as itself (`runuser`), at the lowest priority: `chgrp -h` to the group, `g+rwxs` and the default ACL on folders, `g+rwX` on files. Root still never changes anything inside the folder.
+- The `find` walk costs a little CPU each minute. When nothing needs fixing, the runner starts no agent process.
+- Computers that already exist are fixed at the first pass after their runner updates.

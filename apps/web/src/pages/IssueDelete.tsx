@@ -73,18 +73,16 @@ function ConfirmDelete({ issue, onClose, onDeleted }: { issue: Issue; onClose: (
         <Button
           variant="danger"
           loading={action.isPending}
-          onClick={() =>
-            action.mutate(
-              { type: "delete", id: issue.id },
-              {
-                onSuccess: () => {
-                  onClose();
-                  onDeleted();
-                  toast.show(t("issues.delete.done", { number: issue.number }));
-                },
-              },
-            )
-          }
+          onClick={() => {
+            // The task leaves the board at once, so the dialog and its page go now. The call's own promise: this
+            // dialog is gone when the answer comes (a refusal brings the task back, and its toast says why).
+            onClose();
+            onDeleted();
+            void action.mutateAsync({ type: "delete", id: issue.id }).then(
+              () => toast.show(t("issues.delete.done", { number: issue.number })),
+              () => undefined,
+            );
+          }}
         >
           {t("issues.delete.confirm")}
         </Button>

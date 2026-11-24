@@ -4,6 +4,8 @@ import { andList, cutText, possessive } from "./format";
 import type { Judge, JudgeAnswer, JudgeQuestion } from "./judge";
 import { landedAfterSql } from "./message-place";
 import { stripSentinel } from "./reply-policy";
+import { inChannelRun } from "./run-scope";
+import { runState } from "./run-state";
 import { type AgentRun, replyThreadOf } from "./runs";
 import { neutralizeUntrusted } from "./untrusted";
 
@@ -151,7 +153,9 @@ export interface ClosedNote {
   at: string;
 }
 
-const conversation = (run: Pick<AgentRun, "orgId" | "channelId" | "threadRootId" | "triggerMessageId">) => {
+const conversation = (
+  run: Pick<AgentRun, "orgId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
+) => {
   const threadId = replyThreadOf(run);
   return and(
     eq(messages.orgId, run.orgId),
@@ -180,7 +184,14 @@ export async function triageSnapshot(
   db: Executor,
   run: Pick<
     AgentRun,
-    "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "pendingMessageIds" | "issueId"
+    | "orgId"
+    | "agentId"
+    | "channelId"
+    | "threadRootId"
+    | "triggerMessageId"
+    | "replyInThread"
+    | "pendingMessageIds"
+    | "issueId"
   > &
     Partial<Pick<AgentRun, "transcript">>,
   trigger: { createdAt: Date },
@@ -639,14 +650,14 @@ export const triageRecordOf = (
 export async function catchUpBar(db: Executor, orgId: string, now = Date.now()): Promise<number> {
   // ponytail: scans the workspace's done runs of the last 30 days on each check; a closes table if that grows slow.
   const rows = await db
-    .select({ overruled: sql<boolean>`${agentRuns.transcript}->'catchUpTriage' ? 'overruledAt'` })
+    .select({ overruled: sql<boolean>`${runState}->'catchUpTriage' ? 'overruledAt'` })
     .from(agentRuns)
     .where(
       and(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.status, "done"),
         gt(agentRuns.finishedAt, new Date(now - RECENT_CLOSES_MS)),
-        sql`${agentRuns.transcript}->'catchUpTriage'->>'outcome' = 'closed'`,
+        sql`${runState}->'catchUpTriage'->>'outcome' = 'closed'`,
       ),
     )
     .orderBy(desc(agentRuns.finishedAt))
@@ -657,7 +668,7 @@ export async function catchUpBar(db: Executor, orgId: string, now = Date.now()):
 /** Whether a person answered a close of this agent's anyway in this conversation in the last 7 days. */
 export async function overruledHere(
   db: Executor,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
   now = Date.now(),
 ): Promise<boolean> {
   const threadId = replyThreadOf(run);
@@ -673,10 +684,8 @@ export async function overruledHere(
         // Overruled up to `ANSWER_ANYWAY_MS` after its close, and held `OVERRULE_HOLD_MS` from then.
         gt(agentRuns.finishedAt, new Date(now - OVERRULE_HOLD_MS - ANSWER_ANYWAY_MS)),
         // The same conversation: its thread, or the main timeline.
-        threadId
-          ? eq(agentRuns.threadRootId, threadId)
-          : sql`${agentRuns.threadRootId} = ${agentRuns.triggerMessageId}`,
-        sql`(${agentRuns.transcript}->'catchUpTriage'->>'overruledAt')::timestamptz > ${new Date(now - OVERRULE_HOLD_MS).toISOString()}::timestamptz`,
+        threadId ? eq(agentRuns.threadRootId, threadId) : inChannelRun(sql`${agentRuns}`),
+        sql`(${runState}->'catchUpTriage'->>'overruledAt')::timestamptz > ${new Date(now - OVERRULE_HOLD_MS).toISOString()}::timestamptz`,
       ),
     )
     .limit(1);
@@ -689,7 +698,7 @@ export async function overruledHere(
  */
 export async function otherAgentAnswering(
   db: Executor,
-  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
   asks: string[] = [],
 ): Promise<boolean> {
   const threadId = replyThreadOf(run);
@@ -704,9 +713,7 @@ export async function otherAgentAnswering(
         eq(agentRuns.status, "running"),
         eq(agentRuns.background, false),
         or(
-          threadId
-            ? eq(agentRuns.threadRootId, threadId)
-            : sql`${agentRuns.threadRootId} = ${agentRuns.triggerMessageId}`,
+          threadId ? eq(agentRuns.threadRootId, threadId) : inChannelRun(sql`${agentRuns}`),
           asks.length > 0 ? inArray(agentRuns.threadRootId, asks) : undefined,
         ),
       ),

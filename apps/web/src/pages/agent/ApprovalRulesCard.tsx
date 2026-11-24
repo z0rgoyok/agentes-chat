@@ -68,7 +68,6 @@ export function ApprovalRulesCard() {
                     iconOnly
                     icon="close"
                     aria-label={t("agentPage.access.always.remove", { what })}
-                    disabled={remove.isPending}
                     onClick={() =>
                       remove.mutate(rule.id, {
                         onSuccess: () => toast.show(t("agentPage.access.always.removed", { name: agent.name })),

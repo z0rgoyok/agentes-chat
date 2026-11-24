@@ -11,6 +11,7 @@ import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState 
 import type { useTranslation } from "react-i18next";
 import type { useToast } from "@/ui";
 import { router } from "@/ui/navigation";
+import { useChatOpener } from "../../chats/split";
 import { chatHref, consultationHref } from "../../links/logic";
 import { ConversationSearch } from "../../search/ConversationSearch";
 import { hitTarget } from "../../search/logic";
@@ -45,6 +46,7 @@ export function useConversationActions({
   channelId,
   threadId,
   focusId,
+  quietFocus,
   orgId,
   api,
   t,
@@ -64,6 +66,11 @@ export function useConversationActions({
   channelId: string;
   threadId: string | null;
   focusId: string | null;
+  /**
+   * `focusId` is where the conversation was being read on the other display (ADR 0212): gone to at once, at the top of
+   * the view, not lit, and quietly given up when it can't be reached.
+   */
+  quietFocus: boolean;
   orgId: string;
   api: ReturnType<typeof useApi>;
   t: ReturnType<typeof useTranslation>["t"];
@@ -146,6 +153,7 @@ export function useConversationActions({
   // Going to a message (a pin, `?m=`): found among the rows, or the page around it read from the server at any
   // distance; then scrolled to and lit for a moment.
   const [seek, setSeek] = useState<string | null>(focusId);
+  const quietSeek = useRef(quietFocus ? focusId : null);
   const [flashId, setFlashId] = useState<string | null>(null);
   // The target whose page was asked for, and whether it came.
   const [around, setAround] = useState<{ id: string; done: boolean } | null>(null);
@@ -157,12 +165,21 @@ export function useConversationActions({
     if (index >= 0) {
       setSeek(null);
       letGo();
+      if (quietSeek.current === seek) {
+        quietSeek.current = null;
+        void listRef.current?.scrollToIndex({ index, animated: false, ...aimAt(index, 0, "start") });
+        return;
+      }
       void listRef.current?.scrollToIndex({ index, animated: true, ...aimAt(index, 0.4, "start") });
       setFlashId(seek);
       return;
     }
     const missing = (error?: unknown) => {
       setSeek(null);
+      if (quietSeek.current === seek) {
+        quietSeek.current = null;
+        return;
+      }
       // A page that didn't come says so: the message may well be there.
       const gone = error === undefined || (error instanceof ApiError && error.status === 404);
       toast({ title: gone ? t("channel.jumpMissing") : t("common.loadFailed"), icon: "x" });
@@ -323,6 +340,7 @@ export function useConversationActions({
             onSearch={dm && searchPlace ? openSearch : undefined}
           />,
         );
+  const opener = useChatOpener();
   // Holding the pill: "Trocar de conversa". The pick swaps the conversation in place (the route's params; the
   // screen is keyed by them), not a new screen sliding in: the slide made the header's pill jump at its end.
   // The swap waits for the sheet to be gone (it lives in this screen, which the swap remounts): `sheet.close` says when.
@@ -334,6 +352,8 @@ export function useConversationActions({
         channelId={channelId}
         onPick={(id) => {
           if (id === channelId) sheet.close();
+          // Beside the list (ADR 0212) the pick opens in the split's pane, which draws this screen afresh.
+          else if (opener) sheet.close(() => opener.open({ channelId: id, threadId: null }));
           else sheet.close(() => router.setParams({ channelId: id, thread: "", handoff: "", m: "" }));
         }}
       />,

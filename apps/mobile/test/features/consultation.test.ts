@@ -36,20 +36,15 @@ test("'Falar com o Theo' hands '@theo ' to that conversation's composer, once", 
   expect(currentComposerRequest()).toBeNull();
 });
 
-test("the two agents' line is always one line: the subject gives way first, the word and time never", () => {
+test("the agents' talk quoted in a reply: its head on one line, the subject in up to two, the time never cut", () => {
   const group = readFileSync(join(import.meta.dir, "../../src/features/chat/ConsultGroup.tsx"), "utf8");
-  const pair = group.slice(group.indexOf("<AgentFace agentId={askerId}"), group.indexOf("</Pressable>"));
-  expect(pair).not.toContain('ellipsizeMode="clip"');
-  expect(pair).toContain("numberOfLines={1} style={styles.subject}");
-  // Its · goes with it: a subject with no room left leaves no lone dot.
-  expect(pair).toContain("· $" + "{subject}");
-  const row = group.slice(group.indexOf("  row: {"), group.indexOf("},", group.indexOf("  row: {")));
-  expect(row).not.toContain("flexWrap");
-  // The names shrink only once the subject has none left: its share of any shrink dwarfs theirs.
-  expect(group).toContain("subject: { flexShrink: 100000 },");
-  expect(group).toContain('name: { fontWeight: "600", flexShrink: 1 },');
-  expect(group).toContain('word: { fontWeight: "600", flexShrink: 0 },');
-  expect(group).toContain('time: { fontVariant: ["tabular-nums"], flexShrink: 0 },');
+  const quoted = group.slice(group.indexOf("export function ConsultQuote("));
+  // The head: the agent asked and how it went, on one line; the name gives way, the time never.
+  expect(quoted).toContain('name: { fontWeight: "600", flexShrink: 1 },');
+  expect(quoted).toContain("how: { flexShrink: 0 },");
+  expect(quoted).toContain("{`· $" + "{how}`}");
+  // The question's subject in up to two lines under it: what supports a card's title (13 under the names' 15).
+  expect(quoted).toContain('<Text variant="footnote" tone="muted" numberOfLines={2}>');
 });
 
 test("two agents' conversation is a sheet over the one that asked, as the web's dialog", () => {

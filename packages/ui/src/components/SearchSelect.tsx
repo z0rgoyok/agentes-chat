@@ -26,7 +26,7 @@ export interface SearchSelectProps<V extends string = string, O extends SelectOp
   groupLabel?: (group: string) => string;
   /** Whether an option is among what was typed; default: every word in its label, value or group. */
   matches?: (option: O, query: string) => boolean;
-  /** A row before its check; default: its leading mark, label and description, as `Select` draws them. */
+  /** A row; default: its leading mark, label and description, as `Select` draws them. */
   renderOption?: (option: O) => ReactNode;
   /** What the trigger shows; default: the chosen option's face or logo and its label, as `Select`'s, else `placeholder`. */
   renderValue?: (option: O | undefined) => ReactNode;
@@ -67,7 +67,7 @@ function groupsOf<O extends SelectOption>(options: O[]) {
 
 /**
  * One choice from a long list: our trigger, then a glass dropdown with a search over the options, in their groups,
- * the chosen one checked. Combobox semantics, arrows / Home / End / Page keys / Enter / Esc, `aria-activedescendant`.
+ * the chosen one on its plate, its name heavier. Combobox semantics, arrows / Home / End / Page keys / Enter / Esc, `aria-activedescendant`.
  * A disabled option shows, but can't be picked.
  */
 export function SearchSelect<V extends string = string, O extends SelectOption<V> = SelectOption<V>>({
@@ -191,7 +191,7 @@ export function SearchSelect<V extends string = string, O extends SelectOption<V
                 onKeyDown={onKey}
               />
             </div>
-            <div className="ac-tz__list" role="listbox" id={listId} aria-label={labels.list}>
+            <div className="ac-tz__list ac-search__list" role="listbox" id={listId} aria-label={labels.list}>
               {flat.length === 0 && <p className="ac-tz__empty">{labels.noResults}</p>}
               {groups.map(([group, list], g) => {
                 const rows = list.map((o) => {
@@ -212,13 +212,6 @@ export function SearchSelect<V extends string = string, O extends SelectOption<V
                       onClick={() => pick(o)}
                     >
                       {renderOption ? renderOption(o) : defaultRow(o)}
-                      <span className="ac-tz__check" aria-hidden="true">
-                        {o.value === value && (
-                          <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
-                            <path d="m5.5 10.5 3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" />
-                          </svg>
-                        )}
-                      </span>
                     </div>
                   );
                 });

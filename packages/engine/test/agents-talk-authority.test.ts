@@ -13,6 +13,7 @@ import {
   insertMessage,
   type Judge,
   listMessages,
+  moveToBackground,
   pickAddressees,
   postPersonMessage,
   receiptsFor,
@@ -169,9 +170,67 @@ describe("no duplicate requests between agents", () => {
     expect(await consultations()).toEqual([]);
     const steps = await f.db.select().from(schema.agentRunSteps).where(eq(schema.agentRunSteps.kind, "tool_result"));
     const result = String((steps[0]?.data as { content?: string } | undefined)?.content ?? "");
-    expect(result).toMatch(/@infra (is already working on|already answered) this person's request/);
+    expect(result).toMatch(/@infra (is already working on this|already answered this person.s request)/);
     const timeline = await listMessages(f.db, f.owner.id, f.org.id, f.general.id);
     expect(timeline.some((m) => m.meta.consulted)).toBe(false);
+  });
+});
+
+describe("asking an agent that is already on it", () => {
+  test("its work is still running: the asker reads that it is already working on this, with the work's link", async () => {
+    f = await setup({ askAgent: true, reply: () => ({ chunks: ["ok"] }) });
+    const infra = await addInfra();
+    const trigger = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "person", userId: f.owner.id },
+      body: "@infra ajusta a rotina de erros; @dev acompanha",
+    });
+    const runOf = async (agentId: string) => {
+      const [run] = await f.db
+        .insert(schema.agentRuns)
+        .values({
+          orgId: f.org.id,
+          agentId,
+          channelId: f.general.id,
+          threadRootId: trigger.id,
+          triggerMessageId: trigger.id,
+          trigger: "mention",
+          status: "running",
+          hop: 0,
+        })
+        .returning();
+      if (!run) throw new Error("no run");
+      return run;
+    };
+    const busy = await runOf(infra.id);
+    const moved = await moveToBackground({ db: f.db, pubsub: f.pubsub }, busy.id, {
+      how: "agent",
+      title: "Ajustar a rotina",
+      say: "Vou cuidar disso.",
+    });
+    if (!moved) throw new Error("not moved");
+    const dev = await runOf(f.agent.id);
+    const ctx: ToolContext = {
+      db: f.db,
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      runId: dev.id,
+      channelId: f.general.id,
+      threadRootId: trigger.id,
+      triggerMessageId: trigger.id,
+    };
+    if (!f.tools) throw new Error("no tools");
+    const res = await f.tools.invoke(ctx, {
+      toolUseId: "tu_ask",
+      name: "ask_agent",
+      input: { agent: "@infra", question: "Ajusta a rotina de erros." },
+    });
+    if (res.type !== "result") throw new Error(res.type);
+    const out = res.output as { content: string };
+    expect(out.content).toStartWith("@infra is already working on this: ");
+    expect(out.content).toContain(`?m=${moved.anchor.id}`);
+    expect(out.content).not.toContain("already answered");
   });
 });
 

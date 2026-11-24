@@ -411,9 +411,9 @@ export const helpPtBR: Record<HelpSlug, HelpDocument> = {
       },
       {
         id: "proposals",
-        heading: "Mudanças propostas",
+        heading: "Melhorias dos agentes",
         blocks: [
-          "Quando uma lição se repete, o agente pode propor mudar as próprias instruções ou o contexto do workspace. Nada muda sem alguém aceitar, e dá para ajustar o texto antes. A versão anterior fica no histórico. Uma proposta recusada vira lição, para não ser proposta de novo.",
+          "Quando uma lição se repete, o agente pode propor mudar as próprias instruções ou o contexto do workspace. Uma revisão do agente aplica a mudança se ela fizer sentido, escrita como uma regra curta, ou deixa de fora e diz por quê. Toda mudança aparece em Melhorias dos agentes, e dá para desfazer. Uma mudança desfeita vira lição, para o agente não repetir.",
         ],
       },
     ],

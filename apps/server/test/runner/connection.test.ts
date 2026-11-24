@@ -24,6 +24,8 @@ import {
 import { MIN_FREE_BYTES } from "../../runner/desktop-session";
 import { RunnerError } from "../../runner/errors";
 import {
+  BRAIN_PRESSURE_USED,
+  closeIdleUnderPressure,
   LOCKED_TURN_MIN_FREE_BYTES,
   MAX_IN_FLIGHT,
   PERSON_TURN_MIN_FREE_BYTES,
@@ -306,7 +308,7 @@ test("reconnects when the socket closes, and when no ping arrives for two heartb
   const first = sock(sockets, 0);
   first.handlers.onOpen();
   first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 30 });
-  // No ping: the watchdog closes it after 60 ms, then backoff (0.8 s with random 0) dials again.
+  // No ping: the watchdog closes it after 60 ms, then backoff (at once with random 0) dials again.
   await waitFor(() => sockets.length === 2, 4000);
   expect(first.closed).toBe(true);
   expect(lines).toContain("no ping from the server; reconnecting");
@@ -359,12 +361,36 @@ test("a server that says it is stopping is dialed again at a random point within
   const second = sock(sockets, 1);
   second.handlers.onOpen();
   second.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
-  // Any other drop: the usual backoff.
+  // Any other drop: the usual backoff, a random point within the step (the second: that session was brief).
   second.handlers.onClose(1006, "");
   await waitFor(() => lines.includes("disconnected; reconnecting in 1.0 s"));
   connection.stop();
   expect((await done).reason).toBe("stopped");
 });
+
+test("a session dropped soon after its welcome doesn't start the waits over; a retry-after in the close is waited out", async () => {
+  const { sockets, connection, lines } = setup({ random: () => 0.5 });
+  const done = connection.run();
+  await waitFor(() => sockets.length === 1);
+  // Welcomed, then dropped at once (an overloaded server): the waits keep growing, 0.5 s, then 1 s.
+  const first = sock(sockets, 0);
+  first.handlers.onOpen();
+  first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+  first.handlers.onClose(1006, "");
+  await waitFor(() => lines.includes("disconnected; reconnecting in 0.5 s"));
+  await waitFor(() => sockets.length === 2, 2000);
+  const second = sock(sockets, 1);
+  second.handlers.onOpen();
+  second.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+  second.handlers.onClose(1006, "");
+  await waitFor(() => lines.includes("disconnected; reconnecting in 1.0 s"));
+  await waitFor(() => sockets.length === 3, 3000);
+  // The server asks for 5 s: at least that, spread over as long again (random 0.5 → 7.5 s).
+  sock(sockets, 2).handlers.onClose(1011, "try again; retry-after=5");
+  await waitFor(() => lines.includes("disconnected; reconnecting in 7.5 s"));
+  connection.stop();
+  expect((await done).reason).toBe("stopped");
+}, 10_000);
 
 test("reconnect(): drops the welcomed socket and dials again without backoff; while backing off, dials now", async () => {
   const { sockets, connection, lines } = setup({ random: () => 0.99 });
@@ -931,4 +957,104 @@ test("personal computers never read or emit egress, including direct out-of-band
   ]);
   connection.stop();
   await done;
+});
+
+test("a warm start runs only with room for its CLI, or on a session already open, and never closes anything", async () => {
+  const ws = tempDir();
+  dirs.push(ws);
+  const sent: { type: string; id: string; ok: boolean; data?: unknown }[] = [];
+  const ran: string[] = [];
+  let free: number | null = MIN_FREE_BYTES - 1;
+  let reclaimed = 0;
+  const open = new Set<string>();
+  const runner = new RequestRunner(
+    {
+      workspaceReal: ws,
+      exec: true,
+      token: "agm_x",
+      reclaimBrains: async () => {
+        reclaimed++;
+        return true;
+      },
+      warmBrain: async (key) => open.has(key),
+    },
+    (f) => sent.push(f as unknown as (typeof sent)[number]),
+    () => {},
+    async (_ctx, req) => {
+      ran.push(String((req as { session?: { id?: string } }).session?.id));
+      return { open: true, started: true };
+    },
+    { memAvailable: () => free, now: () => 1_000_000 },
+  );
+  const warm = (id: string, session: string) =>
+    runner.start(id, {
+      op: "brain.warm",
+      kind: "claude_code",
+      session: { id: session, resume: false },
+      cwd: "",
+      agent: { id: "a1", handle: "dev" },
+    } as MachineRequest);
+  await warm("w1", "s1");
+  expect(sent.at(-1)).toEqual({ type: "result", id: "w1", ok: true, data: { open: false, started: false } });
+  open.add("a1:s2");
+  await warm("w2", "s2");
+  free = MIN_FREE_BYTES + TURN_BYTES;
+  await warm("w3", "s3");
+  expect(ran).toEqual(["s2", "s3"]);
+  expect(reclaimed).toBe(0);
+  runner.close();
+});
+
+test("while memory is short, one idle CLI closes per look; with room, none", async () => {
+  let free: number | null = 0.2e9;
+  let closes = 0;
+  const timer = closeIdleUnderPressure(
+    async () => {
+      closes++;
+      return true;
+    },
+    { memAvailable: () => free, totalBytes: 1e9, everyMs: 5 },
+  );
+  try {
+    await waitFor(() => closes >= 2, 2000);
+    free = (1 - BRAIN_PRESSURE_USED) * 1e9;
+    const seen = closes;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(closes).toBe(seen);
+    free = null;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(closes).toBe(seen);
+  } finally {
+    clearInterval(timer);
+  }
+});
+
+test("a warm start that started nothing gives its room back to the next turn", async () => {
+  const ws = tempDir();
+  dirs.push(ws);
+  const sent: { type: string; id: string; ok: boolean; data?: unknown }[] = [];
+  const ran: string[] = [];
+  // Room for one more CLI, not two.
+  const runner = new RequestRunner(
+    { workspaceReal: ws, exec: true, token: "agm_x", warmBrain: async () => false },
+    (f) => sent.push(f as unknown as (typeof sent)[number]),
+    () => {},
+    async (_ctx, req) => {
+      ran.push(String((req as { session?: { id?: string } }).session?.id));
+      return { open: false, started: false };
+    },
+    { memAvailable: () => MIN_FREE_BYTES + TURN_BYTES - 1, now: () => 1_000_000 },
+  );
+  const warm = (id: string, session: string) =>
+    runner.start(id, {
+      op: "brain.warm",
+      kind: "claude_code",
+      session: { id: session, resume: false },
+      cwd: "",
+      agent: { id: "a1", handle: "dev" },
+    } as MachineRequest);
+  await warm("w1", "s1");
+  await warm("w2", "s2");
+  expect(ran).toEqual(["s1", "s2"]);
+  runner.close();
 });

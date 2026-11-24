@@ -1,6 +1,7 @@
 import { and, type Database, type Executor, eq, gt, ne, schema, sql } from "@agenteschat/db";
 import { serverText } from "@agenteschat/i18n";
 import { en } from "@agenteschat/i18n/en";
+import { ownsAgentSql } from "./audience";
 import { personAgentDmKey } from "./dms";
 import type { JobDeps } from "./jobs";
 import { enqueue } from "./outbox";
@@ -115,8 +116,9 @@ export async function newcomerBlock(db: Database, ctx: LodiPromptContext): Promi
         ne(organizationMembers.role, "owner"),
         gt(organizationMembers.createdAt, sql`now() - make_interval(days => ${NEWCOMER_DAYS})`),
         sql`coalesce(${organizationSettings.welcomePeople}, true)`,
+        // Their own: theirs by name or by a role they hold (ADR 0085, addendum of 2026-11-21).
         sql`not exists (select 1 from ${agents}
-          where ${agents.orgId} = ${ctx.orgId} and ${agents.ownerUserId} = ${ctx.personId})`,
+          where ${agents.orgId} = ${ctx.orgId} and ${ownsAgentSql("agents", sql`${ctx.personId}::text`)})`,
       ),
     );
   if (!person) return "";

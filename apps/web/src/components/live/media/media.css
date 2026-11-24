@@ -1,0 +1,226 @@
+/*
+ * A picture's, a video's or a PDF's comments in the viewer (ADR 0208): the conversation as the viewer's right column,
+ * the video's and the PDF's stages (the picture keeps the viewer's own zoom), the bar over them, the video's marks.
+ */
+
+/*
+ * The comments beside the file: the viewer's grid gets a column of their own, the card a live file's conversation is
+ * (live.css `.thread-panel.lf-talk`: its ring, its corners, the cut one at its foot), as wide as the person left that
+ * conversation (`--lf-talk-w`, set by its handle in the 12 between).
+ */
+.artifact-viewer.artifact-viewer--talk {
+  --viewer-talk-w: var(--lf-talk-w, clamp(340px, 30vw, 440px));
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) var(--viewer-talk-w);
+  gap: var(--space-3);
+}
+.viewer-talk {
+  container: thread-dock / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-section) var(--radius-section) var(--radius-section) 4px;
+  box-shadow: 0 0 0 1px var(--line);
+  --bg: var(--pane);
+  --surface: var(--pane);
+  background: var(--pane);
+}
+[data-theme="light"] .viewer-talk {
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 3px rgba(9, 20, 34, 0.05);
+}
+.viewer-talk > .thread-panel__chat {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+/* The handle over the 12 between the file and the comments; under a finger, wider, its bar still in the middle. */
+.lf-talk-grip.lf-talk-grip--viewer {
+  top: 0;
+  bottom: 0;
+  right: var(--viewer-talk-w);
+}
+@media (hover: none) {
+  .lf-talk-grip.lf-talk-grip--viewer {
+    right: calc(var(--viewer-talk-w) - 6px);
+  }
+}
+/* Narrow, the comments take the viewer: "Comentários" goes back to the file. */
+@media (max-width: 760px) {
+  .artifact-viewer.artifact-viewer--talk {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .artifact-viewer--talk > .artifact-viewer__main,
+  .lf-talk-grip.lf-talk-grip--viewer {
+    display: none;
+  }
+}
+
+/* A video's or a PDF's stage, the size the viewer gives a picture's. */
+.mf-viewstage {
+  position: relative;
+  container-type: inline-size;
+  min-height: 240px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.mf-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--sunken);
+  touch-action: none;
+  user-select: none;
+}
+.mf-stage[data-tool="comment"] {
+  cursor: crosshair;
+}
+
+.mf-box {
+  position: absolute;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--e2);
+}
+
+/* The video: its box fits the stage; the comments' surface lies over the picture only while they are open. */
+.mf-box--video {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+.mf-box--video > .ac-video {
+  position: absolute;
+  inset: 0;
+}
+.mf-box--video .ac-video__media {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mf-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.mf-overlay[data-active] {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.mf-overlay .mf-pins {
+  overflow: hidden;
+}
+
+/* A comment's mark over the video's timeline: its face and number, standing where it points. */
+.mf-mark {
+  position: absolute;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 8px 8px 8px 3px;
+  background: var(--raised);
+  box-shadow:
+    var(--e2),
+    0 0 0 1px var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+/* Its corners follow the face's own (the face's radius plus the 2px around it); the face's corner at the tail is sharp. */
+.mf-mark .ac-avatar {
+  border-bottom-left-radius: 1px;
+}
+.mf-mark:hover,
+.mf-mark[data-on] {
+  box-shadow:
+    var(--e2),
+    0 0 0 1.5px var(--ink);
+}
+.mf-mark[data-faded] {
+  opacity: 0.5;
+}
+
+/* The PDF: page under page, scrolling; room under them for the bar. */
+.mf-stage--pdf {
+  overflow: auto;
+  touch-action: pan-x pan-y;
+  user-select: auto;
+}
+.mf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 24px 80px;
+  min-width: min-content;
+}
+.mf-page {
+  position: relative;
+  flex: none;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--e2);
+}
+.mf-stage--pdf[data-tool="comment"] .mf-page {
+  cursor: crosshair;
+}
+.mf-page__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The bar over a video's or a PDF's stage: the picture's (ImageZoom's), always shown; a video's stands over it. */
+.mf-bar.izoom__bar {
+  opacity: 1;
+}
+.mf-bar--top.izoom__bar {
+  top: 12px;
+  bottom: auto;
+}
+.mf-pages-now {
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* With the comments open the bar says what a press does: it keeps the words where the zoom's own hint would go. */
+@container (max-width: 900px) {
+  .izoom[data-marking] .izoom__hint,
+  .mf-bar .izoom__hint {
+    display: block;
+  }
+  .izoom[data-marking] .izoom__actual {
+    display: none;
+  }
+}
+@container (max-width: 600px) {
+  .izoom[data-marking] .izoom__hint,
+  .mf-bar .izoom__hint {
+    display: none;
+  }
+}
+/* A phone's stage: the PDF's bar keeps the zoom and the resolved ones; its page shows as it scrolls. */
+@container (max-width: 439px) {
+  .mf-bar .mf-pages-now {
+    display: none;
+  }
+}
+.izoom[data-marking] .izoom__stage {
+  cursor: crosshair;
+}

@@ -74,7 +74,7 @@ describe("Aprovações on an agent's page", () => {
     expect(section().textContent).toBe("AprovaçõesSó o arriscado");
   });
 
-  test("a save that fails says so, keeps the dialog open and the level as it was", async () => {
+  test("a pick shows at once and closes the dialog; a save that fails says so and puts the level back", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     api.agents.update = async () => {
@@ -84,13 +84,10 @@ describe("Aprovações on an agent's page", () => {
     await click(within(section()).getByRole("button", { name: /Aprovações/ }));
     const dialog = screen().getByRole("dialog", { name: "Aprovações" });
     await click(within(dialog).getByRole("radio", { name: /Nunca perguntar/ }));
+    expect(screen().queryByRole("dialog", { name: "Aprovações" })).toBeNull();
     // Every failed write says so once, from the app's own handler: the card adds no second toast.
     expect(screen().getAllByText("Algo deu errado. Tente de novo.")).toHaveLength(1);
-    expect(
-      within(screen().getByRole("dialog", { name: "Aprovações" }))
-        .getByRole("radio", { name: /Só o arriscado/ })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(within(section()).getByRole("button", { name: /Aprovações/ }).textContent).toBe("AprovaçõesSó o arriscado");
   });
 
   test("worst case: a 60-character name, an agent that never asks, in German: every word is on the screen", async () => {

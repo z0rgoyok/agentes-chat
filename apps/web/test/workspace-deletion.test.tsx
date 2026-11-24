@@ -53,6 +53,7 @@ async function open(
     standing,
     createdAt,
     mode,
+    paysPlan,
     beta = { id: BETA_ID, name: "Beta", role: "member" },
     state = seedState(),
   }: {
@@ -62,6 +63,8 @@ async function open(
     standing?: OrgSummary["standing"];
     createdAt?: string;
     mode?: OrgSummary["mode"];
+    /** They pay for Acme's plan. */
+    paysPlan?: boolean;
     /** Null: Acme is their only workspace. */
     beta?: OrgSummary | null;
     state?: ReturnType<typeof seedState>;
@@ -77,6 +80,7 @@ async function open(
       ...(standing ? { standing } : {}),
       ...(createdAt ? { createdAt } : {}),
       ...(mode ? { mode } : {}),
+      ...(paysPlan ? { paysPlan: true as const } : {}),
     },
     ...(beta ? [beta] : []),
   ];
@@ -325,6 +329,57 @@ describe("a workspace being deleted, at its end and in the desktop app", () => {
     } finally {
       delete app.__agentesDesktop;
     }
+  });
+});
+
+describe("a plan its payer would lose with the workspace", () => {
+  const unpaid = {
+    id: BETA_ID,
+    name: "Beta",
+    role: "owner" as const,
+    standing: { state: "hold" as const, reason: "payment" },
+  };
+  const withBilling = () => {
+    const state = seedState();
+    state.authConfig = { billingUrl: "https://billing.example.com" };
+    return state;
+  };
+  const paid = (path: string, extra: { deletion?: OrgDeletion } = {}) =>
+    open(path, { beta: unpaid, state: withBilling(), paysPlan: true, ...extra });
+
+  test("deleting it offers to move the plan to their workspace without one, which goes in one click", async () => {
+    const { state } = await paid(`/org/${ORG_ID}/settings`);
+    await click(screen().getByRole("button", { name: "Apagar workspace…" }));
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: "Apagar Acme?" });
+    expect(dialog.textContent).toContain("Seu plano fica com este workspace e para de renovar.");
+    expect(dialog.textContent).not.toContain("O plano dele para de renovar.");
+    await click(within(dialog).getByRole("button", { name: "Mover meu plano para Beta" }));
+    await settle(4);
+    expect(state.calls.filter((c) => c.method === "orgs.movePlan").map((c) => c.args)).toEqual([[ORG_ID, BETA_ID]]);
+    expect(dialog.textContent).toContain("Seu plano está indo para Beta. Chega em cerca de um minuto.");
+    expect(within(dialog).queryByRole("button", { name: "Mover meu plano para Beta" })).toBeNull();
+  });
+
+  test("being deleted, its line offers the move beside Restaurar until the date", async () => {
+    const deletion = { dueAt: soon(6), requestedAt: new Date().toISOString(), requestedBy: null };
+    const { state } = await paid(`/org/${ORG_ID}/settings`, { deletion });
+    const line = screen().getByRole("region", { name: "Status do workspace" });
+    expect(line.textContent).toContain("Seu plano para de renovar com ele.");
+    await click(within(line).getByRole("button", { name: "Mover meu plano para Beta" }));
+    await settle(4);
+    expect(state.calls.filter((c) => c.method === "orgs.movePlan").map((c) => c.args)).toEqual([[ORG_ID, BETA_ID]]);
+    expect(line.textContent).toContain("Seu plano está indo para Beta.");
+    expect(within(line).getByRole("button", { name: "Restaurar workspace" })).toBeTruthy();
+  });
+
+  test("someone who doesn't pay for it, or with no workspace to take it, reads the plan stops renewing", async () => {
+    await open(`/org/${ORG_ID}/settings`, { beta: unpaid, state: withBilling() });
+    await click(screen().getByRole("button", { name: "Apagar workspace…" }));
+    await settle(4);
+    const dialog = screen().getByRole("dialog", { name: "Apagar Acme?" });
+    expect(dialog.textContent).toContain("O plano dele para de renovar.");
+    expect(within(dialog).queryByRole("button", { name: /Mover meu plano/ })).toBeNull();
   });
 });
 

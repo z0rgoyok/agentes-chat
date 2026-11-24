@@ -23,6 +23,9 @@ export function unreadTotal(
 
 const COUNTED = /^\(\d+\+?\) /;
 
+/** The most unread messages a channel's row counts (`MAX_CHANNEL_UNREAD` in packages/engine/src/channels.ts). */
+export const MAX_CHANNEL_UNREAD = 100;
+
 /** A count as a badge shows it: "99+" past 99. */
 export const badgeCount = (n: number) => (n > 99 ? "99+" : String(n));
 

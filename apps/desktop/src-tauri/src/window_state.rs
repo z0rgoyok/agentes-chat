@@ -49,8 +49,10 @@ fn write(app: &AppHandle, saved: &Saved) {
     }
 }
 
-/// Changes what is saved (read, change, write).
+/// Changes what is saved (read, change, write), one change at a time: a frame is written from another thread.
 pub fn update(app: &AppHandle, change: impl FnOnce(&mut Saved)) {
+    static WRITING: Mutex<()> = Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let mut saved = load(app);
     let before = saved.clone();
     change(&mut saved);
@@ -77,15 +79,25 @@ pub fn remember(window: &tauri::Window, throttle: bool) {
     let maximized = window.is_maximized().unwrap_or(false);
     let scale = window.scale_factor().unwrap_or(1.0);
     let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) else { return };
-    update(app, |saved| {
-        saved.maximized = maximized;
-        if !maximized {
-            saved.x = Some(f64::from(position.x) / scale);
-            saved.y = Some(f64::from(position.y) / scale);
-            saved.width = Some(f64::from(size.width) / scale);
-            saved.height = Some(f64::from(size.height) / scale);
-        }
-    });
+    let save = move |app: &AppHandle| {
+        update(app, |saved| {
+            saved.maximized = maximized;
+            if !maximized {
+                saved.x = Some(f64::from(position.x) / scale);
+                saved.y = Some(f64::from(position.y) / scale);
+                saved.width = Some(f64::from(size.width) / scale);
+                saved.height = Some(f64::from(size.height) / scale);
+            }
+        })
+    };
+    // As it moves or resizes, written off the main thread (the file can wait on the disk); closing and quitting
+    // write at once, so the frame is there before the app ends.
+    if throttle {
+        let app = app.clone();
+        std::thread::spawn(move || save(&app));
+    } else {
+        save(app);
+    }
 }
 
 #[cfg(test)]

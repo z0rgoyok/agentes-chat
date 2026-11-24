@@ -80,7 +80,7 @@ describe("readForModel", () => {
   test("audio is the caller's to transcribe; video, old Office, other pictures and binaries name the cause", () => {
     expect(read("voz.mp3", new Uint8Array([0x49, 0x44, 0x33, 0x03, 0x00, 0x00]), "audio/mpeg").audio).toBe(true);
     expect(read("clip.mp4", new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]), "video/mp4").note).toContain(
-      "It is a video (8 bytes): no AI here watches videos",
+      "It is a video (8 bytes), not shown to you as it is: review_media watches it",
     );
     expect(read("velho.doc", new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 0])).note).toContain(
       "older Office file (.doc), which can't be read here",

@@ -57,7 +57,7 @@ import { useFilterCopy } from "@/components/filters";
 import { useCopied } from "@/components/invite/copied";
 import { State, Who, whenWords } from "@/components/invite/InviteRows";
 import { LoadingList } from "@/components/Loading";
-import { CreateAgentLink } from "@/components/new-agent/NewAgentDialog";
+import { CreateAgentLink } from "@/components/new-agent/new-agent-context";
 import { useOrg } from "@/components/org-context";
 import { ProfileTrigger } from "@/components/ProfileCard";
 import { MailLoss, mailTitle } from "@/components/roles/RolePeople";
@@ -331,7 +331,8 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
           <List>
             {dir.agents.length === 0 && <div className="ac-list__row muted">{t("members.noAgents")}</div>}
             {dir.agents.map((a) => {
-              const owner = a.ownerUserId ? dir.memberById.get(a.ownerUserId) : undefined;
+              // A person's name or, when a role answers for it, the role's (ADR 0085, addendum of 2026-11-21).
+              const owner = dir.ownerName(a);
               // Its plan's limits, the budget under them only once it spent through the API (ADR 0063 §5).
               const shown = usageShown(a.brain, a.budgetUsedPercent ?? 0);
               const budget = shown.budget && a.budgetUsedPercent !== undefined;
@@ -348,7 +349,7 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                         {a.role ? ` · ${a.role}` : ""}
                       </b>
                       <span className="ac-mediarow__meta">
-                        {owner ? t("members.ownerLine", { name: owner.name }) : t("members.noOwner")}
+                        {owner ? t("members.ownerLine", { name: owner }) : t("members.noOwner")}
                       </span>
                     </>
                   }

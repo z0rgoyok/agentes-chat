@@ -303,7 +303,7 @@ describe("profile card", () => {
     await go(`c/${ENG_ID}`, state);
     await click(screen().getAllByRole("button", { name: "Perfil de Ada" })[0] as HTMLElement);
     await settle(6);
-    expect(card().textContent).toContain("sem responsável");
+    expect(card().textContent).toContain("Administradores");
     expect(within(card()).queryByRole("meter")).toBeNull();
   });
 

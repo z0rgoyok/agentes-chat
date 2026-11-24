@@ -485,6 +485,36 @@ export const words: EmailWords = {
     table: (day) => `表全体: bun run report:autonomy --day ${day}`,
     why: "このアドレスがこのサーバーの OPS_REPORT_EMAIL に設定されているため、このメールをお送りしています。1日に1回送信されます。",
   },
+  accountOpened: {
+    subject: (plan) => `あなたの ${plan} アカウントを使える人が増えました`,
+    preheader: (plan) => `その利用にはあなたの ${plan} プランとその上限が使われます。`,
+    headline: "あなたの AI アカウントを使える人が変更されました",
+    body: (by, account, plan) => [
+      { b: by },
+      ` さんが、あなたの ${plan} アカウント `,
+      { b: account },
+      ` を使える人を変更しました。その利用にはあなたのプランとその上限が使われます。`,
+    ],
+    account: "アカウント",
+    by: "変更した人",
+    setting: "権限",
+    use: "エージェントで使う",
+    reply: "全員に応答",
+    was: "変更前",
+    now: "変更後",
+    everyone: "ワークスペースの全員",
+    admins: "あなたと管理者",
+    onlyYou: "あなただけ",
+    agentOwner: "エージェントの所有者だけ",
+    note: "元に戻すには、「AI と利用状況」でアカウントを開き、権限を変更してください。",
+    button: "AI アカウントを開く",
+    why: (org) =>
+      `${org} でこの AI アカウントを接続したのがあなたで、ほかの人がそれを使える人を変更したため、このメールをお送りしています。`,
+    personal: {
+      why: () =>
+        "この AI アカウントを接続したのがあなたで、ほかの人がそれを使える人を変更したため、このメールをお送りしています。",
+    },
+  },
   planOpened: {
     subject: (plan) => `あなたの ${plan} プランで、より多くの人があなたのエージェントと話せるようになりました`,
     preheader: (plan) => `その会話にはあなたの ${plan} プランとその上限が使われます。`,

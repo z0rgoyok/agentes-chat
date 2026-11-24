@@ -70,7 +70,7 @@
  * One frame for whatever takes the screen's place (the screen, a cover, the agent's page, the wait for the
  * workspace's computer), sized once, so the dialog keeps its size and its place in every state, and the screen opens
  * in place: as large as 96vw allows with 42 px of the page above and below it (a notice along the page's top stays
- * whole), and no larger than the screen itself (1280×900), keeping its shape. Around the screen: the head (70 px), the
+ * whole), and no larger than the screen itself (1280×900), keeping its shape. Around the screen: the head (74 px), the
  * sky strip (6), the body's padding (20 on every side) and the line under the screen (8 + `--cmp-line`): what programs
  * there can see (the keys after it in control), or the run's steps while the agent works, under the screen and under a
  * cover it opens from by itself. The wait and a cover that stays until someone acts have no line: they take its room,
@@ -79,7 +79,7 @@
  * it, keeping its shape.
  */
 .ac-dialog.cmp-dialog:where(:has(.dsk, .cmp-stage, .cmp-prep, .brw-ac.is-surface)) {
-  --cmp-around: calc(124px + var(--cmp-line));
+  --cmp-around: calc(128px + var(--cmp-line));
   --cmp-room: calc(100dvh - 84px - var(--cmp-bar, 0px) - var(--cmp-around));
   --cmp-screen: min(96vw - 40px, 1280px, var(--cmp-room) * 1280 / 900);
   width: calc(var(--cmp-screen) + 40px);
@@ -95,7 +95,6 @@
   }
 }
 .ac-dialog.cmp-dialog {
-  --cmp-button: var(--control-h-sm);
   --cmp-line: 22px;
 }
 /* A tablet: in control the line under the screen holds the Keyboard button, a small button, so it is that tall. */
@@ -285,42 +284,19 @@
   translate: none;
   pointer-events: auto;
 }
+/*
+ * A bar over the sky strip: as much room over the face, the name and its line as under them, and the controls on the
+ * middle of that block, whole 32 squares 8 apart (the kit's head), however the line under the name wraps.
+ */
 .cmp-dialog .ac-dialog__head {
-  padding-bottom: 8px;
+  padding-block: var(--space-4);
 }
-/*
- * Its controls sit on the name's 24 px line, on its capitals' middle (`--title-cap-mid`), as every dialog's close does
- * and as the face before the name does, in one place however the line under the name wraps, and while it is empty.
- * Full screen's bar keeps them in its middle, beside both lines.
- */
 .cmp-dialog :is(.ac-dialog__acts, .ac-dialog__close) {
-  align-self: flex-start;
+  align-self: center;
   height: auto;
-  margin-top: calc((24px - var(--cmp-button)) / 2 - var(--title-cap-mid, var(--cap-mid)));
 }
-/* The window's head sets its own row (the arrows reach into the close's box): the close keeps its drawn air here. */
-.cmp-dialog .ac-actline:has(> .ac-dialog__acts) + .ac-dialog__close {
-  margin-inline-start: 0;
-}
-.cmp-dialog .ac-actline:has(> .ac-dialog__acts) + .ac-dialog__close > .ac-btn--glyph {
-  --glyph-air: calc(var(--control-icon-sm) * 5.2 / 20);
-}
-.cmp-dialog.is-screen-only :is(.ac-dialog__acts, .ac-dialog__close) {
-  margin-top: calc((24px + 18px - var(--cmp-button)) / 2);
-}
-/* Actions that went under the name (a narrow sheet) stand 8 under its line, past the rise they take beside it. */
 .cmp-dialog .ac-dialog__head > .ac-actline {
-  row-gap: calc(var(--space-2) + (var(--cmp-button) - 24px) / 2 + var(--title-cap-mid, var(--cap-mid)));
-}
-/*
- * Full screen's arrows span 14.6 of their icon's 20 units: in the head's row it reaches out by the 2.7 units of air on
- * each side too (the kit's `.ac-btn--glyph`, as the close does by its own), so the row's gap stands between what shows
- * (a button, words, the arrows, the ×), however the glyphs are drawn. Its box then overlaps the close's: it stays on
- * top there, so a click just beside the arrows never closes the window (which, in control, hands it back).
- */
-.cmp-acts > .cmp-full {
-  --glyph-air: calc(var(--control-icon-sm) * 2.7 / 20);
-  z-index: 1;
+  row-gap: var(--space-2);
 }
 /*
  * Take control's icon keeps the pill's padding by its ink and sits on its words' capitals' middle (the kit's
@@ -628,11 +604,6 @@
   .ac-dialog.cmp-dialog:not(.is-full) {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  /* The controls stand on the name's line, taller than it: the head's top keeps them as far under the sheet's edge as
-     its sides are in. */
-  .cmp-dialog:not(.is-screen-only) .ac-dialog__head {
-    padding-top: calc(var(--dialog-pad) + (var(--cmp-button) - 24px) / 2 + var(--title-cap-mid, var(--cap-mid)));
   }
   .cmp-body > .cmp-prep,
   .cmp-body > .brw-ac.is-surface,

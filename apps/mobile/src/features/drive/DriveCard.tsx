@@ -5,9 +5,10 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Text as RNText, StyleSheet, View } from "react-native";
 import { CHROME_MAX_SCALE, Icon, type IconName, PressScale, systemText, Text, useTheme, weights } from "@/ui";
 import { useRowDirectory } from "../chat/row-data";
-import type { FileRef } from "../files/logic";
+import { type FileRef, pdfPreviewable } from "../files/logic";
 import { useOpenFile } from "../files/open";
-import { useRemoteFile } from "../files/source";
+import { PdfCover } from "../files/pdf-preview";
+import { usePicture } from "../files/source";
 import { PresentFaces } from "../live-files/shared/HereFaces";
 import { LiveCover } from "../live-files/shared/LiveCover";
 import { Face } from "../shared/Face";
@@ -35,12 +36,12 @@ export const driveRef = (a: Pick<Artifact, "id" | "kind" | "title" | "version">)
 });
 
 /**
- * A Drive card: the real preview at the item's version (a document's
- * first lines under its title, a table's first rows, a diff's first changed lines, the picture itself, a
- * file's type tile, a live file's grid, first slide or canvas map) with the kind on a small chip, then the name and
- * who made it, when, and the faces of who is in a live file now (`present`, asked for the whole grid at once). A tap
- * opens it as every file opens (`openFile`): a picture or a video in the picture viewer, among the grid's
- * (`siblings`, in the grid's order), a live file on its own screen.
+ * A Drive card: the real preview at the item's version (a document's first lines under its title, a table's first
+ * rows, a diff's first changed lines, the picture itself, a PDF's first page, a file's type tile, a live file's grid,
+ * first slide or canvas map) with the kind on a small chip, then the name and who made it, when, and the faces of who
+ * is in a live file now (`present`, asked for the whole grid at once). A tap opens it as every file opens
+ * (`openFile`): a picture or a video in the picture viewer, among the grid's (`siblings`, in the grid's order), a
+ * live file on its own screen.
  */
 export const DriveCard = memo(function DriveCard({
   artifact: a,
@@ -112,6 +113,14 @@ function Preview({ artifact: a }: { artifact: Artifact }) {
   const p = cardPreview(a.title, content);
   if (p.kind === "image") return <ImagePreview artifact={a} />;
   if (p.kind === "live") return <LivePreview content={p.content} />;
+  // A PDF shows its first page over its type's tile, downloaded only once its card is in sight: the grid draws every
+  // card at once.
+  if (p.kind === "file" && detail.data && pdfPreviewable(detail.data))
+    return (
+      <PdfCover detail={detail.data} waitForSight>
+        <ContentPreview preview={p} />
+      </PdfCover>
+    );
   return <ContentPreview preview={p} />;
 }
 
@@ -134,12 +143,13 @@ function LivePreview({ content }: { content: ArtifactLiveContent }) {
 
 function ImagePreview({ artifact: a }: { artifact: Artifact }) {
   const { colors: c } = useTheme();
-  const link = useRemoteFile(useOrgId(), a.id, a.version);
-  if (!link.data) return <View style={[StyleSheet.absoluteFill, { backgroundColor: c.sunken }]} />;
+  const picture = usePicture(useOrgId(), a.id, a.version);
+  if (!picture.source) return <View style={[StyleSheet.absoluteFill, { backgroundColor: c.sunken }]} />;
   return (
     <Image
-      source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: `${a.id}@${a.version}` }}
-      recyclingKey={`${a.id}@${a.version}`}
+      source={picture.source}
+      recyclingKey={picture.key}
+      onError={picture.onError}
       // Kept decoded in memory too: a card scrolled back or a grid drawn again shows it without decoding it anew.
       cachePolicy="memory-disk"
       contentFit="cover"

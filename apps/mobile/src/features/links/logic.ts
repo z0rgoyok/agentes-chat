@@ -274,6 +274,8 @@ export function notificationHref(
   if (n.kind === "approval") return isSafeId(s.approvalId) ? `/approval/${s.approvalId}` : null;
   // The agent's model left its plan's list: its model, to choose another.
   if (n.kind === "plan_model_dropped") return isSafeId(s.agentId) ? `/agent-model/${s.agentId}` : null;
+  // An agent paused on its budget: its page, where its budget is raised.
+  if (n.kind === "budget_paused") return isSafeId(s.agentId) ? `/agent/${s.agentId}` : "/usage";
   // Someone gave an agent the person's plan: their AI accounts, where the agents on each plan are.
   if (n.kind === "plan_lent") return "/ai-accounts";
   if (n.kind === "plan_serves") return "/usage";
@@ -292,6 +294,8 @@ export function notificationHref(
     return isSafeId(s.agentId) ? `/agent/${s.agentId}` : s.routineId ? routineHref(s.routineId) : null;
   if (n.kind === "join_request") return "/join-requests";
   if (n.kind === "proposal_waiting") return "/proposals";
+  // What agents applied today (ADR 0219): the history of their improvements, newest first, each with Undo there.
+  if (n.kind === "proposal_applied") return "/proposals";
   // Someone who joined: Membros, where they now are (the app has no "say hi" of its own for them).
   if (n.kind === "invitation_accepted") return "/me/members";
   // Who approves for whom (ADR 0139): Perfil › Aprovações, where it is set and declined.

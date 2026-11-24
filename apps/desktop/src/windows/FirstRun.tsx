@@ -23,7 +23,6 @@ import {
   Field,
   Icon,
   Input,
-  OptionList,
   PixelSpinner,
   type Place,
   PlaceScene,
@@ -316,13 +315,13 @@ export function FirstRun() {
 }
 
 /**
- * "Onde seu workspace vai ficar?" (ADR 0066 §1, amended 2026-11-14): the drawing on the left follows the place picked on
- * the right: the Cloud (recommended, the agentes.chat agent on a cloud), this computer (where the build carries the
- * server: the agents work while the app is open) or a computer that's always on (the one-command install). Each says
- * what happens to the agents, never "server". One button goes on with the pick, and a line under it signs in to one
- * that exists already. `adding` (the site's "Add a workspace", ADR 0154): its own title, the Cloud's button signs in to
- * the workspaces an account has (a new workspace the line under it); with agentes.chat already signed in here, making
- * one is the button.
+ * "Where will your workspace live?" (ADR 0066 §1, amended 2026-11-14 and 2026-11-21): the drawing on the left follows the
+ * place pointed at or focused on the right: the Cloud (recommended, the agentes.chat agent on a cloud), this computer
+ * (where the build carries the server: the agents work while the app is open) or a server or VPS (the one-command
+ * install). Each place is a row that goes on by itself, a chevron at its end: one click, no pick then a button. Each
+ * says what happens to the agents. A line under them signs in to one that exists already. `adding` (the site's "Add a
+ * workspace", ADR 0154): its own title, the Cloud's row signs in to the workspaces an account has (a new workspace the
+ * line under it); with agentes.chat already signed in here, making one is the Cloud's row.
  */
 function Choose({
   adding,
@@ -344,18 +343,18 @@ function Choose({
 }) {
   const { t } = useTranslation();
   const host = useHost();
-  const [pick, setPick] = useState<Place>("cloud");
+  const [shown, setShown] = useState<Place>("cloud");
   const makeFirst = adding && cloudSignedIn;
   const places: Place[] = canRunHere ? ["cloud", "here", "box"] : ["cloud", "box"];
-  const go = () => {
-    if (pick === "here") return onHere();
-    if (pick === "box") return onBox();
+  const go = (place: Place) => {
+    if (place === "here") return onHere();
+    if (place === "box") return onBox();
     onCloud(makeFirst ? "/onboarding" : "/login");
   };
   return (
     <div className="dk-choose">
       <div className="dk-choose__sky">
-        <PlaceScene place={pick} computer={host.platform} shape="tall" />
+        <PlaceScene place={shown} computer={host.platform} shape="tall" />
         <span className="dk-choose__brand" aria-hidden="true">
           <BrandFace size="sm" />
           agentes.chat
@@ -364,35 +363,31 @@ function Choose({
       <div className="dk-choose__main">
         <h1>{t(adding ? "desktop.first.addTitle" : "desktop.place.title")}</h1>
         <p className="dk-lead">{t(adding ? "desktop.first.addLead" : "desktop.place.lead")}</p>
-        <OptionList<Place>
-          className="dk-choose__list"
-          aria-label={t("desktop.place.title")}
-          value={pick}
-          onValueChange={setPick}
-          options={places.map((p) => ({
-            value: p,
-            title:
-              p === "cloud" ? (
-                <>
-                  {t("desktop.place.cloud")}
-                  <span className="dk-choose__rec">{t("desktop.place.recommended")}</span>
-                </>
-              ) : (
-                t(`desktop.place.${p}`)
-              ),
-            description: t(`desktop.place.${p}Text`),
-          }))}
-        />
-        <Button variant="primary" className="dk-btn-lg dk-choose__go" autoFocus onClick={go}>
-          {pick === "here"
-            ? t("desktop.place.goHere")
-            : pick === "box"
-              ? t("desktop.place.goBox")
-              : t(makeFirst ? "desktop.first.addCloud" : "desktop.place.goCloud")}
-          <Icon name="arrowRight" size={16} />
-        </Button>
+        <div className="ac-optlist dk-choose__list">
+          {places.map((p, i) => (
+            <button
+              key={p}
+              type="button"
+              className="ac-optrow dk-choose__place"
+              // biome-ignore lint/a11y/noAutofocus: the window opens on this choice; Enter on the first goes to the Cloud, as the button it replaces did
+              autoFocus={i === 0}
+              onPointerEnter={() => setShown(p)}
+              onFocus={() => setShown(p)}
+              onClick={() => go(p)}
+            >
+              <span className="ac-optrow__text">
+                <span className="ac-optrow__title">
+                  {p === "cloud" && makeFirst ? t("desktop.first.addCloud") : t(`desktop.place.${p}`)}
+                  {p === "cloud" && <span className="dk-choose__rec">{t("desktop.place.recommended")}</span>}
+                </span>
+                <span className="ac-optrow__desc">{t(`desktop.place.${p}Text`)}</span>
+              </span>
+              <Icon name="chevronRight" size={18} className="dk-choose__chev" />
+            </button>
+          ))}
+        </div>
         {/* Adding, not signed in to the Cloud here: a new workspace there is the line under it. */}
-        {adding && !makeFirst && pick === "cloud" && (
+        {adding && !makeFirst && (
           <span className="dk-help dk-choose__more">
             {t("desktop.first.addNew")}{" "}
             <button type="button" className="ac-link dk-link" onClick={() => onCloud("/onboarding")}>
@@ -421,7 +416,7 @@ function BackLink({ label, onClick }: { label: string; onClick: () => void }) {
 }
 
 /**
- * "Num computador sempre ligado": the one-command install (ADR 0060 §1) in two steps, run on the computer that stays
+ * "On a server or VPS": the one-command install (ADR 0060 §1) in two steps, run on the computer that stays
  * on, whose last line is the link that opens it here; and the same as words to send to whoever installs it.
  */
 function Install({ onBack, onConnect }: { onBack: () => void; onConnect: () => void }) {

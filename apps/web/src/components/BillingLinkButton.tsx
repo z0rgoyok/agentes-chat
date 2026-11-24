@@ -9,7 +9,7 @@ import { useToast } from "@/lib/toast";
 /**
  * Mints the workspace's billing link and leaves for it (ADR 0079), saying `billing.failed` when it can't. The link
  * goes nowhere but the address bar: it opens once and lasts minutes. The billing service sends the person back to
- * the page they opened it from.
+ * the page they opened it from, and opens its pages in the app's theme (`withTheme`).
  */
 export function useOpenBilling(orgId: string, from: BillingFrom, plan?: string) {
   const { t } = useTranslation();
@@ -18,10 +18,22 @@ export function useOpenBilling(orgId: string, from: BillingFrom, plan?: string) 
   const here = useRouterState({ select: (s) => s.location.pathname });
   return useMutation({
     mutationFn: () => api.orgs.billingLink(orgId, from, here, plan),
-    onSuccess: ({ url }) => navigateAway(url),
+    onSuccess: ({ url }) => navigateAway(withTheme(url)),
     onError: () => toast.show(t("billing.failed"), "error"),
     meta: { silent: true },
   });
+}
+
+/**
+ * The link with the theme the app is drawn in now (`theme=light|dark`), for the billing service's pages to open in
+ * instead of the system's. A look, never a claim: it rides outside the signed token, and a link without it still opens.
+ */
+function withTheme(url: string) {
+  const theme = document.documentElement.dataset.theme;
+  if (theme !== "light" && theme !== "dark") return url;
+  const link = new URL(url);
+  link.searchParams.set("theme", theme);
+  return link.href;
 }
 
 /**

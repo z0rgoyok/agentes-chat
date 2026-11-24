@@ -11,8 +11,9 @@ afterEach(forgetKeptSizes);
 describe("a row comes back as the person left it", () => {
   test("its fades play for what changes while it shows, never again on a scroll back", () => {
     const row = src("features/chat/MessageRow.tsx");
+    // Mounted again when "See more" opens its message, the same way: what it holds just shows.
     expect(row).toMatch(
-      /export const MessageRow = memo\(function MessageRow\(props: RowProps\) \{\s*return \(\s*<LayoutAnimationConfig skipEntering>\s*<RowBody \{\.\.\.props\} \/>/,
+      /export const MessageRow = memo\(function MessageRow\(props: RowProps\) \{[\s\S]*?return \(\s*<LayoutAnimationConfig key=\{opened \? "opened" : "row"\} skipEntering>\s*<RowBody \{\.\.\.props\} \/>/,
     );
   });
 

@@ -12,6 +12,7 @@ import {
   useSettings,
   useUpdateAgent,
 } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { type WorkPlaceNames, workDetail } from "@agenteschat/client/lib/agent-work";
 import {
   audienceLines,
@@ -611,10 +612,13 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
   const agentEntries = useAgentMenu();
   const openComputer = useOpenComputer();
   const opensComputer = useOpensComputer(agent);
-  const seesSpend = can(org, "view_usage") || agent.ownerUserId === me.user.id;
+  const myRoleIds = dir.rolesOf(me.user.id);
+  const seesSpend = can(org, "view_usage") || ownsAgentAs(agent, me.user.id, myRoleIds);
   const details = seesDetails(agent);
   const g = agentGrammar(agent.name);
-  const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId)?.name : null;
+  // A person, or the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const owner = dir.ownerName(agent);
+  const ownerRole = agent.ownerRoleId ? dir.roleName(agent.ownerRoleId) : undefined;
   // Its presence from its work and its line (ADR 0084): its own words or what it is doing now, and where.
   const shown = useAgentPresence(agent.id);
   const line = agentLine(t, shown?.line ?? null, i18n.language);
@@ -707,7 +711,7 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
         <section className="mcard__section" aria-label={t("profile.audience")}>
           <div className="mcard__label-row">
             <span className="mcard__label">{t("profile.audience")}</span>
-            {canEditAudience(org, agent, me.user.id) && <AudienceEdit agent={agent} />}
+            {canEditAudience(org, agent, me.user.id, myRoleIds) && <AudienceEdit agent={agent} />}
           </div>
           <ul className="mcard__who">
             {lines.map((l) =>
@@ -730,7 +734,11 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
             )}
           </ul>
           {owner && modeOf(agent) === "people" && (
-            <span className="small muted">{t("audience.ownerAlways", { name: owner })}</span>
+            <span className="small muted">
+              {ownerRole
+                ? t("audience.ownerRoleAlways", { role: ownerRole })
+                : t("audience.ownerAlways", { name: owner })}
+            </span>
           )}
         </section>
       )}
@@ -763,7 +771,7 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
         <>
           <p className="small muted">{audienceNotice(t, agent, (id) => dir.memberById.get(id)?.name, dir.roleName)}</p>
           <div className="profile-card__actions">
-            {audienceWithMe(org, agent, me.user.id) ? (
+            {audienceWithMe(org, agent, me.user.id, myRoleIds) ? (
               <LetMeTalkButton agent={agent} />
             ) : (
               <AskAccessButton agent={agent} />
@@ -787,7 +795,7 @@ function AudienceEdit({ agent }: { agent: Agent }) {
   const g = agentGrammar(agent.name);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<AgentAudience>(() => audienceOf(agent));
-  const valid = audienceValid(draft, agent.ownerUserId);
+  const valid = audienceValid(draft, agent.ownerUserId ?? agent.ownerRoleId);
   return (
     <>
       <Popover
@@ -814,6 +822,7 @@ function AudienceEdit({ agent }: { agent: Agent }) {
             value={draft}
             onChange={setDraft}
             ownerUserId={agent.ownerUserId}
+            ownerRoleId={agent.ownerRoleId}
             agentName={agent.name}
             idPrefix={`mcard-audience-${agent.id}`}
             onPlan={engineOfBrain(agent.brain?.kind) !== "agent"}

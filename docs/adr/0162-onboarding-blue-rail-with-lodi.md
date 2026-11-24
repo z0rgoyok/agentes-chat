@@ -234,3 +234,28 @@ the 2026-11-11 bullet on the person's own area.
   the rail's corner and the preview's account row at once, and the name once saved. The step needs the workspace's
   context for its dialogs (`StepHost`).
 - **The phone** (`funnel: null`) has no such step and keeps its rail.
+
+## Amended 2026-11-21: the first question as two rows, a note that it can change, and a way out at every step
+
+People found the first question busy, missed that the choice can change, and those who already had a workspace and
+started another found no way back after its first step. Amends the 2026-11-11 cards with their cluster of pills
+and the wide window's stage.
+
+- **No sky at the window's foot.** On a wide window the stage has no horizon of its own behind the rail and the
+  question; Lodi's horizon on the rail and the progress strip stay.
+- **Two rows, no cards.** "What will you use agentes.chat for?" lists its two answers as rows with no card around them,
+  a hairline between them and the kit's radio drawn at each row's end (the row itself is the radio). The drawing stays
+  on the left, without its horizon. The cluster of pills is gone: the agents say what they do in a small bubble over
+  their face (under it on the drawing's bottom row), the one at work every 2.5 seconds once the answer is chosen, or the
+  one pointed at. Each answer's line says what the view is: "A simpler view, with every feature." and "The full view,
+  with channels and people."
+- **It can change.** The lead is "Choose how you want to see agentes.chat."; a note under the answers, before
+  Continue, says "Switch anytime." and that the workspace mode changes in Settings with nothing lost. The phone, which
+  has no such note, keeps the longer lead that says the same.
+- **A way out at every step.** Someone who has another workspace set up has a back arrow left of the rail's logo on
+  every step ("Back to {name}, finish later"), not only on the first: it goes back to the page they were on in that
+  workspace (`returnPlace`), and the workspace being made stays as it is, resumed on the next visit. On a phone the logo
+  shows its mark alone then, so every step fits the bar.
+- **The phone's step bar keeps its height.** Its row is `max-content`: an `auto` row let a tall step squeeze the bar,
+  whose overflow is hidden, under its own items.
+

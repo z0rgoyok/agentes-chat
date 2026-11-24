@@ -1,6 +1,6 @@
 # 0169. Agents' containers: rootless Podman, each agent its own containers service
 
-- Status: Proposed
+- Status: Proposed. Amended 2026-11-20 by ADR 0209: §1 and §4 (`docker` is Docker's own rootless daemon of the agent's where the computer has it; `DOCKER_HOST` its socket).
 - Date: 2026-11-11
 - Amends: ADR 0030 and 0101 (no_new_privs: kept on every launch of an agent but its containers service), ADR 0096
   (what a uid-keyed firewall must count as an agent's), ADR 0057 (what an agent's share holds)

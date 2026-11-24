@@ -1,6 +1,7 @@
 import {
   ApiError,
   useMission,
+  useMissionBrain,
   useMissionDecisions,
   useMissionReviews,
   useThreadInfo,
@@ -29,6 +30,7 @@ import {
   useReducedMotion,
 } from "@/ui";
 import { router } from "@/ui/navigation";
+import { AiChoiceFields } from "../ai/AiChoice";
 import { ThreadOptions } from "../chat/sheets";
 import { chatHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
@@ -363,6 +365,8 @@ function Mission({ id }: { id: string }) {
           </Section>
         ) : null}
 
+        <MissionAi missionId={id} />
+
         {taken.length > 0 ? (
           <Section title={t("mobile.mission.decisions")} count={taken.length}>
             <Card>
@@ -390,7 +394,29 @@ function Mission({ id }: { id: string }) {
   );
 }
 
+/**
+ * The mission's AI (the web's mission settings, through the one choice): who does the work before Start, its model any
+ * time while it is open. Shown to whoever may change it.
+ */
+function MissionAi({ missionId }: { missionId: string }) {
+  const { t } = useTranslation();
+  const orgId = useOrgId();
+  const brain = useMissionBrain(orgId, missionId);
+  if (!brain.data?.canSetModel) return null;
+  return (
+    <Section title={t("mobile.aiHub.missionAi")}>
+      <AiChoiceFields target={{ kind: "mission", missionId }} lockAccount={!brain.data.canSetBrain} />
+      {brain.data.canSetBrain ? null : (
+        <Text variant="footnote" tone="muted" style={styles.aiNote}>
+          {t("mobile.aiHub.missionLocked")}
+        </Text>
+      )}
+    </Section>
+  );
+}
+
 const styles = StyleSheet.create({
+  aiNote: { paddingHorizontal: 16, paddingTop: 6 },
   screen: { flex: 1 },
   scroll: { paddingTop: 4 },
   head: { paddingHorizontal: SCREEN_X, gap: 4 },

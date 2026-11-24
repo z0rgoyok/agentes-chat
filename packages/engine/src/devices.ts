@@ -11,6 +11,7 @@ import {
   type RunnerPhone,
   STREAM_CLOSE,
   STREAM_LIMITS,
+  TASK_LIMIT_PROTOCOL,
 } from "@agenteschat/adapters";
 import { and, type Database, type Executor, eq, gt, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
 import { AUDIENCE_MODES, type AudienceMode } from "./audience";
@@ -29,6 +30,7 @@ import {
   offlineCause,
   publishMachineUpdated,
   shownOnline,
+  withTaskLimit,
 } from "./machines";
 import { can, getMembership, type Membership, requirePermission } from "./organizations";
 import { closedRefusal, OrgDeletingError, orgStanding } from "./standing";
@@ -113,7 +115,7 @@ export interface ComputerDevice {
   systemMode: boolean;
   audience: DeviceAudience;
   status: DeviceStatus;
-  /** Background tasks it runs at once. */
+  /** Background tasks it runs at once, as its runner says (`TASK_LIMIT_PROTOCOL`); null: an older one, which runs 3. */
   maxTasks: number | null;
   toolchains: Record<string, string>;
   /** A Mac whose app opens Xcode and looks at its iPhone again for the iPhone guide (`IPHONE_DEV_MODE_PROTOCOL`). */
@@ -268,7 +270,7 @@ export interface DevicesList {
   requests: JoinRequest[];
 }
 
-/** Background tasks a computer runs at once; its runner doesn't report its own limit, so the runner's default. */
+/** Background tasks a computer runs at once when its runner doesn't say (before `TASK_LIMIT_PROTOCOL`): its default. */
 export const DEFAULT_MAX_TASKS = 3;
 
 /** `devices.changed` to every member: a phone, a holder or a join request changed; the apps read `GET …/devices` again. */
@@ -306,7 +308,7 @@ function computerStatus(m: MachineRow, running: number, now: Date): DeviceStatus
   }
   const pause = machinePause(m, now);
   if (pause) return { kind: "paused", until: pause.until };
-  if (running > 0) return { kind: "busy", running, max: DEFAULT_MAX_TASKS };
+  if (running > 0) return { kind: "busy", running, max: m.size?.maxTasks ?? DEFAULT_MAX_TASKS };
   return { kind: "ready" };
 }
 
@@ -442,7 +444,7 @@ export async function listDevices(
       systemMode: m.executors?.mode === "system",
       audience: rule.audience,
       status: computerStatus(m, busy.get(m.id) ?? 0, now),
-      maxTasks: null,
+      maxTasks: m.size?.maxTasks ?? null,
       toolchains: m.executors?.toolchains ?? {},
       opensXcode: !managed && m.os === "darwin" && m.protocol >= IPHONE_DEV_MODE_PROTOCOL,
       lastSeenAt: iso(m.lastSeenAt),
@@ -552,15 +554,18 @@ export interface ComputerDeviceInput {
   audience?: DeviceAudience;
   belongsToWorkspace?: boolean;
   spill?: { own?: boolean; others?: boolean };
+  /** Background tasks at once (`TASK_LIMIT_BOUNDS`): the computer applies it, so it must be online. */
+  maxTasks?: number;
 }
 
 /**
  * `PATCH …/devices/computers/{machineId}`: its owner changes anything; an admin renames it, marks it the workspace's,
  * and narrows its rule (widens it only on the workspace's own devices). Never the workspace's computer. Spill-over is
  * its owner's to turn on (other people's agents would think on their plan's computer); an admin only turns it off.
+ * How many tasks it runs at once is its owner's too (their computer's memory), an admin's only on one nobody connected.
  */
 export async function updateComputerDevice(
-  deps: { db: Database; pubsub?: PubSub },
+  deps: { db: Database; pubsub?: PubSub; hub?: Pick<MachineCaller, "call" | "status"> },
   actorId: string,
   orgId: string,
   machineId: string,
@@ -596,6 +601,37 @@ export async function updateComputerDevice(
     if (on === undefined) continue;
     if (on && !owner) throw new ForbiddenError("Only the device's owner can turn this on", "device.spill_owner_only");
     set[column] = on;
+  }
+  if (input.maxTasks !== undefined) {
+    if (!owner && machine.pairedByUserId !== null) {
+      throw new ForbiddenError(
+        "Only the person who connected this computer can change how many tasks it runs at once",
+        "device.tasks_owner_only",
+      );
+    }
+    if (machine.protocol < TASK_LIMIT_PROTOCOL) {
+      throw new ValidationError(
+        "This computer's app is too old to change this from here. Update it.",
+        "machine.outdated",
+      );
+    }
+    if (!deps.hub || !(await deps.hub.status(machine.id))?.online) {
+      throw new MachineOfflineError(machine.name, machine.kind);
+    }
+    const { maxTasks } = await deps.hub.call(machine.id, { op: "limits.set", maxTasks: input.maxTasks });
+    // Its `runner.state` says the same soon after; the answer below reads the new one already.
+    await deps.db
+      .update(machines)
+      .set({ size: withTaskLimit(maxTasks), updatedAt: new Date() })
+      .where(eq(machines.id, machine.id));
+    await recordAudit(deps.db, {
+      orgId,
+      actor: { type: "person", id: actorId },
+      action: "device.updated",
+      target: { type: "machine", id: machine.id },
+      details: { maxTasks },
+    });
+    await publishDevicesChanged(deps.pubsub, orgId);
   }
   if (Object.keys(set).length > 0) {
     await deps.db

@@ -182,10 +182,29 @@ describe("a screen of rows", () => {
     expect(src("chats/useRows.ts")).toContain("const now = useNow(WORK_TICK_MS);");
   });
 
-  test("past the moving rows an orbit holds still, as the faces do", () => {
-    expect(src("chats/ConversationRowView.tsx")).toContain(
-      "<PixelOrbit color={facts.orbit} size={ORBIT} still={!live} />",
+  test("an orbit turns on every row at work, past the rows whose faces move too", () => {
+    expect(src("chats/ConversationRowView.tsx")).toContain("<PixelOrbit color={facts.orbit} size={ORBIT} />");
+    expect(src("chats/PinnedStrip.tsx")).toContain("<PixelOrbit color={facts.orbit} size={MARK} />");
+  });
+
+  test("a scroll that drifts sideways stays a scroll: a row slides only once the drag is clearly sideways", () => {
+    const swipe = readFileSync(join(import.meta.dir, "../../src/ui/SwipeRow.tsx"), "utf8");
+    expect(swipe).toContain("const SIDEWAYS = 24;");
+    expect(swipe).toContain("dragOffsetFromLeft={SIDEWAYS}");
+    expect(swipe).toContain("dragOffsetFromRight={-SIDEWAYS}");
+  });
+
+  test("the home never sways: lists glide to a new place in a set time, rows fade in where they stand, no hop", () => {
+    const section = src("chats/HomeSection.tsx");
+    expect(section).toContain(
+      "export const LIST_MOVE = LinearTransition.duration(motion.panel).easing(motion.easeInOut);",
     );
+    expect(section).not.toContain("springify");
+    expect(section).toContain("const look = useAnimatedStyle(() => ({ opacity: shown.get() }));");
+    expect(section).not.toContain("translateY");
+    const entrance = src("chats/HomeEntrance.tsx");
+    expect(entrance).not.toContain("withSpring");
+    expect(entrance).toContain('return { mode: awake ? ("idle" as const) : ("sleep" as const) };');
   });
 
   test("a finger only starting a scroll lights no row; the finger landing already asks for the conversation", () => {
@@ -211,7 +230,9 @@ describe("a screen of rows", () => {
     expect(ui("RowPressable.tsx")).toContain("onPressIn?.(e);");
   });
 
-  test("the home's sky comes up within 300 ms of the splash leaving", () => {
-    expect(src("chats/ChatsScreen.tsx")).toContain("const SKY_ARRIVE_MS = 300;");
+  test("the home's sky is already there under the splash: the splash's ring opens on it, nothing fades in", () => {
+    const home = src("chats/ChatsScreen.tsx");
+    expect(home).toContain("<GreetingSky />");
+    expect(home).not.toContain("SKY_ARRIVE_MS");
   });
 });

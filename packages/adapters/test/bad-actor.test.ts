@@ -187,6 +187,24 @@ describe("runs outside a mission: only obvious harm is refused", () => {
     expect(codeOf(command)).toBe(code);
   });
 
+  test("the agent's own rootless engine: a privileged container is root in its user namespace alone (ADR 0209)", () => {
+    const rootless = { ...scope, rootlessContainers: true };
+    for (const command of [
+      "docker run --privileged alpine",
+      "docker run --cap-add=SYS_ADMIN alpine",
+      "docker run -v /var/run/docker.sock:/var/run/docker.sock alpine",
+      "podman run --privileged -v /:/host alpine",
+    ]) {
+      expect(badActorReason("Bash", { command }, rootless)).toBeNull();
+    }
+    expect(badActorReason("Bash", { command: "docker run --pid=host alpine ps" }, rootless)).toBe(
+      "it asks for more rights than the agent's own user has",
+    );
+    expect(badActorReason("Bash", { command: "docker run --pid host alpine ps" }, rootless)).toBe(
+      "it asks for more rights than the agent's own user has",
+    );
+  });
+
   test("edits: anywhere the agent can write, but not the system, keys or the runner", () => {
     const edit = (file_path: string) => badActorReason("Write", { file_path }, scope);
     expect(edit("/home/ada/notes/todo.md")).toBeNull();

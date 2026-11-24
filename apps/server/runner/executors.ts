@@ -5,6 +5,7 @@ import { delimiter, isAbsolute, join, win32 } from "node:path";
 import {
   CLI_ERROR_MAX,
   CLI_GIT_MISSING,
+  CLI_HOME_ONLY,
   type CursorModelInfo,
   parseExecutors,
   type RunnerExecutorInfo,
@@ -68,15 +69,46 @@ export function resolveCommand(
   sharedBin = process.env[SHARED_BIN_ENV],
 ): string {
   if (process.platform === "win32" || command.includes("/")) return command;
-  const picked = command === "codex" ? pickedCodex() : undefined;
+  const picked = command === "codex" ? pickedCodex() : command === "agy" ? pickedAgy() : undefined;
   if (picked) return picked;
   const dirs = pathList.split(delimiter).filter((dir) => dir && dir !== sharedBin);
-  for (const dir of dirs) {
-    const full = join(dir, command);
-    if (isExecutable(full)) return full;
-  }
+  const found = onPath(command, dirs);
+  if (found) return found;
   // A bare name would be looked up on the PATH again, shared `bin/` included: a path that isn't there fails the same.
   return sharedBin && dirs[0] ? join(dirs[0], command) : command;
+}
+
+const onPath = (command: string, dirs: readonly string[]) =>
+  dirs.map((dir) => join(dir, command)).find((full) => isExecutable(full));
+
+/** `command` on the PATH as the person has it, never a copy the runner picked in its place; null: not there. */
+export function ownCommand(
+  command: string,
+  pathList = process.env.PATH ?? "",
+  sharedBin = process.env[SHARED_BIN_ENV],
+): string | null {
+  if (process.platform === "win32") return null;
+  return (
+    onPath(
+      command,
+      pathList.split(delimiter).filter((dir) => dir && dir !== sharedBin),
+    ) ?? null
+  );
+}
+
+/**
+ * The Antigravity CLI the runner brought (`AgyCopy`, ADR 0143), where the person's own is older or missing:
+ * `resolveCommand` starts this one for every `agy`, so its looks, sign-ins and turns all run the version reported.
+ */
+let agyPick: string | undefined;
+
+export function setAgyPick(file: string | undefined) {
+  agyPick = file;
+}
+
+/** The runner's own `agy`, while it is the one to run and still there. */
+export function pickedAgy(): string | undefined {
+  return agyPick && isExecutable(agyPick) ? agyPick : undefined;
 }
 
 /**
@@ -599,12 +631,26 @@ async function detectVersion(run: Run, name: "claude" | "codex"): Promise<Probe>
   return auth ? { entry: { version, ...auth } } : { entry: { version }, unsure: true };
 }
 
+/** The CLIs whose installers put them in the home's `~/.local/bin`, by their command. */
+const HOME_INSTALLED = { cursor: CURSOR_BIN, grok: GROK_BIN, antigravity: AGY_BIN } as const;
+
+/** `bin` in the install folders under `home` (`~/.local/bin`…), which other users can't reach; null: none there. */
+export function inHomeDirs(bin: string, home = homedir(), isExe: (file: string) => boolean = isExecutable) {
+  return (
+    usualDirs(home)
+      .filter((dir) => dir.startsWith(`${home}/`))
+      .map((dir) => join(dir, bin))
+      .find(isExe) ?? null
+  );
+}
+
 /**
  * Every CLI looked up at once. One that couldn't tell keeps its entry from `prev` (the last good look), and the
  * whole look is `unsure`, so it is retried soon instead of cached. `strikes` counts each CLI's failing exits in a
  * row across looks (the caller keeps it). A CLI whose `--version` fails with no good look to keep, or past its
  * strikes, is `broken` with its error line: it is there and can't start, which is not missing. Claude Code on Windows
- * says why only through `gitMissing`: without Git for Windows it can't start at all.
+ * says why only through `gitMissing`: without Git for Windows it can't start at all. `homeOnly`: a CLI of
+ * `HOME_INSTALLED` not found is in the runner's own home only (system mode), `CLI_HOME_ONLY`.
  */
 export async function detectExecutors(
   run: Run = defaultRun,
@@ -612,6 +658,7 @@ export async function detectExecutors(
   strikes: Partial<Record<string, number>> = {},
   gitMissing: () => boolean = () => false,
   codexBins: () => string[] = run === defaultRun ? codexCandidates : () => [],
+  homeOnly: (bin: string) => boolean = () => false,
 ): Promise<{ found: Executors; unsure: boolean }> {
   const safe = (p: () => Promise<Probe>) => p().catch((): Probe => ({ unsure: true }));
   const names = ["claude", "codex", "cursor", "opencode", "grok", "antigravity"] as const;
@@ -636,6 +683,9 @@ export async function detectExecutors(
     if (entry) found[name] = entry;
     if (p.unsure) unsure = true;
   });
+  for (const [name, bin] of Object.entries(HOME_INSTALLED) as [keyof typeof HOME_INSTALLED, string][]) {
+    if (!found[name] && !broken[name] && homeOnly(bin)) broken[name] = CLI_HOME_ONLY;
+  }
   if (Object.keys(broken).length) found.broken = broken;
   return { found, unsure };
 }
@@ -673,6 +723,8 @@ export function cachedExecutors(
     /** Before each look (Windows: the PATH read again, so a CLI installed since is found). */
     before?: () => void;
     gitMissing?: () => boolean;
+    /** System mode: a CLI found only in root's own install folders (`CLI_HOME_ONLY`). */
+    homeOnly?: (bin: string) => boolean;
   } = {},
 ): ExecutorsCache {
   const now = opts.now ?? Date.now;
@@ -688,7 +740,7 @@ export function cachedExecutors(
     (running ??= Promise.resolve()
       .then(() => opts.before?.())
       .catch(() => undefined)
-      .then(() => detectExecutors(opts.run, value, strikes, opts.gitMissing))
+      .then(() => detectExecutors(opts.run, value, strikes, opts.gitMissing, undefined, opts.homeOnly))
       .then(({ found, unsure }) => {
         at = now();
         retry = unsure ? Math.min(retry ? retry * 2 : EXECUTORS_RETRY_MS, EXECUTORS_TTL_MS) : 0;

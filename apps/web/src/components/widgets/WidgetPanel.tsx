@@ -285,7 +285,6 @@ function HowItUpdates({
                 align="end"
                 aria-label={t("widgets.menu.schedule")}
                 value={widget.schedule}
-                disabled={update.isPending}
                 options={WIDGET_SCHEDULES.map((s) => ({ value: s, label: t(`widgets.schedulesShort.${s}`) }))}
                 onValueChange={(schedule) =>
                   schedule !== widget.schedule && update.mutate({ widgetId: widget.id, schedule }, { onError: say })
@@ -317,12 +316,11 @@ function HowItUpdates({
               initial={alert}
               saving={update.isPending}
               onCancel={() => setAlerting(false)}
-              onSave={(next) =>
-                update.mutate(
-                  { widgetId: widget.id, alert: next },
-                  { onSuccess: () => setAlerting(false), onError: say },
-                )
-              }
+              onSave={(next) => {
+                // The new alert shows at once; a refusal puts the old one back and says why.
+                setAlerting(false);
+                update.mutate({ widgetId: widget.id, alert: next }, { onError: say });
+              }}
             />
           )}
         </PanelRow>

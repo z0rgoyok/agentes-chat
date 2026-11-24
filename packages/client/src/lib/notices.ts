@@ -20,6 +20,7 @@ export const NOTICE_KINDS = [
   "work_check_in",
   "run_stopped",
   "github_event",
+  "github_check",
   "work_follow_up",
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
@@ -222,6 +223,20 @@ export function noticeView(
       const detail = said ? { content: said } : null;
       if (r.answerFor) return line("chat.notice.github.asked", values, detail);
       return { ...line(githubLineKey(r), values, detail), answer: r.outside === "1" && !r.answeredBy };
+    }
+    // A check that failed on a code session's branch (ADR 0215): which, and on which pull request or commit. "Ver"
+    // opens what the check itself said and its page; the agent's reply says what it does about it.
+    case "github_check": {
+      const r = notice.refs;
+      const values = {
+        check: r.check ?? "",
+        number: r.number ?? "",
+        commit: (r.sha ?? "").slice(0, 7),
+        repo: r.repo ?? "",
+      };
+      const said = [notice.text.trim(), r.url ?? ""].filter(Boolean).join("\n\n");
+      const key = r.number ? "chat.notice.github.checkFailed" : "chat.notice.github.checkFailedCommit";
+      return line(key, values, said ? { content: said } : null);
     }
     // A return's line is the bar's (`isReturnLine`), never one of the conversation's.
     case "follow_up":

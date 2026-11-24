@@ -1,6 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, isNull, notInArray, schema, sql } from "@agenteschat/db";
 import { WIDGET_HISTORY_KEPT } from "@agenteschat/ui/widgets/spec";
+import { agentOwnerIds, OWNER_COLUMNS } from "../audience";
 import { notifyWidgetFailed, resolveWidgetNotices } from "../notification-producers";
 import { getMembership } from "../organizations";
 import type { RoutineRunEndStatus } from "../routine-ledger";
@@ -133,15 +134,16 @@ export function widgetChangeOf(
 
 /**
  * Who hears that a widget stopped updating: its creator, else who looks after its routine, else the board's owner,
- * else the agent's owner; the first of them still in the workspace who sees the board (a private board's widget is
- * never named to anyone else).
+ * else the agent's owner (or a holder of its owner role, ADR 0085, addendum of 2026-11-21); the first of them still in
+ * the workspace who sees the board (a private board's widget is never named to anyone else).
  */
 async function failureRecipient(db: Executor, widget: WidgetRow, board: DashboardRow): Promise<string | null> {
   const [r] = widget.routineId
     ? await db.select({ creator: routines.createdByUserId }).from(routines).where(eq(routines.id, widget.routineId))
     : [];
-  const [a] = await db.select({ owner: agents.ownerUserId }).from(agents).where(eq(agents.id, widget.agentId));
-  const named = [widget.createdByUserId, r?.creator, board.ownerUserId, a?.owner].filter((u): u is string => !!u);
+  const [a] = await db.select(OWNER_COLUMNS).from(agents).where(eq(agents.id, widget.agentId));
+  const owners = a ? await agentOwnerIds(db, widget.orgId, a) : [];
+  const named = [widget.createdByUserId, r?.creator, board.ownerUserId, ...owners].filter((u): u is string => !!u);
   for (const userId of new Set(named)) {
     const membership = await getMembership(db, userId, widget.orgId);
     if (membership && dashboardRights(board, viewerOf(membership, userId)).see) return userId;

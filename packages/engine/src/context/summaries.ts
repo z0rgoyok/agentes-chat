@@ -3,6 +3,7 @@ import { and, type Database, desc, eq, gte, inArray, isNull, lt, schema, sql } f
 import { isConfidential } from "../confidential";
 import { cutText, cutTextEnd } from "../format";
 import type { ModelGateway } from "../gateway";
+import type { IntentWriter } from "../intent-line";
 import { createLlmJudge, type Judge } from "../judge";
 import type { Message } from "../messages";
 import { cheapModelForOrg } from "../router";
@@ -29,6 +30,8 @@ export interface ContextDeps {
   judge?: Judge;
   /** Reads schedules and moments people write (schedule-reader.ts); default: the org's cheap model. Tests pass a fake. */
   schedules?: ScheduleReader;
+  /** The working line's first words at a run's start (`intent-line.ts`); absent: none. */
+  intents?: IntentWriter;
   /** Where learning's failures are reported (ADR 0104, `reportLearnFailure`); absent: not reported. */
   errors?: ErrorReporter;
 }

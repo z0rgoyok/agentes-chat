@@ -11,13 +11,22 @@
  * - PUT    /api/app/organizations/{orgId}/connectors/custom/{id}/tools { label, tools: [{ name, access, label, confirmed? }] }
  *          (`access`: read | write | approval | off; sensitive tools only approval | off)
  * - DELETE /api/app/organizations/{orgId}/connectors/custom/{id}
+ * - GET/PUT/DELETE /api/app/organizations/{orgId}/connector-oauth-clients (the workspace's own OAuth app, one per
+ *          issuer: here one per server's origin; the secret is never returned)
  * The mock never talks to the URL: it pretends the server offers a ticket
  * tool set, needs an API key unless the URL contains "oauth", and gains one
  * new tool on the first refresh. Tools come classified as the backend does
  * (annotations, the verb; `close_ticket` is ambiguous: the judge suggests
  * "write" and it waits for a decision; `delete_customer` is sensitive).
  */
-import { type ApiClient, ApiError, type CustomServer, type CustomTool, type ToolAccess } from "@agenteschat/client";
+import {
+  type ApiClient,
+  ApiError,
+  type CustomServer,
+  type CustomTool,
+  type OwnOAuthClient,
+  type ToolAccess,
+} from "@agenteschat/client";
 import { partsOf } from "@agenteschat/client/lib/tool-review";
 import { clone, type MockContext, MockNotFoundError, mockId } from "./context";
 
@@ -73,6 +82,13 @@ export function createMockCustomConnectors(
   rename(orgId: string, id: string, label: string): CustomServer | null;
 } {
   const byOrg = new Map<string, CustomServer[]>();
+  const ownClients = new Map<string, NonNullable<OwnOAuthClient["client"]>>();
+  const issuerOf = (serverUrl: string) => new URL(serverUrl).origin;
+  const ownView = (orgId: string, serverUrl: string): OwnOAuthClient => ({
+    redirectUri: "https://chat.example.com/api/app/connectors/oauth/callback",
+    issuer: issuerOf(serverUrl),
+    client: clone(ownClients.get(`${orgId}|${issuerOf(serverUrl)}`) ?? null),
+  });
   const refreshed = new Set<string>();
   const list = (orgId: string) => {
     let l = byOrg.get(orgId);
@@ -173,6 +189,29 @@ export function createMockCustomConnectors(
         orgId,
         list(orgId).filter((x) => x.id !== id),
       );
+    },
+    ownClient: async (orgId, serverUrl) => ownView(orgId, serverUrl),
+    setOwnClient: async (orgId, input) => {
+      log("customConnectors.setOwnClient", orgId, {
+        ...input,
+        clientSecret: input.clientSecret ? "[redacted]" : undefined,
+      });
+      const key = `${orgId}|${issuerOf(input.serverUrl)}`;
+      const before = ownClients.get(key);
+      ownClients.set(key, {
+        clientId: input.clientId,
+        hasSecret: Boolean(input.clientSecret) || (before?.clientId === input.clientId && before.hasSecret),
+        scopes:
+          input.scopes
+            ?.split(/[\s,]+/)
+            .filter(Boolean)
+            .join(" ") || null,
+      });
+      return ownView(orgId, input.serverUrl);
+    },
+    removeOwnClient: async (orgId, issuer) => {
+      log("customConnectors.removeOwnClient", orgId, issuer);
+      if (!ownClients.delete(`${orgId}|${issuer}`)) throw new MockNotFoundError("No client of yours for it");
     },
   };
 }

@@ -57,6 +57,13 @@ describe("one page top and side", () => {
     expect(body(".ac-pagehead__actions")).toContain("min-height: var(--control-h-md);");
   });
 
+  test("the title stays whole: when the buttons don't fit beside it they go under it, and its line never widens it", () => {
+    // As wide as the title on one line, so the row wraps the buttons before the title (a fixed basis wrapped it first).
+    expect(body(".ac-pagehead__text")).toContain("flex: 1 1 auto;");
+    expect(body(".ac-pagehead__row")).toContain("flex-wrap: wrap;");
+    expect(body(".ac-pagehead__meta")).toContain("contain: inline-size;");
+  });
+
   test("a page's count is on the title's row, on its baseline, 12 after it, under it only without room", () => {
     const line = body(".ac-pagehead__titleline:has(> .ac-pagehead__count)");
     expect(line).toContain("flex-wrap: wrap;");

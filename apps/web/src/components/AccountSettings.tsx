@@ -4,6 +4,7 @@ import {
   keys,
   useAiAccounts,
   useAuthConfig,
+  useMe,
   useSetAgentStyle,
   useSetShowActivity,
 } from "@agenteschat/client";
@@ -410,12 +411,13 @@ class AuthRefused extends Error {
  * "E-mail": the same account under a new address (ADR 0088 §2, addendum 2026-11-13). The new address, then the code
  * emailed to the current one, or for someone who can't open that inbox a sign-in again, which comes back here with the
  * address typed (the dialog is kept in the address, `?account=email`). A current address never confirmed gets no code:
- * only the sign-in again. Then a link goes to the new address, which changes once it is opened. On a server that sends
- * no e-mail it changes at once.
+ * only the sign-in again. Then a link goes to the new address, which changes once it is opened. An address never
+ * confirmed, and any on a server that sends no e-mail, changes at once.
  */
 export function EmailDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
-  const { me } = useOrg();
+  // Also on the sign-up's "check your inbox" screen, before any workspace.
+  const current = useMe().data?.user.email ?? "";
   const api = useApi();
   const qc = useQueryClient();
   const [value, setValue] = useState("");
@@ -424,7 +426,7 @@ export function EmailDialog({ open, onClose }: { open: boolean; onClose: () => v
   const [sent, setSent] = useState<{ email: string; resendAt: number } | null>(null);
   const [done, setDone] = useState<{ status: "sent" | "changed"; email: string } | null>(null);
   const [reauth, setReauth] = useState(false);
-  const signInAgain = useSignInAgain(me.user.email);
+  const signInAgain = useSignInAgain(current);
   const codeOut = (email: string, resendIn: number) => setSent({ email, resendAt: Date.now() + resendIn * 1000 });
   const change = useMutation({
     mutationFn: (input: { newEmail: string; code?: string }) => api.account.changeEmail(input),
@@ -441,7 +443,7 @@ export function EmailDialog({ open, onClose }: { open: boolean; onClose: () => v
     onError: (e) => {
       // A code went out a moment ago (a reload, another tab): that one is still good.
       const retryIn = e instanceof ApiError && e.code === "reauth.code_wait" ? Number(e.params?.retryIn) : 0;
-      if (retryIn > 0) codeOut(sent?.email ?? me.user.email, retryIn);
+      if (retryIn > 0) codeOut(sent?.email ?? current, retryIn);
       if (errorCode(e)?.startsWith("reauth.code")) setCode("");
       if (errorCode(e) === REAUTH_SIGN_IN) setReauth(true);
     },
@@ -515,7 +517,7 @@ export function EmailDialog({ open, onClose }: { open: boolean; onClose: () => v
                 <Input
                   type="email"
                   autoComplete="email"
-                  placeholder={me.user.email}
+                  placeholder={current}
                   value={value}
                   onChange={(e) => {
                     setValue(e.target.value);

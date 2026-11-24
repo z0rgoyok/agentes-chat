@@ -1,12 +1,14 @@
 import { and, type Executor, eq, notInArray, type SQL, schema, sql } from "@agenteschat/db";
 import { PROVIDERS, type ProviderCause, ProviderError, providerCause } from "@agenteschat/providers";
 import { wakeLineOfRun } from "./approval-order";
-import { BRAIN_NAMES, type ComputerBrainKind, planName } from "./brains/types";
+import { BRAIN_NAMES, type ComputerBrainKind, planName, SYSTEM_REFUSED } from "./brains/types";
 import { kickSignInLine } from "./computer-queue";
 import { cutText, pgSafeJson } from "./format";
 import { recordRunFinished } from "./operator-events";
+import { runState } from "./run-state";
 import { standingErrorDetail } from "./standing";
 import { cliErrorWords, redactCredentials } from "./tool-detail";
+import type { ToolContext } from "./tools/types";
 
 /** How often a running run's worker says it is alive; after `RUN_STALE_MS` without it, the run is recovered. */
 export const RUN_HEARTBEAT_MS = 20_000;
@@ -22,8 +24,8 @@ export type RunStatus = AgentRun["status"];
  * stays until a turn answers, so a run that waits on its computer or its plan since (`waitingMachineId`,
  * `waitingForBrain`) reads as that wait, never as the provider being down.
  */
-export const outageParkedSql = sql<boolean>`(${agentRuns.status} = 'waiting_input' and ${agentRuns.transcript} -> 'outage' is not null
-  and ${agentRuns.waitingMachineId} is null and ${agentRuns.transcript} -> 'waitingForBrain' is null)`;
+export const outageParkedSql = sql<boolean>`(${agentRuns.status} = 'waiting_input' and ${runState} -> 'outage' is not null
+  and ${agentRuns.waitingMachineId} is null and ${runState} -> 'waitingForBrain' is null)`;
 
 /** `outageParkedSql` for a loaded run. */
 export function outageParkedOf(run: Pick<AgentRun, "status" | "waitingMachineId" | "transcript">): boolean {
@@ -47,10 +49,10 @@ export const passedSql = sql<boolean>`((${agentRuns.status} = 'done' and ${agent
  * or long work waiting in the agent's line of work (`line`, ADR 0121): nobody is asked anything.
  */
 export const computerWaitSql = sql<"queued" | "away" | "line" | null>`(case when ${agentRuns.status} = 'waiting_input'
-  and ${agentRuns.waitingMachineId} is not null then (case when ${agentRuns.transcript}->'waitingForBrain'->>'code' = 'busy'
+  and ${agentRuns.waitingMachineId} is not null then (case when ${runState}->'waitingForBrain'->>'code' = 'busy'
   then 'queued' else 'away' end)
   when ${agentRuns.status} = 'running' and ${agentRuns.waitingMachineId} is not null then 'queued'
-  when ${agentRuns.status} = 'waiting_input' and ${agentRuns.transcript}->'waitingForBrain'->>'code' = 'work_queue' then 'line' end)`;
+  when ${agentRuns.status} = 'waiting_input' and ${runState}->'waitingForBrain'->>'code' = 'work_queue' then 'line' end)`;
 
 /**
  * `computerWaitSql` for a loaded run, for its computer only. The head of a computer's line asks for room by claiming
@@ -74,9 +76,9 @@ export const shownStatusSql = sql`(case when r.status = 'running' and r.waiting_
  * one too (`usage_pause`, by its `source`): it answers when that renews, nobody is asked.
  */
 export const usageWaitSql = sql<"plan" | "budget" | null>`(case when ${agentRuns.status} = 'waiting_input'
-  and ${agentRuns.waitingMachineId} is null then (case ${agentRuns.transcript}->'waitingForBrain'->>'code'
+  and ${agentRuns.waitingMachineId} is null then (case ${runState}->'waitingForBrain'->>'code'
   when 'plan_limit' then 'plan' when 'budget' then 'budget'
-  when 'usage_pause' then coalesce(${agentRuns.transcript}->'waitingForBrain'->>'source', 'plan') end) end)`;
+  when 'usage_pause' then coalesce(${runState}->'waitingForBrain'->>'source', 'plan') end) end)`;
 
 /** `usageWaitSql` for a loaded run. */
 export function usageWaitOf(run: Pick<AgentRun, "status" | "waitingMachineId" | "transcript">) {
@@ -94,13 +96,17 @@ export function usageWaitOf(run: Pick<AgentRun, "status" | "waitingMachineId" | 
  * that thread. The run keeps `threadRootId` (its trigger, when top-level) as
  * the conversation it belongs to. The one rule for the engine, its tools and
  * the bridge: cards and events of a run always land where its replies do.
- * `confidential`: its thread holds a confidential result (ADR 0190), so it answers under the message that asked it
- * even when that message is in the main timeline.
+ * It answers under the message that asked it even when that message is in the main timeline when `replyInThread`
+ * (its channel replies in threads, ADR 0214) or `confidential` (its thread holds a confidential result, ADR 0190).
+ * `inChannelRun` (run-scope.ts) is the same rule in SQL. A run's shape must carry `replyInThread`; a tool call's
+ * context carries it when its run's does.
  */
 export function replyThreadOf(
-  run: Pick<AgentRun, "threadRootId" | "triggerMessageId"> & { confidential?: boolean },
+  run: (Pick<AgentRun, "threadRootId" | "triggerMessageId" | "replyInThread"> | ToolContext) & {
+    confidential?: boolean;
+  },
 ): string | null {
-  return run.threadRootId === run.triggerMessageId && !run.confidential ? null : run.threadRootId;
+  return run.threadRootId === run.triggerMessageId && !run.replyInThread && !run.confidential ? null : run.threadRootId;
 }
 
 /**
@@ -194,8 +200,11 @@ export interface CliFailure {
  * `apt install -y bubblewrap`. Refusing to start with denied paths unprotected."), outside its pinned version range.
  */
 const REFUSED_START = /\brefus(?:e|es|ing) to start\b/i;
-/** A CLI's sandbox (bubblewrap) that didn't start on its computer, before the model was asked (`bwrap: …`). */
-const SANDBOX_FAILED = /\bbwrap: /;
+/**
+ * A CLI's sandbox that didn't start on its computer, before the model was asked: bubblewrap's `bwrap: …`, or Grok
+ * Build's own "Sandbox initialization failed: …" / "Platform not supported: …" (no Landlock or Seatbelt there).
+ */
+const SANDBOX_FAILED = /\bbwrap: |\bsandbox initialization failed\b|\bplatform not supported\b/i;
 
 /**
  * A CLI that refused to start on its computer, or whose sandbox didn't: every retry fails the same way until someone
@@ -268,6 +277,7 @@ export function cliFailureText(
  * its detail), which is stored as it is.
  */
 export function brainFailureText(failure: CliFailure, kind: ComputerBrainKind): string | null {
+  if (failure.code === SYSTEM_REFUSED) return `cli_system: ${BRAIN_NAMES[kind]}`;
   const known = runErrorDetail(failure.code);
   if (known && known.errorCode !== "run.failed") return null;
   const words = cliErrorWords(failure.message);
@@ -275,7 +285,7 @@ export function brainFailureText(failure: CliFailure, kind: ComputerBrainKind): 
 }
 
 /** `cli_failed: Claude Code: what it said` (`cliFailureText`); `cli_closed` when it ended without a word. */
-const CLI_FAILURE = /^cli_(failed|closed|sandbox): ([^:]+?)(?:: ([\s\S]*))?$/;
+const CLI_FAILURE = /^cli_(failed|closed|sandbox|system): ([^:]+?)(?:: ([\s\S]*))?$/;
 
 /** A run that stopped on an error of ours that kept repeating (`gave up` in the executor): its stored text's start. */
 export const OUR_ERROR = "Stopped after an error";
@@ -343,13 +353,16 @@ export function runErrorDetail(error: string | null | undefined): {
     DISK_FULL,
     // A Codex turn on a Windows computer where MXC can't hold its commands (the runner's own words say what to do).
     "windows_sandbox",
+    // A code session's worktree isn't there for its agent's computer brain (ADR 0215): still being prepared, gone, or
+    // on a computer the agent no longer uses.
+    "code_session_unavailable",
   ];
   if (simple.includes(error)) return { errorCode: `run.${error}` };
   if (error === "timeout") return { errorCode: "run.computer_timeout", errorParams: { code: error } };
   const cli = CLI_FAILURE.exec(error);
   if (cli) {
     const [, how, brain = "", detail = ""] = cli;
-    if (how === "closed" || how === "sandbox") return { errorCode: `run.cli_${how}`, errorParams: { brain } };
+    if (how !== "failed") return { errorCode: `run.cli_${how}`, errorParams: { brain } };
     return detail
       ? { errorCode: "run.cli_failed", errorParams: { brain, detail } }
       : { errorCode: "run.cli_stopped", errorParams: { brain } };
@@ -636,6 +649,8 @@ const TALK_TOOLS = [
   "ask_user",
   "ask_choices",
   "say_now",
+  // A suggested code session (ADR 0215 §11) waits for the person: the run hasn't started the change.
+  "suggest_code_session",
   "post_update",
   "steer_work",
   "stop_work",

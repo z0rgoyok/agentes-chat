@@ -161,7 +161,12 @@ describe("the rows follow the same choice as the web", () => {
     expect(await read("chat/QuoteLine.tsx")).toContain(
       "look.faces ? WORDS_START[look.style] : rowBodyInset(look).left",
     );
-    expect(await read("chat/ConsultGroup.tsx")).toContain("const inset = rowBodyInset(useRowLook());");
+    // The agents' talk quoted on its own sits on the words' column, as a quote above a reply does; in bubbles, on the
+    // bubbles' own column and as wide as one (`plateInset`).
+    expect(await read("chat/MessageRow.tsx")).toContain(
+      "plateInset(look, aboveInset(look)), { marginTop: rhythm.turn }",
+    );
+    expect(await read("chat/look.ts")).toContain("return { paddingLeft: body.left, paddingRight: body.right };");
     expect(chatScreenSource()).toContain("const quiet = quietInset(rowLook);");
     for (const file of [
       "chat/EventLine.tsx",
@@ -193,9 +198,9 @@ describe("the rows follow the same choice as the web", () => {
     expect(page).toContain("save(dm ? { dmStyle: s } : { channelStyle: s })");
   });
 
-  test("a conversation opens at the newest message until the person picks the last read, as on the web", async () => {
-    expect(openAtOf(undefined)).toBe("latest");
-    expect(openAtOf({ openAt: "read" })).toBe("read");
+  test("a conversation opens at the last read message until the person picks the newest, as on the web", async () => {
+    expect(openAtOf(undefined)).toBe("read");
+    expect(openAtOf({ openAt: "latest" })).toBe("latest");
     expect(await read("me/ChatLookPage.tsx")).toContain("const openAt = openAtOf(prefs);");
     expect(chatScreenSource()).toContain("opensAtLastRead(org?.chatPrefs");
   });
@@ -240,6 +245,12 @@ describe("Tamanho do texto on the phone", () => {
     expect(await read("chat/MessageRow.tsx")).toContain(
       "maxFontSizeMultiplier={nameSize ? CHAT_TEXT_MAX_SCALE : undefined}",
     );
+  });
+
+  test("a list item keeps its words in a bubble as wide as its words", async () => {
+    const words = await read("chat/MessageText.tsx");
+    expect(words).toContain("style={[line, styles.item, inked]}");
+    expect(words).toContain("item: { flexShrink: 1 },");
   });
 
   test("every conversation reads the step from its look, and Conversa saves it on the server with a preview", async () => {

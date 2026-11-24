@@ -2,7 +2,7 @@ import type { LiveKind } from "@agenteschat/client";
 import { useCreateLiveFile } from "@agenteschat/client";
 import { KIND_ICON } from "@agenteschat/client/lib/artifacts";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { Button, Menu, MenuItem } from "@agenteschat/ui";
+import { Button, Menu, MenuItem, MenuSeparator } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
@@ -41,17 +41,21 @@ export function useNewLiveFile(where: { channelId?: string | null; threadId?: st
 
 /**
  * "New" beside Upload in the Drive (and in its empty state): a menu of the live kinds, each with its icon and one
- * quiet line on what it is for.
+ * quiet line on what it is for. Given `onNewFolder`, "New folder" heads it, so the header keeps one "New" and no loose
+ * folder button.
  */
 export function NewFileMenu({
   size = "md",
   align = "end",
   iconOnly = false,
+  onNewFolder,
 }: {
   size?: "sm" | "md";
   align?: "start" | "end";
   /** Its plus alone (a phone's header, beside Upload): "Novo" stays its name. */
   iconOnly?: boolean;
+  /** Where the Drive lets this person make folders: "New folder" first, apart from the files. */
+  onNewFolder?: () => void;
 }) {
   const { t } = useTranslation();
   const { make, busy } = useNewLiveFile();
@@ -76,6 +80,14 @@ export function NewFileMenu({
         )
       }
     >
+      {onNewFolder && (
+        <>
+          <MenuItem icon="drive" onSelect={onNewFolder}>
+            {t("drive.newFolder")}
+          </MenuItem>
+          <MenuSeparator />
+        </>
+      )}
       {NEW_KINDS.map((kind) => (
         <MenuItem
           key={kind}

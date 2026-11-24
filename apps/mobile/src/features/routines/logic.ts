@@ -29,6 +29,7 @@ export const ROUTINE_EVENTS: RoutineEvent[] = [
   "github.pr_opened",
   "issue.created",
   "deploy.succeeded",
+  "telegram.message",
 ];
 
 /** Started by something happening (an event, an email, a webhook call), not by the clock. */

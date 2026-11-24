@@ -1,10 +1,12 @@
 import {
   type Agent,
   type Artifact,
+  type ArtifactDetail,
   applyChannelEvent,
+  cacheResolved,
   emptyStreams,
   type FileConversationRef,
-  isLiveFileKind,
+  isMediaKind,
   keys,
   type LiveRef,
   type LiveRun,
@@ -15,6 +17,7 @@ import {
   runsInChannel,
   type StreamsState,
   useApi,
+  useMessages,
   useThreadMessages,
 } from "@agenteschat/client";
 import { mayAsk } from "@agenteschat/client/lib/audience";
@@ -28,19 +31,36 @@ import { useOrg } from "@/providers/org";
 import { useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { requestComposerText } from "../../chat/composer-request";
+import { useOpenFile } from "../../files/open";
 import { chatHref } from "../../links/logic";
 import { useConnection, useDirectory, useOrgId } from "../../shared/hooks";
 import { liveRoute } from "../routes";
-import { askText, fileAgentId, fileUnder, type TalkPin, talkPins } from "./logic";
+import {
+  askText,
+  fileAgentId,
+  fileUnder,
+  type MediaPin,
+  mediaPins,
+  type TalkPin,
+  talkKindOf,
+  talkPins,
+  withSending,
+} from "./logic";
 import { dropTalkAbout, revealOnOpen, setTalkAbout, takeReveal, useRevealFor } from "./store";
 
 /*
  * A live file's own conversation on the phone (ADR 0199): opening it from the file (made on first use), what it holds
  * live for the line under the file, the file's agent, the canvas's comment pins, and the way back to the file from a
- * message's line about it.
+ * message's line about it. A picture, a video or a PDF has the same conversation, its comments pinned on it (ADR 0208).
+ * The conversation opens the same way from every file: its own screen pushed over the file, the system's back to it
+ * (ADR 0208). In a sheet over the file it loaded heavily and moved as it came up; pushed, it is the conversation as
+ * every other one is.
  */
 
-type TalkFile = Pick<Artifact, "id" | "kind" | "title" | "conversation" | "createdBy">;
+/** A file with a conversation: a live file, or a picture, a video or a PDF (its `content` says which). */
+type TalkFile = Pick<Artifact, "id" | "kind" | "title" | "conversation" | "createdBy"> & {
+  content?: ArtifactDetail["content"];
+};
 
 export interface OpenTalk {
   /** What the person had selected: the quote over the composer (null: none, an older quote goes too). */
@@ -52,8 +72,8 @@ export interface OpenTalk {
 }
 
 /**
- * Pushes the file's conversation (the phone's thread screen at its root), made on first use (`artifacts.conversation`),
- * as a task's (ADR 0145): its quote and its first words set before it opens.
+ * Pushes the file's conversation (the phone's conversation at its root) over the file (ADR 0208), made on first use
+ * (`artifacts.conversation`), as a task's (ADR 0145): its quote and its first words set before it opens.
  */
 export function useOpenFileTalk(file: TalkFile | undefined) {
   const { t } = useTranslation();
@@ -63,8 +83,8 @@ export function useOpenFileTalk(file: TalkFile | undefined) {
   const toast = useToast();
   return useCallback(
     (open: OpenTalk = {}) => {
-      if (!file || !isLiveFileKind(file.kind)) return;
-      const kind = file.kind;
+      const kind = talkKindOf(file);
+      if (!file || !kind) return;
       void (async () => {
         try {
           const at: FileConversationRef = file.conversation ?? (await api.artifacts.conversation(orgId, file.id));
@@ -100,8 +120,8 @@ export function useTalkFocus(file: TalkFile | undefined, messageId: string | nul
 }
 
 /**
- * A message's line about this file (or its pin) was tapped: once the file's screen is in view and `ready`, it shows
- * that part (`show`), once.
+ * A message's line about this file (or its pin) was tapped: once the file's screen is in view again and `ready`, it
+ * shows that part (`show`), once.
  */
 export function useRevealHere(
   fileId: string,
@@ -109,14 +129,19 @@ export function useRevealHere(
   show: (selection: LiveSelection, messageId: string | undefined) => void,
 ) {
   const waiting = useRevealFor(fileId);
-  const focused = useIsFocused();
+  const inView = useFileInView();
   const latest = useRef(show);
   latest.current = show;
   useEffect(() => {
-    if (!waiting || !focused || !ready) return;
+    if (!waiting || !inView || !ready) return;
     takeReveal(fileId);
     latest.current(waiting.selection, waiting.messageId);
-  }, [waiting, focused, ready, fileId]);
+  }, [waiting, inView, ready, fileId]);
+}
+
+/** The file's screen is the one the person sees: on top, its conversation not pushed over it. */
+export function useFileInView(): boolean {
+  return useIsFocused();
 }
 
 /** The conversation's messages (replies, its root left out), loaded once it exists. */
@@ -125,6 +150,20 @@ export function useTalkMessages(talk: FileConversationRef | null | undefined): M
   const query = useThreadMessages(orgId, talk?.channelId, talk?.rootId ?? "");
   const rootId = talk?.rootId;
   return useMemo(() => (query.data ?? []).filter((m) => m.id !== rootId && !m.local), [query.data, rootId]);
+}
+
+/**
+ * My comments still on their way in the file's conversation: they wait in the channel's latest page until the server's
+ * copy takes their place (`useSendMessage`). Read from what the phone keeps, never fetched here.
+ */
+function useTalkSending(talk: FileConversationRef | null | undefined): Message[] {
+  const orgId = useOrgId();
+  const channel = useMessages(orgId, talk?.channelId ?? "", false);
+  const rootId = talk?.rootId;
+  return useMemo(
+    () => (rootId ? (channel.data ?? []).filter((m) => m.local && m.threadId === rootId) : []),
+    [channel.data, rootId],
+  );
 }
 
 /**
@@ -187,6 +226,34 @@ export function useTalkPins(fileId: string, messages: readonly Message[]): TalkP
   );
 }
 
+/**
+ * The comments with a pin on a picture, a video or a PDF (ADR 0208), from its conversation, numbered oldest first;
+ * `shownVersion`: the version on screen (a pin made on an older one is faded). Mine still on their way count already:
+ * a comment's pin stays on its spot from the moment it is sent, never gone until the server answers.
+ */
+export function useMediaPins(
+  file: Pick<ArtifactDetail, "id" | "conversation" | "shownVersion"> | undefined,
+): MediaPin[] {
+  const messages = useTalkMessages(file?.conversation);
+  const sending = useTalkSending(file?.conversation);
+  const id = file?.id ?? "";
+  const version = file?.shownVersion ?? 0;
+  return useMemo(
+    () =>
+      mediaPins(
+        id,
+        withSending(messages, sending).map((m) => ({
+          id: m.id,
+          author: m.author,
+          liveRef: messageLiveRef(m),
+          meta: m.meta,
+        })),
+        version,
+      ),
+    [id, messages, sending, version],
+  );
+}
+
 /** What in the conversation changes its line: a message, an agent starting, stepping or ending its turn. */
 const RUN_EVENTS: ReadonlySet<string> = new Set([
   "message.created",
@@ -215,7 +282,7 @@ export function useTalkRuns(fileId: string, talk: FileConversationRef | null | u
   const api = useApi();
   const qc = useQueryClient();
   const connection = useConnection();
-  const focused = useIsFocused();
+  const focused = useFileInView();
   const [streams, setStreams] = useState<StreamsState>(emptyStreams);
   const channelId = talk?.channelId ?? null;
   const rootId = talk?.rootId ?? null;
@@ -246,6 +313,11 @@ export function useTalkRuns(fileId: string, talk: FileConversationRef | null | u
     };
     check();
     const off = connection?.subscribe(channelId, (event) => {
+      // A comment on a picture, a video or a PDF resolved or opened again (ADR 0208): its pin follows at once.
+      if (event.type === "message.resolved") {
+        cacheResolved(qc, orgId, event.channelId, event.messageId, event.resolved);
+        return;
+      }
       if (!RUN_EVENTS.has(event.type)) return;
       setStreams((s) => applyChannelEvent(s, event as Parameters<typeof applyChannelEvent>[1]));
       refresh();
@@ -266,18 +338,32 @@ export function useTalkRuns(fileId: string, talk: FileConversationRef | null | u
 }
 
 /**
- * A message's line about a file, tapped: the file's screen shows that part. From the file's own conversation it goes
- * back to the file under it; from anywhere else the file opens on its screen.
+ * A message's line about a file, tapped: the file's screen shows that part. From the file's own conversation pushed
+ * over it, it goes back to the file under it (the viewer, for a picture or a video it holds); from anywhere else the
+ * file opens on its screen. A picture or a video opens in the viewer (a video at the comment's moment), a PDF on its
+ * screen (at the comment's page).
  */
 export function useOpenLiveRef() {
   const navigation = useNavigation();
+  const openFile = useOpenFile();
   return useCallback(
     (ref: LiveRef, messageId?: string) => {
-      if (ref.selection) revealOnOpen(ref.artifactId, ref.selection, messageId);
+      const media = isMediaKind(ref.kind);
+      const selection = ref.selection;
+      // What the file's screen shows of it: a live file's part, a video's moment, a PDF's page (a picture shows its
+      // pins whole).
+      if (
+        selection &&
+        (!media ||
+          (ref.kind === "video" && selection.time !== undefined) ||
+          (ref.kind === "pdf" && selection.page !== undefined))
+      )
+        revealOnOpen(ref.artifactId, selection, messageId);
       const routes = navigation.getState()?.routes as { name: string; params?: object }[] | undefined;
       if (fileUnder(routes, ref.artifactId) && router.canGoBack()) router.back();
+      else if (isMediaKind(ref.kind)) void openFile({ id: ref.artifactId, kind: "file", title: ref.title });
       else router.push(liveRoute(ref.kind, ref.artifactId));
     },
-    [navigation],
+    [navigation, openFile],
   );
 }

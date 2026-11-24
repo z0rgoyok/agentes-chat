@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { Approval, ApprovalCoverView, ApprovalRule, CardDelegate } from "../api/types";
 import { serviceKey } from "./activity";
+import type { AgentOwnerLike } from "./agent-owner";
 import { aheadPhase, approvalAction, emailTitleWords, sqlReadsTarget } from "./approval-kind";
 import { humanize } from "./custom-tools";
 import { formatShortDate, formatTime, isUuid, lowerFirst, relativeDay } from "./format";
@@ -472,7 +473,19 @@ export function decisionOutcome(
   return t(approved ? "approvals.status.approved" : "approvals.status.refused");
 }
 
-/** Who an approval waits for, by name: the people `request_approval` asked (ADR 0126), else the agent's owner. */
+/**
+ * Who answers for a request: the owner it was made with (a person or a role, ADR 0085, addendum of 2026-11-21), else
+ * its agent's now (a request from before the server kept one). Its name is `ownerNameOf`'s.
+ */
+export const approvalOwnerOf = (
+  a: Pick<Approval, "ownerUserId" | "ownerRoleId">,
+  agent: AgentOwnerLike | undefined,
+): AgentOwnerLike => (a.ownerUserId || a.ownerRoleId ? a : (agent ?? {}));
+
+/**
+ * Who an approval waits for, by name: the people `request_approval` asked (ADR 0126), else the agent's owner (a
+ * person's name, or the role's: "Waiting for Engineering").
+ */
 export const approvalWaitsFor = (approval: Pick<Approval, "approvers">, ownerName: string | undefined) =>
   approval.approvers?.label || ownerName;
 

@@ -1,3 +1,4 @@
+import type { PlanDropped } from "@agenteschat/client";
 import { joinNames } from "@agenteschat/client/lib/format";
 import {
   agentWaitingPhrase,
@@ -52,6 +53,7 @@ export interface MoveAgentsResult {
   skipped: { agentId: string; reason: string }[];
   resumed: number;
   stillWaiting: number;
+  planDropped?: PlanDropped[];
 }
 
 /** How often the outages are asked again while one shows. */

@@ -165,8 +165,8 @@ describe("on a server that sends email", () => {
     expect(mailTo("ana.nova@example.com")).toHaveLength(1);
   });
 
-  test("an address the account never confirmed gets no code, and its mailbox no “This wasn't me” and no hold", async () => {
-    t = await createTestServer({ env: { ALLOW_SIGNUP: "true" } });
+  test("an address the account never confirmed gets no code, and changes at once with its link at the new one", async () => {
+    t = await createTestServer({ unconfirmedSignUps: true, env: { ALLOW_SIGNUP: "true" } });
     const ana = browser(t);
     await signUp(ana, "ana@example.com");
     await signedInLongAgo("ana@example.com");
@@ -179,12 +179,15 @@ describe("on a server that sends email", () => {
     const fresh = browser(t);
     const signIn = { email: "ana@example.com", password: "correct horse battery" };
     expect((await fresh("/api/auth/sign-in/email", { json: signIn })).status).toBe(200);
-    const sent = await change(fresh, { newEmail: "ana.nova@example.com" });
-    expect(await sent.json()).toEqual({ status: "sent", email: "ana.nova@example.com" });
     await t.drain();
     const told = mailTo("ana@example.com").length;
+    const changed = await change(fresh, { newEmail: "ana.nova@example.com" });
+    expect(await changed.json()).toEqual({ status: "changed", email: "ana.nova@example.com" });
+    expect(await userOf("ana.nova@example.com")).toMatchObject({ emailVerified: false });
+    expect(await (await fresh("/api/app/me")).json()).toMatchObject({ user: { email: "ana.nova@example.com" } });
+    // The link that confirms the address, not one that changes it: there is no other address to move from now.
     expect((await openLink(browser(t), "ana.nova@example.com")).status).toBe(302);
-    expect((await userOf("ana.nova@example.com"))?.id).toBeTruthy();
+    expect(await userOf("ana.nova@example.com")).toMatchObject({ emailVerified: true });
     await t.drain();
     expect(mailTo("ana@example.com")).toHaveLength(told);
     const undos = await t.db
@@ -197,6 +200,16 @@ describe("on a server that sends email", () => {
       json: { email: "ana@example.com", password: "correct horse battery", name: "Someone" },
     });
     expect(someone.status).toBe(200);
+  });
+
+  test("an address never confirmed can't move to another account's", async () => {
+    t = await createTestServer({ unconfirmedSignUps: true, env: { ALLOW_SIGNUP: "true" } });
+    await signUp(browser(t), "bia@example.com");
+    const ana = browser(t);
+    await signUp(ana, "ana@example.com");
+    const taken = await change(ana, { newEmail: "bia@example.com" });
+    expect([taken.status, await errorOf(taken)]).toEqual([409, "email.taken"]);
+    expect((await userOf("ana@example.com"))?.id).toBeTruthy();
   });
 
   test("“This wasn't me” brings the old address back and ends every session, once, and only by its button", async () => {
@@ -250,7 +263,7 @@ describe("on a server that sends email", () => {
   });
 
   test("“This wasn't me” also takes the ways in the other mailbox got: Google by its address, a password, a reset link", async () => {
-    t = await createTestServer({ env: GOOGLE_ENV });
+    t = await createTestServer({ unconfirmedSignUps: true, env: GOOGLE_ENV });
     const ana = browser(t);
     await signUpConfirmed(ana, "ana@example.com");
     const userId = (await userOf("ana@example.com"))?.id ?? "";
@@ -290,7 +303,7 @@ describe("on a server that sends email", () => {
   });
 
   test("the old address is held while its undo works: no sign-up, no other account's change", async () => {
-    t = await createTestServer({ env: { ALLOW_SIGNUP: "true" } });
+    t = await createTestServer({ unconfirmedSignUps: true, env: { ALLOW_SIGNUP: "true" } });
     const ana = browser(t);
     await signUpConfirmed(ana, "ana@example.com");
     await change(ana, { newEmail: "ana.nova@example.com" });
@@ -331,7 +344,7 @@ describe("after “This wasn't me”, nothing the other person has or began goes
     browser(t)("/api/auth/sign-in/email", { json: { email, password } });
   /** Ana's account, moved to thief@ by its link opened in the other person's browser, which that signs in. */
   async function movedToThief(env: Record<string, string> = {}) {
-    t = await createTestServer({ env });
+    t = await createTestServer({ unconfirmedSignUps: true, env });
     const ana = browser(t);
     await signUpConfirmed(ana, "ana@example.com");
     const userId = (await userOf("ana@example.com"))?.id ?? "";
@@ -525,7 +538,7 @@ describe("a made-up change link", () => {
 
 describe("on a server that sends no email", () => {
   test("the address changes at once, as before, with no code and nobody told", async () => {
-    t = await createTestServer({ emailDelivers: false, env: { ALLOW_SIGNUP: "true" } });
+    t = await createTestServer({ unconfirmedSignUps: true, emailDelivers: false, env: { ALLOW_SIGNUP: "true" } });
     const ana = browser(t);
     await signUp(ana, "ana@example.com");
     await signedInLongAgo("ana@example.com");

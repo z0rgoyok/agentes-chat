@@ -25,6 +25,8 @@ export interface DialogHeadSlots {
    * "Abrindo…". Written as a view goes, taken as the next one comes.
    */
   picture: { current: KeptPicture | null };
+  /** Where the stage has no room for the line under the screen (a session's panel): its words go in an ⓘ's hint. */
+  notice?: "hint";
 }
 
 export interface KeptPicture {

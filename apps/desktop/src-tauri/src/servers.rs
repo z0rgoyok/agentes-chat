@@ -203,6 +203,16 @@ pub fn drop_cookies(app: &AppHandle, origin: &str) {
     crate::cookies::remove(&page, move |c| crate::workspaces::sent_to(c, &url));
 }
 
+/// What the main window's page may ask, on agentes.chat (`capabilities/main.json`) as on any other server (`grant`).
+const MAIN_PERMISSIONS: &[&str] = &[
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "allow-this-mac",
+    "allow-context-menu",
+    "allow-page-ready",
+    "notification:allow-is-permission-granted",
+];
+
 /// The main window's capability for a server other than agentes.chat, for its own origin only.
 fn grant(app: &AppHandle, origin: &str) {
     if origin == CLOUD {
@@ -214,15 +224,13 @@ fn grant(app: &AppHandle, origin: &str) {
         return;
     }
     let id: String = origin.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-    let capability = CapabilityBuilder::new(format!("main-{id}"))
-        .remote(format!("{origin}/*"))
-        .local(false)
-        .webview(crate::main_window::LABEL)
-        .permission("core:window:allow-start-dragging")
-        .permission("core:window:allow-internal-toggle-maximize")
-        .permission("allow-this-mac")
-        .permission("allow-context-menu")
-        .permission("allow-page-ready");
+    let capability = MAIN_PERMISSIONS.iter().fold(
+        CapabilityBuilder::new(format!("main-{id}"))
+            .remote(format!("{origin}/*"))
+            .local(false)
+            .webview(crate::main_window::LABEL),
+        |capability, permission| capability.permission(*permission),
+    );
     if let Err(err) = app.add_capability(capability) {
         eprintln!("agentes.chat: no capability for {origin}: {err}");
         granted.remove(origin);
@@ -317,6 +325,15 @@ pub async fn server_sign_out(app: AppHandle, server: String) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_server_s_pages_may_ask_what_agentes_chat_s_may() {
+        let file: serde_json::Value = serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+        let listed: Vec<&str> = file["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+        assert_eq!(listed, MAIN_PERMISSIONS);
+        // The notification plugin's stand-in asks this as every page loads: refused, it was an unhandled rejection.
+        assert!(MAIN_PERMISSIONS.contains(&"notification:allow-is-permission-granted"));
+    }
 
     #[test]
     fn addresses_the_app_may_open() {

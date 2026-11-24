@@ -5,7 +5,8 @@ import { Count } from "./Count";
 import type { FiltersProps } from "./Filters";
 import { haptics } from "./haptics";
 import { Icon } from "./Icon";
-import { TOOL_H, TOUCH } from "./rhythm";
+import { RADIUS } from "./radius";
+import { TOUCH } from "./rhythm";
 import { systemText } from "./Text";
 import { useTheme } from "./theme";
 import { CHROME_MAX_SCALE, weights } from "./type-scale";
@@ -16,26 +17,25 @@ export type SegmentedProps = FiltersProps & {
    * `fit`: each as wide as its words first, so long labels stay on one line (a form's choice).
    */
   wide?: boolean | "fit";
-  /**
-   * `page`: the views of a whole screen beside its 48-point buttons (a proposal's or a document's views). As tall as the screen's own button (48),
-   * its words a size up: at a toolbar's 32 it read as a filter beside a 48 button and 52 rows.
-   */
+  /** `page`: the views of a whole screen (a proposal's or a document's views): 44 tall, a finger's target whole. */
   size?: "page";
 };
 
-/** The track's inset around the segments; a segment's corner is the track's less it, so the two stay concentric. */
-const PAD = 4;
-/** 30% of the control's height, as every control's corner. */
-const RADIUS = Math.round(TOOL_H * 0.3);
-/** A screen's views: the button ruler's 48. */
-const PAGE_H = 48;
-const PAGE_RADIUS = Math.round(PAGE_H * 0.3);
+/** The track's inset around the segments. */
+const PAD = 3;
+/** A segment's height inside the track: 34 (40 with the track), a screen's views 38 (44, a finger's target whole). */
+const SEGMENT_H = 34;
+const PAGE_SEGMENT_H = 38;
 
-/** A segmented control: a sunken track, the selected segment raised; the raised plate slides to a new choice. */
+/**
+ * A segmented control, touch first: a capsule track in the tonal fill a finger presses (`tonal`), the chosen segment a
+ * raised capsule that slides to a new choice; 40 tall (a screen's views 44), each segment's target grown to 44.
+ */
 export function Segmented({ items, value, onChange, wide = false, size }: SegmentedProps) {
   const page = size === "page";
-  const height = page ? PAGE_H : TOOL_H;
-  const radius = page ? PAGE_RADIUS : RADIUS;
+  const segment = page ? PAGE_SEGMENT_H : SEGMENT_H;
+  const height = segment + 2 * PAD;
+  const radius = RADIUS.full;
   const { colors, shadows, motion, reducedMotion } = useTheme();
   const [boxes, setBoxes] = useState<Record<string, { x: number; width: number }>>({});
   const at = boxes[value];
@@ -58,8 +58,7 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
         flexDirection: "row",
         padding: PAD,
         borderRadius: radius,
-        backgroundColor: colors.sunken,
-        boxShadow: "inset 0px 1px 2px 0px rgba(0, 0, 0, 0.06)",
+        backgroundColor: colors.tonal,
         alignSelf: wide ? "stretch" : "flex-start",
       }}
       accessibilityRole="tablist"
@@ -67,7 +66,7 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
       {at ? (
         <Animated.View
           pointerEvents="none"
-          style={[{ position: "absolute", left: 0, top: PAD, bottom: PAD, borderRadius: radius - PAD }, raised, plate]}
+          style={[{ position: "absolute", left: 0, top: PAD, bottom: PAD, borderRadius: radius }, raised, plate]}
         />
       ) : null}
       {items.map((item) => {
@@ -95,7 +94,7 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
               pressed && !on ? { opacity: 0.6 } : null,
               off ? { opacity: 0.45 } : null,
             ]}
-            // The slop gives a segment the 44 a finger needs, past the track's own padding (a page's is 48 already).
+            // The slop gives a segment the 44 a finger needs, past the track's own padding.
             hitSlop={{
               top: Math.max(0, (TOUCH - height) / 2) + PAD,
               bottom: Math.max(0, (TOUCH - height) / 2) + PAD,
@@ -104,33 +103,25 @@ export function Segmented({ items, value, onChange, wide = false, size }: Segmen
             <View
               style={[
                 {
-                  // Inside the track's inset: the control is a toolbar's 32.
-                  minHeight: TOOL_H - 2 * PAD,
-                  paddingHorizontal: 12,
-                  borderRadius: radius - PAD,
+                  minHeight: segment,
+                  paddingHorizontal: 14,
+                  borderRadius: radius,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 6,
                 },
-                // A screen's views: the button's height, less the same inset.
-                page ? { minHeight: PAGE_H - 2 * PAD } : null,
                 on && !at ? raised : null,
               ]}
             >
               {item.icon ? <Icon name={item.icon} size={13} color={on ? colors.ink : colors.muted} /> : null}
               <RNText
                 maxFontSizeMultiplier={CHROME_MAX_SCALE}
-                style={[
-                  systemText(page ? "callout" : "footnote", weights.semibold),
-                  { color: on ? colors.ink : colors.muted },
-                ]}
+                style={[systemText("subhead", weights.semibold), { color: on ? colors.ink : colors.muted }]}
               >
                 {item.label}
               </RNText>
-              {item.count !== undefined ? (
-                <Count value={item.count} size={13} color={on ? colors.ink : colors.muted} />
-              ) : null}
+              {item.count !== undefined ? <Count value={item.count} size={15} color={colors.faint} /> : null}
             </View>
           </Pressable>
         );

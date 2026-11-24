@@ -10,10 +10,10 @@ import {
   waitsOnViewerIn,
   workStateOf,
 } from "./agent-work";
-import { ACCESS_COLUMNS, managesAgentSql } from "./audience";
+import { ACCESS_COLUMNS, managesAgentSql, ownsAgent, ownsAgentSql } from "./audience";
 import { runAuthorityById } from "./authority";
 import type { ModelScope } from "./brains/select";
-import { TtlCache } from "./cache";
+import { caches, TtlCache } from "./cache";
 import { computerQueue as lineOfComputer, seesRunSql } from "./computer-queue";
 import { isAgentOnlyDm } from "./dms";
 import { NotFoundError } from "./errors";
@@ -21,7 +21,7 @@ import { type CanceledReturn, canceledReturns, type PendingReturn, pendingReturn
 import { replyExcerpt } from "./messages";
 import { requireActiveMembership } from "./organizations";
 import { pendingIds } from "./recovery";
-import { canceledBySql, personStopOf, shownStatusSql } from "./runs";
+import { canceledBySql, personStopOf, replyThreadOf, shownStatusSql } from "./runs";
 import { channelReaderSql } from "./task-access";
 import { mayContinuePause } from "./usage-pause";
 
@@ -103,7 +103,7 @@ export interface TaskDelegation {
    */
   from: {
     channelId: string;
-    channelKind: "channel" | "dm" | "task" | "file";
+    channelKind: "channel" | "dm" | "task" | "file" | "code";
     channelName: string | null;
     threadId: string | null;
     messageId: string | null;
@@ -247,6 +247,14 @@ export interface TaskManagerView {
   doneToday?: number;
 }
 
+/** Where a run of a raw row answers (`replyThreadOf`). */
+const threadOfRow = (r: { thread_root_id: string; trigger_message_id: string; reply_in_thread: boolean | string }) =>
+  replyThreadOf({
+    threadRootId: r.thread_root_id,
+    triggerMessageId: r.trigger_message_id,
+    replyInThread: r.reply_in_thread === true || r.reply_in_thread === "t",
+  });
+
 type Row = {
   id: string;
   agent_id: string;
@@ -254,6 +262,7 @@ type Row = {
   status: string;
   thread_root_id: string;
   trigger_message_id: string;
+  reply_in_thread: boolean | string;
   started_at: string | Date | null;
   created_at: string | Date;
   finished_at: string | Date | null;
@@ -266,6 +275,7 @@ type Row = {
   background: boolean | string;
   brain: string | null;
   owner_user_id: string | null;
+  owner_role_id: string | null;
   machine_id: string | null;
   machine_name: string | null;
   requester_id: string | null;
@@ -308,19 +318,25 @@ interface StoredWait {
   since?: number;
 }
 
+/** Who answers for the row's agent: a person or a role (ADR 0085, addendum of 2026-11-21). */
+const ownerOfRow = (r: Pick<Row, "owner_user_id" | "owner_role_id">) => ({
+  ownerUserId: r.owner_user_id,
+  ownerRoleId: r.owner_role_id,
+});
+
 const iso = (v: string | Date | null) => (v === null ? null : new Date(v).toISOString());
 const truthy = (v: boolean | string) => v === true || v === "t";
 const str = (v: unknown) => (typeof v === "string" && v ? v : null);
 const parsed = <T>(v: T | string | null): T | null => (typeof v === "string" ? (JSON.parse(v) as T) : v);
 
-/** The columns of a run named `r`, on channel `c` and agent `a`, as `seesRunSql` reads them. */
-const RUN_COLUMNS = {
+/** The columns of a run named `r`, on channel `c` and agent `a`, as `seesRunSql` reads them, for the viewer. */
+const runColumns = (userId: string) => ({
   channelId: sql`c.id`,
   kind: sql`c.kind`,
   dmKey: sql`c.dm_key`,
   background: sql`r.background`,
-  ownerUserId: sql`a.owner_user_id`,
-};
+  owns: ownsAgentSql("a", sql`${userId}::text`),
+});
 
 /** Whether the caller manages the run's agent `a` (`managesAgentSql`, ADR 0085 addendum of 2026-11-17). */
 const managesSql = (userId: string) => managesAgentSql("a", sql`${userId}::text`);
@@ -331,7 +347,7 @@ const managesSql = (userId: string) => managesAgentSql("a", sql`${userId}::text`
  * to who manages that very agent, so a private agent's work stays out of sight of who merely holds "Edit agents".
  * Never NULL, as `seesRunSql`: `not` of it counts the hidden ones.
  */
-const seesSql = (userId: string, orgId: string) => seesRunSql(RUN_COLUMNS, userId, orgId, managesSql(userId));
+const seesSql = (userId: string, orgId: string) => seesRunSql(runColumns(userId), userId, orgId, managesSql(userId));
 
 /** The oldest card a run waiting on a person waits on (an approval, a question, a secret): its message. */
 const CARD_OF_RUN = sql`(case when r.status in ('waiting_approval', 'waiting_input') then (
@@ -370,9 +386,10 @@ async function visibleRuns(
   const limit = which.active ? TASK_MANAGER_MAX : TASK_MANAGER_ENDED_MAX;
   return rowsOf<Row>(
     await db.execute(sql`select r.id, r.agent_id, r.channel_id, ${shownStatusSql} as status, r.thread_root_id, r.trigger_message_id,
+        r.reply_in_thread,
         r.started_at, r.created_at, r.finished_at, r.error, c.kind, c.name, c.dm_key, t.title,
         array_to_json(r.pending_message_ids || r.after_message_ids) as pending, r.background, r.brain,
-        a.owner_user_id, a.machine_id, mc.name as machine_name,
+        a.owner_user_id, a.owner_role_id, a.machine_id, mc.name as machine_name,
         trig.author_user_id as requester_id, ru.name as requester_name, trig.author_agent_id as asker_agent_id,
         ${which.active ? sql`consult.question` : sql`null`} as question,
         rt.id as routine_id, rt.name as routine_name, w.title as work_title, w.plan as work_plan,
@@ -383,7 +400,7 @@ async function visibleRuns(
           // An ended run's wait is never read, and reading it would detoast every candidate's transcript (a large
           // jsonb) before the sort keeps the last few.
           which.active
-            ? sql`coalesce(r.transcript->'waitingForBrain', case when r.status = 'running' and r.waiting_machine_id is not null
+            ? sql`coalesce(coalesce(r.state, r.transcript)->'waitingForBrain', case when r.status = 'running' and r.waiting_machine_id is not null
           then '{"code":"busy"}'::jsonb end)`
             : sql`null`
         } as wait, pause.data as wait_pause, r.waiting_machine_id,
@@ -427,7 +444,7 @@ async function visibleRuns(
         select s.data->'pause' as data from ${agentRunSteps} s
         where s.run_id = r.id and s.kind = 'error' and s.data->>'reason' = 'usage_wait'
         order by s.seq desc limit 1
-      ) pause on ${which.active ? sql`r.transcript->'waitingForBrain'->>'code' = 'usage_pause'` : sql`false`}
+      ) pause on ${which.active ? sql`coalesce(r.state, r.transcript)->'waitingForBrain'->>'code' = 'usage_pause'` : sql`false`}
       where r.org_id = ${orgId}::uuid and ${status} and ${seesSql(userId, orgId)}
       order by ${which.active ? sql`r.created_at desc` : sql`r.finished_at desc`}, r.id desc
       limit ${limit}`),
@@ -511,15 +528,17 @@ async function handedFrom(db: Database, userId: string, orgId: string, runIds: s
   const rows = rowsOf<{
     run_id: string;
     channel_id: string;
-    kind: "channel" | "dm" | "task" | "file";
+    kind: "channel" | "dm" | "task" | "file" | "code";
     name: string;
     thread_root_id: string;
     trigger_message_id: string;
+    reply_in_thread: boolean | string;
     reply_message_id: string | null;
     title: string | null;
   }>(
     await db.execute(sql`with ${anchorsSql(orgId, runIds)}
-      select an.run_id, c.id as channel_id, c.kind, c.name, a.thread_root_id, a.trigger_message_id, a.reply_message_id,
+      select an.run_id, c.id as channel_id, c.kind, c.name, a.thread_root_id, a.trigger_message_id, a.reply_in_thread,
+        a.reply_message_id,
         t.title
       from anchors an
       join ${agentRuns} a on a.id = an.anchor_id
@@ -535,7 +554,7 @@ async function handedFrom(db: Database, userId: string, orgId: string, runIds: s
         channelId: r.channel_id,
         channelKind: r.kind,
         channelName: r.kind === "channel" ? r.name : null,
-        threadId: r.thread_root_id === r.trigger_message_id ? null : r.thread_root_id,
+        threadId: threadOfRow(r),
         messageId: r.reply_message_id,
         label: replyExcerpt(r.title?.trim() ?? "", 80) || null,
       },
@@ -545,13 +564,20 @@ async function handedFrom(db: Database, userId: string, orgId: string, runIds: s
 
 /**
  * The workspace's open asks as edges, by the run that asked: the run each waits on, or the ask itself while no run took
- * it yet (`waking`: its wake waits for room, or a stretch holds it). A stop takes those too.
+ * it yet (`waking`: its wake waits for room, or a stretch holds it). A stop takes those too. Kept a moment for every
+ * viewer (`caches.orgReads`).
  */
 async function openAsks(db: Database, orgId: string) {
-  const rows = await db
-    .select({ id: agentConsultations.id, asker: agentConsultations.askerRunId, target: agentConsultations.targetRunId })
-    .from(agentConsultations)
-    .where(and(eq(agentConsultations.orgId, orgId), eq(agentConsultations.status, "open")));
+  const rows = (await caches.orgReads.getOrLoad(`${orgId}:asks`, () =>
+    db
+      .select({
+        id: agentConsultations.id,
+        asker: agentConsultations.askerRunId,
+        target: agentConsultations.targetRunId,
+      })
+      .from(agentConsultations)
+      .where(and(eq(agentConsultations.orgId, orgId), eq(agentConsultations.status, "open"))),
+  )) as { id: string; asker: string; target: string | null }[];
   const edges = new Map<string, string[]>();
   for (const r of rows) edges.set(r.asker, [...(edges.get(r.asker) ?? []), r.target ?? r.id]);
   return { edges, waking: rows.flatMap((r) => (r.target ? [] : [r.id])) };
@@ -690,7 +716,7 @@ export async function taskManager(
     channelKind: r.kind,
     channelName: r.kind === "dm" ? null : r.name,
     betweenAgents: betweenAgents(r),
-    threadId: r.thread_root_id === r.trigger_message_id ? null : r.thread_root_id,
+    threadId: threadOfRow(r),
   });
   const routineOf = (r: Row) => (r.routine_id ? { id: r.routine_id, name: r.routine_name ?? "" } : null);
   const tasks: ManagedTask[] = active.map((r) => ({
@@ -714,7 +740,7 @@ export async function taskManager(
     steps: Number(r.steps ?? 0),
     // Unread, a separate request left for after the task (`after_message_ids`) too.
     pendingMessageIds: pendingIds(r.pending),
-    canStop: truthy(r.manages) || r.requester_id === userId || r.owner_user_id === userId,
+    canStop: truthy(r.manages) || r.requester_id === userId || ownsAgent(ownerOfRow(r), userId, membership.roleIds),
     held: heldOf(r),
     line: null,
     wait: waitOf(r),
@@ -737,7 +763,7 @@ export async function taskManager(
       wait.canContinue = await mayContinuePause(db, userId, membership, {
         run: { orgId, agentId: r.agent_id, triggerMessageId: r.trigger_message_id },
         requester: r.requester_id,
-        ownerUserId: r.owner_user_id,
+        ...ownerOfRow(r),
         routineId: r.routine_id,
         routineCreatorId: r.routine_creator,
         agent: pausedAgents.find((a) => a.id === r.agent_id),
@@ -787,9 +813,9 @@ export async function taskManager(
 }
 
 const IN_LINE = sql`r.waiting_machine_id is not null and (r.status = 'running'
-  or (r.status = 'waiting_input' and r.transcript->'waitingForBrain'->>'code' = 'busy'))`;
+  or (r.status = 'waiting_input' and coalesce(r.state, r.transcript)->'waitingForBrain'->>'code' = 'busy'))`;
 /** The computer a running turn is on: the one it asked for room (`roomAsk`), as the line's view counts it. */
-const RUNS_ON = sql`r.transcript->'roomAsk'->>'machineId'`;
+const RUNS_ON = sql`coalesce(r.state, r.transcript)->'roomAsk'->>'machineId'`;
 
 /**
  * Each task's place in its computer's line, from the line's own view (`computerQueue` in computer-queue.ts, ADR 0032
@@ -813,8 +839,11 @@ async function computerLines(db: Database, userId: string, orgId: string, machin
   return places;
 }
 
-/** The workspace's computers with a turn running or waiting for room. */
-async function computerSummaries(db: Database, orgId: string): Promise<ComputerSummary[]> {
+/** The workspace's computers with a turn running or waiting for room, kept a moment for every viewer. */
+const computerSummaries = (db: Database, orgId: string) =>
+  caches.orgReads.getOrLoad(`${orgId}:computers`, () => loadComputerSummaries(db, orgId)) as Promise<ComputerSummary[]>;
+
+async function loadComputerSummaries(db: Database, orgId: string): Promise<ComputerSummary[]> {
   const rows = rowsOf<{ id: string; name: string; working: number | string; in_line: number | string }>(
     await db.execute(sql`select m.id, m.name,
         (select count(*) from ${agentRuns} r join ${agents} a on a.id = r.agent_id

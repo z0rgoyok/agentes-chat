@@ -676,15 +676,18 @@ html:not([data-pointer]) .ap-link:focus-visible {
 .ap-li:hover {
   background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
-/* A request coming in while the list is on screen rises in (the kit's `.ac-list` rows do the same). */
+/*
+ * A request coming in while the list is on screen rises in (the kit's `.ac-list` rows do the same); the rows the page
+ * opens with show at once (`data-settled` comes a frame after the list is drawn).
+ */
 @media (prefers-reduced-motion: no-preference) {
-  .ap-li {
+  .ap-list[data-settled] .ap-li {
     transition:
       opacity var(--dur-base) var(--out),
       transform var(--dur-base) var(--out);
   }
   @starting-style {
-    .ap-li {
+    .ap-list[data-settled] .ap-li {
       opacity: 0;
       transform: translateY(4px);
     }
@@ -796,6 +799,10 @@ html:not([data-pointer]) .ap-li:focus-visible {
   z-index: 3;
   padding: 18px 0 12px;
   background: var(--bg);
+  /* The cards scrolling under it draw their edge as a shadow, outside their box: the head covers that too. */
+  box-shadow:
+    -2px 0 0 var(--bg),
+    2px 0 0 var(--bg);
 }
 .ap-review__by,
 .ap-review__title {
@@ -918,7 +925,11 @@ html:not([data-pointer]) .ap-li:focus-visible {
   min-width: 0;
 }
 /* "Mudar quando perguntar" at the bar's start, its buttons at the end (alone, the same room on every side of them).
-   Wrapped under it on a narrow bar, they start at its words' edge (`.ac-tailrow`), never floating at the end. */
+   On a narrow bar the buttons come first and the link goes under them, as on the card in the conversation: the lines
+   stack from the bottom (`wrap-reverse`), and the buttons start at the link's edge (`.ac-tailrow`). */
+.ap-bar--acts.ac-tailrow {
+  flex-wrap: wrap-reverse;
+}
 .ap-bar--acts > .ap-bar__acts {
   justify-content: flex-start;
 }

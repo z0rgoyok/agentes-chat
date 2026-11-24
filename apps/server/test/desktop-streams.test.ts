@@ -7,6 +7,7 @@ import {
   type RunnerAccess,
   type RunnerInfo,
   STREAM_CLOSE,
+  TERMINAL_CWD_PROTOCOL,
 } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
 import { BROWSER_SCOPE, DESKTOP_SCOPE, grantScopes } from "@agenteschat/engine";
@@ -454,6 +455,75 @@ test("where sessions are screened no terminal opens: refused as not found, nothi
   await until(() => viewer.closed !== null, "the refusal");
   expect(viewer.closed).toEqual({ code: STREAM_CLOSE.notFound, reason: "no_terminal" });
   expect(runner.opened).toEqual([]);
+  runner.ws.close();
+});
+
+/** A code session of the owner's agent on its computer, its worktree ready (ADR 0215). */
+async function codeSession(org: { orgId: string; agentId: string }, machineId: string) {
+  const [user] = await t.db.select().from(schema.users).where(eq(schema.users.email, "owner@example.com"));
+  const userId = user?.id ?? "";
+  const [channel] = await t.db
+    .insert(schema.channels)
+    .values({ orgId: org.orgId, name: "code-c1", kind: "code", visibility: "private", createdByUserId: userId })
+    .returning({ id: schema.channels.id });
+  const channelId = channel?.id ?? "";
+  const [root] = await t.db
+    .insert(schema.messages)
+    .values({ orgId: org.orgId, channelId, authorType: "person", authorUserId: userId, body: "Code session" })
+    .returning({ id: schema.messages.id });
+  await t.db.insert(schema.channelMembers).values({ orgId: org.orgId, channelId, userId });
+  const [session] = await t.db
+    .insert(schema.codeSessions)
+    .values({
+      orgId: org.orgId,
+      channelId,
+      rootMessageId: root?.id ?? "",
+      agentId: org.agentId,
+      machineId,
+      repo: "acme/rockets",
+      repoDir: "repos/acme/rockets",
+      title: "Fix the countdown",
+      worktreePath: ".worktrees/c-1a2b3c4d",
+      worktreeState: "ready",
+      createdBy: userId,
+    })
+    .returning({ id: schema.codeSessions.id });
+  return session?.id ?? "";
+}
+
+test("a code session's terminal starts in its worktree on a computer that takes a folder; the session is checked before the upgrade", async () => {
+  const { owner, org, machine, terminal } = await seeded();
+  const sessionId = await codeSession(org, machine.machineId);
+  const cookie = owner.cookie();
+  expect(await upgradeStatus(`${terminal}&session=c1`, { origin: ORIGIN, cookie })).toBe(400);
+  expect(await upgradeStatus(`${terminal}&session=${crypto.randomUUID()}`, { origin: ORIGIN, cookie })).toBe(404);
+  const state = (worktreeState: string) =>
+    t.db.update(schema.codeSessions).set({ worktreeState }).where(eq(schema.codeSessions.id, sessionId));
+  await state("preparing");
+  expect(await upgradeStatus(`${terminal}&session=${sessionId}`, { origin: ORIGIN, cookie })).toBe(409);
+  await state("ready");
+
+  const runner = await connectRunner(machine.token, { hello: { protocol: TERMINAL_CWD_PROTOCOL } });
+  const viewer = openViewer(`${terminal}&session=${sessionId}`, owner);
+  await until(() => runner.data[0]?.ready === true, "the data socket");
+  expect(runner.opened[0]).toMatchObject({ kind: "terminal", cols: 80, rows: 24, cwd: ".worktrees/c-1a2b3c4d" });
+  // Without a session, the agent's folder as before.
+  openViewer(terminal, owner);
+  await until(() => runner.data[1]?.ready === true, "the second data socket");
+  expect(runner.opened[1]).not.toHaveProperty("cwd");
+  expect(viewer.got).toEqual([]);
+  runner.ws.close();
+});
+
+test("a computer too old for a terminal's folder opens a code session's in the agent's folder, and the person hears so", async () => {
+  const { owner, org, machine, terminal } = await seeded();
+  const sessionId = await codeSession(org, machine.machineId);
+  const runner = await connectRunner(machine.token);
+  const viewer = openViewer(`${terminal}&session=${sessionId}`, owner);
+  await until(() => runner.data[0]?.ready === true && viewer.got.length === 1, "the data socket and the notice");
+  expect(runner.opened[0]).toMatchObject({ kind: "terminal", cols: 80, rows: 24 });
+  expect(runner.opened[0]).not.toHaveProperty("cwd");
+  expect(viewer.got).toEqual(['{"type":"cwd_ignored"}']);
   runner.ws.close();
 });
 

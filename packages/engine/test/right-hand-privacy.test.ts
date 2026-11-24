@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
 import {
   type AccessInput,
+  checkVaultLogin,
   createChannel,
   createRoutine,
   createVaultItem,
@@ -16,6 +17,9 @@ import {
   openPersonAgentDm,
   RIGHT_HAND,
   type RoutineDeps,
+  releaseVaultKeys,
+  releaseVaultLogin,
+  saveMadePassword,
   setAgentAccess,
   setAgentMail,
   setAgentScopes,
@@ -24,6 +28,7 @@ import {
   toolAccess,
   VAULT_GUIDANCE,
   VAULT_LIST_GUIDANCE,
+  VaultRefusal,
   type VaultRun,
 } from "../src";
 import { addMember, type Fixture } from "./fixtures";
@@ -186,6 +191,88 @@ describe("the Vault", () => {
       .insert(schema.channelMembers)
       .values({ orgId: v.f.org.id, channelId: own.channelId, agentId: v.dev.id });
     expect(await titles(own)).toEqual(["Fornecedor"]);
+  });
+
+  test("its shared seat never types or hands out a person's own login or key; the team's open to everyone, yes", async () => {
+    v = await vaultSetup();
+    open = v.f;
+    const lodi = await lodiOf(v.f);
+    const everyone = { everyone: true, roleIds: [], userIds: [], allAgents: false, agentIds: [lodi.id] };
+    const item = (scope: "personal" | "team", fields: Record<string, string>) =>
+      createVaultItem(v.deps, scope === "personal" ? v.bruno.id : v.carla.id, v.f.org.id, {
+        scope,
+        ...(scope === "team" ? { access: everyone } : {}),
+        ...fields,
+      } as Parameters<typeof createVaultItem>[3]);
+    const mine = await item("personal", {
+      kind: "login",
+      title: "Bruno's mail",
+      website: "https://mail.example.com",
+      username: "bruno",
+      secret: "fake-mail-password-0001",
+    });
+    const team = await item("team", {
+      kind: "login",
+      title: "Status page",
+      website: "https://status.example.com",
+      secret: "fake-status-password-0002",
+    });
+    await item("personal", {
+      kind: "key",
+      title: "Bruno's token",
+      keyName: "BRUNO_TOKEN",
+      secret: "fake-bruno-key-0003",
+    });
+    await item("personal", { kind: "key", title: "Deploy (Bruno)", keyName: "DEPLOY_TOKEN", secret: "fake-own-0004" });
+    const teamDeploy = await item("team", {
+      kind: "key",
+      title: "Deploy",
+      keyName: "DEPLOY_TOKEN",
+      secret: "fake-team-0005",
+    });
+    const asRun = (ctx: ToolContext): VaultRun => ({ orgId: ctx.orgId, agentId: ctx.agentId, runId: ctx.runId });
+    const refusal = (work: Promise<unknown>) => work.then(() => null).catch((e: unknown) => e as VaultRefusal);
+
+    // A routine Bruno made that reports in his own DM reads for him, but works in the workspace's shared seat.
+    const routine = asRun(await lodiRoutineRun(v.f, v.bruno.id));
+    for (const refused of [
+      await refusal(checkVaultLogin(v.deps, routine, mine.id, null)),
+      await refusal(releaseVaultLogin(v.deps, routine, mine.id, null)),
+    ]) {
+      expect(refused).toBeInstanceOf(VaultRefusal);
+      expect(refused?.code).toBe("not_allowed");
+      expect(refused?.message).toStartWith(`The login ${mine.id} for mail.example.com is a personal login, and`);
+      expect(refused?.message).toContain("shared computer");
+    }
+    const key = await refusal(releaseVaultKeys(v.deps, routine, ["BRUNO_TOKEN"]));
+    expect(key?.code).toBe("not_allowed");
+    expect(key?.message).toContain("is a personal key");
+    expect(key?.message).not.toContain("fake-bruno-key-0003");
+    // The team's login and key open to everyone work there, the team's winning over his own of the same name.
+    expect(await checkVaultLogin(v.deps, routine, team.id, null)).toBeUndefined();
+    expect(await releaseVaultLogin(v.deps, routine, team.id, null)).toMatchObject({
+      password: "fake-status-password-0002",
+    });
+    expect(await releaseVaultKeys(v.deps, routine, ["DEPLOY_TOKEN"])).toEqual([
+      { name: "DEPLOY_TOKEN", value: "fake-team-0005", itemId: teamDeploy.id },
+    ]);
+    // A password made there for his account doesn't replace his own login: a new one of the team's keeps it.
+    const made = await saveMadePassword(
+      v.deps,
+      routine,
+      { website: "https://mail.example.com", username: "bruno" },
+      "fake-made-password-0006",
+    );
+    expect(made.outcome).toBe("created");
+    expect(made.item.id).not.toBe(mine.id);
+
+    // What Bruno asks himself in his own DM works in his own seat, with what is his.
+    const asked = asRun(await lodiRun(v.f, v.bruno.id));
+    expect(await checkVaultLogin(v.deps, asked, mine.id, null)).toBeUndefined();
+    expect(await releaseVaultLogin(v.deps, asked, mine.id, null)).toMatchObject({
+      password: "fake-mail-password-0001",
+    });
+    expect((await releaseVaultKeys(v.deps, asked, ["DEPLOY_TOKEN"]))[0]?.value).toBe("fake-own-0004");
   });
 });
 

@@ -3420,5 +3420,519 @@
       "behavior": "Only a thanks: it reacts or answers in a few words, with no line before work (say_now) and no tool.",
       "skipJudge": ["looked_first", "next_step", "asks_well"]
     }
+  },
+  {
+    "id": "question-answers-offers-next-step",
+    "title": "Só uma pergunta: responde e oferece o próximo passo, não passa trabalho a ninguém",
+    "source": "synthetic (2026-11-21): a question answered, then work nobody asked for handed to another agent",
+    "agent": {
+      "name": "Bia",
+      "handle": "bia",
+      "role": "Lançamentos",
+      "instructions": "Você cuida das publicações do app nas lojas (App Store e Google Play): fichas, políticas e revisões."
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura (iOS e Android). O site é lumen.example.com. Cada agente cuida de uma parte do trabalho. O time fala português."
+    },
+    "otherAgents": [
+      {
+        "name": "Theo",
+        "handle": "theo",
+        "role": "Site",
+        "instructions": "Você faz o site lumen.example.com: escreve as páginas e abre PRs no repositório do site.",
+        "runs": true
+      }
+    ],
+    "conversation": {
+      "where": "channel",
+      "channel": "lancamentos",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@bia qual URL de política de privacidade a gente colocou nas lojas?",
+          "en": "@bia which privacy policy URL did we put in the stores?"
+        }
+      }
+    },
+    "memory": [
+      {
+        "kind": "fact",
+        "title": "Política de privacidade nas lojas",
+        "content": "A URL de política de privacidade cadastrada na App Store e no Google Play é https://lumen.example.com/privacy.pdf. Hoje é um PDF provisório; o certo seria virar uma página do site, que é do Theo."
+      }
+    ],
+    "expect": {
+      "mustNotCall": ["tell_agent"],
+      "notTriggered": ["theo"],
+      "handOffs": {
+        "bia>theo": 0
+      },
+      "behavior": "Bia answers with the URL from her memory (https://lumen.example.com/privacy.pdf), may say it is a provisional PDF and offer in one line to have Theo make it a site page. She doesn't hand Theo the work or start it: the person only asked a question.",
+      "skipJudge": ["looked_first", "next_step"],
+      "rubric": [
+        "Gives the URL https://lumen.example.com/privacy.pdf.",
+        "Starts no work beyond the answer: a next step, if any, is only offered in one line."
+      ],
+      "maxAgentRuns": {
+        "theo": 0
+      }
+    }
+  },
+  {
+    "id": "question-and-ask-to-fix-acts",
+    "title": "Pergunta e pede a mudança: responde e passa a página para o Theo",
+    "source": "synthetic (2026-11-21): a question answered, then work nobody asked for handed to another agent",
+    "agent": {
+      "name": "Bia",
+      "handle": "bia",
+      "role": "Lançamentos",
+      "instructions": "Você cuida das publicações do app nas lojas (App Store e Google Play): fichas, políticas e revisões."
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura (iOS e Android). O site é lumen.example.com. Cada agente cuida de uma parte do trabalho. O time fala português."
+    },
+    "otherAgents": [
+      {
+        "name": "Theo",
+        "handle": "theo",
+        "role": "Site",
+        "instructions": "Você faz o site lumen.example.com: escreve as páginas e abre PRs no repositório do site.",
+        "runs": true
+      }
+    ],
+    "conversation": {
+      "where": "channel",
+      "channel": "lancamentos",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@bia qual URL de política de privacidade a gente colocou nas lojas? Se ainda for o PDF, pede para o Theo fazer a página de verdade.",
+          "en": "@bia which privacy policy URL did we put in the stores? If it's still the PDF, have Theo make a real page."
+        }
+      }
+    },
+    "memory": [
+      {
+        "kind": "fact",
+        "title": "Política de privacidade nas lojas",
+        "content": "A URL de política de privacidade cadastrada na App Store e no Google Play é https://lumen.example.com/privacy.pdf. Hoje é um PDF provisório; o certo seria virar uma página do site, que é do Theo."
+      }
+    ],
+    "expect": {
+      "mustCall": ["tell_agent"],
+      "handOffs": {
+        "bia>theo": 1
+      },
+      "behavior": "Bia answers with the URL from her memory and, since it is still the PDF and the person asked, hands Theo the page (tell_agent) with what it needs, then says in a line that Theo has it.",
+      "skipJudge": ["looked_first", "next_step"],
+      "rubric": [
+        "Gives the URL https://lumen.example.com/privacy.pdf.",
+        "Hands Theo the page once, without asking the person whether to."
+      ]
+    }
+  },
+  {
+    "id": "question-standing-duty-acts",
+    "title": "Pergunta sobre algo que já é dela consertar: responde e age",
+    "source": "synthetic (2026-11-21): a question answered, then work nobody asked for handed to another agent",
+    "agent": {
+      "name": "Bia",
+      "handle": "bia",
+      "role": "Lançamentos",
+      "instructions": "Você cuida das publicações do app nas lojas (App Store e Google Play): fichas, políticas e revisões. Quando uma página que as lojas exigem ainda é provisória, peça ao Theo a página de verdade, sem esperar alguém pedir."
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura (iOS e Android). O site é lumen.example.com. Cada agente cuida de uma parte do trabalho. O time fala português."
+    },
+    "otherAgents": [
+      {
+        "name": "Theo",
+        "handle": "theo",
+        "role": "Site",
+        "instructions": "Você faz o site lumen.example.com: escreve as páginas e abre PRs no repositório do site.",
+        "runs": true
+      }
+    ],
+    "conversation": {
+      "where": "channel",
+      "channel": "lancamentos",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@bia qual URL de política de privacidade a gente colocou nas lojas?",
+          "en": "@bia which privacy policy URL did we put in the stores?"
+        }
+      }
+    },
+    "memory": [
+      {
+        "kind": "fact",
+        "title": "Política de privacidade nas lojas",
+        "content": "A URL de política de privacidade cadastrada na App Store e no Google Play é https://lumen.example.com/privacy.pdf. Hoje é um PDF provisório; o certo seria virar uma página do site, que é do Theo."
+      }
+    ],
+    "expect": {
+      "mustCall": ["tell_agent"],
+      "handOffs": {
+        "bia>theo": 1
+      },
+      "behavior": "Bia answers with the URL from her memory and, as her instructions say for a provisional store page, hands Theo the real page (tell_agent) on her own, saying so in a line.",
+      "skipJudge": ["looked_first", "next_step"],
+      "rubric": [
+        "Gives the URL https://lumen.example.com/privacy.pdf.",
+        "Hands Theo the page once, as her instructions say, without asking the person first."
+      ]
+    }
+  },
+  {
+    "id": "first-turn-keep-an-eye-sets-follow-up",
+    "title": "'Fica de olho' vira follow_up no mesmo turno",
+    "source": "synthetic (2026-11-21): 'I'll keep an eye on it' with nothing set to come back",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. Repositórios no GitHub: lumen/app e lumen/api. O time fala português."
+    },
+    "followUps": true,
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada fica de olho no PR #41 e me avisa quando o CI passar",
+          "en": "@ada keep an eye on PR #41 and tell me when CI passes"
+        }
+      }
+    },
+    "connectors": ["github"],
+    "fixtures": {
+      "github_get_pull_request": [
+        {
+          "result": "PR #41 (lumen/app) open · checks: 3 running, 9 passed, 0 failed · updated 2 min ago"
+        }
+      ]
+    },
+    "expect": {
+      "mustCall": ["github_get_pull_request", "follow_up"],
+      "firstTurn": true,
+      "behavior": "Ada reads the PR's checks now, says where they stand, and sets a follow_up to come back when they end, saying when; she never ends on 'I'll keep an eye on it' with nothing set.",
+      "rubric": [
+        "States the checks' current state (3 running, 9 passed).",
+        "Sets a follow_up in this turn and says when she'll be back."
+      ]
+    }
+  },
+  {
+    "id": "first-turn-rule-saved-now",
+    "title": "Regra dada no chat é salva no mesmo turno",
+    "source": "synthetic (2026-11-21): 'noted, I'll record it' with no save",
+    "agent": {
+      "preset": "pm"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. O time fala português."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "produto",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@theo daqui pra frente, nos relatórios, valores sempre em reais, nunca em dólar",
+          "en": "@theo from now on, in reports, amounts always in reais, never in dollars"
+        }
+      }
+    },
+    "expect": {
+      "mustCall": ["remember"],
+      "firstTurn": true,
+      "behavior": "Saves the rule now and confirms it in a line; never 'I'll record it'.",
+      "rubric": ["The reply says it's saved, in one or two lines.", "No promise to save it later."]
+    }
+  },
+  {
+    "id": "first-turn-earlier-run-provenance",
+    "title": "Resultado de outra conversa: checa e diz de onde veio",
+    "source": "synthetic (2026-11-21): a true claim about earlier work, judged unbacked because this run didn't do it",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. O time fala português."
+    },
+    "issues": true,
+    "seedIssues": [
+      {
+        "title": "Login falha com e-mail em maiúsculas",
+        "description": "Aberta pela Ada a pedido da Marina.",
+        "labels": ["bug"]
+      }
+    ],
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "prior": [
+        {
+          "author": "Marina",
+          "body": "@ada abre uma issue pro bug do login com e-mail em maiúsculas"
+        },
+        {
+          "author": "agent",
+          "body": "Abri a issue «Login falha com e-mail em maiúsculas»."
+        }
+      ],
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada a issue do login já existe?",
+          "en": "@ada does the login issue exist already?"
+        }
+      }
+    },
+    "expect": {
+      "mustCall": ["list_issues"],
+      "mustNotCall": ["create_issue"],
+      "firstTurn": true,
+      "behavior": "Checks the issue's current state and says it was opened earlier (not now), with its state.",
+      "rubric": ["Says the issue was opened earlier, not in this turn.", "Gives its current state from list_issues."]
+    }
+  },
+  {
+    "id": "first-turn-teammate-holds-access",
+    "title": "Sem acesso ao analytics: pergunta ao colega que tem",
+    "source": "synthetic (2026-11-21): 'no access' without looking in the workspace",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. Analytics no Himetrica. O time fala português."
+    },
+    "otherAgents": [
+      {
+        "name": "Nina",
+        "handle": "nina",
+        "role": "Dados",
+        "instructions": "Você cuida do Himetrica e responde perguntas de números do app."
+      }
+    ],
+    "schedule": true,
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada quantos cadastros tivemos ontem?",
+          "en": "@ada how many sign-ups did we get yesterday?"
+        }
+      }
+    },
+    "expect": {
+      "mustCall": ["ask_agent"],
+      "firstTurn": true,
+      "behavior": "Ada has no analytics connector; she asks Nina with ask_agent and tells Marina the number will come from Nina, without ending on 'I have no access'.",
+      "rubric": ["Doesn't end on a lack of access.", "Doesn't invent a number."]
+    }
+  },
+  {
+    "id": "first-turn-varied-search",
+    "title": "Busca vazia com a palavra da pessoa: tenta a palavra do código",
+    "source": "synthetic (2026-11-21): gave up after one empty search",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. Repositório lumen/app no GitHub. O time fala português."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada onde fica o código do botão 'indique um amigo'?",
+          "en": "@ada where is the code for the 'refer a friend' button?"
+        }
+      }
+    },
+    "connectors": ["github"],
+    "fixtures": {
+      "github_search_code": [
+        {
+          "when": ["referral"],
+          "result": "2 results\nlumen/app src/referral/ReferralButton.tsx:8   export function ReferralButton() {\nlumen/app src/referral/share.ts:3   export function shareReferralLink(code: string) {"
+        },
+        {
+          "when": ["invite"],
+          "result": "1 result\nlumen/app src/referral/share.ts:3   export function shareReferralLink(code: string) {"
+        },
+        {
+          "result": "0 results"
+        }
+      ]
+    },
+    "expect": {
+      "mustCall": ["github_search_code"],
+      "evidence": ["ReferralButton.tsx"],
+      "firstTurn": true,
+      "behavior": "An empty search with the person's words is followed in the same turn by the code's likely words (referral, invite), then the file and line.",
+      "rubric": ["Cites src/referral/ReferralButton.tsx.", "Doesn't end saying it found nothing."]
+    }
+  },
+  {
+    "id": "first-turn-say-so-if-none",
+    "title": "'Se não tiver, só me diz': procura e diz que não há",
+    "source": "synthetic (2026-11-21): a complete negative answer judged untried",
+    "agent": {
+      "preset": "pm"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. O time fala português."
+    },
+    "issues": true,
+    "conversation": {
+      "where": "channel",
+      "channel": "produto",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@theo existe alguma regra de desconto pro plano anual? se não tiver, só me diz",
+          "en": "@theo is there any discount rule for the annual plan? if there isn't, just tell me"
+        }
+      }
+    },
+    "expect": {
+      "mustCall": ["search_context"],
+      "mustNotCall": ["create_issue", "remember"],
+      "firstTurn": true,
+      "behavior": "Searches, finds none, and says so in a line, naming where it looked; it doesn't create a rule or an issue, nor ask to.",
+      "rubric": ["Says there is no such rule.", "Names where it looked.", "No unasked follow-up work."]
+    }
+  },
+  {
+    "id": "first-turn-state-question-no-action",
+    "title": "Pergunta de estado: responde, não sai configurando",
+    "source": "synthetic (2026-11-21): a plain question about state that went on to unasked action",
+    "agent": {
+      "preset": "ops"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. A API (serviço 'api') roda no Railway. O time fala português."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "ops",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@atlas o webhook de pagamento já está configurado em produção?",
+          "en": "@atlas is the payment webhook set up in production yet?"
+        }
+      }
+    },
+    "connectors": ["railway"],
+    "fixtures": {
+      "railway_get_logs": [
+        {
+          "result": "service api · last 24h\n- POST /webhooks/payment 200 ×20 (last 09:41)"
+        }
+      ]
+    },
+    "expect": {
+      "mustCall": ["railway_get_logs"],
+      "mustNotCall": ["railway_deploy", "railway_rollback"],
+      "firstTurn": true,
+      "behavior": "Answers from the logs (yes, 20 deliveries, all 200) and ends, with at most a one-line offer.",
+      "rubric": ["Answers yes with the evidence.", "Starts no change."]
+    }
+  },
+  {
+    "id": "first-turn-secret-through-card",
+    "title": "Precisa de chave: pede no cartão seguro, não no texto",
+    "source": "synthetic (2026-11-21): a key asked for in the chat",
+    "agent": {
+      "preset": "dev"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. O time fala português."
+    },
+    "secretRequest": true,
+    "conversation": {
+      "where": "channel",
+      "channel": "tech",
+      "trigger": {
+        "author": "Marina",
+        "body": {
+          "pt": "@ada liga o script de pedidos na API da Fretex pra rodar todo dia",
+          "en": "@ada hook the orders script up to the Fretex API to run daily"
+        }
+      }
+    },
+    "expect": {
+      "mustCall": ["request_secret"],
+      "ask": "never",
+      "firstTurn": true,
+      "behavior": "Asks for FRETEX_API_KEY on the secure card (request_secret) with a one-line purpose; never asks for the key in text or lists what's missing.",
+      "rubric": ["No key asked for in the reply's text.", "No list of what's missing."]
+    }
+  },
+  {
+    "id": "first-turn-routine-same-blocker",
+    "title": "Rotina com o mesmo bloqueio já avisado: registra e fica quieta",
+    "source": "synthetic (2026-11-21): a real blocker already reported, tried and reported again",
+    "agent": {
+      "preset": "ops"
+    },
+    "org": {
+      "name": "Lumen",
+      "context": "Lumen é um app de meditação e hábitos por assinatura. Erros no Sentry. O time fala português."
+    },
+    "conversation": {
+      "where": "channel",
+      "channel": "alertas",
+      "prior": [
+        {
+          "author": "agent",
+          "body": "Não consegui ler o Sentry: o token expirou (401). Marina, dá pra gerar um novo em Configurações > Integrações?"
+        }
+      ],
+      "trigger": {
+        "author": "Marina",
+        "body": "Verifique os erros novos do Sentry na última hora. Se não houver nada novo, não poste nada."
+      },
+      "routine": {
+        "name": "Monitorar erros novos do Sentry"
+      }
+    },
+    "connectors": ["sentry"],
+    "fixtures": {
+      "sentry_search_issues": [
+        {
+          "result": "error: 401 Unauthorized (token expired)"
+        }
+      ]
+    },
+    "expect": {
+      "mustCall": ["sentry_search_issues"],
+      "noReply": true,
+      "mustNotCall": ["hand_off"],
+      "firstTurn": true,
+      "behavior": "Tries Sentry, gets the same 401 it already reported, and ends without a new hand_off; its record says the blocker is the one already reported.",
+      "skipJudge": ["next_step"],
+      "rubric": ["No second report of the same blocker."]
+    }
   }
 ]

@@ -51,6 +51,7 @@ export function LiveHeader({
   onSave,
   onShortcuts,
   onDelete,
+  onRequestEdit,
 }: {
   artifact: Artifact | null;
   kind: LiveKind | null;
@@ -69,6 +70,8 @@ export function LiveHeader({
   onSave: () => void;
   onShortcuts: () => void;
   onDelete: () => void;
+  /** Only viewing it (ADR 0202): Pedir para editar, beside Só leitura. */
+  onRequestEdit?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
@@ -143,6 +146,11 @@ export function LiveHeader({
             <span className={cx("lf-top__status", status.tone === "warn" && "is-offline")} role="status">
               {status.text}
             </span>
+          )}
+          {readOnly && !previewing && !org.deletion && onRequestEdit && (
+            <Button size="sm" variant="ghost" icon="edit" onClick={onRequestEdit}>
+              {t("live.shell.requestEdit")}
+            </Button>
           )}
           {artifact && (
             <>

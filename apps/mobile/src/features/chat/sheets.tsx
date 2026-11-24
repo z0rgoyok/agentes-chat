@@ -5,10 +5,13 @@ import {
   channelsQuery,
   type DirectMessage,
   dmsQuery,
+  isPinnedSelection,
   keys,
   type Message,
   type Mission,
+  messageLiveRef,
   type ReactionCount,
+  resolvedOf,
   type ThreadInfo,
   useApi,
   useChannelCategories,
@@ -17,17 +20,19 @@ import {
   useMissionControl,
   usePinMessage,
   usePins,
+  useResolveComment,
   useThreadInfo,
   useThreadMutation,
   useToggleReaction,
 } from "@agenteschat/client";
+import { errorText } from "@agenteschat/client/lib/errors";
 import { textOrMedia } from "@agenteschat/client/lib/media";
 import { messagePath } from "@agenteschat/client/lib/message-links";
 import { summaryParts } from "@agenteschat/client/lib/missions";
 import { listedText } from "@agenteschat/client/lib/voice";
 import { conversationWallpaperOf } from "@agenteschat/client/lib/wallpaper";
 import { chartBlocksOf } from "@agenteschat/ui/widgets/spec";
-import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { type ReactNode, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -87,13 +92,15 @@ export interface MessageActionHands {
   toggle: ReturnType<typeof useToggleReaction>["mutate"];
   /** Pins or unpins (`usePinMessage`). */
   pin: ReturnType<typeof usePinMessage>["mutate"];
+  /** Resolves a comment on a picture, a video or a PDF, or opens it again (`useResolveComment`, ADR 0208). */
+  resolve: ReturnType<typeof useResolveComment>["mutate"];
 }
 
 /**
  * A message's actions, one list for the system's menu (iOS, on hold) and the app's sheet (Android): the quick
  * reactions, then the actions in groups, as the hand expects them: answer (here, in a thread), keep (copy, pin,
- * remind, a mission), and the rest (its link, a chart to a dashboard, the agent who wrote it). `close` runs before
- * an action that opens something else (the sheet closes; the system's menu closes itself).
+ * resolve a comment on a file, remind, a mission), and the rest (its link, a chart to a dashboard, the agent who wrote
+ * it). `close` runs before an action that opens something else (the sheet closes; the system's menu closes itself).
  */
 export function useMessageActions(context: MessageActionsContext, close: () => void) {
   const { t } = useTranslation();
@@ -104,7 +111,8 @@ export function useMessageActions(context: MessageActionsContext, close: () => v
   const qc = useQueryClient();
   const toggle = useToggleReaction(orgId, context.message.id).mutate;
   const pin = usePinMessage(orgId).mutate;
-  return messageActionsOf(context, close, { t, orgId, meId, dir, toast, qc, toggle, pin });
+  const resolve = useResolveComment(orgId).mutate;
+  return messageActionsOf(context, close, { t, orgId, meId, dir, toast, qc, toggle, pin, resolve });
 }
 
 /**
@@ -113,7 +121,7 @@ export function useMessageActions(context: MessageActionsContext, close: () => v
  */
 export function messageActionsOf(context: MessageActionsContext, close: () => void, hands: MessageActionHands) {
   const { message: m, canMission, inThread, thread, onMission, onRemind, onReply } = context;
-  const { t, orgId, meId, dir, toast, qc, toggle, pin } = hands;
+  const { t, orgId, meId, dir, toast, qc, toggle, pin, resolve } = hands;
   const pinned = Boolean(m.pinned);
   const togglePin = () => {
     close();
@@ -130,6 +138,17 @@ export function messageActionsOf(context: MessageActionsContext, close: () => vo
           toast({ title: t(full ? "mobile.pins.full" : "mobile.app.failed"), icon: "x" });
         },
       },
+    );
+  };
+  // A comment with a pin on a picture, a video or a PDF (ADR 0208): Resolve takes its pin off the file, Reopen puts
+  // it back; the message stays. At once here (`useResolveComment`), then as the server says (`message.resolved`).
+  const resolvable = !m.local && isPinnedSelection(messageLiveRef(m)?.selection);
+  const resolved = resolvable && resolvedOf(m.meta) !== null;
+  const toggleResolved = () => {
+    close();
+    resolve(
+      { channelId: m.channelId, messageId: m.id, resolved: !resolved, by: { type: "person", id: meId ?? "" } },
+      { onError: () => toast({ title: t("mobile.app.failed"), icon: "x" }) },
     );
   };
   const agentName = m.author.type === "agent" ? dir.nameOf(m.author) : "";
@@ -207,6 +226,17 @@ export function messageActionsOf(context: MessageActionsContext, close: () => vo
             label: pinned ? t("mobile.pins.unpin") : t("mobile.pins.pin"),
             onPress: togglePin,
           },
+          ...(resolvable
+            ? [
+                {
+                  key: "resolve",
+                  icon: "check" as const,
+                  symbol: (resolved ? "arrow.uturn.backward" : "checkmark.circle") as MenuSymbol,
+                  label: resolved ? t("files.comments.reopen") : t("files.comments.resolve"),
+                  onPress: toggleResolved,
+                },
+              ]
+            : []),
           {
             key: "remind",
             icon: "clock" as const,
@@ -326,19 +356,30 @@ export function MessageActions(props: MessageActionsContext) {
 
 // ── "+" in the composer ──────────────────────────────────────────────────────
 
-export type PlusPick = "camera" | "photos" | "file" | "media" | "summary" | "remind";
+export type PlusPick = "camera" | "photos" | "file" | "paste" | "media" | "summary" | "remind";
 
 /**
- * The "+" of the chat: what goes with a message as tiles (camera, photos, file and, where they can be sent, the
- * GIFs and stickers, so the field itself only sends), then what to start here, in words.
+ * The "+" of the chat: what goes with a message as tiles (camera, photos, file, the picture on the clipboard when
+ * there is one and, where they can be sent, the GIFs and stickers, so the field itself only sends), then what to start
+ * here, in words. The phone's text field can't take a pasted picture: the Paste tile is how one gets in.
  */
-export function PlusActions({ onPick, media = false }: { onPick: (pick: PlusPick) => void; media?: boolean }) {
+export function PlusActions({
+  onPick,
+  media = false,
+  paste = false,
+}: {
+  onPick: (pick: PlusPick) => void;
+  media?: boolean;
+  /** A picture is on the clipboard. */
+  paste?: boolean;
+}) {
   const { t } = useTranslation();
   const c = useColors();
-  const tiles: { key: PlusPick; icon: "camera" | "image" | "file" | "sticker"; label: string }[] = [
+  const tiles: { key: PlusPick; icon: "camera" | "image" | "file" | "paste" | "sticker"; label: string }[] = [
     { key: "camera", icon: "camera", label: t("mobile.plus.camera") },
     { key: "photos", icon: "image", label: t("mobile.plus.photos") },
     { key: "file", icon: "file", label: t("mobile.plus.file") },
+    ...(paste ? [{ key: "paste" as const, icon: "paste" as const, label: t("mobile.plus.paste") }] : []),
     ...(media ? [{ key: "media" as const, icon: "sticker" as const, label: t("mobile.plus.media") }] : []),
   ];
   return (
@@ -627,7 +668,7 @@ export function ChannelOptions({
   /** A DM: searching it (its header keeps the room for the name and the agent's own buttons). */
   onSearch?: (() => void) | undefined;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const orgId = useOrgId();
   const sheet = useSheet();
   const pins = usePins(orgId, channelId);
@@ -642,6 +683,22 @@ export function ChannelOptions({
   );
   const isDm = useCallback((all: DirectMessage[]) => all.some((d) => d.channelId === channelId), [channelId]);
   const categoryId = useQuery({ ...channelsQuery(api, orgId), select: categoryOf }).data;
+  // "Agents reply in threads" (ADR 0214), for whoever may change the channel: undefined where it isn't a channel.
+  const threadsOf = useCallback(
+    (all: Channel[]) => {
+      const c = all.find((x) => x.id === channelId);
+      return c ? c.replyInThreads === true : undefined;
+    },
+    [channelId],
+  );
+  const replyInThreads = useQuery({ ...channelsQuery(api, orgId), select: threadsOf }).data;
+  const qc = useQueryClient();
+  const toast = useToast();
+  const setThreads = useMutation({
+    mutationFn: (on: boolean) => api.chat.update(orgId, channelId, { replyInThreads: on }),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.channels(orgId) }),
+    onError: (e) => toast({ title: errorText(t, e, i18n.language), icon: "x" }),
+  });
   const categories = useChannelCategories(orgId);
   const categoryName = categoryId ? categories.data?.find((c) => c.id === categoryId)?.name : undefined;
   // This conversation's own background, mine alone; none of its own: it follows the others.
@@ -680,6 +737,18 @@ export function ChannelOptions({
                     sheet.close();
                     router.push(categoryHrefs.pick(channelId));
                   },
+                },
+              ]
+            : []),
+          ...(onMembers && moves && replyInThreads !== undefined
+            ? [
+                {
+                  key: "threads",
+                  icon: "reply" as const,
+                  label: t("channel.replyInThreads"),
+                  checked: replyInThreads,
+                  disabled: setThreads.isPending,
+                  onPress: () => setThreads.mutate(!replyInThreads),
                 },
               ]
             : []),

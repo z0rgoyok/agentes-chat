@@ -9,8 +9,11 @@ import {
   createIssue,
   createRoutine,
   drainOutbox,
+  FOLLOW_UP_JOB,
+  FOLLOW_UP_TOOL,
   openDm,
   routineRoomKey,
+  runAuthority,
   runRoutineNow,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
@@ -216,6 +219,54 @@ test("hand_off with wake_me delivers to the conversation the routine reports to,
   // Reported: its record is its final text.
   expect(rr).toMatchObject({ status: "reported", summary: "Checado: 3 avaliações novas, reportadas." });
   expect(rr?.finishedAt).not.toBeNull();
+});
+
+test("a routine blocked now sets its own resume: at its time the agent wakes where the routine reports, in its bounds", async () => {
+  f = await setup({
+    handOff: true,
+    followUps: true,
+    reply: (req) => {
+      if (!isRoutine(req)) return { chunks: ["Retomei a #12: o build passou."] };
+      if (seen(req).includes("Follow-up")) return { chunks: ["Bloqueado na #12; volto em 30 min."] };
+      return {
+        chunks: [],
+        toolUses: [
+          { name: "hand_off", input: { message: "A #12 está bloqueada: o comando foi recusado no computador." } },
+          { name: FOLLOW_UP_TOOL, input: { minutes: 30, note: "Tentar a #12 de novo.", about: "retomar a #12" } },
+        ],
+      };
+    },
+  });
+  const routine = await channelRoutine(f);
+  await runRoutineNow(routineDeps(f), f.owner.id, f.org.id, routine.id);
+  await drainOutbox(f.db, f.handlers);
+
+  const [background] = await f.db.select().from(schema.agentRuns);
+  expect(background).toMatchObject({ background: true, status: "done" });
+  const steps = await f.db
+    .select()
+    .from(schema.agentRunSteps)
+    .where(eq(schema.agentRunSteps.runId, background?.id ?? ""));
+  const context = steps.find((s) => s.kind === "context" && Array.isArray(s.data.tools));
+  expect(context?.data.tools as string[]).toContain(FOLLOW_UP_TOOL);
+  expect((context?.data.heldBack as string[] | undefined) ?? []).not.toContain(FOLLOW_UP_TOOL);
+  const [job] = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, FOLLOW_UP_JOB));
+  expect(job?.status).toBe("pending");
+
+  await f.db
+    .update(schema.outbox)
+    .set({ nextAttemptAt: new Date() })
+    .where(eq(schema.outbox.id, job?.id ?? ""));
+  await drainOutbox(f.db, f.handlers);
+  const runs = await f.db.select().from(schema.agentRuns).orderBy(schema.agentRuns.createdAt);
+  expect(runs.map((r) => [r.background, r.channelId === f.general.id, r.status])).toEqual([
+    [true, false, "done"],
+    [false, true, "done"],
+  ]);
+  const woken = runs[1];
+  if (!woken) throw new Error("the resume woke nobody");
+  expect(await runAuthority(f.db, woken)).toMatchObject({ kind: "unattended", reason: "routine" });
+  expect((await messagesIn(f, f.general.id)).map((m) => m.body)).toContain("Retomei a #12: o build passou.");
 });
 
 test("hand_off re-checks the routine: paused, deleted or a creator who can't post there blocks it", async () => {

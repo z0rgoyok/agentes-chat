@@ -96,7 +96,6 @@ export function TeamMemoryCard() {
                       </Button>
                       <Button
                         variant="link"
-                        disabled={act.isPending}
                         onClick={() =>
                           act.mutate(
                             { type: "archive", id: m.id, archived: true },

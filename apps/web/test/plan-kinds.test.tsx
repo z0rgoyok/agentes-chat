@@ -7,7 +7,7 @@ import type { OrgPlanUsage, PlanAccountUsage } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, ATLAS_ID, createFakeApi, LODI_ID, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { shareLabel, shareRow } from "./plan-rows";
-import { renderApp, settle, showIn } from "./render";
+import { renderApp, screen, settle, showIn } from "./render";
 
 /**
  * Settings › AI and usage: under an open account's agents, its use by kind, both behind "Detalhes", and near the limit,
@@ -83,6 +83,10 @@ async function openUsage(account: PlanAccountUsage, lang?: "en") {
   const { services } = await renderApp(`/org/${ORG_ID}/settings/usage`, { api });
   await settle(6);
   if (lang) await showIn(services, lang);
+  await act(async () =>
+    fireEvent.mouseDown(screen().getByRole("tab", { name: lang === "en" ? "Usage" : "Uso" }), { button: 0 }),
+  );
+  await settle(4);
   const head = document.querySelector(".plan-row__head");
   // Every row starts closed, near its limit too.
   expect(head?.getAttribute("aria-expanded")).toBe("false");

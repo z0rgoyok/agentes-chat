@@ -26,6 +26,7 @@ import {
   postAutonomyDigests,
   postPersonMessage,
   type RunAuthority,
+  runPermissionPrompt,
   setMemberRoles,
   signatureOf,
   speakerFor,
@@ -445,6 +446,55 @@ describe("costly work an agent starts on its own, set to ask first, needs a go (
     const answer = JSON.parse(out.output.content) as { behavior: string; code: string };
     expect(answer).toMatchObject({ behavior: "deny", code: "autonomy" });
     expect(await signalsOf("proposal")).toHaveLength(1);
+  });
+
+  test("a command the computer already refused is only recorded: no proposal, its steps say why", async () => {
+    const prompt: ToolDefinition = {
+      name: PERMISSION_TOOL,
+      description: "Permission prompt",
+      scope: "",
+      inputSchema: { type: "object" },
+      execute: async (input) => ({ content: runPermissionPrompt(input, { canRun: true }) }),
+    };
+    f = await setup({ toolSources: [{ name: "prompt", tools: async () => [prompt] }] });
+    await askFirst();
+    const trigger = await alert(f.agent.id, "Sentry: erro de build");
+    const run = await working(f.agent.id, trigger.id);
+    const tools = f.tools;
+    if (!tools) throw new Error("no tools");
+    const message = "This turn may only read.";
+    const out = await tools.invoke(
+      {
+        db: f.db,
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        runId: run.id,
+        channelId: f.general.id,
+        threadRootId: trigger.id,
+        triggerMessageId: trigger.id,
+        bridge: { machineId: crypto.randomUUID() },
+      },
+      {
+        toolUseId: "t1",
+        name: PERMISSION_TOOL,
+        input: {
+          tool_name: "Bash",
+          input: { command: "gh pr create --fill" },
+          refused: { code: "policy", message },
+        },
+      },
+    );
+    if (out.type !== "result") throw new Error(`expected a result, got ${out.type}`);
+    const answer = { behavior: "deny", message, code: "policy", refusal: "policy" };
+    expect(JSON.parse(out.output.content)).toEqual(answer);
+    expect(await signalsOf("proposal")).toHaveLength(0);
+    const steps = await f.db.select().from(schema.agentRunSteps).where(eq(schema.agentRunSteps.runId, run.id));
+    const result = steps.find((s) => s.kind === "tool_result");
+    expect(steps.find((s) => s.kind === "tool_call")?.data).toMatchObject({
+      name: PERMISSION_TOOL,
+      input: { refused: { code: "policy" } },
+    });
+    expect(JSON.parse(String((result?.data as { content?: unknown })?.content))).toEqual(answer);
   });
 });
 

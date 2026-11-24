@@ -96,6 +96,7 @@ test("a popover with words and controls of its own has the menu's room, its word
     tasks: topLevel(await read(join(SRC, "components/tasks/tasks.css"))),
     dashboards: topLevel(await read(join(SRC, "pages/dashboards.css"))),
     issues: topLevel(await read(join(SRC, "pages/issues.css"))),
+    view: topLevel(await read(join(SRC, "components/view-options.css"))),
     layout: topLevel(await read(join(SRC, "layout.css"))),
     card: topLevel(await read(join(SRC, "components/profile-card.css"))),
   };
@@ -103,7 +104,7 @@ test("a popover with words and controls of its own has the menu's room, its word
     ["calendar", ".cal-pop.ac-popover"],
     ["tasks", ".tm-confirm.ac-popover"],
     ["dashboards", ".nw-alert.ac-popover"],
-    ["issues", ".issues-display.ac-popover"],
+    ["view", ".view-options.ac-popover"],
     ["issues", ".issue-github__pop.ac-popover"],
     ["layout", ".profile-card"],
     ["card", ".mcard-audience.ac-popover"],
@@ -123,10 +124,10 @@ test("a popover with words and controls of its own has the menu's room, its word
   expect(last(sheets.calendar, ".cal-pop .cal-details__actions:has(>.ac-btn)", "margin-bottom")).toBe(neg);
   expect(last(sheets.tasks, ".tm-confirm__head", "padding")).toBe("var(--popover-in) var(--popover-in) 0");
   expect(last(sheets.dashboards, ".nw-alert__row", "padding")).toBe("var(--popover-in) var(--popover-in) 0");
-  expect(last(sheets.issues, ".issues-display__row", "padding-inline")).toBe("var(--popover-in)");
-  expect(last(sheets.issues, ".issues-display__foot", "padding")).toBe("14px var(--popover-in) var(--popover-in)");
+  expect(last(sheets.view, ".view-options__row", "padding-inline")).toBe("var(--popover-in)");
+  expect(last(sheets.view, ".view-options__foot", "padding")).toBe("14px var(--popover-in) var(--popover-in)");
   expect(last(sheets.issues, ".issue-github__field", "margin")).toBe("var(--popover-in) var(--popover-in) 0");
-  expect(last(sheets.issues, ".issues-layout", "border-radius")).toBe(
+  expect(last(sheets.view, ".view-layout", "border-radius")).toBe(
     "var(--radius-item) var(--radius-item) var(--radius-item) 4px",
   );
   expect(last(sheets.layout, ".channel-card>div", "padding")).toBe("var(--popover-in)");

@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
-import { KeyForAllScreen } from "@/features/ai/KeyForAllScreen";
+import { AgentSetupScreen } from "@/features/ai/AgentSetupScreen";
 
-/** "Usar em todos os agentes" (from a coding plan key's actions in Contas de IA): one of its models for every agent. */
+/** "Usar em todos os agentes" (a coding plan key's actions, a reply's stand-in model): "Usar em outros agentes" on it. */
 export default function KeyForAllRoute() {
   const { id, machineId, model } = useLocalSearchParams<{ id: string; machineId: string; model?: string }>();
-  return <KeyForAllScreen accountId={id ?? ""} machineId={machineId ?? ""} model={model} />;
+  return <AgentSetupScreen account={{ id: id ?? "", machineId: machineId ?? "", model }} />;
 }

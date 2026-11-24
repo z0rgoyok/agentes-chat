@@ -67,6 +67,7 @@ export const keys = {
   agentRepos: (orgId: string, agentId: string) => ["org", orgId, "agent", agentId, "repositories"] as const,
   agentMergeRepos: (orgId: string, agentId: string) => ["org", orgId, "agent", agentId, "merge-repositories"] as const,
   customServers: (orgId: string) => ["org", orgId, "custom-servers"] as const,
+  ownOAuthClient: (orgId: string, serverUrl: string) => ["org", orgId, "own-oauth-client", serverUrl] as const,
   scopes: (orgId: string, agentId: string) => ["org", orgId, "agent", agentId, "scopes"] as const,
   /** What the agent runs without asking ("Aprovar sempre"). */
   approvalCovers: (orgId: string) => ["org", orgId, "approval-covers"] as const,

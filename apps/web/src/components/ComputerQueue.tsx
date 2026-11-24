@@ -333,7 +333,6 @@ function SpillHere({ machineId }: { machineId: string }) {
             <Switch
               aria-label={`${t("devices.spillOwn")}: ${d.name}`}
               checked={d.spill.own}
-              disabled={update.isPending}
               onCheckedChange={(own) => update.mutate({ id: d.id, spill: { own } })}
             />
           </li>

@@ -25,7 +25,7 @@ import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { GitHubMark } from "@/components/GitHubMark";
 import { useOrg } from "@/components/org-context";
 import { WikiSky } from "@/components/Sky";

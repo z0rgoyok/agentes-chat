@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import Animated, { FadeIn, LayoutAnimationConfig, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LayoutAnimationConfig,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 import { readValueSync, STORED, writeValue } from "@/lib/storage";
 import {
   Count,
@@ -9,6 +18,7 @@ import {
   Icon,
   IconButton,
   LIST_INSET,
+  motion,
   ROW_PRESS_DELAY,
   RowPressable,
   SCREEN_X,
@@ -43,6 +53,54 @@ export function useCollapsedSections<K extends string = HomeSection>(
 }
 
 /**
+ * What changes place in a list travels there (a conversation that goes to the top with a new message, the sections
+ * under one that closes): a short glide on the ease for things that move on screen, done in `panel` time. A spring
+ * here (its long settle on every row and section a refresh resized) kept the whole home swaying.
+ */
+export const LIST_MOVE = LinearTransition.duration(motion.panel).easing(motion.easeInOut);
+
+/** A list's first rows fade in one after the other, this far apart; from the sixth on, together. */
+const LAND_GAP = 20;
+const LAND_ROWS = 6;
+const LAND_MS = 240;
+
+/**
+ * One row (or block) of a list. With `land` on its first render (the list's first load, `useFirstLoad`) it fades in
+ * where it stands, `index` rows after the first (rising into place too, a list of them read as a wave). It is a value we drive rather than an
+ * `entering`, because the sections skip their rows' entering when the list mounts; a row that mounts later is just
+ * there. With `moves` it travels to its new place when the list reorders or something above it changes size. Give it
+ * the row's key. With reduced motion it is a plain box.
+ */
+export function LandRow({
+  land = false,
+  index = 0,
+  moves = false,
+  children,
+}: {
+  land?: boolean;
+  index?: number;
+  moves?: boolean;
+  children: ReactNode;
+}) {
+  const reduced = useReducedMotion();
+  // Decided once, when the row mounts: later renders never replay it.
+  const [arrives] = useState(land && !reduced);
+  const [delay] = useState(Math.min(index, LAND_ROWS) * LAND_GAP);
+  const shown = useSharedValue(arrives ? 0 : 1);
+  useEffect(() => {
+    if (!arrives) return;
+    shown.set(withDelay(delay, withTiming(1, { duration: LAND_MS, easing: motion.easeOut })));
+  }, [arrives, delay, shown]);
+  const look = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  return (
+    // Only a row that arrives carries a style; the rest stay plain views.
+    <Animated.View layout={moves && !reduced ? LIST_MOVE : undefined} style={arrives ? look : undefined}>
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
  * A section of Conversas: the title, its count (medium, faint) and a chevron that
  * turns when collapsed; tapping the header collapses or opens it. No `count` while its rows load: a "0" that turns
  * into the real count a moment later is a number that lied.
@@ -53,10 +111,13 @@ export function CollapsibleSection({
   collapsed,
   onToggle,
   menu,
+  mark,
   children,
 }: {
   title: string;
   count?: number;
+  /** Before the title: a sector's mark (`RoleMark`), in Conversas' Setores. */
+  mark?: ReactNode;
   collapsed: boolean;
   onToggle: () => void;
   /**
@@ -72,7 +133,8 @@ export function CollapsibleSection({
     transform: [{ rotate: withTiming(collapsed ? "-90deg" : "0deg", { duration: reduced ? 0 : 200 }) }],
   }));
   return (
-    <View>
+    // The section travels when one above it closes or opens, instead of jumping there.
+    <Animated.View layout={reduced ? undefined : LIST_MOVE}>
       {/* A full-width row: it lights a beat after the finger lands, as the list's rows do (not when a scroll starts). */}
       <Pressable
         unstable_pressDelay={ROW_PRESS_DELAY}
@@ -92,6 +154,7 @@ export function CollapsibleSection({
         accessibilityState={{ expanded: !collapsed }}
         style={({ pressed }) => [styles.head, pressed && styles.pressed]}
       >
+        {mark}
         <Text variant="small" tone="ink" style={styles.title} accessibilityRole="header" numberOfLines={1}>
           {title}
         </Text>
@@ -106,13 +169,19 @@ export function CollapsibleSection({
           <Icon name="chev" size={15} color={c.faint} />
         </Animated.View>
       </Pressable>
-      {/* Opened while the list shows, its rows fade in; open when the list mounts, they just show. */}
+      {/* Opened while the list shows, its rows fade in; open when the list mounts, they just show. Closed, they fade
+          out where they were while what is under the section comes up. */}
       <LayoutAnimationConfig skipEntering>
         {collapsed ? null : (
-          <Animated.View entering={reduced ? undefined : FadeIn.duration(160)}>{children}</Animated.View>
+          <Animated.View
+            entering={reduced ? undefined : FadeIn.duration(160)}
+            exiting={reduced ? undefined : FadeOut.duration(150)}
+          >
+            {children}
+          </Animated.View>
         )}
       </LayoutAnimationConfig>
-    </View>
+    </Animated.View>
   );
 }
 

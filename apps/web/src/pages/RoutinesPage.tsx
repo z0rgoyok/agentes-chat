@@ -77,6 +77,7 @@ import {
 } from "@agenteschat/client/lib/routine-view";
 import {
   browserTimezone,
+  GROUP_BY_EXAMPLE,
   hookCurl,
   isRefusedHookCall,
   onceParts,
@@ -179,6 +180,7 @@ export const ROUTINE_EVENTS: RoutineEvent[] = [
   "github.pr_opened",
   "issue.created",
   "deploy.succeeded",
+  "telegram.message",
 ];
 
 /** Started by something happening (an event, an email, a webhook call), not by the clock. */
@@ -2254,6 +2256,7 @@ function WebhookPanel({ routine: r, runs }: { routine: Routine; runs: RoutineRun
         )}
       </div>
       <HookMethods routine={r} methods={data.methods} />
+      <HookGroupBy routine={r} groupBy={data.groupBy} />
       <div className="routine-hook__part">
         <span className="ac-field__label">{t("routines.webhook.example")}</span>
         <CommandBlock
@@ -2328,6 +2331,68 @@ function HookMethods({ routine: r, methods }: { routine: Routine; methods: Routi
           </CheckboxPill>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Group calls by": a path into each call's data. Calls with the same value there run in order, others side by side.
+ * Saved with its button (or Enter); emptied, every call waits in one line.
+ */
+function HookGroupBy({ routine: r, groupBy }: { routine: Routine; groupBy: string | null }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const save = useRoutineAction(org.id);
+  const [path, setPath] = useState(groupBy ?? "");
+  const changed = path.trim() !== (groupBy ?? "");
+  const submit = () => {
+    if (!changed || save.isPending) return;
+    save.mutate(
+      { type: "update", id: r.id, patch: { trigger: { type: "webhook", groupBy: path.trim() || null } } },
+      {
+        onSuccess: () => toast.show(t("routines.webhook.groupBySaved")),
+        onError: (error) => toast.show(errorText(t, error), "error"),
+      },
+    );
+  };
+  return (
+    <div className="routine-hook__part">
+      <span className="ac-hintline">
+        <label className="ac-field__label" htmlFor={`hook-group-${r.id}`}>
+          {t("routines.webhook.groupBy")}
+        </label>
+        <InfoHint name={t("common.about", { label: t("routines.webhook.groupBy") })}>
+          {t("routines.webhook.groupByHelp")}
+        </InfoHint>
+      </span>
+      <form
+        className="routine-hook__group"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <Input
+          id={`hook-group-${r.id}`}
+          value={path}
+          placeholder={GROUP_BY_EXAMPLE}
+          maxLength={200}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          disabled={save.isPending}
+          onChange={(e) => setPath(e.target.value)}
+        />
+        {changed && (
+          <Button type="submit" loading={save.isPending}>
+            {t("common.save")}
+          </Button>
+        )}
+      </form>
+      <p className="small muted">
+        {groupBy ? t("routines.webhook.groupByOn", { path: groupBy }) : t("routines.webhook.groupByOff")}
+      </p>
     </div>
   );
 }
@@ -3064,7 +3129,6 @@ function OwnActions({
                 iconOnly
                 icon="close"
                 aria-label={t("routines.ownActions.remove", { action: ownActionName(t, name) })}
-                disabled={action.isPending}
                 onClick={() =>
                   action.mutate({
                     type: "update",
@@ -3103,7 +3167,6 @@ function VaultKeys({ routine }: { routine: Routine }) {
                 iconOnly
                 icon="close"
                 aria-label={t("routines.vaultKeys.remove", { key })}
-                disabled={action.isPending}
                 onClick={() =>
                   action.mutate({
                     type: "update",

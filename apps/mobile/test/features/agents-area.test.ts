@@ -139,7 +139,6 @@ describe("saving forms", () => {
     expect(setup.match(/toast\(\{/g)).toHaveLength(2);
     expect(setup).toContain('...(rest.length > 0 ? { subtitle: rest.join(" ") } : {}),');
     expect(setup).toMatch(/loading=\{busy\}\s+disabled=\{chosen\.length === 0\}/);
-    expect(src("ai/KeyForAllScreen.tsx")).toMatch(/loading=\{busy\}\s+disabled=\{!chosen \|\| can\.length === 0\}/);
   });
 
   test("a device code's Copied says Copy again after a moment, with a tap of success; Start spins in place", () => {
@@ -211,7 +210,7 @@ describe("Connect an AI and the right hand's cards", () => {
 
 describe("the agents' pages on the phone's standards", () => {
   test("a choice of one agent, of several or of a person is a pushed screen, never a list unfolding in a card", () => {
-    for (const route of ["agent-choose", "person-choose", "agent-look", "agent-brain", "agent-merge/[id]"])
+    for (const route of ["agent-choose", "person-choose", "agent-look", "agent-merge/[id]"])
       expect({ route, pushed: pushedByDefault(route) }).toEqual({ route, pushed: true });
     const reports = src("agents/ReportsToSection.tsx");
     expect(reports).toContain('router.push("/agent-choose");');
@@ -288,7 +287,7 @@ describe("the agents' pages on the phone's standards", () => {
     // The setor's "…" in Agentes is the app's action list, as every "…".
     expect(sector).toContain("chooseAction(");
     expect(sector).not.toContain("<ActionList");
-    const create = src("agents/NewAgentScreen.tsx");
-    expect(create).toContain("{...(start ? { menu: true } : { chevron: true })}");
+    // Criar agente's "Quem pensa" is the one AI choice, whose fields open in place.
+    expect(src("agents/NewAgentScreen.tsx")).toContain("<AiChoiceFields");
   });
 });

@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useApi } from "../api/context";
 import { ApiError } from "../api/http";
 import { keys } from "../api/keys";
-import type { BrowserHandoff, DesktopPictureView, DesktopStatus } from "../api/types";
+import type { AgentHolds, BrowserHandoff, DesktopPictureView, DesktopStatus } from "../api/types";
 import { handoffScreen } from "../browser";
+import { edit, optimistic } from "../lib/optimistic";
 import { type Seat, screenId } from "../lib/seat";
 import { useSeat } from "../lib/seat-context";
 import { type SocketBase, socketUrl } from "../realtime/connection";
@@ -256,14 +257,23 @@ export const useAgentHolds = (orgId: string, agentId: string, options: { enabled
   });
 };
 
-/** A person's Stop on one of them: the list is read again however it went. Its caller says a failure. */
+/**
+ * A person's Stop on one of them: it leaves the list at once (a refusal puts it back), and the list is read again
+ * however it went. Its caller says a failure.
+ */
 export function useStopHold(orgId: string, agentId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
     meta: { silent: true },
     mutationFn: (holdId: string) => api.desktop.stopHold(orgId, agentId, holdId),
-    onSettled: () => qc.invalidateQueries({ queryKey: keys.agentHolds(orgId, agentId) }),
+    ...optimistic(qc, (holdId: string) => [
+      edit<AgentHolds>(keys.agentHolds(orgId, agentId), (view) => ({
+        ...view,
+        holds: view.holds.filter((h) => h.id !== holdId),
+      })),
+    ]),
+    onSettled: () => void qc.invalidateQueries({ queryKey: keys.agentHolds(orgId, agentId) }),
   });
 }
 
@@ -460,4 +470,87 @@ export function useBrowserScreen(
     status,
     report,
   };
+}
+
+// ── A terminal on the agent's computer (ADR 0058 §6) ─────────────────────────
+
+/** A terminal's size, inclusive (mirror of `STREAM_LIMITS.cols` and `.rows` in `@agenteschat/adapters`). */
+export const TERMINAL_SIZE = { cols: [20, 400], rows: [5, 200] } as const;
+
+/** A size the server takes: it refuses a terminal of any other, and closes one resized out of it. */
+export function terminalSize(cols: number, rows: number) {
+  const within = (n: number, [min, max]: readonly [number, number]) =>
+    Math.min(max, Math.max(min, Number.isFinite(n) ? Math.floor(n) : min));
+  return { cols: within(cols, TERMINAL_SIZE.cols), rows: within(rows, TERMINAL_SIZE.rows) };
+}
+
+/**
+ * A person's socket to a terminal as the agent: the shell's bytes both ways, binary; text frames `resize` out, and
+ * `exit` and `cwd_ignored` in. `session`: a code session's, started in its worktree (ADR 0215).
+ */
+export function terminalSocketUrl(
+  base: SocketBase,
+  v: { orgId: string; agentId: string; cols: number; rows: number; session?: string; seat?: Seat; keep?: string },
+) {
+  // One key at a time: an optional key may not be undefined in the address's parameters.
+  const params: Record<string, string | number> = { orgId: v.orgId, agentId: v.agentId, cols: v.cols, rows: v.rows };
+  if (v.session) params.session = v.session;
+  if (v.seat) params.seat = v.seat;
+  // The terminal's name: its shell stays for whoever comes back with it (a page read again).
+  if (v.keep) params.keep = v.keep;
+  return socketUrl(base, "/api/terminal", params);
+}
+
+/**
+ * What a terminal shows once its socket closed. `ended`: its shell ended (or was ended); `screening`: this server opens
+ * no terminal (ADR 0076 §7); `forbidden`: only who may drive the computer opens one; `outdated`: the app on the computer
+ * is too old; `unavailable`: no terminal for this agent there (its switch off, a computer that can't run one, no
+ * computer); `failed`: anything else, a dropped connection among them.
+ */
+export type TerminalEnd =
+  | "ended"
+  | "screening"
+  | "forbidden"
+  | "offline"
+  | "outdated"
+  | "unavailable"
+  | "busy"
+  | "paused"
+  | "failed";
+
+/** What a terminal socket's close means (`reason`: the server's, or the computer's error code). */
+export function terminalCloseState(code: number, reason = ""): TerminalEnd {
+  switch (code) {
+    case DESKTOP_CLOSE.normal:
+      return "ended";
+    case DESKTOP_CLOSE.forbidden:
+      // Signed out, or a workspace closed meanwhile, is no question of the computer.
+      return reason === "forbidden" ? "forbidden" : "failed";
+    case DESKTOP_CLOSE.notFound:
+      return reason === "no_terminal" ? "screening" : "unavailable";
+    case DESKTOP_CLOSE.tooMany:
+      return "busy";
+    case DESKTOP_CLOSE.unreachable:
+      return "offline";
+    case DESKTOP_CLOSE.refused:
+      if (reason === "runner_outdated") return "outdated";
+      if (reason === "machine_paused") return "paused";
+      if (reason === "not_allowed" || reason === "terminal_unavailable") return "unavailable";
+      return "failed";
+    default:
+      return "failed";
+  }
+}
+
+/**
+ * What a terminal's text frame says: its shell ended (`exit`), or its computer, too old for the folder asked, started
+ * it in the agent's folder (`cwd_ignored`, ADR 0215); null for any other.
+ */
+export function terminalFrame(text: string): "exit" | "moved" | "cwd_ignored" | null {
+  try {
+    const type = (JSON.parse(text) as { type?: unknown }).type;
+    return type === "exit" || type === "moved" || type === "cwd_ignored" ? type : null;
+  } catch {
+    return null;
+  }
 }

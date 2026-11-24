@@ -255,6 +255,9 @@ const Routine = z
         }),
         signed: z.boolean().openapi({ description: "Calls must carry an HMAC-SHA256 signature of the body." }),
         methods: z.array(HookMethodSchema).openapi({ description: "The HTTP methods its address answers." }),
+        groupBy: z.string().nullable().openapi({
+          description: "A dot path into each call's data: calls with the same value run in order, others side by side.",
+        }),
       }),
       z.object({
         type: z.literal("connector"),
@@ -410,6 +413,10 @@ const TriggerInput = z.union([
       methods: z.array(HookMethodSchema).min(1).max(HOOK_METHODS.length).optional().openapi({
         description: "The HTTP methods its address answers (default POST; left out on a change, what it had).",
       }),
+      groupBy: z.string().max(200).nullable().optional().openapi({
+        description:
+          "Group calls by a dot path into each call's data (`conversation.id`): the same value runs in order, different ones side by side. Null or blank: one line; left out on a change, what it had.",
+      }),
     })
     .openapi({ description: "A call to an address of its own (`GET …/hook` gives it to who manages the routine)." }),
   z
@@ -445,6 +452,7 @@ const Hook = z
     url: z.string(),
     signed: z.boolean(),
     methods: z.array(HookMethodSchema),
+    groupBy: z.string().nullable().openapi({ description: "Group calls by (null: one line for every call)." }),
     calls: z.array(HookCall).openapi({ description: "The latest calls, newest first (at most 20)." }),
   })
   .openapi("RoutineHook");

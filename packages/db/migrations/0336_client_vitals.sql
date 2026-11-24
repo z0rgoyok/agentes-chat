@@ -1,0 +1,1 @@
+ALTER TABLE "server_processes" ADD COLUMN "client_vitals" jsonb;

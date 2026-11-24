@@ -360,7 +360,7 @@ describe("the list", () => {
     expect(within(list()).getByText("Mais 1 tarefa em conversas que você não vê.")).toBeTruthy();
   });
 
-  test("what else waits on you leads to Esperando você, with the sidebar's count", async () => {
+  test("what else waits on you leads to the inbox on what waits (ADR 0218), with the sidebar's count", async () => {
     // A request to join and nothing of the agents': the button is amber, and the list says why.
     const state = seedState({
       taskManager: { tasks: [], ended: [], hidden: { total: 0, working: 0, byAgent: {} }, computers: [], activity: {} },
@@ -374,7 +374,9 @@ describe("the list", () => {
     expect(line.getAttribute("href")).toBe(`/org/${ORG_ID}/waiting`);
     expect(line.closest(".agora-row")?.querySelector(".rq-wait--still")).not.toBeNull();
     await click(line);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/waiting`);
+    // The address what waits once had opens the inbox on that filter.
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
+    expect(router.state.location.search).toEqual({ filter: "waiting" });
     expect(screen().queryByRole("dialog", { name: "Agora" })).toBeNull();
     cleanup();
 

@@ -518,3 +518,56 @@ export function serverTrouble(input: {
   if (problem === "unreachable" && !input.tailnet) return { kind: "down" };
   return { kind: "problem", problem };
 }
+
+/** Conversas' two ways to list a team's conversations: by latest activity, or by the agents' sectors (ADR 0083). */
+export type HomeView = "recent" | "sectors";
+
+export const homeViewOf = (stored: string | null): HomeView => (stored === "sectors" ? "sectors" : "recent");
+
+/** One section of Setores: a sector's agents' conversations, the agents in none, the direct messages, the channels. */
+export interface HomeSectorSection {
+  /** Remembered collapsed by it: `sector:<id>`, or `agents`, `dms`, `channels`. */
+  key: string;
+  kind: "sector" | "agents" | "dms" | "channels";
+  /** The sector's own (its name, color and icon); null for the other three. */
+  group: { id: string; name: string; color?: string | undefined; icon?: string | null | undefined } | null;
+  rows: ConversationRow[];
+}
+
+/**
+ * Setores, as the web's sidebar groups the agents (ADR 0083): each sector with its agents' conversations, in the
+ * workspace's order of sectors; then the agents in no sector, the direct messages with people and the channels.
+ * Threads and missions stay in Recentes and Threads. Each section is by latest activity (`recentRows`); an empty one
+ * is left out.
+ */
+export function sectorSections(
+  rows: readonly ConversationRow[],
+  groups: readonly { id: string; name: string; agentIds: readonly string[]; color?: string; icon?: string | null }[],
+): HomeSectorSection[] {
+  const ordered = recentRows([...rows]);
+  const agentRows = ordered.filter((r) => r.kind === "dm" && r.with.type === "agent");
+  const agentOf = (r: ConversationRow) => (r.kind === "dm" ? r.with.id : "");
+  const placed = new Set<string>();
+  const sections: HomeSectorSection[] = groups.map((g) => {
+    const ids = new Set(g.agentIds);
+    const mine = agentRows.filter((r) => ids.has(agentOf(r)) && !placed.has(r.key));
+    for (const r of mine) placed.add(r.key);
+    return {
+      key: `sector:${g.id}`,
+      kind: "sector",
+      group: { id: g.id, name: g.name, color: g.color, icon: g.icon ?? null },
+      rows: mine,
+    };
+  });
+  sections.push(
+    { key: "agents", kind: "agents", group: null, rows: agentRows.filter((r) => !placed.has(r.key)) },
+    {
+      key: "dms",
+      kind: "dms",
+      group: null,
+      rows: ordered.filter((r) => r.kind === "dm" && r.with.type !== "agent"),
+    },
+    { key: "channels", kind: "channels", group: null, rows: ordered.filter((r) => r.kind === "channel") },
+  );
+  return sections.filter((s) => s.rows.length > 0);
+}

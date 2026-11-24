@@ -407,9 +407,16 @@ test("org detail: owners and admins, and counts of what is in it", async () => {
       storageBytes: null,
       uploadBytesPerDay: null,
       platformUsdPerMonth: null,
+      connectorUsdPerMonth: null,
       updatedAt: null,
     },
-    meters: { storageBytes: 0, uploadBytes24h: 0, ownStorage: false, platformUsdThisMonth: 0 },
+    meters: {
+      storageBytes: 0,
+      uploadBytes24h: 0,
+      ownStorage: false,
+      platformUsdThisMonth: 0,
+      connectorUsdThisMonth: 0,
+    },
     deletion: null,
     deletionHold: null,
   });
@@ -434,7 +441,7 @@ test("user detail: workspaces and at most the 10 newest sessions", async () => {
   const user = await body<{ sessions: { ip: string | null; userAgent: string | null; createdAt: string }[] }>(
     await op(`/users/${acme.ownerId}`),
   );
-  expect(user).toMatchObject({ id: acme.ownerId, email: "owner@acme.test", name: "owner", emailVerified: false });
+  expect(user).toMatchObject({ id: acme.ownerId, email: "owner@acme.test", name: "owner", emailVerified: true });
   expect(user).toMatchObject({
     orgs: [{ orgId: acme.orgId, name: "Acme", role: "owner", joinedAt: expect.any(String), lastSeenAt: null }],
   });
@@ -919,6 +926,7 @@ test("limits: set them all, read back with what the workspace uses; any standing
     storageBytes: 200 * 1024 ** 3,
     uploadBytesPerDay: 10 * 1024 ** 3,
     platformUsdPerMonth: 10,
+    connectorUsdPerMonth: 4.35,
   };
   for (const bad of [
     {},
@@ -930,6 +938,7 @@ test("limits: set them all, read back with what the workspace uses; any standing
     { ...limits, storageBytes: -1 },
     { ...limits, platformUsdPerMonth: 100_001 },
     { ...limits, platformUsdPerMonth: "10" },
+    { ...limits, connectorUsdPerMonth: -1 },
   ]) {
     expect({ bad, status: (await put(`/orgs/${orgId}/limits`, bad)).status }).toEqual({ bad, status: 400 });
   }
@@ -948,17 +957,24 @@ test("limits: set them all, read back with what the workspace uses; any standing
   expect(heard).toHaveLength(1);
   const org = await body<{ limits: unknown; meters: unknown }>(await op(`/orgs/${orgId}`));
   expect(org.limits).toEqual(set);
-  expect(org.meters).toEqual({ storageBytes: 0, uploadBytes24h: 0, ownStorage: false, platformUsdThisMonth: 0 });
+  expect(org.meters).toEqual({
+    storageBytes: 0,
+    uploadBytes24h: 0,
+    ownStorage: false,
+    platformUsdThisMonth: 0,
+    connectorUsdThisMonth: 0,
+  });
 
   // Limits and standing are apart: a held workspace takes new limits too.
   await body(await put(`/orgs/${orgId}/billing-hold`, { hold: "unpaid" }));
-  // Left out, the plan's top and who pays are none.
+  // Left out, the plan's top, who pays and the connectors' money are none.
   const none = { members: null, storageBytes: null, uploadBytesPerDay: null, platformUsdPerMonth: null };
   heard.length = 0;
   expect(await body(await put(`/orgs/${orgId}/limits`, none))).toEqual({
     ...none,
     membersMax: null,
     payerUserId: null,
+    connectorUsdPerMonth: null,
     updatedAt: expect.any(String),
   });
   expect(heard).toEqual([{ type: "org.limits", orgId }]);

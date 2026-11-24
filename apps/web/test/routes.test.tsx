@@ -147,7 +147,7 @@ describe("route guards", () => {
     expect(nav.querySelector(".sidebar__org-where")?.textContent).toBe("Seu servidor");
   });
 
-  test("the sidebar lists channels, DMs (people and agents) and the pending approvals count, proposals in it", async () => {
+  test("the sidebar lists channels, DMs (people and agents) and what waits on me, proposals never in it", async () => {
     const state = seedState();
     for (const id of [ADA_ID, ATLAS_ID]) seedDm(state, { type: "agent", id });
     seedDm(state, { type: "person", id: "u-joao" });
@@ -158,8 +158,11 @@ describe("route guards", () => {
     expect(nav.textContent).toContain("2 membros · 2 agentes");
     // Where the workspace lives, before its counts.
     expect(nav.querySelector(".sidebar__org-where")?.textContent).toBe("Cloud");
-    // Two approvals and the two proposals waiting: proposals count in Aprovações unless they have a row of their own.
-    expect(screen().getByLabelText("4 aprovações pendentes").textContent).toBe("4");
+    // The inbox's row counts what waits on me (ADR 0218). Proposals wait on nobody (ADR 0219): the workspace's two open
+    // ones are the review's, and nothing else waits here, so it shows no count.
+    const inbox = nav.querySelector('a.sidebar__item[href$="/notifications"]') as HTMLElement;
+    expect(inbox.textContent).toContain("Caixa de entrada");
+    expect(inbox.querySelector(".ac-count")).toBeNull();
     for (const name of ["Canais", "eng", "general", "Mensagens diretas", "Ada", "Atlas", "João"]) {
       expect(nav.textContent).toContain(name);
     }

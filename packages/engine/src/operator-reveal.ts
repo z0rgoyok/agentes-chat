@@ -125,6 +125,16 @@ export interface Revealed {
 const ADDRESS = /[^\s@]@[^\s@][^\s@.]*\.[^\s@]|:\/\/\S|\bwww\.\S/i;
 const MORE_THAN_A_LINE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 
+/** A read's reason: one line that says the question, kept where others read it, so with no address in it. */
+export function checkRevealReason(reason: string) {
+  const line = reason.trim();
+  if (line.length < REVEAL_REASON_CHARS.min || MORE_THAN_A_LINE.test(line) || ADDRESS.test(line)) {
+    throw new ValidationError(
+      "reason: one line of at least 20 characters that says the question, with no email or web address",
+    );
+  }
+}
+
 /** What a request's shape must also hold, beyond its types. */
 function checkShape(input: RevealInput) {
   const refuse = (message: string) => {
@@ -134,10 +144,7 @@ function checkShape(input: RevealInput) {
     refuse(`field: a ${input.kind} has ${REVEAL_FIELDS[input.kind].join(", ")}`);
   }
   if ((input.kind === "run_step") !== (input.seq !== undefined)) refuse("seq: a run's step has one, nothing else does");
-  const reason = input.reason.trim();
-  if (reason.length < REVEAL_REASON_CHARS.min || MORE_THAN_A_LINE.test(reason) || ADDRESS.test(reason)) {
-    refuse("reason: one line of at least 20 characters that says the question, with no email or web address");
-  }
+  checkRevealReason(input.reason);
   if (input.purpose === "member_request" && (!input.requestId || input.runId)) {
     refuse("requestId: member_request takes the support request, and no run");
   }
@@ -147,7 +154,7 @@ function checkShape(input: RevealInput) {
   }
 }
 
-const refused = (code: string, message: string) => new ForbiddenError(message, `reveal.${code}`);
+export const revealRefused = (code: string, message: string) => new ForbiddenError(message, `reveal.${code}`);
 
 /** One answer for a record of another workspace, a deleted one and one nobody has. */
 export const noSuchRecord = () => new NotFoundError("No such record in this workspace");
@@ -155,7 +162,7 @@ export const noSuchRecord = () => new NotFoundError("No such record in this work
 /** Who made a support request is still a member the app lets in: not gone, blocked or being deleted. */
 export async function requireRequester(db: Executor, orgId: string, userId: string) {
   if (!(await getMembership(db, userId, orgId))) {
-    throw refused("requester", "Who asked is no longer a member of this workspace");
+    throw revealRefused("requester", "Who asked is no longer a member of this workspace");
   }
 }
 
@@ -532,7 +539,8 @@ async function openRequest(db: Database, orgId: string, requestId: string, now: 
         gt(supportRequests.createdAt, new Date(now.getTime() - REVEAL_REQUEST_DAYS * DAY_MS)),
       ),
     );
-  if (!request) throw refused("no_request", "No support request of this workspace by this id in the last 30 days");
+  if (!request)
+    throw revealRefused("no_request", "No support request of this workspace by this id in the last 30 days");
   return request;
 }
 
@@ -590,14 +598,14 @@ async function checkFault(db: Database, orgId: string, input: RevealInput, found
   const reported = request ? age(request.createdAt) : -1;
   const inDays = run && (age(now) <= days || (reported >= 0 && reported <= days));
   if (!run || !inDays || !(run.open || run.failedStep)) {
-    throw refused("no_fault", "No run of this workspace by this id failed or got stuck in its 14 days");
+    throw revealRefused("no_fault", "No run of this workspace by this id failed or got stuck in its 14 days");
   }
   const itsOwn = await found.ofRun(run);
   // A run that went on past one failure opens that failure, never the rest of itself.
   if (!itsOwn || !(run.open || found.failure)) {
-    throw refused("not_the_fault", "This is not something the failed or stuck run is about");
+    throw revealRefused("not_the_fault", "This is not something the failed or stuck run is about");
   }
-  if (found.direct) throw refused("direct_conversation", "A direct conversation is not read to diagnose a run");
+  if (found.direct) throw revealRefused("direct_conversation", "A direct conversation is not read to diagnose a run");
   return { member: null, facts: { runId: run.id, ...(request ? { requestId: request.id } : {}) } };
 }
 
@@ -606,7 +614,7 @@ async function checkMemberRequest(db: Database, orgId: string, input: RevealInpu
   const request = await openRequest(db, orgId, input.requestId ?? "", now);
   await requireRequester(db, orgId, request.userId);
   if (!(await found.seenBy(request.userId))) {
-    throw refused("not_visible", "Who asked can't read this in the app");
+    throw revealRefused("not_visible", "Who asked can't read this in the app");
   }
   const source = listedOf(SUPPORT_SOURCES, request.source);
   return { member: request.userId, facts: { requestId: request.id, ...(source ? { source } : {}) } };
@@ -619,16 +627,16 @@ async function checkMemberRequest(db: Database, orgId: string, input: RevealInpu
  */
 function checkSafety(input: RevealInput, found: Found) {
   if (input.kind === "support_request") {
-    throw refused("not_visible", "A support request's words open to that request alone");
+    throw revealRefused("not_visible", "A support request's words open to that request alone");
   }
   if (found.direct && found.ofPeople) {
-    throw refused("direct_conversation", "What people said to each other in a direct conversation is not read");
+    throw revealRefused("direct_conversation", "What people said to each other in a direct conversation is not read");
   }
   return { member: null, facts: {} };
 }
 
 /** How many reads the door gave in the last day, counted from the events they wrote: `of` a workspace, or a purpose. */
-async function readsToday(db: Database, now: Date, of: SQL) {
+export async function revealsToday(db: Database, now: Date, of: SQL) {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(operatorEvents)
@@ -657,7 +665,7 @@ export async function operatorReveal(
 ): Promise<Revealed> {
   checkShape(input);
   // ponytail: two reads at the same instant can pass one over the day's count; a lock on the workspace if it matters.
-  if ((await readsToday(db, now, eq(operatorEvents.orgId, orgId))) >= REVEAL_PER_WORKSPACE_DAY) {
+  if ((await revealsToday(db, now, eq(operatorEvents.orgId, orgId))) >= REVEAL_PER_WORKSPACE_DAY) {
     throw new TooManyError(
       `This workspace's ${REVEAL_PER_WORKSPACE_DAY} reads of the last 24 hours are used`,
       "reveal.limit_workspace",
@@ -665,7 +673,7 @@ export async function operatorReveal(
   }
   // ponytail: two such reads at one instant can pass one over the day's count; a lock on the instance if it matters.
   const untold = sql`${operatorEvents.data}->>'purpose' = 'trust_safety'`;
-  if (input.purpose === "trust_safety" && (await readsToday(db, now, untold)) >= REVEAL_UNTOLD_PER_DAY) {
+  if (input.purpose === "trust_safety" && (await revealsToday(db, now, untold)) >= REVEAL_UNTOLD_PER_DAY) {
     throw new TooManyError(
       `This server's ${REVEAL_UNTOLD_PER_DAY} reads for a safety review in the last 24 hours are used: each frees 24 hours after it was made`,
       "reveal.limit_untold",
@@ -687,7 +695,7 @@ export async function operatorReveal(
         : checkSafety(input, found);
   // Told only to a caller whose proof holds, as a direct conversation is.
   if (found.confidential) {
-    throw refused("confidential", "What a run of a confidential thread holds is read only in that thread");
+    throw revealRefused("confidential", "What a run of a confidential thread holds is read only in that thread");
   }
 
   const { kind, id, seq, field, offset, limit, purpose, assistedByAi } = input;

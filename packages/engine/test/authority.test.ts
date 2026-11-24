@@ -17,6 +17,7 @@ import {
   untrustedBlock,
 } from "../src";
 import { lineLocale } from "../src/requester";
+import { runColumns } from "../src/run-state";
 import { addUser, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -133,6 +134,9 @@ describe("who is behind a run", () => {
       .set({ transcript: { steeredBy: f.owner.id } })
       .where(eq(schema.agentRuns.id, woken.id));
     expect(await runAuthorityById(f.db, f.org.id, woken.id)).toEqual({ kind: "person", personId: f.owner.id });
+    // Read without its transcript, its state copy says it.
+    const [row] = await f.db.select(runColumns).from(schema.agentRuns).where(eq(schema.agentRuns.id, woken.id));
+    expect(row && (await runAuthority(f.db, row))).toEqual({ kind: "person", personId: f.owner.id });
   });
 
   test("an answer, or a note's reply, continues the work of the run that sent it, for its person", async () => {

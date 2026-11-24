@@ -1,4 +1,5 @@
-import type { OrgStanding } from "../api/types";
+import type { OrgStanding, OrgSummary } from "../api/types";
+import { can } from "./permissions";
 
 /** Mirror of the server's billing holds (`packages/engine/src/standing.ts`, ADR 0079). */
 export const BILLING_HOLDS = ["payment", "unpaid", "ended"] as const;
@@ -12,6 +13,17 @@ export const billingHoldOf = (
   standing: Pick<OrgStanding, "state" | "reason"> | null | undefined,
 ): BillingHold | null =>
   standing?.state === "hold" ? (BILLING_HOLDS.find((code) => code === standing.reason) ?? null) : null;
+
+/**
+ * Where its payer may move the workspace's plan (ADR 0079): every other workspace of theirs where they manage billing,
+ * on a billing hold (no plan in force) and not being deleted. None when they don't pay for this one's plan.
+ */
+export const planMoveTargets = (orgs: readonly OrgSummary[], from: Pick<OrgSummary, "id" | "paysPlan">) =>
+  from.paysPlan
+    ? orgs.filter(
+        (o) => o.id !== from.id && !o.deletion && can(o, "manage_billing") && billingHoldOf(o.standing) !== null,
+      )
+    : [];
 
 /**
  * Nothing held over the workspace and no suspension: with billing on, the server's only word that its plan is in

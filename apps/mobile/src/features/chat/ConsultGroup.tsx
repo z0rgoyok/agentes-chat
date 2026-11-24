@@ -23,15 +23,17 @@ import type { TFunction } from "i18next";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Icon, Text } from "@/ui";
+import { Icon, Text, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
+import { withAlpha } from "@/ui/palette";
+import { RADIUS } from "@/ui/radius";
 import { consultationHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
 import { useColors, useNow, useOrgId } from "../shared/hooks";
+import { agentLook } from "../shared/logic";
 import { usePresenceOf } from "../status/hooks";
-import { rowBodyInset } from "./logic";
-import { useRhythm, useRowLook } from "./look";
-import { useRowConsults, useRowDirectory } from "./row-data";
+import { nameInk } from "./logic";
+import { sameItems, useRowConsultsPart, useRowDirectory } from "./row-data";
 import { WaitMark } from "./WaitMark";
 
 /** A question's state in words, on the conversation's screen ("A Iris espera uma aprovação"). */
@@ -67,9 +69,12 @@ export function useRunConsults(
   const orgId = useOrgId();
   const qc = useQueryClient();
   // Grouped once for the conversation (`RowConsults.byRun`, `groupsByRun(asExchanges(…))`), not again in every row.
-  const list = useRowConsults(where.channelId);
-  const group = runId ? list.byRun.get(runId) : undefined;
-  const listed = list.byId;
+  // Only this run's questions, and which of the ones it names the list has: the row draws again when those change, not
+  // on every reload of the conversation's questions (a row with no run follows nothing).
+  const group = useRowConsultsPart(where.channelId, (list) => (runId ? list.byRun.get(runId) : undefined), sameItems);
+  const listed = useRowConsultsPart(where.channelId, (list) =>
+    consulted.map((c) => (list.byId.has(c.consultationId) ? "1" : "0")).join(""),
+  );
   const loaded =
     group && runId
       ? [
@@ -82,7 +87,7 @@ export function useRunConsults(
   const draws = group !== undefined && (messageId === null ? first === null : !first || first === messageId);
   return useMemo(() => {
     const run = group ?? NO_ITEMS;
-    const extra = consulted.filter((c) => !listed.has(c.consultationId)).map(pairItemOf);
+    const extra = consulted.filter((_, i) => listed[i] !== "1").map(pairItemOf);
     const mine = !draws ? NO_ITEMS : reached.size === 0 ? run : run.filter((c) => !reached.has(c.id));
     return extra.length === 0 ? mine : [...mine, ...extra];
   }, [group, listed, consulted, draws, reached]);
@@ -94,175 +99,153 @@ export function useRunConsults(
  */
 export function useConsultById(channelId: string, id: string | undefined): RunConsultation | null {
   const orgId = useOrgId();
-  const list = useRowConsults(channelId);
-  const listed = (id && list.byId.get(id)) || null;
-  const alone = useConsultationConversation(orgId, channelId, id && list.loaded && !listed ? id : null);
+  // That question alone (and whether the list came): the line draws again only when it changes.
+  const listed = useRowConsultsPart(channelId, (list) => (id && list.byId.get(id)) || null);
+  const loaded = useRowConsultsPart(channelId, (list) => list.loaded);
+  const alone = useConsultationConversation(orgId, channelId, id && loaded && !listed ? id : null);
   return listed ?? alone.data?.consultation ?? null;
 }
 
 /**
- * The slim row right before a reply whose agent asked other agents first, as on the web (`ConsultGroup.tsx`): the
- * asker's face and name, ⇄, the consulted agent's (several fold into stacked faces, "Atlas e mais 2"), then how long
- * it took, or while it runs "perguntando 42 s", or "não respondeu". Never what they said: a tap opens the two agents'
- * conversation on a screen of its own, read only (`ConsultationScreen`). The same row stands for an answer whose
- * reply is farther up or not here, and for a hand-off by direct message on a reach line (`inline`).
+ * The questions a reply's agent asked other agents first, quoted at the top of the reply (as a reply quotes a
+ * message): the consulted agent's face and its name in its color with how it went ("· levou 58 s", "· perguntando
+ * 12 s" in blue), the question's subject in up to two lines, and a chevron, on a plate a step off the bubble (no
+ * colored bar at its left edge); a tap opens the two agents' conversation,
+ * read only (`ConsultationScreen`). Several asked: the first agent's color and face, "Atlas e mais 2". `alone`: with no
+ * reply to sit in (an answer farther up, a hand-off on a reach line), the quote stands on its own and says who asked
+ * ("Theo perguntou").
  */
-export function ConsultPairRow({
+export function ConsultQuote({
   askerId,
   channelId,
   items,
-  inline = false,
-  gap,
+  alone = false,
 }: {
   askerId: string;
-  /** The conversation that asked: the screen opens from it. */
   channelId: string;
   items: readonly ConsultPairItem[];
-  /** Inside a message (its reach lines): it reaches past the row's body to the conversation's width. */
-  inline?: boolean;
-  /** Under what shows above it (a turn's, or a part's under another quiet line). Inline: its margin above. */
-  gap?: number;
+  alone?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const rhythm = useRhythm();
-  const inset = rowBodyInset(useRowLook());
   const dir = useRowDirectory();
   const c = useColors();
+  const { scheme } = useTheme();
   const live = items.some((x) => x.status === "open");
   const now = useNow(live ? OPEN_TICK_MS : STILL_TICK_MS);
-  // The hand-off's run waits on me (its agent's work for me, ADR 0084 addendum): the row says so in amber, as on
-  // the web.
   const presence = usePresenceOf();
   const only = items.length === 1 && items[0]?.status === "open" ? items[0] : undefined;
   const mine = only ? handoffAsk(presence.agent(only.consultedAgentId)?.work, only.consultedRunId) : null;
   const pair = consultPair(items, now, askerId, mine);
   if (!pair) return null;
-  // Blue at work, amber when it waits on me, quiet when it waits on someone else, the warning for what went unanswered.
   const tone =
-    pair.tone === "live" ? c.agent : pair.tone === "bad" ? c.warn : pair.tone === "you" ? c.amberInk : c.muted;
+    pair.tone === "live" ? c.agent : pair.tone === "bad" ? c.warn : pair.tone === "you" ? c.amberInk : c.faint;
   const nameOf = (id: string) => dir.agentById.get(id)?.name ?? t("mobile.chat.someone");
-  const from = nameOf(askerId);
+  const firstId = pair.faces[0]?.agentId ?? askerId;
+  const color = agentLook(dir.agentById.get(firstId)).color;
+  const ink = nameInk(color, scheme === "dark");
   const names = pair.faces.map((f) => nameOf(f.agentId));
   const to = names.length === 1 ? (names[0] ?? "") : namesText(t, names, 1);
-  // What the question a tap opens is about, between the names and how it went, as on the web.
   const opened = items.find((x) => x.id === pair.opens) ?? items[0];
   const subject = consultSubject(opened?.question);
-  // The whole question, which the row's one line cuts: for screen readers here, on the screen a tap opens.
   const question = withoutRelayLine(opened?.question ?? "").trim();
-  // An old reply's question with no id of its own has no conversation to open.
   const opens = openableConsultation(pair.opens);
-  // A row of several opens on all of them: the screen offers each agent's exchange.
   const ids = items.map((x) => x.id);
+  const how = [
+    pair.word ? t(pair.word.key, pair.word.values) : null,
+    pair.seconds !== null ? consultTimeText(t, i18n.language, live, pair.seconds) : null,
+  ]
+    .filter(Boolean)
+    // Two facts, told apart as every line's: "1 of 2 · 2.1 h".
+    .join(" · ");
   return (
-    <View
-      style={[
-        styles.line,
-        inline
-          ? {
-              marginLeft: LINE_INSET - inset.left,
-              marginRight: LINE_INSET - inset.right,
-              // Between turns, as the list's own line: the turn's gap on both sides, of which the body's part is one.
-              marginTop: gap ?? rhythm.turn - rhythm.part,
-              marginBottom: rhythm.turn - rhythm.part,
-            }
-          : { marginTop: gap ?? rhythm.turn, paddingHorizontal: LINE_INSET },
+    <Pressable
+      onPress={() => {
+        if (opens) router.push(consultationHref(opens, channelId, ids));
+      }}
+      disabled={!opens}
+      accessibilityRole="button"
+      accessibilityLabel={[alone ? t("mobile.chat.pairAsked", { from: nameOf(askerId) }) : null, to, how, subject]
+        .filter(Boolean)
+        .join(", ")}
+      accessibilityHint={question || undefined}
+      style={({ pressed }) => [
+        quote.box,
+        { backgroundColor: withAlpha(c.ink, pressed ? 0.09 : 0.05) },
+        alone && quote.alone,
       ]}
     >
-      <View style={[styles.rule, { backgroundColor: c.line }]} />
-      <Pressable
-        onPress={() => {
-          if (opens) router.push(consultationHref(opens, channelId, ids));
-        }}
-        disabled={!opens}
-        accessibilityRole="button"
-        accessibilityHint={question || undefined}
-        // A 28-point row: 8 above and below gives it the 44-point target.
-        hitSlop={{ top: 8, bottom: 8 }}
-        style={({ pressed }) => [styles.row, pressed && { backgroundColor: c.plate }]}
-      >
-        <AgentFace agentId={askerId} size={FACE} live={false} />
-        <Text variant="footnote" tone="ink2" numberOfLines={1} style={styles.name}>
-          {from}
-        </Text>
-        {pair.tone === "you" ? (
-          <View style={styles.mark}>
-            <WaitMark size={8} />
+      <View style={quote.inner}>
+        <View style={quote.head}>
+          {alone ? (
+            <>
+              <Text variant="small" tone="ink2" numberOfLines={1} style={quote.asker}>
+                {nameOf(askerId)}
+              </Text>
+              {pair.tone === "you" ? (
+                <WaitMark size={8} />
+              ) : (
+                <Icon name="swap" size={12} color={pair.tone === "live" ? c.agent : c.faint} />
+              )}
+            </>
+          ) : null}
+          <View style={quote.faces}>
+            {pair.faces.slice(0, 3).map((f, i) => (
+              <View key={f.agentId} style={[i > 0 && [quote.stacked, { borderColor: c.bg }], f.off && quote.off]}>
+                <AgentFace
+                  agentId={f.agentId}
+                  size={QUOTE_FACE}
+                  live={false}
+                  mode={pair.tone === "live" && !f.off ? "think" : "idle"}
+                />
+              </View>
+            ))}
           </View>
-        ) : (
-          <Icon name="swap" size={13} color={pair.tone === "live" ? c.agent : c.faint} />
-        )}
-        <View style={styles.faces}>
-          {pair.faces.slice(0, 3).map((f, i) => (
-            <View key={f.agentId} style={[i > 0 && [styles.stacked, { borderColor: c.bg }], f.off && styles.off]}>
-              <AgentFace
-                agentId={f.agentId}
-                size={FACE}
-                live={false}
-                mode={pair.tone === "live" && !f.off ? "think" : "idle"}
-              />
-            </View>
-          ))}
+          <Text variant="small" numberOfLines={1} style={[quote.name, { color: ink }]}>
+            {to}
+          </Text>
+          {how ? (
+            <Text variant="footnote" numberOfLines={1} style={[quote.how, { color: tone }]}>
+              {`· ${how}`}
+            </Text>
+          ) : null}
         </View>
-        <Text variant="footnote" tone="ink2" numberOfLines={1} style={styles.name}>
-          {to}
-        </Text>
-        {/* The subject carries its own ·: when it has no room left, the dot goes with it. */}
         {subject ? (
-          <Text variant="footnote" tone="faint" numberOfLines={1} style={styles.subject}>
-            {`· ${subject}`}
+          <Text variant="footnote" tone="muted" numberOfLines={2}>
+            {subject}
           </Text>
         ) : null}
-        {pair.word || pair.seconds !== null ? (
-          <Text variant="footnote" tone="faint">
-            ·
-          </Text>
-        ) : null}
-        {pair.word ? (
-          <Text variant="footnote" style={[styles.word, { color: tone }]}>
-            {t(pair.word.key, pair.word.values)}
-          </Text>
-        ) : null}
-        {pair.seconds !== null ? (
-          <Text variant="footnote" tone="faint" style={styles.time}>
-            {consultTimeText(t, i18n.language, live, pair.seconds)}
-          </Text>
-        ) : null}
-      </Pressable>
-      <View style={[styles.rule, { backgroundColor: c.line }]} />
-    </View>
+      </View>
+      {opens ? <Icon name="right" size={15} color={c.faint} /> : null}
+    </Pressable>
   );
 }
 
-/** The pair's faces. */
-const FACE = 18;
-/** The row's room at each end, where its press lights. */
-const ROW_INSET = 8;
-/** The line's ends, the conversation's "Novas" line's. */
-const LINE_INSET = 16;
+/** The quote's faces. */
+const QUOTE_FACE = 16;
 
-const styles = StyleSheet.create({
-  // Across the conversation, the two agents on its middle: a line, as the day and "Novas" are.
-  line: { flexDirection: "row", alignItems: "center" },
-  rule: { flex: 1, minWidth: 16, height: StyleSheet.hairlineWidth },
-  // Always one line: the subject gives way first ("…"), the names only once it has none left, the word and time never.
-  row: {
+const quote = StyleSheet.create({
+  // The words' column, a step off the bubble's own fill, the chevron at its right.
+  box: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    columnGap: 6,
-    minHeight: 28,
-    paddingHorizontal: ROW_INSET,
-    borderRadius: 10,
-    flexShrink: 1,
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 8,
+    // The plates' room and the scale's item corner, as a quote in the words.
+    paddingVertical: 10,
+    paddingLeft: 12,
+    paddingRight: 10,
+    borderRadius: RADIUS.md,
+    overflow: "hidden",
   },
-  // The names give way only once the subject has none left: its share of any shrink dwarfs theirs.
-  name: { fontWeight: "600", flexShrink: 1 },
-  subject: { flexShrink: 100000 },
+  // On its own (no reply here): as wide as a bubble's words, under the conversation's quiet lines' inset.
+  alone: { marginTop: 0, marginBottom: 0, alignSelf: "flex-start", maxWidth: "100%" },
+  inner: { flex: 1, minWidth: 0, gap: 1 },
+  head: { flexDirection: "row", alignItems: "center", gap: 5 },
+  asker: { fontWeight: "600", flexShrink: 1 },
   faces: { flexDirection: "row", alignItems: "center" },
-  stacked: { marginLeft: -6, borderLeftWidth: 1.5, borderRadius: 6 },
+  stacked: { marginLeft: -5, borderLeftWidth: 1.5, borderRadius: 5 },
   off: { opacity: 0.45 },
-  word: { fontWeight: "600", flexShrink: 0 },
-  // The wait mark in the arrows' 13-point place, so the names don't move.
-  mark: { width: 13, height: 13, alignItems: "center", justifyContent: "center" },
-  time: { fontVariant: ["tabular-nums"], flexShrink: 0 },
+  name: { fontWeight: "600", flexShrink: 1 },
+  how: { flexShrink: 0 },
 });

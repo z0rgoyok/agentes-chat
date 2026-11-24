@@ -8,6 +8,14 @@ import {
   useRun,
 } from "@agenteschat/client";
 import type { Activity, ActivityKind } from "@agenteschat/client/lib/activity";
+import {
+  type CliLine,
+  type CliProgress,
+  type CliVerb,
+  cliMetaWords,
+  cliVerbWord,
+} from "@agenteschat/client/lib/cli-tools";
+import { lowerFirst, shortTarget } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
   appKey,
@@ -17,8 +25,8 @@ import {
   oneCall,
   quietLine,
   quietWork,
+  replySteps,
   savedOneLine,
-  showsActivity,
   type ToolItem,
   type ToolLine,
   toolApps,
@@ -34,6 +42,7 @@ import {
   workMeta,
   workSteps,
 } from "@agenteschat/client/lib/work";
+import { useShowsWork } from "@agenteschat/client/lib/work-context";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import {
   type AgentColor,
@@ -47,7 +56,8 @@ import {
 import type { TFunction } from "i18next";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { AccountSwitchLine } from "@/chat/AccountRef";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { CodePanel, formatBytes, OutputView } from "@/components/LiveCode";
 import { useOrg } from "@/components/org-context";
 
@@ -98,6 +108,7 @@ const KIND_ICON: Partial<Record<ActivityKind, IconName>> = {
   checkingUsage: "chart",
   findingAgent: "search",
   proposingMission: "flag",
+  suggestingCodeSession: "code",
   messagingMission: "flag",
   updatingPlan: "flag",
   reportingProgress: "flag",
@@ -141,8 +152,52 @@ export function useCallLogo() {
   };
 }
 
+/** A computer brain's own calls in a code session by what they did (ADR 0215): their icon on the line. */
+const CLI_ICON: Record<CliVerb, IconName> = {
+  read: "file",
+  search: "search",
+  edit: "edit",
+  write: "document",
+  run: "code",
+  fetch: "globe",
+  delegate: "agent",
+  skill: "sparkle",
+  workflow: "agent",
+  other: "plug",
+};
+
+/**
+ * A computer brain's own call in a code session as its terminal shows it (ADR 0215): its verb, what it worked on in
+ * mono, what it came to on the right; it opens on what it gave back (an edit's changed lines).
+ */
+function cliBlockLine(t: TFunction, locale: string, l: ToolLine, cli: CliLine): ToolBlockLine {
+  return {
+    key: l.key,
+    state: l.state,
+    logo: (
+      <span className="tool-logo" aria-hidden="true">
+        <Icon name={CLI_ICON[cli.verb]} size={14} />
+      </span>
+    ),
+    // While it runs, or stopped during it, as `toolPhrase` says ours: "Running".
+    label: cliVerbWord(t, cli.verb, l.state === "run" || l.state === "stop"),
+    target: cli.target ?? null,
+    hint: cli.about ?? null,
+    meta: cliMetaWords(t, cli.meta) ?? undefined,
+    time: l.ms !== null && l.state !== "run" ? formatLineTime(locale, l.ms) : undefined,
+    why: null,
+    detail: l.result ? (
+      <OutputView output={[{ stream: l.state === "fail" ? "stderr" : "stdout", text: l.result }]} />
+    ) : undefined,
+  };
+}
+
+/** The words of a line in the block's closed head: a computer's own call names what it works on too. */
+const headText = (line: ToolBlockLine) => (line.target ? `${line.label} ${line.target}` : line.label);
+
 /** A line of the block from the shared model: its phrase, time, open view (code, output, what it got and gave). */
 function blockLine(t: TFunction, locale: string, l: ToolLine, logo: ReactNode, personal = false) {
+  if (l.cli) return cliBlockLine(t, locale, l, l.cli);
   const lines = l.code ? l.code.source.split("\n").length : 0;
   const output = l.output ?? [];
   const label =
@@ -233,8 +288,10 @@ export function LiveTools({
   const blockItems = useBlockItems(items);
   const logo = useCallLogo();
   const calls = toolCalls(items);
-  // Done, its tools are the summary the person chose not to see (`showActivity`).
-  if (done && !showsActivity(org)) return null;
+  // Done, its tools are the summary the person chose not to see (`showActivity`), but in a code session's
+  // conversation, where they are the conversation itself (ADR 0215).
+  const shows = useShowsWork(org);
+  if (done && !shows) return null;
   // A lone quick read that only fed the answer: no card, as if it called nothing (once done, what it said on the way
   // is in its reply).
   const quiet = quietWork(items);
@@ -260,7 +317,7 @@ export function LiveTools({
         time: total > 0 ? formatDuration(t, total) : undefined,
       }
     : {
-        text: blockLine(t, i18n.language, now, null).label,
+        text: headText(blockLine(t, i18n.language, now, null)),
         textKey: `${now.key}-${now.state}`,
         state: now.state,
         count: t("chat.work.steps", { count: calls }),
@@ -316,7 +373,7 @@ export function TaskStepsBlock({
   const head =
     working && now
       ? {
-          text: blockLine(t, i18n.language, now, null).label,
+          text: headText(blockLine(t, i18n.language, now, null)),
           textKey: `${now.key}-${now.state}`,
           state: now.state,
           count: t("chat.work.steps", { count: calls }),
@@ -337,16 +394,20 @@ export function TaskStepsBlock({
 /**
  * The tools of a saved reply: closed, "Usou 4 ferramentas · 12 s" with the apps' logos from `meta.work`; its
  * steps load from `GET …/runs/{id}` only when opened (one request per opened message). A single call is its own
- * line from `meta.work` ("Criou uma rotina"), opening on what it was given and answered.
+ * line from `meta.work` ("Criou uma rotina"), opening on what it was given and answered. A run that answered on the
+ * way lists under each reply only the work that led to it (`replySteps`).
  */
 export function SavedTools({
   runId,
+  messageId,
   meta,
   agentName,
   color,
   skipScreens = [],
 }: {
   runId: string;
+  /** The reply it is under: its own part of the run's steps (none: the whole run). */
+  messageId?: string;
   meta: Record<string, unknown> | undefined;
   agentName: string;
   color?: AgentColor;
@@ -358,21 +419,30 @@ export function SavedTools({
   const [open, setOpen] = useState(false);
   const run = useRun(org.id, open ? runId : null);
   const logo = useCallLogo();
+  const shows = useShowsWork(org);
   const compact = workMeta(meta);
   const onCard = (name: unknown) => skipScreens.some((screen) => isScreenTool(String(name ?? ""), screen));
-  const work = run.data
-    ? workFromSteps(
-        run.data.steps.filter((s) => !(s.kind === "tool_call" && onCard(s.data.name))),
-        run.data.run,
-      )
-    : null;
+  const mine = run.data ? replySteps(run.data.steps, messageId) : null;
+  const work =
+    run.data && mine
+      ? workFromSteps(
+          mine.steps.filter((s) => !(s.kind === "tool_call" && onCard(s.data.name))),
+          mine.whole ? run.data.run : undefined,
+          { quietChecks: mine.cli },
+        )
+      : null;
   const items = work ? toolItemsSaved(work) : [];
-  const blockItems = useBlockItems(items);
+  const toolItems = useBlockItems(items);
+  const switched = run.data?.run?.accountSwitch;
+  // It went on with another account: said here, never in the chat.
+  const blockItems: ToolBlockItem[] = switched
+    ? [{ kind: "note", key: "account", node: <AccountSwitchLine move={switched} /> }, ...toolItems]
+    : toolItems;
   // Nothing more to show than the message does: no tools (lookups and reactions aren't counted), or only the ones
   // its own cards show (where it browsed).
   // No `meta.work` (a reply saved before it): a block that loads the run's steps when opened, gone if it called none.
   const shown = compact ? workSteps(compact, onCard) : null;
-  if (shown === 0 || !showsActivity(org)) return null;
+  if (shown === 0 || !shows) return null;
   const calls = work ? toolCalls(items) : (shown ?? 0);
   const lone = savedOneLine(meta, onCard);
   // Its one call (beside the screens' on their cards) only fed the answer (`quietLine`): the reply says it. Time
@@ -425,5 +495,121 @@ export function SavedTools({
       label={t("chat.work.block", agentGrammar(agentName))}
       onToggle={setOpen}
     />
+  );
+}
+
+type ProgressCall = Extract<LiveWork, { kind: "call" }> & { progress: CliProgress };
+
+/** A line's mark for a subagent or a workflow's agent: at work, done, failed, or stopped with the run. */
+const progressState = (ended: boolean | undefined, failed: boolean | undefined, stopped: boolean) =>
+  failed ? "fail" : ended ? "done" : stopped ? "stop" : "run";
+
+/** What a subagent does now, in words after what it was asked: "lendo todo.js". */
+function nowWords(t: TFunction, locale: string, now: CliLine | undefined) {
+  if (!now) return null;
+  const verb = lowerFirst(cliVerbWord(t, now.verb, true), locale);
+  return now.target ? `${verb} ${shortTarget(now.target)}` : verb;
+}
+
+/**
+ * The subagents and workflows of a computer brain's own while they work (ADR 0215), live in its row: each subagent a
+ * line with what it was asked, what it does now and its calls so far; a workflow a block of its agents, open, its
+ * head saying how many are done. They stay until the run ends, done ones marked.
+ */
+export function LiveSubagents({
+  work,
+  agentName,
+  color,
+  stopped = false,
+}: {
+  work: LiveWork[];
+  agentName: string;
+  color?: AgentColor;
+  stopped?: boolean;
+}) {
+  const { t, i18n } = useTranslation();
+  const calls = work.filter((w): w is ProgressCall => w.kind === "call" && w.progress !== undefined);
+  if (calls.length === 0) return null;
+  const logo = (
+    <span className="tool-logo" aria-hidden="true">
+      <Icon name="agent" size={14} />
+    </span>
+  );
+  const label = t("cliTools.progress.block", agentGrammar(agentName));
+  const agents = calls.filter((c) => c.progress.kind === "agent");
+  const workflows = calls.filter((c) => c.progress.kind === "workflow");
+  const agentLines: ToolBlockLine[] = agents.map((c) => {
+    const p = c.progress;
+    const state = progressState(p.ended, p.failed, stopped);
+    return {
+      key: c.id,
+      state,
+      logo,
+      label: c.cli?.about ?? t("cliTools.progress.subagent"),
+      hint: state === "run" ? nowWords(t, i18n.language, p.now) : null,
+      ...(p.calls ? { meta: t("chat.work.steps", { count: p.calls }) } : {}),
+    };
+  });
+  const running = agentLines.filter((l) => l.state === "run").length;
+  return (
+    <>
+      {agentLines.length > 0 && (
+        <ToolBlock
+          className="live-subagents"
+          logos={[]}
+          head={{
+            text: t("cliTools.progress.agents", { count: agentLines.length }),
+            state: running > 0 ? "run" : undefined,
+            ...(running > 0 && running < agentLines.length
+              ? { count: t("cliTools.progress.done", { done: agentLines.length - running, total: agentLines.length }) }
+              : {}),
+          }}
+          items={agentLines.map((line) => ({ kind: "line" as const, line }))}
+          color={color}
+          label={label}
+          one={agentLines.length === 1}
+          defaultOpen
+        />
+      )}
+      {workflows.map((c) => {
+        const p = c.progress;
+        const list = p.agents ?? [];
+        const done = list.filter((a) => a.state !== "running").length;
+        const over = p.ended === true;
+        const lines: ToolBlockItem[] = list.map((a, i) => {
+          const state = progressState(a.state !== "running", a.state === "failed", stopped && !over);
+          const doing = a.verb && state === "run" ? lowerFirst(cliVerbWord(t, a.verb, true), i18n.language) : null;
+          return {
+            kind: "line",
+            line: {
+              key: `${c.id}:${i}`,
+              state,
+              logo,
+              label: a.label,
+              hint: [a.phase, doing].filter(Boolean).join(" · ") || null,
+              ...(a.calls ? { meta: t("chat.work.steps", { count: a.calls }) } : {}),
+            },
+          };
+        });
+        const about = c.cli?.about;
+        const verb = cliVerbWord(t, "workflow", !over);
+        return (
+          <ToolBlock
+            key={c.id}
+            className="live-subagents"
+            logos={[]}
+            head={{
+              text: about ? `${verb} · ${about}` : verb,
+              state: over ? (p.failed ? "fail" : "done") : stopped ? "stop" : "run",
+              ...(list.length > 0 ? { count: t("cliTools.progress.done", { done, total: list.length }) } : {}),
+            }}
+            items={lines}
+            color={color}
+            label={label}
+            defaultOpen
+          />
+        );
+      })}
+    </>
   );
 }

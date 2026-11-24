@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { CONSOLIDATE_SPREAD_MS, consolidateRunAt, duplicatePairs, SAME_ITEM_SIMILARITY, similarity } from "../src";
+import { eq, schema } from "@agenteschat/db";
+import { createTestDatabase } from "@agenteschat/db/testing";
+import { duplicatePairs, enqueueConsolidations, SAME_ITEM_SIMILARITY, similarity } from "../src";
+import { dailySlot } from "../src/format";
 
 describe("periodic consolidation", () => {
   test("duplicate pairs match the plain pairwise scan", async () => {
@@ -50,19 +53,48 @@ describe("periodic consolidation", () => {
     expect(turns).toBeGreaterThan(100);
   });
 
-  test("daily consolidation jobs spread over the window, the same offset for a workspace every day", () => {
-    const tick = new Date("2026-03-02T00:00:00Z");
+  test("a workspace's daily slot is its own time of day, the next one from now, spread over the whole day", () => {
+    const day = 86_400_000;
+    const midnight = new Date("2026-03-02T00:00:00Z").getTime();
     const offsets = Array.from({ length: 200 }, (_, i) => {
       const orgId = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
-      const at = consolidateRunAt(orgId, tick).getTime() - tick.getTime();
-      expect(consolidateRunAt(orgId, new Date(tick.getTime() + 86_400_000)).getTime() - tick.getTime()).toBe(
-        at + 86_400_000,
-      );
-      return at;
+      const { at, day: date } = dailySlot(orgId, new Date(midnight));
+      const offset = at.getTime() - midnight;
+      expect(date).toBe(at.toISOString().slice(0, 10));
+      // The same time every day; once it passed, tomorrow's.
+      expect(dailySlot(orgId, new Date(midnight + day)).at.getTime()).toBe(at.getTime() + day);
+      expect(dailySlot(orgId, at).at.getTime()).toBe(at.getTime());
+      expect(dailySlot(orgId, new Date(at.getTime() + 1)).at.getTime()).toBe(at.getTime() + day);
+      return offset;
     });
     expect(Math.min(...offsets)).toBeGreaterThanOrEqual(0);
-    expect(Math.max(...offsets)).toBeLessThan(CONSOLIDATE_SPREAD_MS);
-    expect(Math.min(...offsets)).toBeLessThan(CONSOLIDATE_SPREAD_MS / 10);
-    expect(Math.max(...offsets)).toBeGreaterThan(CONSOLIDATE_SPREAD_MS * 0.9);
+    expect(Math.max(...offsets)).toBeLessThan(day);
+    expect(Math.min(...offsets)).toBeLessThan(day / 10);
+    expect(Math.max(...offsets)).toBeGreaterThan(day * 0.9);
+  });
+
+  test("each workspace's next consolidation is queued at its slot, in batches, once per day whatever the ticks", async () => {
+    const { db, close } = await createTestDatabase();
+    try {
+      const orgs = await db
+        .insert(schema.organizations)
+        .values(Array.from({ length: 501 }, (_, i) => ({ name: `Org ${i}` })))
+        .returning({ id: schema.organizations.id });
+      const now = new Date("2026-03-02T10:00:00Z");
+      expect(await enqueueConsolidations(db, now)).toBe(501);
+      // Another replica's tick, or the next hour's before any slot passed: nothing new.
+      expect(await enqueueConsolidations(db, now)).toBe(0);
+      const jobs = await db.select().from(schema.outbox).where(eq(schema.outbox.kind, "context.consolidate"));
+      const org = orgs[0]?.id ?? "";
+      const slot = dailySlot(org, now);
+      expect(jobs.find((j) => j.orgId === org)).toMatchObject({
+        dedupeKey: `context.consolidate:${org}:${slot.day}`,
+        nextAttemptAt: slot.at,
+      });
+      // A day later every workspace's next slot is a new day's.
+      expect(await enqueueConsolidations(db, new Date(now.getTime() + 86_400_000))).toBe(501);
+    } finally {
+      await close();
+    }
   });
 });

@@ -3,6 +3,7 @@ export * from "./apps";
 export * from "./auth";
 export * from "./browser";
 export * from "./chat";
+export * from "./code";
 export * from "./connectors";
 export * from "./context";
 export * from "./dashboards";

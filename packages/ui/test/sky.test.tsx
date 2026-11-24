@@ -11,6 +11,7 @@ import {
   EmptyState,
   EYE,
   glowTones,
+  holdSkiesWhileAway,
   mix,
   PixelSky,
   parseColor,
@@ -20,6 +21,7 @@ import {
   SkyGlow,
   type SkyOptions,
   SPRITE,
+  skiesHeld,
   softTones,
   spriteTone,
   startSky,
@@ -177,6 +179,28 @@ describe("the sky's loop", () => {
       },
     });
   }
+
+  test("held while nobody looks: no input for a while stills every sky, and the first input moves them again", async () => {
+    const page = await skyPage(false);
+    const stop = holdSkiesWhileAway(40);
+    try {
+      page.frames(500);
+      expect(skiesHeld()).toBe(false);
+      await new Promise((r) => setTimeout(r, 120));
+      expect(skiesHeld()).toBe(true);
+      page.frames(100);
+      const still = page.draws();
+      page.frames(1000);
+      expect(page.draws()).toBe(still);
+      window.dispatchEvent(new Event("pointerdown"));
+      expect(skiesHeld()).toBe(false);
+      page.frames(500);
+      expect(page.draws()).toBeGreaterThan(still + 10);
+    } finally {
+      stop();
+      page.close();
+    }
+  });
 
   test("moving: about 30 frames a second while on screen, none and no loop off screen", async () => {
     const page = await skyPage(false);

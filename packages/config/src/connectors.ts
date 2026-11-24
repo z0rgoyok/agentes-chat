@@ -3,12 +3,22 @@ import type { Config } from "./schema";
 /** OAuth apps of the connectors configured in this deployment (by connector id). */
 export function connectorOAuthApps(
   config: Config,
-): Record<string, { clientId: string; clientSecret: string } | undefined> {
+): Record<string, { clientId: string; clientSecret: string; configId?: string } | undefined> {
   const pair = (id?: string, secret?: string) => (id && secret ? { clientId: id, clientSecret: secret } : undefined);
   return {
     github: pair(config.CONNECTOR_GITHUB_CLIENT_ID, config.CONNECTOR_GITHUB_CLIENT_SECRET),
     sentry: pair(config.CONNECTOR_SENTRY_CLIENT_ID, config.CONNECTOR_SENTRY_CLIENT_SECRET),
     linear: pair(config.CONNECTOR_LINEAR_CLIENT_ID, config.CONNECTOR_LINEAR_CLIENT_SECRET),
+    x: pair(config.CONNECTOR_X_CLIENT_ID, config.CONNECTOR_X_CLIENT_SECRET),
+    threads: pair(config.CONNECTOR_THREADS_APP_ID, config.CONNECTOR_THREADS_APP_SECRET),
+    tiktok: pair(config.CONNECTOR_TIKTOK_CLIENT_KEY, config.CONNECTOR_TIKTOK_CLIENT_SECRET),
+    // Meta Ads signs in only through its Login for Business configuration.
+    "meta-ads": config.CONNECTOR_META_ADS_CONFIG_ID
+      ? (() => {
+          const app = pair(config.CONNECTOR_META_ADS_APP_ID, config.CONNECTOR_META_ADS_APP_SECRET);
+          return app && { ...app, configId: config.CONNECTOR_META_ADS_CONFIG_ID };
+        })()
+      : undefined,
   };
 }
 

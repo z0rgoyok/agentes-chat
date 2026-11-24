@@ -1,9 +1,7 @@
 import type { Artifact, ArtifactFilters, ArtifactKind, DriveFolder } from "@agenteschat/client";
 import { isLiveFileKind, keys as queryKeys, useApi, useArtifacts, useChannels } from "@agenteschat/client";
-import { ARTIFACT_KINDS, KIND_ICON } from "@agenteschat/client/lib/artifacts";
+import { ARTIFACT_KINDS } from "@agenteschat/client/lib/artifacts";
 import {
-  DRIVE_GROUPS,
-  DRIVE_SORTS,
   type DriveGroup,
   type DriveSection,
   type DriveSort,
@@ -24,18 +22,11 @@ import {
   Checkbox,
   cx,
   EmptyState,
-  FilterBar,
-  FilterChip,
-  type FilterOption,
   GroupHeading,
   Icon,
   Kbd,
-  Menu,
-  MenuRadioGroup,
-  MenuSeparator,
   PageHeader,
   SearchField,
-  Segmented,
   Toolbar,
   useMatchMedia,
 } from "@agenteschat/ui";
@@ -45,9 +36,9 @@ import { type MouseEvent, useDeferredValue, useEffect, useMemo, useRef, useState
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { useArtifactDownload, useDeleteArtifact } from "@/components/artifacts/ArtifactActions";
-import { artifactLink, useArtifactViewer, useAuthorName } from "@/components/artifacts/ArtifactViewer";
 import { useFileShare } from "@/components/artifacts/ShareDialog";
 import { UploadButton, useDriveUpload, useFilePicker } from "@/components/artifacts/Upload";
+import { artifactLink, useArtifactViewer, useAuthorName } from "@/components/artifacts/viewer-context";
 import {
   DriveCrumbs,
   FolderCard,
@@ -56,8 +47,9 @@ import {
   useFolderActions,
 } from "@/components/drive/DriveFolders";
 import { DriveCard, DriveRow, type ItemProps } from "@/components/drive/DriveItems";
+import { DriveDisplay, DriveFilters } from "@/components/drive/DriveToolbar";
 import { DriveTrash } from "@/components/drive/DriveTrash";
-import { DropOverlay, UploadProgress, useFileDrop } from "@/components/drive/DriveUploads";
+import { DropOverlay, UploadProgress } from "@/components/drive/DriveUploads";
 import { useActorFilterOptions } from "@/components/filters";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { LivePresenceScope } from "@/components/live/LiveCover";
@@ -66,6 +58,7 @@ import { cachedKind, openLivePage } from "@/components/live/open";
 import { COMPACT_QUERY } from "@/components/NavDrawer";
 import { useOrg } from "@/components/org-context";
 import { SelectionBar } from "@/components/SelectionBar";
+import { useFileDrop } from "@/hooks/useFileDrop";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
 import type { MenuEntry } from "@/lib/context-menu";
 import { entityMenu } from "@/lib/entity-menu";
@@ -91,7 +84,8 @@ export function DrivePage({
   folder = null,
   onFolder = () => undefined,
 }: {
-  open?: { id: string; version?: number };
+  /** `at`: a picture's, a video's or a PDF's comment to open the viewer at (ADR 0208). */
+  open?: { id: string; version?: number; at?: string };
   folder?: string | null;
   onFolder?: (id: string | null) => void;
 }) {
@@ -206,13 +200,14 @@ export function DrivePage({
   // its kind first, from what this app already loaded or from the server, so the viewer never flashes on the way.
   const openId = open?.id;
   const openVersion = open?.version;
+  const openAt = open?.at;
   useEffect(() => {
     if (!openId) return;
     let gone = false;
     const go = (kind: ArtifactKind | null) => {
       if (gone) return;
       if (isLiveFileKind(kind)) openLivePage(navigate, org.id, openId, { version: openVersion, replace: true });
-      else viewer.open(openId, openVersion);
+      else viewer.open(openId, openVersion, undefined, openAt ? { at: openAt } : undefined);
     };
     const known = cachedKind(qc, org.id, openId);
     if (known) go(known);
@@ -228,7 +223,7 @@ export function DrivePage({
     return () => {
       gone = true;
     };
-  }, [openId, openVersion, viewer, qc, api, navigate, org.id]);
+  }, [openId, openVersion, openAt, viewer, qc, api, navigate, org.id]);
 
   const channelLabel = (a: Artifact) =>
     a.audience.kind === "channel"
@@ -392,6 +387,7 @@ export function DrivePage({
             : []),
         ]
       : null;
+  const newFolderHere = () => arrange.newFolder(folder);
   const filePicker = useFilePicker({ label: t("files.upload"), onFiles: upload, multiple: true });
   /** Right click or the menu key on the Drive's empty space: what makes something here. */
   const pageMenu = entityMenu((): MenuEntry[] =>
@@ -402,7 +398,7 @@ export function DrivePage({
             id: "new-folder",
             label: t("drive.newFolder"),
             icon: "plus",
-            run: () => arrange.newFolder(folder),
+            run: newFolderHere,
           },
           { kind: "item", id: "upload", label: t("files.upload"), icon: "upload", run: filePicker.open },
         ]
@@ -410,13 +406,6 @@ export function DrivePage({
   );
 
   const authorOptions = useActorFilterOptions();
-  const channelOptions: FilterOption[] = (channels.data ?? []).map((c) => ({ value: c.id, label: `#${c.name}` }));
-  const clearOf = (name: string) => t("filters.clear", { name });
-  const chipText = {
-    searchLabel: t("filters.search"),
-    searchPlaceholder: t("filters.searchPlaceholder"),
-    noResults: t("filters.noResults"),
-  };
   const itemProps = (a: Artifact): ItemProps => ({
     artifact: a,
     selected: selected.has(a.id),
@@ -499,14 +488,10 @@ export function DrivePage({
     );
   };
 
-  const kindOptions: FilterOption[] = ARTIFACT_KINDS.filter((k) => (counts.get(k) ?? 0) > 0 || kinds.includes(k)).map(
-    (k) => ({
-      value: k,
-      label: t(`drive.kindMany.${k}`),
-      leading: <Icon name={KIND_ICON[k]} size={16} />,
-      count: counts.get(k) ?? 0,
-    }),
-  );
+  const kindCounts = ARTIFACT_KINDS.filter((k) => (counts.get(k) ?? 0) > 0 || kinds.includes(k)).map((k) => ({
+    kind: k,
+    count: counts.get(k) ?? 0,
+  }));
 
   return (
     <div className={cx("page drive drive-drop", drop.over && "drive-drop--over")} {...drop.props} {...pageMenu}>
@@ -552,15 +537,10 @@ export function DrivePage({
                 >
                   {t("artifacts.trash")}
                 </Button>
-                {uploads && (
-                  <Button variant="ghost" icon="plus" onClick={() => arrange.newFolder(folder)}>
-                    {t("drive.newFolder")}
-                  </Button>
-                )}
                 {uploads && !(list.isSuccess && rows.length === 0 && subfolders.length === 0 && !filtered) && (
                   <>
-                    {/* A spreadsheet, a presentation or a canvas (ADR 0196 §9); Upload stays the one primary. */}
-                    <NewFileMenu iconOnly={phone} />
+                    {/* A folder or a live file (ADR 0196 §9); Upload stays the one primary. */}
+                    <NewFileMenu iconOnly={phone} onNewFolder={newFolderHere} />
                     <UploadButton
                       size="md"
                       label={t("files.upload")}
@@ -609,156 +589,29 @@ export function DrivePage({
                 />
               }
               actions={
-                <>
-                  <Menu
-                    align="end"
-                    label={t("drive.arrange")}
-                    trigger={
-                      // On a phone its icon alone, so the search keeps its words whole beside it.
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon="layers"
-                        iconOnly={phone}
-                        aria-label={t("drive.arrangeValue", { group: t(`drive.group.${group}`) })}
-                      >
-                        {t(`drive.group.${group}`)}
-                      </Button>
-                    }
-                  >
-                    <MenuRadioGroup
-                      label={t("drive.groupBy")}
-                      value={group}
-                      onValueChange={(v) => setGroup(v as DriveGroup)}
-                      options={DRIVE_GROUPS.map((g) => ({ value: g, label: t(`drive.group.${g}`) }))}
-                    />
-                    <MenuSeparator />
-                    <MenuRadioGroup
-                      label={t("drive.sortBy")}
-                      value={sort}
-                      onValueChange={(v) => setSort(v as DriveSort)}
-                      options={DRIVE_SORTS.map((s) => ({ value: s, label: t(`drive.sort.${s}`) }))}
-                    />
-                  </Menu>
-                  <Segmented<DriveView>
-                    size="sm"
-                    label={t("drive.view")}
-                    value={view}
-                    onValueChange={setView}
-                    className="drive-view"
-                    options={[
-                      {
-                        value: "grid",
-                        label: (
-                          <>
-                            <Icon name="grid" size={16} />
-                            <span className="ac-visually-hidden">{t("drive.viewGrid")}</span>
-                          </>
-                        ),
-                      },
-                      {
-                        value: "list",
-                        label: (
-                          <>
-                            <Icon name="list" size={16} />
-                            <span className="ac-visually-hidden">{t("drive.viewList")}</span>
-                          </>
-                        ),
-                      },
-                    ]}
-                  />
-                </>
+                <DriveDisplay
+                  view={view}
+                  onView={setView}
+                  group={group}
+                  onGroup={setGroup}
+                  sort={sort}
+                  onSort={setSort}
+                  iconOnly={phone}
+                />
               }
             >
-              <Segmented<DriveWho>
-                label={t("drive.who")}
-                value={who}
-                onValueChange={setWho}
-                options={[
-                  { value: "all", label: t("drive.everyone") },
-                  {
-                    value: "agents",
-                    label: (
-                      <>
-                        <Icon name="agent" size={16} />
-                        {t("drive.agents")}
-                      </>
-                    ),
-                  },
-                  {
-                    value: "people",
-                    label: (
-                      <>
-                        <Icon name="person" size={16} />
-                        {t("drive.people")}
-                      </>
-                    ),
-                  },
-                ]}
-              />
-              <FilterBar
-                label={t("drive.filters")}
-                clearText={t("drive.clear")}
-                onClear={clearFilters}
-                filters={[
-                  {
-                    key: "channel",
-                    active: channelIds.length > 0,
-                    node: (
-                      <FilterChip
-                        label={t("drive.channel")}
-                        icon="channel"
-                        multiple
-                        options={channelOptions}
-                        value={channelIds}
-                        onChange={setChannelIds}
-                        valueText={(o) => o.label}
-                        countText={(count) => t("filters.channels", { count })}
-                        clearLabel={clearOf(t("drive.channel"))}
-                        {...chipText}
-                      />
-                    ),
-                  },
-                  {
-                    key: "author",
-                    active: authors.length > 0,
-                    node: (
-                      <FilterChip
-                        label={t("drive.author")}
-                        icon="person"
-                        multiple
-                        options={authorOptions}
-                        value={authors}
-                        onChange={setAuthors}
-                        valueText={(o) => o.label}
-                        countText={(count) => t("filters.people", { count })}
-                        clearLabel={clearOf(t("drive.author"))}
-                        {...chipText}
-                      />
-                    ),
-                  },
-                  ...(kindOptions.length > 0
-                    ? [
-                        {
-                          key: "kind",
-                          active: kinds.length > 0,
-                          node: (
-                            <FilterChip
-                              label={t("drive.kind")}
-                              icon="file"
-                              multiple
-                              options={kindOptions}
-                              value={kinds}
-                              onChange={(v) => setKinds(v as ArtifactKind[])}
-                              countText={(count) => t("filters.kinds", { count })}
-                              clearLabel={clearOf(t("drive.kind"))}
-                              {...chipText}
-                            />
-                          ),
-                        },
-                      ]
-                    : []),
-                ]}
+              <DriveFilters
+                who={who}
+                onWho={setWho}
+                authors={authors}
+                onAuthors={setAuthors}
+                actors={authorOptions}
+                kinds={kinds}
+                onKinds={setKinds}
+                kindCounts={kindCounts}
+                channelIds={channelIds}
+                onChannels={setChannelIds}
+                channels={(channels.data ?? []).map((c) => ({ id: c.id, name: c.name }))}
               />
             </Toolbar>
 
@@ -787,7 +640,16 @@ export function DrivePage({
                 title={t("drive.folderEmptyTitle")}
                 actions={
                   uploads && (
-                    <UploadButton size="md" label={t("files.upload")} busy={uploader.busy} multiple onFiles={upload} />
+                    <>
+                      <UploadButton
+                        size="md"
+                        label={t("files.upload")}
+                        busy={uploader.busy}
+                        multiple
+                        onFiles={upload}
+                      />
+                      <NewFileMenu align="start" onNewFolder={newFolderHere} />
+                    </>
                   )
                 }
               >
@@ -810,7 +672,7 @@ export function DrivePage({
                         onFiles={upload}
                         variant="primary"
                       />
-                      <NewFileMenu align="start" />
+                      <NewFileMenu align="start" onNewFolder={newFolderHere} />
                     </>
                   )
                 }

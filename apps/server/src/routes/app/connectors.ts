@@ -133,6 +133,10 @@ const CatalogEntry = z
     soon: z.boolean().openapi({
       description: "A one-click server whose vendor hasn't approved agentes.chat yet: listed, not connectable.",
     }),
+    needsApp: z.boolean().optional().openapi({
+      description:
+        "A connector of ours that signs in only through a developer app this self-hosted server hasn't registered (its `CONNECTOR_*` variables).",
+    }),
     via: z.literal("composio").optional().openapi({
       description:
         "Connects through Composio (ADR 0107): its page signs in. Unavailable when this server has no `COMPOSIO_API_KEY`.",

@@ -1,4 +1,5 @@
 import {
+  codeSessionOf,
   fileConversationOf,
   type Message,
   type ReceiptsState,
@@ -116,27 +117,31 @@ export function useChatRows({
       const root = list.find((m) => m.id === threadId);
       const replies = list.filter((m) => m.id !== threadId);
       // A task's conversation (ADR 0145): its root stands for the task, one screen back; only the replies show. A
-      // live file's (ADR 0199) the same, under where the file was made.
+      // live file's (ADR 0199) the same, under where the file was made, and a code session's (ADR 0215), whose root
+      // is never shown: under where it was opened from, when a suggestion opened it (§11).
       const file = root ? fileConversationOf(root.meta) : null;
+      const code = root ? codeSessionOf(root.meta) : null;
       const head: Row[] = file
         ? [{ kind: "origin", key: "origin", artifactId: file.artifactId, fileKind: file.kind }]
-        : root && !taskConversationOf(root.meta)
-          ? [
-              { kind: "marker", key: "started", text: startedText },
-              // The root as it started the thread (its mission card is pinned above already).
-              {
-                kind: "message",
-                key: root.id,
-                message: { ...root, meta: { ...root.meta, missionStart: undefined, missionLink: undefined } },
-                grouped: false,
-              },
-              {
-                kind: "marker",
-                key: "replies",
-                text: t("mobile.chat.replies", { count: replyCount ?? replies.length }),
-              },
-            ]
-          : [];
+        : code?.fromChat
+          ? [{ kind: "codeOrigin", key: "code-origin", sessionId: code.sessionId }]
+          : root && !taskConversationOf(root.meta) && !codeSessionOf(root.meta)
+            ? [
+                { kind: "marker", key: "started", text: startedText },
+                // The root as it started the thread (its mission card is pinned above already).
+                {
+                  kind: "message",
+                  key: root.id,
+                  message: { ...root, meta: { ...root.meta, missionStart: undefined, missionLink: undefined } },
+                  grouped: false,
+                },
+                {
+                  kind: "marker",
+                  key: "replies",
+                  text: t("mobile.chat.replies", { count: replyCount ?? replies.length }),
+                },
+              ]
+            : [];
       return [...head, ...buildRows(replies, (m) => superseded.has(m.id), timeLines)];
     }
     // A thread's replies live in the thread; the channel shows its link.

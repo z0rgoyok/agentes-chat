@@ -101,6 +101,12 @@ const talkerCalls = () => f.provider.calls.filter((c) => isTalkerCall(c.request)
 const talkerMessages = async () =>
   (await f.db.select().from(schema.messages)).filter((m) => (m.meta as Record<string, unknown>).talker);
 
+/** What the fast reply decided about each message, as the run's trail keeps it (`talkerDecision`). */
+const decided = async () =>
+  (await f.db.select().from(schema.agentRunSteps).orderBy(schema.agentRunSteps.seq))
+    .filter((s) => s.kind === "context" && s.data.talkerDecision !== undefined)
+    .map((s) => [(s.data.talkerDecision as { messageId: string }).messageId, s.data.reason]);
+
 const MERGE = {
   name: "github_merge_pr",
   input: { repo: "acme/app", pr: 42, why: "CI passed on the PR and it was reviewed: merging ships the fix." },
@@ -244,9 +250,11 @@ describe("talker: fast replies while the task waits", () => {
 
   test("the model passes: nothing is posted", async () => {
     const pass = await waitingOnQuestion(() => ({ chunks: ['{"action":"pass","text":""}'] }));
-    await pass.write("ok, valeu");
+    const thanks = await pass.write("ok, valeu");
     expect(pass.decisions).toEqual(["pass"]);
     expect(await talkerMessages()).toHaveLength(0);
+    // Kept on the run's trail: a message nobody answered fast can be told why.
+    expect(await decided()).toEqual([[thanks.id, "pass"]]);
     await f.close();
 
     // A question it lets pass gets nothing either: no line of the server's in the agent's voice (ADR 0131 addendum).
@@ -341,9 +349,13 @@ describe("talker: fast replies while the task waits", () => {
     expect(decisions).toEqual([]);
     // At work (a tool called): considered, and it reads the message at its next step.
     await addRunStep(f.db, run, "tool_call", { toolUseId: "c-1", name: "read_logs", input: {} });
-    await write("e os de anteontem");
+    const more = await write("e os de anteontem");
     expect(decisions).toEqual(["reads_soon"]);
+    expect(await decided()).toEqual([[more.id, "reads_soon"]]);
     expect(f.provider.calls).toHaveLength(0);
+    // The decision on the trail is no sign the task moves: the next message finds the run as quiet as it was.
+    await write("e os da semana passada");
+    expect(decisions).toEqual(["reads_soon", "reads_soon"]);
   });
 
   test("waiting on an approval: the talker isn't asked", async () => {

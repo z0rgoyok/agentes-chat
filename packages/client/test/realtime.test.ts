@@ -1,22 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelEvent, Message } from "../src/index";
+import type { ChannelEvent, LiveRun, Message } from "../src/index";
 import {
   agentStateIn,
   agentStateOfRun,
   applyChannelEvent,
+  BRIEF_GAP_MS,
   BROWSER_UNWATCH_DELAY_MS,
+  CATCH_UP_SPREAD_MS,
   emptyStreams,
   expectReply,
   MISSED_MESSAGE_GRACE_MS,
   parseServerFrame,
   RealtimeConnection,
+  realtimeOpen,
   realtimeUrl,
+  replyingUnder,
   retargetProvisional,
   runningAgents,
   runsInChannel,
   type Timers,
 } from "../src/index";
 import { barEntries } from "../src/lib/activity";
+import { RECONNECT_HEALTHY_MS } from "../src/lib/backoff";
 import { type FakeSocket, fakeSockets } from "./fake-socket";
 
 /** A frame socket's message as the server writes it (`encodeBrowserFrame`): version, header length, header, JPEG. */
@@ -51,6 +56,23 @@ function manualTimers() {
 }
 
 describe("RealtimeConnection", () => {
+  test("each connection sends its own tab id, the same on every reconnect, so its new socket replaces its old one", () => {
+    const { factory, sockets } = fakeSockets();
+    const { timers, runNext } = manualTimers();
+    const conn = new RealtimeConnection({ url: "ws://x/api/ws?orgId=o", createSocket: factory, timers, pingMs: 0 });
+    const other = new RealtimeConnection({ url: "ws://x/api/ws?orgId=o", createSocket: factory, timers, pingMs: 0 });
+    conn.start();
+    (sockets[0] as FakeSocket).drop();
+    runNext();
+    other.start();
+    const [first, again, theirs] = sockets.map((s) => s.url);
+    expect(first).toMatch(/^ws:\/\/x\/api\/ws\?orgId=o&tab=[a-z0-9]+$/);
+    expect(again).toBe(first);
+    expect(theirs).not.toBe(first);
+    conn.stop();
+    other.stop();
+  });
+
   test("url uses ws/wss and the org id", () => {
     expect(realtimeUrl({ protocol: "https:", host: "agentes.chat" }, "o 1")).toBe(
       "wss://agentes.chat/api/ws?orgId=o%201",
@@ -109,6 +131,20 @@ describe("RealtimeConnection", () => {
     for (let i = 0; i < 400 && !frames.closed; i++) await Bun.sleep(5);
     expect(frames.closed).toBe(true);
     conn.stop();
+  });
+
+  test("realtimeOpen says whether any socket is open, for the polls that only back events up", () => {
+    const { factory, last } = fakeSockets();
+    const conn = new RealtimeConnection({ url: "ws://x/api/ws?orgId=o", createSocket: factory, pingMs: 0 });
+    expect(realtimeOpen()).toBe(false);
+    conn.start();
+    expect(realtimeOpen()).toBe(false);
+    last().open();
+    expect(realtimeOpen()).toBe(true);
+    last().drop();
+    expect(realtimeOpen()).toBe(false);
+    conn.stop();
+    expect(realtimeOpen()).toBe(false);
   });
 
   test("a server that doesn't ask for answers (one from before acks) gets none, so it never counts them as bad", async () => {
@@ -524,6 +560,7 @@ describe("RealtimeConnection", () => {
       timers: clock.timers,
       pingMs: 0,
       backoffMs: [100, 200],
+      random: () => 0.5,
     });
     let caughtUp = 0;
     const statuses: string[] = [];
@@ -534,15 +571,293 @@ describe("RealtimeConnection", () => {
     sockets[0]?.open();
     expect(caughtUp).toBe(0);
     sockets[0]?.drop();
-    expect(clock.pending.map((p) => p.ms)).toEqual([100]);
+    expect(clock.pending.map((p) => p.ms)).toEqual([50]);
     clock.runNext();
     sockets[1]?.drop();
-    expect(clock.pending.map((p) => p.ms)).toEqual([200]);
+    expect(clock.pending.map((p) => p.ms)).toEqual([100]);
     clock.runNext();
     sockets[2]?.open();
     expect(sockets[2]?.sent).toEqual([{ type: "subscribe", channelId: "c1" }]);
     expect(caughtUp).toBe(1);
     expect(statuses).toEqual(["connecting", "open", "reconnecting", "open"]);
+  });
+
+  test("reconnect waits: 1 s, 2 s, 4 s… to 60 s, a random point within each, starting over only after a healthy connection", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let now = 1_000_000;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      now: () => now,
+      random: () => 0.5,
+    });
+    const waits = () => clock.pending.map((p) => p.ms);
+    conn.start();
+    sockets[0]?.open();
+    sockets[0]?.drop();
+    expect(waits()).toEqual([500]);
+    clock.runNext();
+    // Refused before it opened: the next step.
+    sockets[1]?.drop();
+    expect(waits()).toEqual([1000]);
+    clock.runNext();
+    // Taken and dropped at once (an overloaded server): still the next step, not the first again.
+    sockets[2]?.open();
+    sockets[2]?.drop();
+    expect(waits()).toEqual([2000]);
+    for (let i = 0; i < 6; i++) {
+      clock.runNext();
+      sockets.at(-1)?.drop();
+    }
+    expect(waits()).toEqual([30_000]);
+    // Up for a while: the next drop starts over.
+    clock.runNext();
+    sockets.at(-1)?.open();
+    now += RECONNECT_HEALTHY_MS;
+    sockets.at(-1)?.drop();
+    expect(waits()).toEqual([500]);
+  });
+
+  test("a close that asks to retry after a while is waited out, then spread over as long again", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    // A clock that stands still: the hint is kept as a deadline, and real milliseconds passing would shorten the wait.
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      random: () => 0.5,
+      now: () => 1_000_000,
+    });
+    conn.start();
+    sockets[0]?.open();
+    sockets[0]?.drop(1011, "try again; retry-after=5");
+    expect(clock.pending.map((p) => p.ms)).toEqual([7500]);
+    // The hint was for that close only: a dial that fails next waits the usual step.
+    clock.runNext();
+    sockets[1]?.drop();
+    expect(clock.pending.map((p) => p.ms)).toEqual([1000]);
+  });
+
+  test("one socket at a time: the one before is closed and nothing it does later reaches the connection", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    const conn = new RealtimeConnection({ url: "ws://x", createSocket: factory, timers: clock.timers, pingMs: 0 });
+    const statuses: string[] = [];
+    conn.onStatus((s) => statuses.push(s));
+    conn.subscribe("c1", () => {});
+    conn.start();
+    // Still opening when the connection starts over.
+    conn.stop();
+    conn.start();
+    expect(sockets).toHaveLength(2);
+    expect(sockets[0]?.closed).toBe(true);
+    sockets[1]?.open();
+    // The first one's late open and close change nothing.
+    sockets[0]?.open();
+    sockets[0]?.drop();
+    expect(sockets[0]?.sent).toEqual([]);
+    expect(conn.status).toBe("open");
+    expect(clock.pending).toEqual([]);
+    expect(sockets.filter((s) => !s.closed && s.readyState !== 3)).toHaveLength(1);
+    expect(statuses.at(-1)).toBe("open");
+  });
+
+  test("a hidden tab waits from the longest step; shown again, the wait is timed again from its own step", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let hidden = true;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      random: () => 0.5,
+      hidden: () => hidden,
+    });
+    conn.start();
+    sockets[0]?.open();
+    sockets[0]?.drop();
+    expect(clock.pending.map((p) => p.ms)).toEqual([30_000]);
+    // Still hidden: nothing changes.
+    conn.checkAlive();
+    expect(clock.pending.map((p) => p.ms)).toEqual([30_000]);
+    hidden = false;
+    conn.checkAlive();
+    expect(clock.pending.map((p) => p.ms)).toEqual([500]);
+    // Never pushed later by showing it again.
+    conn.checkAlive();
+    expect(clock.pending.map((p) => p.ms)).toEqual([500]);
+    clock.runNext();
+    expect(sockets).toHaveLength(2);
+  });
+
+  test("back online or shown while a long wait is pending: dials within the first step, a server's retry-after holds", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let now = 1_000_000;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      now: () => now,
+      random: () => 0.5,
+    });
+    const waits = () => clock.pending.map((p) => p.ms);
+    conn.start();
+    // Offline for a while: every dial fails at once and the waits climb.
+    for (let i = 0; i < 6; i++) {
+      sockets.at(-1)?.drop();
+      clock.runNext();
+    }
+    sockets.at(-1)?.drop();
+    expect(waits()).toEqual([30_000]);
+    conn.checkAlive();
+    expect(waits()).toEqual([500]);
+    // That dial fails too: the waits go on climbing from where they were.
+    clock.runNext();
+    sockets.at(-1)?.drop();
+    expect(waits()).toEqual([30_000]);
+    // A server that asked for a pause still gets it.
+    clock.runNext();
+    sockets.at(-1)?.open();
+    sockets.at(-1)?.drop(1011, "try again; retry-after=5");
+    expect(waits()).toEqual([35_000]);
+    now += 1000;
+    conn.checkAlive();
+    expect(waits()).toEqual([6000]);
+  });
+
+  test("catches up at a random point within a few seconds: everything after a long drop, what is shown after a brief one", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let now = 1_000_000;
+    let random = 0.5;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      backoffMs: [100],
+      now: () => now,
+      random: () => random,
+    });
+    const caughtUp: boolean[] = [];
+    conn.onCatchUp((full) => caughtUp.push(full));
+    conn.start();
+    sockets[0]?.open();
+    const reconnect = (code: number | undefined, downMs: number) => {
+      sockets.at(-1)?.drop(code);
+      now += downMs;
+      clock.runNext();
+      sockets.at(-1)?.open();
+    };
+    // Back within a second (a network blip, or another server taking over a stopped one's tabs): events in the gap
+    // are lost all the same, so what is on screen reads again, at half of the spread.
+    reconnect(undefined, 1000);
+    expect(clock.pending.map((p) => p.ms)).toEqual([CATCH_UP_SPREAD_MS / 2]);
+    clock.runNext();
+    expect(caughtUp).toEqual([false]);
+    // Down longer than a brief drop: everything.
+    random = 0.1;
+    reconnect(undefined, BRIEF_GAP_MS);
+    expect(clock.pending.map((p) => p.ms)).toEqual([CATCH_UP_SPREAD_MS / 10]);
+    clock.runNext();
+    expect(caughtUp).toEqual([false, true]);
+    // Closed by the server for missed events, however briefly: everything.
+    reconnect(1012, 500);
+    clock.runNext();
+    expect(caughtUp).toEqual([false, true, true]);
+    // The server says it missed events, socket open: one catch-up for several, everything.
+    sockets.at(-1)?.push({ type: "resync" });
+    sockets.at(-1)?.push({ type: "resync" });
+    expect(clock.pending).toHaveLength(1);
+    clock.runNext();
+    expect(caughtUp).toEqual([false, true, true, true]);
+  });
+
+  test("started again after a stop (the phone back in front), it catches up as soon as it opens, not spread", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let now = 1_000_000;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 0,
+      backoffMs: [100],
+      now: () => now,
+      random: () => 0.5,
+    });
+    const caughtUp: boolean[] = [];
+    conn.onCatchUp((full) => caughtUp.push(full));
+    const waits = () => clock.pending.map((p) => p.ms);
+    conn.start();
+    sockets[0]?.open();
+    // A quick look at another app: what is shown reads again, at once.
+    conn.stop();
+    now += 3000;
+    conn.start();
+    sockets[1]?.open();
+    expect(waits()).toEqual([0]);
+    clock.runNext();
+    expect(caughtUp).toEqual([false]);
+    // Away longer than a brief gap: everything, at once too.
+    conn.stop();
+    now += BRIEF_GAP_MS;
+    conn.start();
+    sockets[2]?.open();
+    expect(waits()).toEqual([0]);
+    clock.runNext();
+    expect(caughtUp).toEqual([false, true]);
+    // A drop it didn't ask for is a restart's wave: spread as before.
+    sockets[2]?.drop();
+    now += 1000;
+    clock.runNext();
+    sockets[3]?.open();
+    expect(waits()).toEqual([CATCH_UP_SPREAD_MS / 2]);
+    clock.runNext();
+    // Back in front while the server restarts: the first dial fails, and it comes back spread with everyone else.
+    conn.stop();
+    now += 1000;
+    conn.start();
+    sockets[4]?.drop();
+    clock.runNext();
+    sockets[5]?.open();
+    expect(waits()).toEqual([CATCH_UP_SPREAD_MS / 2]);
+    conn.stop();
+  });
+
+  test("a socket that went silent (a sleep) counts as down since its answer was due, not since its close", () => {
+    const { factory, sockets } = fakeSockets();
+    const clock = manualTimers();
+    let now = 1_000_000;
+    const conn = new RealtimeConnection({
+      url: "ws://x",
+      createSocket: factory,
+      timers: clock.timers,
+      pingMs: 30_000,
+      pongTimeoutMs: 10_000,
+      backoffMs: [100],
+      now: () => now,
+      random: () => 0,
+    });
+    const caughtUp: boolean[] = [];
+    conn.onCatchUp((full) => caughtUp.push(full));
+    conn.start();
+    sockets[0]?.open();
+    // Two hours asleep; on waking the browser closes the socket and it reconnects at once.
+    now += 2 * 3600_000;
+    sockets[0]?.drop();
+    clock.runNext();
+    sockets[1]?.open();
+    clock.runNext();
+    expect(caughtUp).toEqual([true]);
   });
 
   test("says when the server confirms a channel's subscription, again after a reconnect: its events start there", () => {
@@ -1002,5 +1317,30 @@ describe("user events and resumed runs", () => {
     s = applyChannelEvent(s, { type: "agent.run", ...base, status: "running" });
     s = applyChannelEvent(s, { type: "agent.typing", ...base } as ChannelEvent);
     expect(runsInChannel(s, "c1")[0]?.status).toBe("running");
+  });
+});
+
+describe("agents replying in a thread under the message that asked them (ADR 0214)", () => {
+  const run = (over: Partial<LiveRun>): LiveRun => ({
+    runId: "r1",
+    agentId: "ada",
+    channelId: "c1",
+    threadId: "m1",
+    status: "running",
+    ...over,
+  });
+
+  test("under a message of the main timeline whose thread has no link yet, each agent once", () => {
+    const runs = [run({}), run({ runId: "r2", agentId: "ben" }), run({ runId: "r3" })];
+    expect(replyingUnder(runs, new Set(["m1"]), new Set())).toEqual(new Map([["m1", ["ada", "ben"]]]));
+  });
+
+  test("nothing once the thread has its link, for a run that answers in the main timeline, a guess or a failure", () => {
+    const top = new Set(["m1"]);
+    expect(replyingUnder([run({})], top, new Set(["m1"])).size).toBe(0);
+    expect(replyingUnder([run({ replyInThread: false })], top, new Set()).size).toBe(0);
+    expect(replyingUnder([run({ provisional: true })], top, new Set()).size).toBe(0);
+    expect(replyingUnder([run({ status: "failed" })], top, new Set()).size).toBe(0);
+    expect(replyingUnder([run({ threadId: "reply-in-a-thread" })], top, new Set()).size).toBe(0);
   });
 });

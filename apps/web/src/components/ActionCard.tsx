@@ -56,14 +56,14 @@ import { useTranslation } from "react-i18next";
 import { useConnectedById } from "@/components/AccessLevels";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useOpenAgentPanel } from "@/components/agent-panel-context";
-import { useConnectAi } from "@/components/ConnectAi";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { CostlyProposalCardView } from "@/components/CostlyProposalCard";
 import { CalendarProposalCardView } from "@/components/calendar/ProposalCard";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { useInviteDialog } from "@/components/invite/InviteDialog";
 import { MailIcon } from "@/components/MailConnect";
-import { useNewAgent } from "@/components/new-agent/NewAgentDialog";
+import { useNewAgent } from "@/components/new-agent/new-agent-context";
 import { useOrg } from "@/components/org-context";
 import { PersonLimitCardView } from "@/components/PeopleUsage";
 import {

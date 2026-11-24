@@ -188,6 +188,23 @@ test("effort none: Haiku 5.5 thinks not at all at low effort; a model that can't
   expect(sonnet.output_config).toEqual({ effort: "low" });
 });
 
+test("xhigh and max go through to Claude 5.5, which takes them", async () => {
+  for (const effort of ["xhigh", "max"] as const) {
+    const { fetcher, requests } = scripted(
+      sse([
+        start(1),
+        { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+        { type: "message_stop" },
+      ]),
+    );
+    await createAnthropicProvider({ fetch: fetcher, maxRetries: 0 }).stream(
+      { model: "claude-opus-5-5", system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 512, effort },
+      { apiKey: "k", onDelta: () => {} },
+    );
+    expect((requests[0]?.body as Record<string, unknown> | undefined)?.output_config).toEqual({ effort });
+  }
+});
+
 describe("preserved thinking: thinking sent back under other tools (accounts created since 2026-08-31)", () => {
   type Block = Record<string, unknown> & { type: string };
   type Body = { tools?: { name: string }[]; messages: { content: string | Block[] }[]; thinking?: unknown };

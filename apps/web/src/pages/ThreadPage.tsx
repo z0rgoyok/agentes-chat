@@ -29,6 +29,7 @@ export function ThreadPage({
   onBack,
   onSeeInChannel,
   escInside,
+  headless,
 }: {
   threadId: string;
   reply?: boolean;
@@ -44,6 +45,8 @@ export function ThreadPage({
   onSeeInChannel?: (messageId: string, channelId: string) => boolean;
   /** Docked beside what it is about (a live file's conversation, ADR 0199): Esc closes it only from inside it. */
   escInside?: boolean;
+  /** No header of its own: the viewer around a file's comments (ADR 0208) has the file's name and its toggle. */
+  headless?: boolean;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -105,7 +108,9 @@ export function ThreadPage({
       }}
       chrome={{
         // A mission's thread: its header is the mission's (no card floating over the messages).
-        header: isFile ? (
+        header: headless ? (
+          () => null
+        ) : isFile ? (
           <TaskConversationHeader
             thread={thread}
             onClose={onClose}

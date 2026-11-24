@@ -18,18 +18,22 @@ const inSight = (personal: boolean) =>
   sidebarItemOrder(personal).filter((id) => inSidebarList(sidebarPlace({}, id, personal), 0));
 
 describe("the sidebar's defaults by the workspace's mode (ADR 0159)", () => {
-  test("a team's stay as they were: the default when no mode is given", () => {
+  test("a team's: the default when no mode is given, the inbox always in sight (ADR 0218)", () => {
     expect(sidebarSections()).toEqual(SIDEBAR_SECTIONS);
     expect(sidebarItemOrder()).toEqual(SIDEBAR_ITEMS);
-    expect(inSight(false)).toEqual(["threads", "issues", "drive", "team"]);
+    expect(inSight(false)).toEqual(["waiting", "threads", "issues", "drive", "team"]);
     expect(sidebarPlace(undefined, "issues")).toBe("always");
   });
 
-  test("personal: every tool in More, Approvals in sight while something waits", () => {
-    expect(inSight(true)).toEqual([]);
-    expect(sidebarDefaults(true).approvals).toBe("auto");
-    expect(inSidebarList(sidebarPlace({}, "approvals", true), 2)).toBe(true);
+  test("personal: every tool in More but the inbox, in sight with or without something waiting (ADR 0218)", () => {
+    expect(inSight(true)).toEqual(["waiting"]);
+    expect(sidebarDefaults(true).waiting).toBe("always");
+    expect(inSidebarList(sidebarPlace({}, "waiting", true), 2)).toBe(true);
+    // Approvals is no longer a tool: nothing has a default for it.
+    expect(Object.keys(sidebarDefaults(true))).not.toContain("approvals");
+    expect(Object.keys(sidebarDefaults(false))).not.toContain("approvals");
     for (const id of [
+      "proposals",
       "routines",
       "drive",
       "calendar",
@@ -68,6 +72,6 @@ describe("the sidebar's defaults by the workspace's mode (ADR 0159)", () => {
   test("a saved order keeps its tools; the ones it lacks follow in the mode's order", () => {
     expect(knownToolOrder([], true)).toEqual([...PERSONAL_SIDEBAR_ITEMS]);
     expect(knownToolOrder([])).toEqual([...SIDEBAR_ITEMS]);
-    expect(knownToolOrder(["wiki"], true).slice(0, 3)).toEqual(["wiki", "waiting", "approvals"]);
+    expect(knownToolOrder(["wiki"], true).slice(0, 3)).toEqual(["wiki", "waiting", "proposals"]);
   });
 });

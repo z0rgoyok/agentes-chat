@@ -18,6 +18,7 @@ import {
   useSkills,
 } from "@agenteschat/client";
 import { LEVELS, type Level, saveLevels, sharedLevel } from "@agenteschat/client/lib/access-levels";
+import { ownerPatchOf, roleOfOwnerValue } from "@agenteschat/client/lib/agent-owner";
 import {
   autonomyName,
   autonomyWords,
@@ -100,10 +101,10 @@ import {
   type PlanChoice,
   usd,
 } from "@/components/AgentFields";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
-import { useConnectAi } from "@/components/ConnectAi";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { ImportFlow, useImportFlow } from "@/components/ImportFlow";
 import { MailIcon } from "@/components/MailConnect";
 import { useMediaQuery } from "@/components/NavDrawer";
@@ -472,15 +473,22 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
     () => new Set(connectedList.flatMap((i) => (i.def ? [i.def.id] : []))),
     [connectedList],
   );
-  const ownerId = owner === NO_OWNER ? null : owner;
+  // A person (`ownerId`) or a role that answers for it (ADR 0085, addendum of 2026-11-21); a plan is only a person's.
+  const { ownerUserId: ownerId, ownerRoleId } = ownerPatchOf(owner, NO_OWNER);
   // Alone, both are the person's and leave the screen while they hold that: mine, answering only me.
   const ownerHidden = solo && ownerId === me.user.id;
   const audienceHidden = ownerHidden && audience.mode === "owner";
   const ownerMember = (members.data ?? []).find((m) => m.userId === ownerId);
+  const ownerRole = ownerRoleId ? roleList.data?.roles.find((r) => r.id === ownerRoleId) : undefined;
   const ownerFirst = ownerMember?.name.split(/\s+/)[0] ?? null;
+  // Who answers for it in a sentence: the person's first name or the role's name.
+  const ownerLabel = ownerFirst ?? ownerRole?.name ?? null;
   const displayName = name.trim() || t("newAgent.defaultName");
   const previewName = name.trim() || t("newAgent.previewName");
   const g = agentGrammar(displayName);
+  const ownerHelp = ownerRole
+    ? t("newAgent.ownerRoleHelp", { ...g, role: ownerRole.name })
+    : t(ownerId ? "newAgent.ownerHelp" : "newAgent.noOwnerHelp");
   const rolePreset = role ? ROLE_PRESETS[role] : null;
   const roleName = role && role !== "custom" ? t(`newAgent.roles.${role}.name`) : roleText || null;
   // With nothing to think with yet, the agent is created all the same (ADR 0061 §6), and Connect opens for it after.
@@ -517,6 +525,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
     handle,
     taken,
     ownerUserId: ownerId,
+    ownerRoleId,
     audience,
     budget,
     modelOk:
@@ -642,6 +651,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
       // Its setup checklist suggests from the ready-made role it started from (ADR 0155 §2).
       setup: { role: role && role !== "custom" ? role : null },
       ownerUserId: ownerId,
+      ownerRoleId,
       audience: {
         mode: audience.mode,
         userIds: audience.mode === "people" ? audience.userIds : [],
@@ -933,13 +943,21 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
   const audienceText = () => {
     if (audience.mode === "everyone") return t(modeKey(org, "audience.summary.everyone"));
     if (audience.mode === "owner")
-      return ownerFirst ? t("audience.summary.owner", { name: ownerFirst }) : t("audience.summary.nobody");
+      return ownerRole
+        ? t("audience.summary.ownerRole", { role: ownerRole.name })
+        : ownerFirst
+          ? t("audience.summary.owner", { name: ownerFirst })
+          : t("audience.summary.nobody");
+    if (audience.userIds.length === 0 && (audience.roleIds?.length ?? 0) === 0 && ownerRole)
+      return t("audience.onlyOwnerRoleForNow", { role: ownerRole.name });
     if (audience.userIds.length === 0 && ownerFirst)
       return ownerId === me.user.id ? t("audience.onlyYouForNow") : t("audience.onlyOwnerForNow", { name: ownerFirst });
     const names = (members.data ?? [])
       .filter((m) => m.userId === ownerId || audience.userIds.includes(m.userId))
       .map((m) => m.name.split(/\s+/)[0] ?? m.name);
-    const roles = (roleList.data?.roles ?? []).filter((r) => audience.roleIds?.includes(r.id)).map((r) => r.name);
+    const roles = (roleList.data?.roles ?? [])
+      .filter((r) => r.id === ownerRoleId || audience.roleIds?.includes(r.id))
+      .map((r) => r.name);
     return names.length + roles.length ? joinNames([...roles, ...names], t) : t("audience.summary.nobody");
   };
   // For who can't give access here: why, beside the list's own line.
@@ -1359,7 +1377,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
           <Icon name="shield" size={16} />
           <span>
             <b>{t("newAgent.approvalsNote")}</b>{" "}
-            {ownerFirst ? t("newAgent.approverOwner", { name: ownerFirst }) : t("newAgent.approverAdmins")}
+            {ownerLabel ? t("newAgent.approverOwner", { name: ownerLabel }) : t("newAgent.approverAdmins")}
           </span>
         </p>
         {/* Who manages agents installs one from here, so the section shows for them with an empty library too. */}
@@ -1432,7 +1450,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
               <div className="ac-hintline">
                 {ownerTitle}
                 <InfoHint name={t("common.about", { label: t("newAgent.owner") })}>
-                  {`${managesAgents ? "" : `${t("newAgent.ownerYours")} `}${ownerId ? t("newAgent.ownerHelp") : t("newAgent.noOwnerHelp")}`}
+                  {`${managesAgents ? "" : `${t("newAgent.ownerYours")} `}${ownerHelp}`}
                 </InfoHint>
               </div>
             </div>
@@ -1443,12 +1461,15 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
                 meId={me.user.id}
                 onChange={(v) => {
                   setOwner(v);
-                  if (!aiPicked) startWith(startOf(v === NO_OWNER ? null : v));
-                  if (v !== NO_OWNER) setAudience((a) => ({ ...a, userIds: a.userIds.filter((id) => id !== v) }));
+                  if (!aiPicked) startWith(startOf(ownerPatchOf(v, NO_OWNER).ownerUserId));
+                  // Its owner always talks to it: out of the people and roles picked, a role as a person.
+                  const roleId = roleOfOwnerValue(v);
+                  if (roleId) setAudience((a) => ({ ...a, roleIds: (a.roleIds ?? []).filter((id) => id !== roleId) }));
+                  else if (v !== NO_OWNER) setAudience((a) => ({ ...a, userIds: a.userIds.filter((id) => id !== v) }));
                 }}
               />
             ) : (
-              <OwnerValue member={ownerMember} meId={me.user.id} />
+              <OwnerValue member={ownerMember} meId={me.user.id} role={ownerRole} />
             )}
           </>
         )}
@@ -1466,6 +1487,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
                 value={audience}
                 onChange={setAudience}
                 ownerUserId={ownerId}
+                ownerRoleId={ownerRoleId}
                 agentName={displayName}
                 idPrefix="ag-audience"
               />
@@ -1562,7 +1584,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
                 {t("newAgent.budgetTitle")}
               </h2>
               <InfoHint name={t("common.about", { label: t("newAgent.budgetTitle") })}>
-                {`${t("newAgent.budgetHelp", g)} ${ownerFirst ? t("newAgent.warnsOwner", { name: ownerFirst }) : t("newAgent.warnsAdmins")}`}
+                {`${t("newAgent.budgetHelp", g)} ${ownerLabel ? t("newAgent.warnsOwner", { name: ownerLabel }) : t("newAgent.warnsAdmins")}`}
               </InfoHint>
             </div>
           </div>
@@ -1683,7 +1705,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
                 "where",
                 "members",
                 t("newAgent.owner"),
-                <span>{ownerMember?.name ?? t("newAgent.noOwnerAdmins")}</span>,
+                <span>{ownerRole?.name ?? ownerMember?.name ?? t("newAgent.noOwnerOption")}</span>,
               )}
             {!audienceHidden && row("where", "message", t("audience.section"), <span>{audienceText()}</span>)}
             {row(
@@ -1877,7 +1899,7 @@ function NewAgentFlow({ channelId = null }: { channelId?: string | null }) {
                 </PreviewSection>
                 {!ownerHidden && (
                   <PreviewSection label={t("newAgent.owner")}>
-                    <span className="newag__chips">{chip("person", ownerFirst ?? t("newAgent.noOwnerOption"))}</span>
+                    <span className="newag__chips">{chip("person", ownerLabel ?? t("newAgent.noOwnerOption"))}</span>
                   </PreviewSection>
                 )}
                 {!audienceHidden && (

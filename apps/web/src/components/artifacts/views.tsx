@@ -135,28 +135,43 @@ export function TableView({ columns, rows }: { columns: string[]; rows: string[]
   );
 }
 
-export function DiffView({ files }: { files: ArtifactDiffFile[] }) {
+/**
+ * The diff of one or more files. Its own switch (unified or side by side) unless the page that shows it keeps it in
+ * its own head (`mode`); `heads: false` leaves out each file's line (a page already naming its one file).
+ */
+export function DiffView({
+  files,
+  mode: shownMode,
+  heads = true,
+}: {
+  files: ArtifactDiffFile[];
+  mode?: "unified" | "split";
+  heads?: boolean;
+}) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"unified" | "split">("unified");
+  const [ownMode, setMode] = useState<"unified" | "split">("unified");
+  const mode = shownMode ?? ownMode;
   return (
     <div className="stack-4" style={{ gap: 16 }}>
       {/* One view of the diff at a time: the app's switch for that. */}
-      <Segmented
-        size="sm"
-        className="artifact-diff__mode"
-        label={t("artifacts.diffView")}
-        value={mode}
-        onValueChange={setMode}
-        options={(["unified", "split"] as const).map((m) => ({ value: m, label: t(`artifacts.${m}`) }))}
-      />
+      {!shownMode && (
+        <Segmented
+          size="sm"
+          className="artifact-diff__mode"
+          label={t("artifacts.diffView")}
+          value={mode}
+          onValueChange={setMode}
+          options={(["unified", "split"] as const).map((m) => ({ value: m, label: t(`artifacts.${m}`) }))}
+        />
+      )}
       {files.map((f) => (
-        <FileDiff key={f.path} file={f} mode={mode} />
+        <FileDiff key={f.path} file={f} mode={mode} head={heads} />
       ))}
     </div>
   );
 }
 
-function FileDiff({ file, mode }: { file: ArtifactDiffFile; mode: "unified" | "split" }) {
+function FileDiff({ file, mode, head = true }: { file: ArtifactDiffFile; mode: "unified" | "split"; head?: boolean }) {
   const { t } = useTranslation();
   const lines = useMemo(() => parsePatch(file.patch), [file.patch]);
   const counts = patchCounts(file.patch);
@@ -166,12 +181,14 @@ function FileDiff({ file, mode }: { file: ArtifactDiffFile; mode: "unified" | "s
     ) : null;
   return (
     <section className="artifact-file" aria-label={t("artifacts.fileDiff", { path: file.path })}>
-      <header className="artifact-file__head">
-        <code>{file.path}</code>
-        <span className="small muted tabular" title={t("artifacts.countsLabel", counts)}>
-          {t("artifacts.counts", counts)}
-        </span>
-      </header>
+      {head && (
+        <header className="artifact-file__head">
+          <code>{file.path}</code>
+          <span className="small muted tabular" title={t("artifacts.countsLabel", counts)}>
+            {t("artifacts.counts", counts)}
+          </span>
+        </header>
+      )}
       {mode === "unified" ? (
         <div className="ac-diff ac-diff--code" data-mode="unified">
           {lines.map((l, i) => (

@@ -10,6 +10,7 @@ import type {
   OrgRole,
   OrgSummary,
 } from "../api/types";
+import { ownsAgentAs } from "./agent-owner";
 import { engineOfBrain } from "./brain";
 import { joinNames } from "./format";
 import { agentGrammar } from "./grammar";
@@ -46,11 +47,12 @@ export const modeOf = (agent: Agent): AudienceMode => agent.audience?.mode ?? ag
 
 /**
  * Whether its audience lets `userId` talk to the agent (the server's `canTalkTo`, without `talk_to_agents`): its
- * owner, everyone, one of its people, or holding one of its roles (`roleIds`: theirs, from the directory). A people
- * list the directory didn't send, or roles picked when theirs aren't known, say yes (don't warn on a guess).
+ * owner (or holding its owner role, ADR 0085, addendum of 2026-11-21), everyone, one of its people, or holding one of
+ * its roles (`roleIds`: theirs, from the directory). A people list the directory didn't send, or roles picked when
+ * theirs aren't known, say yes (don't warn on a guess).
  */
 export function audienceAdmits(agent: Agent, userId: string, roleIds?: readonly string[]): boolean {
-  if (agent.ownerUserId === userId) return true;
+  if (ownsAgentAs(agent, userId, roleIds ?? [])) return true;
   const mode = modeOf(agent);
   if (mode !== "people") return mode === "everyone";
   const a = audienceOf(agent);
@@ -216,9 +218,16 @@ export const managesRoutinesOf = (agent: { canManageRoutines?: boolean } | null 
 export const createsRoutinesFor = (agent: { canManageRoutines?: boolean; canTalk?: boolean } | null | undefined) =>
   managesRoutinesOf(agent) && agent?.canTalk !== false;
 
-/** Only the agent's owner and who manages it change who talks to it and who edits it (same rule as the backend). */
-export const canEditAudience = (_org: OrgSummary | undefined, agent: Agent, myUserId: string) =>
-  managesAgent(agent) || (agent.ownerUserId != null && agent.ownerUserId === myUserId);
+/**
+ * Only the agent's owner (or who holds its owner role: `myRoleIds`, ADR 0085, addendum of 2026-11-21) and who manages
+ * it change who talks to it and who edits it (same rule as the backend).
+ */
+export const canEditAudience = (
+  _org: OrgSummary | undefined,
+  agent: Agent,
+  myUserId: string,
+  myRoleIds: readonly string[] = [],
+) => managesAgent(agent) || ownsAgentAs(agent, myUserId, myRoleIds);
 
 /** What a save sends: the people and roles only when it answers some people. */
 export const audiencePatch = (a: AgentAudience): AgentAudience => ({
@@ -247,8 +256,13 @@ export const opensOthersPlan = (agent: Agent, next: AgentAudience, myUserId: str
  * "Let me talk to it": its audience with me let in, when it keeps me out and I may change it (its owner or who manages
  * agents) and I talk to agents at all; null otherwise. On someone else's plan the save asks first (`opensOthersPlan`).
  */
-export function audienceWithMe(org: OrgSummary | undefined, agent: Agent, myUserId: string): AgentAudience | null {
-  if (canTalk(agent) || !can(org, "talk_to_agents") || !canEditAudience(org, agent, myUserId)) return null;
+export function audienceWithMe(
+  org: OrgSummary | undefined,
+  agent: Agent,
+  myUserId: string,
+  myRoleIds: readonly string[] = [],
+): AgentAudience | null {
+  if (canTalk(agent) || !can(org, "talk_to_agents") || !canEditAudience(org, agent, myUserId, myRoleIds)) return null;
   return audienceWith(agent, myUserId);
 }
 
@@ -333,8 +347,9 @@ export type AudienceLine<P> =
   | { kind: "person"; person: P };
 
 /**
- * Who it answers, one line each: everyone; only its owner; or its roles (top first), then its people. Its owner
- * isn't among the people (it always may); only the roles and people we know.
+ * Who it answers, one line each: everyone; only its owner (a person, or the role that answers for it, ADR 0085,
+ * addendum of 2026-11-21); or its roles (top first), then its people. Its owner isn't among them (it always may); only
+ * the roles and people we know.
  */
 export function audienceLines<P extends { userId: string }>(
   agent: Agent,
@@ -351,7 +366,10 @@ export function audienceLines<P extends { userId: string }>(
       const p = person(id);
       return p ? [{ kind: "person" as const, person: p }] : [];
     });
-  const picked = a.mode === "people" ? sortRoles(roles.filter((r) => a.roleIds.includes(r.id))) : [];
+  const picked =
+    a.mode === "people"
+      ? sortRoles(roles.filter((r) => a.roleIds.includes(r.id) && r.id !== agent.ownerRoleId))
+      : roles.filter((r) => r.id === agent.ownerRoleId);
   return [...picked.map((role) => ({ kind: "role" as const, role })), ...people];
 }
 
@@ -373,13 +391,15 @@ export function audienceChip(t: TFunction, agent: Agent, viewer?: { org: ModeOrg
 
 type NameOf = (id: string) => string | undefined;
 
-/** Who it answers: its roles, then its owner and its people (only the names we know). */
+/** Who it answers: its owner role and its roles, then its owner and its people (only the names we know). */
 function answered(agent: Agent, nameOf: NameOf, roleName: NameOf) {
   const a = audienceOf(agent);
   const people = a.mode === "people";
   const ids = [...new Set([...(agent.ownerUserId ? [agent.ownerUserId] : []), ...(people ? a.userIds : [])])];
+  // The role that answers for it always may talk to it (ADR 0085, addendum of 2026-11-21).
+  const roleIds = [...new Set([...(agent.ownerRoleId ? [agent.ownerRoleId] : []), ...(people ? a.roleIds : [])])];
   const known = (n: string | undefined): n is string => Boolean(n);
-  return { roles: (people ? a.roleIds : []).map(roleName).filter(known), people: ids.map(nameOf).filter(known) };
+  return { roles: roleIds.map(roleName).filter(known), people: ids.map(nameOf).filter(known) };
 }
 
 /** Who it answers, roles first, then the owner: ["Suporte", "Walter", "Ana"] (only the names we know). */
@@ -442,8 +462,25 @@ export function unavailableNotice(
 }
 
 /**
- * The profile summary: "Todos do workspace", "Suporte, Tecnologia e mais 2 pessoas", "Só Walter". `org`: a personal
- * workspace says "everyone" its way (ADR 0159).
+ * "Only the owner" in words: "Only" and the person's name, "Only whoever holds Engineering" for a role that answers for
+ * it (ADR 0085, addendum of 2026-11-21), or "No one for now" with neither (or one not known here).
+ */
+export function ownerOnlyText(
+  t: TFunction,
+  agent: Pick<Agent, "ownerUserId" | "ownerRoleId">,
+  nameOf: NameOf,
+  roleName: NameOf = () => undefined,
+) {
+  const role = agent.ownerRoleId ? roleName(agent.ownerRoleId) : undefined;
+  if (role) return t("audience.summary.ownerRole", { role });
+  const owner = agent.ownerUserId ? nameOf(agent.ownerUserId) : undefined;
+  return owner ? t("audience.summary.owner", { name: owner }) : t("audience.summary.nobody");
+}
+
+/**
+ * The profile summary: "Everyone in the workspace", "Support, Engineering and 2 more people", "Only" and a person's
+ * name, "Only whoever holds Engineering" (its owner role, ADR 0085, addendum of 2026-11-21). `org`: a personal workspace
+ * says "everyone" its way (ADR 0159).
  */
 export function audienceSummary(
   t: TFunction,
@@ -453,9 +490,8 @@ export function audienceSummary(
   org?: ModeOrg,
 ) {
   const a = audienceOf(agent);
-  const owner = agent.ownerUserId ? nameOf(agent.ownerUserId) : undefined;
   if (a.mode === "everyone") return t(modeKey(org, "audience.summary.everyone"));
-  if (a.mode === "owner") return owner ? t("audience.summary.owner", { name: owner }) : t("audience.summary.nobody");
+  if (a.mode === "owner") return ownerOnlyText(t, agent, nameOf, roleName);
   const { roles, people } = answered(agent, nameOf, roleName);
   const names = [...roles, ...people];
   if (names.length === 0) return t("audience.summary.someone");
@@ -488,9 +524,10 @@ export interface EditorsValue {
  * owner always edits, so it is never one of them: a named editor who later became its owner stays in the server's
  * list, and counting them would pick "Also some people or roles" with nobody shown (ADR 0085 addendum of 2026-11-17).
  */
-export const editorsOf = (agent: Pick<Agent, "editors" | "ownerUserId">): AgentEditors => ({
+export const editorsOf = (agent: Pick<Agent, "editors" | "ownerUserId" | "ownerRoleId">): AgentEditors => ({
   userIds: (agent.editors?.userIds ?? []).filter((id) => id !== agent.ownerUserId),
-  roleIds: agent.editors?.roleIds ?? [],
+  // Nor is the role that answers for it (ADR 0085, addendum of 2026-11-21): whoever holds it edits as its owner.
+  roleIds: (agent.editors?.roleIds ?? []).filter((id) => id !== agent.ownerRoleId),
 });
 
 /** "people" once it names someone, else "owner". */
@@ -498,7 +535,7 @@ export const editorsMode = (e: { userIds: readonly string[]; roleIds: readonly s
   e.userIds.length > 0 || e.roleIds.length > 0 ? "people" : "owner";
 
 /** Its "Quem pode editar" as the choice shows it. */
-export function editorsValueOf(agent: Pick<Agent, "editors" | "ownerUserId">): EditorsValue {
+export function editorsValueOf(agent: Pick<Agent, "editors" | "ownerUserId" | "ownerRoleId">): EditorsValue {
   const e = editorsOf(agent);
   return { mode: editorsMode(e), userIds: e.userIds, roleIds: e.roleIds };
 }
@@ -513,7 +550,7 @@ export const editorsPatch = (v: EditorsValue): AgentEditors =>
  */
 export function editorsSummary(
   t: TFunction,
-  agent: Pick<Agent, "name" | "ownerUserId" | "editors">,
+  agent: Pick<Agent, "name" | "ownerUserId" | "ownerRoleId" | "editors">,
   nameOf: NameOf,
   roleName: NameOf = () => undefined,
 ) {
@@ -523,7 +560,12 @@ export function editorsSummary(
   const people = e.userIds.map(nameOf).filter(known);
   const roles = e.roleIds.map(roleName).filter(known);
   if (people.length === 0 && roles.length === 0) return t("editors.summary.owner", agentGrammar(agent.name));
-  const owner = agent.ownerUserId ? nameOf(agent.ownerUserId) : undefined;
+  // A role that answers for it is named first the same way (ADR 0085, addendum of 2026-11-21).
+  const owner = agent.ownerRoleId
+    ? roleName(agent.ownerRoleId)
+    : agent.ownerUserId
+      ? nameOf(agent.ownerUserId)
+      : undefined;
   const names = [...(owner ? [owner] : []), ...people, ...roles];
   if (names.length <= 3) return t("audience.summary.people", { names: joinNames(names, t) });
   const shown = names.slice(0, 2).join(", ");

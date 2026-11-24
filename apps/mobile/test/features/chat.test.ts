@@ -1509,10 +1509,12 @@ describe("reading a conversation", () => {
     // Both are among what the effect runs again on: back on the screen, or back in the app, it reads.
     const again = reading.slice(reading.lastIndexOf("}, ["));
     expect(again).toContain("focused, inFront,");
-    // In front means the app's state is "active", and it follows every change of it.
+    // In front means the app's state is "active", and it follows every change of it: a glance away (the notification
+    // shade) marks nothing either, unlike the socket that stays through it (test/app-active.test.ts).
     const active = await source("lib/useAppActive.ts");
     expect(active).toContain('useState(AppState.currentState === "active")');
-    expect(active).toContain('AppState.addEventListener("change", (s) => setActive(s === "active"))');
+    expect(active).toContain("export function useAppActive(inactiveGraceMs = 0)");
+    expect(active).toContain('else listener(s === "active");');
   });
 
   test("a reply in one of the conversation's threads marks it read again", async () => {

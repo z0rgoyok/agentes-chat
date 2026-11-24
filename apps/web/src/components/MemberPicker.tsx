@@ -1,4 +1,5 @@
 import type { Agent } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { listsAgent, managesAgent } from "@agenteschat/client/lib/audience";
 import { joinsChannels } from "@agenteschat/client/lib/right-hand";
 import { Checkbox, InfoHint, SearchField, Token, TokenList } from "@agenteschat/ui";
@@ -34,7 +35,9 @@ export function useMemberRows(
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const q = query.trim().toLowerCase();
-  const offered = (a: Agent) => (channel ? a.ownerUserId === me.user.id || managesAgent(a) : listsAgent(org, a));
+  // Into a channel: the agents I answer for (myself or through a role, ADR 0085, addendum of 2026-11-21) or manage.
+  const offered = (a: Agent) =>
+    channel ? ownsAgentAs(a, me.user.id, dir.rolesOf(me.user.id)) || managesAgent(a) : listsAgent(org, a);
   const rows: PickRow[] = [
     ...dir.members
       .filter((m) => withMe || m.userId !== me.user.id)

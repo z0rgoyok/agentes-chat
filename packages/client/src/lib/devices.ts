@@ -230,6 +230,26 @@ export function computerLine(t: TFunction, d: ComputerDevice): string {
     .join(" · ");
 }
 
+// ── Tasks at once ────────────────────────────────────────────────────────────
+
+/** The choices for a computer's tasks at once (`TASK_LIMIT_BOUNDS`), with the one it has when that isn't one of them. */
+export const taskChoices = (current: number) =>
+  [...new Set([1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, current])].sort((a, b) => a - b);
+
+/** Who changes it: whoever connected the computer, or an admin on one nobody did (`updateComputerDevice`). */
+export const mayChangeTasks = (d: ComputerDevice, viewerId: string, admin: boolean) =>
+  d.machineKind !== "managed" && (d.ownerUserId === viewerId || (d.ownerUserId === null && admin));
+
+/**
+ * Under a busy computer's pill: its limit and where it changes, so a full one doesn't read as stuck. `maxTasks` null:
+ * an app too old to say it or change it from here.
+ */
+export function taskLimitLine(t: TFunction, d: ComputerDevice, mayChange: boolean): string | null {
+  if (d.status.kind !== "busy") return null;
+  if (d.maxTasks === null) return t("devices.line.tasksUpdate", { max: d.status.max });
+  return t(mayChange ? "devices.line.tasksChange" : "devices.line.tasksOwner", { max: d.maxTasks });
+}
+
 /** A computer in the line's "More computers" list: "Online · macOS · 16 GB · your Claude Max plan" (`plan`: the viewer's there). */
 export const spillDeviceText = (t: TFunction, d: ComputerDevice, plan: string | null) =>
   [statusPill(t, d.status), computerLine(t, d), plan && t("queue.spill.plan", { plan })].filter(Boolean).join(" · ");

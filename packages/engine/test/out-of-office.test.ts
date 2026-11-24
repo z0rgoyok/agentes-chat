@@ -132,13 +132,16 @@ test("at its account's limit, an agent with another account of the order that ha
   await fx.db.update(schema.agents).set({ brainAccountPinned: false }).where(eq(schema.agents.id, fx.agent.id));
 
   // Set to serve only Walter, it never serves this agent.
-  await fx.db.update(schema.machineAccounts).set({ serves: "owner" }).where(eq(schema.machineAccounts.id, theirs));
+  await fx.db
+    .update(schema.machineAccounts)
+    .set({ serves: "owner", useMode: "owner" })
+    .where(eq(schema.machineAccounts.id, theirs));
   expect([...(await outOfOfficeIds(fx.db, fx.org.id, [fx.agent.id]))]).toEqual([fx.agent.id]);
 
   // A login for one agent never takes another's run, even unused.
   await fx.db
     .update(schema.machineAccounts)
-    .set({ serves: "everyone", shared: false })
+    .set({ serves: "everyone", useMode: "everyone", shared: false })
     .where(eq(schema.machineAccounts.id, theirs));
   expect([...(await outOfOfficeIds(fx.db, fx.org.id, [fx.agent.id]))]).toEqual([fx.agent.id]);
   await fx.db.update(schema.machineAccounts).set({ shared: true }).where(eq(schema.machineAccounts.id, theirs));
@@ -146,7 +149,7 @@ test("at its account's limit, an agent with another account of the order that ha
   // Every account limited: out until the earliest reset of the chain.
   await fx.db
     .update(schema.machineAccounts)
-    .set({ serves: "everyone", usage: reading(100, soon) as never })
+    .set({ serves: "everyone", useMode: "everyone", usage: reading(100, soon) as never })
     .where(eq(schema.machineAccounts.id, theirs));
   expect(await statusOf(fx, fx.agent.id)).toMatchObject({
     presence: "out",

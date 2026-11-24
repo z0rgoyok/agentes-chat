@@ -4,6 +4,7 @@ import {
   ASKS_PROTOCOL,
   BRAIN_PROFILES_PROTOCOL,
   BRAIN_PROTOCOL,
+  BRAIN_WARM_PROTOCOL,
   brainTopic,
   CONTEXT_LIMIT_PROTOCOL,
   CONVERSATION_PROTOCOL,
@@ -710,4 +711,38 @@ test("plan usage is stored like API usage: uncached input apart from cache reads
     costNanoUsd: 0,
   });
   expect(rows.find((r) => r.id === old)).toMatchObject({ inputTokens: 5_000, cacheReadTokens: 0 });
+});
+
+test("brain.warm: the turn's launch without its words, sent only to a runner that knows it", async () => {
+  const pubsub = createMemoryPubSub();
+  const permissions = { mode: "work" as const, branchPrefix: "agentes/dev/" };
+  const warmWith = async (over: Partial<MachineStatus>, keepAlive = true) => {
+    const { hub, calls } = fakeHub(pubsub, { status: status({ protocol: BRAIN_WARM_PROTOCOL, ...over }) });
+    const brain = createClaudeCodeBrain({
+      hub,
+      pubsub,
+      agentScope: async (t) => ({ id: t.agentId, handle: "dev" }),
+      permissions: async () => permissions,
+      keepAlive,
+    });
+    await brain.warm?.(turn({ effort: "high", contextTokens: 200_000 }));
+    return calls;
+  };
+  const [call] = await warmWith({});
+  expect(call?.request).toEqual({
+    op: "brain.warm",
+    kind: "claude_code",
+    session: { id: SESSION, resume: false },
+    cwd: "",
+    model: "opus",
+    personalMcp: false,
+    permissions,
+    effort: "high",
+    contextTokens: 200_000,
+    agent: { id: "agent-1", handle: "dev" },
+  });
+  expect(await warmWith({ protocol: BRAIN_WARM_PROTOCOL - 1 })).toEqual([]);
+  expect(await warmWith({ online: false })).toEqual([]);
+  // A background run keeps no process: nothing to warm.
+  expect(await warmWith({}, false)).toEqual([]);
 });

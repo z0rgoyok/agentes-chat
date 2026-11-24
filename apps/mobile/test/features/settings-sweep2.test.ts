@@ -162,6 +162,14 @@ describe("forms", () => {
     expect(edit).toMatch(/locked=\{action\.isPending\}[^>]*\btoolbar\b/);
   });
 
+  test("a skill's page lists every agent with a switch for who manages agents, all locked while one saves", () => {
+    const skills = src("features/settings/SkillsScreen.tsx");
+    expect(skills).toContain("{manages && admin ? <SkillAgents skill={s} users={users} /> : null}");
+    const list = skills.slice(skills.indexOf("function SkillAgents"));
+    expect(list).toContain("disabled={action.isPending}");
+    expect(list).toContain('{ type: "assign", agentId: a.id, skills: [{ skillId: skill.id, enabled: !checked }] }');
+  });
+
   test("the status line is named for screen readers", () => {
     expect(src("features/status/StatusScreen.tsx")).toContain('accessibilityLabel={t("mobile.status.doing")}');
   });

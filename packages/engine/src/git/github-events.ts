@@ -1,10 +1,11 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, type Database, eq, gte, isNull, schema, sql } from "@agenteschat/db";
+import { and, type Database, desc, eq, gte, isNull, schema, sql } from "@agenteschat/db";
 import { getAgent } from "../agents";
 import { audienceError, canTalkTo, speakerOf } from "../audience";
 import { UUID } from "../authority";
 import { routineBriefOfRun } from "../background";
 import { requireChannelAccess } from "../channels";
+import { codeSessionOnBranch, recordCodeSessionPr } from "../code-sessions";
 import { deliverNotice, publishDelivery } from "../delivery";
 import { eligibleChannelAgents } from "../dispatch";
 import { isAgentOnlyDm, openPersonAgentDm } from "../dms";
@@ -44,6 +45,8 @@ const {
  * item no agent worked on to the workspace's right hand, to hand on. A member whose GitHub account is linked to their
  * sign-in wakes the agent with them behind the run; anyone else only leaves the notice, which a member may ask the
  * agent to answer (`answerGitHubNotice`). Bots, the app's own included, and what our agents wrote are never news.
+ * What happens on an agent's own branch reaches the code session working on it (ADR 0215): a check that failed there
+ * wakes its agent to fix it, and a pull request opened from it is kept on the session.
  */
 
 export const GITHUB_EVENT_JOB = "github_app.event";
@@ -106,11 +109,22 @@ export async function recordGitHubItem(ctx: ToolContext, item: GitHubItemRef) {
     });
 }
 
-/** What happened: a comment, a review, the app's review asked, an item opened naming the app, merged or closed. */
-export type GitHubEventAction = "comment" | "review" | "review_requested" | "opened" | "merged" | "closed";
+/**
+ * What happened to an item: a comment, a review, the app's review asked, an item opened naming the app, merged or
+ * closed; or a pull request opened from an agent's own branch that isn't news (`pr_opened`: an agent opened it, or
+ * nobody named the app), which only the code session working on that branch keeps (ADR 0215).
+ */
+export type GitHubEventAction =
+  | "comment"
+  | "review"
+  | "review_requested"
+  | "opened"
+  | "merged"
+  | "closed"
+  | "pr_opened";
 
-/** One GitHub event as its job reads it: the item, who did it, and their text (cut). */
-export interface GitHubAppEvent {
+/** One GitHub event on an item as its job reads it: the item, who did it, and their text (cut). */
+export interface GitHubItemEvent {
   installationId: number;
   action: GitHubEventAction;
   item: "pull_request" | "issue" | "discussion";
@@ -123,9 +137,37 @@ export interface GitHubAppEvent {
   state: string | null;
   /** It names the app's bot (`@slug`), or asks for its review. */
   mentioned: boolean;
+  /** A pull request's own events: its head branch (an agent's own is a code session's, ADR 0215). */
+  branch?: string;
   /** GitHub's `X-GitHub-Delivery`, set when queued: a job run twice brings it once. */
   delivery?: string;
 }
+
+/**
+ * A check that failed on an agent's own branch (`check_run` completed as `failure`, `timed_out` or `action_required`),
+ * for the code session working on that branch (ADR 0215).
+ */
+export interface GitHubCheckEvent {
+  installationId: number;
+  action: "check_failed";
+  repo: string;
+  branch: string;
+  /** The commit it ran on. */
+  sha: string;
+  /** Its name ("test (ubuntu-latest)", one line) and how it ended. */
+  check: string;
+  conclusion: string;
+  /** Its page on GitHub (where its log is). */
+  url: string;
+  /** The pull requests it ran for, in the same repository. */
+  prs: number[];
+  /** Its own words (its output's title and summary, cut): outside text. */
+  body: string;
+  delivery?: string;
+}
+
+/** One GitHub event as its job reads it. */
+export type GitHubAppEvent = GitHubItemEvent | GitHubCheckEvent;
 
 const obj = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -136,17 +178,67 @@ const namesApp = (text: string, slug: string) =>
   [...text.matchAll(/(?:^|[^\w/@.-])@([A-Za-z0-9-]+)/g)].some((m) => m[1]?.toLowerCase() === slug.toLowerCase());
 
 /** Which kind of item a GitHub event is about: a comment on an issue's number may be a pull request's. */
-function itemKind(event: string, issue: Record<string, unknown>): GitHubAppEvent["item"] {
+function itemKind(event: string, issue: Record<string, unknown>): GitHubItemEvent["item"] {
   if (event.startsWith("discussion")) return "discussion";
   if (event.startsWith("pull_request")) return "pull_request";
   return issue.pull_request ? "pull_request" : "issue";
+}
+
+/** An agent's own branch: the only new branches the git proxy lets agents push (`agentes/<handle>/…`). */
+const isAgentBranch = (branch: string) => branch.startsWith("agentes/");
+
+/** How a check ended that its agent hears: it failed, ran out of time, or waits on an action on GitHub. */
+const FAILED_CHECKS: ReadonlySet<string> = new Set(["failure", "timed_out", "action_required"]);
+
+/** What a failed check's own output says (its title and summary), at most. */
+const CHECK_TEXT_CHARS = 2_000;
+
+/**
+ * A check that failed on an agent's own branch (ADR 0215), null for any other: still running, passed, cancelled or
+ * skipped, the app's own, or on another branch (a fork's run names no branch, and is left out with them).
+ */
+function failedCheckOf(
+  installationId: number,
+  repo: string,
+  payload: Record<string, unknown>,
+  slug?: string,
+): GitHubCheckEvent | null {
+  const run = obj(payload.check_run);
+  const conclusion = str(run.conclusion);
+  if (payload.action !== "completed" || !FAILED_CHECKS.has(conclusion)) return null;
+  if (slug && str(obj(run.app).slug).toLowerCase() === slug.toLowerCase()) return null;
+  const suite = obj(run.check_suite);
+  const prs = (Array.isArray(run.pull_requests) ? run.pull_requests : []).map(obj);
+  const branch = str(suite.head_branch) || str(obj(prs[0]?.head).ref);
+  const sha = str(run.head_sha) || str(suite.head_sha);
+  // One line: the name is the repository's words, quoted in the server's own line.
+  const name = str(run.name).replace(/\s+/g, " ").trim();
+  if (!isAgentBranch(branch) || !/^[0-9a-f]{7,64}$/i.test(sha) || !name) return null;
+  const output = obj(run.output);
+  const said = [str(output.title), str(output.summary)]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    installationId,
+    action: "check_failed",
+    repo,
+    branch,
+    sha,
+    check: cutText(name, 200),
+    conclusion,
+    url: [str(run.html_url), str(run.details_url)].find((u) => u.startsWith("https://")) ?? "",
+    prs: [...new Set(prs.map((p) => Number(p.number)).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 10),
+    body: cutText(said, CHECK_TEXT_CHARS),
+  };
 }
 
 /**
  * The event agents hear in what GitHub sent (`X-GitHub-Event` and its payload), null for any other: a comment, a
  * submitted review with something to read, the app's bot asked to review, a pull request, issue or discussion opened
  * naming the app, a pull request merged or closed, an issue closed. Bots' text and what our agents signed are left
- * out, and so is an item the app itself closed (an agent did it).
+ * out, and so is an item the app itself closed (an agent did it). On an agent's own branch (ADR 0215), also a check
+ * that failed there and a pull request opened from it that isn't news (`pr_opened`, an agent's own included).
  */
 export function githubAppEventOf(
   event: string | null,
@@ -156,10 +248,14 @@ export function githubAppEventOf(
   const installationId = obj(payload.installation).id;
   const sender = obj(payload.sender);
   const repo = str(obj(payload.repository).full_name);
-  if (!event || typeof installationId !== "number" || typeof sender.id !== "number" || !parseRepo(repo)) return null;
+  if (!event || typeof installationId !== "number" || !parseRepo(repo)) return null;
+  if (event === "check_run") return failedCheckOf(installationId, repo, payload, slug);
+  if (typeof sender.id !== "number") return null;
   const bot = slug ? `${slug}[bot]`.toLowerCase() : null;
   const action = payload.action;
   const pr = obj(payload.pull_request);
+  // A pull request's head branch: an agent's own is what a code session works on.
+  const branch = event.startsWith("pull_request") ? str(obj(pr.head).ref) : "";
   const target = event.startsWith("discussion")
     ? obj(payload.discussion)
     : event.startsWith("pull_request")
@@ -192,23 +288,29 @@ export function githubAppEventOf(
   if (!what) return null;
   const closing = what.action === "merged" || what.action === "closed";
   // A merge queue or other automation still closes an agent's item for real; only the app's own close is an agent's.
-  if (closing ? str(sender.login).toLowerCase() === bot : sender.type === "Bot" || signedByAgent(what.body))
-    return null;
-  const mentioned = what.action === "review_requested" || (slug ? namesApp(what.body, slug) : false);
-  if (what.action === "opened" && !mentioned) return null;
+  const own = closing ? str(sender.login).toLowerCase() === bot : sender.type === "Bot" || signedByAgent(what.body);
+  const mentioned = !own && (what.action === "review_requested" || (slug ? namesApp(what.body, slug) : false));
   const number = Number(target.number);
   if (!Number.isInteger(number) || number <= 0) return null;
-  return {
+  const found = {
     installationId,
-    action: what.action,
     item: itemKind(event, target),
     repo,
     number,
     url: what.url || str(target.html_url),
     sender: { id: sender.id, login: cutText(str(sender.login), 100) },
+  };
+  // Opened from an agent's own branch, and not news: only the code session working on that branch keeps it.
+  if (what.action === "opened" && event === "pull_request" && isAgentBranch(branch) && !mentioned)
+    return { ...found, action: "pr_opened", body: "", state: null, mentioned: false, branch };
+  if (own || (what.action === "opened" && !mentioned)) return null;
+  return {
+    ...found,
+    action: what.action,
     body: cutText(what.body, UNTRUSTED_MAX_CHARS),
     state: what.state ?? null,
     mentioned,
+    ...(branch ? { branch } : {}),
   };
 }
 
@@ -242,7 +344,7 @@ export async function queueGitHubAppEvent(
 const ITEM_WORDS = { pull_request: "PR", issue: "issue", discussion: "discussion" } as const;
 
 /** The event in the server's words, for the agent and as the notice's plain text ("Ana commented on PR #12 …"). */
-function eventLine(e: GitHubAppEvent, who: string) {
+function eventLine(e: GitHubItemEvent, who: string) {
   const item = `${ITEM_WORDS[e.item]} #${e.number} (${e.repo})`;
   switch (e.action) {
     case "comment":
@@ -257,11 +359,30 @@ function eventLine(e: GitHubAppEvent, who: string) {
       return `${who} asked the agentes.chat app to review ${item} on GitHub`;
     case "opened":
       return `${who} opened ${item} on GitHub, naming the agentes.chat app`;
+    case "pr_opened":
+      return `${who} opened ${item} on GitHub`;
     case "merged":
       return `${who} merged ${item} on GitHub`;
     case "closed":
       return `${who} closed ${item} on GitHub`;
   }
+}
+
+/** How a failed check ended, in the server's line. */
+const CHECK_ENDINGS: Record<string, string> = {
+  failure: "failed",
+  timed_out: "timed out",
+  action_required: "is waiting on an action",
+};
+
+/**
+ * A failed check in the server's words, for the agent and as the notice's plain text ("the check «lint» failed on
+ * PR #12 (acme/app) on GitHub, at commit 1a2b3c4").
+ */
+function checkLine(e: GitHubCheckEvent, pr: number | null) {
+  const where = pr ? `PR #${pr}` : `branch ${e.branch}`;
+  const ended = CHECK_ENDINGS[e.conclusion] ?? "failed";
+  return `the check «${e.check}» ${ended} on ${where} (${e.repo}) on GitHub, at commit ${e.sha.slice(0, 7)}`;
 }
 
 /** The member whose GitHub sign-in is this GitHub account, while they belong to the workspace. */
@@ -311,15 +432,23 @@ async function rightHandConversation(db: Database, orgId: string, userId: string
  * the DM of the member who wrote it, or of whoever connected that GitHub account here for anyone else. A member who
  * may read that conversation and talk to the agent wakes it, behind the run; anyone else leaves a notice only
  * (`refs.outside`). A merge or a close wakes the agent whoever did it. A workspace closed to changes (suspended, or
- * being deleted) takes none.
+ * being deleted) takes none. On an agent's own branch, a failed check goes to its code session (`deliverFailedCheck`)
+ * and a pull request opened from it is kept there (ADR 0215).
  */
 export async function handleGitHubAppEvent(
   deps: { db: Database; pubsub?: PubSub },
   orgId: string,
   e: GitHubAppEvent,
-): Promise<"delivered" | "ignored"> {
+): Promise<"delivered" | "recorded" | "ignored"> {
   const { db } = deps;
   if (closedRefusal(await orgStanding(db, orgId))) return "ignored";
+  if (e.action === "check_failed") return deliverFailedCheck(deps, orgId, e);
+  // A pull request from an agent's own branch: the code session working on that branch keeps it (ADR 0215). Not its
+  // state: a merge only fills in one whose opening went unheard.
+  const opening = e.action === "pr_opened" || e.action === "opened" || e.action === "merged";
+  if (opening && e.item === "pull_request" && e.branch && isAgentBranch(e.branch))
+    await recordCodeSessionPr(deps, orgId, e.repo, e.branch, { number: e.number, url: e.url || null });
+  if (e.action === "pr_opened") return "recorded";
   const [item] = await db
     .select()
     .from(githubItems)
@@ -413,6 +542,92 @@ export async function handleGitHubAppEvent(
       wake: Boolean(behind) || closing,
       trigger: channel.kind === "dm" ? "dm" : "mention",
       // GitHub text is outside content, a member's too (ADR 0117): the runs that read it post and learn as such.
+      readOutside: Boolean(e.body.trim()),
+    }),
+  );
+  await publishDelivery(deps.pubsub, delivered);
+  return "delivered";
+}
+
+/**
+ * A check that failed on an agent's own branch, to the code session working on that branch (ADR 0215): a notice in
+ * its conversation that wakes its agent to read why and fix it, once per check and commit (GitHub's Redeliver, or the
+ * same check run again on that commit, adds nothing). Its run goes on from the session's last one, for whoever is
+ * behind that (`refs.runId`, which `messageRoot` follows): the check is that work's. Nothing when no open session
+ * works on that branch, or its agent was taken out of it.
+ */
+async function deliverFailedCheck(
+  deps: { db: Database; pubsub?: PubSub },
+  orgId: string,
+  e: GitHubCheckEvent,
+): Promise<"delivered" | "ignored"> {
+  const { db } = deps;
+  const session = await codeSessionOnBranch(db, orgId, e.repo, e.branch);
+  if (!session) return "ignored";
+  const agent = await getAgent(db, orgId, session.agentId);
+  if (!agent || agent.archivedAt) return "ignored";
+  if ((await eligibleChannelAgents(db, orgId, session.channelId, [agent.id])).length === 0) return "ignored";
+  const [told] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, orgId),
+        eq(messages.channelId, session.channelId),
+        eq(messages.threadId, session.rootMessageId),
+        gte(messages.createdAt, session.createdAt),
+        eq(messages.authorAgentId, agent.id),
+        sql`${messages.meta}->'notice'->>'kind' = 'github_check'`,
+        sql`${messages.meta}->'notice'->'refs'->>'sha' = ${e.sha}`,
+        sql`${messages.meta}->'notice'->'refs'->>'check' = ${e.check}`,
+      ),
+    )
+    .limit(1);
+  if (told) return "ignored";
+  const [last] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.orgId, orgId),
+        eq(agentRuns.channelId, session.channelId),
+        eq(agentRuns.threadRootId, session.rootMessageId),
+        eq(agentRuns.agentId, agent.id),
+        eq(agentRuns.background, false),
+      ),
+    )
+    .orderBy(desc(agentRuns.createdAt))
+    .limit(1);
+  const pr = e.prs[0] ?? session.prNumber ?? null;
+  const notice: Notice = {
+    kind: "github_check",
+    text: e.body,
+    from: checkLine(e, pr),
+    refs: {
+      check: e.check,
+      conclusion: e.conclusion,
+      repo: e.repo,
+      branch: e.branch,
+      sha: e.sha,
+      url: e.url,
+      ...(pr ? { number: String(pr) } : {}),
+      ...(last ? { runId: last.id } : {}),
+    },
+  };
+  const delivered = await db.transaction((tx) =>
+    deliverNotice(tx, {
+      orgId,
+      agentId: agent.id,
+      channelId: session.channelId,
+      threadId: session.rootMessageId,
+      hop: 0,
+      stretchId: null,
+      notice,
+      body: forPeople(notice),
+      wake: true,
+      // The session's conversation is a DM with its agent (`codeAgentSql`).
+      trigger: "dm",
+      // The check's own words come from GitHub (ADR 0117): the run that reads them posts and learns as such.
       readOutside: Boolean(e.body.trim()),
     }),
   );

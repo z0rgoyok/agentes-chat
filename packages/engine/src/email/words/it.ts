@@ -494,6 +494,36 @@ export const words: EmailWords = {
     table: (day) => `La tabella completa: bun run report:autonomy --day ${day}`,
     why: "Ricevi questa email perché questo indirizzo è in OPS_REPORT_EMAIL su questo server. Parte una volta al giorno.",
   },
+  accountOpened: {
+    subject: (plan) => `Più persone possono usare il tuo account ${plan}`,
+    preheader: (plan) => `Quello che ci fanno usa il tuo piano ${plan} e i suoi limiti.`,
+    headline: "Qualcuno ha cambiato chi può usare il tuo account di IA",
+    body: (by, account, plan) => [
+      { b: by },
+      ` ha cambiato chi può usare il tuo account ${plan} `,
+      { b: account },
+      `. Quello che ci fanno usa il tuo piano e i suoi limiti.`,
+    ],
+    account: "Account",
+    by: "Modificato da",
+    setting: "Permesso",
+    use: "Usare negli agenti",
+    reply: "Rispondere a tutti",
+    was: "Prima",
+    now: "Ora",
+    everyone: "Tutti nel workspace",
+    admins: "Tu e gli amministratori",
+    onlyYou: "Solo tu",
+    agentOwner: "Solo il proprietario dell'agente",
+    note: "Per annullare, apri l'account in IA e utilizzo e cambia i suoi permessi.",
+    button: "Apri gli account di IA",
+    why: (org) =>
+      `Ricevi questa email perché hai collegato questo account di IA in ${org} e qualcun altro ha cambiato chi può usarlo.`,
+    personal: {
+      why: () =>
+        "Ricevi questa email perché hai collegato questo account di IA e qualcun altro ha cambiato chi può usarlo.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Più persone possono parlare con il tuo agente con il tuo piano ${plan}`,
     preheader: (plan) => `Le loro conversazioni usano il tuo piano ${plan} e i suoi limiti.`,

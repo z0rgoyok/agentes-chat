@@ -12,7 +12,6 @@ import {
   SkeletonGroup,
   SkeletonList,
   SwapLabel,
-  TopProgress,
 } from "../src";
 
 afterEach(() => cleanup());
@@ -77,15 +76,6 @@ describe("Skeleton", () => {
     expect(
       body().getByRole("status", { name: "Carregando a lista" }).querySelectorAll(".ac-skeleton-row"),
     ).toHaveLength(3);
-  });
-
-  test("the top progress bar waits the same delay and goes away when done", async () => {
-    const { rerender } = render(<TopProgress active label="Atualizando" />);
-    expect(body().queryByRole("progressbar")).toBeNull();
-    await wait(SKELETON_DELAY_MS + 30);
-    expect(body().getByRole("progressbar", { name: "Atualizando" })).toBeTruthy();
-    rerender(<TopProgress active={false} label="Atualizando" />);
-    expect(body().queryByRole("progressbar")).toBeNull();
   });
 });
 

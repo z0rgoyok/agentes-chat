@@ -3,19 +3,9 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { AiAccounts, AiComputer, Message } from "@agenteschat/client";
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import {
-  ADA_ID,
-  ATLAS_ID,
-  createFakeApi,
-  fakeAgentBrain,
-  LODI_ID,
-  ORG_ID,
-  seedDm,
-  seedState,
-  withRightHand,
-} from "./fake-api";
+import type { Message } from "@agenteschat/client";
+import { act, cleanup, within } from "@testing-library/react";
+import { ADA_ID, ATLAS_ID, createFakeApi, LODI_ID, ORG_ID, seedDm, seedState, withRightHand } from "./fake-api";
 import { renderApp, screen, settle, showIn } from "./render";
 
 /*
@@ -23,13 +13,6 @@ import { renderApp, screen, settle, showIn } from "./render";
  * reply and "Change"; the dialog that picks its AI dims the plans it can't think with, each with why. No Lodi-only
  * button to give it a computer.
  */
-
-const click = async (el: Element) => {
-  await act(async () => {
-    fireEvent.click(el);
-  });
-  await settle(4);
-};
 
 const LINE = "Answered with Acme OpenAI: Claude Max needs a computer.";
 
@@ -99,83 +82,5 @@ test("the stand-in line under Lodi's reply: a quiet pill with Change, Lodi shown
   expect(within(pill as HTMLElement).getByRole("button", { name: "Change" })).toBeTruthy();
   expect(document.querySelector(".noai-banner")).toBeNull();
   expect(screen().queryByText(/Give Lodi a computer/)).toBeNull();
-  cleanup();
-});
-
-const MAC: AiComputer = {
-  machineId: "machine_mac",
-  name: "MacBook",
-  online: true,
-  mine: true,
-  canAdd: true,
-  keys: true,
-  brains: { claude_code: true, codex: true },
-  own: { claude_code: { plan: "max" } },
-};
-const LAPTOP: AiComputer = { ...MAC, machineId: "machine_laptop", name: "João's laptop", online: false, own: {} };
-
-test("its AI's dialog dims the plans it can't think with, each with why; admins get Connect a computer", async () => {
-  const state = withRightHand(seedState(), { brain: { kind: "claude_code", model: "Sonnet" } });
-  const api = createFakeApi(state);
-  const team = {
-    id: "acc-team",
-    kind: "claude_code",
-    label: "Claude Team",
-    ownerId: state.me?.user.id,
-    mine: true,
-    status: "active",
-    shared: true,
-    usedBy: [],
-  };
-  const away = {
-    ...team,
-    id: "acc-away",
-    label: "Claude Pro",
-    ownerId: "u-joao",
-    ownerName: "João",
-    mine: false,
-    machineId: LAPTOP.machineId,
-    computer: LAPTOP.name,
-    provider: null,
-    keyHint: null,
-    email: null,
-    plan: "pro",
-    usage: null,
-  };
-  api.agents.brain = async (_org, id, scope) =>
-    fakeAgentBrain(id, {
-      scope: scope ?? "mine",
-      brain: "claude_code",
-      account: "acc-team",
-      accounts: [team as never, away as never],
-      onlyOwner: true,
-      canUsePlans: true,
-      canEdit: true,
-      workspaceAi: {
-        brain: "claude_code",
-        ownerId: null,
-        servesYou: true,
-        key: { provider: "openai", label: "Acme OpenAI" },
-      },
-    });
-  api.machines.aiAccounts = async () => ({ accounts: [away as never], computers: [MAC, LAPTOP] }) as AiAccounts;
-  const { services } = await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}`, { api });
-  await settle(8);
-  await showIn(services, "en");
-  await click(screen().getByRole("button", { name: /^AI for people without their own plan/ }));
-  const dialog = screen().getByRole("dialog");
-  await click(within(dialog).getByRole("button", { name: /Change account/ }));
-  const box = screen().getByRole("dialog");
-  expect(within(box).getByText("Can't think for Lodi now")).toBeTruthy();
-  // The computer's own sign-in: named by its plan, with why, not pickable.
-  expect(
-    within(box).getByText("Signed in on MacBook only. Lodi thinks with a plan signed in as an account."),
-  ).toBeTruthy();
-  // João's plan on his laptop that is away: out of the choice, with why and the workspace's way out.
-  expect(within(box).getByText(/João's, on João's laptop, which is away\./)).toBeTruthy();
-  expect(within(box).getByRole("link", { name: "Connect a computer" })).toBeTruthy();
-  expect(box.querySelectorAll(".arrival-have__row[data-why]")).toHaveLength(2);
-  expect(within(box).queryByRole("radio", { name: /Claude Pro/ })).toBeNull();
-  expect(within(box).queryByText(/Give Lodi a computer/)).toBeNull();
   cleanup();
 });

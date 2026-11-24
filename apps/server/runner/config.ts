@@ -38,7 +38,7 @@ export interface RunnerConfig {
   workspace: string;
   /** Commands on (kept equal to `access.tools.commands` once `access` exists). */
   exec: boolean;
-  /** Background tasks at once on this computer (default 3). */
+  /** Background tasks at once on this computer (default: sized to it, `sizedTaskLimit`). */
   maxConcurrentTasks?: number;
   /** A background task is stopped after this many seconds (default 4 h). */
   taskMaxSeconds?: number;

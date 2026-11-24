@@ -6,7 +6,7 @@ import { AppState } from "react-native";
 import { lastCookie, readCookie } from "@/lib/auth";
 import { useServer } from "@/lib/server";
 import { createSocketFactory } from "@/lib/socket";
-import { useAppActive } from "@/lib/useAppActive";
+import { INACTIVE_GRACE_MS, useAppActive } from "@/lib/useAppActive";
 import { useMeId, useOrgId } from "../../shared/hooks";
 import { keptChangesFor } from "./kept";
 
@@ -131,8 +131,9 @@ export function useLiveDoc(fileId: string, options: { kind?: LiveKind | null; aw
   });
   const room = view.room;
 
+  // On screen: on top (its conversation pushed over it lets the room go after `awayMs`, as any screen over it).
   const focused = useIsFocused();
-  const active = useAppActive();
+  const active = useAppActive(INACTIVE_GRACE_MS);
   const who = useRef(Symbol("live-screen")).current;
   const awayMs = options.awayMs ?? LIVE_AWAY_MS;
   useEffect(() => {

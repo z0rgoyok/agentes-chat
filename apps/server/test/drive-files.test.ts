@@ -47,7 +47,7 @@ test("people upload files as is: download with the real name and type, versions,
   );
   expect(file.headers.get("x-content-type-options")).toBe("nosniff");
   expect(file.headers.get("content-security-policy")).toBe("sandbox");
-  expect(file.headers.get("cache-control")).toBe("private, no-store, no-transform");
+  expect(file.headers.get("cache-control")).toBe("private, no-cache, no-transform");
   expect(file.headers.get("accept-ranges")).toBe("bytes");
   expect(new Uint8Array(await file.arrayBuffer())).toEqual(PDF);
   expect((await api(`/artifacts/${a.id}/file?format=pdf`)).status).toBe(400);
@@ -98,6 +98,68 @@ test("people upload files as is: download with the real name and type, versions,
 
   const list = (await (await api("/artifacts?kind=file")).json()) as { artifacts: { id: string }[] };
   expect(list.artifacts.map((x) => x.id)).toEqual([a.id]);
+});
+
+test("a file's bytes: a version cached for good, the newest checked again; a video or a download goes to the store", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const base = `/api/app/organizations/${orgId}`;
+  const api = (path: string, headers: Record<string, string> = {}) => owner(`${base}${path}`, { headers });
+  const made = await upload(owner, `${base}/artifacts/files`, { file: new File([PDF], "a.pdf") });
+  const { id } = (await made.json()) as { id: string };
+  const etag = `"${new Bun.CryptoHasher("sha256").update(PDF).digest("hex")}"`;
+
+  // A script's fetch (the previews) gets the bytes from us.
+  const pinned = await api(`/artifacts/${id}/file?version=1`, { "sec-fetch-mode": "cors" });
+  expect(pinned.status).toBe(200);
+  expect(pinned.headers.get("cache-control")).toBe("private, max-age=31536000, immutable, no-transform");
+  expect(pinned.headers.get("etag")).toBe(etag);
+  // The same address answers a video with the store's link: what a load under CORS cached never stands in for it.
+  expect(pinned.headers.get("vary")).toBe("sec-fetch-mode");
+  expect(new Uint8Array(await pinned.arrayBuffer())).toEqual(PDF);
+  expect((await api(`/artifacts/${id}/file`)).headers.get("cache-control")).toBe("private, no-cache, no-transform");
+  const unchanged = await api(`/artifacts/${id}/file`, { "if-none-match": `W/${etag}` });
+  expect(unchanged.status).toBe(304);
+  expect(unchanged.headers.get("vary")).toBe("sec-fetch-mode");
+  expect(await unchanged.text()).toBe("");
+  // A part of a file the client no longer holds would mix two files: the whole of this one.
+  const stale = await api(`/artifacts/${id}/file`, { range: "bytes=1-4", "if-range": '"older"' });
+  expect(stale.status).toBe(200);
+  expect((await api(`/artifacts/${id}/file`, { range: "bytes=1-4", "if-range": etag })).status).toBe(206);
+
+  // What follows a redirect without CORS (a video, a download) goes to the store's short-lived link, never cached.
+  for (const mode of ["no-cors", "navigate"]) {
+    const sent = await api(`/artifacts/${id}/file?version=1`, { "sec-fetch-mode": mode });
+    expect(sent.status).toBe(302);
+    expect(sent.headers.get("location")).toStartWith("memory://");
+    expect(sent.headers.get("cache-control")).toBe("private, no-store");
+  }
+  // Only after the reader's check: a file in the trash gets no link.
+  expect((await owner(`${base}/artifacts/${id}`, { method: "DELETE" })).status).toBe(204);
+  expect((await api(`/artifacts/${id}/file?version=1`, { "sec-fetch-mode": "no-cors" })).status).toBe(404);
+
+  // A store that signs no links (a folder on disk) sends the bytes itself.
+  const plain = await createTestServer({ signedBlobs: false });
+  try {
+    const someone = browser(plain);
+    await signUp(someone, "owner@example.com");
+    const other = await seedOrg(someone);
+    const at = `/api/app/organizations/${other.orgId}`;
+    const form = new FormData();
+    form.set("file", new File([PDF], "a.pdf"));
+    const sent = await plain.app.request(`${at}/artifacts/files`, {
+      method: "POST",
+      headers: { cookie: someone.cookie(), origin: ORIGIN },
+      body: form,
+    });
+    const own = (await sent.json()) as { id: string };
+    const res = await someone(`${at}/artifacts/${own.id}/file?version=1`, { headers: { "sec-fetch-mode": "no-cors" } });
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(PDF);
+  } finally {
+    await plain.close();
+  }
 });
 
 test("uploads: a file is required, other origins are refused, multipart only where it uploads, 50 MB at most", async () => {

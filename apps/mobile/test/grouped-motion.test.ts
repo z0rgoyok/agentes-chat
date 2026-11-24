@@ -18,5 +18,7 @@ test("a pushed bar says whether its large title is on, and holds a word beside i
   // Options merge: a set without it kept the large title an earlier render turned on (an empty band, a search that
   // never folded the title away).
   expect(parts).toContain("...(IOS ? { headerLargeTitleEnabled: largeTitle } : null),");
-  expect(parts).toContain("...(hasActions ? withWord(actionOptions, word, wordOff, () => press.current?.()) : null),");
+  expect(parts).toContain(
+    "...(hasActions ? withWord(actionOptions, word, wordOff, wordOpens, () => press.current?.()) : null),",
+  );
 });

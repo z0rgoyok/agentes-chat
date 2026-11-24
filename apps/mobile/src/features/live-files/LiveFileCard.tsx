@@ -2,9 +2,9 @@ import { type ArtifactDetail, useLivePresence } from "@agenteschat/client";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
-import { LineIcon, PressScale, Sky, Text, useTheme } from "@/ui";
+import { LineIcon, MESSAGE_CARD_X, PressScale, Sky, Text, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useMessageCardCorners } from "../chat/look";
+import { useMessageCardFrame } from "../chat/look";
 import { useDirectory, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { LIVE_ICON, liveRoute } from "./routes";
@@ -23,7 +23,7 @@ const COVER = 132;
 export const LiveFileCard = memo(function LiveFileCard({ detail, width }: { detail: ArtifactDetail; width: number }) {
   const { t } = useTranslation();
   const { colors: c } = useTheme();
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const orgId = useOrgId();
   const dir = useDirectory();
   const presence = useLivePresence(orgId, [detail.id]);
@@ -47,7 +47,7 @@ export const LiveFileCard = memo(function LiveFileCard({ detail, width }: { deta
       onPress={() => router.push(liveRoute(kind, detail.id))}
       accessibilityRole="button"
       accessibilityLabel={`${detail.title}, ${label}`}
-      style={[styles.card, { width, backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}
+      style={[styles.card, { width }, card.style]}
     >
       <View
         style={[styles.cover, { height: COVER, borderBottomColor: c.line }]}
@@ -67,16 +67,16 @@ export const LiveFileCard = memo(function LiveFileCard({ detail, width }: { deta
       </View>
       <View style={styles.foot}>
         {/* On the title's first line, as an attachment's icon: centred on the whole foot it floated between lines. */}
-        <LineIcon name={LIVE_ICON[kind]} size={16} color={c.faint} variant="footnote" />
+        <LineIcon name={LIVE_ICON[kind]} size={16} color={c.faint} variant="subhead" />
         <View style={styles.words}>
-          <Text variant="footnote" numberOfLines={2} style={styles.title}>
+          <Text variant="cardTitle" numberOfLines={2}>
             {detail.title}
           </Text>
-          <Text variant="caption" tone="faint" numberOfLines={1}>
+          <Text variant="footnote" tone="faint" numberOfLines={1}>
             {label}
           </Text>
         </View>
-        <PresentFaces present={presence.data?.[detail.id]} ring={c.raised} />
+        <PresentFaces present={presence.data?.[detail.id]} ring={card.fill} />
       </View>
     </PressScale>
   );
@@ -92,7 +92,12 @@ const styles = StyleSheet.create({
   },
   cover: { overflow: "hidden", borderBottomWidth: StyleSheet.hairlineWidth },
   sky: { position: "absolute", top: 0, left: 0, right: 0, height: 6, opacity: 0.7 },
-  foot: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  foot: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingHorizontal: MESSAGE_CARD_X,
+    paddingVertical: 10,
+  },
   words: { flex: 1, minWidth: 0 },
-  title: { fontWeight: "600" },
 });

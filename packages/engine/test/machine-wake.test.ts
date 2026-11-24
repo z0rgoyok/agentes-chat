@@ -23,6 +23,7 @@ import {
   TASK_OFFLINE_GRACE_MS,
   WAKE_OVERDUE_JOB,
   WAKE_WANTED_EVERY_MS,
+  WAKING_LOOK_MS,
   WANTED_BUSY_MS,
   WANTED_WRITE_MS,
   wakeOverdue,
@@ -549,6 +550,16 @@ describe("a run's wait while it wakes", () => {
     expect(await computerBackSoon(machines, "m1", { waitMs: 50, wakeWaitMs: 10_000 })).toBe(true);
     expect(looks).toBe(3);
     expect(woke).toEqual(["m1:run"]);
+  });
+
+  test("a computer it woke: seen back within a short look of its hello, not on the next whole second", async () => {
+    const started = Date.now();
+    const machines = {
+      status: async () => statusOf(Date.now() - started >= 300 ? { online: true } : { standby: true }),
+      wake: async () => {},
+    };
+    expect(await computerBackSoon(machines, "m1", { waitMs: 50, wakeWaitMs: 10_000 })).toBe(true);
+    expect(Date.now() - started).toBeLessThan(300 + WAKING_LOOK_MS + 150);
   });
 
   test("still asleep after its wait, gone for good, or just gone on a look that doesn't wait for that: not back", async () => {

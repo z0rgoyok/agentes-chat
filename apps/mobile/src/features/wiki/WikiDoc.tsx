@@ -3,6 +3,7 @@ import { resolveWikiLink } from "@agenteschat/client/lib/wiki";
 import { memo, useMemo } from "react";
 import { Pressable, Text as RNText, ScrollView, StyleSheet, View } from "react-native";
 import { Icon, Text } from "@/ui";
+import { RADIUS } from "@/ui/radius";
 import { parseInline } from "../chat/logic";
 import { Spans, Table } from "../chat/MessageSpans";
 import { useColors } from "../shared/hooks";
@@ -106,8 +107,9 @@ function Block({
         </View>
       );
     case "quote":
+      // A quote on a plate, never a bar at its left edge.
       return (
-        <View style={[styles.quote, { borderLeftColor: c.line2 }]}>
+        <View style={[styles.quote, { backgroundColor: c.plate }]}>
           <Text variant="body" tone="muted" selectable>
             {runs(b.runs)}
           </Text>
@@ -183,7 +185,8 @@ const styles = StyleSheet.create({
   mark: { minWidth: 14 },
   grow: { flex: 1, minWidth: 0 },
   box: { width: 20, height: 20, borderRadius: 6, marginTop: 2, alignItems: "center", justifyContent: "center" },
-  quote: { borderLeftWidth: 3, paddingLeft: 12 },
+  // A plate, as a quote in the conversation: the plates' room and the scale's item corner.
+  quote: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: RADIUS.md },
   // As a diff's block (`DiffView`).
   code: { borderRadius: 14, padding: 12 },
   rule: { height: StyleSheet.hairlineWidth, marginVertical: 8 },

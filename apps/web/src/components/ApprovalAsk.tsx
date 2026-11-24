@@ -1,4 +1,5 @@
-import { type Agent, type Approval, type Member, useApprovalsDeciding } from "@agenteschat/client";
+import { type Agent, type Approval, type Member, useApprovalsDeciding, useRoles } from "@agenteschat/client";
+import { ownerNameOf } from "@agenteschat/client/lib/agent-owner";
 import {
   approvalLine,
   approvalRuns,
@@ -19,6 +20,7 @@ import {
   approvalGroupWaitsFor,
   approvalLetter,
   approvalLetterTo,
+  approvalOwnerOf,
   approvalTitle,
   approvalWaitsFor,
   decisionOutcome,
@@ -47,6 +49,20 @@ import { type RequestAnswer, RequestCard, RequestFuse, useExpired } from "./Requ
 
 /** The whole time a request has (24 h when the row doesn't say): the fuse burns down over it. */
 const DAY_MS = 24 * 3_600_000;
+
+/**
+ * Who a request waits for by name when nobody was named: the person or the role that answers for it (ADR 0085,
+ * addendum of 2026-11-21), the request's own first, else its agent's.
+ */
+function useOwnerName(approval: Approval | undefined, agent: Agent | undefined, members: Map<string, Member>) {
+  const { org } = useOrg();
+  const roles = useRoles(org.id).data?.roles;
+  if (!approval) return undefined;
+  return ownerNameOf(approvalOwnerOf(approval, agent), {
+    person: (id) => members.get(id)?.name,
+    role: (id) => roles?.find((r) => r.id === id)?.name,
+  });
+}
 
 /**
  * An approval waiting in the conversation, as a request card: the agent's words, what will happen drawn as an
@@ -87,8 +103,8 @@ export function ApprovalAsk({
   const tt = t as unknown as (key: string, options?: Record<string, unknown>) => string;
   const span = Math.max(1, new Date(approval.expiresAt).getTime() - new Date(approval.createdAt).getTime() || DAY_MS);
   const left = Math.max(0, new Date(approval.expiresAt).getTime() - Date.now()) / span;
-  const owner = agent?.ownerUserId ? members.get(agent.ownerUserId) : undefined;
-  const waits = approvalWaitsFor(approval, owner?.name);
+  const ownerName = useOwnerName(approval, agent, members);
+  const waits = approvalWaitsFor(approval, ownerName);
   const requester = requesterDecidesLine(t, approval);
   const title = approvalTitle(t, approval);
   const email = approval.email;
@@ -271,12 +287,12 @@ export function ApprovalGroupAsk({
   // Which runs are unfolded, by `runKeys`: one stays open while its requests are decided, the card reshaping or not.
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const first = items[0];
+  const ownerName = useOwnerName(first, agent, members);
   if (!first) return null;
   const waiting = items.filter((a) => a.status === "pending");
   const decider = waiting.find((a) => a.canDecide);
   const mine = Boolean(decider);
-  const owner = members.get(first.ownerUserId ?? agent?.ownerUserId ?? "");
-  const waits = approvalGroupWaitsFor(items, owner?.name);
+  const waits = approvalGroupWaitsFor(items, ownerName);
   const leadItem = waiting[0] ?? first;
   const why = approvalWords(leadItem);
   const always = approveAlwaysOn(items);

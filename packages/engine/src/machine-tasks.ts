@@ -1352,6 +1352,8 @@ export async function wakeConversationForTask(deps: TaskDeps, taskId: string, op
           stretchId: agentRuns.stretchId,
           triggerMessageId: agentRuns.triggerMessageId,
           background: agentRuns.background,
+          threadRootId: agentRuns.threadRootId,
+          replyInThread: agentRuns.replyInThread,
         })
         .from(agentRuns)
         .where(eq(agentRuns.id, row.runId))
@@ -1401,7 +1403,8 @@ export async function wakeConversationForTask(deps: TaskDeps, taskId: string, op
     });
     const runs =
       !blocked && eligible.length > 0 && !(await hopLimitReached(tx, message, options.maxHops))
-        ? await createAgentRuns(tx, message, [row.agentId], "mention")
+        ? // Where the origin run answered, the agent goes on where it did (ADR 0214).
+          await createAgentRuns(tx, message, [row.agentId], "mention", origin && !report ? { after: origin } : {})
         : [];
     return { message, runs };
   });

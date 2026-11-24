@@ -259,3 +259,12 @@ export function formatJson(text: string): string | null {
   }
   return out;
 }
+
+/** The highlighter's language for a file: its extension, or the few names that are a language of their own. */
+export function codeLangOfPath(path: string): string {
+  const name = (path.slice(path.lastIndexOf("/") + 1) || path).toLowerCase();
+  if (name === "dockerfile" || name.endsWith(".dockerfile")) return "dockerfile";
+  if (name === "makefile" || name === ".bashrc" || name === ".zshrc") return "sh";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1) : "";
+}

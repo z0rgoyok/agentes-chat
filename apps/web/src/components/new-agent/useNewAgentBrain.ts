@@ -8,6 +8,7 @@ import {
 } from "@agenteschat/client";
 import { newAgentStart } from "@agenteschat/client/lib/agent-setup";
 import { accountInLine } from "@agenteschat/client/lib/ai-accounts";
+import { type AiChoice, aiChoiceBrainInput } from "@agenteschat/client/lib/ai-choice";
 import {
   brainPickInput,
   brainPickOptions,
@@ -20,7 +21,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import type { PlanChoice } from "@/components/AgentFields";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { useOrg } from "@/components/org-context";
 
 /**
@@ -29,7 +30,7 @@ import { useOrg } from "@/components/org-context";
  * more agent; else Automático on the API. `hasAi`: it will be able to think right away (else its chat asks for an AI).
  * `accountId`: a plan account of the person's own it starts on instead ("Criar um agente com este plano").
  */
-export function useNewAgentBrain(accountId?: string) {
+export function useNewAgentBrain(accountId?: string, picked: AiChoice | null = null) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
@@ -76,7 +77,33 @@ export function useNewAgentBrain(accountId?: string) {
         ? { kind: own.kind, machineId: own.machineId, accountId: own.accountId, label: own.account, model: AUTO }
         : null;
   const onModel = last?.brain === "model" ? last : null;
+  /** What it starts on, as the "Quem pensa" field shows it. */
+  const choice: AiChoice | null = plan
+    ? { brain: plan.kind, machineId: plan.machineId, account: plan.accountId ?? null, model: null }
+    : usable.size > 0 || onModel
+      ? { brain: "model", model: onModel?.model ?? AUTO, key: onModel?.key ?? null }
+      : null;
+  // Picked in the field: that, applied the same way once the agent exists.
+  if (picked)
+    return {
+      hasAi: !held,
+      choice: picked,
+      input: {
+        model: picked.brain === "model" ? (picked.model ?? AUTO) : AUTO,
+        credentialId: picked.brain === "model" ? (picked.key ?? null) : null,
+        ...(start?.autonomy ? { autonomy: start.autonomy } : {}),
+      },
+      apply: async (agentId: string) => {
+        if (picked.brain === "model") {
+          if (picked.effort !== undefined) await api.agents.setBrain(org.id, agentId, { effort: picked.effort });
+          return;
+        }
+        if (picked.machineId) await api.sandbox.setTarget(org.id, agentId, picked.machineId);
+        await api.agents.setBrain(org.id, agentId, aiChoiceBrainInput(picked));
+      },
+    };
   return {
+    choice,
     hasAi: !held && (plan !== null || onModel !== null || usable.size > 0),
     input: {
       model: onModel?.model ?? AUTO,

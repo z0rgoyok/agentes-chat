@@ -518,6 +518,7 @@ describe("secrets are refused to every read tool", () => {
     expect(localVerdict("Bash", { command: `sqlite3 ${cookies} .dump` }, agentScope, "work")).toEqual({
       behavior: "deny",
       message: SECRET_MESSAGE,
+      code: "secret",
     });
     // Claude Code refuses it itself, however it is spelled, also where a mission's settings allow `cat`.
     expect(SECRET_READ_DENY_RULES).toContain("Read(**/.agentes/browser/**)");
@@ -693,29 +694,31 @@ describe("what the computer decides by itself (`localVerdict`)", () => {
     expect(verdict("gh -R acme/web pr merge 1")).toEqual({
       behavior: "deny",
       message: approvalMessage("This is a merge", ASK_IN_CHAT),
+      code: "never",
     });
-    expect(verdict("cat ~/.aws/credentials")).toEqual({ behavior: "deny", message: SECRET_MESSAGE });
+    expect(verdict("cat ~/.aws/credentials")).toEqual({ behavior: "deny", message: SECRET_MESSAGE, code: "secret" });
     expect(localVerdict("Read", { file_path: "/Users/w/.ssh/id_rsa" }, scope, "work")).toEqual({
       behavior: "deny",
       message: SECRET_MESSAGE,
+      code: "secret",
     });
     expect(verdict("git status")).toEqual({ behavior: "allow" });
     expect(verdict("git status", "plan")).toEqual({ behavior: "allow" });
     expect(verdict("curl -sI https://example.com")).toEqual({ behavior: "allow" });
-    expect(verdict("curl -sI https://example.com", "plan")).toEqual({ behavior: "deny", message: PLAN_MESSAGE });
-    expect(verdict("npm install", "plan")).toEqual({ behavior: "deny", message: PLAN_MESSAGE });
-    expect(localVerdict("Edit", { file_path: "a.ts" }, scope, "plan")).toEqual({
-      behavior: "deny",
-      message: PLAN_MESSAGE,
-    });
+    const planned = { behavior: "deny" as const, message: PLAN_MESSAGE, code: "policy" };
+    expect(verdict("curl -sI https://example.com", "plan")).toEqual(planned);
+    expect(verdict("npm install", "plan")).toEqual(planned);
+    expect(localVerdict("Edit", { file_path: "a.ts" }, scope, "plan")).toEqual(planned);
     expect(verdict("npm install")).toBeNull();
     expect(verdict("node -e 'x'")).toBeNull();
     // Without a scope nothing is a plain read: the server (or a plan turn's refusal) decides.
     expect(localVerdict("Bash", { command: "ls" }, undefined, "work")).toBeNull();
-    expect(localVerdict("Bash", { command: "ls" }, undefined, "plan")).toEqual({
-      behavior: "deny",
-      message: PLAN_MESSAGE,
-    });
+    expect(localVerdict("Bash", { command: "ls" }, undefined, "plan")).toEqual(planned);
+  });
+
+  test("an inline script with a reversed bracket range (`rows[n-1]`) is decided, not an error", () => {
+    expect(verdict(`python3 -c "rows=[1,2]; n=2; print(rows[n-1])"`)).toBeNull();
+    expect(verdict(`node -e 'console.log(arr[arr.length-1])'`)).toBeNull();
   });
 });
 

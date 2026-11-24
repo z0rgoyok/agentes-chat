@@ -14,6 +14,7 @@ mod deep_link;
 mod discover;
 mod dock;
 mod graphics;
+mod health;
 mod host_sync;
 mod local_server;
 mod main_window;
@@ -351,9 +352,12 @@ fn runner_send(runners: tauri::State<'_, Runners>, home_id: String, line: String
     runners.send(&home_id, &line)
 }
 
+/// Off the main thread: it makes the home's folders and starts its runner.
 #[tauri::command]
-fn runner_add(app: AppHandle, runners: tauri::State<'_, Runners>) -> Result<String, String> {
-    runners.add(&app)
+async fn runner_add(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Runners>().add(&app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -379,13 +383,18 @@ async fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     main_window::show_url(&app, page)
 }
 
+/// Off the main thread: a folder on a drive that went away keeps `is_dir` waiting.
 #[tauri::command]
-fn reveal_folder(app: AppHandle, path: String) -> Result<(), String> {
-    let p = Path::new(&path);
-    if !p.is_absolute() || !p.is_dir() {
-        return Err("not a folder".into());
-    }
-    app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
+async fn reveal_folder(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = Path::new(&path);
+        if !folder.is_absolute() || !folder.is_dir() {
+            return Err("not a folder".to_string());
+        }
+        app.opener().open_path(path.as_str(), None::<&str>).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -426,27 +435,38 @@ fn quit_app(app: AppHandle) {
     begin_quit(app);
 }
 
+/// Async, as every command that reads files (Linux's graphics cards and system name here): a sync command runs on
+/// the main thread, and the windows stand still while it waits.
 #[tauri::command]
-fn app_info(app: AppHandle) -> AppInfo {
-    AppInfo {
+async fn app_info(app: AppHandle) -> Result<AppInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || AppInfo {
         version: app.package_info().version.to_string(),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         system: prepare::system_version(),
         details: graphics::details(&app),
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Async: start at login is a file (macOS, Linux) or the registry (Windows).
+#[tauri::command]
+async fn autostart_get(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || app.autolaunch().is_enabled().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn autostart_get(app: AppHandle) -> Result<bool, String> {
-    app.autolaunch().is_enabled().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn autostart_set(app: AppHandle, on: bool) -> Result<(), String> {
-    let launcher = app.autolaunch();
-    let result = if on { launcher.enable() } else { launcher.disable() };
-    result.map_err(|e| e.to_string())
+async fn autostart_set(app: AppHandle, on: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let launcher = app.autolaunch();
+        let result = if on { launcher.enable() } else { launcher.disable() };
+        result.map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -638,7 +658,8 @@ pub fn run() {
         .manage(window_state::LastSaved::default())
         .manage(prepare::Resumed::default())
         .manage(UpdateDownload::default())
-        .invoke_handler(tauri::generate_handler![
+        // Each command is marked as it starts: a main thread that stops answering is logged with it (health.rs).
+        .invoke_handler(health::marked(tauri::generate_handler![
             runners_list,
             runner_send,
             runner_add,
@@ -715,80 +736,18 @@ pub fn run() {
             prepare::privacy_open,
             prepare::setup_state_get,
             prepare::setup_state_set
-        ])
-        .on_menu_event(|app, event| menus::on_event(app, event.id().as_ref()))
-        .on_window_event(|window, event| match event {
-            WindowEvent::Focused(false) if window.label() == "popover" => {
-                let _ = window.hide();
-                if let Ok(mut at) = window.app_handle().state::<PopoverClock>().0.lock() {
-                    *at = Some(Instant::now());
-                }
-            }
-            WindowEvent::Focused(true) if window.label() == main_window::LABEL => {
-                main_window::focused(window.app_handle());
-            }
-            WindowEvent::Focused(false) if window.label() == main_window::LABEL => {
-                main_window::keep_lights(window.app_handle());
-            }
-            // Closing it while agentes.chat is being set up only hides it: the setup goes on (Cancel stops it).
-            WindowEvent::CloseRequested { api, .. }
-                if window.label() == "welcome" && local_server::setting_up(window.app_handle()) =>
-            {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-            // Welcome and Preferences really close (made again when they open), and a setup on screen ends with them.
-            WindowEvent::CloseRequested { .. } if MADE_ON_OPEN.contains(&window.label()) => {
-                prepare::closed(window.app_handle(), window.label());
-            }
-            WindowEvent::CloseRequested { api, .. } => {
-                // The other windows are made once and only hidden; quitting goes through "Quit".
-                api.prevent_close();
-                if window.label() == main_window::LABEL {
-                    window_state::remember(window, false);
-                    // Some Linux desktops show no tray icon: there the window stays in reach, minimized. One that
-                    // may be black (its page arrived on the graphics card and never painted) quits instead, so
-                    // opening the app again draws without the graphics card (graphics.rs `decide`).
-                    #[cfg(target_os = "linux")]
-                    {
-                        if cover::unpainted_on_gpu(window.app_handle()) {
-                            begin_quit(window.app_handle().clone());
-                            return;
-                        }
-                        let _ = window.minimize();
-                        return;
-                    }
-                    // ⌘W in full screen: out of full screen first, so no empty Space stays behind.
-                    #[cfg(not(target_os = "linux"))]
-                    if main_window::in_full_screen(window) {
-                        let _ = window.set_fullscreen(false);
-                        let window = window.clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(700));
-                            let _ = window.hide();
-                        });
-                        return;
-                    }
-                }
-                let _ = window.hide();
-            }
-            WindowEvent::Moved(_) if window.label() == main_window::LABEL => window_state::remember(window, true),
-            WindowEvent::Resized(_) if window.label() == main_window::LABEL => {
-                window_state::remember(window, true);
-                // Full screen in or out: the page's title bar keeps or drops the room for the buttons.
-                main_window::fit_page(window.app_handle());
-            }
-            WindowEvent::ThemeChanged(theme) if window.label() == main_window::LABEL => {
-                let color = main_window::backdrop(*theme);
-                let _ = window.set_background_color(Some(color));
-                if let Some(page) = window.app_handle().get_webview(main_window::LABEL) {
-                    let _ = page.set_background_color(Some(color));
-                }
-            }
-            _ => {}
+        ]))
+        .on_menu_event(|app, event| {
+            health::mark("menu");
+            menus::on_event(app, event.id().as_ref())
+        })
+        .on_window_event(|window, event| {
+            health::mark(window_event_name(event));
+            on_window_event(window, event)
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+            health::start(&handle);
             // Before the tray (it lists them).
             servers::load(&handle);
             tray::create(&handle)?;
@@ -838,8 +797,10 @@ pub fn run() {
     // it loads again (the site opens from the disk cache, so it is back at once).
     #[cfg(target_os = "macos")]
     let builder = builder.on_web_content_process_terminate(|webview| {
+        let app = webview.app_handle();
+        health::note(app, &format!("the web process of {} ended: loading it again", webview.label()));
         if webview.label() == main_window::LABEL {
-            cover::show(webview.app_handle(), std::time::Duration::ZERO);
+            cover::show(app, std::time::Duration::ZERO);
         }
         let _ = webview.reload();
     });
@@ -866,6 +827,93 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+/// What the main thread is doing for a window's event, for the stall line (health.rs).
+fn window_event_name(event: &WindowEvent) -> &'static str {
+    match event {
+        WindowEvent::Resized(_) => "window resized",
+        WindowEvent::Moved(_) => "window moved",
+        WindowEvent::CloseRequested { .. } => "window close",
+        WindowEvent::Destroyed => "window destroyed",
+        WindowEvent::Focused(_) => "window focus",
+        WindowEvent::ScaleFactorChanged { .. } => "window scale",
+        WindowEvent::ThemeChanged(_) => "window theme",
+        _ => "window event",
+    }
+}
+
+fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    match event {
+        WindowEvent::Focused(false) if window.label() == "popover" => {
+            let _ = window.hide();
+            if let Ok(mut at) = window.app_handle().state::<PopoverClock>().0.lock() {
+                *at = Some(Instant::now());
+            }
+        }
+        WindowEvent::Focused(true) if window.label() == main_window::LABEL => {
+            main_window::focused(window.app_handle());
+        }
+        WindowEvent::Focused(false) if window.label() == main_window::LABEL => {
+            main_window::keep_lights(window.app_handle());
+        }
+        // Closing it while agentes.chat is being set up only hides it: the setup goes on (Cancel stops it).
+        WindowEvent::CloseRequested { api, .. }
+            if window.label() == "welcome" && local_server::setting_up(window.app_handle()) =>
+        {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        // Welcome and Preferences really close (made again when they open), and a setup on screen ends with them.
+        WindowEvent::CloseRequested { .. } if MADE_ON_OPEN.contains(&window.label()) => {
+            prepare::closed(window.app_handle(), window.label());
+        }
+        WindowEvent::CloseRequested { api, .. } => {
+            // The other windows are made once and only hidden; quitting goes through "Quit".
+            api.prevent_close();
+            if window.label() == main_window::LABEL {
+                window_state::remember(window, false);
+                // Some Linux desktops show no tray icon: there the window stays in reach, minimized. One that
+                // may be black (its page arrived on the graphics card and never painted) quits instead, so
+                // opening the app again draws without the graphics card (graphics.rs `decide`).
+                #[cfg(target_os = "linux")]
+                {
+                    if cover::unpainted_on_gpu(window.app_handle()) {
+                        begin_quit(window.app_handle().clone());
+                        return;
+                    }
+                    let _ = window.minimize();
+                    return;
+                }
+                // ⌘W in full screen: out of full screen first, so no empty Space stays behind.
+                #[cfg(not(target_os = "linux"))]
+                if main_window::in_full_screen(window) {
+                    let _ = window.set_fullscreen(false);
+                    let window = window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(700));
+                        let _ = window.hide();
+                    });
+                    return;
+                }
+            }
+            let _ = window.hide();
+        }
+        WindowEvent::Moved(_) if window.label() == main_window::LABEL => window_state::remember(window, true),
+        WindowEvent::Resized(_) if window.label() == main_window::LABEL => {
+            window_state::remember(window, true);
+            // Full screen in or out: the page's title bar keeps or drops the room for the buttons.
+            main_window::fit_page(window.app_handle());
+        }
+        WindowEvent::ThemeChanged(theme) if window.label() == main_window::LABEL => {
+            let color = main_window::backdrop(*theme);
+            let _ = window.set_background_color(Some(color));
+            if let Some(page) = window.app_handle().get_webview(main_window::LABEL) {
+                let _ = page.set_background_color(Some(color));
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

@@ -18,7 +18,7 @@ import {
   useReduceMachineAccess,
 } from "@agenteschat/client";
 import { computerName, setupView } from "@agenteschat/client/lib/computer";
-import { offlineCauseText } from "@agenteschat/client/lib/devices";
+import { mayChangeTasks, offlineCauseText, taskLimitLine } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { clockAt, firstName, formatTime, joinNames } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -255,7 +255,9 @@ function MachinePage({ machineId }: { machineId: string }) {
   const causeLine =
     s?.kind === "offline" && s.cause && s.lastSeenAt
       ? offlineCauseText(t, s.cause, clockAt(i18n.language, s.lastSeenAt), "line")
-      : null;
+      : device
+        ? taskLimitLine(t, device, mayChangeTasks(device, meId ?? "", can(org, "configure")))
+        : null;
   const egressIp = managed && m.online ? (m.egress?.ip ?? null) : null;
   const flag = egressIp ? countryFlagSvg(m.egress?.country) : null;
 

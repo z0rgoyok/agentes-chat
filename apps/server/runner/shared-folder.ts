@@ -69,6 +69,78 @@ export function ensureSystemShared(spec: Required<SharedSpec>, run: RunCommand =
   return problems;
 }
 
+/**
+ * Single-user mode (every agent the runner's own user): a PATH with the shared folder's `bin/` at its end, so a CLI
+ * an agent put there (a Node it downloaded) runs by its name in every process of the agents', their subagents and
+ * the terminal included, and the computer's own tools still come first. Nothing crosses users here: they are all
+ * one. System mode never does this (`SHARED_BIN_ENV`).
+ */
+export function withSharedBin(pathVar: string | undefined, shared: string | null | undefined): string | undefined {
+  if (!shared) return pathVar;
+  const bin = path.join(shared, "bin");
+  const parts = (pathVar ?? "").split(path.delimiter).filter(Boolean);
+  return parts.includes(bin) ? pathVar : [...parts, bin].join(path.delimiter);
+}
+
+/** How often what agents brought into system mode's folder is handed to the group (`shareAgentFiles`). */
+export const SHARED_FIX_MS = 60_000;
+
+/**
+ * Who owns entries the other agents can't change, one uid a line: an entry not of the group, a folder made
+ * elsewhere and moved in (no setgid bit, so no default ACL either), a file the group can't read and write. The
+ * default ACL only covers what is created in place: `mv` keeps a file's mode and group, `cp`, `tar` and `unzip`
+ * give it the source's mode. `-P` follows no link.
+ */
+const OWNERS_TO_FIX = [
+  "d=$1 g=$2",
+  'find -P "$d" \\( ! -group "$g" -o -type d ! -perm -2070 -o -type f ! -perm -060 \\) -printf "%U\\n" 2>/dev/null | sort -u',
+].join("\n");
+
+/**
+ * Run as the agent itself: only the owner may chmod or chgrp a file, and as the agent a link another agent swapped
+ * in can only reach what this agent could change anyway. `-h`: a link's own group, never its target's.
+ */
+export const OWN_FILES_FIX = [
+  "d=$1 g=$2 a=$3 u=$(id -u)",
+  'find -P "$d" -user "$u" ! -group "$g" -exec chgrp -h "$g" {} + 2>/dev/null',
+  'find -P "$d" -user "$u" -type d ! -perm -2070 -exec chmod g+rwxs {} + -exec setfacl -m "$a" {} + 2>/dev/null',
+  'find -P "$d" -user "$u" -type f ! -perm -060 -exec chmod g+rwX {} + 2>/dev/null',
+  "exit 0",
+].join("\n");
+
+export type ExecAsync = (file: string, args: string[]) => Promise<{ stdout: string }>;
+
+/**
+ * System mode: every agent's files in the folder that the others couldn't change become the group's, read and
+ * write, by the agent that owns them. Root only lists who owns such files; each of those agents fixes its own.
+ * Returns what went wrong, for the log.
+ */
+export async function shareAgentFiles(
+  spec: Required<SharedSpec>,
+  users: { user: string; uid: number }[],
+  exec: ExecAsync = execFileAsync,
+): Promise<string[]> {
+  let owners: Set<number>;
+  try {
+    const { stdout } = await exec("nice", ["-n", "19", "sh", "-c", OWNERS_TO_FIX, "sh", spec.path, spec.group]);
+    owners = new Set(stdout.split("\n").filter(Boolean).map(Number));
+  } catch (err) {
+    return [`couldn't list the shared folder: ${err instanceof Error ? err.message : String(err)}`];
+  }
+  const problems: string[] = [];
+  const acl = ACL.replaceAll("%g", spec.group);
+  for (const u of users) {
+    if (!owners.has(u.uid)) continue;
+    const fix = ["-n", "19", "/usr/sbin/runuser", "-u", u.user, "--", "sh", "-c", OWN_FILES_FIX, "sh"];
+    try {
+      await exec("nice", [...fix, spec.path, spec.group, acl]);
+    } catch (err) {
+      problems.push(`${u.user} couldn't share its files: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return problems;
+}
+
 /** Single-user mode's folder, made where missing. */
 export function ensureSingleShared(workspaceReal: string): string {
   const dir = path.join(workspaceReal, "shared");

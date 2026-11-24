@@ -140,11 +140,12 @@ describe("mid-round queueing (ADR 0029 section 1)", () => {
 describe("messages in a row (ADR 0112)", () => {
   const postIn = (channelId: string, body: string, threadId?: string) =>
     postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, channelId, { body, threadId });
-  // A loaded CI machine can take more than 5 s to start a run on PGlite: wait up to 20 s, the test's own limit below.
+  // A loaded CI machine can take more than 20 s to start a run on PGlite (its shard runs four files at once): wait up
+  // to 50 s, under the test's own limit below.
   const waitRunning = async () => {
     const start = Date.now();
     while (!(await runs()).some((r) => r.status === "running")) {
-      if (Date.now() - start > 20_000) throw new Error("the run never started");
+      if (Date.now() - start > 50_000) throw new Error("the run never started");
       await Bun.sleep(5);
     }
   };
@@ -183,7 +184,7 @@ describe("messages in a row (ADR 0112)", () => {
       expect(run?.pendingMessageIds).toEqual([]);
       expect((run?.transcript as { request?: string } | undefined)?.request).toContain("se bate com o quadro");
     },
-    30_000,
+    70_000,
   );
 
   test("a reply that only talked, overtaken by the person before it went out, is rewritten: one answer to all of it", async () => {

@@ -283,6 +283,27 @@ describe("schedule tools: routines", () => {
     expect(same.content).not.toContain("copy it with the button");
   });
 
+  test("update_routine groups a webhook's calls by a path, its receipt undoes it, and an empty path turns it off", async () => {
+    f = await setup();
+    const ctx = await runContext(f);
+    const call = await tools(f, ctx);
+    const made = await call("create_routine", { prompt: "Responda os leads.", trigger: { type: "webhook" } });
+    const id = (made.data?.routine as { id: string } | undefined)?.id ?? "";
+    const stored = async () =>
+      (await f.db.select().from(schema.routineHooks).where(eq(schema.routineHooks.routineId, id)))[0]?.groupBy;
+    await call("update_routine", { id, trigger: { type: "webhook", group_by: "conversation.id" } });
+    expect(await stored()).toBe("conversation.id");
+    const listed = await call("list_routines", {});
+    expect(listed.content).toContain("calls grouped by conversation.id");
+    const receipt = (await receipts(ctx.runId)).find((r) => r.kind === "routine.updated");
+    expect(receipt?.after).toEqual({ groupBy: "conversation.id" });
+    await undoAgentAction({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, receipt?.id ?? "");
+    expect(await stored()).toBeNull();
+    await call("update_routine", { id, trigger: { type: "webhook", group_by: "contact.id" } });
+    await call("update_routine", { id, trigger: { type: "webhook", group_by: "" } });
+    expect(await stored()).toBeNull();
+  });
+
   test("an admin changing what another agent's routine someone else created does is told to take it over, not that they can't manage it", async () => {
     f = await setup();
     await createAgent(
@@ -393,8 +414,8 @@ describe("schedule tools: routines", () => {
     expect(mail).toMatchObject({ isError: true });
     expect(mail.content).toContain("can't read any mailbox");
     // Where a person connects one, in both languages.
-    expect(mail.content).toContain("Settings › Connectors and MCPs › Add connector › Email");
-    expect(mail.content).toContain("Configurações › Conectores e MCPs › Adicionar conector › Email");
+    expect(mail.content).toContain("Settings › Connectors and MCPs › Browse connectors › Email");
+    expect(mail.content).toContain("Configurações › Conectores e MCPs › Ver conectores › Email");
     expect(mail.content).not.toContain("MillionSend");
     const unknown = await call("create_routine", { prompt: "x", trigger: { type: "event", event: "email.received" } });
     expect(unknown.content).toContain("Say which event");

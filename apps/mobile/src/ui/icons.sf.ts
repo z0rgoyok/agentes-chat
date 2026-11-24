@@ -104,6 +104,7 @@ export const SF_SYMBOLS: Record<IconName, { sf: SFSymbolName; fill?: SFSymbolNam
   replyTo: { sf: "arrowshape.turn.up.left", fill: "arrowshape.turn.up.left.fill" },
   swap: { sf: "arrow.left.arrow.right" },
   updown: { sf: "chevron.up.chevron.down" },
+  grip: { sf: "line.3.horizontal" },
   up: { sf: "arrow.up" },
   wallet: { sf: "wallet.bifold", fill: "wallet.bifold.fill" },
   book: { sf: "book", fill: "book.fill" },

@@ -3,7 +3,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { ManagedTask } from "@agenteschat/client";
+import type { AuditRow, ManagedTask } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle, showIn } from "./render";
@@ -175,6 +175,8 @@ describe("heads at their worst", () => {
     ).toEqual(["Mais opções", "Fechar"]);
   });
 
+  // A request's review is the details dialog now (the inbox decides requests on their own card: ADR 0218): opened here
+  // from the audit's row of the call that asked.
   test("a review's long Onde: each fact whole on its line, the undo trait a chip after the title", async () => {
     const state = seedState();
     const merge = state.approvals.find((a) => a.id === "ap-merge");
@@ -182,11 +184,37 @@ describe("heads at their worst", () => {
     Object.assign(merge, {
       params: { ...merge.params, repo: "agentes-chat/integracao-de-pagamentos-recorrentes-com-checkout", number: 4821 },
     });
-    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
+    const call: AuditRow = {
+      id: "a-merge",
+      at: new Date().toISOString(),
+      actor: { type: "agent", id: ADA_ID, name: "Ada" },
+      action: "tool.call",
+      target: { type: "tool", id: "github_merge" },
+      details: { kind: "external", behind: "person", approvalId: "ap-merge", input: {} },
+      runId: "run-1",
+      channelId: ENG_ID,
+      channel: { id: ENG_ID, name: "eng", kind: "channel" },
+      onBehalfOf: { id: "u-walter", name: "Walter" },
+      outcome: "pending",
+      approval: { id: "ap-merge", status: "pending", decidedBy: null },
+      secret: null,
+    };
+    state.audit = [call];
+    await renderApp(`/org/${ORG_ID}/settings/audit`, { api: createFakeApi(state) });
     await settle(8);
-    const pane = document.querySelector(".ap-review") as HTMLElement;
-    expect(pane.querySelector(".ap-review__title + .ap-review__undo")?.textContent).toBe("Reversível");
-    expect([...pane.querySelectorAll(".ac-facts__label")].map((l) => l.textContent)).not.toContain("Desfazer");
+    await act(async () => fireEvent.click(document.querySelector(".audit-row") as HTMLElement));
+    await act(async () => fireEvent.click(screen().getByRole("link", { name: "Ver o pedido" })));
+    await settle(6);
+    const review = document.querySelector(".ap-dialog") as HTMLElement;
+    const chip = review.querySelector(".ap-review__undo") as HTMLElement;
+    expect(chip.textContent).toBe("Reversível");
+    // The last thing in the title, after its words.
+    const title = chip.parentElement as HTMLElement;
+    expect(title.lastElementChild).toBe(chip);
+    expect(title.textContent).toMatch(/\S+\s*Reversível$/);
+    const labels = [...review.querySelectorAll(".ac-facts__label")].map((l) => l.textContent);
+    expect(labels).toContain("Onde");
+    expect(labels).not.toContain("Desfazer");
   });
 });
 

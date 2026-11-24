@@ -85,6 +85,10 @@ export const Approval = z
     reason: z.string().nullable(),
     canDecide: z.boolean().openapi({ description: "You are the agent's owner or an admin, and it is pending." }),
     ownerUserId: z.string().nullable().openapi({ description: "The agent's owner (they and admins may decide)." }),
+    ownerRoleId: z
+      .uuid()
+      .nullable()
+      .openapi({ description: "Its owner role instead (whoever holds it decides, ADR 0085 addendum of 2026-11-21)." }),
     executedAt: z.string().nullable().openapi({ description: "When the approved action ran." }),
     result: z
       .object({

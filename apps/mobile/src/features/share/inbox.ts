@@ -1,5 +1,6 @@
 import type { ShareIntent } from "expo-share-intent";
 import { useSyncExternalStore } from "react";
+import type { PickedAgent } from "./picked";
 
 /** A file another app shared, as the chat's attachment strip takes it (`{ uri, name, type }`). */
 export interface SharedFile {
@@ -14,6 +15,8 @@ export interface Shared {
   text: string | null;
   /** When it arrived: tells two shares of the same thing apart. */
   at: number;
+  /** The agent picked among the share sheet's suggestions (ADR 0213), when the share came through one. */
+  to?: PickedAgent | null;
 }
 
 /** The screen that takes what other apps share ("Compartilhar com…"). */

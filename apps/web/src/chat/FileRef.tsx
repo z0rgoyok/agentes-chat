@@ -4,7 +4,7 @@ import { fileIcon } from "@agenteschat/client/lib/files";
 import { type FileLink, filePath } from "@agenteschat/client/lib/message-links";
 import { Icon } from "@agenteschat/ui";
 import { useTranslation } from "react-i18next";
-import { useMaybeArtifactViewer } from "@/components/artifacts/ArtifactViewer";
+import { useMaybeArtifactViewer } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { inPlaceClick } from "@/lib/navigate";
 

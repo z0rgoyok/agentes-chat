@@ -6,6 +6,7 @@ setupDom();
 import {
   ApiError,
   applyUnreadEvent,
+  keys,
   steerStore,
   useMarkChannelRead,
   useMarkThreadRead,
@@ -156,8 +157,15 @@ describe("a read that didn't reach the server", () => {
     const hooks = renderHook(() => ({ channel: useMarkChannelRead(ORG_ID), thread: useMarkThreadRead(ORG_ID) }), {
       wrapper: ({ children }: { children: ReactNode }) => <AppProviders services={services}>{children}</AppProviders>,
     });
-    return { sent, hooks };
+    return { sent, hooks, qc: services.queryClient };
   };
+  /** The lists a channel's read touches, cached: whether each was set to be read again. */
+  const lists = [keys.channels(ORG_ID), keys.dms(ORG_ID), keys.unreadThreads(ORG_ID)];
+  const seedLists = (qc: ReturnType<typeof makeServices>["queryClient"]) => {
+    for (const key of lists) qc.setQueryData(key, key === lists[2] ? 0 : []);
+  };
+  const readAgain = (qc: ReturnType<typeof makeServices>["queryClient"]) =>
+    lists.map((key) => qc.getQueryState(key)?.isInvalidated === true);
   const offline = () => new TypeError("Failed to fetch");
 
   test("is sent again, for a channel and for a thread", async () => {
@@ -184,10 +192,21 @@ describe("a read that didn't reach the server", () => {
     expect(sent.channel).toBe(4);
   });
 
+  test("one that reached it reads no list again: its own `channel.read` sets the rows, and threads keep their unread", async () => {
+    const { hooks, qc } = marking(() => null);
+    seedLists(qc);
+    act(() => hooks.result.current.channel.mutate(ENG_ID));
+    await waitFor(() => expect(hooks.result.current.channel.isSuccess).toBe(true));
+    expect(readAgain(qc)).toEqual([false, false, false]);
+  });
+
   test("a refusal is final: nothing is sent again", async () => {
-    const { sent, hooks } = marking(() => new ApiError(403, "forbidden", "Not a member"));
+    const { sent, hooks, qc } = marking(() => new ApiError(403, "forbidden", "Not a member"));
+    seedLists(qc);
     act(() => hooks.result.current.channel.mutate(ENG_ID));
     await waitFor(() => expect(hooks.result.current.channel.isError).toBe(true));
+    // The rows were cleared ahead of the answer: the lists read again for the truth.
+    expect(readAgain(qc)).toEqual([true, true, false]);
     act(() => hooks.result.current.thread.mutate(THREAD_ID));
     await waitFor(() => expect(hooks.result.current.thread.isError).toBe(true));
     await settle(3);

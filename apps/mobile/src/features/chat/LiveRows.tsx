@@ -16,6 +16,7 @@ import {
   someoneTypes,
 } from "@agenteschat/client/lib/activity";
 import { barStep } from "@agenteschat/client/lib/work";
+import { type AgentColorName, gradientOf } from "@agenteschat/ui/agent/engine";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -35,6 +36,7 @@ import Animated, {
   type EntryExitAnimationFunction,
   FadeIn,
   FadeOut,
+  LayoutAnimationConfig,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -44,6 +46,7 @@ import { loopStyle } from "@/agent/loop";
 import { CHROME_MAX_SCALE, haptics, Icon, PixelStop, Text, TOUCH, useReducedMotion, useTheme } from "@/ui";
 import { AgentFace, AgentWho, Face } from "../shared/Face";
 import { useNow } from "../shared/hooks";
+import { agentLook } from "../shared/logic";
 import {
   awayRun,
   type LineDrawn,
@@ -134,6 +137,10 @@ export function WorkingLine({
   const away = awayRun(entries, runs);
   const step = away && lead && !lead.consult ? barStep(t, away, i18n.language, now) : null;
   const took = away ? barElapsed(t, entries, runs, now) : null;
+  // Its effort so far, one pixel per call it made: only for the one agent the line speaks for.
+  const soloRun = solo ? runs.find((r) => r.agentId === solo.id) : undefined;
+  const calls = soloRun ? (soloRun.work ?? []).filter((w) => w.kind === "call").length : 0;
+  const soloColor = solo ? agentLook(dir.agentById.get(solo.id)).color : null;
   // Who types or records beside that agent, after its time ("· Marina digitando · Rui gravando áudio…"): the names give
   // way first, never what they do.
   const groups = step === null ? [] : peopleGroups(entries);
@@ -212,6 +219,8 @@ export function WorkingLine({
         {lead || !someoneTypes(entries) || bothAtIt(entries) ? null : <TypingDots color={c.muted} />}
         {faces.length > 0 ? (
           <View style={styles.stack} importantForAccessibility="no-hide-descendants">
+            {/* Agents in their sky tile, standing in its middle: bare, a body sits at its box's foot under the room kept
+                for a hat, so two faces with different hats looked uneven and low beside the arrow and the words. */}
             {faces.map((e, i) => {
               const gap = i > 0 ? styles.overlap : undefined;
               if (e.type === "person")
@@ -224,7 +233,7 @@ export function WorkingLine({
                 return (
                   <Animated.View key={`c:${e.id}`} entering={pop} style={[styles.pair, gap]}>
                     <View style={plate}>
-                      <AgentFace agentId={e.id} size={18} mode="idle" />
+                      <AgentFace agentId={e.id} size={18} framed mode="idle" />
                     </View>
                     {/* What waits on me takes the arrow's place; a wait on someone else, the quiet clock. */}
                     {asking.yours ? (
@@ -235,13 +244,18 @@ export function WorkingLine({
                       <Icon name="right" size={12} color={c.faint} />
                     )}
                     <View style={plate}>
-                      <AgentFace agentId={asking.to} size={18} mode={asking.yours || asking.wait ? "idle" : "think"} />
+                      <AgentFace
+                        agentId={asking.to}
+                        size={18}
+                        framed
+                        mode={asking.yours || asking.wait ? "idle" : "think"}
+                      />
                     </View>
                   </Animated.View>
                 );
               return (
                 <Animated.View key={`a:${e.id}`} entering={pop} style={[plate, gap]}>
-                  <AgentFace agentId={e.id} size={18} mode="run" />
+                  <AgentFace agentId={e.id} size={18} framed mode="run" />
                 </Animated.View>
               );
             })}
@@ -272,6 +286,7 @@ export function WorkingLine({
               · {took}
             </Text>
           ) : null}
+          {soloColor && calls > 0 ? <StepPixels count={calls} color={soloColor} reduced={reduced} /> : null}
           {also.map((a) => (
             <View key={a.kind} style={styles.also}>
               {piece(`· ${a.names}`, styles.shrink)}
@@ -323,6 +338,34 @@ export function WorkingLine({
 const LINE_EASE = Easing.bezier(0.23, 1, 0.32, 1);
 const LINE_IN = FadeIn.duration(160).easing(LINE_EASE);
 const LINE_OUT = FadeOut.duration(120).easing(LINE_EASE);
+
+/** How many of its calls the line draws: the latest ones, the oldest of a full strip fading away. */
+const STEP_PIXELS = 8;
+const STEP_FADE = [0.35, 0.65];
+
+/**
+ * The effort so far, after the line's words: a 4pt pixel per tool call the run made, in the agent's two tones by
+ * turns. Each new one comes in from 0.9 as the faces do; the ones already made when the line shows are just there. Past eight, the oldest
+ * leave and the two before them fade. Decoration: the line's label says what the agent does.
+ */
+function StepPixels({ count, color, reduced }: { count: number; color: AgentColorName; reduced: boolean }) {
+  const tones = gradientOf(color);
+  const first = Math.max(0, count - STEP_PIXELS);
+  const shown = Array.from({ length: count - first }, (_, i) => first + i);
+  return (
+    <View style={styles.steps} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <LayoutAnimationConfig skipEntering>
+        {shown.map((n, i) => (
+          <Animated.View
+            key={n}
+            entering={reduced ? undefined : FACE_POP}
+            style={[styles.step, { backgroundColor: tones[n % 2], opacity: first > 0 ? (STEP_FADE[i] ?? 1) : 1 }]}
+          />
+        ))}
+      </LayoutAnimationConfig>
+    </View>
+  );
+}
 /** The "View" word's line (caption, 16). */
 const SEE_LINE = 16;
 /**
@@ -705,6 +748,9 @@ const styles = StyleSheet.create({
   },
   ink: { fontWeight: "600" },
   took: { fontVariant: ["tabular-nums"] },
+  // The calls' pixels keep their size: the words before them give way.
+  steps: { flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0 },
+  step: { width: 4, height: 4 },
   // "Ver" after a hand-off's time: the two agents' talk.
   see: { marginLeft: 8, justifyContent: "center" },
   seeText: { fontWeight: "600" },

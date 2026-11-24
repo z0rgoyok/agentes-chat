@@ -16,6 +16,21 @@ export const STICK_TO_END_THRESHOLD = 0.15;
  * Keys added at the bottom since the previous rows: after the last row both lists share, and new.
  * An older page prepended above, the first load (no previous rows) and a replaced list give none.
  */
+/** How far before the screen opened a message may be dated and still be one arriving now (the clocks differ). */
+export const ARRIVING_SLACK_MS = 2000;
+
+/**
+ * Whether a row that came in at the bottom is one arriving now (it rises in), or one that was already there before
+ * the screen opened: what the server sends right after a launch, the messages written while the app was closed, came
+ * in all at once and every one rose in, a flicker through the conversation (seen on a phone). Rows other than
+ * messages (who is working, a day's line) keep rising in.
+ */
+export function arrivesNow(createdAt: string | undefined, openedAt: number): boolean {
+  if (!createdAt) return true;
+  const at = Date.parse(createdAt);
+  return !Number.isFinite(at) || at >= openedAt - ARRIVING_SLACK_MS;
+}
+
 export function appendedKeys(prev: readonly string[], next: readonly string[]): string[] {
   if (prev.length === 0) return [];
   const before = new Set(prev);

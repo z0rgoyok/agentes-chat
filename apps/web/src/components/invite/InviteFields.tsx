@@ -169,7 +169,9 @@ export function RoleField({ choices, id }: { choices: InviteChoices; id: string 
                   </span>
                 ))
               ) : (
-                <span className="invite-role__item ac-iconline">
+                // `.ac-iconline` moves its first child onto the words' capitals: only with a mark to move, never the
+                // words themselves.
+                <span className={everyone ? "invite-role__item ac-iconline" : "invite-role__item"}>
                   {everyone && <RoleMark color={everyone.color} icon={everyone.icon} size={18} />}
                   <span>{t("roles.member")}</span>
                 </span>

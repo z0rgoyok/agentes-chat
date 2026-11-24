@@ -5675,3 +5675,106 @@ exports[`the picture over the headline the computer's stage keeps its markup now
 <td width="50%" align="left" valign="bottom"></td>
 </tr></table></td></tr></table>"
 `;
+
+exports[`every email, in both languages account_opened.pt-BR: snapshot 1`] = `
+"<!doctype html>
+<html lang="pt-BR" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.bg{background:#0f0f0e!important}.card{background:#1c1c1b!important;border-color:#3e3e3d!important}.ink{color:#efefec!important}.tx{color:#d6d6d2!important}.mu{color:#a3a39e!important}.fa{color:#8f8f89!important}.well{background:#0a0a09!important}.wh{border-color:#232322!important}.num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}.btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}.btn span{color:#0f0f0e!important}.ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}.avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}.warn{background:#33260e!important}.warn-t{color:#e0a84a!important}.ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}.ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}.end-btn{margin-bottom:4px!important}.logo-ink{display:none!important}.logo-bone{display:block!important}}
+</style>
+<style>
+[data-ogsc] .bg{background:#0f0f0e!important}[data-ogsb] .bg{background:#0f0f0e!important}
+[data-ogsc] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}[data-ogsb] .card{background:#1c1c1b!important;border-color:#3e3e3d!important}
+[data-ogsc] .ink{color:#efefec!important}[data-ogsb] .ink{color:#efefec!important}
+[data-ogsc] .tx{color:#d6d6d2!important}[data-ogsb] .tx{color:#d6d6d2!important}
+[data-ogsc] .mu{color:#a3a39e!important}[data-ogsb] .mu{color:#a3a39e!important}
+[data-ogsc] .fa{color:#8f8f89!important}[data-ogsb] .fa{color:#8f8f89!important}
+[data-ogsc] .well{background:#0a0a09!important}[data-ogsb] .well{background:#0a0a09!important}
+[data-ogsc] .wh{border-color:#232322!important}[data-ogsb] .wh{border-color:#232322!important}
+[data-ogsc] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}[data-ogsb] .num{background:#1c1c1b!important;border-color:#3e3e3d!important;color:#a3a39e!important}
+[data-ogsc] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}[data-ogsb] .btn{background:#efefec!important;color:#0f0f0e!important;border-color:#efefec!important}
+[data-ogsc] .btn span{color:#0f0f0e!important}[data-ogsb] .btn span{color:#0f0f0e!important}
+[data-ogsc] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln{color:#efefec!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}[data-ogsb] .avp{background:#0a0a09!important;color:#d6d6d2!important;border-color:#3e3e3d!important}
+[data-ogsc] .warn{background:#33260e!important}[data-ogsb] .warn{background:#33260e!important}
+[data-ogsc] .warn-t{color:#e0a84a!important}[data-ogsb] .warn-t{color:#e0a84a!important}
+[data-ogsc] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-d{color:#f08a80!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}[data-ogsb] .ln-m{color:#a3a39e!important;text-decoration-color:#3e3e3d!important}
+[data-ogsc] .end-btn{margin-bottom:4px!important}[data-ogsb] .end-btn{margin-bottom:4px!important}
+[data-ogsc] .logo-ink{display:none!important}[data-ogsb] .logo-ink{display:none!important}
+[data-ogsc] .logo-bone{display:block!important}[data-ogsb] .logo-bone{display:block!important}
+</style>
+<style>
+@media (prefers-color-scheme:light){.btn{background-image:linear-gradient(180deg,#3e3e3d 0%,#151514 100%)!important}}
+</style>
+<style>
+@media (prefers-color-scheme:dark){.btn{background-image:linear-gradient(180deg,#c7c7c4 0%,#efefec 100%)!important}}
+</style>
+<title>Mais pessoas podem usar a sua conta do Claude</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><style>body,table,td,p,a,span,b,h1,h2{font-family:'Segoe UI',Arial,sans-serif!important}</style><![endif]-->
+<style>
+body{margin:0!important;padding:0!important;width:100%!important}
+a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+@media (max-width:620px){.px{padding-left:16px!important;padding-right:16px!important}.card{padding:24px 20px!important}.h1{font-size:22px!important;line-height:28px!important}.sky{width:100%!important;height:auto!important}}
+</style>
+<!--[if !mso]><!--><style>@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:200 900;font-display:swap;size-adjust:107%;src:url('https://x.test/email/source-sans-3-latin.woff2') format('woff2')}</style><!--<![endif]-->
+</head>
+<body class="body bg" style="margin:0;padding:0;width:100%;background:#fbfbfa;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;mso-hide:all">O que fizerem com ela usa o seu plano do Claude e os limites dele.&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;&#847;&zwnj;&nbsp;&#8199;&shy;</div>
+<div role="article" aria-roledescription="email" aria-label="Mais pessoas podem usar a sua conta do Claude" lang="pt-BR" dir="ltr">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfbfa">
+<tr><td align="center" class="px" style="padding:0 24px">
+<!--[if mso]><table role="presentation" width="552" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:552px;margin:0 auto">
+<tr><td style="padding:32px 0 20px">
+<a href="https://x.test" target="_blank" style="display:inline-block;text-decoration:none">
+<img class="logo-ink" src="https://x.test/email/logo-ink-tile.png" width="173" height="36" alt="agentes.chat" style="display:block;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#151514">
+<!--[if !mso]><!--><img class="logo-bone" src="https://x.test/email/logo-bone.png" width="173" height="36" alt="agentes.chat" style="display:none;border:0;outline:none;width:173px;height:36px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:20px;font-weight:600;line-height:36px;color:#efefec"><!--<![endif]-->
+</a>
+</td></tr>
+<tr><td class="card" style="background:#ffffff;border:1px solid #e3e3e3;border-radius:16px;padding:32px">
+<h1 class="h1 ink" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.01em;color:#151514">Alguém mudou quem pode usar a sua conta <span style="display:inline-block">de IA</span></h1>
+<p class="tx" style="margin:0 0 16px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:16px;line-height:24px;color:#2a2a28"><b class="ink" style="font-weight:600;color:#151514">Carlos Souza</b> mudou quem pode usar a sua conta do Claude <b class="ink" style="font-weight:600;color:#151514">Trabalho</b>. O que fizerem com ela usa o seu plano e os <span style="display:inline-block">limites dele.</span></p>
+<table width="100%" class="well" role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#f3f3f0;border-radius:12px;margin:0 0 20px"><tr><td style="padding:4px 16px">
+<table width="100%" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td class="mu" valign="top" style="padding:10px 12px 10px 0;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Conta</td>
+<td class="ink" valign="top" align="right" style="padding:10px 0;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:14px;line-height:20px;font-weight:600;color:#151514;text-align:right">Trabalho</td>
+</tr><tr>
+<td class="mu wh" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Mudado por</td>
+<td class="ink wh" valign="top" align="right" style="padding:10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:14px;line-height:20px;font-weight:600;color:#151514;text-align:right">Carlos Souza</td>
+</tr><tr>
+<td class="mu wh" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Permissão</td>
+<td class="ink wh" valign="top" align="right" style="padding:10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:14px;line-height:20px;font-weight:600;color:#151514;text-align:right">Atender todos</td>
+</tr><tr>
+<td class="mu wh" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Antes</td>
+<td class="ink wh" valign="top" align="right" style="padding:10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:14px;line-height:20px;font-weight:600;color:#151514;text-align:right">Só o dono <span style="display:inline-block">do agente</span></td>
+</tr><tr>
+<td class="mu wh" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Agora</td>
+<td class="ink wh" valign="top" align="right" style="padding:10px 0;border-top:1px solid #e4e4e1;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:14px;line-height:20px;font-weight:600;color:#151514;text-align:right">Todo mundo <span style="display:inline-block">no workspace</span></td>
+</tr></table></td></tr></table>
+<p class="mu" style="margin:0 0 12px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;font-size:14px;line-height:20px;color:#5c5c58">Para desfazer, abra a conta em IA e uso e mude as <span style="display:inline-block">permissões dela.</span></p>
+<table class="end-btn" role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 6px"><tr><td><a class="btn" href="https://agentes.chat/org/6f1d2c9a-58c1-4f7e-9d3b-2a7c1e0b9f44/settings/usage" target="_blank" style="display:inline-block;background-color:#151514;border:1px solid #151514;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.18),0 6px 14px -6px rgba(0,0,0,.45);color:#fbfbfa;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:at-least;font-size:15px;line-height:20px;font-weight:600;text-decoration:none;padding:13px 15px;mso-padding-alt:0;text-underline-color:#151514"><!--[if mso]><i style="mso-font-width:107%;mso-text-raise:187%" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:93%;color:#fbfbfa">Abrir Contas de IA</span><!--[if mso]><i style="mso-font-width:107%" hidden>&emsp;&#8203;</i><![endif]--></a></td></tr></table>
+</td></tr>
+<tr><td style="padding:24px 0 0"><img class="sky" src="https://x.test/email/sky-band.png" width="552" height="27" alt="" style="display:block;border:0;outline:none;width:552px;max-width:100%;height:auto"></td></tr>
+<tr><td style="padding:16px 0 40px">
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Você recebeu este e-mail porque conectou esta conta de IA na Padaria Souza e outra pessoa mudou quem <span style="display:inline-block">pode usá-la.</span></p>
+<p class="fa" style="margin:0 0 6px;font-family:'Source Sans 3',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Hiragino Sans','PingFang SC','Microsoft YaHei','Apple SD Gothic Neo','Malgun Gothic',sans-serif;mso-line-height-rule:exactly;word-break:break-word;font-size:13px;line-height:19px;color:#6f6f6a">Enviado pelo servidor do agentes.chat <span style="display:inline-block">em x.test.</span></p>
+</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</div>
+</body>
+</html>"
+`;

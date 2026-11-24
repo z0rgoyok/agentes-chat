@@ -170,6 +170,34 @@ describe("ask_agent", () => {
     );
   });
 
+  test("the consulted run and the asker's relay are told the person's language, though agents asked in English", async () => {
+    const prompts: { dm: boolean; system: string; last: string }[] = [];
+    const reply = consultReply(() => answer("Staging deploys with deploy.sh"));
+    f = await setup({
+      askAgent: true,
+      reply: (req) => {
+        prompts.push({ dm: inAgentDm(req), system: systemText(req.system), last: lastText(req) });
+        return reply(req);
+      },
+    });
+    await addInfra();
+    await f.db.update(schema.users).set({ locale: "pt-BR" }).where(eq(schema.users.id, f.owner.id));
+    await post("@dev como fazemos o deploy para staging?");
+    await drainOutbox(f.db, f.handlers);
+
+    const line = (p: { system: string }) =>
+      p.system.split("\n").find((l) => l.startsWith("Another agent or a notice started this turn"));
+    const consulted = prompts.find((p) => p.dm);
+    expect(line(consulted ?? { system: "" })).toBe(
+      'Another agent or a notice started this turn, not the person you work for. Their latest message: "@dev como fazemos o deploy para staging?". Write all that people read (your reply, the text of an approval or a question) in their language, whatever language other agents use.',
+    );
+    const relay = prompts.find((p) => !p.dm && /your question to @infra/.test(p.last));
+    expect(line(relay ?? { system: "" })).toContain("como fazemos o deploy");
+    // The person's own turn reads their message itself: no line about another agent.
+    const own = prompts.find((p) => !p.dm && p.last.includes("como fazemos"));
+    expect(own && line(own)).toBeUndefined();
+  });
+
   test("a consulted agent's approval shows where the person asked, not in the agents' DM", async () => {
     const github = fakeGithub();
     f = await setup({
@@ -1851,7 +1879,7 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(await notesBack()).toHaveLength(1);
   });
 
-  test("a heads-up to an agent outside the request neither holds the verdict going up nor joins it", async () => {
+  test("a heads-up to an agent outside the request starts no work, neither holds the verdict going up nor joins it", async () => {
     f = await setup({ askAgent: true, judge: notesMatter });
     const infra = await addInfra();
     const qa = await addAgent("QA");
@@ -1867,27 +1895,36 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     const toQa = (await consultations()).find((c) => c.targetAgentId === qa.id);
     const qaRun = await runFor(toQa);
     const told = await tell(qaRun, "@ops", "O PR 7 foi aprovado.", { heads_up: true });
-    expect(JSON.stringify(told)).toContain("without waiting for it");
+    expect(JSON.stringify(told)).toContain("news only");
     await answered(qaRun, "Aprovado.");
 
-    expect((await consultations()).find((c) => c.targetAgentId === ops.id)?.status).toBe("open");
+    // Delivered as it was written: no run of Ops, nothing open, nothing to come back.
+    expect((await consultations()).find((c) => c.targetAgentId === ops.id)).toMatchObject({
+      status: "answered",
+      targetRunId: null,
+    });
+    expect(await runsOf(ops.id)).toHaveLength(0);
     expect((await consultations()).find((c) => c.id === toInfra?.id)).toMatchObject({
       status: "answered",
       answer: "Pedi a revisão ao QA.\n\n[@qa, to whom @infra handed part of it]: Aprovado.",
     });
     expect((await notesBack()).map((m) => [m.channelId, refsOf(m).agentId])).toEqual([[f.general.id, infra.id]]);
-
-    const toOps = (await consultations()).find((c) => c.targetAgentId === ops.id);
-    await answered(await runFor(toOps), "Anotado, vou avisar a equipe.");
-    expect((await consultations()).find((c) => c.id === toQa?.id)?.answer).toBe("Aprovado.");
-    expect((await consultations()).find((c) => c.id === toInfra?.id)?.answer).not.toContain("Anotado");
-    // Ops's reply stays where QA asked, for the record, waking nobody; the people's conversation got one result.
-    const back = await notesBack();
-    expect(back.filter((m) => m.channelId === f.general.id)).toHaveLength(1);
-    const record = back.find((m) => m.channelId === qaRun.channelId);
-    expect(record && refsOf(record)).toMatchObject({ agentId: ops.id });
-    expect(record && refsOf(record).wake).toBeUndefined();
     expect(await runsOf(qa.id)).toHaveLength(1);
+  });
+
+  test("the same words handed to several agents in one turn: the first works on it, the others are only told", async () => {
+    f = await setup({ askAgent: true, judge: notesMatter });
+    const infra = await addInfra();
+    const ops = await addAgent("Ops");
+    const dev = await devRun("@dev avisa o time do deploy");
+    await ended(dev.id);
+    await tell(dev, "@infra", "O deploy de hoje saiu, confiram.");
+    const copy = await tell(dev, "@ops", "O deploy de hoje saiu, confiram!");
+    expect(JSON.stringify(copy)).toContain("one agent does a job");
+    const rows = await consultations();
+    expect(rows.find((c) => c.targetAgentId === infra.id)?.status).toBe("open");
+    expect(rows.find((c) => c.targetAgentId === ops.id)).toMatchObject({ status: "answered", targetRunId: null });
+    expect(await runsOf(ops.id)).toHaveLength(0);
   });
 
   test("without heads_up, a note from a run answering another agent is part of its answer", async () => {

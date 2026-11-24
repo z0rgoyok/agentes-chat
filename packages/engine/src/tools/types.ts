@@ -1,5 +1,6 @@
 import type { Database, schema } from "@agenteschat/db";
 import type { ToolImage } from "@agenteschat/providers";
+import type { CodeSessionContext } from "../code-sessions";
 import type { OutcomeKind } from "../context/outcomes";
 import type { JsonSchema } from "./json-schema";
 
@@ -27,6 +28,11 @@ export interface ToolContext {
   channelId: string;
   threadRootId: string;
   triggerMessageId: string;
+  /**
+   * Set by whoever runs the run, never from a call's input: its `reply_in_thread` (ADR 0214), so what it posts goes
+   * under the message that asked it (`replyThreadOf`).
+   */
+  replyInThread?: boolean;
   /** The model's id of this tool call (set by the gateway): live output events refer to it. */
   toolUseId?: string;
   /** Aborted when a person cancels the run: long tools (running code) stop early. */
@@ -69,6 +75,13 @@ export interface ToolContext {
    * (ADR 0190), so what it posts goes under the message that asked it (`replyThreadOf`).
    */
   confidential?: boolean;
+  /**
+   * Set by whoever runs it (the executor, the bridge), never from a call's input: the run is in a code session's
+   * conversation (ADR 0215, `codeSessionContext`). Its `place` (the session's computer and worktree, for the session's
+   * own agent) is where the engine's computer tools work, as the agent's CLI does; the session hides the tools that
+   * make no sense there.
+   */
+  codeSession?: CodeSessionContext | null;
 }
 
 export interface ToolOutput {
@@ -79,6 +92,8 @@ export interface ToolOutput {
   images?: ToolImage[];
   /** Structured result kept in the run steps, not sent to the model. */
   data?: Record<string, unknown>;
+  /** What the vendor bills this server for the call (X), in nano-US$: the gateway adds it to the connector's day. */
+  costNanoUsd?: number;
   /** Ground truth this call produced (tests passed, PR merged…), recorded by the gateway. */
   outcome?: { kind: OutcomeKind; subject?: string; summary?: string; details?: Record<string, unknown> };
   /** Built-in `ask_user` only: suspend the run until a person answers this question (its `why` is the gateway's). */
@@ -160,8 +175,8 @@ export interface ToolDefinition {
    */
   asksNobody?(input: Record<string, unknown>): boolean;
   /**
-   * A call that carries `why` (in the tool's own schema) asks a person's approval first: how an agent asks for
-   * a command the computer held for a person (ADR 0053 §3, amended 2026-10-30).
+   * A command the computer held for a person (`command.approval_needed`) asks their approval with the call's `why`
+   * (in the tool's own schema) on the card (ADR 0053 §3). The `why` alone never makes a call ask.
    */
   whyAsks?: boolean;
   /**

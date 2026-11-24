@@ -68,7 +68,7 @@ describe("Canal", () => {
 
   test("subscribes to the channel over the WebSocket", async () => {
     const { socket } = await open();
-    expect(socket.url).toBe(`ws://localhost:3000/api/ws?orgId=${ORG_ID}`);
+    expect(socket.url).toMatch(new RegExp(`^ws://localhost:3000/api/ws\\?orgId=${ORG_ID}&tab=\\w+$`));
     expect(socket.sent).toContainEqual({ type: "subscribe", channelId: ENG_ID });
   });
 

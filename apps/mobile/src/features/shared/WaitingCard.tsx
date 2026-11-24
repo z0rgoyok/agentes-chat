@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Button, Icon, type IconName, Sky, Text, weights } from "@/ui";
+import { Button, Icon, type IconName, Sky, Text } from "@/ui";
 import { AskButtons, ExpiryLine } from "../chat/asks";
 import { AgentFace } from "./Face";
 import { useColors, useDirectory } from "./hooks";
@@ -108,7 +108,7 @@ export function WaitingCard({
               ) : null}
               <View style={styles.kind}>
                 <Icon name={kind.icon} size={13} color={c.muted} />
-                <Text variant="footnote" tone="muted" numberOfLines={1} style={[styles.medium, styles.shrink]}>
+                <Text variant="cardKind" numberOfLines={1} style={styles.shrink}>
                   {kind.label}
                 </Text>
               </View>
@@ -120,7 +120,7 @@ export function WaitingCard({
             ) : null}
           </View>
           {title ? (
-            <Text variant="title" tone="ink" numberOfLines={3}>
+            <Text variant="cardTitle" numberOfLines={3}>
               {title}
             </Text>
           ) : null}
@@ -177,7 +177,6 @@ const styles = StyleSheet.create({
   // kind under it.
   where: { flexShrink: 1, maxWidth: "50%", alignSelf: "flex-start", paddingTop: 1 },
   footer: { marginTop: 12, marginHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
-  medium: { fontWeight: weights.medium },
   grow: { flex: 1, minWidth: 0 },
   shrink: { flexShrink: 1 },
   pressed: { opacity: 0.85 },

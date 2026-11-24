@@ -251,10 +251,20 @@ export const Machine = z
   })
   .openapi("Machine");
 
+const PlanDropped = z.object({ kind: z.string(), provider: z.string().nullable() });
+
 export const ComputerTarget = z
   .union([
     z.object({ kind: z.literal("none") }),
-    z.object({ kind: z.literal("machine"), machineId: z.uuid(), name: z.string(), online: z.boolean() }),
+    z.object({
+      kind: z.literal("machine"),
+      machineId: z.uuid(),
+      name: z.string(),
+      online: z.boolean(),
+      planDropped: PlanDropped.optional().openapi({
+        description: "Set when the agent's plan is signed in only on the computer it left: sign in on this one too.",
+      }),
+    }),
   ])
   .openapi("ComputerTarget");
 
@@ -453,6 +463,10 @@ const MoveAgentsResult = z
     resumed: z.number().int().openapi({ description: "Waiting runs queued again on the new computer." }),
     stillWaiting: z.number().int().openapi({
       description: "Waiting runs that stay with the old computer (their cut-off turn already ran tools there).",
+    }),
+    planDropped: z.array(PlanDropped.extend({ agentId: z.uuid() })).openapi({
+      description:
+        "Moved agents whose plan is signed in only on the old computer (`kind`, a coding plan's `provider`): sign in on the new one too.",
     }),
   })
   .openapi("MoveAgentsResult");

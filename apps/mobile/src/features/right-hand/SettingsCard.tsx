@@ -2,21 +2,16 @@ import {
   type AgentAction,
   type AppNotification,
   type CardDelegate,
-  keys,
   type Message,
   type Proposal,
   useActionCard,
   useAgentActions,
   useAgentProposal,
-  useAskProposal,
   useCardProposals,
   useChannels,
   useDecideActionCard,
-  useDecideProposal,
-  useMembers,
   useModelLabel,
   useRoles,
-  useSendDm,
   type WorkspaceActionCard,
 } from "@agenteschat/client";
 import {
@@ -32,21 +27,13 @@ import {
 import { delegateLine } from "@agenteschat/client/lib/approval-words";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
-import {
-  cardDecidedBy,
-  decidersOf,
-  onlyKey,
-  proposalWhy,
-  removalOf,
-  sentToText,
-  settingLineText,
-} from "@agenteschat/client/lib/proposals";
-import { useQueryClient } from "@tanstack/react-query";
+import { proposalWhy, settingLineText } from "@agenteschat/client/lib/proposals";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, Icon, LineIcon, Text } from "@/ui";
-import { openAgentDelete } from "../agents/DeleteAgentScreen";
+import { Button, Icon, Text } from "@/ui";
+import { UndoProposal } from "../agents/InstructionProposalCard";
+import { proposalOutcome } from "../agents/logic";
 import { AgentProposalView } from "../agents/ProposalCard";
 import { useDelegateUndoAction } from "../agents/RightHandDelegate";
 import { type AskAnswer, AskButtons, AskCard, AskFoot } from "../chat/asks";
@@ -55,8 +42,8 @@ import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useWhen } from "../shared/hooks";
 
 /**
- * The right hand's card of a teammate's settings (ADR 0137), as on the web: a request per row (one agent, one
- * decider), each applied as whoever taps.
+ * The right hand's card of a teammate's settings (ADR 0137), as on the web: a row per agent, each applied or left out
+ * by the agent's review (ADR 0219).
  */
 export function SettingsProposals({ message: m }: { message: Message }) {
   const { orgId } = useOrg();
@@ -89,8 +76,8 @@ export function SettingsProposals({ message: m }: { message: Message }) {
 }
 
 /**
- * "Pedir a um admin" in the inbox of whoever may decide it (`change_request`): the same card, theirs to decide (a new
- * agent's, created as them from here).
+ * "Ask an admin" in the inbox of whoever may decide it (`change_request`): the same card. A settings row says how its
+ * review ended (ADR 0219); a new agent's is created as them from here.
  */
 export function ChangeRequestCard({ n }: { n: AppNotification }) {
   if (n.source.action && n.source.messageId)
@@ -129,13 +116,13 @@ function ChangeRequestProposal({ n }: { n: AppNotification }) {
   );
 }
 
-/** A row with no card around it (Propostas de melhoria). */
+/** A row with no card around it (the history of agents' improvements). */
 export const ChangeRequestRow = ({ p }: { p: Proposal }) => <SettingsRow p={p} />;
 
 /**
- * One row: the agent in the well, "Modelo: Haiku → Sonnet" a line each, and the decision. Who may decide it gets
- * Aplicar and Descartar (Recusar in the inbox); the person who asked and can't, Pedir a um admin, then whom it went
- * to; out of date, Refazer. Decided, one pill with who did it, and Undo on its receipt while it lasts.
+ * One row: the agent in the well, "Model: Haiku → Sonnet" a line each, and how it ended. Nobody is asked to apply
+ * it (ADR 0219): the agent's review applies it or leaves it out a few seconds after, so it reads "Reviewing…" until
+ * then, then who did it, the review's why and Undo while the viewer may put it back.
  */
 function SettingsRow({
   p,
@@ -154,16 +141,9 @@ function SettingsRow({
   const meId = useMeId();
   const dir = useDirectory();
   const c = useColors();
-  const qc = useQueryClient();
-  const failed = useFailed();
   const modelLabel = useModelLabel();
-  const members = useMembers(orgId).data ?? [];
   const channels = useChannels(orgId).data ?? [];
   const roles = useRoles(orgId).data?.roles ?? [];
-  const decide = useDecideProposal(orgId);
-  const ask = useAskProposal(orgId);
-  const redo = useSendDm(orgId);
-  const actions = useAgentActions(orgId, message?.channelId ?? "");
   const delegateUndo = useDelegateUndoAction(first ? delegate : null, p.agentId);
   const when = useWhen();
   const agent = dir.anyAgent(p.agentId);
@@ -178,7 +158,6 @@ function SettingsRow({
       role: (id) => roles.find((r) => r.id === id)?.name,
     }),
   );
-  const mine = p.requestedBy?.userId === meId;
   const delegated = delegate
     ? delegateLine(
         t,
@@ -189,117 +168,31 @@ function SettingsRow({
       )
     : null;
   const byRightHand = delegated && (delegate?.state === "approved" || delegate?.state === "undone");
+  const outcome = proposalOutcome(t, p, meId);
 
-  // Decided: the same card, the lines it changed still there, and who did it, when and Undo where the buttons were.
+  // Ended: the same card, the lines it changed still there, and who did it, when, why and Undo where a request's
+  // decision would be. Put back from its receipt (an older card's Undo) reads undone too, with nothing left to undo.
   let answer: AskAnswer | null = null;
-  if (p.status !== "pending") {
+  if (!outcome.reviewing) {
     const receipt = message?.actions?.find((a) => a.id === p.undoActionId);
-    const who = byRightHand ? delegated : cardDecidedBy(t, [p], meId ?? "");
-    const undoable =
-      receipt && !receipt.undoneAt && receipt.undoableUntil && Date.parse(receipt.undoableUntil) > Date.now();
+    const back = Boolean(receipt?.undoneAt);
+    const who = byRightHand ? delegated : outcome.words;
     answer = {
-      done: p.status === "accepted" && !receipt?.undoneAt && delegate?.state !== "undone",
-      words: receipt?.undoneAt ? `${who} · ${t("rightHand.card.undone")}` : (who ?? ""),
-      time: p.decidedAt ? when.short(p.decidedAt) : undefined,
-      note: byRightHand ? delegate?.reason : null,
-      actions: byRightHand ? (
-        delegateUndo
-      ) : undoable ? (
-        <Button
-          variant="ghost"
-          size="card"
-          label={t("rightHand.card.undo")}
-          loading={actions.undo.isPending}
-          onPress={() =>
-            actions.undo.mutate(receipt.id, {
-              onSuccess: () => void qc.invalidateQueries({ queryKey: keys.agents(orgId) }),
-              onError: failed,
-            })
-          }
-        />
-      ) : null,
+      done: outcome.applied && !back && delegate?.state !== "undone",
+      words: back ? `${who} · ${t("rightHand.card.undone")}` : (who ?? ""),
+      time: outcome.at ? when.short(outcome.at) : undefined,
+      note: byRightHand ? delegate?.reason : outcome.why,
+      actions: byRightHand ? delegateUndo : p.undoable && !back ? <UndoProposal id={p.id} /> : null,
     };
   }
-
-  // A row that puts its agent under another went only to who manages that one too (ADR 0085 addendum of 2026-11-17).
-  const asked = p.askedAt
-    ? sentToText(t, i18n.language, decidersOf(p, members, roles, agent, dir.anyAgent), p.askedAt)
-    : null;
-  const state = p.stale
-    ? t("rightHand.card.stale")
-    : p.canDecide
-      ? "you"
-      : p.askedAt || !mine
-        ? t("proposals.waitingAdmin")
-        : t(onlyKey(p), g);
-  const decision = p.stale ? (
-    mine ? (
-      <Button
-        variant="primary"
-        size="card"
-        wide
-        label={t("rightHand.card.redo")}
-        loading={redo.isPending}
-        onPress={() =>
-          redo.mutate({ agentId: proposer, body: t("rightHand.card.redoMessage", g) }, { onError: failed })
-        }
-      />
-    ) : null
-  ) : p.canDecide ? (
-    <AskButtons
-      primary={
-        <Button
-          variant="primary"
-          size="card"
-          wide
-          label={t("rightHand.card.apply")}
-          disabled={decide.isPending}
-          onPress={() =>
-            p.agentId && removalOf([p]) === "delete"
-              ? openAgentDelete(p.agentId, p.id)
-              : decide.mutate({ id: p.id, decision: "accept" }, { onError: failed })
-          }
-        />
-      }
-      secondary={
-        <Button
-          variant="secondary"
-          size="card"
-          wide
-          label={t(mine ? "rightHand.card.dismiss" : "rightHand.card.decline")}
-          disabled={decide.isPending}
-          onPress={() => decide.mutate({ id: p.id, decision: "refuse" }, { onError: failed })}
-        />
-      }
-    />
-  ) : asked ? (
-    <View style={styles.sent}>
-      <LineIcon name="send" size={15} color={c.muted} variant="small" />
-      <Text variant="small" tone="muted" style={styles.fill}>
-        {asked}
-      </Text>
-    </View>
-  ) : mine ? (
-    <Button
-      variant="primary"
-      size="card"
-      wide
-      icon="send"
-      label={t("rightHand.card.askAdmin")}
-      loading={ask.isPending}
-      onPress={() => ask.mutate(p.id, { onError: failed })}
-    />
-  ) : null;
   return (
     <AskCard
       id={p.id}
       kind="proposal"
       agentId={proposer}
-      waitsFor={state}
+      waitsFor={outcome.reviewing ? outcome.words : null}
       answer={answer}
-      lead={
-        (p.stale && !answer ? t("rightHand.card.staleHelp", g) : proposalWhy(t, p)) || t("proposals.titleSettings", g)
-      }
+      lead={proposalWhy(t, p) || t("proposals.titleSettings", g)}
       well={{
         tile: <AgentFace agentId={p.agentId} size={20} live={false} />,
         title: t("rightHand.card.settings", { name }),
@@ -335,7 +228,6 @@ function SettingsRow({
           </View>
         ) : undefined
       }
-      foot={decision ? <AskFoot>{decision}</AskFoot> : undefined}
     />
   );
 }
@@ -465,9 +357,6 @@ function WorkspaceActionView({
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, minWidth: 0 },
-  // The icon on the first line when whom it went to wraps.
-  sent: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   lines: { gap: 6 },
   line: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   field: { fontWeight: "500", minWidth: 96 },

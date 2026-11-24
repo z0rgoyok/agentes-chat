@@ -80,6 +80,25 @@ describe("Equipe's views (ADR 0148)", () => {
     expect(chartByPerson([kai], [], members).map((c) => c.personId)).toEqual([null]);
   });
 
+  test("a role that answers for agents (ADR 0085, addendum of 2026-11-21): its own column, mine when I hold it", () => {
+    const ops = agent("Ops", { ownerRoleId: "r-tech" });
+    expect(reportsTo(ops, [eng], members)).toBe("role:r-tech");
+    const cols = chartByPerson([ada, ops, milo], [eng], members);
+    expect(cols.map((c) => [c.personId, c.roleId, c.agents.map((a) => a.name)])).toEqual([
+      ["u-lukas", null, ["Ada"]],
+      [null, "r-tech", ["Ops"]],
+      ["u-amara", null, ["Milo"]],
+    ]);
+    const names = (list: TeamAgent[]) => list.map((a) => a.name);
+    const base = { q: "", meId: "u-amara" };
+    expect(names(filterTeam([ops, milo, kai], { ...base, filter: "mine", myRoleIds: ["r-tech"] }))).toEqual([
+      "Ops",
+      "Milo",
+    ]);
+    expect(names(filterTeam([ops, milo, kai], { ...base, filter: "mine" }))).toEqual(["Milo"]);
+    expect(names(filterTeam([ops, milo, kai], { ...base, filter: "noOwner" }))).toEqual(["Kai"]);
+  });
+
   test("the map: a column per channel in the sidebar's order, an agent in each of its channels, none last", () => {
     const cols = mapColumns([ada, kai, milo, lodi], ["c-ops", "c-eng", "c-empty"], (a) => a.id === "Lodi");
     expect(cols.map((c) => [c.channelId, c.agents.map((a) => a.name)])).toEqual([

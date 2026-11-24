@@ -20,6 +20,8 @@ export interface PendingFile {
   /** An image's local thumbnail (an object URL, revoked when the file leaves the box). */
   preview?: string;
   status: "uploading" | "done" | "failed";
+  /** The share sent so far, 0 to 1, once the upload reports it. */
+  progress?: number;
   ref?: ArtifactRef;
 }
 
@@ -69,7 +71,7 @@ export function useComposerFiles(channelId: string | null, focus?: () => void) {
         { key, name: file.name, icon: fileIcon(file.name, file.type), size: file.size, preview, status: "uploading" },
       ]);
       api.artifacts
-        .upload(org.id, file, channelId ? { channelId } : {})
+        .upload(org.id, file, channelId ? { channelId } : {}, { onProgress: (progress) => update({ progress }) })
         .then((saved) => update({ status: "done", ref: { id: saved.id, version: saved.version, title: saved.title } }))
         .catch((error) => {
           update({ status: "failed" });
@@ -97,6 +99,7 @@ export function useComposerFiles(channelId: string | null, focus?: () => void) {
               preview={f.preview}
               detail={formatBytes(i18n.language, f.size)}
               status={f.status}
+              progress={f.progress}
               statusLabel={
                 f.status === "uploading"
                   ? t("channel.uploading")

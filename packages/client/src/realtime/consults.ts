@@ -27,6 +27,11 @@ export interface LiveConsult {
   since: number;
   /** When the status last changed (old entries are hidden if an event was missed). */
   at: number;
+  /**
+   * A person wrote while the asking run waited for this answer, and the run stopped waiting to read it
+   * (`agent.run.wait_message`, `woke`): while that run works, the line says its work, not the question.
+   */
+  woke?: boolean;
 }
 
 /** By the asking run's id. */
@@ -117,6 +122,14 @@ export function applyConsultEvent(
       const before = typeof e.runId === "string" ? state[e.runId] : undefined;
       return before?.status === "asking" ? { ...state, [before.runId]: { ...before, at: now } } : state;
     }
+    // A person wrote and the asking run reads it now: the question is still out, but its agent is at work.
+    case "agent.run.wait_message": {
+      const before = typeof e.runId === "string" ? state[e.runId] : undefined;
+      const woke = (event as { outcome?: unknown }).outcome === "woke";
+      return before?.status === "asking" && woke && !before.woke
+        ? { ...state, [before.runId]: { ...before, woke: true } }
+        : state;
+    }
     case "message.created": {
       const message = (event as Extract<ChannelEvent, { type: "message.created" }>).message;
       const runId = message?.agentRunId;
@@ -183,6 +196,7 @@ export function reconcileConsults(
       status: "asking",
       since: Number.isNaN(since) ? (known?.since ?? now) : since,
       at: now,
+      ...(known?.woke ? { woke: true } : {}),
     };
   }
   return out;

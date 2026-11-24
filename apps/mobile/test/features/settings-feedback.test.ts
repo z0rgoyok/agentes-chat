@@ -67,7 +67,7 @@ describe("a list that didn't load says so, with the way to ask again", () => {
     expect(query).toContain("return () => sub.remove();");
     expect(query).toContain("bindOnlineToNetwork(); return new LiveQueryClient(");
     // Nothing waits paused for a network: a screen still says it couldn't load, a change still says it failed.
-    expect(query).toContain('refetchOnWindowFocus: true, networkMode: "always" }');
+    expect(query).toContain('refetchOnWindowFocus: false, networkMode: "always", }');
     expect(query).toContain('mutations: { retry: 0, networkMode: "always" }');
   });
 });

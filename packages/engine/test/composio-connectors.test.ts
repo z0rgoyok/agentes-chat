@@ -152,11 +152,12 @@ const call = (gateway: ReturnType<typeof createToolGateway>, ctx: ToolContext, n
   gateway.invoke(ctx, { toolUseId: `call-${++seq}`, name, input: input as Record<string, unknown> });
 
 describe("the entries", () => {
-  test("22 services, each once: explicit actions under one prefix, names that never collide, no meta tool", () => {
+  test("23 services, each once: explicit actions under one prefix, names that never collide, no meta tool", () => {
     const ways = MCP_PRESETS.filter((p) => p.composio);
     expect(ways.map((p) => p.id).sort()).toEqual(
       [
         "asana",
+        "canva",
         "drive",
         "dropbox",
         "facebook",

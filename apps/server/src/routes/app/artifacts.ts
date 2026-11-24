@@ -36,8 +36,11 @@ import {
   replyToBlock,
   requireLiveFile,
   restoreArtifact,
+  type StoredDownload,
   setBlockState,
+  setFileAccess,
   setFileSharing,
+  storedArtifactFile,
   updateArtifact,
   updateFolder,
   ValidationError,
@@ -45,8 +48,9 @@ import {
   withPersonFacts,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { rangedResponse } from "../../http/byte-range";
+import { etagMatches, rangedResponse, storedResponse } from "../../http/byte-range";
 import { apiError, errorResponse } from "../../http/errors";
 import {
   type AppDeps,
@@ -220,6 +224,31 @@ const Sharing = z
       "Who sees it on top of its conversation (ADR 0157): nobody more, the people and roles listed (and administrators), or the whole workspace. A file of the Drive itself lives with its maker: `conversation` is its maker alone (and administrators).",
   });
 
+const Level = z.enum(["none", "view", "edit"]);
+const AccessRow = z.object({ id: z.string(), level: z.enum(["view", "edit"]) });
+const AccessShape = {
+  place: z.enum(["view", "edit"]).openapi({
+    description:
+      "Who reads it where it lives: a conversation's readers. A file of the Drive itself has its maker there, who always edits.",
+  }),
+  workspace: Level.openapi({ description: "Everyone in the workspace." }),
+  users: z.array(AccessRow).max(200),
+  roles: z.array(AccessRow).max(200),
+  agents: Level.openapi({
+    description: "Every agent (a file of the Drive) or the agents where it lives (a file in a conversation).",
+  }),
+  agentRows: z.array(AccessRow).max(200),
+};
+const Access = z
+  .object({
+    ...AccessShape,
+    limited: z.boolean().openapi({ description: "Someone who sees it only reads it." }),
+  })
+  .openapi("ArtifactAccess", {
+    description:
+      "Who sees and who edits a file (ADR 0202), row by row as Compartilhar shows it. Administrators always see and edit; the agent that made a file always edits it.",
+  });
+
 /** Where a live file's conversation lives (ADR 0199): the chat's routes read and post to this thread. */
 const FileConversationRef = z
   .object({
@@ -256,6 +285,10 @@ export const Artifact = z
     canDelete: z.boolean().openapi({ description: "I may move it to the trash (and restore it)." }),
     audience: Audience,
     sharing: Sharing,
+    access: Access,
+    myAccess: z.enum(["view", "edit"]).openapi({
+      description: "What its access lets me do: `view` is read only (with Pedir para editar).",
+    }),
     canShare: z.boolean().openapi({
       description:
         "I may change its sharing: it lives in a conversation not everyone reads, and I read it there; or it is a file of the Drive itself, and I made it or I'm an administrator.",
@@ -355,6 +388,52 @@ const FILE_FORMATS = ["csv", "patch", "pdf", "docx", "xlsx", "pptx", "json", "md
 const LIVE_DOWNLOAD: Partial<Record<string, "xlsx" | "pptx">> = { spreadsheet: "xlsx", slides: "pptx" };
 /** What `exportLive` writes of a live file as it stands now (ADR 0198). */
 const LIVE_EXPORTS = ["xlsx", "csv", "pptx", "pdf"] as const;
+/** How long the bucket's link a redirect sends to lives: a video keeps reading from it while its page stays open. */
+const FILE_LINK_TTL_SECONDS = 3600;
+
+/** A download's headers: always an attachment, never sniffed as another type, never run as a page. */
+const attachmentHeaders = (file: { contentType: string; filename: string }) => ({
+  "content-type": file.contentType,
+  "content-disposition": attachmentDisposition(file.filename),
+  "x-content-type-options": "nosniff",
+  "content-security-policy": "sandbox",
+});
+
+/**
+ * A version's stored bytes. What a browser loads for an element or a page (a video, a download), which follows a
+ * redirect to another origin without CORS, goes to the bucket's signed link. A script's fetch (the previews: the
+ * bucket may allow no CORS) and apps that send no fetch metadata get the bytes from us, read in parts as they go. An
+ * asked version never changes, so it is cached for good; the newest is checked again each time.
+ */
+async function storedFile(c: Context, file: StoredDownload, versioned: boolean) {
+  const mode = c.req.header("sec-fetch-mode");
+  if (mode === "navigate" || mode === "no-cors") {
+    const url = await file.store.signedUrl(file.key, {
+      expiresInSeconds: FILE_LINK_TTL_SECONDS,
+      filename: file.filename,
+      contentType: file.contentType,
+    });
+    if (url) {
+      return new Response(null, { status: 302, headers: { location: url, "cache-control": "private, no-store" } });
+    }
+  }
+  const etag = `"${file.sha256}"`;
+  const headers = {
+    ...attachmentHeaders(file),
+    // no-transform: no proxy rewrites the bytes (Cloudflare's email obfuscation edits text/html).
+    "cache-control": versioned
+      ? "private, max-age=31536000, immutable, no-transform"
+      : "private, no-cache, no-transform",
+    etag,
+    // A video's own load is sent to the bucket: bytes cached for a load under CORS (a fetch, the comment stage's
+    // video) must never answer it, since Chrome fails a video whose first bytes came from here and the next from there.
+    vary: "sec-fetch-mode",
+  };
+  if (etagMatches(c.req.header("if-none-match"), etag)) return new Response(null, { status: 304, headers });
+  // A part of another version than the one the client holds (`If-Range`) would mix two files: the whole one instead.
+  const ifRange = c.req.header("if-range");
+  return storedResponse(file, ifRange && ifRange !== etag ? undefined : c.req.header("range"), headers);
+}
 
 /**
  * The Drive: files people and agents make (documents, tables, diffs, HTML
@@ -731,8 +810,9 @@ export function artifactRoutes(deps: AppDeps) {
     return exportLive(liveDeps(), userId, orgId, artifactId, format);
   };
 
-  // The bytes, always as an attachment (HTML and uploaded files are never rendered on our origin). A live file
-  // downloads as an Office file, a CSV or a PDF of how it stands now (ADR 0198).
+  // The bytes, always as an attachment (HTML and uploaded files are never rendered on our origin): a version's stored
+  // bytes (`storedFile`), or what is made of it. A live file downloads as an Office file, a CSV or a PDF of how it
+  // stands now (ADR 0198).
   app.get("/organizations/:orgId/artifacts/:artifactId/file", async (c) => {
     const version = c.req.query("version");
     const asked = FILE_FORMATS.find((f) => f === c.req.query("format"));
@@ -740,19 +820,14 @@ export function artifactRoutes(deps: AppDeps) {
     const orgId = c.req.param("orgId");
     const artifactId = c.req.param("artifactId");
     const exported = version ? null : await liveExport(userId, orgId, artifactId, asked);
+    const at = version ? Number(version) : undefined;
+    const stored = exported || asked ? null : await storedArtifactFile(artifacts(), userId, orgId, artifactId, at);
+    if (stored) return storedFile(c, stored, at !== undefined);
     const file =
-      exported ??
-      (await artifactFile(artifacts(), userId, orgId, artifactId, {
-        version: version ? Number(version) : undefined,
-        format: asked,
-      }));
+      exported ?? (await artifactFile(artifacts(), userId, orgId, artifactId, { version: at, format: asked }));
     // In parts when asked (a video starts at once and jumps without the whole file first).
     return rangedResponse(file.body, c.req.header("range"), {
-      "content-type": file.contentType,
-      "content-disposition": attachmentDisposition(file.filename),
-      "x-content-type-options": "nosniff",
-      "content-security-policy": "sandbox",
-      // no-transform: no proxy rewrites the bytes (Cloudflare's email obfuscation edits text/html).
+      ...attachmentHeaders(file),
       "cache-control": "private, no-store, no-transform",
     });
   });
@@ -781,6 +856,25 @@ export function artifactRoutes(deps: AppDeps) {
       const { orgId, artifactId } = c.req.valid("param");
       const userId = c.get("user").id;
       const saved = await setFileSharing(artifacts(), userId, orgId, artifactId, c.req.valid("json"));
+      return c.json(await withFacts(userId, orgId, saved), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/artifacts/{artifactId}/access",
+      tags,
+      security,
+      summary:
+        "Who sees and who edits a file, people, roles and agents (Compartilhar with levels); whoever may share it and edits it may change it",
+      request: { params: ArtifactParams, body: body(z.object(AccessShape)) },
+      responses: { 200: json(Artifact), ...errors },
+    }),
+    async (c) => {
+      const { orgId, artifactId } = c.req.valid("param");
+      const userId = c.get("user").id;
+      const saved = await setFileAccess(artifacts(), userId, orgId, artifactId, c.req.valid("json"));
       return c.json(await withFacts(userId, orgId, saved), 200);
     },
   );

@@ -22,7 +22,7 @@ export function ReadOnlyNote({ field }: { field?: Field }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const keeper = useKeeperName();
-  const { viewer, g, ownerFirst, can } = useAgentEdit();
+  const { viewer, g, ownerLabel, can } = useAgentEdit();
   if (viewer === "admin") return null;
   if (field && can(field)) return null;
   if (viewer === "editor") {
@@ -51,8 +51,8 @@ export function ReadOnlyNote({ field }: { field?: Field }) {
     <p className="agp-readonly ac-iconline">
       <Icon name="info" size={16} />
       <span>
-        {ownerFirst
-          ? t(modeKey(org, "agentPage.readOnly.memberOwner"), { ...g, owner: ownerFirst })
+        {ownerLabel
+          ? t(modeKey(org, "agentPage.readOnly.memberOwner"), { ...g, owner: ownerLabel })
           : t(keeperKey(org, keeper, "agentPage.readOnly.member"), { ...g, keeper })}
       </span>
     </p>

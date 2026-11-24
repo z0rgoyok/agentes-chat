@@ -202,7 +202,7 @@ describe("the prompt's rules", () => {
       "when the site sends a link or a code to a mailbox you can read (yours, a webmail in your browser, a connected one), get it there and go on;",
     );
     expect(text).toContain(
-      "ask it yourself (ask_agent) when you need its answer, or hand it work or news (tell_agent): what comes of either reaches you here by itself.",
+      "ask it yourself (ask_agent) when you need its answer, or hand it work (tell_agent): what comes of either reaches you here by itself. News another agent only needs to know goes with `heads_up: true`, to the one it concerns, never to every agent.",
     );
     expect(text).not.toContain("leave it a note");
     // Per-turn blocks last (the stable prefix stays cacheable), the time among them.
@@ -494,7 +494,7 @@ describe("# This turn", () => {
     expect(await turn()).not.toContain("# Containers");
     await f.db.update(schema.agents).set({ brain: "claude_code" }).where(eq(schema.agents.id, f.agent.id));
     expect(await turn()).toContain(
-      '# Containers on "MacBook"\ndocker, docker compose and podman work there: rootless Podman as your own user',
+      '# Containers on "MacBook"\ndocker, docker compose, docker buildx and podman work there, rootless, as your own user',
     );
     expect(seen).toHaveLength(8);
   });

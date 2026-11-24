@@ -475,6 +475,36 @@ export const words: EmailWords = {
     table: (day) => `Tabel lengkapnya: bun run report:autonomy --day ${day}`,
     why: "Kamu menerima email ini karena alamat ini ada di OPS_REPORT_EMAIL di server ini. Email ini dikirim sekali sehari.",
   },
+  accountOpened: {
+    subject: (plan) => `Lebih banyak orang bisa memakai akun ${plan} kamu`,
+    preheader: (plan) => `Apa yang mereka lakukan dengannya memakai paket ${plan} kamu dan batasnya.`,
+    headline: "Seseorang mengubah siapa yang bisa memakai akun AI kamu",
+    body: (by, account, plan) => [
+      { b: by },
+      ` mengubah siapa yang bisa memakai akun ${plan} kamu `,
+      { b: account },
+      `. Apa yang mereka lakukan dengannya memakai paketmu dan batasnya.`,
+    ],
+    account: "Akun",
+    by: "Diubah oleh",
+    setting: "Izin",
+    use: "Pakai di agen",
+    reply: "Layani semua orang",
+    was: "Sebelumnya",
+    now: "Sekarang",
+    everyone: "Semua orang di workspace",
+    admins: "Kamu dan administrator",
+    onlyYou: "Hanya kamu",
+    agentOwner: "Hanya pemilik agen",
+    note: "Untuk membatalkannya, buka akun di AI dan pemakaian lalu ubah izinnya.",
+    button: "Buka akun AI",
+    why: (org) =>
+      `Kamu menerima email ini karena kamu menghubungkan akun AI ini di ${org} dan orang lain mengubah siapa yang bisa memakainya.`,
+    personal: {
+      why: () =>
+        "Kamu menerima email ini karena kamu menghubungkan akun AI ini dan orang lain mengubah siapa yang bisa memakainya.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Lebih banyak orang bisa bicara dengan agenmu lewat paket ${plan} kamu`,
     preheader: (plan) => `Percakapan mereka memakai paket ${plan} kamu dan batasnya.`,

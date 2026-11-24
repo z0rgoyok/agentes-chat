@@ -1,5 +1,6 @@
 import { NavigationContext } from "expo-router/react-navigation";
 import { useContext, useEffect, useState } from "react";
+import { usePane } from "@/ui/pane";
 
 /** The longest a conversation waits for its push to end before what it holds back mounts anyway (ms). */
 const SETTLE_MAX_MS = 900;
@@ -15,10 +16,13 @@ const landed = new WeakSet<object>();
 
 /**
  * False until the conversation's push has ended (its stack's `transitionEnd`): what its first frame doesn't show mounts
- * then, so the slide starts after a lighter first render. True at once where there is no slide: `now` (the iOS peek) or
- * a conversation swapped in place on a route that already landed; `SETTLE_MAX_MS` at the latest. Once true, it stays.
+ * then, so the slide starts after a lighter first render. True at once where there is no slide: the iOS peek
+ * (`peeking`), a conversation in a pane beside the list (ADR 0212: it swaps in place, its stack's route landed long
+ * ago) or one swapped in place on a route that already landed; `SETTLE_MAX_MS` at the latest. Once true, it stays.
  */
-export function useSettled(now: boolean): boolean {
+export function useSettled(peeking: boolean): boolean {
+  const inPane = usePane() !== null;
+  const now = peeking || inPane;
   const navigation = useContext(NavigationContext) as unknown as (TransitionEvents & object) | undefined;
   const [settled, setSettled] = useState(() => now || (navigation !== undefined && landed.has(navigation)));
   useEffect(() => {

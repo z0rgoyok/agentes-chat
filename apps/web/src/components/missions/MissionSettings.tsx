@@ -6,23 +6,20 @@ import {
   useRemoveCommandRule,
   useSetAgentMissionDefault,
   useSetCommandApproval,
-  useSetMissionBrain,
   useSetMissionExecutor,
   useSetResumeTasks,
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { isAuto } from "@agenteschat/client/lib/providers";
+
 import {
   AutonomyPixels,
   Button,
   Chip,
   DetailsDialog,
-  Field,
   Icon,
   OptionList,
-  Select,
   SettingNote,
   SettingRow,
   SettingsMore,
@@ -34,6 +31,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { brainModelLabel } from "@/components/AgentBrain";
+import { AiChoicePicker } from "@/components/ai/AiChoice";
 import { MachineIcon } from "@/components/machine-bits";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -129,9 +127,7 @@ function SettingsBody({
   const [more, setMore] = useState(false);
   // Who does the work and its model sit under Mais opções: loaded when it opens.
   const brain = useMissionBrain(org.id, m.id, more);
-  const setBrain = useSetMissionBrain(org.id, m.id);
   const resumeId = useId();
-  const modelId = useId();
   const mode = m.commandApproval;
   const name = (v: CommandApproval) => t(`missions.commandApproval.${v}` as const);
   const fail = (error: unknown) => toast.show(errorText(t, error), "error");
@@ -232,12 +228,11 @@ function SettingsBody({
                       icon="close"
                       aria-label={t("missions.settings.rules.remove", { command })}
                       title={t("missions.settings.rules.remove", { command })}
-                      disabled={removeRule.isPending}
+                      // Gone at once; each removal says how it went, even with another one still on its way.
                       onClick={() =>
-                        removeRule.mutate(r.id, {
-                          onSuccess: () => saved(t("missions.settings.rules.removed", { command })),
-                          onError: fail,
-                        })
+                        void removeRule
+                          .mutateAsync(r.id)
+                          .then(() => saved(t("missions.settings.rules.removed", { command })), fail)
                       }
                     />
                   )}
@@ -326,46 +321,13 @@ function SettingsBody({
             }))}
           />
           {brainView && brainOption && brainOption.models.length > 0 && (
-            <Field
-              label={t("brain.mission.modelLabel")}
-              id={modelId}
-              hint={{
-                name: t("common.about", { label: t("brain.mission.modelLabel") }),
-                text: t("brain.mission.modelHint"),
-              }}
-            >
-              <Select
-                value={brainView.effectiveModel ?? undefined}
-                disabled={!brainView.canSetModel || setBrain.isPending}
-                onValueChange={(model) =>
-                  setBrain.mutate(
-                    { model },
-                    {
-                      onSuccess: () => saved(t("brain.mission.saved", { model: brainModelLabel(brainOption, model) })),
-                      onError: fail,
-                    },
-                  )
-                }
-                options={[
-                  ...brainOption.models.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                    description: o.recommended ? t("brain.recommended") : undefined,
-                  })),
-                  // The agent's own model when it isn't one of the list (a typed one, a coding plan's, "Automático").
-                  ...(brainView.effectiveModel && !brainOption.models.some((o) => o.value === brainView.effectiveModel)
-                    ? [
-                        {
-                          value: brainView.effectiveModel,
-                          label: isAuto(brainView.effectiveModel)
-                            ? t("brain.auto.label")
-                            : brainModelLabel(brainOption, brainView.effectiveModel),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            </Field>
+            <AiChoicePicker
+              orgId={org.id}
+              target={{ kind: "mission", missionId: m.id }}
+              parts={["model"]}
+              modelHint={t("brain.mission.modelHint")}
+              onSaved={(c) => saved(t("brain.mission.saved", { model: brainModelLabel(brainOption, c.model ?? null) }))}
+            />
           )}
           <ul className="ac-setlist mi-cfg__computer">
             <li className="ac-setlist__row ac-setlist__row--pad">
@@ -398,7 +360,7 @@ function SettingsBody({
             <Switch
               id={resumeId}
               checked={m.resumeTasks}
-              disabled={!m.canAct || setResume.isPending}
+              disabled={!m.canAct}
               onCheckedChange={(on) =>
                 setResume.mutate(on, {
                   onSuccess: () => saved(on ? t("missions.settings.recovery.on") : t("missions.settings.recovery.off")),

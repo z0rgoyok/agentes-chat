@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createMemoryPubSub, listenResumedTopic } from "@agenteschat/adapters";
-import { CACHE_TOPIC, caches, enableCaches, shareCacheInvalidations } from "../src";
+import { CACHE_TOPIC, caches, enableCaches, STALE_SPREAD_MS, shareCacheInvalidations } from "../src";
 
 afterEach(() => enableCaches(false));
 
@@ -49,6 +49,28 @@ test("a process whose LISTEN came back after a gap forgets what it cached: inval
     await pubsub.publish(listenResumedTopic, { type: "pubsub.resumed" });
     expect(caches.scopes.get("org1:agent1:visible")).toBeUndefined();
   } finally {
+    stop();
+  }
+});
+
+test("a gentle resync (within a minute of forgetting everything) lets every entry expire within seconds, not at once", async () => {
+  enableCaches();
+  const pubsub = createMemoryPubSub();
+  const stop = shareCacheInvalidations(pubsub);
+  const realNow = Date.now;
+  const realRandom = Math.random;
+  try {
+    caches.scopes.set("org1:agent1:visible", ["deploy"]);
+    Math.random = () => 0.5;
+    await pubsub.publish(listenResumedTopic, { type: "pubsub.resumed", full: false });
+    Math.random = realRandom;
+    expect(caches.scopes.get("org1:agent1:visible")).toEqual(["deploy"]);
+    const at = realNow();
+    Date.now = () => at + STALE_SPREAD_MS + 1;
+    expect(caches.scopes.get("org1:agent1:visible")).toBeUndefined();
+  } finally {
+    Date.now = realNow;
+    Math.random = realRandom;
     stop();
   }
 });

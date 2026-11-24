@@ -11,6 +11,7 @@ import { EventPillAction } from "@/ui";
 import { AskDone, AskWaiting } from "../chat/asks";
 import { useFailed } from "../routines/hooks";
 import { useDirectory, useMeId } from "../shared/hooks";
+import { ownsIn } from "../shared/owner";
 
 /**
  * The web's pause of a stretch (ADR 0089) in place of its text, as a waiting pill: the agents did what they may do on
@@ -39,7 +40,12 @@ export function StretchCard({ message: m }: { message: Message }) {
     card.agentIds.length > 0
       ? card.agentIds.every((id) => managesAgent(dir.agentById.get(id)))
       : can(org, "manage_agents");
-  const may = mayContinueStretch(card, meId, (id) => dir.agentById.get(id)?.ownerUserId, manages);
+  // One who holds the role that answers for an agent continues it as its owner (ADR 0085, addendum of 2026-11-21).
+  const ownerOf = (id: string) => {
+    const agent = dir.agentById.get(id);
+    return ownsIn(dir.memberById, meId, agent) ? meId : agent?.ownerUserId;
+  };
+  const may = mayContinueStretch(card, meId, ownerOf, manages);
   const go = async () => {
     setPending(true);
     try {

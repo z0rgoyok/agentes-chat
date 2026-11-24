@@ -2,6 +2,7 @@ import { type Database, rowsOf, type SQL, sql } from "@agenteschat/db";
 import { nanoUsdToUsd } from "@agenteschat/providers";
 import { ANALYTICS_ROWS_MAX, analyticsRange } from "./connector-usage";
 import { getOrMake } from "./format";
+import { heavyRead } from "./operator-paging";
 import { apiNano, tokensOf } from "./plan-usage";
 import { runErrorDetail } from "./runs";
 
@@ -97,16 +98,15 @@ async function workAnalytics(db: Database, query: { from: string; to: string }, 
   // Waits for room are steps (`brain_unavailable`, `busy`), written once per wait; it lasts until the run's next step
   // (`roomFound` when the computer takes the turn), its end or now.
   const busyStep = sql`s.kind = 'error' and s.data->>'reason' = 'brain_unavailable' and s.data->>'code' = 'busy'`;
+  // How long the wait step `s` of the run `ar` lasted: until the run's next step, its end or now, like the peak below.
+  const waitSec = sql`extract(epoch from least(coalesce(
+    (select min(n.created_at) from agent_run_steps n where n.run_id = s.run_id and n.seq > s.seq),
+    ar.finished_at, now()), ${end}::timestamptz) - s.created_at)::float8`;
 
   const pct = (q: number, column: string, filter = "") =>
     sql.raw(`percentile_cont(${q}) within group (order by ${column})${filter ? ` filter (where ${filter})` : ""}`);
 
-  // Fleet-wide these scan many rows: JIT compiling them costs more than it saves.
-  const read = (query: SQL) =>
-    db.transaction(async (tx) => {
-      await tx.execute(sql`set local jit = off`);
-      return tx.execute(query);
-    });
+  const read = (query: SQL) => heavyRead(db, query);
   const [turnRows, failureRows, peakRows, tokenRows, causeRows, profileRows] = await Promise.all([
     read(sql`
       with r as (
@@ -199,16 +199,18 @@ async function workAnalytics(db: Database, query: { from: string; to: string }, 
           orgId ? sql` and org_id = ${orgId}` : sql``
         }
       ) u group by grouping sets ((at, payer, model), (key, payer, model), (payer, model), ())`),
-    // Each wait lasts until the run's next step, its end or now, like the peak above.
+    // A reason is read by its own equality: each of `agent_run_steps`'s partial indexes on `run_id` holds one reason,
+    // and the planner reads the waits through an index only when the statement repeats its condition word for word.
     read(sql`
       with w as (
-        select case when s.data->>'reason' = 'brain_unavailable'
-            then 'brain_unavailable:' || coalesce(s.data->>'code', 'other') || coalesce(':' || (s.data->>'room'), '') else s.data->>'reason' end as cause,
-          extract(epoch from least(coalesce(
-            (select min(n.created_at) from agent_run_steps n where n.run_id = s.run_id and n.seq > s.seq),
-            ar.finished_at, now()), ${end}::timestamptz) - s.created_at)::float8 as sec
+        select 'brain_unavailable:' || coalesce(s.data->>'code', 'other') || coalesce(':' || (s.data->>'room'), '')
+          as cause, ${waitSec} as sec
         from agent_runs ar join agent_run_steps s on s.run_id = ar.id
-        where ${runsIn} and s.kind = 'error' and s.data->>'reason' in ('brain_unavailable', 'provider_outage')
+        where ${runsIn} and s.kind = 'error' and s.data->>'reason' = 'brain_unavailable'
+        union all
+        select 'provider_outage', ${waitSec}
+        from agent_runs ar join agent_run_steps s on s.run_id = ar.id
+        where ${runsIn} and s.kind = 'error' and s.data->>'reason' = 'provider_outage'
       )
       select cause, count(*)::int as waits, ${pct(0.5, "sec")} as "medianSec", ${pct(0.9, "sec")} as "p90Sec"
       from w group by cause order by waits desc, cause`),

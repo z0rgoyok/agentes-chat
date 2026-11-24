@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 // By path: the client doesn't depend on the adapters, so the package isn't linked here.
-import { STREAM_CLOSE } from "../../adapters/src/machine-protocol";
+import { STREAM_CLOSE, STREAM_LIMITS } from "../../adapters/src/machine-protocol";
 import type { BrowserHandoff, DesktopStatus } from "../src/index";
 import {
   applyBrowserHandoff,
@@ -20,6 +20,11 @@ import {
   keys,
   previewGivesUp,
   screenRefusalMs,
+  TERMINAL_SIZE,
+  terminalCloseState,
+  terminalFrame,
+  terminalSize,
+  terminalSocketUrl,
 } from "../src/index";
 import { conversationSeat, SHARED_SEAT, screenId } from "../src/lib/seat";
 
@@ -188,6 +193,56 @@ describe("the agent's screen", () => {
     expect(qc.getQueryData<DesktopStatus>(keys.agentDesktop("o1", screenId("a1", SHARED_SEAT)))).toMatchObject({
       handoff: { id: taken.id },
     });
+  });
+});
+
+describe("a terminal on the agent's computer", () => {
+  test("its sizes mirror the server's, and a size out of them is brought within", () => {
+    expect(TERMINAL_SIZE).toEqual({ cols: STREAM_LIMITS.cols, rows: STREAM_LIMITS.rows });
+    expect(terminalSize(80, 24)).toEqual({ cols: 80, rows: 24 });
+    expect(terminalSize(2, 1)).toEqual({ cols: 20, rows: 5 });
+    expect(terminalSize(999.7, 300)).toEqual({ cols: 400, rows: 200 });
+    expect(terminalSize(132.9, Number.NaN)).toEqual({ cols: 132, rows: 5 });
+  });
+
+  test("its socket's address: its size, and a code session's id to start in its worktree (ADR 0215)", () => {
+    const base = { protocol: "https:", host: "agentes.chat" };
+    expect(terminalSocketUrl(base, { orgId: "o1", agentId: "a1", cols: 80, rows: 24 })).toBe(
+      "wss://agentes.chat/api/terminal?orgId=o1&agentId=a1&cols=80&rows=24",
+    );
+    expect(terminalSocketUrl(base, { orgId: "o1", agentId: "a1", cols: 80, rows: 24, session: "s1" })).toBe(
+      "wss://agentes.chat/api/terminal?orgId=o1&agentId=a1&cols=80&rows=24&session=s1",
+    );
+    expect(terminalSocketUrl("http://localhost:5173/x", { orgId: "o1", agentId: "a1", cols: 80, rows: 24 })).toBe(
+      "ws://localhost:5173/api/terminal?orgId=o1&agentId=a1&cols=80&rows=24",
+    );
+  });
+
+  test("close codes: why it closed, in the pane's words", () => {
+    expect(terminalCloseState(1000)).toBe("ended");
+    // Where sessions are screened no terminal opens (ADR 0076 §7); any other 404 has none for this agent.
+    expect(terminalCloseState(4404, "no_terminal")).toBe("screening");
+    expect(terminalCloseState(4404, "no_computer")).toBe("unavailable");
+    // Only who may drive the computer; signed out, or a workspace closed meanwhile, is something else.
+    expect(terminalCloseState(4403, "forbidden")).toBe("forbidden");
+    expect(terminalCloseState(4403, "signed_out")).toBe("failed");
+    expect(terminalCloseState(4503, "offline")).toBe("offline");
+    expect(terminalCloseState(4429, "too_many_streams")).toBe("busy");
+    expect(terminalCloseState(4502, "runner_outdated")).toBe("outdated");
+    expect(terminalCloseState(4502, "machine_paused")).toBe("paused");
+    expect(terminalCloseState(4502, "not_allowed")).toBe("unavailable");
+    expect(terminalCloseState(4502, "terminal_unavailable")).toBe("unavailable");
+    expect(terminalCloseState(4502, "outside_workspace")).toBe("failed");
+    for (const code of [1001, 1006, 1011, 1013, 4400, 4408]) expect(terminalCloseState(code)).toBe("failed");
+  });
+
+  test("its text frames: the shell's end, and a computer too old for the session's folder", () => {
+    expect(terminalFrame('{"type":"exit","code":0}')).toBe("exit");
+    expect(terminalFrame('{"type":"exit","code":null}')).toBe("exit");
+    expect(terminalFrame('{"type":"cwd_ignored"}')).toBe("cwd_ignored");
+    expect(terminalFrame('{"type":"mode","mode":"watch"}')).toBeNull();
+    expect(terminalFrame("null")).toBeNull();
+    expect(terminalFrame("{")).toBeNull();
   });
 });
 

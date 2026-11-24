@@ -30,7 +30,7 @@ import {
   union,
   updateShape,
 } from "@agenteschat/live/canvas";
-import { DetailsDialog, EmptyState, isApple } from "@agenteschat/ui";
+import { DetailsDialog, EmptyState, isApple, transferFiles } from "@agenteschat/ui";
 import {
   type ClipboardEvent,
   type CSSProperties,
@@ -46,12 +46,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useMaybeArtifactViewer } from "@/components/artifacts/ArtifactViewer";
 import { fileSaver } from "@/components/artifacts/fileSaver";
 import { ImageZoom } from "@/components/artifacts/ImageZoom";
+import { useMaybeArtifactViewer } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
-import { type MenuEntry, openContextMenu } from "@/lib/context-menu";
+import { copyImage as copyPicture, type MenuEntry, openContextMenu } from "@/lib/context-menu";
 import { useToast } from "@/lib/toast";
 import type { LiveEditorProps } from "../editor";
 import { useFileAgentHere } from "../talk";
@@ -246,20 +246,6 @@ async function naturalSize(file: File): Promise<{ w: number; h: number }> {
     };
     img.src = url;
   });
-}
-
-/** A picture as PNG (what the clipboard takes everywhere). */
-async function asPng(blob: Blob): Promise<Blob> {
-  if (blob.type === "image/png") return blob;
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((png) => (png ? resolve(png) : reject(new Error("png"))), "image/png"),
-  );
 }
 
 /** A file name from a prompt ("Uma raposa na neve" → "uma-raposa-na-neve.png"). */
@@ -993,18 +979,11 @@ function CanvasEditor({
     (shape: ShapeView) => {
       if (!shape.asset) return;
       const url = assetUrl(shape.asset);
-      try {
-        // The picture as a promise, so the browser still counts the press as what asked to copy.
-        const png = fetch(url, { credentials: "same-origin" })
-          .then((res) => res.blob())
-          .then(asPng);
-        void navigator.clipboard
-          .write([new ClipboardItem({ "image/png": png })])
-          .then(() => toast.show(t("live.canvas.imageCopied")))
-          .catch(() => toast.show(t("live.canvas.errors.copyImage"), "error"));
-      } catch {
-        toast.show(t("live.canvas.errors.copyImage"), "error");
-      }
+      copyPicture(
+        fetch(url, { credentials: "same-origin" }).then((res) => res.blob()),
+        () => toast.show(t("live.canvas.imageCopied")),
+        () => toast.show(t("live.canvas.errors.copyImage"), "error"),
+      );
     },
     [assetUrl, toast, t],
   );
@@ -1907,7 +1886,7 @@ function CanvasEditor({
     setDropping(false);
     if (readOnly || !carriesFiles(e)) return;
     e.preventDefault();
-    void placeFiles([...e.dataTransfer.files], worldOf(e));
+    void placeFiles(transferFiles(e.dataTransfer), worldOf(e));
   };
 
   // ── Menus ───────────────────────────────────────────────────────────────────────────────────────────────────────

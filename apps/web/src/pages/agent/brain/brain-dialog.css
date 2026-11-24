@@ -196,7 +196,7 @@
 }
 
 /* ---------- a line per setting ---------- */
-/* Its name, its value, the way in; the names share one column across the lines (subgrid). */
+/* Its name at the start, its value at the end before the way in (a settings list's row); the chevrons share one edge. */
 .bd-lines {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) 16px;
@@ -223,15 +223,21 @@
 .bd-line--still {
   cursor: default;
 }
-.bd-line__k {
-  color: var(--ink-muted);
+/* With no way in, the value ends where the others' chevrons do. */
+.bd-line--still > .bd-line__v {
+  grid-column: 2 / -1;
+}
+.bd-line:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .bd-line__v {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-  font-weight: 600;
+  color: var(--ink-muted);
 }
 .bd-line__v > .ac-icon,
 .bd-line__v > .ac-brand {
@@ -252,7 +258,7 @@
 .bd-line[aria-expanded="true"] > .bd-line__chev {
   transform: rotate(180deg);
 }
-.bd-line:hover .bd-line__k {
+.bd-line:enabled:hover :is(.bd-line__v, .bd-line__chev) {
   color: var(--ink);
 }
 html:not([data-pointer]) .bd-line:focus-visible {

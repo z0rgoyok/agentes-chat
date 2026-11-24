@@ -85,7 +85,7 @@ test("password reset: the email links straight to the web's /reset-password with
 });
 
 test("at most 3 reset and 3 confirmation emails an hour to one address: more go nowhere, with the same answer", async () => {
-  t = await createTestServer({ env: { ALLOW_SIGNUP: "true" } });
+  t = await createTestServer({ unconfirmedSignUps: true, env: { ALLOW_SIGNUP: "true" } });
   const ana = browser(t);
   await signUp(ana, "ana@example.com");
   const reset = () =>
@@ -117,7 +117,7 @@ test("at most 3 reset and 3 confirmation emails an hour to one address: more go 
 });
 
 test("the sign-up's own language: the confirmation email and the account follow it before anything else is picked", async () => {
-  t = await createTestServer({ env: { ALLOW_SIGNUP: "true" } });
+  t = await createTestServer({ unconfirmedSignUps: true, env: { ALLOW_SIGNUP: "true" } });
   const localeOf = async (email: string) =>
     (await t.db.select({ locale: schema.users.locale }).from(schema.users).where(eq(schema.users.email, email)))[0]
       ?.locale;

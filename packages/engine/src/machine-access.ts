@@ -564,7 +564,13 @@ export async function wakeForAccessDecision(deps: AccessDeps, requestId: string,
   const computer = machine?.name ?? "the computer";
   const [origin] = row.runId
     ? await deps.db
-        .select({ hop: agentRuns.hop, stretchId: agentRuns.stretchId, triggerMessageId: agentRuns.triggerMessageId })
+        .select({
+          hop: agentRuns.hop,
+          stretchId: agentRuns.stretchId,
+          triggerMessageId: agentRuns.triggerMessageId,
+          threadRootId: agentRuns.threadRootId,
+          replyInThread: agentRuns.replyInThread,
+        })
         .from(agentRuns)
         .where(eq(agentRuns.id, row.runId))
     : [];
@@ -596,7 +602,8 @@ export async function wakeForAccessDecision(deps: AccessDeps, requestId: string,
     });
     const runs =
       eligible.length > 0 && !(await hopLimitReached(tx, message, options.maxHops))
-        ? await createAgentRuns(tx, message, [row.agentId], "mention")
+        ? // The run that asked goes on where it answered (ADR 0214).
+          await createAgentRuns(tx, message, [row.agentId], "mention", origin ? { after: origin } : {})
         : [];
     return { message, runs };
   });

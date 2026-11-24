@@ -348,6 +348,21 @@ export function limitOffers<A extends OfferAccount>(
     .filter((o, i, all) => all.findIndex((x) => accountOf(x.account) === accountOf(o.account)) === i);
 }
 
+/**
+ * A kind's accounts around the computer's own sign-in of that kind: before it, those it lists after them. OpenCode's
+ * own sign-in is its free models, nobody's plan: the accounts with room come first, those at their limit after it.
+ * Any other kind's own sign-in leads. The phone's mirror of the web's `sortHave`.
+ */
+export function aroundOwnSignIn<A extends { usage?: PlanMeterUsage | null }>(
+  kind: string,
+  accounts: readonly A[],
+  now = Date.now(),
+): [before: A[], after: A[]] {
+  if (kind !== "opencode") return [[], [...accounts]];
+  const atLimit = (a: A) => (a.usage ? planState(a.usage, now).state === "limited" : false);
+  return [accounts.filter((a) => !atLimit(a)), accounts.filter(atLimit)];
+}
+
 /** From here long work pauses until the window resets (ADR 0118); replies to people go on until the limit. */
 export const PLAN_PAUSE = 99;
 /** From here an agent is told where its plan stands, so it can say a long task may pause. */
@@ -417,12 +432,14 @@ export interface HaveRank {
   signIn?: boolean;
   /** A workspace key. */
   isKey?: boolean;
+  /** Nobody's free tier (OpenCode's free models): after the plans with room, before the sign-ins and keys. */
+  free?: boolean;
 }
 
 /**
  * Accounts to pick from, web and phone: a plan used in one click first, the one with most room on top (one that
- * doesn't say counts as half used); then one that asks for a sign-in, the workspace's keys, a plan at its limit, and
- * last what can't be picked.
+ * doesn't say counts as half used); then a free tier, one that asks for a sign-in, the workspace's keys, a plan at its
+ * limit, and last what can't be picked.
  */
 export function sortHave<T extends HaveRank>(items: readonly T[], now = Date.now()): T[] {
   const rank = (i: HaveRank) => {
@@ -432,6 +449,7 @@ export function sortHave<T extends HaveRank>(items: readonly T[], now = Date.now
       (s?.state === "limited" ? 4000 : 0) +
       (i.isKey ? 2000 : 0) +
       (i.signIn ? 1000 : 0) +
+      (i.free ? 500 : 0) +
       (s?.used ?? 50)
     );
   };

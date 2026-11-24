@@ -6,7 +6,8 @@ setupDom();
 import type { ApiClient, Routine } from "@agenteschat/client";
 import { nextLabel } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -27,8 +28,7 @@ const click = async (el: Element) => {
  * The seed's request in #eng as a post prepared for later (`schedule_action`), in `status`; `lapsed`: approved, and
  * its time and grace went by without its run doing it.
  */
-function withAhead(status: "pending" | "approved" | "lapsed") {
-  const state = seedState();
+function withAhead(status: "pending" | "approved" | "lapsed", state = seedState()) {
   const first = state.approvals[0];
   if (!first) throw new Error("no approval");
   Object.assign(first, {
@@ -125,45 +125,55 @@ describe("actions approved ahead, on one shared card", () => {
   });
 });
 
-describe("an action approved ahead, on Aprovações", () => {
-  /** The request, open beside the list. */
+describe("an action approved ahead, in the inbox", () => {
+  /**
+   * The request, open beside the inbox's list (ADR 0218): its waiting notification's item, or, once decided, the one
+   * among the decided requests.
+   */
   const review = async (state: ReturnType<typeof seedState>) => {
     await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
     await settle(8);
-    const pane = screen().getByRole("region", { name: SHOWN });
-    expect(pane.classList.contains("ap-review")).toBe(true);
-    return pane;
+    const card = document.querySelector(".ib-read .rq") as HTMLElement;
+    expect(card.textContent).toContain(SHOWN);
+    return card;
   };
+  const waiting = () =>
+    seedState({
+      notifications: [
+        notification({
+          id: "n-post",
+          kind: "approval",
+          waiting: true,
+          actors: [{ type: "agent", id: ADA_ID }],
+          source: { approvalId: "ap-merge", channelId: ENG_ID },
+        }),
+      ],
+    });
 
-  test("the open request says it approves a future action, and what approving now covers", async () => {
-    const pane = await review(withAhead("pending"));
-    expect(pane.querySelector(".ap-card__ahead")?.textContent).toBe(
+  test("the open request says it approves a future action, with its decision", async () => {
+    const card = await review(withAhead("pending", waiting()));
+    expect(card.querySelector(".ap-ask__ahead")?.textContent).toBe(
       `Aprova uma ação futura: roda sozinha ${WHEN}, sem pedir de novo`,
     );
-    expect(pane.querySelector(".ap-bar p")).toBeNull();
-    expect(pane.querySelector("[data-approve]")?.getAttribute("aria-description")).toBe(
-      `Aprovar agora vale para ${WHEN}.`,
-    );
-    expect(pane.textContent).not.toContain("Aprovar roda a ação na hora.");
+    expect(card.querySelector("[data-approve]")?.getAttribute("data-approve")).toBe("ap-merge");
   });
 
-  test("approved, the open request says when it runs, and Cancel withdraws it", async () => {
+  test("approved, it opens among the decided requests saying when it runs, and Cancel withdraws it", async () => {
     const state = withAhead("approved");
-    const outcome = (await review(state)).querySelector(".ap-outcome") as HTMLElement;
-    expect(outcome.textContent).toContain(`Agendado para ${WHEN}`);
-    await click(within(outcome).getByRole("button", { name: "Cancelar" }));
+    const card = await review(state);
+    expect(document.querySelector(".ib-filter")?.textContent).toBe("Pedidos decididos");
+    expect(document.querySelector('.ap-li[data-id="ap-merge"]')?.getAttribute("aria-current")).toBe("true");
+    expect(card.textContent).toContain(`Agendado para ${WHEN}`);
+    await click(within(card).getByRole("button", { name: "Cancelar" }));
     expect(state.calls.filter((c) => c.method === "approvals.cancel").map((c) => c.args)).toEqual([
       [ORG_ID, "ap-merge"],
     ]);
   });
 
-  test("approved but not done by its run in time, it says so, not that nobody decided", async () => {
-    const pane = await review(withAhead("lapsed"));
-    expect(pane.querySelector(".ap-outcome")?.textContent).toContain(
-      "Aprovada, mas não rodou a tempo. Nada foi feito.",
-    );
-    expect(document.body.textContent).not.toContain("Ninguém decidiu em 24 h");
-    expect(within(pane).queryByRole("button", { name: "Pedir de novo" })).toBeNull();
+  test("approved but not done by its run in time, it says so under how it ended", async () => {
+    const card = await review(withAhead("lapsed"));
+    expect(card.getAttribute("aria-label")).toBe("Pedido expirado");
+    expect(card.textContent).toContain("Aprovada, mas não rodou a tempo. Nada foi feito.");
   });
 });
 

@@ -30,6 +30,7 @@ import { AskButtons, AskDone, AskFoot, AskNote, AskWaiting } from "../chat/asks"
 import { openTeamTemplates } from "../right-hand/TeamTemplates";
 import { useFailed } from "../routines/hooks";
 import { useDirectory, useMeId } from "../shared/hooks";
+import { ownsIn } from "../shared/owner";
 import { usePlanHold } from "./parts";
 
 type Answer = "pending" | "answering" | "still_missing";
@@ -109,7 +110,8 @@ export function NoAiCard({ message: m }: { message: Message }) {
   const plan = card.own ? planOfKind(card.own) : again;
   const state = aiStateOf(status.data, card.agentId);
   const ready = state !== undefined && state !== "no_ai" && answer !== "still_missing";
-  const mayAnswer = card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || managesAgent(agent);
+  // Who asked, its owner (or one who holds the role that answers for it, ADR 0085, addendum of 2026-11-21) or an admin.
+  const mayAnswer = card.forUserId === meId || ownsIn(dir.memberById, meId, agent) || managesAgent(agent);
   const answering = answer === "answering";
   // The team's right hand on a plan that can't think now (ADR 0137 §7): one plain line, and the way to an API key.
   const planLine = card.planLine && !(planLinePasses(card.planLine) && state === "ready") ? card.planLine : null;
@@ -137,7 +139,7 @@ export function NoAiCard({ message: m }: { message: Message }) {
         ? t("noAi.card.connected", { name })
         : answer === "still_missing"
           ? t("noAi.card.stillMissing", { name })
-          : t(noAiLineKey(card), agentGrammar(name));
+          : t(noAiLineKey(card), { ...agentGrammar(name), computer: card.computer });
   const answerNow = async () => {
     setAnswer("pending");
     try {
@@ -227,7 +229,8 @@ function KeptCard({ message: m, card, hold }: { message: Message; card: NoAiCard
   const name = agent?.name ?? t("channel.unknownAgent");
   const ai = aiStateOf(status.data, card.agentId);
   const state = keptCardState({ hold, paid: false, ready: ai !== undefined && ai !== "no_ai" });
-  const mayAnswer = card.forUserId === meId || (meId !== null && agent?.ownerUserId === meId) || managesAgent(agent);
+  // Who asked, its owner (or one who holds the role that answers for it, ADR 0085, addendum of 2026-11-21) or an admin.
+  const mayAnswer = card.forUserId === meId || ownsIn(dir.memberById, meId, agent) || managesAgent(agent);
   const replied = messages?.some(
     (x) => x.author.id === card.agentId && x.createdAt > m.createdAt && !noAiCardOf(x.meta),
   );

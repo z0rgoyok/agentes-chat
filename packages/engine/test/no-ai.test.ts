@@ -212,9 +212,9 @@ test("a computer brain signed out with nothing to fall back on: the card, not a 
   expect(card?.meta.noAi).toMatchObject({ reason: "not_signed_in", intent: "task" });
   // It says Claude Code isn't signed in on its computer (it has no account of its own), not that nothing is
   // connected, and so does the conversation list's preview of it.
-  expect(card?.body).toBe("I can't answer yet: Claude Code isn't signed in on my computer.");
+  expect(card?.body).toBe("I can't answer yet: Claude Code isn't signed in on MacBook.");
   expect(previewMeta(card?.meta)).toMatchObject({ bodyCode: "no_ai", noAi: { reason: "not_signed_in" } });
-  expect(previewMeta(card?.meta)?.noAi).toEqual({ reason: "not_signed_in", own: "claude_code" });
+  expect(previewMeta(card?.meta)?.noAi).toEqual({ reason: "not_signed_in", own: "claude_code", computer: "MacBook" });
 });
 
 test("Codex saved on the workspace's computer's own sign-in: the run fails at once, Connect, never a wait", async () => {
@@ -252,8 +252,8 @@ test("Codex saved on the workspace's computer's own sign-in: the run fails at on
   // The apps' own words for it: Codex isn't signed in on this computer, connect a ChatGPT account.
   expect(card?.meta.noAi).toMatchObject({ reason: "not_signed_in", own: "codex" });
   // Its text, and the conversation list's preview of it: nothing was ever signed in there to sign out of.
-  expect(card?.body).toBe("I can't answer yet: Codex isn't signed in on my computer.");
-  expect(previewMeta(card?.meta)?.noAi).toEqual({ reason: "not_signed_in", own: "codex" });
+  expect(card?.body).toBe("I can't answer yet: Codex isn't signed in on Computador.");
+  expect(previewMeta(card?.meta)?.noAi).toEqual({ reason: "not_signed_in", own: "codex", computer: "Computador" });
 });
 
 test("a turn its computer's own sign-in refuses says so on the card, as the computer's, not an account's", async () => {

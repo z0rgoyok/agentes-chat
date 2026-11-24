@@ -21,6 +21,8 @@ export interface ChannelActions {
   /** A message opened in place ("Ver mais"): the list stops following its end, so the reader stays on the words. */
   letGo?: () => void;
   channelAgents: Agent[];
+  /** The conversation's name ("eng"), for what its rows say about where they are (a copied link's text). */
+  channelName?: string;
   /**
    * "Responder": in a channel, that message's thread opens in the panel beside it (a reply there
    * starts the thread); in a thread view, the next message answers this one ("Respondendo a Ana"). Absent where

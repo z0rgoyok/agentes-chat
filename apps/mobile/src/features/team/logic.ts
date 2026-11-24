@@ -1,4 +1,4 @@
-import type { AgentGroup, Channel, Member, TeamAgent } from "@agenteschat/client";
+import type { AgentGroup, Channel, Member, OrgRole, TeamAgent } from "@agenteschat/client";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
 import { type ChartNode, chartByPerson, mapColumns } from "@agenteschat/client/lib/team-views";
 
@@ -16,10 +16,22 @@ export interface TeamSection {
   agents: TeamAgent[];
 }
 
+/** The org chart's column, as `chartByPerson` gives it. */
+export type ChartColumn = ReturnType<typeof chartByPerson>[number];
+
+/**
+ * The org chart's columns as the phone draws them: the roles that answer for agents first (ADR 0085, addendum of
+ * 2026-11-21), then the people, each in the order of its first agent, and the agents with nobody last.
+ */
+export const rolesFirst = <C extends Pick<ChartColumn, "roleId">>(columns: readonly C[]): C[] => [
+  ...columns.filter((c) => c.roleId),
+  ...columns.filter((c) => !c.roleId),
+];
+
 /**
  * The phone's Equipe (ADR 0148) as sections, one view at a time, from the same lists as the web: Lista by setor
- * (the agents in none last), Organograma by the person each agent reports to, Mapa by channel (the web's columns
- * stacked). The right hand is never in them: it heads the org chart on its own.
+ * (the agents in none last), Organograma by the role or the person each agent reports to (`rolesFirst`), Mapa by
+ * channel (the web's columns stacked). The right hand is never in them: it heads the org chart on its own.
  */
 export function teamSections(
   view: TeamView,
@@ -29,6 +41,8 @@ export function teamSections(
     members: readonly Member[];
     channels: readonly Channel[];
     rightHandId: string | null;
+    /** The workspace's roles, to name a role's column of the org chart. */
+    roles?: readonly OrgRole[];
   },
 ): TeamSection[] {
   const skip = (a: TeamAgent) => a.id === input.rightHandId;
@@ -52,9 +66,9 @@ export function teamSections(
     ];
   }
   if (view === "chart") {
-    return chartByPerson(agents, input.groups, new Set(people.keys())).map((c) => ({
-      key: c.personId ?? "none",
-      title: nameOf(c.personId),
+    return rolesFirst(chartByPerson(agents, input.groups, new Set(people.keys()))).map((c) => ({
+      key: c.roleId ? `role:${c.roleId}` : (c.personId ?? "none"),
+      title: c.roleId ? (input.roles?.find((r) => r.id === c.roleId)?.name ?? null) : nameOf(c.personId),
       agents: c.agents,
     }));
   }

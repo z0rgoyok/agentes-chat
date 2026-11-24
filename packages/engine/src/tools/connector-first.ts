@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, isNull, or, schema, sql } from "@agenteschat/db";
 import { type ConnectorState, connectorStates, type ServerCatalog } from "../connectors/listing";
+import { connectorsForUrl } from "../connectors/sites";
 import { ownerOnlyPerson } from "../personal-use";
 import { secretSite } from "../secret-request-tool";
 import { REQUEST_SECRET_TOOL, secretStillHeld } from "../secrets";
@@ -128,8 +129,14 @@ const listed = (tools: ToolDefinition[]) =>
     .map((t) => t.name)
     .join(", ")}${tools.length > TOOLS_NAMED ? "…" : ""}`;
 
-/** The right way to what the key was for, by how the agent stands with the service. */
-async function wayIn(ctx: ToolContext, service: ConnectorState, usable: ToolDefinition[], all: ToolDefinition[]) {
+/** The right way to what the key (or the browser: `instead`) was for, by how the agent stands with the service. */
+async function wayIn(
+  ctx: ToolContext,
+  service: ConnectorState,
+  usable: ToolDefinition[],
+  all: ToolDefinition[],
+  instead = "a key",
+) {
   const { label, state } = service;
   const ofService = (t: ToolDefinition) => Boolean(t.connectionId && service.connectionIds.includes(t.connectionId));
   const has = (name: string) => usable.some((t) => t.name === name);
@@ -140,20 +147,20 @@ async function wayIn(ctx: ToolContext, service: ConnectorState, usable: ToolDefi
     const more = lacking.length
       ? ` If you need what you lack (${listed(lacking)}), say so: an admin gives it on your page, in Tools and access (in Portuguese, Ferramentas e acesso).`
       : "";
-    return `${label} is connected and you have its tools (${listed(mine)}): use them, not a key.${more}`;
+    return `${label} is connected and you have its tools (${listed(mine)}): use them, not ${instead}.${more}`;
   }
   if (state === "not_given" && has(REQUEST_PERMISSION_TOOL)) {
     const permission = (await missingPermissions(ctx)).find((m) =>
       service.connectionIds.includes(m.connectionId ?? ""),
     );
     if (permission) {
-      return `${label} is connected in this workspace but not given to you: ask for it with ${REQUEST_PERMISSION_TOOL} (permission "${permission.id}"), not for a key.`;
+      return `${label} is connected in this workspace but not given to you: ask for it with ${REQUEST_PERMISSION_TOOL} (permission "${permission.id}"), not for ${instead}.`;
     }
   }
   if (state === "not_connected" && has(OFFER_CONNECT_APP_TOOL)) {
-    return `${label} isn't connected in this workspace: offer it with ${OFFER_CONNECT_APP_TOOL} (app "${label}"), not a key.`;
+    return `${label} isn't connected in this workspace: offer it with ${OFFER_CONNECT_APP_TOOL} (app "${label}"), not ${instead}.`;
   }
-  return `${label}: ${HOW_TO_GET[state](label)} Tell the person this instead of asking for a key.`;
+  return `${label}: ${HOW_TO_GET[state](label)} Tell the person this instead of asking for ${instead}.`;
 }
 
 /**
@@ -179,4 +186,70 @@ export async function connectorFirst(
   const way = await wayIn(ctx, service, tools.usable, tools.all);
   const unheard = said ? "`person_said` isn't what a person wrote here. " : "";
   return `${unheard}${way} Only if a person told you to use a key or password: call ${REQUEST_SECRET_TOOL} again with \`person_said\`, their exact words from this conversation. A key an app of theirs reads goes in its file (\`target\` file).`;
+}
+
+/** `browserFirst`'s answer code: a run step's `data.code`, how the next open in the conversation knows it was said. */
+export const BROWSER_CONNECTOR_FIRST = "browser.connector_first";
+/** How long one suggestion stands in a conversation: a person who chose the browser isn't asked again before that. */
+const SUGGESTED_FOR = "7 days";
+
+/** The addresses a browser call opens: `browser_open`'s, a `browser_do`'s `open` steps', a new tab's. */
+export function browserOpens(name: string, input: Record<string, unknown>): string[] {
+  if (name === "browser_open") return [str(input.url)];
+  if (name === "browser_tabs" && input.action === "open") return [str(input.url)];
+  if (name !== "browser_do" || !Array.isArray(input.steps)) return [];
+  return input.steps.flatMap((s) => (s && typeof s === "object" && s.do === "open" ? [str(s.url)] : []));
+}
+
+/** Whether this agent already heard, in this conversation, of a connector for this site. */
+async function suggestedHere(ctx: ToolContext, connector: string) {
+  const { agentRuns: r, agentRunSteps: st } = schema;
+  const [hit] = await ctx.db
+    .select({ id: st.id })
+    .from(st)
+    .innerJoin(r, eq(r.id, st.runId))
+    .where(
+      and(
+        eq(r.orgId, ctx.orgId),
+        eq(r.agentId, ctx.agentId),
+        eq(r.channelId, ctx.channelId),
+        sql`${r.createdAt} > now() - ${SUGGESTED_FOR}::interval`,
+        eq(st.orgId, ctx.orgId),
+        eq(st.kind, "tool_result"),
+        sql`${st.data}->'data'->>'code' = ${BROWSER_CONNECTOR_FIRST}`,
+        sql`${st.data}->'data'->'connectors' ? ${connector}`,
+      ),
+    )
+    .limit(1);
+  return hit !== undefined;
+}
+
+/**
+ * A browser call to a page of a service we connect natively (Meta's Ads Manager, X): the first time in a conversation,
+ * nothing opens and the agent hears the better way, to suggest in one line (the connect card) before going on. It is
+ * a suggestion: opening the page again opens it, so a person who'd rather use the browser gets it. Null: open it.
+ */
+export async function browserFirst(
+  ctx: ToolContext,
+  catalog: ServerCatalog,
+  urls: string[],
+  tools: { usable: ToolDefinition[]; all: ToolDefinition[] },
+): Promise<{ content: string; connectors: string[] } | null> {
+  const ids = [...new Set(urls.flatMap(connectorsForUrl))];
+  if (ids.length === 0) return null;
+  const person = await ownerOnlyPerson(ctx);
+  const states = await connectorStates(ctx.db, ctx.orgId, catalog, { usable: tools.usable, listed: tools.all }, person);
+  const services = states.filter(
+    (s) => s.state !== "soon" && s.state !== "unavailable" && ids.some((id) => s.names.includes(id)),
+  );
+  if (services.length === 0) return null;
+  const connectors = ids.filter((id) => services.some((s) => s.names.includes(id)));
+  const fresh = [];
+  for (const id of connectors) if (!(await suggestedHere(ctx, id))) fresh.push(id);
+  if (fresh.length === 0) return null;
+  const ways = await Promise.all(services.map((s) => wayIn(ctx, s, tools.usable, tools.all, "the browser")));
+  return {
+    connectors,
+    content: `Not opened yet: this site has an app connector here, which works without signing in to the site in your browser. ${ways.join(" ")} Before going on, suggest it to the person in one short line, with its card when you can offer one, and let them choose: it is a suggestion, never a reason to refuse. If they already said to use the browser, or say so now, or nobody is here to ask, open the page again: it opens.`,
+  };
 }

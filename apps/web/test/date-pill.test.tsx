@@ -10,9 +10,16 @@ import { renderApp, screen, settle } from "./render";
 
 afterEach(cleanup);
 
+/** How many times a day line's place was read (`dayAtTop` reads each line above the top edge once a pass). */
+let reads = 0;
 const at = (el: Element, top: number) => {
-  (el as HTMLElement).getBoundingClientRect = () => ({ top }) as DOMRect;
+  (el as HTMLElement).getBoundingClientRect = () => {
+    if ((el as HTMLElement).dataset.day) reads++;
+    return { top } as DOMRect;
+  };
 };
+/** The next frame, where the pill reads what is at the top. */
+const frame = () => act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
 
 describe("the day at the top of the list", () => {
   const list = (tops: [string, number][], listTop = 100) => {
@@ -79,10 +86,14 @@ describe("the floating date while scrolling", () => {
     // A layout change scrolling the list says nothing.
     await act(async () => fireEvent.scroll(log));
     expect(document.querySelector(".channel__date")).toBeNull();
+    // A wheel's many scroll events in one frame: the pill reads the day lines once.
+    reads = 0;
     await act(async () => {
       fireEvent.wheel(log, { deltaY: -40 });
-      fireEvent.scroll(log);
+      for (let i = 0; i < 5; i++) fireEvent.scroll(log);
     });
+    await frame();
+    expect(reads).toBe(dividers.length);
     const pill = document.querySelector(".channel__date") as HTMLElement;
     expect(pill.getAttribute("aria-hidden")).toBe("true");
     expect(pill.hasAttribute("data-shown")).toBe(true);
@@ -98,11 +109,13 @@ describe("the floating date while scrolling", () => {
     const dividers = [...log.querySelectorAll<HTMLElement>("[data-day]")];
     at(log, 0);
     for (const d of dividers) at(d, -100);
-    const scrollUp = () =>
-      act(async () => {
+    const scrollUp = async () => {
+      await act(async () => {
         fireEvent.wheel(log, { deltaY: -40 });
         fireEvent.scroll(log);
       });
+      await frame();
+    };
     await scrollUp();
     const pill = document.querySelector(".channel__date") as HTMLElement;
     expect(pill.hasAttribute("data-shown")).toBe(true);

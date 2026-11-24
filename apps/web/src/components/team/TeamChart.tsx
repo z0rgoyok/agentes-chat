@@ -1,6 +1,7 @@
 import type { AgentGroup, Team, TeamAgent } from "@agenteschat/client";
 import { useRoles } from "@agenteschat/client";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
+import { roleOfOwnerValue } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
@@ -233,7 +234,9 @@ function ByPerson({ team, groups }: { team: Team; groups: AgentGroup[] }) {
   const { org } = useOrg();
   const look = useTeamLookups(groups);
   const roles = useRoles(org.id).data?.roles ?? [];
-  const columns = chartByPerson(team.agents, groups, look.members, look.isLodi);
+  const chart = chartByPerson(team.agents, groups, look.members, look.isLodi);
+  // A role that answers for agents (ADR 0085, addendum of 2026-11-21) heads a column of its own, before the people's.
+  const columns = [...chart.filter((c) => c.roleId), ...chart.filter((c) => !c.roleId)];
   const lodi = look.lodi;
   const line = useLineDrag(team.agents, groups, lodi?.id);
   const arranges = can(org, "manage_agents");
@@ -258,14 +261,24 @@ function ByPerson({ team, groups }: { team: Team; groups: AgentGroup[] }) {
         {columns.map((c) => {
           const m = c.personId ? look.dir.memberById.get(c.personId) : undefined;
           const role = roles.find((r) => m?.roleIds?.includes(r.id));
+          const owner = c.roleId ? roles.find((r) => r.id === c.roleId) : undefined;
+          const key = c.roleId ? `role:${c.roleId}` : (c.personId ?? "none");
           return (
-            <div key={c.personId ?? "none"} className="team-tree__col">
+            <div key={key} className="team-tree__col">
               <div
                 className="team-node team-node--person"
-                data-none={c.personId ? undefined : ""}
-                {...(arranges ? line.target(null, `person:${c.personId ?? "none"}`) : {})}
+                data-none={c.personId || c.roleId ? undefined : ""}
+                {...(arranges ? line.target(null, `person:${key}`) : {})}
               >
-                {c.personId && m ? (
+                {owner ? (
+                  <>
+                    <RoleMark color={owner.color} icon={owner.icon} size={24} />
+                    <span className="team-node__text">
+                      <b className="ac-captop">{owner.name}</b>
+                      <span className="muted">{t("audience.roleMembers", { count: owner.people })}</span>
+                    </span>
+                  </>
+                ) : c.personId && m ? (
                   <>
                     <PersonAvatar id={c.personId} name={m.name} size="sm" presence />
                     <span className="team-node__text">
@@ -315,7 +328,12 @@ function BySector({ team, groups }: { team: Team; groups: AgentGroup[] }) {
     (a) => a.id,
   );
   const column = (key: string, group: AgentGroup | null, agents: TeamAgent[]) => {
-    const leads = [...new Set(agents.map((a) => reportsTo(a, groups, look.members, team.agents)).filter(Boolean))];
+    // A person's id, or a role that answers for agents as `role:<id>` (ADR 0085, addendum of 2026-11-21).
+    const leads = [...new Set(agents.flatMap((a) => reportsTo(a, groups, look.members, team.agents) ?? []))];
+    const leadName = (id: string) => {
+      const roleId = roleOfOwnerValue(id);
+      return roleId ? look.ownerName(null, roleId) : look.personName(id);
+    };
     const supervised = group ? sectorSupervisor(group, team.agents) : null;
     const others = agents.filter((a) => a.id !== drag.dragging);
     const lineAt = drag.over?.groupId === (group?.id ?? null) && group ? drag.over.index : null;
@@ -343,7 +361,7 @@ function BySector({ team, groups }: { team: Team; groups: AgentGroup[] }) {
           <span className="muted small">{t("team.agents", { count: agents.length })}</span>
           {leads.length > 0 && (
             <span className="muted small">
-              {t("team.chart.responsible", { names: leads.map((id) => look.personName(id)).join(", ") })}
+              {t("team.chart.responsible", { names: leads.map(leadName).join(", ") })}
             </span>
           )}
           {supervised && (

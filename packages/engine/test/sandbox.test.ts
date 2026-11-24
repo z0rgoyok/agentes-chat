@@ -490,7 +490,7 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
     });
     expect(execs()).toHaveLength(1);
     expect(execs()[0]).not.toHaveProperty("approved");
-    // With why: the agent's own reason on the card; nothing else reaches the computer.
+    // With why: the computer decides the same, and the agent's own reason is on the card.
     const asked = await f.tools?.invoke(ctx, {
       toolUseId: crypto.randomUUID(),
       name: "run_code",
@@ -498,12 +498,13 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
     });
     if (asked?.type !== "approval") throw new Error(`expected an approval, got ${asked?.type}`);
     expect(asked.approval).toMatchObject({ tool: "run_code", why: WHY, channelId: f.general.id });
-    expect(execs()).toHaveLength(1);
+    expect(execs()).toHaveLength(2);
+    expect(execs()[1]).not.toHaveProperty("approved");
     // A person approved it: that exact call runs, and the computer is told a person approved it.
     const ran = await f.tools?.executeApproved(ctx, { ...asked.approval, status: "approved" });
     expect(ran?.content).toContain("pushed");
-    expect(execs()).toHaveLength(2);
-    expect(execs()[1]).toMatchObject({ approved: true });
+    expect(execs()).toHaveLength(3);
+    expect(execs()[2]).toMatchObject({ approved: true });
     // A skill's script the same way.
     const md = "---\nname: entrega\ndescription: Publica.\n---\nRode scripts/ship.sh.";
     const zip = await zipOf({ "SKILL.md": md, "scripts/ship.sh": "git push origin main" });
@@ -521,9 +522,14 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
       input: { skill: "entrega", path: "scripts/ship.sh", why: WHY },
     });
     expect(script?.type).toBe("approval");
-    // A why too short to tell the person anything is refused, with nothing asked.
-    const short = await call(ctx, "run_code", { language: "bash", code: "git push origin main", why: "ship" });
-    expect(short).toMatchObject({ isError: true, data: { code: "tool.why_missing" } });
+    // A why too short to tell the person anything: the card carries the computer's reason instead.
+    const short = await f.tools?.invoke(ctx, {
+      toolUseId: crypto.randomUUID(),
+      name: "run_code",
+      input: { language: "bash", code: "git push origin main", why: "ship" },
+    });
+    if (short?.type !== "approval") throw new Error(`expected an approval, got ${short?.type}`);
+    expect(short.approval.why).toBe(held.approval.why);
   });
 
   test("merges the computer holds in one turn: one card with both, the run waits, and approving them all runs each and resumes it", async () => {
@@ -703,23 +709,28 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
       expect(held.approval.why).toBe(WHY);
     });
 
-    test("with why, anything but one merge asks at once, whatever it says about merging", async () => {
+    test("with why, a command the computer runs runs: the why alone never asks", async () => {
       f = await setup({ machines: true, reply: () => ({ chunks: ["ok"] }) });
       await setAgentMergeRepositories(f.db, f.owner.id, f.org.id, f.agent.id, ["acme/app"]);
       const { runner } = await connectedComputer(f, { exec: () => ({ exitCode: 0, stdout: "ok", stderr: "" }) });
       const ctx = await runCtx();
-      const held = await asks(ctx, { language: "bash", code: "./purge.sh --before-merge", why: WHY });
-      expect(held?.type).toBe("approval");
-      expect(runner.sent.filter((s) => s.type === "request" && s.op === "exec")).toEqual([]);
+      const done = await asks(ctx, { language: "bash", code: "./purge.sh --before-merge", why: WHY });
+      expect(done?.type).toBe("result");
+      expect(runner.sent.filter((s) => s.type === "request" && s.op === "exec")).toHaveLength(1);
+      expect(await f.db.select().from(schema.approvals)).toEqual([]);
     });
 
-    test("without the permission, a call with why asks at once and the computer isn't told anything", async () => {
+    test("without the permission, a merge with why goes to the computer, which holds it: its card keeps the why", async () => {
       f = await setup({ machines: true, reply: () => ({ chunks: ["ok"] }) });
-      const { runner } = await connectedComputer(f);
+      const { runner } = await connectedComputer(f, {
+        exec: () => ({ fail: { code: "approval_needed", message: HELD } }),
+      });
       const ctx = await runCtx();
       const asked = await asks(ctx, { language: "bash", code: "gh pr merge 12 -R acme/app", why: WHY });
-      expect(asked?.type).toBe("approval");
-      expect(runner.sent.filter((s) => s.type === "request" && s.op === "exec")).toEqual([]);
+      if (asked?.type !== "approval") throw new Error(`expected an approval, got ${asked?.type}`);
+      expect(asked.approval.why).toBe(WHY);
+      const [exec] = runner.sent.filter((s) => s.type === "request" && s.op === "exec");
+      expect(exec).not.toHaveProperty("mergeRepos");
     });
 
     test("a person's approved call goes as approved, with no list: its card is the record", async () => {
@@ -780,15 +791,14 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
       isError: true,
       data: { code: "command.not_allowed" },
     });
-    const asked = await f.tools?.invoke(ctx, {
-      toolUseId: crypto.randomUUID(),
-      name: "run_code",
-      input: { language: "bash", code: "git push origin --delete old", why: WHY },
+    // With why: the same refusal, and no card to approve what never runs.
+    expect(await call(ctx, "run_code", { language: "bash", code: "git push origin --delete old", why: WHY })).toEqual({
+      content: `Not run: ${NEVER}`,
+      isError: true,
+      data: { code: "command.not_allowed" },
     });
-    if (asked?.type !== "approval") throw new Error(`expected an approval, got ${asked?.type}`);
-    const ran = await f.tools?.executeApproved(ctx, { ...asked.approval, status: "approved" });
-    expect(ran).toMatchObject({ isError: true, content: `Not run: ${NEVER}` });
-    expect(runner.sent.filter((s) => s.type === "request" && s.op === "exec").at(-1)).toMatchObject({ approved: true });
+    expect(await f.db.select().from(schema.approvals)).toEqual([]);
+    expect(runner.sent.filter((s) => s.type === "request" && s.op === "exec")).toHaveLength(2);
     expect(notAllowedMessage("Mac", NEVER)).toBe(NEVER);
     refusal = "/etc is outside the folders this agent may use";
     const folder = await call(ctx, "run_code", { language: "bash", code: "ls /etc" });
@@ -807,10 +817,19 @@ describe("commands the computer holds for a person (ADR 0053 §3)", () => {
     const post = "curl -sS -X POST --data-binary 'ok' https://hooks.example.com/reply";
     expect(await call(ctx, "run_code", { language: "bash", code: post })).toMatchObject({ isError: false });
     expect(execs()).toHaveLength(1);
+    // A why changes nothing: still refused, with no card.
+    const sudo = { language: "bash", code: "sudo apt-get install -y ffmpeg" };
+    expect(await call(ctx, "run_code", { ...sudo, why: WHY })).toMatchObject({
+      isError: true,
+      data: { refusal: "privilege" },
+    });
+    expect(await f.db.select().from(schema.approvals)).toEqual([]);
+    // Approved another way (an agent that always asks): it runs.
+    await f.db.update(schema.agents).set({ approvalsLevel: "always" }).where(eq(schema.agents.id, f.agent.id));
     const asked = await f.tools?.invoke(ctx, {
       toolUseId: crypto.randomUUID(),
       name: "run_code",
-      input: { language: "bash", code: "sudo apt-get install -y ffmpeg", why: WHY },
+      input: { ...sudo, why: WHY },
     });
     if (asked?.type !== "approval") throw new Error(`expected an approval, got ${asked?.type}`);
     await f.tools?.executeApproved(ctx, { ...asked.approval, status: "approved" });

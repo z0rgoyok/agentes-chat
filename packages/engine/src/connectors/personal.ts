@@ -1,6 +1,6 @@
 import { and, type Database, type Executor, eq, inArray, isNull, or, type SQL, schema, sql } from "@agenteschat/db";
 import { getAgent } from "../agents";
-import { managesAgent } from "../audience";
+import { managesAgent, ownsAgent } from "../audience";
 import { recordAudit } from "../audit";
 import { runAuthorityById } from "../authority";
 import { caches } from "../cache";
@@ -79,7 +79,9 @@ export const auditLabel = (c: Pick<ConnectorConnection, "label" | "accountLabel"
  * 2026-11-17), and the agent's owner. Never its details.
  */
 export const seesOthersOnAgent = (membership: Membership, agent: Parameters<typeof managesAgent>[0], actorId: string) =>
-  can(membership, "manage_connectors") || managesAgent(agent, actorId, membership) || agent.ownerUserId === actorId;
+  can(membership, "manage_connectors") ||
+  managesAgent(agent, actorId, membership) ||
+  ownsAgent(agent, actorId, membership.roleIds);
 
 /**
  * Who may connect for whom: a personal connection (`personal`) any member makes, a team one who manages connectors.

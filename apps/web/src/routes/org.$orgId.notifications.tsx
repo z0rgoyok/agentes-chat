@@ -5,8 +5,9 @@ import { notificationsSearch } from "@/lib/push-open";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 
 /**
- * Notificações: one inbox for everything that involves me. `?open=<id>` opens that notification where the inbox
- * would (a click on a browser notification, ADR 0071), in place of this page.
+ * The inbox: one place for everything that involves me. `?open=<id>` opens that notification where the inbox would (a
+ * click on a browser notification, ADR 0071), in place of this page; `?filter=` starts it on a filter and `?approval=`
+ * on a request.
  */
 export const Route = createFileRoute("/org/$orgId/notifications")({
   validateSearch: notificationsSearch,
@@ -14,6 +15,14 @@ export const Route = createFileRoute("/org/$orgId/notifications")({
 });
 
 function NotificationsRoute() {
-  const { open } = Route.useSearch();
-  return <Main>{open ? <OpeningNotification id={open} /> : <NotificationsPage />}</Main>;
+  const { open, filter, approval } = Route.useSearch();
+  return (
+    <Main>
+      {open ? (
+        <OpeningNotification id={open} />
+      ) : (
+        <NotificationsPage key={`${filter ?? ""}:${approval ?? ""}`} filter={filter} approvalId={approval} />
+      )}
+    </Main>
+  );
 }

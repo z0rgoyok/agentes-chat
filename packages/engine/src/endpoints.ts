@@ -14,7 +14,7 @@ import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { NotFoundError, ValidationError } from "./errors";
 import type { ModelGateway } from "./gateway";
-import { assertPublicHttpsUrl, publicHttpsFetch, type ResolveHost } from "./net-guard";
+import { assertPublicHttpsUrl, internalAddress, publicHttpsFetch, type ResolveHost } from "./net-guard";
 import { requirePermission } from "./organizations";
 import { isAgentesCloud } from "./telemetry";
 import { redactCredentials } from "./tool-detail";
@@ -165,8 +165,7 @@ export async function listEndpoint(
     );
     return { baseURL, models };
   } catch (error) {
-    if (error instanceof OutboundAddressError)
-      throw new ValidationError("This address points to an internal network", "url.internal");
+    if (error instanceof OutboundAddressError) throw internalAddress(new URL(baseURL).hostname);
     return { baseURL, models: [], error: redactCredentials(error instanceof Error ? error.message : String(error)) };
   }
 }

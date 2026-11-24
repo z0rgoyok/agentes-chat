@@ -123,6 +123,27 @@ describe("Rotinas: started by a webhook", () => {
     expect(page.textContent).toMatch(/curl 'https:\/\/app\.agentes\.test\/api\/hooks\/\S{43}\?text=hello'/);
   });
 
+  test("its page: Agrupar chamadas por saves a path, says what it does, and emptied puts every call in one line", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    await open(webhookRoutine, api);
+    const page = await details("Pedidos pagos");
+    expect(page.textContent).toContain("Todas as chamadas esperam numa fila só, em ordem.");
+    const field = within(page).getByRole("textbox", { name: "Agrupar chamadas por" });
+    expect(within(page).queryByRole("button", { name: "Salvar" })).toBeNull();
+    await type(field, " conversation.id ");
+    await click(within(page).getByRole("button", { name: "Salvar" }));
+    await settle(6);
+    const updates = () => state.calls.filter((c) => c.method === "routines.update").map((c) => c.args[1]);
+    expect(updates().at(-1)).toEqual({ trigger: { type: "webhook", groupBy: "conversation.id" } });
+    expect(page.textContent).toContain("Chamadas com o mesmo conversation.id rodam em ordem.");
+    await type(field, "");
+    await click(within(page).getByRole("button", { name: "Salvar" }));
+    await settle(6);
+    expect(updates().at(-1)).toEqual({ trigger: { type: "webhook", groupBy: null } });
+    expect(page.textContent).toContain("Todas as chamadas esperam numa fila só, em ordem.");
+  });
+
   test("a new secret and turning the signature off say what stops working first", async () => {
     const state = seedState();
     const api = createFakeApi(state);
@@ -164,7 +185,13 @@ describe("Rotinas: started by a webhook", () => {
               ? {
                   ...r,
                   canManage: false,
-                  trigger: { type: "webhook" as const, url: null, signed: false, methods: ["POST" as const] },
+                  trigger: {
+                    type: "webhook" as const,
+                    url: null,
+                    signed: false,
+                    methods: ["POST" as const],
+                    groupBy: null,
+                  },
                 }
               : r,
           ),

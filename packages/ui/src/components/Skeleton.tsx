@@ -219,24 +219,6 @@ export function SkeletonList({
 }
 
 /**
- * A thin indeterminate bar at the top of a region: cached data is on screen
- * and a refresh is running. Waits `delayMs` like skeletons.
- */
-export function TopProgress({
-  active,
-  label,
-  delayMs = SKELETON_DELAY_MS,
-}: {
-  active: boolean;
-  label: string;
-  delayMs?: number;
-}) {
-  const shown = useDelayed(active, delayMs);
-  if (!shown) return null;
-  return <div className="ac-top-progress" role="progressbar" aria-label={label} aria-busy="true" />;
-}
-
-/**
  * Inline spinner (buttons, long actions): the pixel orbit, neutral. Decorative:
  * the control says what's happening. Under 16 it is the 14px orbit.
  */

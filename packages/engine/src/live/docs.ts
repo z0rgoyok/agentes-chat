@@ -807,17 +807,18 @@ export function createLiveDocs(deps: LiveDeps): LiveDocs {
     const state = sanitizePeerState({ ...partial, mode: partial.mode ?? "editing", user }, { user, viewOnly: false });
     if (!state) return null;
     const clientId = agentClientId(who.runId, who.agentId);
-    let list = agents.get(fileId);
-    if (!list) {
-      list = new Map();
-      agents.set(fileId, list);
-    }
     if (!hostedOf(fileId) && !agentChannels.has(fileId)) {
       const [row] = await db
         .select({ channelId: schema.artifacts.channelId })
         .from(schema.artifacts)
         .where(and(eq(schema.artifacts.id, fileId), eq(schema.artifacts.orgId, orgId)));
       agentChannels.set(fileId, row?.channelId ?? null);
+    }
+    // After the read: one that throws leaves no empty list behind for the file.
+    let list = agents.get(fileId);
+    if (!list) {
+      list = new Map();
+      agents.set(fileId, list);
     }
     let a = list.get(clientId);
     if (!a) {

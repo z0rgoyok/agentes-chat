@@ -4,13 +4,14 @@ import {
   type ArtifactActor,
   type ArtifactDeps,
   liveFileAccess,
+  mediaFileOf,
   requireLiveFile,
   storedFileOfArtifact,
   writeLiveAssetBlob,
 } from "../artifacts";
 import { recordAudit } from "../audit";
 import { UUID } from "../authority";
-import { sniffModelImage } from "../avatars";
+import { sniffImage, sniffModelImage } from "../avatars";
 import { NotFoundError, ValidationError } from "../errors";
 import { imageSize } from "../image-size";
 import { looksLikeSvg, SVG_TYPE, sanitizeSvg } from "./svg";
@@ -25,8 +26,11 @@ import { looksLikeSvg, SVG_TYPE, sanitizeSvg } from "./svg";
 
 const { liveAssets } = schema;
 
-/** `drawn`: an SVG an agent wrote; `web`: downloaded from a public address (`origin` says which). */
-export type AssetSource = "upload" | "generated" | "copied" | "imported" | "drawn" | "web";
+/**
+ * `drawn`: an SVG an agent wrote; `web`: downloaded from a public address (`origin` says which); `mark`: the app's
+ * picture of the place a comment points at in a picture, a video or a PDF (ADR 0208).
+ */
+export type AssetSource = "upload" | "generated" | "copied" | "imported" | "drawn" | "web" | "mark";
 
 /** Where a picture from the web came from: its address, and the credit an agent gave it (author, license, site). */
 export interface LiveAssetOrigin {
@@ -84,6 +88,31 @@ export async function putAsset(
 ): Promise<LiveAsset> {
   await requireLiveFile(deps, actor, orgId, fileId, { write: true });
   return storeAsset(deps, actor, orgId, fileId, input);
+}
+
+/** The largest picture of a comment's place: the app sends a small JPEG or PNG. */
+export const MARK_PICTURE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Stores the app's picture of the place a comment points at (ADR 0208): what was marked, or the whole picture,
+ * frame or page with the mark drawn. Whoever reads the picture, the video or the PDF comments on it, so reading it is
+ * enough; only a raster picture, small.
+ */
+export async function putMarkPicture(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  bytes: Uint8Array,
+): Promise<LiveAsset> {
+  if (!(await mediaFileOf(deps, actor, orgId, fileId))) {
+    throw new NotFoundError("Artifact not found", "artifact.not_found");
+  }
+  // PNG, JPEG or WebP only (`sniffImage`), as said: a GIF is no picture of a place.
+  if (bytes.byteLength > MARK_PICTURE_BYTES || !sniffImage(bytes)) {
+    throw new ValidationError("A comment's picture is a PNG, JPEG or WebP of at most 2 MB", "live.asset_type");
+  }
+  return storeAsset(deps, actor, orgId, fileId, { bytes, source: "mark" });
 }
 
 /** `putAsset` past its access check (the caller made it). */
@@ -273,7 +302,10 @@ export async function getAsset(
   assetId: string,
 ): Promise<LiveAssetFile | null> {
   if (!UUID.test(assetId)) return null;
-  if (!(await liveFileAccess(deps, actor, orgId, fileId))) return null;
+  // A live file's pictures, or the pictures of the comments on a picture, a video or a PDF (ADR 0208).
+  if (!(await liveFileAccess(deps, actor, orgId, fileId)) && !(await mediaFileOf(deps, actor, orgId, fileId))) {
+    return null;
+  }
   const [row] = await deps.db
     .select()
     .from(liveAssets)

@@ -1,12 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, type Database, type Executor, eq, gt, gte, inArray, like, lte, ne, or, schema } from "@agenteschat/db";
 import { revokeUserApps } from "./apps/revoke";
+import { caches } from "./cache";
 import { sha256 } from "./crypto";
 import { emailLocale, queueEmail } from "./email";
 import { ConflictError, NotFoundError } from "./errors";
 import { dropPasswordLinks } from "./password-link";
 
-const { users, sessions, verifications, accounts, pushDevices } = schema;
+const { users, sessions, verifications, accounts, pushDevices, liveActivityDevices } = schema;
 
 /**
  * A new address for an account (ADR 0088 §2, addendum 2026-11-13). Better Auth's link to the new address makes the
@@ -179,7 +180,7 @@ export async function finishEmailChange(
  * address: nothing changes, and the link still works).
  */
 export async function undoEmailChange(db: Database, token: string, now = new Date()) {
-  return db.transaction(async (tx) => {
+  const undone = await db.transaction(async (tx) => {
     // The delete is the single use: a second one at the same moment waits for this one and finds nothing.
     const [row] = await tx
       .delete(verifications)
@@ -232,6 +233,7 @@ export async function undoEmailChange(db: Database, token: string, now = new Dat
     await clearPassword(tx, undo.userId, now);
     await dropPasswordLinks(tx, undo.userId);
     await tx.delete(pushDevices).where(eq(pushDevices.userId, undo.userId));
+    await tx.delete(liveActivityDevices).where(eq(liveActivityDevices.userId, undo.userId));
     await revokeUserApps(tx, undo.userId, "email_change_undone");
     // Stamped when written, just before the commit, not with `now`: a sign-in that began while this ran read the
     // account as it was, and `undoneSince` must find the mark no older than that start.
@@ -239,6 +241,9 @@ export async function undoEmailChange(db: Database, token: string, now = new Dat
     await putRow(tx, undoneId(undo.userId), {}, new Date(markedAt.getTime() + UNDONE_MS), markedAt);
     return { email: undo.from };
   });
+  // Its sessions ended above: no process serves a kept one (`caches.sessions`).
+  caches.sessions.clear();
+  return undone;
 }
 
 /** The account's password goes. Its row stays, so the sign-in page offers "Forgot my password", whose reset fills it. */

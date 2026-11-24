@@ -1,4 +1,11 @@
-import type { Agent, AppNotification, Member, NotificationActor, NotificationFilter } from "@agenteschat/client";
+import type {
+  Agent,
+  AppNotification,
+  Approval,
+  Member,
+  NotificationActor,
+  NotificationFilter,
+} from "@agenteschat/client";
 import {
   dropNotification,
   keys,
@@ -52,10 +59,8 @@ import { routineNotificationWords } from "@agenteschat/client/lib/routine-view";
 import { secretNoticeLine } from "@agenteschat/client/lib/secret-requests";
 import {
   Button,
-  Chip,
   cx,
   EmptyState,
-  ExpiryFuse,
   GroupHeading,
   Icon,
   type IconName,
@@ -65,29 +70,22 @@ import {
   Menu,
   MenuHeading,
   MenuItem,
+  MenuRadioGroup,
+  MenuSeparator,
   modKey,
   PageHeader,
   PlanStrip,
   prefersReducedMotion,
-  Segmented,
   Spinner,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import {
-  Fragment,
-  type MouseEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AdminAskActions } from "@/components/AdminAsk";
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { ApprovalAsk, ApprovalGroupAsk } from "@/components/ApprovalAsk";
-import { useConnectAi } from "@/components/ConnectAi";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { DeviceNoticeActions, deviceNoticeLine } from "@/components/devices/DeviceNotice";
 import { ErrorState, LoadingCards } from "@/components/Loading";
 import { useNotificationHref, useNotificationOpener } from "@/components/NotificationOpen";
@@ -97,18 +95,19 @@ import { UsageLimitActions } from "@/components/PeopleUsage";
 import { AllowTalkButton } from "@/components/ReachLines";
 import { RequestCard, RequestChoices, RequestKeys } from "@/components/RequestCard";
 import { ChangeRequestCard } from "@/components/RightHandCards";
-import { colorOf, prepareBurst } from "@/components/Sky";
+import { CardSky, colorOf, prepareBurst } from "@/components/Sky";
 import { WidgetNoticeActions, widgetNoticeLine } from "@/components/widgets/WidgetNotice";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useInboxWaiting } from "@/hooks/useInboxWaiting";
 import { matchesNow } from "@/hooks/useMatchMedia";
 import { lookOf } from "@/lib/look";
 import { useToast } from "@/lib/toast";
+import { ApprovalRow, approvalDecidedAt, decidedGroups } from "@/pages/ApprovalsPage";
 import { useLiveStore } from "@/realtime/context";
 import "./notifications.css";
 
-const TTL_MS = 24 * 3_600_000;
-/** Where an item's actions are a row under it, shown by a tap (notifications.css). */
-const NARROW = "(max-width: 720px)";
+/** Where the screen shows the list or the open item, one at a time (notifications.css). */
+const NARROW = "(max-width: 900px)";
 
 /** An agent stopped this long on my answer is late (the chip turns to attention). */
 const LATE_MS = 20 * 60_000;
@@ -187,6 +186,8 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
   else if (n.kind === "invitation_accepted") [icon, label] = ["members", t("notifications.source.members")];
   else if (n.kind === "composio_limit") [icon, label] = ["wallet", t("notifications.source.usage")];
   else if (n.kind === "skill_update") [icon, label] = ["book", t("skills.title")];
+  // What agents applied themselves (ADR 0219): their history is Agent improvements.
+  else if (n.kind === "proposal_applied") [icon, label] = ["bulb", t("shell.proposals")];
   else if (
     n.kind === "machine_connected" ||
     n.kind === "computer_ready" ||
@@ -203,7 +204,8 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
       [icon, label] = ["bulb", t("settings.section.usage")];
     else if (cause === "computer") [icon, label] = ["computer", t("notifications.source.machine")];
     else if (cause) [icon, label] = ["plug", t("settings.section.connectors")];
-  } else if (n.kind === "plan_lent" || n.kind === "plan_serves") [icon, label] = ["bulb", t("settings.section.usage")];
+  } else if (n.kind === "plan_lent" || n.kind === "plan_serves" || n.kind === "budget_paused")
+    [icon, label] = ["bulb", t("settings.section.usage")];
   else if (n.kind === "plan_model_dropped") [icon, label] = ["bulb", t("brain.title")];
   else if (n.kind === "browser_handoff") [icon, label] = ["globe", t("notifications.source.browser")];
   else if (s.issueNumber != null)
@@ -223,20 +225,6 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
   } else if (channel && !headlineNames(n, channelName(channel)))
     [icon, label] = ["channel", t("notifications.source.channel", { name: channelName(channel) })];
   return label ? [icon, label] : null;
-}
-
-/** How long is left to answer, as a chip that turns to attention in the last hours. */
-function LeftChip({ n, className }: { n: AppNotification; className?: string }) {
-  const { t } = useTranslation();
-  const at = n.latest.expiresAt;
-  const left = at ? timeLeft(t, at) : null;
-  if (!at || !left) return null;
-  const urgent = new Date(at).getTime() - Date.now() <= URGENT_MS;
-  return (
-    <Chip icon="clock" tone={urgent ? "waiting" : "neutral"} className={className}>
-      {urgent ? t("approvals.leftUrgent", { time: left }) : t("approvals.left", { time: left })}
-    </Chip>
-  );
 }
 
 /** Issue statuses in the app's words (the raw value when unknown). */
@@ -366,31 +354,6 @@ function Composer({
   );
 }
 
-/** "Lembrar depois": in 1 hour, tomorrow at 9, next week (local time). */
-function SnoozeMenu({ trigger, onPick }: { trigger: ReactNode; onPick: (choice: SnoozeChoice) => void }) {
-  const { t, i18n } = useTranslation();
-  const times = snoozeTimes();
-  const day = (d: Date) => new Intl.DateTimeFormat(i18n.language, { weekday: "short" }).format(d);
-  return (
-    <Menu trigger={trigger} align="end" label={t("notifications.snooze")}>
-      <MenuHeading>{t("notifications.snoozeMenu.heading")}</MenuHeading>
-      <MenuItem icon="clock" hint={formatTime(i18n.language, times.hour.toISOString())} onSelect={() => onPick("hour")}>
-        {t("notifications.snoozeMenu.hour")}
-      </MenuItem>
-      <MenuItem icon="calendar" hint={day(times.tomorrow)} onSelect={() => onPick("tomorrow")}>
-        {t("notifications.snoozeMenu.tomorrow")}
-      </MenuItem>
-      <MenuItem
-        icon="calendar"
-        hint={`${day(times.nextWeek)} ${formatTime(i18n.language, times.nextWeek.toISOString())}`}
-        onSelect={() => onPick("nextWeek")}
-      >
-        {t("notifications.snoozeMenu.nextWeek")}
-      </MenuItem>
-    </Menu>
-  );
-}
-
 /** The replies of a grouped thread item (from the thread itself, or `at`: another thread). */
 function ThreadReplies({
   n,
@@ -505,78 +468,6 @@ interface RowState {
   busy: boolean;
 }
 
-/**
- * A click on an item, outside its own buttons, links and composer, opens where it happened: Cmd/Ctrl-click and a
- * middle click in a new tab. Selecting its text is not a click. React bubbles clicks from portals (the Remind menu).
- */
-function clickRow(e: MouseEvent<HTMLElement>, n: AppNotification, h: RowHandlers, open = h.onSelect) {
-  const target = e.target as Element;
-  if (!e.currentTarget.contains(target) || target.closest("button, a, textarea, input, .nt-cmp")) return;
-  if (window.getSelection()?.type === "Range") return;
-  if (e.button === 1 || (e.button === 0 && (e.metaKey || e.ctrlKey))) {
-    e.preventDefault();
-    h.onOpenNew(n);
-  } else if (e.button === 0) open(n);
-}
-
-/** The inline actions: a small floating bar on desktop (hover / focus), a row on phones (tap). */
-function RowActions({ n, h, busy }: { n: AppNotification; h: RowHandlers; busy: boolean }) {
-  const { t } = useTranslation();
-  const act = (key: string, icon: IconName, label: string, tip: string, short: string, run?: () => void) => (
-    <button
-      type="button"
-      className="nt-nb"
-      data-act={key}
-      title={tip}
-      aria-label={label}
-      disabled={busy && key !== "open"}
-      onClick={(e) => {
-        e.stopPropagation();
-        run?.();
-      }}
-    >
-      <Icon name={icon} size={16} />
-      <span className="nt-nb__label">{short}</span>
-    </button>
-  );
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: a small toolbar of actions
-    <div className="nt-acts" role="group" aria-label={t("notifications.actions")}>
-      {replyTarget(n) &&
-        act("reply", "reply", t("notifications.reply"), t("notifications.replyTip"), t("notifications.reply"), () =>
-          h.onReply(n),
-        )}
-      {n.doneAt
-        ? act(
-            "done",
-            "undo",
-            t("notifications.restore"),
-            t("notifications.restoreTip"),
-            t("notifications.restore"),
-            () => h.onDone(n),
-          )
-        : act("done", "check", t("notifications.done"), t("notifications.doneTip"), t("notifications.done"), () =>
-            h.onDone(n),
-          )}
-      {!n.doneAt && (
-        <SnoozeMenu
-          onPick={(c) => h.onSnooze(n, c)}
-          trigger={act(
-            "snooze",
-            "clock",
-            t("notifications.snooze"),
-            t("notifications.snooze"),
-            t("notifications.snoozeShort"),
-          )}
-        />
-      )}
-      {act("open", "external", t("notifications.open"), t("notifications.openTip"), t("notifications.open"), () =>
-        h.onOpen(n),
-      )}
-    </div>
-  );
-}
-
 /** `agent_unreached`: let the routine's creator talk to the agent, from the inbox (its report may be out of reach). */
 function UnreachedAllow({ agentId, userId }: { agentId: string; userId: string }) {
   const { org } = useOrg();
@@ -656,49 +547,8 @@ function PlanTakeBack({ n }: { n: AppNotification }) {
   );
 }
 
-/** One item in a day group. */
-function Row({
-  n,
-  s,
-  h,
-  dir,
-  mine,
-  channelName,
-}: {
-  n: AppNotification;
-  s: RowState;
-  h: RowHandlers;
-  dir: Dir;
-  mine: string | null;
-  channelName: (id: string) => string;
-}) {
-  const { t, i18n } = useTranslation();
-  const unread = n.readAt === null;
-  const first = n.actors[0];
-  // Someone who just joined may not be in the members list yet: the notice names them (ADR 0090).
-  const joiner = n.kind === "invitation_accepted" ? joinerOf(t, dir, n) : undefined;
-  const name = joiner ?? nameOf(t, dir, first);
-  const own = workspaceHeadline(n);
-  const label = own ? t(own, { name: n.source.label }) : n.kind === "app_created" ? appCreatedLine(t, n) : name;
-  const reaction = n.kind === "reaction";
-  const group = n.actors.length > 1;
-  const other = n.actors.find((a, i) => i > 0 && (a.id !== first?.id || a.type !== first?.type));
-  const face = reaction ? (
-    <span className="nt-emo" aria-hidden="true">
-      {(n.latest.emojis ?? []).slice(-2).map((e) => (
-        <span key={e}>{e}</span>
-      ))}
-    </span>
-  ) : group ? (
-    <span className="nt-stk">
-      <Face actor={first} dir={dir} size="sm" className="nt-av20" />
-      <Face actor={other} dir={dir} size="sm" className="nt-av17" />
-    </span>
-  ) : first ? (
-    <Face actor={first} dir={dir} className="nt-av24" name={joiner} />
-  ) : (
-    <SystemFace n={n} />
-  );
+/** What an item says under its headline: where it happened, what leads the line, and its words. */
+function itemWords(t: TFunction, n: AppNotification, dir: Dir, channelName: (id: string) => string) {
   const l = n.latest;
   // Asked while nobody watched (ADR 0053 §8): who asked leads an approval's line, its why follows.
   const origin = n.kind === "approval" ? approvalOriginWords({ origin: l.origin }) : null;
@@ -714,11 +564,6 @@ function Row({
         : origin
           ? sayWords(t, origin)
           : null;
-  const speaker = n.count > 1 && (n.kind === "thread_reply" || n.kind === "issue_comment") ? name : null;
-  const expandable = isExpandable(n);
-  const steps = l.steps && l.steps.total > 0 ? l.steps : null;
-  const failed =
-    n.kind === "mission_stopped" || n.kind === "routine_failed" || n.kind === "run_failed" || l.steps?.failedAt != null;
   // A routine's trouble says why in the person's language (`latest.reason`): a pause its reason, a failed
   // run what went wrong (never the server's English).
   const why = routineNotificationWords(n);
@@ -734,193 +579,273 @@ function Row({
       : widgetLine
         ? widgetLine
         : // What the right hand found is the headline itself: nothing under it says it again.
-          n.kind === "team_watch"
+          n.kind === "team_watch" || n.kind === "budget_paused"
           ? null
-          : why
-            ? sayWords(t, why, l.text ?? "")
-            : media === "voice"
-              ? mediaWord(t, media)
-              : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
-  const stopStep = steps ? (steps.failedAt ?? steps.done + 1) : 0;
-  const stepWords = steps
-    ? t("notifications.stoppedAt", { step: Math.min(stopStep, steps.total), total: steps.total })
-    : "";
-  const agentColor = first?.type === "agent" ? colorOf(dir.anyAgent(first.id)) : undefined;
-  const channel = channelOf(n);
+          : // What an agent applied (ADR 0219): the newest change, in a line.
+            n.kind === "proposal_applied"
+            ? (l.title ?? null)
+            : why
+              ? sayWords(t, why, l.text ?? "")
+              : media === "voice"
+                ? mediaWord(t, media)
+                : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
   const statusMove = n.kind === "issue_status" && (l.statusFrom || l.statusTo);
-  // Where it happened and a task's move lead the snippet's line in plain words: one muted line, no chips.
-  const where = reaction
-    ? ""
-    : [
-        sourceOf(t, n, channelName)?.[1],
-        statusMove
-          ? t("notifications.status", { from: statusName(t, l.statusFrom), to: statusName(t, l.statusTo) })
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
+  // Where it happened and a task's move, in plain words.
+  const where =
+    n.kind === "reaction"
+      ? ""
+      : [
+          sourceOf(t, n, channelName)?.[1],
+          statusMove
+            ? t("notifications.status", { from: statusName(t, l.statusFrom), to: statusName(t, l.statusTo) })
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+  return { lead, text: text ?? null, where, whole: Boolean(restriction) };
+}
+
+/**
+ * What a waiting item that only points somewhere is about: a secret its name and what it is for, a device's notice its
+ * line; a request to join and what the right hand found say it all in their headline.
+ */
+function waitingWords(t: TFunction, n: AppNotification, dir: Dir) {
+  if (n.kind === "join_request" || teamWatchOf(n)) return null;
+  if (n.kind === "secret_request") return secretNoticeLine(n);
+  if (n.kind === "usage_limit") return usageLimitLine(t, n);
+  if (deviceNoticeOf(n)) return deviceNoticeLine(t, n);
+  return widgetNoticeLine(t, n, dir) ?? n.latest.title ?? n.latest.text ?? null;
+}
+
+/** Who an item is from: a reaction's emojis, two faces for several people, one face, or the workspace's own mark. */
+function ItemFace({
+  n,
+  dir,
+  state,
+  className = "nt-av24",
+}: {
+  n: AppNotification;
+  dir: Dir;
+  state?: "idle" | "waiting" | "writing";
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const first = n.actors[0];
+  if (n.kind === "reaction")
+    return (
+      <span className="nt-emo" aria-hidden="true">
+        {(n.latest.emojis ?? []).slice(-2).map((e) => (
+          <span key={e}>{e}</span>
+        ))}
+      </span>
+    );
+  const other = n.actors.find((a, i) => i > 0 && (a.id !== first?.id || a.type !== first?.type));
+  if (n.actors.length > 1 && other)
+    return (
+      <span className="nt-stk">
+        <Face actor={first} dir={dir} size="sm" className="nt-av20" />
+        <Face actor={other} dir={dir} size="sm" className="nt-av17" />
+      </span>
+    );
+  if (!first) return <SystemFace n={n} className={className} />;
+  // Someone who just joined may not be in the members list yet: the notice names them (ADR 0090).
+  const joiner = n.kind === "invitation_accepted" ? joinerOf(t, dir, n) : undefined;
+  return <Face actor={first} dir={dir} state={state} className={className} name={joiner} />;
+}
+
+/**
+ * One item in the inbox's list: who, what they want in one line, what it is about under it, and when (how long is left
+ * to decide, for an approval). No buttons: a click opens it beside the list, where it is answered.
+ */
+function InboxRow({
+  n,
+  s,
+  h,
+  dir,
+  channelName,
+}: {
+  n: AppNotification;
+  s: RowState;
+  h: RowHandlers;
+  dir: Dir;
+  channelName: (id: string) => string;
+}) {
+  const { t, i18n } = useTranslation();
+  const unread = n.readAt === null;
+  const name = nameOf(t, dir, n.actors[0]);
+  const own = workspaceHeadline(n);
+  // What a screen reader hears for the row: the workspace's own headline, who asks to join (someone asking is no
+  // member yet, and a notice that someone joined names them itself, ADR 0090), else who it is from.
+  const asked = n.kind === "join_request" ? askersOf(n) : null;
+  const label = own
+    ? t(own, { name: n.source.label })
+    : n.kind === "app_created"
+      ? appCreatedLine(t, n)
+      : asked
+        ? asked.total > 1
+          ? t("notifications.wait.joinRequestNames", { names: namesText(t, asked.names, 2, asked.total) })
+          : t("notifications.wait.joinRequest", { count: 1, name: asked.names[0] })
+        : ((n.kind === "invitation_accepted" ? joinerOf(t, dir, n) : undefined) ?? name);
+  const words = itemWords(t, n, dir, channelName);
+  const sub = n.waiting
+    ? [words.where, waitingWords(t, n, dir)].filter(Boolean).join(" · ")
+    : [words.where, words.lead, words.text].filter(Boolean).join(" · ");
+  // What waits with a deadline (an approval, a secret, a hand in the browser) says how long is left; anything else
+  // when it came.
+  const expires = n.waiting ? n.latest.expiresAt : undefined;
+  const left = expires ? timeLeft(t, expires) : null;
+  const urgent = Boolean(expires && left && new Date(expires).getTime() - Date.now() <= URGENT_MS);
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a row of the inbox, not a fieldset
-    <div
+    <button
+      type="button"
       className={cx(
-        "nt-item ac-mediarow ac-mediarow--row",
-        reaction && "nt-item--rx",
+        "ib-row",
         unread && "is-unread",
-        s.cur && "is-cur",
-        s.replying && "is-replying",
+        s.cur && "is-on",
         s.fresh && "is-new",
         s.pulse && "is-pulse",
         s.leaving && "is-leaving",
       )}
-      role="group"
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a focusable item (J/K, E, R, Enter) with its own actions inside
-      tabIndex={0}
       data-n={n.id}
+      aria-current={s.cur || undefined}
       aria-label={unread ? t("notifications.unreadItem", { name: label }) : label}
-      onClick={(e) => clickRow(e, n, h)}
-      onAuxClick={(e) => clickRow(e, n, h)}
-      onKeyDown={() => {}}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey) h.onOpenNew(n);
+        else h.onSelect(n);
+      }}
+      onDoubleClick={() => h.onOpen(n)}
+      // A middle click opens where it happened in a new tab, as Cmd/Ctrl-click does.
+      onAuxClick={(e) => {
+        if (e.button === 1) h.onOpenNew(n);
+      }}
     >
-      <span className="ac-mediarow__face">{face}</span>
-      <span className="ac-mediarow__head">
-        <span className="nt-what">
+      <span className="ib-row__face">
+        <ItemFace n={n} dir={dir} state={n.waiting ? "waiting" : undefined} />
+      </span>
+      <span className="ib-row__text">
+        <span className="ib-row__line nt-what">
           <Headline n={n} dir={dir} channelName={channelName} />
         </span>
+        {sub && <span className="ib-row__sub">{plainLine(sub)}</span>}
       </span>
-      <span className="ac-mediarow__end nt-tm">{whenText(t, i18n.language, n.updatedAt)}</span>
-      <div className="ac-mediarow__body">
-        {reaction ? (
-          <>
-            {l.quote && (
-              <div className="nt-quote">
-                <span>{t("notifications.quote", { text: l.quote })}</span>
-              </div>
-            )}
-            <div className="nt-replied nt-replied--quiet">
-              <span>
-                {[
-                  t("notifications.reactions", { count: Math.max(n.count, n.actors.length) }),
-                  channel && channelName(channel)
-                    ? t("notifications.source.channel", { name: channelName(channel) })
-                    : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </div>
-          </>
-        ) : (
-          <>
-            {(text || lead || where) && (
-              <p className={cx("nt-snip", restriction && "nt-snip--whole")}>
-                {where && <span className="nt-where">{where}</span>}
-                {where && (text || lead) && " · "}
-                {lead && <b>{t("notifications.lead", { text: lead })} </b>}
-                {speaker && <b>{t("notifications.speaker", { name: speaker })} </b>}
-                {text && <Snippet text={text} mine={mine} />}
-              </p>
-            )}
-            {/* A finished run says nothing extra: only a stopped one shows where it stopped. */}
-            {steps && failed && (
-              <div className="nt-steprow">
-                <PlanStrip
-                  cells={stepCells({ ...steps, failedAt: failed ? stopStep : undefined })}
-                  color={agentColor}
-                  label={stepWords}
-                />
-                <Chip icon="alert" className="nt-chip-ink nt-chip-warn">
-                  {stepWords}
-                </Chip>
-              </div>
-            )}
-            {n.kind === "change_request" && (
-              <div className="nt-wr__card">
-                <ChangeRequestCard n={n} />
-              </div>
-            )}
-            {n.kind === "usage_limit" && <UsageLimitActions n={n} />}
-            <DeviceNoticeActions n={n} />
-            <AdminAskActions n={n} />
-            {n.kind === "agent_unreached" && n.source.agentId && n.source.userId && (
-              <UnreachedAllow agentId={n.source.agentId} userId={n.source.userId} />
-            )}
-            {n.kind === "plan_lent" && <PlanTakeBack n={n} />}
-            {n.kind === "plan_serves" && <PlanOnlyMe n={n} />}
-            {n.kind === "plan_model_dropped" && n.source.agentId && !n.doneAt && (
-              <div className="nt-steprow">
-                <Button size="sm" onClick={() => h.onOpen(n)}>
-                  {t("notifications.planModelDropped.choose")}
-                </Button>
-              </div>
-            )}
-            {widgetNoticeOf(n) && !n.doneAt && (
-              <div className="nt-steprow">
-                <WidgetNoticeActions n={n} onOpen={() => h.onOpen(n)} open={false} />
-              </div>
-            )}
-            {expandable && (
-              <>
-                <button
-                  type="button"
-                  className="nt-more"
-                  aria-expanded={s.open}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    h.onToggle(n);
-                  }}
-                >
-                  <Icon name="chevronDown" size={14} />
-                  {s.open
-                    ? t("notifications.hide")
-                    : n.kind === "issue_comment"
-                      ? t("notifications.showComments", { count: n.count })
-                      : n.kind === "run_failed"
-                        ? t("notifications.showAgents", { count: runFailedGroupOf(n)?.agents ?? n.count })
-                        : t("notifications.showReplies", { count: n.count })}
-                </button>
-                {s.open &&
-                  (n.kind === "issue_comment" ? (
-                    <IssueComments n={n} dir={dir} mine={mine} />
-                  ) : n.kind === "run_failed" ? (
-                    <RunFailures n={n} dir={dir} channelName={channelName} />
-                  ) : (
-                    <ThreadReplies n={n} dir={dir} mine={mine} />
-                  ))}
-              </>
-            )}
-            {s.replied && (
-              <div className="nt-replied ac-iconline">
-                <Icon name="check" size={14} />
-                <span>{t("notifications.youReplied", { text: s.replied })}</span>
-              </div>
-            )}
-            {s.replying && (
-              <Composer
-                id={n.id}
-                placeholder={placeholderFor(t, n, dir, channelName)}
-                draft={s.draft}
-                sending={s.sending}
-                onDraft={(text) => h.onDraft(n, text)}
-                onSend={() => h.onSend(n, s.draft)}
-                onCancel={h.onCancel}
-              />
-            )}
-          </>
-        )}
-      </div>
-      <RowActions n={n} h={h} busy={s.busy} />
-    </div>
+      <span className={cx("ib-row__end", urgent && "is-urgent")}>
+        {left ?? whenText(t, i18n.language, n.updatedAt)}
+      </span>
+    </button>
   );
 }
 
 /**
- * A request waiting for me, as the conversation draws it (`RequestCard`): its kind and "esperando você" on top
- * with where it was asked, the agent's words, the object in its well, and the decision in the footer with how long
- * it has waited or has left, then Remind me later and Done. The agent's face beside it. An approval is the
- * conversation's own card (`ApprovalAsk`), several on one card the group's; what only points somewhere is a
- * `WaitRow`.
+ * An approval, decided right here as in its conversation: its own card, or its card's group while others on it still
+ * wait (decided together, or one by one in the conversation). In the inbox the card is drawn flat (notifications.css).
  */
-function WaitCard({
+function WaitApproval({
+  approvalId,
+  agent,
+  members,
+  fallback,
+  who,
+}: {
+  approvalId: string;
+  agent: Agent | undefined;
+  members: Map<string, Member>;
+  /** Its words before the request loads. */
+  fallback: string;
+  /** Who asks, before the kind. */
+  who?: string;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const approvals = useApprovals(org.id);
+  const listed = approvals.data?.find((a) => a.id === approvalId);
+  const one = useApproval(org.id, approvalId, !listed && approvals.isSuccess);
+  const a = listed ?? one.data;
+  if (!a)
+    return (
+      <RequestCard
+        id={approvalId}
+        kind="approval"
+        agent={agent}
+        label={t("approval.group")}
+        who={who}
+        mine
+        lead={fallback}
+        what={fallback}
+      />
+    );
+  const items = a.messageId ? approvalCardItems(approvals.data, a.messageId, a) : [a];
+  if (items.filter((x) => x.status === "pending").length > 1)
+    return <ApprovalGroupAsk items={items} agent={agent} members={members} who={who} />;
+  return <ApprovalAsk approval={a} agent={agent} members={members} who={who} />;
+}
+
+/** "Mais" on the open item: open where it happened, done (or back to the inbox), and remind me later. */
+function ItemMenu({ n, h, busy }: { n: AppNotification; h: RowHandlers; busy: boolean }) {
+  const { t, i18n } = useTranslation();
+  const times = snoozeTimes();
+  const day = (d: Date) => new Intl.DateTimeFormat(i18n.language, { weekday: "short" }).format(d);
+  return (
+    <Menu
+      align="end"
+      label={t("notifications.actions")}
+      trigger={
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          icon="more"
+          className="ib-read__more"
+          aria-label={t("notifications.actions")}
+          title={t("notifications.actions")}
+        />
+      }
+    >
+      <MenuItem icon="external" hint="↵" onSelect={() => h.onOpen(n)}>
+        {t("notifications.open")}
+      </MenuItem>
+      <MenuItem icon={n.doneAt ? "undo" : "check"} hint="E" disabled={busy} onSelect={() => h.onDone(n)}>
+        {n.doneAt ? t("notifications.restore") : t("notifications.done")}
+      </MenuItem>
+      {!n.doneAt && (
+        <>
+          <MenuSeparator />
+          <MenuHeading>{t("notifications.snoozeMenu.heading")}</MenuHeading>
+          <MenuItem
+            icon="clock"
+            hint={formatTime(i18n.language, times.hour.toISOString())}
+            disabled={busy}
+            onSelect={() => h.onSnooze(n, "hour")}
+          >
+            {t("notifications.snoozeMenu.hour")}
+          </MenuItem>
+          <MenuItem
+            icon="calendar"
+            hint={day(times.tomorrow)}
+            disabled={busy}
+            onSelect={() => h.onSnooze(n, "tomorrow")}
+          >
+            {t("notifications.snoozeMenu.tomorrow")}
+          </MenuItem>
+          <MenuItem
+            icon="calendar"
+            hint={`${day(times.nextWeek)} ${formatTime(i18n.language, times.nextWeek.toISOString())}`}
+            disabled={busy}
+            onSelect={() => h.onSnooze(n, "nextWeek")}
+          >
+            {t("notifications.snoozeMenu.nextWeek")}
+          </MenuItem>
+        </>
+      )}
+    </Menu>
+  );
+}
+
+/**
+ * The open item, beside the list: the agent on its own sky, then what it asks and the way to answer. An approval and a
+ * question are the conversation's own cards, drawn flat; anything else says who, where and what, shows the replies it
+ * groups, and answers or opens from here.
+ */
+function InboxRead({
   n,
   s,
   h,
@@ -928,6 +853,7 @@ function WaitCard({
   mine,
   resolving,
   channelName,
+  onBack,
 }: {
   n: AppNotification;
   s: RowState;
@@ -936,109 +862,49 @@ function WaitCard({
   mine: string | null;
   resolving: boolean;
   channelName: (id: string) => string;
+  /** Back to the list, where the screen shows one of the two. */
+  onBack: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const first = n.actors[0];
   const name = nameOf(t, dir, first);
-  const g = agentGrammar(name);
-  const feminine = isFeminineName(name);
-  const l = n.latest;
-  const unread = n.readAt === null;
-  const asked = n.kind === "join_request" ? askersOf(n) : null;
-  const waitedMs = Date.now() - new Date(n.createdAt).getTime();
   const agent = first?.type === "agent" ? dir.anyAgent(first.id) : undefined;
-  const tail = (
-    <span className="nt-tail ac-acts">
-      <SnoozeMenu
-        onPick={(c) => h.onSnooze(n, c)}
-        trigger={
-          <Button
-            variant="ghost"
-            size="sm"
-            iconOnly
-            icon="clock"
-            aria-label={t("notifications.snooze")}
-            title={t("notifications.snooze")}
-            disabled={s.busy}
-          />
-        }
-      />
-      <Button
-        variant="ghost"
-        size="sm"
-        iconOnly
-        icon="check"
-        aria-label={t("notifications.done")}
-        title={t("notifications.doneTip")}
-        disabled={s.busy}
-        onClick={(e) => {
-          e.stopPropagation();
-          h.onDone(n);
-        }}
-      />
-    </span>
-  );
-  const label = !asked
-    ? [name, l.title ?? l.text].filter(Boolean).join(": ")
-    : asked.total > 1
-      ? t("notifications.wait.joinRequestNames", { names: namesText(t, asked.names, 2, asked.total) })
-      : t("notifications.wait.joinRequest", { count: 1, name: asked.names[0] });
-  const face = first ? (
-    <Face actor={first} dir={dir} state={resolving ? "writing" : "waiting"} className="nt-av24" />
-  ) : (
-    <SystemFace n={n} />
-  );
+  const l = n.latest;
   const approvalId = n.kind === "approval" ? n.source.approvalId : undefined;
-  // What only points somewhere (a request to join, an agent's hand, an approval without its id) is one row.
-  if (n.kind !== "agent_question" && !approvalId)
-    return (
-      <WaitRow
-        n={n}
-        s={s}
-        h={h}
-        dir={dir}
-        channelName={channelName}
-        label={label}
-        who={first && !asked ? name : undefined}
-        face={face}
-        tail={tail}
-      >
-        {n.kind === "approval" && l.expiresAt && (
-          <ExpiryFuse
-            left={Math.max(0, new Date(l.expiresAt).getTime() - Date.now()) / TTL_MS}
-            color={colorOf(agent)}
-          />
-        )}
-        {n.kind === "change_request" && (
-          <div className="nt-wr__card">
-            <ChangeRequestCard n={n} />
-          </div>
-        )}
-        {n.kind === "usage_limit" && <UsageLimitActions n={n} />}
-      </WaitRow>
-    );
-  let card: ReactNode;
+  const source = sourceOf(t, n, channelName);
+  const words = itemWords(t, n, dir, channelName);
+  const found = teamWatchOf(n);
+  const steps = l.steps && l.steps.total > 0 ? l.steps : null;
+  const failed =
+    n.kind === "mission_stopped" || n.kind === "routine_failed" || n.kind === "run_failed" || l.steps?.failedAt != null;
+  const stopStep = steps ? (steps.failedAt ?? steps.done + 1) : 0;
+  const stepWords = steps
+    ? t("notifications.stoppedAt", { step: Math.min(stopStep, steps.total), total: steps.total })
+    : "";
+  const speaker = n.count > 1 && (n.kind === "thread_reply" || n.kind === "issue_comment") ? name : null;
+  const canReply = Boolean(replyTarget(n));
+  let body: ReactNode;
   if (approvalId) {
-    card = (
+    body = (
       <WaitApproval
         approvalId={approvalId}
         agent={agent}
         members={dir.memberById}
-        fallback={l.title ?? l.text ?? label}
+        fallback={l.title ?? l.text ?? name}
         who={first ? name : undefined}
-        tail={tail}
       />
     );
-  } else {
+  } else if (n.kind === "agent_question") {
     const title = l.title ?? l.text ?? "";
-    const source = sourceOf(t, n, channelName);
     const suggestions = l.suggestions ?? [];
-    card = (
+    const waitedMs = Date.now() - new Date(n.createdAt).getTime();
+    const g = agentGrammar(name);
+    body = (
       <RequestCard
         id={n.id}
         kind="question"
         agent={agent}
-        label={label}
+        label={[name, title].filter(Boolean).join(": ")}
         who={first ? name : undefined}
         mine
         source={source?.[1]}
@@ -1087,226 +953,189 @@ function WaitCard({
           </>
         }
         actions={
-          resolving || s.replying ? undefined : (
-            <>
-              {suggestions.length > 0 ? (
-                <RequestKeys count={suggestions.length} />
-              ) : (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon="reply"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    h.onReply(n);
-                  }}
-                >
-                  {t("notifications.reply")}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  h.onOpen(n);
-                }}
-              >
-                {t("notifications.wait.openThread")}
-              </Button>
-            </>
+          resolving || s.replying ? undefined : suggestions.length > 0 ? (
+            <RequestKeys count={suggestions.length} />
+          ) : (
+            <Button variant="primary" size="sm" icon="reply" onClick={() => h.onReply(n)}>
+              {t("notifications.reply")}
+            </Button>
           )
         }
         end={
-          <>
-            {/* Its agent stopped until I answer, in attention once it has waited a while. */}
-            <span className={cx(waitedMs >= LATE_MS && "nt-late")}>
-              {t(feminine ? "notifications.wait.stoppedForF" : "notifications.wait.stoppedForM", {
-                time: durationText(t, waitedMs),
-              })}
-            </span>
-            {tail}
-          </>
+          // Its agent stopped until I answer, in attention once it has waited a while.
+          <span className={cx(waitedMs >= LATE_MS && "nt-late")}>
+            {t(isFeminineName(name) ? "notifications.wait.stoppedForF" : "notifications.wait.stoppedForM", {
+              time: durationText(t, waitedMs),
+            })}
+          </span>
         }
         what={title}
       />
     );
+  } else {
+    const say = n.waiting ? waitingWords(t, n, dir) : words.text;
+    body = (
+      <div className="ib-item">
+        <p className="ib-read__who">
+          {[first ? name : "", source?.[1] ?? "", whenText(t, i18n.language, n.updatedAt)].filter(Boolean).join(" · ")}
+        </p>
+        <h2 className="ib-read__title nt-what">
+          <Headline n={n} dir={dir} channelName={channelName} />
+        </h2>
+        {n.kind === "reaction"
+          ? l.quote && <p className="ib-read__say">{t("notifications.quote", { text: l.quote })}</p>
+          : (say || words.lead) && (
+              <p className="ib-read__say">
+                {words.lead && <b>{t("notifications.lead", { text: words.lead })} </b>}
+                {speaker && <b>{t("notifications.speaker", { name: speaker })} </b>}
+                {say && <Snippet text={say} mine={mine} />}
+              </p>
+            )}
+        {/* A finished run says nothing extra: only a stopped one shows where it stopped. */}
+        {steps && failed && (
+          <div className="nt-steprow">
+            <PlanStrip
+              cells={stepCells({ ...steps, failedAt: failed ? stopStep : undefined })}
+              color={agent ? colorOf(agent) : undefined}
+              label={stepWords}
+            />
+            <span className="ib-read__warn">{stepWords}</span>
+          </div>
+        )}
+        {n.kind === "change_request" && <ChangeRequestCard n={n} />}
+        {n.kind === "usage_limit" && <UsageLimitActions n={n} />}
+        <DeviceNoticeActions n={n} />
+        <AdminAskActions n={n} />
+        {n.kind === "agent_unreached" && n.source.agentId && n.source.userId && (
+          <UnreachedAllow agentId={n.source.agentId} userId={n.source.userId} />
+        )}
+        {n.kind === "plan_lent" && <PlanTakeBack n={n} />}
+        {n.kind === "plan_serves" && <PlanOnlyMe n={n} />}
+        {widgetNoticeOf(n) && !n.doneAt && (
+          <div className="nt-steprow">
+            <WidgetNoticeActions n={n} onOpen={() => h.onOpen(n)} open={false} />
+          </div>
+        )}
+        {/* What it groups, read right here: a thread's replies, a task's comments, each agent that failed. */}
+        {isExpandable(n) &&
+          (n.kind === "issue_comment" ? (
+            <IssueComments n={n} dir={dir} mine={mine} />
+          ) : n.kind === "run_failed" ? (
+            <RunFailures n={n} dir={dir} channelName={channelName} />
+          ) : (
+            <ThreadReplies n={n} dir={dir} mine={mine} />
+          ))}
+        {s.replied && (
+          <div className="nt-replied ac-iconline">
+            <Icon name="check" size={14} />
+            <span>{t("notifications.youReplied", { text: s.replied })}</span>
+          </div>
+        )}
+        {s.replying ? (
+          <Composer
+            id={n.id}
+            placeholder={placeholderFor(t, n, dir, channelName)}
+            draft={s.draft}
+            sending={s.sending}
+            onDraft={(text) => h.onDraft(n, text)}
+            onSend={() => h.onSend(n, s.draft)}
+            onCancel={h.onCancel}
+          />
+        ) : (
+          <div className="ib-decide">
+            {canReply && (
+              <Button variant="primary" icon="reply" onClick={() => h.onReply(n)}>
+                {t("notifications.reply")}
+              </Button>
+            )}
+            {/* What the right hand found names its way out on the button; anything else only opens. */}
+            <Button
+              variant={canReply ? "default" : "primary"}
+              title={t("notifications.openTip")}
+              onClick={() => h.onOpen(n)}
+            >
+              {n.kind === "plan_model_dropped"
+                ? t("notifications.planModelDropped.choose")
+                : found?.act
+                  ? (t as unknown as (key: string) => string)(found.act)
+                  : t("notifications.open")}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
   }
   return (
-    <article
-      className={cx("nt-wi", unread && "is-unread", s.cur && "is-cur", s.fresh && "is-new", s.leaving && "is-leaving")}
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a focusable item (J/K, E, R, Enter) with its own actions inside
-      tabIndex={0}
-      data-n={n.id}
-      data-wait=""
+    <section
+      className={cx("ib-read", s.leaving && "is-leaving")}
+      data-scroll-restoration-id="inbox-item"
+      aria-label={[first ? name : "", l.title ?? l.text].filter(Boolean).join(": ") || t("notifications.title")}
       data-burst=""
-      aria-label={label}
-      onClick={(e) => clickRow(e, n, h)}
-      onAuxClick={(e) => clickRow(e, n, h)}
-      onKeyDown={() => {}}
     >
-      <span className="nt-face">{face}</span>
-      {card}
-    </article>
+      {agent && <CardSky color={colorOf(agent)} />}
+      <div className="ib-read__in">
+        <header className="ib-read__top">
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            icon="chevronLeft"
+            className="ib-read__back"
+            aria-label={t("common.back")}
+            onClick={onBack}
+          />
+          <span className="ib-read__face">
+            {agent ? (
+              <AgentAvatar
+                agentId={agent.id}
+                name={name}
+                size="lg"
+                framed={false}
+                state={resolving ? "writing" : n.waiting ? "waiting" : undefined}
+              />
+            ) : (
+              <ItemFace n={n} dir={dir} className="nt-av40" />
+            )}
+          </span>
+          <ItemMenu n={n} h={h} busy={s.busy} />
+        </header>
+        {body}
+      </div>
+    </section>
   );
 }
 
-/**
- * An approval waiting for me, decided right here as in its conversation: its own card, or its card's group while
- * others on it still wait (decided together, one by one in the conversation or Aprovações).
- */
-function WaitApproval({
-  approvalId,
-  agent,
-  members,
-  fallback,
-  who,
-  tail,
-}: {
-  approvalId: string;
-  agent: Agent | undefined;
-  members: Map<string, Member>;
-  /** Who asks, before the kind. */
-  who?: string;
-  /** Its words before the request loads. */
-  fallback: string;
-  tail: ReactNode;
-}) {
+/** A decided request, open beside the list: the same card, saying who decided and when. */
+function RequestRead({ approval, dir, onBack }: { approval: Approval; dir: Dir; onBack: () => void }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
-  const approvals = useApprovals(org.id);
-  const listed = approvals.data?.find((a) => a.id === approvalId);
-  const one = useApproval(org.id, approvalId, !listed && approvals.isSuccess);
-  const a = listed ?? one.data;
-  if (!a)
-    return (
-      <RequestCard
-        id={approvalId}
-        kind="approval"
-        agent={agent}
-        label={t("approval.group")}
-        who={who}
-        mine
-        lead={fallback}
-        end={tail}
-        what={fallback}
-      />
-    );
-  const items = a.messageId ? approvalCardItems(approvals.data, a.messageId, a) : [a];
-  if (items.filter((x) => x.status === "pending").length > 1)
-    return <ApprovalGroupAsk items={items} agent={agent} members={members} who={who} tail={tail} />;
-  return <ApprovalAsk approval={a} agent={agent} members={members} who={who} tail={tail} />;
-}
-
-/**
- * A waiting item that only points somewhere, on a card of the requests' shape: where it is from and when on top, its
- * words and what it is about, then Open, Remind me later and Done in the footer. A click anywhere on it opens it, as
- * Open does.
- */
-function WaitRow({
-  n,
-  s,
-  h,
-  dir,
-  channelName,
-  label,
-  who,
-  face,
-  tail,
-  children,
-}: {
-  n: AppNotification;
-  s: RowState;
-  h: RowHandlers;
-  dir: Dir;
-  channelName: (id: string) => string;
-  label: string;
-  /** Who it is from, before where (a request to join names its people in the headline). */
-  who?: string;
-  face: ReactNode;
-  tail: ReactNode;
-  children?: ReactNode;
-}) {
-  const { t, i18n } = useTranslation();
-  const unread = n.readAt === null;
-  // A request to join and what the right hand found say it all in their headline; an agent's hand and an approval
-  // add what they are about, a secret its name and what it is for.
-  const found = teamWatchOf(n);
-  const sub =
-    n.kind === "join_request" || found
-      ? null
-      : n.kind === "secret_request"
-        ? secretNoticeLine(n)
-        : n.kind === "usage_limit"
-          ? usageLimitLine(t, n)
-          : deviceNoticeOf(n)
-            ? deviceNoticeLine(t, n)
-            : (widgetNoticeLine(t, n, dir) ?? n.latest.title ?? n.latest.text);
-  const source = sourceOf(t, n, channelName);
-  const when = whenText(t, i18n.language, n.createdAt);
+  const agent = dir.anyAgent(approval.agentId);
+  const name = agent?.name ?? t("channel.unknownAgent");
   return (
-    <article
-      className={cx(
-        "nt-wi nt-wr",
-        unread && "is-unread",
-        s.cur && "is-cur",
-        s.fresh && "is-new",
-        s.leaving && "is-leaving",
-      )}
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a focusable item (J/K, E, Enter) with its own actions inside
-      tabIndex={0}
-      data-n={n.id}
-      data-wait=""
-      data-burst=""
-      aria-label={unread ? t("notifications.unreadItem", { name: label }) : label}
-      onClick={(e) => clickRow(e, n, h, h.onOpen)}
-      onAuxClick={(e) => clickRow(e, n, h, h.onOpen)}
-      onKeyDown={() => {}}
-    >
-      <span className="nt-face">{face}</span>
-      <div className="rq nt-wr__main">
-        <div className="rq__head">
-          <span className="rq__kind">
-            {who && (
-              <>
-                <span className="rq__who">{who}</span>
-                {" · "}
-              </>
-            )}
-            {source ? (
-              <>
-                <span className="nt-wr__src">{source[1]}</span>
-                <span className="rq__source nt-wr__tm"> · {when}</span>
-              </>
-            ) : (
-              <span className="nt-wr__tm">{when}</span>
-            )}
+    <section className="ib-read" data-scroll-restoration-id="inbox-item" aria-label={name}>
+      {agent && <CardSky color={colorOf(agent)} />}
+      <div className="ib-read__in">
+        <header className="ib-read__top">
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            icon="chevronLeft"
+            className="ib-read__back"
+            aria-label={t("common.back")}
+            onClick={onBack}
+          />
+          <span className="ib-read__face">
+            <AgentAvatar agentId={approval.agentId} name={name} size="lg" framed={false} />
           </span>
-          <LeftChip n={n} className="nt-wr__left" />
-        </div>
-        <p className="rq__lead nt-what">
-          <Headline n={n} dir={dir} channelName={channelName} />
-        </p>
-        {sub && <p className="nt-wr__sub">{sub}</p>}
-        <div className="rq__foot ac-tailrow nt-wr__acts">
-          {/* A board's notice is decided or resolved right here (ADR 0135). */}
-          <WidgetNoticeActions n={n} onOpen={() => h.onOpen(n)} open={false} />
-          <DeviceNoticeActions n={n} inline />
-          <AdminAskActions n={n} inline />
-          {/* What the right hand found names its way out on the button; anything else only opens. */}
-          <Button size="sm" className="nt-wr__open" title={t("notifications.openTip")} onClick={() => h.onOpen(n)}>
-            {found?.act ? (t as unknown as (key: string) => string)(found.act) : t("notifications.open")}
-          </Button>
-          <span className="rq__end ac-tail">{tail}</span>
-        </div>
+        </header>
+        <ApprovalAsk approval={approval} agent={agent} members={dir.memberById} who={name} />
       </div>
-      {children}
-    </article>
+    </section>
   );
 }
 
 /** An item's row or card on screen. */
-const element = (id: string) => document.querySelector<HTMLElement>(`[data-n="${CSS.escape(id)}"]`);
+const element = (id: string) => document.querySelector<HTMLElement>(`.ib-list [data-n="${CSS.escape(id)}"]`);
 
 /** `setTimeout` that is cleared when the component unmounts (a late state update after leaving the page). */
 function useLater() {
@@ -1357,11 +1186,24 @@ function useArrivals(items: AppNotification[], filter: NotificationFilter, ready
   return { fresh, pulse };
 }
 
+/** The inbox's filters: the notifications' own, and the requests already decided (the approvals' history). */
+export type InboxFilter = NotificationFilter | "requests";
+const INBOX_FILTERS: readonly InboxFilter[] = [...NOTIFICATION_FILTERS, "requests", "done"];
+export const isInboxFilter = (value: unknown): value is InboxFilter =>
+  typeof value === "string" && (INBOX_FILTERS as readonly string[]).includes(value);
+
 /**
- * Notificações: what waits on me on top, the rest by day, grouped by conversation. `waitingOnly`: "Esperando você"
- * (ADR 0172), the same inbox showing only what waits, each card answered in place as here.
+ * The inbox: one list of everything that involves me (what waits on me on top, the rest by day) and the open item
+ * beside it, where it is answered: an approval decided, a question answered, a mention replied to. `filter`: the
+ * filter it starts on; `approvalId`: the request to open (a decided one opens among the decided requests).
  */
-export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boolean }) {
+export function NotificationsPage({
+  filter: startFilter = "all",
+  approvalId,
+}: {
+  filter?: InboxFilter;
+  approvalId?: string;
+}) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
@@ -1369,9 +1211,21 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
   const toast = useToast();
   const qc = useQueryClient();
   const live = useLiveStore();
-  const [filter, setFilter] = useState<NotificationFilter>(waitingOnly ? "waiting" : "all");
-  const list = useNotifications(org.id, filter);
-  const title = waitingOnly ? t("shell.waiting") : t("notifications.title");
+  const [filter, setFilter] = useState<InboxFilter>(startFilter);
+  // The decided requests are the approvals' own list: the notifications behind them stay as they are.
+  const requestsView = filter === "requests";
+  const listFilter: NotificationFilter = requestsView ? "all" : filter;
+  const list = useNotifications(org.id, listFilter);
+  const approvals = useApprovals(org.id);
+  const [req, setReq] = useState<string | null>(null);
+  // The decided ones, and a request a link asked for that still waits but has no notice in the list (done, snoozed,
+  // or not this person's to decide): it reads here too, instead of another request taking its place.
+  const decided = requestsView
+    ? (approvals.data ?? [])
+        .filter((a) => a.status !== "pending" || a.id === req)
+        .sort((a, b) => approvalDecidedAt(b).localeCompare(approvalDecidedAt(a)))
+    : [];
+  const title = t("notifications.title");
   const badge = useNotificationCount(org.id);
   const action = useNotificationAction(org.id);
   const reply = useNotificationReply(org.id);
@@ -1387,30 +1241,55 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
 
   const items = allItems(list.data);
   const counts = list.data?.pages[0]?.counts;
-  const { fresh, pulse } = useArrivals(items, filter, list.isSuccess && !list.isPlaceholderData);
+  const { fresh, pulse } = useArrivals(items, listFilter, list.isSuccess && !list.isPlaceholderData);
   const mine = dir.memberById.get(me.user.id)?.handle ?? null;
   const channelName = (id: string) => channels.data?.find((c) => c.id === id)?.name ?? "";
   // "Concluídas": by when each was marked done, waiting or not.
   const doneView = filter === "done";
-  const waiting = doneView ? [] : sortWaiting(items.filter((n) => n.waiting));
+  // An older notice that proposals wait on me: agents apply their improvements themselves now (ADR 0219).
+  const waiting = doneView ? [] : sortWaiting(items.filter((n) => n.waiting && n.kind !== "proposal_waiting"));
   const rest = doneView ? items : items.filter((n) => !n.waiting);
   const days = groupByDay(rest, undefined, doneView ? (n) => n.doneAt ?? n.updatedAt : undefined);
   const unreadTotal = counts?.unread ?? badge.data?.unread ?? 0;
-  const waitingTotal = counts?.waiting ?? badge.data?.waiting ?? 0;
+  const waitingTotal = useInboxWaiting(org.id);
   const nothing = list.isSuccess && (counts?.all ?? 0) === 0 && items.length === 0;
 
   // The tab says how many are unread.
   useEffect(() => {
     const previous = document.title;
-    document.title = waitingOnly
-      ? title
-      : unreadTotal
-        ? t("notifications.docTitleUnread", { count: unreadTotal })
-        : title;
+    document.title = unreadTotal ? t("notifications.docTitleUnread", { count: unreadTotal }) : title;
     return () => {
       document.title = previous;
     };
-  }, [unreadTotal, t, title, waitingOnly]);
+  }, [unreadTotal, t, title]);
+
+  // The first item opens by itself beside the list: what waits on me first. Where the screen shows one of the two,
+  // the list stays until the person picks.
+  const firstId = waiting[0]?.id ?? days[0]?.[1][0]?.id ?? null;
+  const curShown = cur !== null && items.some((x) => x.id === cur);
+  useEffect(() => {
+    if (requestsView || curShown || !firstId || matchesNow(NARROW)) return;
+    setCur(firstId);
+  }, [requestsView, curShown, firstId]);
+  const firstRequest = decided[0]?.id ?? null;
+  const reqShown = req !== null && decided.some((a) => a.id === req);
+  useEffect(() => {
+    if (!requestsView || reqShown || !firstRequest || matchesNow(NARROW)) return;
+    setReq(firstRequest);
+  }, [requestsView, reqShown, firstRequest]);
+
+  // A request asked for by its id (a link, a push): its item among what waits, else among the decided ones.
+  const asked = useRef(approvalId ?? null);
+  useEffect(() => {
+    const id = asked.current;
+    if (!id || !list.isSuccess || !approvals.isSuccess) return;
+    asked.current = null;
+    const item = items.find((n) => n.source.approvalId === id && !n.doneAt);
+    if (item) return setCur(item.id);
+    if (!approvals.data?.some((a) => a.id === id)) return;
+    setFilter("requests");
+    setReq(id);
+  }, [items, list.isSuccess, approvals.isSuccess, approvals.data]);
 
   const markRead = (n: AppNotification) => {
     if (n.readAt === null) action.mutate({ type: "read", item: n, read: true });
@@ -1419,7 +1298,7 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
   /** Slide out, fold the space, then change the lists (the next item takes the cursor). */
   const leave = (n: AppNotification, then: () => void) => {
     if (replying === n.id) setReplying(null);
-    const rows = [...document.querySelectorAll<HTMLElement>("[data-n]")];
+    const rows = [...document.querySelectorAll<HTMLElement>(".ib-list [data-n]")];
     const i = rows.findIndex((r) => r.dataset.n === n.id);
     const next = rows[i + 1]?.dataset.n ?? rows[i - 1]?.dataset.n ?? null;
     const finish = () => {
@@ -1527,7 +1406,7 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
   /** An agent got unblocked: its pixels burst, a line says so, then the card leaves. */
   const resolve = (n: AppNotification) => {
     setResolving(n.id);
-    const face = element(n.id)?.querySelector<HTMLElement>(".ac-avatar");
+    const face = document.querySelector<HTMLElement>(".ib-read__face .ac-avatar");
     if (face) prepareBurst(face)();
     later(() => {
       leave(n, () => dropNotification(qc, org.id, n.id));
@@ -1574,7 +1453,7 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
     const count = counts?.unread ?? 0;
     if (!count) return;
     action.mutate(
-      { type: "readAll", filter },
+      { type: "readAll", filter: listFilter },
       {
         onSuccess: (res) =>
           toast.show(t("notifications.toast.readAll", { count: res.ids.length || count }), "info", {
@@ -1587,7 +1466,7 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
 
   const doneAll = () =>
     bulkAction.mutate(
-      { type: "doneAll", filter },
+      { type: "doneAll", filter: listFilter },
       {
         onSuccess: (res) => {
           setCur(null);
@@ -1616,15 +1495,13 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
     markRead(n);
   };
 
-  /**
-   * A click on an item opens where it happened, as Open does. On a narrow screen the first tap on another item shows
-   * its actions (a row under it) and the next one opens it; connecting an AI, the one next step there is, opens at once.
-   */
+  /** A click on an item opens it beside the list, read; connecting an AI, the one next step there is, opens at once. */
   const select = (n: AppNotification) => {
-    const first = cur !== n.id;
+    if (cur !== n.id) setReplying(null);
     setCur(n.id);
-    if (first && matchesNow(NARROW) && !connectsAi(n)) return markRead(n);
-    openItem(n);
+    // Opening where it happened marks it read itself.
+    if (connectsAi(n)) openItem(n);
+    else markRead(n);
   };
 
   const handlers: RowHandlers = {
@@ -1651,12 +1528,14 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
     const { items: all, cur: current, handlers: h } = keyState.current;
     const at = here ?? (current ? element(current) : null);
     if (key === "j" || key === "k" || key === "arrowdown" || key === "arrowup") {
-      const rows = [...document.querySelectorAll<HTMLElement>(".nt [data-n]")];
+      const rows = [...document.querySelectorAll<HTMLElement>(".ib-list [data-n]")];
       const i = at ? rows.indexOf(at) : -1;
       const down = key === "j" || key === "arrowdown";
       const next = rows[i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + (down ? 1 : -1)))];
       if (next?.dataset.n) {
-        setCur(next.dataset.n);
+        const item = all.find((x) => x.id === next.dataset.n);
+        if (item) h.onSelect(item);
+        else setCur(next.dataset.n);
         next.focus({ preventScroll: true });
         next.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
       }
@@ -1690,8 +1569,10 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
       // Cmd/Ctrl+Enter opens in a new tab; any other key with a modifier is the browser's.
       const newTab = e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.altKey;
       if ((e.metaKey || e.ctrlKey || e.altKey) && !newTab) return;
-      if (target?.closest("button") && (e.key === "Enter" || e.key === " ")) return;
-      const here = target?.closest<HTMLElement>("[data-n]") ?? (current ? element(current) : null);
+      // A button's own Enter and Space are its click, but a row's Enter opens where it happened.
+      if (target?.closest("button:not(.ib-row)") && (e.key === "Enter" || e.key === " ")) return;
+      if (target?.closest(".ib-row") && e.key === " ") return;
+      const here = target?.closest<HTMLElement>(".ib-list [data-n]") ?? (current ? element(current) : null);
       const key = e.key.toLowerCase();
       // Arrows move only from an item; J and K from anywhere on the page.
       if ((key === "arrowdown" || key === "arrowup") && !here) return;
@@ -1714,179 +1595,235 @@ export function NotificationsPage({ waitingOnly = false }: { waitingOnly?: boole
     busy: bulk,
   });
 
-  const summary = waitingOnly
-    ? waitingTotal > 0 && t("notifications.summaryWaiting", { count: waitingTotal })
-    : nothing
-      ? t("notifications.summaryNothing")
-      : [
-          waitingTotal ? t("notifications.summaryWaiting", { count: waitingTotal }) : "",
-          unreadTotal ? t("notifications.summaryUnread", { count: unreadTotal }) : t("notifications.summaryAllRead"),
-        ]
-          .filter(Boolean)
-          .join(" · ");
   const calmLook = lookOf(dir.agents[0]) ?? true;
-  // What the keys act on: Atalhos' rows other than moving wait for one.
-  const onCur = cur !== null && items.some((x) => x.id === cur);
+  // What the keys act on: the open item.
+  const curItem = requestsView ? undefined : items.find((x) => x.id === cur);
+  const curRequest = requestsView ? decided.find((a) => a.id === req) : undefined;
+  const filterWords = (f: InboxFilter) =>
+    f === "requests" ? t("notifications.filter.requests") : t(`notifications.filter.${f}`);
+  const summary = [
+    waitingTotal ? t("notifications.summaryWaiting", { count: waitingTotal }) : "",
+    unreadTotal ? t("notifications.summaryUnread", { count: unreadTotal }) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const back = () => {
+    setReplying(null);
+    setCur(null);
+    setReq(null);
+  };
 
-  return (
-    <div className="page page--list nt">
-      <PageHeader
-        title={title}
-        // The counts the sidebar already has show at once, the list's own replace them: on the title's row in
-        // Notifications; on "Esperando você" the line under the title, as the Approvals page says what waits.
-        count={waitingOnly ? undefined : (list.isSuccess || badge.isSuccess) && summary}
-        meta={waitingOnly ? ((list.isSuccess || badge.isSuccess) && summary) || undefined : undefined}
-        actions={
-          <>
-            <Menu
-              align="end"
-              label={t("notifications.keys.title")}
-              onClosed={() => {
-                const moved = movedByMenu.current ? keyState.current.cur : null;
-                if (moved) element(moved)?.focus({ preventScroll: true });
-                movedByMenu.current = false;
-              }}
-              trigger={
-                <Button variant="ghost" className="nt-keys-btn">
-                  {t("notifications.keys.title")}
-                </Button>
-              }
-            >
-              <MenuHeading>{t("notifications.keys.title")}</MenuHeading>
-              <MenuItem hint="J · K" disabled={items.length === 0} onSelect={() => menuPress("j")}>
-                {t("notifications.keys.move")}
-              </MenuItem>
-              <MenuItem hint="E" disabled={!onCur} onSelect={() => menuPress("e")}>
-                {t("notifications.keys.done")}
-              </MenuItem>
-              <MenuItem hint="R" disabled={!onCur} onSelect={() => menuPress("r")}>
-                {t("notifications.keys.reply")}
-              </MenuItem>
-              <MenuItem hint="↵" disabled={!onCur} onSelect={() => menuPress("enter")}>
-                {t("notifications.keys.open")}
-              </MenuItem>
-            </Menu>
-            {!waitingOnly && (
-              <Button disabled={doneView || !counts?.unread || action.isPending || bulk} onClick={readAll}>
-                {t("notifications.readAll")}
-              </Button>
-            )}
-            {!waitingOnly && (
-              <Button disabled={!canClearAll(filter, counts, items) || action.isPending || bulk} onClick={doneAll}>
-                {t("notifications.doneAll")}
-              </Button>
-            )}
-          </>
-        }
-      />
-
-      {!waitingOnly && (
-        <div className="nt-tb">
-          <div className="nt-segwrap">
-            <Segmented
-              label={t("notifications.filters")}
-              value={filter}
-              onValueChange={(f) => {
-                setFilter(f);
-                setCur(null);
-              }}
-              options={[
-                ...NOTIFICATION_FILTERS.map((f) => ({
-                  value: f,
-                  label: t(`notifications.filter.${f}`),
-                  hint: counts?.[f] ? counts[f] : undefined,
-                })),
-                { value: "done" as const, label: t("notifications.filter.done"), hint: undefined },
-              ]}
-            />
-          </div>
-        </div>
-      )}
-
-      {list.isPending && <LoadingCards count={3} />}
-      {list.isError && !list.data && <ErrorState error={list.error} onRetry={() => void list.refetch()} />}
-
-      {nothing && filter === "all" && (
+  // Nothing at all: one calm screen, no list and nothing to open.
+  if (nothing && filter === "all")
+    return (
+      <div className="page page--list nt ib-calm">
         <EmptyState size="page" agent={calmLook} mood="deal" title={t("notifications.calmTitle")}>
           {t("notifications.calmText")}
         </EmptyState>
-      )}
-
-      {list.isSuccess && items.length === 0 && !(nothing && filter === "all") && (
-        <EmptyState
-          size="panel"
-          // Nobody waiting and all read are wins: the others are only a filter with nothing in it.
-          agent={filter === "waiting" || filter === "unread" ? calmLook : undefined}
-          mood="deal"
-          actions={
-            filter !== "waiting" && filter !== "unread" && !doneView ? (
-              <Button
-                onClick={() => {
-                  setFilter("all");
-                  setCur(null);
-                }}
-              >
-                {t("notifications.filter.all")}
-              </Button>
-            ) : undefined
-          }
-        >
-          {filter === "waiting"
-            ? t("notifications.noneWaiting")
-            : filter === "unread"
-              ? t("notifications.noneUnread")
-              : doneView
-                ? t("notifications.noneDone")
-                : t("notifications.noneHere")}
-        </EmptyState>
-      )}
-
-      <div className="ac-groups">
-        {waiting.length > 0 && (
-          <section className="nt-wait" aria-label={t("notifications.wait.title")}>
-            {/* The page's own title says it there. */}
-            {!waitingOnly && <GroupHeading title={t("notifications.wait.title")} count={waiting.length} />}
-            <div className="nt-wait__cards">
-              {waiting.map((n) => (
-                <WaitCard
-                  key={n.id}
-                  n={n}
-                  s={stateOf(n)}
-                  h={handlers}
-                  dir={dir}
-                  mine={mine}
-                  resolving={resolving === n.id}
-                  channelName={channelName}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {days.map(([day, rows]) => {
-          const unread = rows.filter((n) => n.readAt === null).length;
-          return (
-            <section key={day} className="nt-day" aria-label={t(`notifications.day.${day}`)}>
-              <GroupHeading
-                title={t(`notifications.day.${day}`)}
-                count={unread ? t("notifications.dayUnread", { count: unread }) : rows.length}
-              />
-              <div className="list-card nt-list">
-                {rows.map((n) => (
-                  <Row key={n.id} n={n} s={stateOf(n)} h={handlers} dir={dir} mine={mine} channelName={channelName} />
-                ))}
-              </div>
-            </section>
-          );
-        })}
       </div>
+    );
 
-      {list.hasNextPage && (
-        <div className="nt-more-pages">
-          <Button variant="ghost" size="sm" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
-            {t("notifications.more")}
-          </Button>
-        </div>
+  return (
+    <div className={cx("nt ib", (curItem || curRequest) && "ib--open")}>
+      <aside className="ib-list" data-scroll-restoration-id="inbox-list" aria-label={title}>
+        {/* The page's own header, as every page's; it stays while the list scrolls under it. */}
+        <PageHeader
+          className="ib-head"
+          title={title}
+          meta={summary || undefined}
+          actions={
+            <>
+              {/* In sight while something is unread: the menu keeps it too, with the other whole-list actions. */}
+              {!requestsView && !doneView && Boolean(counts?.unread) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  icon="checks"
+                  className="ib-readall"
+                  aria-label={t("notifications.readAll")}
+                  title={t("notifications.readAll")}
+                  disabled={action.isPending || bulk}
+                  onClick={readAll}
+                />
+              )}
+              <Menu
+                align="end"
+                label={t("notifications.filters")}
+                onClosed={() => {
+                  const moved = movedByMenu.current ? keyState.current.cur : null;
+                  if (moved) element(moved)?.focus({ preventScroll: true });
+                  movedByMenu.current = false;
+                }}
+                trigger={
+                  <Button variant="ghost" size="sm" className="ib-filter" aria-label={t("notifications.filters")}>
+                    {filterWords(filter)}
+                    <Icon name="chevronDown" size={14} />
+                  </Button>
+                }
+              >
+                <MenuRadioGroup
+                  label={t("notifications.filters")}
+                  value={filter}
+                  onValueChange={(f) => {
+                    setFilter(f as InboxFilter);
+                    setCur(null);
+                    setReq(null);
+                  }}
+                  options={INBOX_FILTERS.map((f) => ({
+                    value: f,
+                    label:
+                      f !== "requests" && f !== "done" && counts?.[f] ? (
+                        <span className="ib-menu__opt">
+                          {filterWords(f)}
+                          <span className="ib-menu__n">{counts[f]}</span>
+                        </span>
+                      ) : (
+                        filterWords(f)
+                      ),
+                  }))}
+                />
+                {!requestsView && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      icon="check"
+                      disabled={doneView || !counts?.unread || action.isPending || bulk}
+                      onSelect={readAll}
+                    >
+                      {t("notifications.readAll")}
+                    </MenuItem>
+                    <MenuItem
+                      icon="archive"
+                      disabled={!canClearAll(listFilter, counts, items) || action.isPending || bulk}
+                      onSelect={doneAll}
+                    >
+                      {t("notifications.doneAll")}
+                    </MenuItem>
+                    <MenuSeparator />
+                    <MenuHeading>{t("notifications.keys.title")}</MenuHeading>
+                    <MenuItem hint="J · K" disabled={items.length === 0} onSelect={() => menuPress("j")}>
+                      {t("notifications.keys.move")}
+                    </MenuItem>
+                    <MenuItem hint="E" disabled={!curItem} onSelect={() => menuPress("e")}>
+                      {t("notifications.keys.done")}
+                    </MenuItem>
+                    <MenuItem hint="R" disabled={!curItem} onSelect={() => menuPress("r")}>
+                      {t("notifications.keys.reply")}
+                    </MenuItem>
+                    <MenuItem hint="↵" disabled={!curItem} onSelect={() => menuPress("enter")}>
+                      {t("notifications.keys.open")}
+                    </MenuItem>
+                  </>
+                )}
+              </Menu>
+            </>
+          }
+        />
+
+        {requestsView ? (
+          <>
+            {approvals.isPending && <LoadingCards count={3} />}
+            {approvals.isSuccess && decided.length === 0 && (
+              <EmptyState size="panel">{t("notifications.noneRequests")}</EmptyState>
+            )}
+            {decidedGroups(decided).map(([day, rows]) => (
+              <section key={day} className="ib-group" aria-label={t(`approvals.groups.${day}`)}>
+                <GroupHeading title={t(`approvals.groups.${day}`)} />
+                <div className="ap-list__rows">
+                  {rows.map((a) => (
+                    <ApprovalRow key={a.id} approval={a} selected={req === a.id} onOpen={() => setReq(a.id)} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </>
+        ) : (
+          <>
+            {list.isPending && <LoadingCards count={3} />}
+            {list.isError && !list.data && <ErrorState error={list.error} onRetry={() => void list.refetch()} />}
+            {list.isSuccess && items.length === 0 && (
+              <EmptyState
+                size="panel"
+                // Nobody waiting and all read are wins: the others are only a filter with nothing in it.
+                agent={filter === "waiting" || filter === "unread" ? calmLook : undefined}
+                mood="deal"
+                actions={
+                  filter !== "waiting" && filter !== "unread" && !doneView ? (
+                    <Button
+                      onClick={() => {
+                        setFilter("all");
+                        setCur(null);
+                      }}
+                    >
+                      {t("notifications.filter.all")}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {filter === "waiting"
+                  ? t("notifications.noneWaiting")
+                  : filter === "unread"
+                    ? t("notifications.noneUnread")
+                    : doneView
+                      ? t("notifications.noneDone")
+                      : t("notifications.noneHere")}
+              </EmptyState>
+            )}
+            {waiting.length > 0 && (
+              <section className="ib-group nt-wait" aria-label={t("notifications.wait.title")}>
+                <GroupHeading title={t("notifications.wait.title")} count={waiting.length} />
+                {waiting.map((n) => (
+                  <InboxRow key={n.id} n={n} s={stateOf(n)} h={handlers} dir={dir} channelName={channelName} />
+                ))}
+              </section>
+            )}
+            {days.map(([day, rows]) => {
+              const unread = rows.filter((n) => n.readAt === null).length;
+              return (
+                <section key={day} className="ib-group nt-day" aria-label={t(`notifications.day.${day}`)}>
+                  <GroupHeading
+                    title={t(`notifications.day.${day}`)}
+                    count={unread ? t("notifications.dayUnread", { count: unread }) : undefined}
+                  />
+                  {rows.map((n) => (
+                    <InboxRow key={n.id} n={n} s={stateOf(n)} h={handlers} dir={dir} channelName={channelName} />
+                  ))}
+                </section>
+              );
+            })}
+            {list.hasNextPage && (
+              <div className="nt-more-pages">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={list.isFetchingNextPage}
+                  onClick={() => void list.fetchNextPage()}
+                >
+                  {t("notifications.more")}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+
+      {curItem ? (
+        <InboxRead
+          key={curItem.id}
+          n={curItem}
+          s={stateOf(curItem)}
+          h={handlers}
+          dir={dir}
+          mine={mine}
+          resolving={resolving === curItem.id}
+          channelName={channelName}
+          onBack={back}
+        />
+      ) : curRequest ? (
+        <RequestRead key={curRequest.id} approval={curRequest} dir={dir} onBack={back} />
+      ) : (
+        <div className="ib-read ib-read--none" aria-hidden="true" />
       )}
     </div>
   );

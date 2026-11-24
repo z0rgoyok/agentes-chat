@@ -531,7 +531,7 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       },
     ));
 
-  test("Advanced on Linux: back to defaults keeps two conversations open for 20 minutes, as the runner does", () =>
+  test("Advanced on Linux: back to defaults keeps eight conversations open for 60 minutes, as the runner does", () =>
     pane(
       "selfhost",
       <Advanced />,
@@ -545,8 +545,8 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
           [...el.querySelectorAll('[role="radiogroup"]')]
             .find((g) => g.textContent?.includes("min"))
             ?.querySelector('[aria-checked="true"]')?.textContent;
-        await until(() => idle() === "20 min");
-        expect(el.querySelector('[aria-label="Open conversations"] output')?.textContent).toBe("2");
+        await until(() => idle() === "60 min");
+        expect(el.querySelector('[aria-label="Open conversations"] output')?.textContent).toBe("8");
       },
       {
         host: (h) => {

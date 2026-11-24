@@ -78,6 +78,8 @@ export const organizations = pgTable("organizations", {
   limitStorageBytes: bigint({ mode: "number" }),
   limitUploadBytesPerDay: bigint({ mode: "number" }),
   limitPlatformNanoUsd: bigint({ mode: "number" }),
+  /** What vendors that bill this server per call (X) may charge for the workspace in a UTC month (ADR 0079). */
+  limitConnectorNanoUsd: bigint({ mode: "number" }),
   /** When a limit last changed; null: never set. */
   limitsUpdatedAt: timestamp({ withTimezone: true }),
   /** The month (`YYYY-MM`) and highest share (50, 100) of the platform's AI already told (`platform_ai.threshold`). */

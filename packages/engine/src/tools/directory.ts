@@ -395,6 +395,7 @@ export const RARE_TOOLS: ReadonlySet<string> = new Set([
   "send_sticker",
   "read_skill_file",
   "find_agent",
+  "read_agent",
   "get_my_usage",
   "set_status",
   "set_reply_style",
@@ -443,6 +444,10 @@ export const LIVE_FILE_TOOLS: ReadonlySet<string> = new Set([
   "generate_image",
   // Pictures from the web to put in a live file (ADR 0196 §8): no scope, like the web's other tools.
   "image_search",
+  // Comments on a picture, a video or a PDF (ADR 0208), listed only in such a file's conversation.
+  "look_at_comment",
+  "comment_on_file",
+  "resolve_comment",
 ]);
 export const LIVE_FILES_GROUP = "files";
 
@@ -664,7 +669,7 @@ export function compactSchema(schema: JsonSchema) {
 /** How a person gets a connector the agent lacks, in the app's words (and the Portuguese the app shows). */
 export const HOW_TO_GET: Record<MissingConnector["state"], (label: string) => string> = {
   not_connected: (label) =>
-    `Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Add connector › ${label} (in Portuguese, Configurações › Conectores e MCPs › Adicionar conector › ${label}).`,
+    `Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › ${label} (in Portuguese, Configurações › Conectores e MCPs › Ver conectores › ${label}).`,
   not_given: () =>
     "Connected in this workspace but not given to you: an admin gives you access on your page, in Tools and access (in Portuguese, Ferramentas e acesso).",
   unavailable: () => "Not available on this installation: whoever runs the installation has to turn it on first.",
@@ -819,6 +824,10 @@ export function turnMeans(names: ReadonlySet<string>, teammates: string[] = [], 
       "your browser (`browser_*`): any website or web app, search engines included, used as a person would, signed in to their account with their help (a service with no connector but a web version)",
     );
   if (names.has("run_code")) out.push("your computer's terminal (`run_code`): commands, scripts, files");
+  if (names.has("review_media"))
+    out.push(
+      "watching videos and hearing recordings (`review_media`): frames across all of it and what is said, timed",
+    );
   if (names.has("vault_list"))
     out.push(
       "the Vault (`vault_list`): logins, keys and contact details people saved for you, used without ever seeing a password or a key",

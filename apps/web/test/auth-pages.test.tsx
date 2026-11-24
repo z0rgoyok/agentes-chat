@@ -1609,7 +1609,7 @@ describe("Onboarding: the workspace's name", () => {
     expect(document.body.textContent?.split(said)).toHaveLength(2);
     await click(button("Ver planos do agentes.chat"), 6);
     expect(calls(state, "orgs.billingLink")[0]?.args).toEqual(["org-unpaid", "new_workspace"]);
-    expect(left).toEqual(["https://billing.example.com/link?t=new_workspace"]);
+    expect(left).toEqual(["https://billing.example.com/link?t=new_workspace&theme=light"]);
   });
 
   test("back on the question with a workspace that waits for its plan: the refusal opens that workspace", async () => {

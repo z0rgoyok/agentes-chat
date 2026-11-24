@@ -23,6 +23,7 @@ import { lineLocale } from "./requester";
 import { personCanPost } from "./routine-state";
 import { ACTIVE_RUN_STATUSES, passedOnTo } from "./run-inbox";
 import { deliverNoticeToRun } from "./run-resume";
+import { type RunRow, runColumns, runState } from "./run-state";
 import { type AgentRun, continuableEnd, isTerminal, personStopOf, replyThreadOf, runErrorDetail } from "./runs";
 import { runStretchOf } from "./stretch";
 import { ago, stepLine } from "./talker-snapshot";
@@ -202,10 +203,10 @@ export async function workViews(db: Executor, orgId: string, ids: string[]): Pro
       status: agentRuns.status,
       error: agentRuns.error,
       waitingMachineId: agentRuns.waitingMachineId,
-      code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
+      code: sql<string | null>`${runState}->'waitingForBrain'->>'code'`,
       until: sql<
         string | null
-      >`coalesce(${agentRuns.transcript}->'waitingForBrain'->>'resetsAt', ${agentRuns.transcript}->'waitingForBrain'->>'until')`,
+      >`coalesce(${runState}->'waitingForBrain'->>'resetsAt', ${runState}->'waitingForBrain'->>'until')`,
       createdAt: agentRuns.createdAt,
     })
     .from(agentRuns)
@@ -401,11 +402,12 @@ type RunLike = Pick<
   | "channelId"
   | "threadRootId"
   | "triggerMessageId"
+  | "replyInThread"
   | "background"
   | "workId"
   | "status"
-  | "transcript"
->;
+> &
+  Partial<Pick<AgentRun, "transcript" | "state">>;
 
 /**
  * Whether a run may become long work (§1): a person is behind it, in a channel or DM people read,
@@ -706,7 +708,7 @@ export async function moveRun(
   deps: { db: Database; pubsub?: PubSub },
   run: Pick<
     AgentRun,
-    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "hop" | "workId"
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "hop" | "workId"
   >,
   to: Message,
 ) {
@@ -803,7 +805,10 @@ export async function workOfRun(db: Executor, runId: string): Promise<WorkRow | 
   return row?.work ?? null;
 }
 
-export type UpdateOutcome = { ok: true; message: Message; work: WorkRow } | { ok: false; reason: string };
+/** `quiet`: nothing to post, and nothing wrong either (the agent reads it as a plain answer, not a refusal). */
+export type UpdateOutcome =
+  | { ok: true; message: Message; work: WorkRow }
+  | { ok: false; reason: string; quiet?: boolean; planned?: WorkRow };
 
 /**
  * `post_update` (§3): one plain line in the work's thread, at least 5 min after the last unless `important` (then a
@@ -822,7 +827,9 @@ export async function postWorkUpdate(
     if (!work || (work.status !== "live" && work.status !== "queued"))
       return {
         ok: false as const,
-        reason: "This isn't background work: just reply (or call work_in_background first).",
+        quiet: true,
+        reason:
+          "Not posted: nothing runs in the background here, so there is no update to give. Say it in your reply (call work_in_background first for long work).",
       };
     const [locked] = await tx.select().from(agentWorks).where(eq(agentWorks.id, work.id)).for("update");
     if (!locked) return { ok: false as const, reason: "This work ended." };
@@ -830,9 +837,19 @@ export async function postWorkUpdate(
     const gap = input.important ? WORK_LIMITS.importantGapMs : WORK_LIMITS.minGapMs;
     if (locked.updateSeq > 0 && since < gap) {
       const due = locked.nextUpdateAt ?? new Date(locked.lastUpdateAt.getTime() + WORK_LIMITS.minGapMs);
+      // Agents have no clock and update after each step: the plan they sent still moves the card.
+      const [planned] = input.plan
+        ? await tx
+            .update(agentWorks)
+            .set({ plan: input.plan, updatedAt: now })
+            .where(eq(agentWorks.id, locked.id))
+            .returning()
+        : [];
       return {
         ok: false as const,
-        reason: `Too soon; your last update was ${Math.floor(since / 60_000)} min ago. Keep working; the next is due at ${due.toISOString().slice(11, 16)} UTC.`,
+        quiet: true,
+        planned,
+        reason: `${planned ? "Plan saved; the line was not posted" : "Not posted"}: your last update went out ${Math.floor(since / 60_000)} min ago, which still covers it. Keep working; the next is due at ${due.toISOString().slice(11, 16)} UTC.${input.important ? "" : " A blocker or an early result can't wait: send it with important."}`,
       };
     }
     const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, runId));
@@ -859,11 +876,19 @@ export async function postWorkUpdate(
       })
       .where(and(eq(agentWorks.id, locked.id), eq(agentWorks.updateSeq, locked.updateSeq)))
       .returning();
-    if (!updated) return { ok: false as const, reason: "Another update just landed: keep working." };
+    if (!updated) return { ok: false as const, quiet: true, reason: "Another update just landed: keep working." };
     await scheduleCheckIn(tx, updated);
+    // A check-in delivered before this update but not read yet would ask for the update just posted.
+    await dropWorkNotices(tx, runId, { checkInsOnly: true });
     return { ok: true as const, message, work: updated };
   });
-  if (!out.ok) return out;
+  if (!out.ok) {
+    if ("planned" in out && out.planned) {
+      if (out.planned.issueId) await setWorkIssueState(deps, out.planned, { plan: true }).catch(() => null);
+      await announceWork(deps.pubsub, deps.db, out.planned.orgId, out.planned.id);
+    }
+    return out;
+  }
   if (deps.pubsub) await publishMessageCreated(deps.pubsub, messageView(out.message));
   if (out.work.issueId)
     await setWorkIssueState(deps, out.work, { update: text, plan: Boolean(input.plan) }).catch(() => null);
@@ -897,7 +922,7 @@ export async function checkInWork(
   // The fallback belongs to the promise it was queued for: a wait in between restarted the timer (same seq).
   if (input.phase === "fallback" && input.due !== undefined && work.nextUpdateAt.getTime() !== input.due) return "none";
   const [run] = await db
-    .select()
+    .select(runColumns)
     .from(agentRuns)
     .where(and(eq(agentRuns.workId, work.id), eq(agentRuns.orgId, orgId)))
     .orderBy(desc(agentRuns.createdAt))
@@ -930,7 +955,12 @@ export async function checkInWork(
   return (await postFallbackUpdate(deps, work, run, now)) ? "posted" : "none";
 }
 
-async function postFallbackUpdate(deps: { db: Database; pubsub?: PubSub }, work: WorkRow, run: AgentRun, now: Date) {
+async function postFallbackUpdate(
+  deps: { db: Database; pubsub?: PubSub },
+  work: WorkRow,
+  run: Pick<RunRow, "id" | "hop">,
+  now: Date,
+) {
   const [agent] = await deps.db
     .select({ kind: schema.agents.statusKind, subject: schema.agents.statusSubject, runId: schema.agents.statusRunId })
     .from(schema.agents)
@@ -1425,7 +1455,11 @@ export async function reconcileWorks(deps: { db: Database; pubsub?: PubSub }): P
     // One bad row never stops the sweep: the next tick tries it again.
     try {
       const [run] = await deps.db
-        .select()
+        .select({
+          ...runColumns,
+          transcript: sql<AgentRun["transcript"]>`case when ${agentRuns.status} in ('done', 'failed', 'canceled')
+            then ${agentRuns.transcript} end`,
+        })
         .from(agentRuns)
         .where(eq(agentRuns.workId, w.id))
         .orderBy(desc(agentRuns.createdAt))
@@ -1461,10 +1495,12 @@ export async function reconcileWorks(deps: { db: Database; pubsub?: PubSub }): P
  * At its turn's end a work's run drops the check-ins and move notes it never read (agent-only `work_check_in`
  * notices): its report, or the next turn, answers them, and they are no new input to go on with.
  */
-export async function dropWorkNotices(db: Executor, runId: string) {
+export async function dropWorkNotices(db: Executor, runId: string, opts: { checkInsOnly?: boolean } = {}) {
+  // Move notes carry `refs.kind = 'moved'`; check-ins carry their update's `refs.seq`.
+  const which = opts.checkInsOnly ? sql`and m.meta->'notice'->'refs' ? 'seq'` : sql``;
   await db.execute(sql`update ${agentRuns} set pending_message_ids = coalesce(array(
       select p from unnest(${agentRuns.pendingMessageIds}) p
-      where not exists (select 1 from ${messages} m where m.id = p and m.meta->'notice'->>'kind' = 'work_check_in')
+      where not exists (select 1 from ${messages} m where m.id = p and m.meta->'notice'->>'kind' = 'work_check_in' ${which})
     ), '{}')
     where ${agentRuns.id} = ${runId} and cardinality(${agentRuns.pendingMessageIds}) > 0`);
 }
@@ -1579,7 +1615,7 @@ export async function steerWork(
     return { ok: false, reason: "No background work of yours here has that id." };
   if (work.status !== "live" && work.status !== "queued") return { ok: false, reason: "That work already ended." };
   const [target] = await deps.db
-    .select()
+    .select(runColumns)
     .from(agentRuns)
     .where(eq(agentRuns.workId, work.id))
     .orderBy(desc(agentRuns.createdAt))
@@ -1707,7 +1743,7 @@ export async function ensureWorkCard(
   let [work] = await deps.db.select().from(agentWorks).where(eq(agentWorks.id, workId));
   if (!work || work.issueId) return work?.issueId ?? null;
   const [run] = await deps.db
-    .select()
+    .select(runColumns)
     .from(agentRuns)
     .where(eq(agentRuns.workId, work.id))
     .orderBy(desc(agentRuns.createdAt))

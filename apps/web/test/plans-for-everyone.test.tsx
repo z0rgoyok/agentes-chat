@@ -7,6 +7,7 @@ import { type AiAccounts, type AiComputer, ApiError } from "@agenteschat/client"
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { createFakeApi, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
 import { createFakeAuth } from "./fake-auth";
+import { pick } from "./new-agent-flow";
 import { renderApp, screen, settle, showIn } from "./render";
 
 /*
@@ -51,8 +52,8 @@ const click = async (el: Element) => {
   await settle(4);
 };
 
-describe("IA e uso: who uses each plan", () => {
-  test("each row says it, and only who connected a plan chooses Todos do workspace or Só eu", async () => {
+describe("IA e uso › Contas de IA: who may use each account", () => {
+  test("one only its owner uses says so; its owner chooses Usar em agentes, anyone else sees it and can't", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     fakeMachinesOf.get(api)?.setAiAccounts({
@@ -75,17 +76,21 @@ describe("IA e uso: who uses each plan", () => {
     // The viewer's own, with the automatic name and no email: unnamed. Someone else's keeps its name.
     const mine = rows.find((r) => r.textContent?.includes("Conta sem nome")) as HTMLElement;
     const joao = rows.find((r) => r.textContent?.includes("Claude 2")) as HTMLElement;
-    expect(mine.querySelector(".plan-acct__name")?.textContent).toContain("de Walter · Todos usam");
-    expect(joao.querySelector(".plan-acct__name")?.textContent).toContain("de João · Só João usa");
-    // Opened, the plan's owner chooses; on someone else's there is nothing to choose.
-    await click(mine.querySelector(".plan-row__head") as HTMLElement);
+    expect(joao.querySelector(".aa-state")?.textContent).toBe("Só João usa");
+    expect(mine.querySelector(".aa-state")).toBeNull();
+    // João's, opened: its permissions in sight, none to change.
     await click(joao.querySelector(".plan-row__head") as HTMLElement);
-    expect(within(joao).queryByRole("radiogroup", { name: "Quem usa" })).toBeNull();
-    const choice = within(mine).getByRole("radiogroup", { name: "Quem usa" });
-    expect(within(mine).getByRole("button", { name: "Sobre os termos do plano" })).toBeTruthy();
-    await click(within(choice).getByRole("radio", { name: "Só eu" }));
-    expect(state.calls.filter((c) => c.method === "machines.setAccountServes").map((c) => c.args)).toEqual([
-      [ORG_ID, "acct_mine", "owner"],
+    const his = screen().getByRole("dialog", { name: "Claude 2" });
+    expect(within(his).getByRole("combobox", { name: "Usar em agentes" }).hasAttribute("disabled")).toBe(true);
+    await click(within(his).getByRole("button", { name: "Fechar" }));
+    await click(mine.querySelector(".plan-row__head") as HTMLElement);
+    const own = screen().getByRole("dialog", { name: "Conta sem nome" });
+    const use = within(own).getByRole("combobox", { name: "Usar em agentes" });
+    expect(use.textContent).toBe("Todos");
+    expect(within(own).getByRole("button", { name: "Sobre Usar em agentes" })).toBeTruthy();
+    await pick(use, "Só você");
+    expect(state.calls.filter((c) => c.method === "machines.setAccountPermissions").map((c) => c.args)).toEqual([
+      [ORG_ID, "acct_mine", { use: { mode: "owner", userIds: [], roleIds: [] } }],
     ]);
   });
 });

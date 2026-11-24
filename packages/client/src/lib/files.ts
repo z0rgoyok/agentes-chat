@@ -52,7 +52,8 @@ const PREVIEW: Record<string, PreviewKind> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "office-doc",
 };
 
-const extension = (name: string) => {
+/** "relatorio.final.PDF" → "pdf" ("" without one). */
+export const extensionOf = (name: string) => {
   const m = /\.([a-z0-9]{1,8})$/i.exec(name.trim());
   return m?.[1]?.toLowerCase() ?? "";
 };
@@ -85,7 +86,7 @@ export function previewKind(contentType: string, name?: string): PreviewKind | n
   const base = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   const byType = PREVIEW[base];
   if (byType) return byType;
-  const byName = name ? PREVIEW_BY_EXTENSION[extension(name)] : undefined;
+  const byName = name ? PREVIEW_BY_EXTENSION[extensionOf(name)] : undefined;
   return byName && isOfficePreview(byName) ? byName : null;
 }
 
@@ -93,11 +94,15 @@ export function previewKind(contentType: string, name?: string): PreviewKind | n
  * What a file's name says its preview is ("tela.png"), for the box a message's attachment keeps before its details
  * load: a message names its files, their types come with each file.
  */
-export const previewKindOfName = (name: string): PreviewKind | null => PREVIEW_BY_EXTENSION[extension(name)] ?? null;
+export const previewKindOfName = (name: string): PreviewKind | null => PREVIEW_BY_EXTENSION[extensionOf(name)] ?? null;
 
 /** A file the viewer shows as a picture, with its zoom: a raster image small enough to load whole. */
 export const isPreviewImage = (content: { contentType: string; size: number }) =>
   previewKind(content.contentType) === "image" && content.size <= MAX_PREVIEW_BYTES;
+
+const THUMBNAIL_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+/** Pictures the server makes small for a tile (`thumbUrl`): a GIF keeps its animation, anything else its own path. */
+export const hasThumbnail = (contentType: string) => THUMBNAIL_TYPES.has(previewType(contentType));
 
 /** The clean MIME type for a preview blob (never what the browser would sniff). */
 export const previewType = (contentType: string) => contentType.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -166,13 +171,27 @@ const BY_EXTENSION: Record<string, FileIconName> = {
   diff: "code",
 };
 
+/** Code files read in the code font, highlighted by their extension; any other text in the app's. */
+const CODE_EXT = new Set(
+  "ts tsx js jsx mjs cjs json py rb go rs java kt swift c h cc cpp hpp cs php sh bash zsh yml yaml toml sql css scss html xml vue svelte lua dart".split(
+    " ",
+  ),
+);
+
+/** A file whose name says it is code ("app.ts"). */
+export const isCodeName = (name: string) => CODE_EXT.has(extensionOf(name));
+
+/** A Markdown file, by its name or its type: the viewers draw it as a document. */
+export const isMarkdownFile = (name: string, contentType = "") =>
+  ["md", "markdown", "mdx"].includes(extensionOf(name)) || previewType(contentType) === "text/markdown";
+
 /** A JSON file, by its name or its type (`application/json`, `…+json`): the viewers show it formatted. */
 export const isJsonFile = (name: string, contentType = "") =>
-  extension(name) === "json" || /^application\/(?:[\w.-]+\+)?json$/.test(previewType(contentType));
+  extensionOf(name) === "json" || /^application\/(?:[\w.-]+\+)?json$/.test(previewType(contentType));
 
 /** An icon for a file from its name, then its type. */
 export function fileIcon(name: string, contentType = ""): FileIconName {
-  const byName = BY_EXTENSION[extension(name)];
+  const byName = BY_EXTENSION[extensionOf(name)];
   if (byName) return byName;
   const type = previewType(contentType);
   if (type.startsWith("image/")) return "image";
@@ -216,3 +235,21 @@ export const pictureRatio = (size: { width?: number; height?: number } | null | 
   size?.width && size.height && size.width > 0 && size.height > 0
     ? Math.min(4, Math.max(0.25, size.width / size.height))
     : undefined;
+
+/**
+ * What an uploaded file is to its own page (ADR 0208): a picture, a video or a PDF, by the type its version says (the
+ * server's `mediaOfType`, the same list); null for any other file. Those open on a page with their conversation, and
+ * comments there point at a place in them.
+ */
+export function mediaKindOfType(contentType: string | null | undefined): "image" | "video" | "pdf" | null {
+  const kind = PREVIEW[(contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? ""];
+  return kind === "image" || kind === "video" || kind === "pdf" ? kind : null;
+}
+
+/** `mediaKindOfType` of an artifact as the apps hold it (its `content`, when it carries one). */
+export function mediaKindOfArtifact(
+  artifact: { kind: string; content?: { kind?: string; contentType?: string } } | null | undefined,
+): "image" | "video" | "pdf" | null {
+  if (!artifact || artifact.kind !== "file" || artifact.content?.kind !== "file") return null;
+  return mediaKindOfType(artifact.content.contentType);
+}

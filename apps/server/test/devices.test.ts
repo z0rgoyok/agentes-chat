@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { MACHINE_PROTOCOL_VERSION, type ServerFrame } from "@agenteschat/adapters/machine-protocol";
 import { eq, schema } from "@agenteschat/db";
 import { syncMachinePhones } from "@agenteschat/engine";
 import { browser, createTestServer, joinByInvitation, pairComputer, seedOrg, signUp, type TestServer } from "./harness";
@@ -221,4 +222,55 @@ test("opening Xcode on a Mac over HTTP: its owner only; an app too old opens not
   expect(await old.json()).toEqual({ opened: false });
   const list = (await (await owner("/devices")).json()) as { devices: { id: string; opensXcode: boolean }[] };
   expect(list.devices.find((d) => d.id === paired.machineId)?.opensXcode).toBe(false);
+});
+
+test("tasks at once over HTTP: the computer says its limit, its owner changes it there, an old or offline one can't", async () => {
+  const { owner, rui } = await start();
+  const runner = { ...RUNNER, protocol: MACHINE_PROTOCOL_VERSION, exec: true };
+  const paired = await pairComputer(t, owner, runner, { name: "MacBook" });
+  const hub = t.engine.machineHub;
+  const sent: number[] = [];
+  const conn = hub.open({
+    send(text: string) {
+      const frame = JSON.parse(text) as ServerFrame;
+      if (frame.type !== "request" || frame.op !== "limits.set") return;
+      sent.push(frame.maxTasks);
+      const result = JSON.stringify({ type: "result", id: frame.id, ok: true, data: { maxTasks: frame.maxTasks } });
+      setTimeout(() => void hub.message(conn, result), 1);
+    },
+    close() {},
+  });
+  const size = { cpus: 10, memoryGb: 16, diskGb: 500, maxTasks: 5 };
+  await hub.message(conn, JSON.stringify({ type: "hello", token: paired.token, ...runner, size }));
+  const maxTasks = async () =>
+    ((await (await owner("/devices")).json()) as { devices: { id: string; maxTasks: number | null }[] }).devices.find(
+      (d) => d.id === paired.machineId,
+    )?.maxTasks;
+  expect(await maxTasks()).toBe(5);
+
+  const path = `/devices/computers/${paired.machineId}`;
+  expect((await rui(path, { method: "PATCH", json: { maxTasks: 8 } })).status).toBe(403);
+  expect((await owner(path, { method: "PATCH", json: { maxTasks: 21 } })).status).toBe(400);
+  expect((await owner(path, { method: "PATCH", json: { maxTasks: 0 } })).status).toBe(400);
+  const changed = await owner(path, { method: "PATCH", json: { maxTasks: 8 } });
+  expect(changed.status).toBe(200);
+  expect(await changed.json()).toMatchObject({ maxTasks: 8 });
+  expect(sent).toEqual([8]);
+
+  // Changed on the computer itself (its app, its config file): the list follows it.
+  await hub.message(conn, JSON.stringify({ type: "runner.state", paused: { paused: false }, maxTasks: 2 }));
+  expect(await maxTasks()).toBe(2);
+
+  // Not connected: nothing would apply it.
+  const away = await pairComputer(t, owner, runner, { name: "Away box" });
+  const offline = await owner(`/devices/computers/${away.machineId}`, { method: "PATCH", json: { maxTasks: 4 } });
+  expect(offline.status).toBe(409);
+  expect(((await offline.json()) as { error: { code: string } }).error.code).toBe("machine.offline");
+
+  // An app before the limit came from the apps: no limit shown, and asking says to update it.
+  const old = await pairComputer(t, owner, { ...RUNNER, exec: true }, { name: "Old box" });
+  const outdated = await owner(`/devices/computers/${old.machineId}`, { method: "PATCH", json: { maxTasks: 4 } });
+  expect(outdated.status).toBe(400);
+  expect(((await outdated.json()) as { error: { code: string } }).error.code).toBe("machine.outdated");
+  expect(sent).toEqual([8]);
 });

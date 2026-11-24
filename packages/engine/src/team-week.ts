@@ -16,6 +16,7 @@ import {
 import { modelForTier, modelInfo } from "@agenteschat/providers";
 import { listApprovals } from "./approvals";
 import { DIGEST_FROM, digestWaitingOn } from "./approvals-digest";
+import { ownsAgentSql } from "./audience";
 import { editContextItem, howToSql } from "./context/items";
 import { LEARN_DEFAULTS } from "./context/learn";
 import {
@@ -27,6 +28,7 @@ import {
   NO_CHANNEL_REASON,
   OVER_BUDGET_REASON,
   proposeSettings,
+  queueSettle,
 } from "./context/proposals";
 import { personAgentDmKey } from "./dms";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -37,6 +39,7 @@ import { maySql } from "./permissions";
 import { pushStrings } from "./push-messages";
 import { taskEndToldSql } from "./right-hand-follow";
 import {
+  knownZoneNames,
   knownZonesSql,
   type LodiPrefs,
   lodiPrefsOf,
@@ -406,7 +409,7 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
     await db.execute(sql`select agent_id, count(distinct run_id) as n from (
         select r.agent_id, r.id::text as run_id from agent_runs r
         where ${teamRuns} and (r.error = 'budget_exceeded' or (r.status = 'waiting_input'
-          and r.transcript->'waitingForBrain'->>'code' = 'budget'))
+          and coalesce(r.state, r.transcript)->'waitingForBrain'->>'code' = 'budget'))
         union all
         select m.author_agent_id, coalesce(m.meta->'usageWait'->>'runId', m.id::text) from messages m
         where m.org_id = ${w.orgId} and m.created_at >= ${start}::timestamptz and m.created_at < ${end}::timestamptz
@@ -768,7 +771,7 @@ export async function buildTeamDay(
     asked: boolean;
   }>(
     await db.execute(sql`select r.id, r.agent_id, r.channel_id, r.status, r.error,
-        r.transcript->'waitingForBrain'->>'code' as wait, r.transcript->'waitingForBrain'->>'source' as source,
+        coalesce(r.state, r.transcript)->'waitingForBrain'->>'code' as wait, coalesce(r.state, r.transcript)->'waitingForBrain'->>'source' as source,
         c.kind, c.dm_key, (select i.number from issues i where i.conversation_channel_id = c.id) as issue_number,
         ${theirAsk} as asked
       from agent_runs r join channels c on c.id = r.channel_id
@@ -778,12 +781,12 @@ export async function buildTeamDay(
             and r.created_at >= ${new Date(w.start.getTime() - DAY_REACH_MS).toISOString()}::timestamptz
             and ${ended} >= ${start}::timestamptz and ${ended} < ${end}::timestamptz)
           or (r.status = 'waiting_input'
-            and coalesce(r.transcript->'waitingForBrain'->>'code', 'work_queue') <> 'work_queue'
-            and coalesce(case when jsonb_typeof(r.transcript->'waitingForBrain'->'since') = 'number'
-                then (r.transcript->'waitingForBrain'->>'since')::numeric end,
+            and coalesce(coalesce(r.state, r.transcript)->'waitingForBrain'->>'code', 'work_queue') <> 'work_queue'
+            and coalesce(case when jsonb_typeof(coalesce(r.state, r.transcript)->'waitingForBrain'->'since') = 'number'
+                then (coalesce(r.state, r.transcript)->'waitingForBrain'->>'since')::numeric end,
               extract(epoch from r.updated_at) * 1000) <= ${w.end.getTime() - HELD_MS}))
         and ((c.kind = 'channel' and c.visibility = 'public') or ${channelReaderSql(sql`c.id`, user)})
-        and (exists (select 1 from agents oa where oa.id = r.agent_id and oa.owner_user_id = ${w.userId})
+        and (exists (select 1 from agents oa where oa.id = r.agent_id and ${ownsAgentSql("oa", sql`${w.userId}::text`)})
           or ${theirAsk})
       order by ${ended} desc limit ${DAY_RUNS}`),
   );
@@ -1124,7 +1127,8 @@ async function provenHowTos(db: Database, w: Window): Promise<TeamWeekRow[]> {
     .where(
       and(
         eq(contextItems.orgId, w.orgId),
-        eq(agents.ownerUserId, w.userId),
+        // The agents they answer for: theirs, or one whose owner role they hold (ADR 0085, addendum of 2026-11-21).
+        ownsAgentSql("agents", sql`${w.userId}::text`),
         isNull(agents.archivedAt),
         eq(contextItems.status, "active"),
         isNull(contextItems.supersededBy),
@@ -1189,7 +1193,7 @@ export async function nearTeamWeeks(db: Database, now: Date): Promise<NearTeamWe
   const weekly = sql`(not ${lodiPrefsSql.weekOff}
     and ${lodiPrefsSql.day} in (${weekday(at)}, ${weekday(sql`(${at} - make_interval(hours => ${window}))`)}))`;
   return rowsOf<NearTeamWeek>(
-    await db.execute(sql`with ${knownZonesSql}
+    await db.execute(sql`with ${knownZonesSql(await knownZoneNames(db))}
       select org_id, user_id, team_week, tz, day_tz, admin from (
         select near.*, case when near.weekly
           then ${maySql(sql`near.org_id`, sql`near.user_id`, "administrator")} else false end as admin
@@ -1311,7 +1315,7 @@ export async function postTeamWeek(
     .where(eq(organizationSettings.orgId, orgId));
   // A personal workspace's week is the person's own with their agents (ADR 0159), not a team's.
   const week = settings?.mode === "personal" ? "teamWeekReadyPersonal" : "teamWeekReady";
-  return postFromLodi(deps, orgId, userId, {
+  const sent = await postFromLodi(deps, orgId, userId, {
     bodyCode: TEAM_WEEK_CARD,
     bodyParams: { from: card.from, to: card.to, ...(period === "day" ? { period } : {}) },
     // Only this person reads it: the push and the conversation list say it in their language.
@@ -1321,6 +1325,9 @@ export async function postTeamWeek(
     posted,
     lodi,
   });
+  // Its fixes are Lodi's to weigh and apply (ADR 0219): the card shows what became of each, with Desfazer.
+  if (sent) await queueSettle(db, orgId, card.proposalIds, "agent");
+  return sent;
 }
 
 // --- What a person does with it --------------------------------------------------------------------------------

@@ -1279,11 +1279,24 @@ describe("missions (ADR 0029)", () => {
           behavior?: string;
           message?: string;
           code?: string;
+          refusal?: string;
           status?: string;
           request_id?: string;
         };
       return { view, runner, main, prompt };
     }
+
+    test("a command the computer refused by itself is answered with that refusal: no card, nobody asked", async () => {
+      const { view, main, prompt } = await working();
+      const refused = { code: "policy", message: "This turn may only read." };
+      expect(
+        await prompt(main.taskId, { tool_name: "Bash", input: { command: "swift build -c release" }, refused }),
+      ).toEqual({ behavior: "deny", ...refused, refusal: "policy" });
+      const cards = (
+        await f.db.select().from(schema.messages).where(eq(schema.messages.threadId, view.threadId))
+      ).filter((m) => m.meta.missionCommand);
+      expect(cards).toEqual([]);
+    });
 
     test("a command off the allow list posts the card; Aprovar sempre allows it now, later and in the next tasks' settings", async () => {
       const { view, runner, main, prompt } = await working();

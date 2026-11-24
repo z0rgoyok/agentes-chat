@@ -4,7 +4,6 @@ import {
   useAgentBrain,
   useAiAccounts,
   useApi,
-  useAuthConfig,
   useComputerSetup,
   useMachines,
   useModels,
@@ -22,7 +21,6 @@ import {
   withSub,
 } from "@agenteschat/client/lib/ai-accounts";
 import { answersOthers, audienceOf } from "@agenteschat/client/lib/audience";
-import type { BillingHold } from "@agenteschat/client/lib/billing";
 import {
   computerEdition,
   computerName,
@@ -35,7 +33,7 @@ import { CUSTOM_PROVIDER } from "@agenteschat/client/lib/endpoints";
 import { errorText, holdText, keyRefusal } from "@agenteschat/client/lib/errors";
 import { NAMES_SHOWN, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { brainTool, installableCli } from "@agenteschat/client/lib/machines";
+import { brainTool, cliCommandWayOut, installableCli } from "@agenteschat/client/lib/machines";
 import {
   type AiChoice,
   ALL_AGENTS,
@@ -53,7 +51,6 @@ import {
   type PlanGate,
   planGate,
   planGateWithoutAgent,
-  planHoldOf,
   planLabel,
   planMark,
   planOfAccount,
@@ -107,7 +104,6 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectHave, type HaveItem, HaveRow, haveId, renameOf, sortHave } from "@/components/arrival/ConnectHave";
-import { BillingLinkButton } from "@/components/BillingLinkButton";
 import { ToolOffWayOut } from "@/components/devices/ToolOneClick";
 import { useOrg } from "@/components/org-context";
 import { KeyMismatch, KeyRefused, ProviderSelect } from "@/components/ProviderKey";
@@ -119,6 +115,9 @@ import { AddAccount, OpenPage, Step, StepTitle } from "./AddAccountFlow";
 import { CliMissing } from "./CliMissing";
 import { EndpointForm } from "./EndpointForm";
 import { PlanReplies, usePlanRepliesShown } from "./PlanReplies";
+import { PlanHold, usePlanHold } from "./plan-hold";
+
+export { PlanHold, usePlanHold };
 
 /*
  * One picker wherever an AI is connected (the setup's AI step, Connect an AI, Settings › AI accounts): for one agent
@@ -1608,38 +1607,6 @@ function PlanSteps({
   );
 }
 
-/** The billing hold on this workspace that stops its plans (`planHoldOf`). */
-export function usePlanHold() {
-  const { org } = useOrg();
-  return planHoldOf(computerEdition(useComputerSetup(org.id).data), org.standing);
-}
-
-/**
- * A plan a workspace with no agentes.chat plan in force can't use, in place of its steps: why, and the way to that
- * plan for whoever pays (anyone else reads who can). A hold stops the Model Gateway for keys too, so no key is offered
- * as a way around it.
- */
-export function PlanHold({ hold }: { hold: BillingHold }) {
-  const { t } = useTranslation();
-  const { org } = useOrg();
-  const billingUrl = useAuthConfig().data?.billingUrl;
-  const canPay = can(org, "manage_billing") && Boolean(billingUrl);
-  return (
-    <>
-      <SettingNote icon="alert">{t("connectAi.billing")}</SettingNote>
-      {canPay ? (
-        <span className="ac-acts">
-          <BillingLinkButton orgId={org.id} from="hold" size="sm" variant="primary">
-            {t(`standing.billing.cta.${hold}`)}
-          </BillingLinkButton>
-        </span>
-      ) : (
-        <SettingNote icon="lock">{t("standing.billing.askAdmin")}</SettingNote>
-      )}
-    </>
-  );
-}
-
 /**
  * Whether "Use an API key now" fits a plan's panel: the key row adds workspace API keys, and OpenCode's key is an
  * account kept on the computer for its CLI (`provider: "zen"`), which that row can't take.
@@ -1769,11 +1736,12 @@ function GateWait({
     gate.state === "unsupported" &&
     (gate.reason === "not_installed" || gate.reason === "cant_start") &&
     !hold &&
-    installableCli(kind) &&
     row &&
-    row.kind !== "managed"
+    row.kind !== "managed" &&
+    (installableCli(kind) || cliCommandWayOut(t, kind, row, gate.reason, computer))
   ) {
-    // A computer someone connected that hasn't the program, or has it and it won't start: install it from here.
+    // A computer someone connected that hasn't the program, or has it and it won't start: install it from here, or
+    // the line to run there.
     wait = <CliMissing machine={row} kind={kind} computer={computer} reason={gate.reason} useKey={keyButton} />;
   } else if (why && !(gate.state === "offline" && signingIn)) {
     wait = (

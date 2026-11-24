@@ -245,7 +245,7 @@ describe("messages moved into a thread (Tirar do canal)", () => {
 });
 
 describe("live", () => {
-  test("a new message says which channel moved (no content) for the sockets to relay", async () => {
+  test("a new message says which channel moved, with the line its members' lists show, for the sockets to relay", async () => {
     f = await setup();
     const events: RealtimeEvent[] = [];
     f.pubsub.subscribe(chatActivityTopic, (e) => events.push(e));
@@ -253,9 +253,10 @@ describe("live", () => {
       orgId: f.org.id,
       channelId: f.general.id,
       author: { type: "person", userId: f.owner.id },
-      body: "secret plans",
+      body: "plans for **Monday**",
     });
-    await publishMessageCreated(f.pubsub, messageView(m));
+    const view = messageView(m);
+    await publishMessageCreated(f.pubsub, view);
     expect(events).toEqual([
       {
         type: "channel.activity",
@@ -263,6 +264,19 @@ describe("live", () => {
         threadId: null,
         authorUserId: f.owner.id,
         mentionedUserIds: [],
+        line: {
+          id: m.id,
+          createdAt: view.createdAt,
+          counts: true,
+          last: {
+            authorType: "person",
+            authorId: f.owner.id,
+            preview: "plans for Monday",
+            body: "plans for **Monday**",
+            meta: null,
+            mediaKind: null,
+          },
+        },
       },
     ]);
   });

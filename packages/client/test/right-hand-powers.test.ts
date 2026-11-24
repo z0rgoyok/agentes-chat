@@ -1,19 +1,23 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { RIGHT_HAND_POWERS, rightHandNoComputer } from "../src/lib/right-hand";
+import { RIGHT_HAND_POWERS, rightHandComputerLine, rightHandNoComputer } from "../src/lib/right-hand";
 
 test("why it has no computer for anyone is told by its own line, and any other state by none", () => {
   expect(rightHandNoComputer("no_home")).toBe("rightHand.computerNoHome");
   // A self-hosted server's own computer is the way to one: its line says so.
   expect(rightHandNoComputer("no_home", true)).toBe("rightHand.computerNoHomeServer");
-  expect(rightHandNoComputer("not_system", true)).toBe("rightHand.computerOneUser");
-  expect(rightHandNoComputer("not_system")).toBe("rightHand.computerOneUser");
-  for (const reason of [null, undefined, "offline", "no_desktop", "not_allowed"]) {
+  for (const reason of [null, undefined, "offline", "no_desktop", "not_allowed", "not_system"]) {
     expect(rightHandNoComputer(reason)).toBeNull();
   }
-  // The reasons are the ones its desktop's state gives where it has no seat.
+  // The reason is the one its desktop's state gives where it has no seat.
   const engine = readFileSync(new URL("../../engine/src/desktop.ts", import.meta.url), "utf8");
-  expect(engine).toContain('agent.reason === "not_system" ? "not_system" : "no_home"');
+  expect(engine).toContain('if ("reason" in agent) return refused(STREAM_CLOSE.notFound, "no_home");');
+});
+
+test("a computer that runs every agent as one user gives a place that says so", () => {
+  expect(rightHandComputerLine({ mode: "single" })).toBe("rightHand.computerOneUser");
+  expect(rightHandComputerLine({ mode: "system" })).toBe("rightHand.computerYours");
+  expect(rightHandComputerLine(null)).toBe("rightHand.computerYours");
 });
 
 test("every power the page lists stands on a grant the server gives the right hand", () => {

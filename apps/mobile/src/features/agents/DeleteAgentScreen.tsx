@@ -13,16 +13,15 @@ import { useDirectory, useOrgId } from "../shared/hooks";
 import { successHaptic } from "../shared/parts";
 import { TextArea } from "../shared/TextArea";
 
-/** Opens "Apagar" for an agent; with `proposal`, Apagar accepts that removal card's row instead (applied as you). */
-export const openAgentDelete = (id: string, proposal?: string) =>
-  router.push({ pathname: "/agent-delete", params: proposal ? { id, proposal } : { id } });
+/** Opens "Delete" for an agent. */
+export const openAgentDelete = (id: string) => router.push({ pathname: "/agent-delete", params: { id } });
 
 /**
  * Deleting an agent for good (ADR 0082), as the web's Configurações › Zona de perigo: what goes and what stays, its
  * name typed to confirm, then the row that deletes it. Admins reach it from "Editar agente", and an archived agent's
  * (it has no profile) from Agentes › Arquivados.
  */
-export function DeleteAgentScreen({ id, proposal }: { id: string; proposal?: string }) {
+export function DeleteAgentScreen({ id }: { id: string }) {
   const { t } = useTranslation();
   const api = useApi();
   const qc = useQueryClient();
@@ -31,12 +30,7 @@ export function DeleteAgentScreen({ id, proposal }: { id: string; proposal?: str
   const found = useDirectory().anyAgent(id);
   const agent = found?.former === "deleted" ? undefined : found;
   const [typed, setTyped] = useState("");
-  const purge = useMutation({
-    mutationFn: async () => {
-      if (proposal) await api.proposals.accept(orgId, proposal);
-      else await api.agents.purge(orgId, id);
-    },
-  });
+  const purge = useMutation({ mutationFn: () => api.agents.purge(orgId, id) });
 
   if (!agent) {
     return (
@@ -54,10 +48,7 @@ export function DeleteAgentScreen({ id, proposal }: { id: string; proposal?: str
         successHaptic();
         toast({ title: t("agentPage.delete.done", g), icon: "check" });
         void qc.invalidateQueries({ queryKey: keys.agents(orgId) });
-        if (proposal) {
-          void qc.invalidateQueries({ queryKey: keys.proposals(orgId) });
-          router.back();
-        } else router.dismissTo("/agents");
+        router.dismissTo("/agents");
       },
     });
   };

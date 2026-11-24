@@ -161,14 +161,14 @@ export function JoinRequestForm({
         onError: (err) => toast.show(errorText(t, err), "error"),
       },
     );
-  const refuse = () =>
-    deny.mutate(request.id, {
-      onSuccess: () => {
-        toast.show(t("devices.request.denied", { name: request.name }));
-        onDenied();
-      },
-      onError: (err) => toast.show(errorText(t, err), "error"),
-    });
+  // Out of the list at once and the form goes; a refusal puts the request back and says why.
+  const refuse = () => {
+    void deny.mutateAsync(request.id).then(
+      () => toast.show(t("devices.request.denied", { name: request.name })),
+      (err: unknown) => toast.show(errorText(t, err), "error"),
+    );
+    onDenied();
+  };
   return (
     <>
       <Locked when={busy}>

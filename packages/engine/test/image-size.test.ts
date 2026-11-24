@@ -113,8 +113,15 @@ describe("a stored picture keeps its size", () => {
       (m) => m.body === "olha",
     );
     expect(sent?.meta?.artifacts).toEqual([
-      { id: file.id, version: 1, title: "farol.png", width: 1024, height: 1536 },
-      { id: notes.id, version: 1, title: "notas.txt" },
+      expect.objectContaining({
+        id: file.id,
+        version: 1,
+        title: "farol.png",
+        contentType: "image/png",
+        width: 1024,
+        height: 1536,
+      }),
+      expect.objectContaining({ id: notes.id, version: 1, title: "notas.txt", name: "notas.txt" }),
     ]);
   });
 });

@@ -5,8 +5,9 @@ setupDom();
 
 import { type Message, NetworkError } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, createFakeApi, ENG_ID, GENERAL_ID, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, GENERAL_ID, ORG_ID, seedState } from "./fake-api";
 import type { FakeSocket } from "./fake-socket";
+import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle } from "./render";
 
 /*
@@ -73,12 +74,12 @@ const subscribed = async (socket: FakeSocket, channelId = ENG_ID) => {
   await settle(5);
 };
 
-describe("a thread open, then Aprovações, then back to the channel and the thread", () => {
+describe("a thread open, then the inbox, then back to the channel and the thread", () => {
   test("a reply said while away: there, the thread's header counts it, and the bar ends", async () => {
     const { socket, state, go } = await openApp(`/org/${ORG_ID}/c/${ENG_ID}`);
     await openPanel();
     expect(head(panel())).not.toContain("1 resposta");
-    await go("/org/$orgId/approvals");
+    await go("/org/$orgId/notifications");
     const m = message("r-away", "resposta da Ada enquanto fora");
     state.messages.push(m);
     await heard(socket, m);
@@ -93,7 +94,7 @@ describe("a thread open, then Aprovações, then back to the channel and the thr
   test("back with Back, the thread open again at once: a reply said before the server listened again, whose catch-up read failed, still lands", async () => {
     const { socket, state, api, go, router } = await openApp(`/org/${ORG_ID}/c/${ENG_ID}`);
     await openPanel();
-    await go("/org/$orgId/approvals");
+    await go("/org/$orgId/notifications");
     const read = api.chat.messages;
     let failingThreadReads = 0;
     api.chat.messages = async (orgId, channelId, options) => {
@@ -138,7 +139,7 @@ describe("a conversation shown again", () => {
     const m = message("g-2", "dita no meio dos saltos", { threadId: null });
     state.messages.push(m);
     await heard(socket, m);
-    await go("/org/$orgId/approvals");
+    await go("/org/$orgId/notifications");
     await go("/org/$orgId/c/$channelId", { channelId: ENG_ID });
     await subscribed(socket);
     expect(inView(document.body, "dita no meio dos saltos")).toHaveLength(1);
@@ -173,13 +174,29 @@ describe("a conversation shown again", () => {
 });
 
 describe("after a reconnect, every screen of the workspace reads again", () => {
-  test("Aprovações: a request someone refused while the socket was down leaves the waiting ones", async () => {
-    const { socket, sockets, state } = await openApp(`/org/${ORG_ID}/approvals`);
-    const pills = () =>
-      within(screen().getByRole("radiogroup", { name: "Filtro" }))
-        .getAllByRole("radio")
-        .map((b) => b.textContent);
-    expect(pills()[0]).toBe("Esperando você2");
+  test("the inbox: a request someone refused while the socket was down leaves the waiting ones", async () => {
+    const asked = (approvalId: string, agentId: string) =>
+      notification({
+        id: `n-${approvalId}`,
+        kind: "approval",
+        waiting: true,
+        actors: [{ type: "agent", id: agentId }],
+        source: { approvalId, channelId: ENG_ID },
+      });
+    const { socket, sockets, state } = await openApp(
+      `/org/${ORG_ID}/notifications`,
+      seedState({ notifications: [asked("ap-merge", ADA_ID), asked("ap-deploy", ATLAS_ID)] }),
+    );
+    // The requests among what waits on me (the proposals to decide are rows there too).
+    const waiting = () =>
+      [...screen().getByRole("region", { name: "Esperando você" }).querySelectorAll('.ib-row[data-n^="n-ap-"]')].map(
+        (r) => r.getAttribute("data-n"),
+      );
+    expect(waiting().sort()).toEqual(["n-ap-deploy", "n-ap-merge"]);
+    // The deploy is the one open beside the list, with its decision.
+    await act(async () => fireEvent.click(document.querySelector('.ib-row[data-n="n-ap-deploy"]') as HTMLElement));
+    await settle(4);
+    expect(document.querySelector('.ib-read [data-approve="ap-deploy"]')).not.toBeNull();
     await act(async () => socket.drop());
     const deploy = state.approvals.find((a) => a.id === "ap-deploy");
     if (!deploy) throw new Error("the seed's deploy request");
@@ -190,10 +207,14 @@ describe("after a reconnect, every screen of the workspace reads again", () => {
       reason: "Agora não",
       canDecide: false,
     });
+    // Decided, its notification is done with: nothing of it waits on me.
+    const notice = state.notifications?.find((n) => n.id === "n-ap-deploy");
+    if (notice) Object.assign(notice, { doneAt: new Date().toISOString(), waiting: false });
     await act(() => new Promise((r) => setTimeout(r, 650)));
     await act(async () => sockets.last().open());
     await settle(6);
-    expect(pills()[0]).toBe("Esperando você1");
+    expect(waiting()).toEqual(["n-ap-merge"]);
+    expect(document.querySelector('.ib-read [data-approve="ap-deploy"]')).toBeNull();
     expect(bar()).toBeNull();
   });
 });

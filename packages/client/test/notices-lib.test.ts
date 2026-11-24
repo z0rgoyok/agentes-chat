@@ -302,14 +302,16 @@ describe("what people read of a notice", () => {
     const missing: string[] = [];
     for (const kind of seen) {
       for (const reason of ["audience", "callable"]) {
-        // A routine's report is what it found for people, a GitHub event what someone wrote there; every other
-        // notice's text is the agent's.
+        // A routine's report is what it found for people, a GitHub event what someone wrote there, a failed check what
+        // the check said; every other notice's text is the agent's.
         const said =
           kind === "routine_handoff"
             ? "3 erros novos no checkout"
             : kind === "github_event"
               ? "Pode cobrir o token expirado?"
-              : AGENT_TEXT;
+              : kind === "github_check"
+                ? "2 tests failed"
+                : AGENT_TEXT;
         const view = noticeView(
           { body: said, meta: { notice: { kind, text: said, from: "@ivy", refs: { ...refs, reason } } } },
           names,
@@ -325,7 +327,7 @@ describe("what people read of a notice", () => {
         // What "Show" opens is the app's words or what people wrote, never the agent's English.
         if (view.detail && "content" in view.detail) {
           expect(view.detail.content).not.toContain("github_actions_list");
-          expect(["routine_handoff", "consult_reply", "github_event"]).toContain(kind);
+          expect(["routine_handoff", "consult_reply", "github_event", "github_check"]).toContain(kind);
         }
       }
     }
@@ -383,6 +385,30 @@ describe("what people read of a notice", () => {
       key: "chat.notice.github.merged",
       detail: { content: "https://github.com/acme/app/pull/12" },
       answer: false,
+    });
+  });
+
+  test("a check that failed on a code session's branch: which, on its pull request or its commit, and its page", () => {
+    const view = (r: Record<string, string>, text = "") =>
+      noticeView({ body: AGENT_TEXT, meta: { notice: { kind: "github_check", text, refs: r } } }, names);
+    const check = {
+      check: "lint",
+      repo: "acme/app",
+      sha: "1a2b3c4d5e6f",
+      conclusion: "failure",
+      url: "https://github.com/acme/app/runs/5",
+    };
+    expect(view({ ...check, number: "12" }, "2 problems found")).toMatchObject({
+      key: "chat.notice.github.checkFailed",
+      values: { check: "lint", number: "12", repo: "acme/app" },
+      detail: { content: "2 problems found\n\nhttps://github.com/acme/app/runs/5" },
+      answer: false,
+    });
+    // Pushed before any pull request: on its commit, and "Show" opens the check's page.
+    expect(view(check)).toMatchObject({
+      key: "chat.notice.github.checkFailedCommit",
+      values: { check: "lint", commit: "1a2b3c4" },
+      detail: { content: "https://github.com/acme/app/runs/5" },
     });
   });
 });

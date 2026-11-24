@@ -40,6 +40,7 @@ import {
   Logo,
   Menu,
   MenuItem,
+  SettingNote,
   setGaze,
 } from "@agenteschat/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -56,7 +57,7 @@ import { ErrorState } from "@/components/Loading";
 import { COMPACT_QUERY, DESKTOP_QUERY, useMediaQuery } from "@/components/NavDrawer";
 import { OrgProvider } from "@/components/org-context";
 import { ImageCropDialog, OrgMark } from "@/components/ProfilePhoto";
-import { BootSplash, OnboardingHorizon, OnboardingProgress, OnboardingStageSky } from "@/components/Sky";
+import { BootSplash, OnboardingHorizon, OnboardingProgress } from "@/components/Sky";
 import { StepRail } from "@/components/StepRail";
 import { ZonePicker } from "@/components/ZoneSelect";
 import { useSignOut } from "@/hooks/useSignOut";
@@ -588,7 +589,7 @@ export function OnboardingPage() {
     step === "you"
       ? t(personalNow ? "onboarding.flow.you.leadPersonal" : "onboarding.flow.you.lead")
       : asking
-        ? t("onboarding.purpose.lead")
+        ? t("onboarding.purpose.pick")
         : step === "name"
           ? t("onboarding.workspace.lead")
           : step === "business"
@@ -696,11 +697,36 @@ export function OnboardingPage() {
 
   return (
     <div className="onb onb--rail">
-      {wide && <OnboardingStageSky />}
       <aside className="onb__rail">
         <div className="onb__top">
-          <span className="onb__brand">
-            <Logo size={22} />
+          <span className="onb__top-start">
+            {/* Someone who has another workspace can leave at any step, back to where they were; this one stays as it
+                is, to finish later. */}
+            {leaveTo && (
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                iconOnly
+                className="onb__leave"
+                aria-label={t("onboarding.leaveLater", { name: leaveTo.name })}
+              >
+                <a
+                  href={returnPlace(leaveTo.id)}
+                  title={t("onboarding.leaveLater", { name: leaveTo.name })}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault();
+                    void navigate({ href: returnPlace(leaveTo.id) });
+                  }}
+                >
+                  <Icon name="chevronLeft" />
+                </a>
+              </Button>
+            )}
+            <span className="onb__brand">
+              <Logo size={22} />
+            </span>
           </span>
           <Menu
             align={phone ? "end" : "start"}
@@ -853,6 +879,10 @@ export function OnboardingPage() {
                     {asking ? (
                       <div className="onb__answer">
                         <PurposeCards value={purpose} onValueChange={setPurpose} you={you} />
+                        {/* Where the person hesitates, between the answers and Continue: the choice isn't final. */}
+                        <SettingNote icon="swap" className="onb-purpose__note">
+                          <b>{t("onboarding.purpose.switchTitle")}</b> {t("onboarding.purpose.switchText")}
+                        </SettingNote>
                         {unpaidElsewhere && (
                           <UnpaidNote
                             orgId={unpaidElsewhere}

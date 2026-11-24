@@ -8,10 +8,12 @@ import { onConsultedRunFinished } from "./consultations";
 import { ValidationError } from "./errors";
 import { publishChannelEvent, publishMessageCreated } from "./events";
 import type { Transcript } from "./executor";
+import { queueLiveActivityRun } from "./live-activity-queue";
 import { getMessage, insertMessage, messageView } from "./messages";
-import { enqueue } from "./outbox";
+import { enqueue, jobsOfRun } from "./outbox";
 import { closeRoutineRun } from "./routine-ledger";
 import { releaseInbox } from "./run-inbox";
+import { runState } from "./run-state";
 import { revokeRunToolTokens } from "./run-tool-tokens";
 import {
   type AgentRun,
@@ -148,15 +150,15 @@ export async function recoverStaleRuns(
     .select({
       id: agentRuns.id,
       orgId: agentRuns.orgId,
-      waitId: sql<string>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
+      waitId: sql<string>`${runState}->'waitingForBrain'->>'waitId'`,
     })
     .from(agentRuns)
     .where(
       and(
         eq(agentRuns.status, "waiting_input"),
-        inArray(sql<string>`${agentRuns.transcript}->'waitingForBrain'->>'code'`, [...USAGE_WAIT_CODES]),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'waitId' is not null`,
-        sql`(${agentRuns.transcript}->'waitingForBrain'->>'until')::timestamptz < ${cutoff.toISOString()}::timestamptz`,
+        inArray(sql<string>`${runState}->'waitingForBrain'->>'code'`, [...USAGE_WAIT_CODES]),
+        sql`${runState}->'waitingForBrain'->>'waitId' is not null`,
+        sql`(${runState}->'waitingForBrain'->>'until')::timestamptz < ${cutoff.toISOString()}::timestamptz`,
         sql`not ${liveJob}`,
       ),
     )
@@ -247,13 +249,7 @@ async function resume(db: Database, run: AgentRun, at: SweepTime, ran: string[])
         lastError: "its worker stopped: the run went on in a new job",
         lastErrorStatus: null,
       })
-      .where(
-        and(
-          eq(outbox.kind, "agent_run.execute"),
-          sql`${outbox.payload}->>'runId' = ${run.id}`,
-          eq(outbox.status, "processing"),
-        ),
-      );
+      .where(and(jobsOfRun(run.id), eq(outbox.status, "processing")));
     await enqueue(tx, {
       orgId: run.orgId,
       kind: "agent_run.execute",
@@ -326,13 +322,7 @@ async function failInterrupted(deps: { db: Database; pubsub?: PubSub }, run: Age
     await tx
       .update(outbox)
       .set({ status: "failed", lockedUntil: null, lastError: INTERRUPTED_BY_RESTART, lastErrorStatus: null })
-      .where(
-        and(
-          eq(outbox.kind, "agent_run.execute"),
-          sql`${outbox.payload}->>'runId' = ${run.id}`,
-          inArray(outbox.status, ["pending", "processing"]),
-        ),
-      );
+      .where(and(jobsOfRun(run.id), inArray(outbox.status, ["pending", "processing"])));
     return { message, closedSecrets, closedApprovals };
   });
   if (!result) return false;
@@ -345,8 +335,10 @@ async function failInterrupted(deps: { db: Database; pubsub?: PubSub }, run: Age
   const where = { channelId: run.channelId, threadId, agentId: run.agentId, runId: run.id };
   const bg = run.background ? { background: true as const } : {};
   if (deps.pubsub && result.message) await publishMessageCreated(deps.pubsub, messageView(result.message));
-  // Its worker died: its line went with the heartbeat already (ADR 0084 §11); the apps refresh now.
+  // Its worker died: its line went with the heartbeat already (ADR 0084 §11); the apps refresh now, and so does the
+  // Live Activity of the person behind it (ADR 0210).
   await announceAgentStatus(deps.pubsub, run.orgId, run.agentId).catch(() => {});
+  await queueLiveActivityRun(db, run).catch(() => {});
   await publishChannelEvent(deps.pubsub, {
     type: "agent.run",
     ...where,
@@ -400,11 +392,12 @@ export async function activeRunsIn(db: Database, orgId: string, channelId: strin
     kind: string;
     pending: string[] | string | null;
     background: boolean | string;
+    reply_in_thread: boolean | string;
   }>(
     // Asking its computer from the line (`computerWaitOf`) it still waits: no "thinking" row for the ask.
     await db.execute(sql`select r.id, r.agent_id, ${shownStatusSql} as status, r.thread_root_id, r.trigger_message_id, r.started_at,
         r.heartbeat_at, r.working_since, r.created_at, c.kind, array_to_json(r.pending_message_ids || r.after_message_ids) as pending,
-        (r.background or r.work_id is not null) as background
+        (r.background or r.work_id is not null) as background, r.reply_in_thread
       from ${agentRuns} r join ${channels} c on c.id = r.channel_id
       where r.org_id = ${orgId}::uuid and r.channel_id = ${channelId}::uuid
         and r.status in ('queued', 'running', 'waiting_approval', 'waiting_input')
@@ -430,6 +423,8 @@ export async function activeRunsIn(db: Database, orgId: string, channelId: strin
     pendingMessageIds: pendingIds(r.pending),
     // A routine's work, or long work (ADR 0121): it holds no conversation's working row.
     background: r.background === true || r.background === "t",
+    // It answers in the thread under its trigger (ADR 0214): its own copy, never the channel's setting now.
+    replyInThread: r.reply_in_thread === true || r.reply_in_thread === "t",
   }));
 }
 

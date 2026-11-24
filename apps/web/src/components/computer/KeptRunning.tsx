@@ -29,19 +29,20 @@ function useKept(agentId: string) {
       locale: i18n.language,
       now: new Date(now),
     });
-  const stopOne = (hold: Hold) => stop.mutate(hold.id, { onError: () => say(t("agentComputer.kept.stopFailed")) });
-  return { holds, canStop: q.data?.canStop === true, lineOf, stopOne, stopping: stop.isPending };
+  // It leaves the list at once; each refusal says so, even with another stop still on its way.
+  const stopOne = (hold: Hold) => void stop.mutateAsync(hold.id).catch(() => say(t("agentComputer.kept.stopFailed")));
+  return { holds, canStop: q.data?.canStop === true, lineOf, stopOne };
 }
 
 /** One hold's ⋯: its Stop. */
-function HoldMenu({ hold, onStop, disabled }: { hold: Hold; onStop: () => void; disabled: boolean }) {
+function HoldMenu({ hold, onStop }: { hold: Hold; onStop: () => void }) {
   const { t } = useTranslation();
   const label = t("agentComputer.kept.actions", { what: hold.what });
   return (
     <Menu
       align="end"
       label={label}
-      trigger={<Button size="sm" variant="ghost" iconOnly icon="more" aria-label={label} disabled={disabled} />}
+      trigger={<Button size="sm" variant="ghost" iconOnly icon="more" aria-label={label} />}
     >
       <MenuItem icon="stop" danger onSelect={onStop}>
         {t("agentComputer.kept.stop")}
@@ -70,7 +71,7 @@ export function KeptRunningRow({ agentId }: { agentId: string }) {
                 <b>{line.what}</b>
                 <span>{line.meta}</span>
               </span>
-              {kept.canStop && <HoldMenu hold={hold} disabled={kept.stopping} onStop={() => kept.stopOne(hold)} />}
+              {kept.canStop && <HoldMenu hold={hold} onStop={() => kept.stopOne(hold)} />}
             </li>
           );
         })}
@@ -108,7 +109,7 @@ export function KeptRunningButton({ agentId }: { agentId: string }) {
               </span>
             </MenuNote>
             {kept.canStop && (
-              <MenuItem icon="stop" danger disabled={kept.stopping} onSelect={() => kept.stopOne(hold)}>
+              <MenuItem icon="stop" danger onSelect={() => kept.stopOne(hold)}>
                 {t("agentComputer.kept.stopOf", { what: hold.what })}
               </MenuItem>
             )}

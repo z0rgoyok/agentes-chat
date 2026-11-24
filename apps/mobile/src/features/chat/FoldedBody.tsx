@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
-import { Text, useReducedMotion } from "@/ui";
+import { Icon, Text, useReducedMotion, useTheme } from "@/ui";
 import { REVEAL } from "./ClippedMessage";
 import { keepOpen, keepSize, keptOpen, keptSize, PAST_RULE } from "./kept-sizes";
 import { useLayoutKey } from "./look";
@@ -17,6 +17,7 @@ const FOLDED = 114;
 export function FoldedBody({ body, muted = false }: { body: string; muted?: boolean }) {
   const { t } = useTranslation();
   const reduced = useReducedMotion();
+  const { colors } = useTheme();
   // Kept as a conversation's rows keep theirs (`kept-sizes.ts`): on a card in a conversation, a row coming back into
   // view showed the text with no "Ver mais" for a frame, then grew by its line, and folded what had been opened.
   const sizeKey = `folded:${useLayoutKey()}:${body}`;
@@ -48,11 +49,12 @@ export function FoldedBody({ body, muted = false }: { body: string; muted?: bool
             keepOpen(`open:${sizeKey}`, true);
             setOpen(true);
           }}
-          style={({ pressed }) => (pressed ? styles.pressed : null)}
+          style={({ pressed }) => [styles.more, pressed && styles.pressed]}
         >
-          <Text variant="footnote" tone="ink2" style={styles.more}>
+          <Text variant="label" tone="ink2">
             {t("channel.long.more")}
           </Text>
+          <Icon name="chev" size={14} color={colors.ink2} />
         </Pressable>
       ) : null}
     </View>
@@ -62,6 +64,6 @@ export function FoldedBody({ body, muted = false }: { body: string; muted?: bool
 const styles = StyleSheet.create({
   clip: { overflow: "hidden" },
   folded: { maxHeight: FOLDED + PAST_RULE, overflow: "hidden" },
-  more: { marginTop: 2, textDecorationLine: "underline" },
+  more: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 2, marginTop: 2 },
   pressed: { opacity: 0.6 },
 });

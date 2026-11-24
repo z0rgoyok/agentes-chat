@@ -37,10 +37,14 @@ export interface ListRowProps extends Omit<PressableProps, "style" | "children">
   leading: ReactNode;
   /** Line 1 (a string is drawn as the semibold name; bold when unread). */
   title: ReactNode;
+  /** Right after a title in words, on its line (an agent's role as a `Tag`): it gives way before the title does. */
+  titleAside?: ReactNode;
   /** Lines of the title (default 1). */
   titleLines?: number;
   /** On the right of line 1 (the time, faint; darker when unread). */
   time?: string | null;
+  /** The time is a deadline close to its end: in the color of what waits on the person. */
+  timeWaiting?: boolean;
   /** A small faint line under the title (what and where: "Missão · #canal"). */
   over?: ReactNode;
   /** Line 2 (a string is drawn in the readable secondary color, up to two lines). */
@@ -79,7 +83,9 @@ export function ListRow({
   leading,
   title,
   titleLines = 1,
+  titleAside,
   time,
+  timeWaiting,
   over,
   sub,
   subLines = 2,
@@ -105,7 +111,14 @@ export function ListRow({
       <View style={styles.avatar}>{leading}</View>
       <View style={styles.tx}>
         <View style={styles.l1}>
-          {typeof title === "string" ? (
+          {typeof title === "string" && titleAside ? (
+            <View style={[styles.shrink, styles.titleRow, { minHeight: titleLine }]}>
+              <Text variant="title" numberOfLines={1} style={[styles.titleFirst, unread && styles.unreadName]}>
+                {title}
+              </Text>
+              {titleAside}
+            </View>
+          ) : typeof title === "string" ? (
             <Text variant="title" numberOfLines={titleLines} style={[styles.shrink, unread && styles.unreadName]}>
               {title}
             </Text>
@@ -118,7 +131,11 @@ export function ListRow({
               <Text
                 variant={TIME_VARIANT}
                 tone={unread ? "ink2" : "faint"}
-                style={[LIST_TIME, unread && styles.unreadTime]}
+                style={[
+                  LIST_TIME,
+                  unread && styles.unreadTime,
+                  timeWaiting && { color: c.amberInk, fontWeight: weights.semibold },
+                ]}
               >
                 {time}
               </Text>
@@ -166,6 +183,9 @@ const styles = StyleSheet.create({
   trailing: { justifyContent: "center" },
   grow: { flex: 1, minWidth: 0 },
   shrink: { flexShrink: 1 },
+  // A title and what stands after it on its line: the title keeps its words, the aside ends in "…" first.
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  titleFirst: { flexShrink: 0, maxWidth: "70%" },
   unreadName: { fontWeight: weights.bold },
   time: { flexShrink: 0, marginLeft: "auto", justifyContent: "center" },
   timeRow: { flexDirection: "row", alignItems: "center", gap: 4 },

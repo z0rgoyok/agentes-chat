@@ -81,8 +81,9 @@ describe("a personal workspace's words on the phone (ADR 0159)", () => {
     );
   });
 
-  test("connectors are suggested for the person and connected by whoever runs the workspace, never by name", () => {
-    expect(src("connectors/ConnectorsScreen.tsx")).toContain('? t("connectors.suggestedPersonal")');
+  test("connectors are featured with no heading of the workspace's name, and connected by whoever runs it", () => {
+    // The suggested services are cards with no "Sugeridos para <workspace>" over them: no "for Personal" to word.
+    expect(src("connectors/ConnectorsScreen.tsx")).not.toContain("mobile.connectors.suggested");
     expect(src("connectors/ConnectSheet.tsx")).toContain(
       't(modeKey(org, "mobile.connectors.adminsOnly"), { org: org?.name ?? "" })',
     );

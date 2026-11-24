@@ -92,8 +92,12 @@ describe("time zones", () => {
 describe("a webhook routine's address", () => {
   const url = "https://app.agentes.test/api/hooks/abc";
   test("only a webhook routine's, as the server gave it (null for who doesn't manage it)", () => {
-    expect(routineHookUrl({ trigger: { type: "webhook", url, signed: false, methods: ["POST"] } })).toBe(url);
-    expect(routineHookUrl({ trigger: { type: "webhook", url: null, signed: true, methods: ["POST"] } })).toBeNull();
+    expect(routineHookUrl({ trigger: { type: "webhook", url, signed: false, methods: ["POST"], groupBy: null } })).toBe(
+      url,
+    );
+    expect(
+      routineHookUrl({ trigger: { type: "webhook", url: null, signed: true, methods: ["POST"], groupBy: null } }),
+    ).toBeNull();
     expect(routineHookUrl({ trigger: { type: "event", event: "issue.created" } })).toBeNull();
   });
 

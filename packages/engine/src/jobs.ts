@@ -12,9 +12,10 @@ import type {
 import { and, count, eq, inArray, isNull, ne, queryTrace, schema, sql } from "@agenteschat/db";
 import { ACCOUNT_CONTACT_JOB, saveAccountContact } from "./account-contacts";
 import { AGENT_MEDIA_JOB, enqueueAgentMedia, maybeSendAgentMedia } from "./agent-media";
+import { ACCOUNT_OPENED_JOB } from "./ai-accounts/serves";
 import { aiConnectIntent, type ConnectIntent } from "./ai-intent";
 import { orgHasAi } from "./ai-status";
-import type { ArtifactDeps } from "./artifacts";
+import { type ArtifactDeps, announceFileConversation } from "./artifacts";
 import { PLAN_OPENED_JOB } from "./audience";
 import { routinePostRun, runAuthorityById } from "./authority";
 import { AUTONOMY_REPORT_JOB, queueAutonomyEmail } from "./autonomy-report";
@@ -32,6 +33,9 @@ import { getChannelCached } from "./context";
 import { consolidateOrg } from "./context/consolidate";
 import { applyReactionFeedback } from "./context/feedback";
 import { LEARN_JOB, learnRun } from "./context/learn";
+import { MOVE_LEARNED_JOB, moveLearnedSections } from "./context/learned-sections";
+import { settleProposals } from "./context/proposal-review";
+import { SETTLE_JOB, type SettleOrigin } from "./context/proposals";
 import { REFLECT_DEFAULTS, reflectThread } from "./context/reflect";
 import { judgeOf, summaryModelReady } from "./context/summaries";
 import { reportDroppedMentions, tellWakeSkipped } from "./continuation";
@@ -51,6 +55,7 @@ import { isAgentOnlyDm } from "./dms";
 import {
   type EmailArt,
   PLAN_WAITING_JOB,
+  queueAccountOpenedEmail,
   queuePlanLent,
   queuePlanOpenedEmail,
   queuePlanWaiting,
@@ -77,10 +82,12 @@ import { FILE_JOIN_REQUEST_JOB, fileJoinRequest } from "./invite-requests";
 import { announceTaskConversation } from "./issues";
 import type { JevKey, JevKeySource } from "./jev-key";
 import { DEEP_MENTION_THRESHOLD, DEEP_WAKE_HOP, MENTION_WAKE_THRESHOLD, mentionNeedsNothing } from "./judge";
-import { platformCapReached } from "./limits";
+import { platformCapReached, platformCapRouter } from "./limits";
 import type { LiveDocs } from "./live/docs";
 import { liveImageJobHandlers } from "./live/images";
 import { liveJobHandlers } from "./live/jobs";
+import { runLiveActivityJob } from "./live-activity";
+import { LIVE_ACTIVITY_JOB } from "./live-activity-queue";
 import { wakeForAccessDecision } from "./machine-access";
 import type { MachineCaller } from "./machine-hub";
 import {
@@ -269,23 +276,27 @@ export function messageRouter(deps: JobDeps): RouterDeps | null {
   const steps = [
     ...(jev
       ? [
-          createJevRouterStrategy({
-            key: jev.key,
-            timeoutMs: jev.timeoutMs,
-            fetch: jev.fetch,
-            baseURL: jev.baseURL,
-            recordUsage: async (u) => {
-              await deps.gateway.recordExternalUsage({
-                orgId: u.orgId,
-                kind: "router",
-                provider: "typesafe",
-                model: u.model,
-                inputTokens: u.inputTokens,
-                outputTokens: u.outputTokens,
-                costNanoUsd: u.costNanoUsd,
-              });
-            },
-          }),
+          platformCapRouter(
+            deps.db,
+            createJevRouterStrategy({
+              key: jev.key,
+              timeoutMs: jev.timeoutMs,
+              fetch: jev.fetch,
+              baseURL: jev.baseURL,
+              recordUsage: async (u) => {
+                await deps.gateway.recordExternalUsage({
+                  orgId: u.orgId,
+                  kind: "router",
+                  provider: "typesafe",
+                  model: u.model,
+                  requestedModel: "route",
+                  inputTokens: u.inputTokens,
+                  outputTokens: u.outputTokens,
+                  costNanoUsd: u.costNanoUsd,
+                });
+              },
+            }),
+          ),
         ]
       : []),
     router.strategy ?? createLlmRouterStrategy({ gateway: deps.gateway, resolveModel: smallModel }),
@@ -305,7 +316,8 @@ export function messageRouter(deps: JobDeps): RouterDeps | null {
     quietMs: router.quietMs,
     quietByTyping: router.quietByTyping,
     pubsub: deps.pubsub,
-    // Jev bills the platform: past the workspace's platform AI for the month, only @mentions start agents.
+    // Jev bills the platform: past the workspace's platform AI for the month, its own small model picks, else only
+    // @mentions start agents.
     ...(jev ? { platformCapReached: (orgId: string) => platformCapReached(deps.db, orgId) } : {}),
   };
 }
@@ -595,6 +607,9 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
       await dispatchDm(deps.db, message, { maxHops: deps.maxHops }); // idempotent safety net
       return;
     }
+    // A code session's conversation (ADR 0215): what names nobody is for the session's agent, which got it at post
+    // time once its worktree was ready (`codeAgentSql`) or gets it when the worktree becomes ready; never the router's.
+    if (where?.kind === "code") return;
     if (!routing) return routed("none", [], []);
     // In a mission's thread only its owner and deciders make the agent work (the router included).
     if (message.threadId && message.authorUserId) {
@@ -950,6 +965,20 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
       if (res.skipped === "running") throw Object.assign(new Error("its run is still going"), { retryable: true });
       if (res.saved.length > 0) await publishListChanged(deps.pubsub, orgOf(job), "memory");
     },
+    // New proposals no person decided at once: the agent's review applies or leaves out each (ADR 0219).
+    [SETTLE_JOB]: async (job) => {
+      if (!deps.context) return;
+      const ids = Array.isArray(job.payload.ids) ? job.payload.ids.map(String) : [];
+      const res = await settleProposals(
+        {
+          context: deps.context,
+          blobs: deps.artifacts?.blobs,
+          deletion: { hub: missions.hub, mail: deps.mail },
+        },
+        { orgId: orgOf(job), ids, origin: String(job.payload.origin ?? "agent") as SettleOrigin },
+      );
+      if (res.applied.length > 0) await publishListChanged(deps.pubsub, orgOf(job), "memory");
+    },
     // A reply a while ago: the thread's title and "resolved?" suggestion, unless a newer reply came.
     "threads.assess": async (job) => {
       if (!deps.context) return;
@@ -1087,6 +1116,11 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
     [PLAN_WAITING_JOB]: async (job) => {
       if (deps.emailArt) await sendPlanWaitingEmail(deps.db, deps.emailArt.home, orgOf(job), job.payload.step);
     },
+    // Someone else let more people use a person's AI account or be answered on it (`setAccountPermissions`).
+    [ACCOUNT_OPENED_JOB]: async (job) => {
+      if (!deps.emailArt) return;
+      await queueAccountOpenedEmail(deps.db, deps.emailArt.home, orgOf(job), job.id, job.payload);
+    },
     // Someone else let more people talk to an agent on a person's plan: that person's email (`planOpened`).
     [PLAN_OPENED_JOB]: async (job) => {
       // No address for the email's link: a server without emailArt sends no email anyway.
@@ -1222,6 +1256,8 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
       }
       // A reply in a task's conversation (ADR 0145): the board's card counts it.
       await announceTaskConversation({ db: deps.db, pubsub: deps.pubsub }, orgOf(job), messageId);
+      // A comment on a picture, a video or a PDF (ADR 0208): its card where it was posted counts it.
+      await announceFileConversation({ db: deps.db, pubsub: deps.pubsub }, orgOf(job), messageId);
     },
     [SURFACE_FALLBACK_JOB]: (job) => fallBack({ db: deps.db, pubsub: deps.pubsub }, String(job.payload.deliveryId)),
     // A request for help in an agent's browser nobody answered within the hour: the people asked hear it again, once.
@@ -1235,6 +1271,10 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
         String(job.payload.notificationId),
         { held: job.payload.held === true },
       );
+    },
+    // The Live Activity of a person's agents at work, on their iPhones (ADR 0210): sent when what it shows changed.
+    [LIVE_ACTIVITY_JOB]: async (job) => {
+      await runLiveActivityJob({ db: deps.db, push: deps.push }, job);
     },
     // A workspace's skills that update by themselves from their links, once a day.
     [SKILL_UPDATES_JOB]: async (job) => {
@@ -1252,6 +1292,11 @@ export function createJobHandlers(deps: JobDeps): JobHandlers {
     [VAULT_SYNC_JOB]: async (job) => {
       if (!deps.vault) return;
       await runVaultSync(deps.vault, orgOf(job), String(job.payload.connectionId));
+    },
+    // Queued once by migration 0310: the agents' "## Learned" sections become memory; a no-op once moved.
+    [MOVE_LEARNED_JOB]: async (job) => {
+      if ((await moveLearnedSections(deps.db, orgOf(job))) > 0)
+        await publishListChanged(deps.pubsub, orgOf(job), "memory");
     },
     "context.consolidate": async (job) => {
       if (!deps.context) return;

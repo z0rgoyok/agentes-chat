@@ -2,7 +2,8 @@
 
 - Status: Accepted (built: engine, the shared client's lists, the web and the phone app's row; not yet run on a real
   system-mode computer, see "Before it ships"); amended 2026-11-13 (§3, §8, §9: a shared seat wherever others read,
-  see "Amendment: the shared seat")
+  see "Amendment: the shared seat"); amended 2026-11-22 (§3: a seat on a computer that runs every agent as one user); amended 2026-11-23
+  (a run nobody asked for in a person's DM uses the shared seat)
 - Date: 2026-11-12
 - Amends: ADR 0137 (§1 "it is on no computer", §4 and §13 "no computer", the 2026-11-12 amendment's "No computer
   yet"), ADR 0057 (§2: an OS user per id the server sends, not only per agent), ADR 0169 (§9: a seat has its
@@ -293,3 +294,89 @@ two users with 0700 homes that cannot read each other's files, processes or brow
 runs as the thinking user and its tool call lands in the asker's seat; a person takes control of their own seat's
 desktop while another watches theirs; a removed member's processes are killed and their worker and containers stop;
 a single-user runner is refused cleanly.
+
+## Amendment (2026-11-22): a seat on a computer that runs every agent as one user
+
+### Context
+
+§3 gave it a seat only where the workspace's own computer runs each agent as its own OS user (`mode: "system"`). That
+is Cloud's computers and a Linux server set up with `--system`, which needs systemd with `BPF_FRAMEWORK` (Debian 13,
+not Ubuntu). Everywhere else (the self-hosted server's own computer on Ubuntu, a Mac running the server) it had no
+computer at all: no commands, no files, no browser, no CLIs. People who wanted their right hand to do hands-on work
+made a second agent for it, which runs on that same computer as the same OS user and is reached by the same members.
+The owner decided it gets the same tools as any agent, within the same protections.
+
+### Decision
+
+- **The seat is given on the workspace's own computer whatever its mode** (`seatOn`). Where every agent is one OS
+  user, a seat is what an agent is there: a folder of its own (`<handle>-<first 8 of the seat's id>`) and a browser
+  profile under that folder, by the runner's own machinery. `not_system` and its message are gone; `no_home` and
+  `not_home` stay. Which seat a run uses (`runSeat`), the hub guard (§2), the grants (§6), holds and stops (§10) are
+  unchanged, and `GET …/machines` lists it on that computer as on one in system mode.
+- **Driving stays with who may drive any agent there** (`computerDriving`). A terminal or control of a desktop on a
+  one-user computer acts as the user every agent and every seat shares, so it reads all of them and the runner's
+  token: on the right hand's seats too it is `driveRefusal`'s rule for such a computer, the person who connected it
+  (with their role key). Watching one's own seat's screen is unchanged. A person who may not drive their seat is not
+  asked onto its desktop (`desktop_ask_person` answers that nobody may).
+- **It is told what the place is** (`seatPlace`, `rightHandTools(state, oneUser)`): only a folder and a browser
+  profile of the one user, never to read, list or change anything outside its own folder and the shared folder, and
+  that only who connected the computer takes control. Its commands go through the same approvals and checks as any
+  agent's.
+- **Its page says so** (`rightHandComputerLine`, from the computer's `mode`): "Your own folder and browser on the
+  workspace's computer… other agents' commands there can read them, and only who connected it takes control", in
+  place of "Only you can watch or control it", on the web and the phone, in every language.
+
+### What stays guarded, and why
+
+- **One person's place is still used only for what that person asks in their own DM** (§3 and the shared-seat
+  amendment): a channel never gets it, nor does a routine or an unasked run there.
+- **The locked turn on a plan is unchanged** (ADR 0137 §4). The plan's CLI still gets our bridge and nothing of its
+  own: the plan may be signed in on a computer a person brought, and with "Atende outras pessoas" it thinks for
+  others, so an unlocked CLI would run one person's work as another person's OS user with their sign-in. Every
+  computer tool is ours and goes to the seat instead, so the lock costs no tool.
+- **A computer a person connected is never its computer.** A seat there would run other people's work as that
+  person, with their files and sign-ins (`not_home`).
+- **What the OS does not separate is said, not hidden.** On a one-user computer, an agent's commands can read a
+  seat's folder and its browser profile, the same exposure every agent there already has to every other. A person
+  who needs their place unreadable by others sets the server up with `--system`; SELF_HOSTING.md says so.
+- **Not in this change:** `claude` and `codex` background tasks (a seat has no sign-in of its own, and the one-user
+  computer's is its connecter's), folders granted on a computer, missions and `keep_running` (§"What is not in this
+  change"), and a workspace with no computer of its own, where it still has none.
+
+### Consequences
+
+- On a self-hosted server set up without `--system`, the right hand runs commands, keeps files and browses in a place
+  per person and a shared one, as any agent there does.
+- A member who is not the computer's connecter watches their own place but does not take control of it or open its
+  terminal. When a site needs them, the right hand says so in its reply instead.
+- A removed member's seat gets no new work, as everywhere, but on a one-user computer the `deleted` list sweeps
+  nothing (the runner sweeps OS users, which exist only in system mode): what it still had open there ends as an
+  agent's does that leaves such a computer, and its folder stays on disk.
+
+## Amendment (2026-11-23): a run nobody asked for in a person's DM uses the shared seat
+
+### Context
+
+The 2026-11-13 amendment left a run nobody asked for in a person's own DM with no computer: a routine that reports
+there, the daily brief, an event from a connected app, another agent's message. Such work had to be handed to another
+agent. The owner decided it uses the workspace's computer, as any other agent's run does.
+
+### Decision
+
+- `runSeat` gives such a run the shared seat. A person's own seat is still used only in their own DM, for a run they
+  are behind; every other run of the right hand, wherever it reports, works in the shared seat. No run is left without
+  a seat (`UNASKED_SEAT_MESSAGE` is gone); a call with no conversation still has none (`NO_SEAT_MESSAGE`).
+- What stays one person's is unchanged: their seat, Vault items, mailbox, tasks and memory keep their own gates
+  (`rightHandReader`). A routine its creator made that reports in their own DM still reads for them there, so the
+  shared seat is held to the rule of a shared browser profile (ADR 0144 §2, `sharedPlaceOf` in the Vault): a personal
+  login or key, or a team one open only to some people, is never typed or handed to a command there, since the
+  sign-in or the value would stay for every other run in it and whoever may open it. The team's open to everyone
+  still work, and a password made there never replaces a login the seat may not hold.
+- Its prompt says the shared place holds these runs too, and still that nothing private belongs there.
+
+### Consequences
+
+- What a routine or an unasked run in a person's DM does on the computer sits in the shared seat, which every other
+  run there and whoever may open it can read. Its prompt tells it to keep nothing from the private conversation there.
+- In that DM the cards of such a run's browser or screen still read the viewer's own seat (`conversationSeat`): the
+  apps don't know a run's seat yet.

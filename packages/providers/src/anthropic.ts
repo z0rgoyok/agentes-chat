@@ -6,7 +6,7 @@ import type {
   BetaTextBlockParam,
   BetaTool,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { MODEL_CATALOG } from "./catalog";
+import { effortWithin, MODEL_CATALOG } from "./catalog";
 import {
   type ContentBlock,
   deniedError,
@@ -122,7 +122,8 @@ export function createAnthropicProvider(
       // endpoint gets no effort: MiniMax takes one only on the model that always thinks. A forced tool is refused
       // while the model thinks, so that answer goes without thinking, or unforced on a model that always thinks.
       const thinkingOff = (request.effort === "none" || forced) && info?.leastThinking === "off";
-      const asked = thinkingOff && compat ? undefined : request.effort === "none" ? "low" : request.effort;
+      const asked =
+        thinkingOff && compat ? undefined : request.effort === "none" ? "low" : effortWithin(request.effort, info);
       const effort = compat && asked === "medium" ? "high" : asked;
       const partial: PartialUsage = {
         inputTokens: null,

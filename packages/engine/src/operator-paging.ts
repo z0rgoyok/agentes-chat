@@ -1,4 +1,4 @@
-import { type Database, eq, schema, sql } from "@agenteschat/db";
+import { type Database, eq, type SQL, schema, sql } from "@agenteschat/db";
 import { z } from "zod";
 import { UUID } from "./authority";
 import { encodeCursor } from "./cursor";
@@ -58,6 +58,15 @@ export const orgExists = async (db: Database, orgId: string) =>
       .from(schema.organizations)
       .where(eq(schema.organizations.id, orgId))
   ).length > 0;
+
+// An analytics read over many rows: compiling it costs more than it saves, and one that still runs long is stopped,
+// so a slow plan ends in an error and gives its connection back.
+export const heavyRead = (db: Database, statement: SQL) =>
+  db.transaction(async (tx) => {
+    await tx.execute(sql`set local jit = off`);
+    await tx.execute(sql`set local statement_timeout = '20s'`);
+    return tx.execute(statement);
+  });
 
 // What a JSON column or a job's name holds is returned only when shaped like what the code writes there: a code, an
 // id. Anything else in its place reads as absent, so text never leaves through a field meant for a code.

@@ -18,7 +18,8 @@ import { needsHeaderBlur } from "@/lib/nav";
 import { Dither } from "@/sky/Dither";
 import { softTones } from "@/sky/math";
 import { Glass, haptics, motion, PressScale, Text, useReducedMotion, useTheme } from "@/ui";
-import { pillRoom } from "./pill-room";
+import { usePane } from "@/ui/pane";
+import { panePillRoom, pillRoom } from "./pill-room";
 
 /** iOS 26's bar, whose buttons are the system's glass ones; elsewhere our own 44-point buttons side by side. */
 const LIQUID = Platform.OS === "ios" && !needsHeaderBlur(Platform.OS, Platform.Version);
@@ -128,7 +129,11 @@ export const HeaderPill = memo(function HeaderPill({
   const { colors, shadows } = useTheme();
   const reduced = useReducedMotion();
   const { width: screen } = useWindowDimensions();
-  const room = pillRoom(screen, extraActions, leadRoom, LIQUID);
+  // In a pane (ADR 0212) the bar is the pane's: as wide as the pane, with no back button.
+  const pane = usePane();
+  const room = pane
+    ? panePillRoom(pane.width, extraActions, leadRoom)
+    : pillRoom(screen, extraActions, leadRoom, LIQUID);
 
   const [nameWidth, setNameWidth] = useState<number | null>(null);
   const [lineWidth, setLineWidth] = useState(0);
@@ -169,7 +174,7 @@ export const HeaderPill = memo(function HeaderPill({
     set(Math.ceil(e.nativeEvent.layout.width));
 
   return (
-    <View style={[styles.slot, { width: room }]} pointerEvents="box-none">
+    <View style={[styles.slot, { width: room }, pane && styles.centred]} pointerEvents="box-none">
       {/* What the words measure, whole, with no room limit. */}
       <View
         style={styles.measure}
@@ -327,6 +332,8 @@ function SlidingText({ text, natural, box, still }: { text: string; natural: num
 
 const styles = StyleSheet.create({
   slot: { alignItems: Platform.OS === "ios" ? "center" : "flex-start" },
+  // In a pane (ADR 0212) the pill stands in the middle of the bar on every platform: there is no back button beside it.
+  centred: { alignItems: "center" },
   measure: { position: "absolute", top: 0, left: 0, width: 1000, alignItems: "flex-start", opacity: 0 },
   pill: {
     flexDirection: "row",

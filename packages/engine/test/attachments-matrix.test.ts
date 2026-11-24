@@ -124,7 +124,7 @@ function files() {
       name: "clip.mp4",
       bytes: new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]),
       shown: null,
-      has: "no AI here watches videos",
+      has: "review_media watches it",
     },
     { name: "fotos.zip", bytes: zip([["a.png", PNG]]), shown: null, has: "It is a zip archive" },
   ];

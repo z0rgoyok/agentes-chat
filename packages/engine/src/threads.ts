@@ -1028,13 +1028,13 @@ const threadWorkRunsSql = (orgId: string) => sql`(select coalesce(json_agg(json_
     'waited', x.waited)), '[]'::json)
   from (
     select ar.agent_id as agent, ar.status, ar.waiting_machine_id is not null as machine, ${outageIn("ar")} as outage,
-      ar.transcript->'waitingForBrain'->>'code' as code, coalesce(ar.started_at, ar.created_at) as started,
+      coalesce(ar.state, ar.transcript)->'waitingForBrain'->>'code' as code, coalesce(ar.started_at, ar.created_at) as started,
       ${waitSinceIn("ar")} as waited
     from ${schema.agentRuns} ar
     where ar.org_id = ${orgId}::uuid and ar.thread_root_id = l.id and ar.status in ${ACTIVE_RUN}
     union all
     select hr.agent_id, hr.status, hr.waiting_machine_id is not null, ${outageIn("hr")},
-      hr.transcript->'waitingForBrain'->>'code',
+      coalesce(hr.state, hr.transcript)->'waitingForBrain'->>'code',
       hc.created_at, ${waitSinceIn("hr")}
     from ${schema.agentRuns} ar
     join ${schema.agentConsultations} hc on hc.org_id = ${orgId}::uuid and hc.asker_run_id = ar.id and hc.status = 'open'

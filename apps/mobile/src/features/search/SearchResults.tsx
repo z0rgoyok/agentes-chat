@@ -11,6 +11,7 @@ import { EmptyState, SCREEN_X, SectionHeader, SkeletonList } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useOpenFile } from "../files/open";
 import { chatHref } from "../links/logic";
+import { PATH_SEPARATOR, useFoundSettings, useOpenSetting } from "../settings/SettingsSearchScreen";
 import { AgentFace, Face } from "../shared/Face";
 import { LoadFailed } from "../shared/FirstUse";
 import { useDirectory, useOrgId, useWhen } from "../shared/hooks";
@@ -32,8 +33,8 @@ const nameIn = (names: ReadonlyMap<string, string>, id: string | undefined) => (
 
 /**
  * Busca, under the field of the search tab (the phone's ⌘K): the actions with no words, then the results grouped
- * (Conversas, Ações do time, Mensagens, Arquivos), each group's count on its header and the words looked for lit in
- * the lines. A message opens its conversation at that message; a file opens in the app's own viewer. While the
+ * (Configurações, Conversas, Ações do time, Mensagens, Arquivos), each group's count on its header and the words
+ * looked for lit in the lines. Configurações are the settings Você's search finds, each with where it lives. A message opens its conversation at that message; a file opens in the app's own viewer. While the
  * results come, rows of their shape stand in. They follow the field a beat behind: a keystroke draws the field first,
  * and words typed quickly are asked of the server once they settle.
  */
@@ -90,6 +91,23 @@ const Results = memo(function Results({ q }: { q: string }) {
   const actionItems = useMemo<ActionItem[]>(
     () => actions.map((a) => ({ key: a, icon: ACTION_ICON[a], label: labels[a], onPress: () => runAction(a) })),
     [actions, labels],
+  );
+  // The settings the words name, the person's and the workspace's, as Você's search finds them: where each lives under
+  // its name, a tap opening it as its row does.
+  const settings = useFoundSettings(q);
+  const openSetting = useOpenSetting();
+  const settingItems = useMemo<ActionItem[]>(
+    () =>
+      settings.map((f) => ({
+        key: `s:${f.entry.id}`,
+        leading: <Tile icon={f.entry.icon} size={RESULT_LEAD} />,
+        label: f.name,
+        marks: terms,
+        oneLine: true,
+        hint: f.where.join(PATH_SEPARATOR),
+        onPress: () => openSetting(f.entry),
+      })),
+    [settings, terms, openSetting],
   );
   const chatItems = useMemo<ActionItem[]>(
     () => [
@@ -206,6 +224,11 @@ const Results = memo(function Results({ q }: { q: string }) {
             <ActionList items={actionItems} />
           </Group>
         ) : null}
+        {words && settingItems.length > 0 ? (
+          <Group title={t("settings.title")} count={settingItems.length}>
+            <ActionList items={settingItems} />
+          </Group>
+        ) : null}
         {words && r.agents.length + r.channels.length + r.dms.length > 0 ? (
           <Group title={t("mobile.find.conversations")} count={r.agents.length + r.channels.length + r.dms.length}>
             <ActionList items={chatItems} />
@@ -228,7 +251,7 @@ const Results = memo(function Results({ q }: { q: string }) {
         ) : null}
         {words && hits.isLoading ? <SkeletonList rows={3} /> : null}
         {failed ? <LoadFailed onRetry={() => void hits.refetch()} /> : null}
-        {words && !failed && isEmpty(r) && !hits.isFetching ? (
+        {words && !failed && isEmpty(r) && settingItems.length === 0 && !hits.isFetching ? (
           <EmptyState size="inline" title={t("mobile.find.nothing", { q: q.trim() })} />
         ) : null}
       </View>

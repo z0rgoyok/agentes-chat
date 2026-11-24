@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 import { usePlanGates } from "@/components/ai/ConnectAiSteps";
 import { ConnectChoices } from "@/components/arrival/ConnectChoices";
 import { sceneTeam, TeamScene, useDawn } from "@/components/arrival/TeamScene";
-import { ConnectAiProvider, type ConnectAiRequest, useConnectAi } from "@/components/ConnectAi";
+import { ConnectAiProvider, type ConnectAiRequest, useConnectAi } from "@/components/connect-ai-context";
 import { OrgProvider, useOrg } from "@/components/org-context";
 import "./ai-step.css";
 

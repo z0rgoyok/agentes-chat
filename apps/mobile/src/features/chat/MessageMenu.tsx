@@ -1,6 +1,7 @@
-import { usePinMessage, useToggleReaction } from "@agenteschat/client";
+import { usePinMessage, useResolveComment, useToggleReaction } from "@agenteschat/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { type Href, Link } from "expo-router";
+import type { Link } from "expo-router";
+import { NativeLinkPreview, NativeLinkPreviewAction } from "expo-router/build/link/preview/native";
 import {
   type ComponentProps,
   type ReactNode,
@@ -37,17 +38,29 @@ const noop = () => {};
 const NO_GROUPS: MenuItem[][] = [];
 
 /**
+ * Whether this build has the system's menu views (expo-router's, on iOS with the new architecture, as its own `Link`
+ * checks); without them the row is handed back as it is.
+ */
+const NATIVE_MENU_VIEWS =
+  Platform.OS === "ios" && !Platform.isTV && (globalThis as { RN$Bridgeless?: boolean }).RN$Bridgeless === true;
+
+/**
  * The system's context menu on a message (iOS): hold it and the platform lifts the row, dims the rest and shows the
- * reactions as a palette, then the actions in groups. No tap goes anywhere: the row's own link is kept from
- * navigating, so the menu is the one thing the hold adds. Where the platform has no such menu (Android), the row
- * is handed back as it is and its long press opens the app's sheet.
+ * reactions as a palette, then the actions in groups. No tap goes anywhere: there is no link, the menu is the one
+ * thing the hold adds. Where the platform has no such menu (Android), the row is handed back as it is and its long
+ * press opens the app's sheet.
+ *
+ * expo-router's native menu views, in a plain box around the row: never through its `Link`, whose native view takes
+ * `display: contents`. In there the row's laid-out frames went stale as its words changed size (a message opened,
+ * shown whole, a table measured), each layer taller than the one holding it: a long message's bubble drew thousands of
+ * points of empty space under its words and pushed its file away (seen on a phone and measured layer by layer, the
+ * conversation's own row of the right height around them).
  *
  * `groups` null: not built yet (`MessageMenuFor`). The menu then holds one hidden item, so a hold that comes first
  * opens no empty row; the platform reads the actions only as its menu shows, and the ones built meanwhile take its
  * place.
  */
 export function MessageMenu({
-  href,
   reactions,
   onReact,
   reactLabel,
@@ -55,7 +68,6 @@ export function MessageMenu({
   onArm,
   children,
 }: {
-  href: string;
   /** The quick reactions, as one palette row at the top. */
   reactions: readonly string[];
   onReact: (emoji: string) => void;
@@ -67,44 +79,58 @@ export function MessageMenu({
   onArm?: (() => void) | undefined;
   children: ReactNode;
 }) {
-  if (Platform.OS !== "ios") return <>{children}</>;
+  if (!NATIVE_MENU_VIEWS) return <>{children}</>;
   return (
-    <Link href={href as Href} asChild onPress={(e) => e.preventDefault()}>
-      <Link.Trigger>
-        {/* One plain view for the menu to lift (the row can be a fragment: a pair row, a quote). */}
-        <View collapsable={false} onTouchStart={onArm}>
-          {children}
-        </View>
-      </Link.Trigger>
-      <Link.Menu>
-        {groups === null ? <Link.MenuAction hidden onPress={noop} /> : null}
+    <NativeLinkPreview previewActivationPath={undefined}>
+      {/* One plain view for the menu to lift (the row can be a fragment: a pair row, a quote). */}
+      <View collapsable={false} onTouchStart={onArm}>
+        {children}
+      </View>
+      {/* One menu holding the rest, as the system shows it: the palette, then each group divided from the next. */}
+      <NativeLinkPreviewAction identifier="menu" title="" onSelected={noop}>
+        {groups === null ? <NativeLinkPreviewAction identifier="building" title="" hidden onSelected={noop} /> : null}
         {reactions.length > 0 ? (
-          <Link.Menu title={reactLabel} palette inline>
+          <NativeLinkPreviewAction
+            identifier="react"
+            title={reactLabel}
+            displayAsPalette
+            displayInline
+            onSelected={noop}
+          >
             {reactions.map((emoji) => (
-              <Link.MenuAction key={emoji} onPress={() => onReact(emoji)}>
-                {emoji}
-              </Link.MenuAction>
+              <NativeLinkPreviewAction
+                key={emoji}
+                identifier={`react:${emoji}`}
+                title={emoji}
+                onSelected={() => onReact(emoji)}
+              />
             ))}
-          </Link.Menu>
+          </NativeLinkPreviewAction>
         ) : null}
         {(groups ?? NO_GROUPS)
           .filter((g) => g.length > 0)
           .map((group) => (
-            <Link.Menu key={group[0]?.key ?? ""} inline>
+            <NativeLinkPreviewAction
+              key={group[0]?.key ?? ""}
+              identifier={`group:${group[0]?.key ?? ""}`}
+              title=""
+              displayInline
+              onSelected={noop}
+            >
               {group.map((it) => (
-                <Link.MenuAction
+                <NativeLinkPreviewAction
                   key={it.key}
+                  identifier={`item:${it.key}`}
+                  title={it.label}
                   {...(it.icon ? { icon: it.icon } : {})}
                   {...(it.destructive ? { destructive: true } : {})}
-                  onPress={it.onPress}
-                >
-                  {it.label}
-                </Link.MenuAction>
+                  onSelected={it.onPress}
+                />
               ))}
-            </Link.Menu>
+            </NativeLinkPreviewAction>
           ))}
-      </Link.Menu>
-    </Link>
+      </NativeLinkPreviewAction>
+    </NativeLinkPreview>
   );
 }
 
@@ -121,28 +147,19 @@ const menuItemOf = (a: MessageAction): MenuItem => ({
 });
 
 /** The writes a menu's actions make, mounted with its actions (`MenuWrites`). */
-type Writes = Pick<MessageActionHands, "toggle" | "pin">;
+type Writes = Pick<MessageActionHands, "toggle" | "pin" | "resolve">;
 
 /**
  * A message's row under the system's menu, with the same actions as the app's sheet (`messageActionsOf`): the
  * conversation wraps every row in it, a message still on its way included (its menu holds only what works before the
- * server has it, copying its words), so the row stays mounted when it turns sent. `href` is the message's own place,
- * never navigated to.
+ * server has it, copying its words), so the row stays mounted when it turns sent.
  *
  * Built only once a finger lands on the row (`onArm`): the list mounts a row each time it scrolls into view, and each
  * built its actions (their queries, its text's charts) and some twenty of the system's menu views that only a hold
  * reads. A hold starts with the finger landing, and its menu shows half a second later, long after the actions are
  * built. With a screen reader on, every menu is built as its row mounts, since its menu also opens without a touch.
  */
-export function MessageMenuFor({
-  context,
-  href,
-  children,
-}: {
-  context: MessageActionsContext;
-  href: string;
-  children: ReactNode;
-}) {
+export function MessageMenuFor({ context, children }: { context: MessageActionsContext; children: ReactNode }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const meId = useRowMeId();
@@ -165,6 +182,7 @@ export function MessageMenuFor({
         qc,
         toggle: (input, options) => writes.current?.toggle(input, options),
         pin: (input, options) => writes.current?.pin(input, options),
+        resolve: (input, options) => writes.current?.resolve(input, options),
       })
     : null;
   const items = actions ? actions.groups.map((g) => g.map(menuItemOf)) : null;
@@ -172,7 +190,6 @@ export function MessageMenuFor({
     <>
       {armed ? <MenuWrites messageId={context.message.id} into={writes} /> : null}
       <MessageMenu
-        href={href}
         reactions={armed && !context.message.local ? QUICK_REACTIONS : NO_REACTIONS}
         onReact={actions ? actions.react : noop}
         reactLabel={t("mobile.chat.react")}
@@ -185,12 +202,13 @@ export function MessageMenuFor({
   );
 }
 
-/** The menu's two writes, mounted with its actions: a row nobody holds never subscribes to them. */
+/** The menu's writes, mounted with its actions: a row nobody holds never subscribes to them. */
 function MenuWrites({ messageId, into }: { messageId: string; into: RefObject<Writes | null> }) {
   const orgId = useOrgId();
   const toggle = useToggleReaction(orgId, messageId).mutate;
   const pin = usePinMessage(orgId).mutate;
-  useImperativeHandle(into, () => ({ toggle, pin }), [toggle, pin]);
+  const resolve = useResolveComment(orgId).mutate;
+  useImperativeHandle(into, () => ({ toggle, pin, resolve }), [toggle, pin, resolve]);
   return null;
 }
 

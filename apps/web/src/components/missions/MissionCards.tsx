@@ -2,6 +2,7 @@ import type {
   Message,
   Mission,
   MissionDecision,
+  MissionDelivery,
   MissionExecutor,
   MissionFinding,
   MissionLinkMeta,
@@ -47,6 +48,7 @@ import {
   taskNoticeOf,
   viaText,
 } from "@agenteschat/client/lib/missions";
+import { edit, patchIn } from "@agenteschat/client/lib/optimistic";
 import {
   Button,
   Checkbox,
@@ -454,7 +456,6 @@ function PlanApprovalSelect({ mission }: { mission: Mission }) {
       <CommandApprovalSelect
         size="sm"
         value={mission.commandApproval}
-        disabled={set.isPending}
         onChange={(v) =>
           set.mutate(v, {
             onSuccess: () =>
@@ -920,8 +921,25 @@ export function MissionDeliveryCard({ message }: { message: Message }) {
   const changes = useMissionAct(org.id, missionId, (text: string) =>
     api.missions.requestDeliveryChanges(org.id, missionId, deliveryId, text),
   );
-  const check = useMissionAct(org.id, missionId, ({ itemId, checked }: { itemId: string; checked: boolean }) =>
-    api.missions.checkDelivery(org.id, missionId, deliveryId, itemId, checked),
+  // A tick shows at once (the other people's stay as they were); a refusal takes it back.
+  const check = useMissionAct(
+    org.id,
+    missionId,
+    ({ itemId, checked }: { itemId: string; checked: boolean }) =>
+      api.missions.checkDelivery(org.id, missionId, deliveryId, itemId, checked),
+    ({ itemId, checked }) => [
+      edit<MissionDelivery[]>(
+        keys.missionPart(org.id, missionId, "deliveries"),
+        patchIn<MissionDelivery>(deliveryId, (x) => ({
+          ...x,
+          checklist: x.checklist.map((c) => {
+            if (c.id !== itemId) return c;
+            const others = c.checkedBy.filter((u) => u !== me.user.id);
+            return { ...c, checkedBy: checked ? [...others, me.user.id] : others };
+          }),
+        })),
+      ),
+    ],
   );
   const d = deliveries.data?.find((x) => x.id === ref?.id);
   const m = mission.data;
@@ -1015,7 +1033,12 @@ export function MissionDeliveryCard({ message }: { message: Message }) {
                     id={`dl-${d.id}-${c.id}`}
                     checked={mine}
                     disabled={!m.canAct}
-                    onCheckedChange={(v) => check.mutate({ itemId: c.id, checked: v })}
+                    onCheckedChange={(v) =>
+                      check.mutate(
+                        { itemId: c.id, checked: v },
+                        { onError: (error) => toast.show(errorText(t, error), "error") },
+                      )
+                    }
                   />
                   <label htmlFor={`dl-${d.id}-${c.id}`}>{c.text}</label>
                   {others.length > 0 && (

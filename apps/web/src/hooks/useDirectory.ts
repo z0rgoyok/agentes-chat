@@ -1,5 +1,6 @@
-import type { Agent, Member, Message } from "@agenteschat/client";
+import type { Agent, Member, Message, OrgRole } from "@agenteschat/client";
 import { useAllAgents, useFormerAgents, useMembers, useRoles } from "@agenteschat/client";
+import { type AgentOwnerLike, ownerNameOf } from "@agenteschat/client/lib/agent-owner";
 import { agentsByAnyHandle, formerById } from "@agenteschat/client/lib/directory";
 import { memberRoleColor } from "@agenteschat/client/lib/member-groups";
 import { type AgentColor, agentGradient } from "@agenteschat/ui";
@@ -18,7 +19,8 @@ export function useDirectory(orgId: string) {
   const members = useMembers(orgId);
   const roles = useRoles(orgId);
   return useMemo(() => {
-    const roleById = new Map((roles.data?.roles ?? []).map((r) => [r.id, r]));
+    const roleList = roles.data?.roles ?? [];
+    const roleById = new Map<string, OrgRole>(roleList.map((r) => [r.id, r]));
     /** A role's name, for whom an agent answers ("Suporte"). */
     const roleName = (id: string) => roleById.get(id)?.name;
     const agentById = new Map<string, Agent>((agents.data ?? []).map((a) => [a.id, a]));
@@ -29,6 +31,14 @@ export function useDirectory(orgId: string) {
     // The uploaded photo wins over the sign-in image (`image` is what every avatar reads).
     const people = (members.data ?? []).map((m) => (m.avatarUrl ? { ...m, image: m.avatarUrl } : m));
     const memberById = new Map<string, Member>(people.map((m) => [m.userId, m]));
+    /**
+     * The roles a member holds (not `everyone`): an agent one of them answers for is theirs too (ADR 0085, addendum of
+     * 2026-11-21).
+     */
+    const rolesOf = (userId: string): readonly string[] => memberById.get(userId)?.roleIds ?? [];
+    /** Who answers for an agent, by name: the person's, or the role's ("Engineering"); undefined for nobody. */
+    const ownerName = (a: AgentOwnerLike) =>
+      ownerNameOf(a, { person: (id) => memberById.get(id)?.name, role: roleName });
     const memberByHandle = new Map<string, Member>(
       (members.data ?? []).filter((m) => m.handle).map((m) => [m.handle.toLowerCase(), m]),
     );
@@ -78,6 +88,10 @@ export function useDirectory(orgId: string) {
       agentInitials,
       nameColorOf,
       roleName,
+      roles: roleList,
+      roleById,
+      rolesOf,
+      ownerName,
       loading: agents.isPending || members.isPending,
     };
   }, [agents.data, former.data, members.data, roles.data, agents.isPending, members.isPending, t]);

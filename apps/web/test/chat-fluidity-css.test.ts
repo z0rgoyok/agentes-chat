@@ -44,9 +44,9 @@ test("an attachment's box is the same before and after what it holds loads: noth
   expect(css).not.toContain(".artifact-tile__picture[data-loading]");
   // A video: one box before and after its metadata.
   const kit = topLevel(await Bun.file(join(import.meta.dir, "../../../packages/ui/src/styles/components.css")).text());
-  expect(last(kit, ".ac-video--tile .ac-video__media", "width")).toBe("320px");
-  expect(last(kit, ".ac-video--tile .ac-video__media", "height")).toBe("180px");
-  expect(last(kit, ".ac-video--tile .ac-video__media", "max-width")).toBe("100%");
+  expect(last(kit, ".ac-video--tile:not([data-full]) .ac-video__media", "width")).toBe("320px");
+  expect(last(kit, ".ac-video--tile:not([data-full]) .ac-video__media", "height")).toBe("180px");
+  expect(last(kit, ".ac-video--tile:not([data-full]) .ac-video__media", "max-width")).toBe("100%");
   expect(kit).not.toContain(".ac-video--tile[data-tall]");
   expect(kit).not.toContain(".ac-video--tile:not([data-ready])");
 });

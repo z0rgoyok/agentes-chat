@@ -237,6 +237,7 @@ describe("viewer", () => {
     expect(viewer).toContain(
       '<Round icon="right" label={t("mobile.files.next")} plate={SCRIM} onPress={() => turn(next)} />',
     );
+    // Gone while zoomed.
     expect(viewer).toContain("visible={chrome && !zoomed}");
     expect(viewer).toContain("else pager.current?.setPage(to);");
     // The count took the dots' place: one place says where you are.
@@ -393,6 +394,12 @@ describe("viewer", () => {
     expect(zoom).toContain("maximumZoomScale={max}");
     expect(zoom).toContain("pinchGestureEnabled");
     expect(zoom).toContain("scroll.current?.scrollResponderZoomTo({ ...rect, animated: !reduced });");
+    // Centered by the system's insets, worked out from the content's size: the content is the picture's own box (a
+    // vertical scroll view stretches its content to its width, and a narrower picture sat at its left edge), and at
+    // 1× the scroll view is put at those insets when a size changes.
+    expect(zoom).toContain("centerContent");
+    expect(zoom).toContain("contentContainerStyle={picture}");
+    expect(zoom).toContain("scroll.current?.scrollTo({ x: -left, y: -top, animated: false })");
     // Android: a pinch of ours that gives a little past its limits and springs back, a drag that resists past the
     // edges, a fling that glides and bounces off an edge it hits; with reduced motion, no glide and no spring.
     expect(zoom).toContain('Platform.OS === "ios" ? <SystemZoom {...zoom} /> : <OwnZoom {...zoom} />');
@@ -547,7 +554,7 @@ describe("viewer", () => {
     expect(zoom).toContain("{pixels ? null : <PageWait failed={failed} onRetry={retry} />}");
   });
 
-  test("a video and a PDF read their link once: the app coming back or a new link never starts them over", () => {
+  test("a video and a PDF read their file once: the app coming back or a new link never starts them over", () => {
     const source = src("features/files/source.ts");
     expect(source).toContain('staleTime: "static" as const,');
     expect(source).toContain("refetchOnWindowFocus: false,");
@@ -559,9 +566,13 @@ describe("viewer", () => {
     const message = src("features/files/MessageFiles.tsx");
     expect(message).toContain("useRemoteFile(orgId, file.id, file.version, { once: true })");
     expect(message).toMatch(/key=\{`\$\{file\.id\}@\$\{file\.version \?\? "latest"\}`\}/);
-    expect(src("features/files/DocumentViewer.tsx")).toContain(
-      "useRemoteFile(orgId, detail.id, detail.shownVersion, { once: true })",
-    );
+    // A PDF: a copy in the cache per version, drawn from there (ADR 0208), read once while the screen stays; the same
+    // copy its cards' first page is drawn from (`usePdfCopy`).
+    expect(src("features/files/PdfPages.tsx")).toContain("const copy = usePdfCopy(detail);");
+    const pdf = src("features/files/pdf-preview.tsx");
+    expect(pdf).toContain("const path = await pdfCopy(api, orgId, detail);");
+    expect(pdf).toContain("staleTime: Number.POSITIVE_INFINITY,");
+    expect(source).toContain("if (file.exists && (file.size ?? 0) > 0) return file.uri;");
     // Never keyed on the link itself, which changes every few minutes.
     for (const file of ["features/files/ImageViewer.tsx", "features/files/MessageFiles.tsx"])
       expect({ file, uri: /key=\{(video)?[sS]ource\.uri\}/.test(src(file)) }).toEqual({ file, uri: false });

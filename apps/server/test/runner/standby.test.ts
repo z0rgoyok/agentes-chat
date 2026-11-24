@@ -2,7 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { MACHINE_PROTOCOL_VERSION, type ServerFrame } from "@agenteschat/adapters/machine-protocol";
 import { type Dial, RunnerConnection, type Socket, type SocketHandlers } from "../../runner/connection";
 import { bootId } from "../../runner/lock";
-import { ackStandby, askStandby, readStandby, standbyAcked, standbyOn } from "../../runner/standby";
+import {
+  ackStandby,
+  askStandby,
+  readStandby,
+  STANDBY_POLL_MS,
+  standbyAcked,
+  standbyOn,
+  watchStandby,
+} from "../../runner/standby";
 import { removeDirs, tempDir, waitFor } from "./helpers";
 
 /** An operator's standby (ADR 0176): no link to the server, everything else runs, and it ends by itself. */
@@ -51,7 +59,8 @@ function connection() {
     },
     context: { workspaceReal: ws, exec: false, token: "agm_token" },
     dial,
-    random: () => 0,
+    // The longest point of each wait (a random point within the step): the first dial again waits about 1 s.
+    random: () => 0.99,
     onState: (s) => states.push(s),
   });
   return { c, sockets, states };
@@ -107,4 +116,30 @@ test("the ask: in force in this boot until its running minutes pass; resume and 
   expect(standbyAcked(home, ask.id)).toBe(false);
   ackStandby(home, ask.id);
   expect(standbyAcked(home, ask.id)).toBe(true);
+});
+
+test("a written ask is seen at once, well before the next poll; the runner's own answer isn't an ask", async () => {
+  const home = tempDir();
+  dirs.push(home);
+  let seen = 0;
+  const stop = watchStandby(home, () => seen++);
+  try {
+    ackStandby(home, "a1");
+    await Bun.sleep(50);
+    expect(seen).toBe(0);
+    const started = Date.now();
+    askStandby(home, 0);
+    await waitFor(() => seen > 0, STANDBY_POLL_MS / 2);
+    expect(Date.now() - started).toBeLessThan(STANDBY_POLL_MS / 2);
+  } finally {
+    stop();
+  }
+  const after = seen;
+  askStandby(home, 0);
+  await Bun.sleep(50);
+  expect(seen).toBe(after);
+});
+
+test("a folder that can't be watched leaves the poll alone", () => {
+  expect(() => watchStandby("/nonexistent/agentes-runner-home", () => {})()).not.toThrow();
 });

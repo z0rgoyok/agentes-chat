@@ -15,10 +15,16 @@ test("PushedHeader puts nothing in the screen, only its options", () => {
   // to glass as the list scrolls under it): a view of the header placed there hid the list from it, and large titles
   // stayed open over the lists.
   const parts = read("src/features/shared/parts.tsx");
-  const header = parts.slice(parts.indexOf("export function PushedHeader({"), parts.indexOf("const titleSide ="));
+  const header = parts.slice(parts.indexOf("function NativeHeader({"), parts.indexOf("const titleSide ="));
   expect(header).toContain("  return <Stack.Screen options={options} />;\n}");
   expect(header.match(/return /g)?.length).toBe(1);
   expect(existsSync(join(APP, "modules/nav-subtitle"))).toBe(false);
+  // In a pane (ADR 0212) the bar is the pane's own, set the same way: still nothing in the screen.
+  expect(parts).toContain("return usePane() ? <PaneHeader {...props} /> : <NativeHeader {...props} />;");
+  const pane = parts.slice(parts.indexOf("function PaneHeader({"), parts.indexOf("function NativeHeader({"));
+  expect(pane).toContain("usePaneHeader({");
+  expect(pane).toContain("  return null;\n}");
+  expect(pane).not.toContain("Stack.Screen");
 });
 
 test("a title's line is drawn with it, kept clear of the wider side so the bar centres both", () => {
@@ -27,9 +33,20 @@ test("a title's line is drawn with it, kept clear of the wider side so the bar c
   expect(parts).toContain("side={line !== undefined ? titleSide(word, rightCount) : word !== null ? 100 : 75}");
 });
 
+test("words too long to centre beside a wide right side start by the back button on iOS; short ones stay centred", () => {
+  const parts = read("src/features/shared/parts.tsx");
+  // A task's "#219" beside "Concluir" and "…": a word with a button, or several buttons, outweighs the back button.
+  // "Você" beside "Editar" fits between them: the system's own title, centred.
+  expect(parts).toContain("titleSide(word, rightCount) > LEADING_FROM &&");
+  expect(parts).toContain("!titleFitsCentred(text, titleSide(word, rightCount), width, fontScale);");
+  expect(parts).toContain("text.length * 9 * fontScale <= width - 2 * side;");
+  expect(parts).toContain("const LEADING_FROM = BACK_SIDE + 40;");
+  expect(parts).toContain("? () => <LeadingTitle text={text} side={titleSide(word, rightCount)} />");
+  expect(parts).toContain("<View style={{ width: Math.max(0, width - BACK_SIDE - side - 8) }}>");
+});
+
 test("the screens hand their line to the bar", () => {
   expect(read("src/features/settings/parts.tsx")).toMatch(/<PushedHeader\s+title=\{title\}\s+subtitle=\{subtitle\}/);
-  expect(read("src/features/ai/KeyForAllScreen.tsx")).toContain("subtitle={plan?.label}");
   expect(read("src/features/dashboards/ShareScreen.tsx")).toContain("subtitle={board.title}");
   expect(read("src/features/dashboards/OrganizeScreen.tsx")).toContain(
     'subtitle={home ? t("dashboards.home") : board.title}',

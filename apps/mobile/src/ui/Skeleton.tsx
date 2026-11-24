@@ -1,5 +1,6 @@
+import { type ReactNode, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useLivePaused } from "@/agent/live";
 import { useDrawingClock } from "@/sky/clock";
 import { LIST_AVATAR } from "./ListRow";
@@ -41,6 +42,54 @@ export function SkeletonList({ rows = 4 }: { rows?: number }) {
   );
 }
 
+/** How long the stand-in rows take to fade away once the real ones are in. */
+const SKELETON_OUT = 220;
+
+/**
+ * A list's first load, so its rows can arrive over the stand-ins instead of replacing them at once. `skeleton`: the
+ * stand-ins still show (loading, or fading away over the rows); `landing`: the data just came, for as long as the
+ * stand-ins fade, which is when the rows mounting play their arrival. A refetch never loads again, so it plays
+ * nothing; a screen that opens with its data, or a phone asked for less motion, has no arrival at all.
+ */
+export function useFirstLoad(loading: boolean): { skeleton: boolean; landing: boolean } {
+  const reduced = useReducedMotion();
+  const [phase, setPhase] = useState<"loading" | "landing" | "done">(loading ? "loading" : "done");
+  // Told while rendering, so the rows' very first render already knows they arrive.
+  let now = phase;
+  if (loading) now = "loading";
+  else if (phase === "loading") now = reduced ? "done" : "landing";
+  if (now !== phase) setPhase(now);
+  useEffect(() => {
+    if (phase !== "landing") return;
+    const timer = setTimeout(() => setPhase("done"), SKELETON_OUT);
+    return () => clearTimeout(timer);
+  }, [phase]);
+  return { skeleton: now !== "done", landing: now === "landing" };
+}
+
+/**
+ * The stand-ins of a list around its first load: in the list's place while it loads, then (`leaving`) lifted over
+ * the rows that took that place and faded away, so the rows come in under them and nothing is swapped. Put it first
+ * in the box that holds the rows, and take it out when `useFirstLoad` says the stand-ins are gone.
+ */
+export function SkeletonOver({ leaving, children }: { leaving: boolean; children: ReactNode }) {
+  const k = useSharedValue(1);
+  useEffect(() => {
+    if (leaving) k.set(withTiming(0, { duration: SKELETON_OUT }));
+  }, [k, leaving]);
+  const look = useAnimatedStyle(() => ({ opacity: k.get() }));
+  return (
+    <Animated.View
+      pointerEvents={leaving ? "none" : "auto"}
+      style={[leaving && styles.over, look]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 /** Row shapes: the name's and the preview's widths, in percent of the text column. */
 const SHAPES: [number, number][] = [
   [42, 80],
@@ -73,6 +122,8 @@ export function usePulse() {
 }
 
 const styles = StyleSheet.create({
+  // Over the rows, from the top of their box: the stand-ins take no room while they fade.
+  over: { position: "absolute", top: 0, left: 0, right: 0 },
   // The same box as `ListRow`: 16 at the sides, the 52 avatar, 12 to the text, 76 tall.
   row: {
     flexDirection: "row",

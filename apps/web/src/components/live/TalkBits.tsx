@@ -3,12 +3,12 @@ import type {
   ArtifactAuthor,
   ArtifactDetail,
   FileConversationRoot,
-  LiveKind,
   LiveRef,
   LiveSelection,
+  TalkKind,
   ThreadInfo,
 } from "@agenteschat/client";
-import { fileConversationOf, useArtifact, useThreadMessages } from "@agenteschat/client";
+import { fileConversationOf, isMediaKind, useApi, useArtifact, useThreadMessages } from "@agenteschat/client";
 import { KIND_ICON } from "@agenteschat/client/lib/artifacts";
 import { artifactPlace } from "@agenteschat/client/lib/drive";
 import { joinNames } from "@agenteschat/client/lib/format";
@@ -17,6 +17,7 @@ import { Icon } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useMaybeArtifactViewer } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { TYPED_VALUES } from "@/i18n";
@@ -29,20 +30,39 @@ import "./talk.css";
  * a message about part of a file, and where the file was made. Light on purpose: every conversation loads them.
  */
 
+/** A file's icon by what its conversation is about: a live kind's, or a picture's, a video's or a PDF's (ADR 0208). */
+export const talkIcon = (kind: TalkKind) =>
+  kind === "image" ? "image" : kind === "video" ? "video" : kind === "pdf" ? "file" : KIND_ICON[kind];
+
+/**
+ * The app's picture of a comment's place, small (ADR 0208): over the composer while it is written (`src`), on the
+ * comment's line after (the file's picture `crop`).
+ */
+export function MarkThumb({ src }: { src: string }) {
+  return (
+    <span className="lf-thumb" aria-hidden="true">
+      <img src={src} alt="" draggable={false} />
+    </span>
+  );
+}
+
 /** "Sobre C2:D6 em Custos" over the composer, as "Respondendo a" looks; × drops it. */
 export function LiveQuoteBar({
   kind,
   selection,
+  thumb,
   onDrop,
 }: {
-  kind: LiveKind;
+  kind: TalkKind;
   selection: LiveSelection;
+  /** A picture's, a video's or a PDF's comment: the app's picture of the place. */
+  thumb?: string | null;
   onDrop: () => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="composer-quote lf-quote" role="note">
-      <Icon name={KIND_ICON[kind]} size={16} />
+      {thumb ? <MarkThumb src={thumb} /> : <Icon name={talkIcon(kind)} size={16} />}
       <span className="composer-quote__who">{aboutWords(t, kind, selection)}</span>
       <button type="button" className="composer-reply__close" aria-label={t("live.conversation.drop")} onClick={onDrop}>
         <Icon name="close" size={14} />
@@ -59,15 +79,20 @@ export function LiveRefLine({ liveRef }: { liveRef: LiveRef }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const navigate = useNavigate();
+  const api = useApi();
   const talk = useFileTalk();
+  const viewer = useMaybeArtifactViewer();
   const { what, where } = aboutParts(t, liveRef);
+  const crop = liveRef.selection?.crop;
   const open = () => {
     if (talk?.artifactId === liveRef.artifactId) {
       if (liveRef.selection) talk.reveal(liveRef.selection);
       return;
     }
     if (liveRef.selection) revealOnOpen(liveRef.artifactId, liveRef.selection);
-    openLivePage(navigate, org.id, liveRef.artifactId);
+    // A picture, a video or a PDF opens in the viewer with its comments, at this one (ADR 0208).
+    if (viewer && isMediaKind(liveRef.kind)) viewer.open(liveRef.artifactId, undefined, undefined, {});
+    else openLivePage(navigate, org.id, liveRef.artifactId);
   };
   return (
     <button
@@ -76,7 +101,11 @@ export function LiveRefLine({ liveRef }: { liveRef: LiveRef }) {
       aria-label={t("live.conversation.aboutLine", { what, where })}
       onClick={open}
     >
-      <Icon name={KIND_ICON[liveRef.kind]} size={14} />
+      {crop && isMediaKind(liveRef.kind) ? (
+        <MarkThumb src={api.live.assetUrl(org.id, liveRef.artifactId, crop)} />
+      ) : (
+        <Icon name={talkIcon(liveRef.kind)} size={14} />
+      )}
       <span className="msg-quote__who" aria-hidden="true">
         {what}
       </span>
@@ -207,20 +236,22 @@ export function MadeFromWords({ made }: { made: MadeFrom }) {
  * At the top of a file's conversation (`chrome.top`): "Atlas criou este quadro a partir da conversa com Ana", the
  * task's "a partir de uma mensagem no #eng"; a document opened from a Word file: "Imported from Plano.docx by Walter".
  */
-export function FileOrigin({ artifactId, kind }: { artifactId: string; kind: LiveKind }) {
+export function FileOrigin({ artifactId, kind }: { artifactId: string; kind: TalkKind }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const artifact = useArtifact(org.id, artifactId).data;
   const made = useMadeFrom(artifact);
   if (!made) return null;
+  // A picture, a video or a PDF a person uploaded (ADR 0208): "Carla sent this PDF in the conversation in #finance".
+  const sent = isMediaKind(kind) && made.by.type === "person";
   return (
     <p className="lf-origin ac-iconline">
       <Icon name="link" size={14} />
       <span>
         <MadeWords
           made={made}
-          i18nKey="live.conversation.origin.from"
-          plainKey="live.conversation.origin.made"
+          i18nKey={sent ? "live.conversation.origin.sentIn" : "live.conversation.origin.from"}
+          plainKey={sent ? "live.conversation.origin.sent" : "live.conversation.origin.made"}
           importedKey="live.conversation.origin.imported"
           what={t(`live.conversation.this.${kind}` as "live.conversation.this.canvas")}
         />

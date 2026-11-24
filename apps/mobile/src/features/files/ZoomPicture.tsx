@@ -5,7 +5,9 @@ import { ActivityIndicator, Platform, type ScrollViewInstance, StyleSheet, View 
 import {
   GestureDetector,
   type PanGesture,
+  useCompetingGestures,
   useExclusiveGestures,
+  useLongPressGesture,
   usePanGesture,
   usePinchGesture,
   useSimultaneousGestures,
@@ -13,6 +15,7 @@ import {
 } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
+  type SharedValue,
   useAnimatedReaction,
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -27,11 +30,14 @@ import {
   dragWithin,
   fitted,
   maxZoom,
+  type PictureTap,
   panRoom,
   pinchRest,
   resistedZoom,
   rubberClamp,
   type Size,
+  tapOnPlaced,
+  tapOnZoomed,
   zoomInAt,
   zoomInRect,
 } from "./zoom";
@@ -47,12 +53,19 @@ export interface ZoomPictureProps {
   enabled: boolean;
   /** The page in sight: zoomed in, it shows the picture's own pixels; the pages beside it a copy the screen's size. */
   active: boolean;
-  /** A single tap (after a double tap's wait): the viewer shows or hides its bars. */
-  onTap: () => void;
+  /** A single tap (after a double tap's wait) and where on the picture: the viewer's bars, a pin. */
+  onTap: (at: PictureTap) => void;
+  /** A touch held on the picture and where: a comment about that point (ADR 0208). */
+  onLongPress?: ((at: PictureTap) => void) | undefined;
   /** Zoomed in, or back at 1×. */
   onZoom: (zoomed: boolean) => void;
   /** "Try again" on a picture that couldn't load: its link is read again. */
   onRetry: () => void;
+  /**
+   * Drawn over the picture, in its box, zooming with it (a file's comments, ADR 0208), once the picture's shape is
+   * known; `zoom` is the picture's zoom now, for what keeps the screen's own size.
+   */
+  overlay?: ((zoom: Readonly<SharedValue<number>>) => ReactNode) | undefined;
 }
 
 /**
@@ -72,8 +85,10 @@ export function ZoomPicture({
   enabled,
   active,
   onTap,
+  onLongPress,
   onZoom,
   onRetry,
+  overlay,
 }: ZoomPictureProps) {
   const reduced = useReducedMotion();
   const [pixels, setPixels] = useState<Size | null>(null);
@@ -115,7 +130,19 @@ export function ZoomPicture({
       accessible={false}
     />
   );
-  const zoom = { picture, screen, max, pull, enabled, reduced, onTap, onZoom: zoomChanged, children: image };
+  const zoom = {
+    picture,
+    screen,
+    max,
+    pull,
+    enabled,
+    reduced,
+    onTap,
+    onLongPress,
+    onZoom: zoomChanged,
+    overlay: pixels ? overlay : undefined,
+    children: image,
+  };
   return (
     <View style={screen}>
       {Platform.OS === "ios" ? <SystemZoom {...zoom} /> : <OwnZoom {...zoom} />}
@@ -177,15 +204,36 @@ interface ZoomProps {
   enabled: boolean;
   /** Reduced motion: a double tap's zoom (and a pinch's way back inside its limits) is set at once. */
   reduced: boolean;
-  onTap: () => void;
+  onTap: (at: PictureTap) => void;
+  onLongPress: ((at: PictureTap) => void) | undefined;
   onZoom: (zoomed: boolean) => void;
+  overlay: ((zoom: Readonly<SharedValue<number>>) => ReactNode) | undefined;
   children: ReactNode;
 }
 
+/** How long a touch is held before it marks a point (the system's own press and hold). */
+const HOLD_MS = 450;
+const noTap = (_at: PictureTap) => {};
+
 /** iOS: the scroll view zooms, pans and bounces; ours are only the taps and the pull before them. */
-function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoom, children }: ZoomProps) {
+function SystemZoom({
+  picture,
+  screen,
+  max,
+  pull,
+  enabled,
+  reduced,
+  onTap,
+  onLongPress,
+  onZoom,
+  overlay,
+  children,
+}: ZoomProps) {
   const scroll = useRef<ScrollViewInstance>(null);
   const zoomed = useSharedValue(false);
+  // The scroll view's zoom and where it is scrolled to: a tap's place on the picture, and what keeps its size over it.
+  const scale = useSharedValue(1);
+  const offset = useSharedValue({ x: 0, y: 0 });
   // At 1× it doesn't bounce, so a vertical drag is the pull to close; zoomed, it does, as any scroll view.
   const [bounces, setBounces] = useState(false);
   const zoomChanged = useCallback(
@@ -197,6 +245,8 @@ function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoo
   );
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
+      scale.value = e.zoomScale ?? 1;
+      offset.value = { x: e.contentOffset.x, y: e.contentOffset.y };
       const now = (e.zoomScale ?? 1) > 1.01;
       if (now === zoomed.value) return;
       zoomed.value = now;
@@ -211,9 +261,18 @@ function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoo
   );
   const tap = useTapGesture({
     enabled,
-    onDeactivate: () => {
+    onDeactivate: (e) => {
       "worklet";
-      scheduleOnRN(onTap);
+      scheduleOnRN(onTap, tapOnZoomed({ x: e.x, y: e.y }, picture, screen, scale.value, offset.value));
+    },
+  });
+  const held = onLongPress ?? noTap;
+  const hold = useLongPressGesture({
+    enabled: enabled && onLongPress !== undefined,
+    minDuration: HOLD_MS,
+    onActivate: (e) => {
+      "worklet";
+      scheduleOnRN(held, tapOnZoomed({ x: e.x, y: e.y }, picture, screen, scale.value, offset.value));
     },
   });
   const doubleTap = useTapGesture({
@@ -228,12 +287,29 @@ function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoo
       scheduleOnRN(zoomTo, rect);
     },
   });
-  const gesture = useExclusiveGestures(pull, doubleTap, tap);
+  // A held touch races the rest: a finger that moves first is the pull (the hold fails past its 10 points), one held
+  // still is the hold; lifted early, the hold fails and the taps go on as before, waiting no longer.
+  const taps = useExclusiveGestures(pull, doubleTap, tap);
+  const gesture = useCompetingGestures(hold, taps);
+  // A picture smaller than the screen sits centered, as taps and pins count it (`tapOnZoomed`). `centerContent` gives
+  // the scroll view insets from its content's size, so the content is the picture's own box (`contentContainerStyle`):
+  // a vertical scroll view's content otherwise stretches to its width, and a picture narrower than the screen (a tall
+  // one) sat at that content's left edge, with no inset to center it.
+  // The insets don't move what is already scrolled to: not zoomed, the scroll view is put at them each time the
+  // picture or the screen changes size.
+  useEffect(() => {
+    if (zoomed.value) return;
+    const left = Math.max(0, (screen.width - picture.width) / 2);
+    const top = Math.max(0, (screen.height - picture.height) / 2);
+    const frame = requestAnimationFrame(() => scroll.current?.scrollTo({ x: -left, y: -top, animated: false }));
+    return () => cancelAnimationFrame(frame);
+  }, [picture.width, picture.height, screen.width, screen.height, zoomed]);
   return (
     <GestureDetector gesture={gesture}>
       <Animated.ScrollView
         ref={scroll}
         style={screen}
+        contentContainerStyle={picture}
         maximumZoomScale={max}
         minimumZoomScale={1}
         pinchGestureEnabled
@@ -247,7 +323,10 @@ function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoo
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
       >
-        <View style={picture}>{children}</View>
+        <View style={picture}>
+          {children}
+          {overlay?.(scale)}
+        </View>
       </Animated.ScrollView>
     </GestureDetector>
   );
@@ -257,7 +336,19 @@ function SystemZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoo
  * Android: pinch around the fingers, giving a little past the limits and springing back; a zoomed picture dragged
  * with one finger, resisting past the screen's edges, and flung to glide, bouncing off an edge it hits; double tap.
  */
-function OwnZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoom, children }: ZoomProps) {
+function OwnZoom({
+  picture,
+  screen,
+  max,
+  pull,
+  enabled,
+  reduced,
+  onTap,
+  onLongPress,
+  onZoom,
+  overlay,
+  children,
+}: ZoomProps) {
   const scale = useSharedValue(1);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
@@ -368,9 +459,24 @@ function OwnZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoom, 
   });
   const tap = useTapGesture({
     enabled,
-    onDeactivate: () => {
+    onDeactivate: (e) => {
       "worklet";
-      scheduleOnRN(onTap);
+      scheduleOnRN(
+        onTap,
+        tapOnPlaced({ x: e.x, y: e.y }, picture, screen, { scale: scale.value, x: x.value, y: y.value }),
+      );
+    },
+  });
+  const held = onLongPress ?? noTap;
+  const hold = useLongPressGesture({
+    enabled: enabled && onLongPress !== undefined,
+    minDuration: HOLD_MS,
+    onActivate: (e) => {
+      "worklet";
+      scheduleOnRN(
+        held,
+        tapOnPlaced({ x: e.x, y: e.y }, picture, screen, { scale: scale.value, x: x.value, y: y.value }),
+      );
     },
   });
   const doubleTap = useTapGesture({
@@ -387,14 +493,19 @@ function OwnZoom({ picture, screen, max, pull, enabled, reduced, onTap, onZoom, 
     },
   });
   const pinchAndPan = useSimultaneousGestures(pinch, pan);
-  const gesture = useExclusiveGestures(pull, pinchAndPan, doubleTap, tap);
+  // A held touch races the rest, as on iOS (a pinch or a drag that starts first wins).
+  const rest = useExclusiveGestures(pull, pinchAndPan, doubleTap, tap);
+  const gesture = useCompetingGestures(hold, rest);
   const moved = useAnimatedStyle(() => ({
     transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
   }));
   return (
     <GestureDetector gesture={gesture}>
       <View style={[screen, styles.center]} collapsable={false}>
-        <Animated.View style={[picture, moved]}>{children}</Animated.View>
+        <Animated.View style={[picture, moved]}>
+          {children}
+          {overlay?.(scale)}
+        </Animated.View>
       </View>
     </GestureDetector>
   );

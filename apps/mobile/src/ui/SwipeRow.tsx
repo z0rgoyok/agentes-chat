@@ -28,6 +28,12 @@ export interface SwipeAction {
 const PANE = 92;
 /** Pulled at least this far, the swipe is the action itself (the system's full swipe); short of it, the row waits open. */
 const FULL = 200;
+/**
+ * How far the finger goes sideways before the row takes it (the library's 10 points by default). A scroll down that
+ * drifted that much sideways before the list took it (Android's list waits about 8 points) slid the row instead, as if
+ * to pin it: a row now waits until a drag is clearly sideways, so a scroll stays a scroll.
+ */
+const SIDEWAYS = 24;
 
 /** One action, or two side by side (Fixar · Silenciar), on a side. */
 type Side = SwipeAction | readonly SwipeAction[] | undefined;
@@ -81,6 +87,8 @@ export function SwipeRow({ left, right, children }: { left?: Side; right?: Side;
   return (
     <ReanimatedSwipeable
       ref={ref}
+      dragOffsetFromLeft={SIDEWAYS}
+      dragOffsetFromRight={-SIDEWAYS}
       friction={1}
       // Past the panes the row still follows, at half the finger's pace, so a full pull is reachable and feels heavy.
       overshootFriction={2}

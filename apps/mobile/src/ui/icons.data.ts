@@ -202,6 +202,8 @@ export const ICONS = {
   swap: [p("M4.8 8.4h13.8M15.6 5.4l3 3-3 3M19.2 15.6H5.4M8.4 12.6l-3 3 3 3")],
   // A menu's mark after a row's value (the system's pop-up button): a chevron up over a chevron down.
   updown: [p("m8 9.5 4-4 4 4M8 14.5l4 4 4-4")],
+  /** The reorder handle at a row's end, as the system's own. */
+  grip: [p("M5 8.5h14M5 12h14M5 15.5h14")],
   // `down` turned over: Ordenar's ▲ on a cargo.
   up: [p("M12 19V5M6 11l6-6 6 6")],
   // The cargos' icons (ADR 0085 `ROLE_ICONS`) the phone didn't draw yet, the web's on this grid, and Todos' and the

@@ -67,7 +67,7 @@ async function workspace() {
   await account(OWNER_A, ownerId, {});
   await account(JOAO_A, joaoId, {});
   await account(OWNER_B, ownerId, {});
-  await account(JOAO_ONLY, joaoId, { serves: "owner" });
+  await account(JOAO_ONLY, joaoId, { serves: "owner", useMode: "owner" });
   await account(OWNER_KEY, ownerId, { provider: "zai", authMethod: "api_key" });
   await account(OWNER_CODEX, ownerId, { kind: "codex" });
   await account(OWNER_GEMINI, ownerId, { kind: "antigravity" });
@@ -182,4 +182,65 @@ test("the OpenAPI document lists the order's routes", async () => {
   const doc = (await (await t.app.request("/api/openapi.json")).json()) as { paths: Record<string, unknown> };
   expect(Object.keys(doc.paths)).toContain("/app/organizations/{orgId}/ai-accounts/order");
   expect(Object.keys(doc.paths)).toContain("/app/organizations/{orgId}/ai-accounts/{accountId}/order");
+});
+
+test("Contas de IA as one view: every account with each viewer's rights, the order and the API-key switch", async () => {
+  const { api, asAda, asJoao } = await workspace();
+  type Hub = {
+    accounts: {
+      id: string;
+      email: string | null;
+      permissions: { use: { mode: string } };
+      rights: Record<string, unknown>;
+    }[];
+    keyFallback: boolean;
+    canConfigure: boolean;
+    order: Group[];
+  };
+  const hub = async (call: Call) => {
+    const res = await call("/ai-accounts");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { accounts: { id: string }[]; hub: Hub };
+    return body;
+  };
+  const joao = await hub(asJoao);
+  // Older apps' `accounts` stay the caller's own; the hub lists everyone's.
+  expect(joao.accounts.map((a) => a.id).sort()).toEqual([JOAO_A, JOAO_ONLY].sort());
+  expect(joao.hub.accounts.map((a) => a.id)).toContain(OWNER_A);
+  expect(joao.hub.accounts.find((a) => a.id === OWNER_A)?.rights).toEqual({
+    canManage: false,
+    canSetManage: false,
+    canUse: true,
+    canReplyAll: false,
+  });
+  expect(joao.hub.accounts.find((a) => a.id === JOAO_ONLY)).toMatchObject({
+    permissions: { use: { mode: "owner" } },
+    rights: { canManage: true, canSetManage: true, canUse: true, canReplyAll: true },
+  });
+  expect((await hub(api)).hub.accounts.find((a) => a.id === JOAO_ONLY)?.rights).toMatchObject({
+    canUse: false,
+    useReason: "owner_only",
+    canManage: true,
+    canReplyAll: true,
+  });
+  expect(joao.hub).toMatchObject({ keyFallback: false, canConfigure: false });
+  expect(joao.hub.order[0]?.accounts.length).toBeGreaterThan(0);
+
+  // Permissions: João lets everyone be answered on his own; Ada (an admin) can't take his Gerenciar.
+  const everyone = { mode: "everyone", userIds: [], roleIds: [] };
+  const put = (call: Call, json: unknown) => call(`/ai-accounts/${JOAO_ONLY}/permissions`, { method: "PUT", json });
+  const mine = await put(asJoao, { reply: everyone });
+  expect(mine.status).toBe(200);
+  expect(await mine.json()).toMatchObject({ permissions: { reply: everyone }, agentIds: [] });
+  const taken = await put(asAda, { manage: { mode: "owner", userIds: [], roleIds: [] } });
+  expect(taken.status).toBe(403);
+  expect(await code(taken)).toBe("account.permission_forbidden");
+
+  // The switch: admins only, and the order's read says it.
+  const off = await asJoao("/ai-accounts/key-fallback", { method: "PUT", json: { on: true } });
+  expect(off.status).toBe(403);
+  const on = await asAda("/ai-accounts/key-fallback", { method: "PUT", json: { on: true } });
+  expect(on.status).toBe(200);
+  const res = await asAda("/ai-accounts/order");
+  expect(await res.json()).toMatchObject({ keyFallback: true, canConfigure: true });
 });

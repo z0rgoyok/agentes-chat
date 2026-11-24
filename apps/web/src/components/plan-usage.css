@@ -258,6 +258,11 @@ html:not([data-pointer]) .plan-row__place--grip:focus-visible {
 .plan-row__body > :last-child {
   margin-bottom: var(--space-4);
 }
+/* "Detalhes" last (a row that isn't mine): its 28px control already holds ~5px under its words, so the room under it
+   matches the head's above. */
+.plan-row__body > .plan-details:last-child {
+  margin-bottom: var(--space-2);
+}
 /* The head already says where the plan stands. */
 .plan-row__body .ac-planmeter > .ac-planmeter__state {
   display: none;

@@ -12,22 +12,22 @@ import {
 } from "@agenteschat/client/lib/issues-view";
 import {
   Button,
+  FilterMenu,
   Icon,
   type IconName,
-  Menu,
   MenuCheckboxItem,
   MenuHeading,
   MenuSeparator,
-  Popover,
   Segmented,
   Switch,
 } from "@agenteschat/ui";
-import { type ReactNode, useId, useState } from "react";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { actorFromKey, actorKey, NO_ACTOR, useActors } from "@/components/actors";
 import { useFilterCopy } from "@/components/filters";
 import { useOrg } from "@/components/org-context";
+import { LayoutCards, ViewOptions } from "@/components/ViewOptions";
 
 /** Each priority's mark: the chips', and a flag for the normal one (which has no chip). */
 export const PRIORITY_ICON: Record<IssuePriority, IconName> = { high: "arrowUp", normal: "flag", low: "dash" };
@@ -143,93 +143,19 @@ export function IssueFilters({
     })),
   ];
   return (
-    <span className="ac-filterbar">
-      {chips.map((c) => (
-        <span key={c.key} className="ac-filter ac-filter--active">
-          <Menu
-            label={t("issues.filters")}
-            trigger={
-              <button type="button" className="ac-filter__trigger">
-                <Icon name={c.icon} size={14} />
-                <span className="ac-filter__text">{t("issues.filterValue", { filter: c.filter, value: c.value })}</span>
-              </button>
-            }
-          >
-            {items}
-          </Menu>
-          <button type="button" className="ac-filter__clear" aria-label={copy.clearOf(c.value)} onClick={c.clear}>
-            <Icon name="close" size={14} />
-          </button>
-        </span>
-      ))}
-      <Menu
-        label={t("issues.filters")}
-        trigger={
-          <Button size="sm" icon="filter" iconOnly={chips.length > 0} aria-label={t("issues.filterButton")}>
-            {t("issues.filterButton")}
-          </Button>
-        }
-      >
-        {items}
-      </Menu>
-    </span>
-  );
-}
-
-/** The layout cards' pictures: a tiny board or list in pixels. */
-function MiniLayout({ layout }: { layout: IssuesView["layout"] }) {
-  const parts: ReactNode[] = [];
-  if (layout === "board") {
-    for (let k = 0; k < 3; k++) {
-      const x = 2 + k * 15;
-      parts.push(<rect key={`well${k}`} className="issues-mini__well" x={x} y={2} width={13} height={26} />);
-      for (let j = 0; j < 3 - k; j++) {
-        parts.push(
-          <rect key={`card${k}${j}`} className="issues-mini__card" x={x + 1} y={5 + j * 7} width={11} height={6} />,
-          <rect
-            key={`ink${k}${j}`}
-            className="issues-mini__ink"
-            x={x + 3}
-            y={7 + j * 7}
-            width={5 + ((j + k) % 3)}
-            height={1}
-          />,
-        );
-      }
-    }
-  } else {
-    for (let j = 0; j < 5; j++) {
-      parts.push(
-        <rect
-          key={`row${j}`}
-          className={j === 0 ? "issues-mini__well" : "issues-mini__card"}
-          x={2}
-          y={3 + j * 5}
-          width={44}
-          height={4}
-        />,
-        <rect
-          key={`ink${j}`}
-          className="issues-mini__ink"
-          x={5}
-          y={4.5 + j * 5}
-          width={j === 0 ? 10 : 18 + (j % 3) * 5}
-          height={1}
-        />,
-      );
-    }
-  }
-  return (
-    <svg
-      className="issues-mini"
-      viewBox="0 0 48 30"
-      width={96}
-      height={60}
-      shapeRendering="crispEdges"
-      aria-hidden="true"
+    <FilterMenu
+      label={t("issues.filters")}
+      buttonText={t("issues.filterButton")}
+      chips={chips.map((c) => ({
+        key: c.key,
+        icon: c.icon,
+        text: t("issues.filterValue", { filter: c.filter, value: c.value }),
+        clearLabel: copy.clearOf(c.value),
+        clear: c.clear,
+      }))}
     >
-      {parts}
-    </svg>
+      {items}
+    </FilterMenu>
   );
 }
 
@@ -248,50 +174,29 @@ export function DisplayButton({
   onChange: (change: IssuesViewChange | null) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const id = useId();
   const layoutName = t(view.layout === "board" ? "issues.board" : "issues.list");
   const groupName = t(`issues.display.by.${view.group}`);
   return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
+    <ViewOptions
       label={t("issues.display.title")}
-      side="bottom"
-      align="end"
-      className="issues-display"
-      trigger={
-        <Button
-          size="sm"
-          className="issues-display__trigger"
-          aria-label={t("issues.display.label", { layout: layoutName, group: groupName })}
-        >
-          <Icon name={view.layout === "board" ? "grid" : "list"} size={16} />
-          <span>
-            {layoutName}
-            <span className="issues-display__sub"> · {groupName}</span>
-          </span>
-          <Icon name="chevronDown" size={14} className="issues-display__chev" />
-        </Button>
-      }
+      buttonLabel={t("issues.display.label", { layout: layoutName, group: groupName })}
+      icon={view.layout === "board" ? "grid" : "list"}
+      layout={layoutName}
+      detail={groupName}
     >
-      {/* biome-ignore lint/a11y/useSemanticElements: two toggles side by side, not a form's fieldset */}
-      <div className="issues-layouts" role="group" aria-label={t("issues.display.layout")}>
-        {(["board", "list"] as const).map((l) => (
-          <button
-            key={l}
-            type="button"
-            className="issues-layout"
-            aria-pressed={view.layout === l}
-            onClick={() => onChange({ layout: l })}
-          >
-            <MiniLayout layout={l} />
-            <span>{t(l === "board" ? "issues.board" : "issues.list")}</span>
-          </button>
-        ))}
-      </div>
-      <div className="issues-display__row">
-        <span className="issues-display__label">{t("issues.display.group")}</span>
+      <LayoutCards
+        label={t("issues.display.layout")}
+        value={view.layout}
+        onChange={(layout) => onChange({ layout })}
+        options={(["board", "list"] as const).map((l) => ({
+          value: l,
+          label: t(l === "board" ? "issues.board" : "issues.list"),
+          picture: l,
+        }))}
+      />
+      <div className="view-options__row">
+        <span className="view-options__label">{t("issues.display.group")}</span>
         <Segmented
           size="sm"
           label={t("issues.display.group")}
@@ -300,8 +205,8 @@ export function DisplayButton({
           options={ISSUES_GROUPS.map((g) => ({ value: g, label: t(`issues.display.by.${g}`) }))}
         />
       </div>
-      <div className="issues-display__row issues-display__row--col">
-        <span className="issues-display__label">{t("issues.display.sort")}</span>
+      <div className="view-options__row view-options__row--col">
+        <span className="view-options__label">{t("issues.display.sort")}</span>
         <Segmented
           size="sm"
           label={t("issues.display.sort")}
@@ -310,12 +215,12 @@ export function DisplayButton({
           options={ISSUES_SORTS.map((s) => ({ value: s, label: t(`issues.display.order.${s}`) }))}
         />
       </div>
-      <div className="issues-display__row issues-display__row--col">
-        <span className="issues-display__label" id={`${id}-fields`}>
+      <div className="view-options__row view-options__row--col">
+        <span className="view-options__label" id={`${id}-fields`}>
           {t("issues.display.fields")}
         </span>
         {/* biome-ignore lint/a11y/useSemanticElements: toggles that read their group's name, not a fieldset */}
-        <div className="issues-display__fields" role="group" aria-labelledby={`${id}-fields`}>
+        <div className="view-options__fields" role="group" aria-labelledby={`${id}-fields`}>
           {ISSUE_CARD_FIELDS.map((f) => (
             <Button
               key={f}
@@ -330,8 +235,8 @@ export function DisplayButton({
           ))}
         </div>
       </div>
-      <div className="issues-display__row issues-display__row--col">
-        <span className="issues-display__label">{t("issues.display.done")}</span>
+      <div className="view-options__row view-options__row--col">
+        <span className="view-options__label">{t("issues.display.done")}</span>
         <Segmented
           size="sm"
           label={t("issues.display.done")}
@@ -343,8 +248,8 @@ export function DisplayButton({
           }))}
         />
       </div>
-      <div className="issues-display__row">
-        <label className="issues-display__label" htmlFor={`${id}-canceled`}>
+      <div className="view-options__row">
+        <label className="view-options__label" htmlFor={`${id}-canceled`}>
           {t("issues.showCanceled")}
         </label>
         <Switch
@@ -353,23 +258,23 @@ export function DisplayButton({
           onCheckedChange={(showCanceled) => onChange({ showCanceled })}
         />
       </div>
-      <div className="issues-display__row">
-        <label className="issues-display__label" htmlFor={`${id}-empty`}>
+      <div className="view-options__row">
+        <label className="view-options__label" htmlFor={`${id}-empty`}>
           {t("issues.display.hideEmpty")}
         </label>
         <Switch id={`${id}-empty`} checked={view.hideEmpty} onCheckedChange={(hideEmpty) => onChange({ hideEmpty })} />
       </div>
-      <div className="issues-display__foot">
+      <div className="view-options__foot">
         <span>
           <Icon name="check" size={14} />
           {t("issues.display.saved")}
         </span>
         {!isDefaultIssuesView(view) && (
-          <button type="button" className="ac-link issues-display__reset" onClick={() => onChange(null)}>
+          <button type="button" className="ac-link view-options__reset" onClick={() => onChange(null)}>
             {t("issues.display.reset")}
           </button>
         )}
       </div>
-    </Popover>
+    </ViewOptions>
   );
 }

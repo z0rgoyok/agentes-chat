@@ -2,16 +2,17 @@ import type { Issue, IssueActivity } from "@agenteschat/client";
 import { useArtifact, useIssueAction } from "@agenteschat/client";
 import { formatBytes } from "@agenteschat/client/lib/files";
 import { whenAt } from "@agenteschat/client/lib/format";
-import { Button, EmptyState, Icon, Segmented, Spinner } from "@agenteschat/ui";
-import { useEffect, useRef, useState } from "react";
+import { Button, EmptyState, Icon, pastedFiles, Segmented, Spinner } from "@agenteschat/ui";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useActors } from "@/components/actors";
 import { useArtifactDownload } from "@/components/artifacts/ArtifactActions";
-import { useArtifactViewer } from "@/components/artifacts/ArtifactViewer";
+import { useArtifactViewer } from "@/components/artifacts/viewer-context";
 import { DrivePreview } from "@/components/drive/DrivePreview";
-import { useFileDrop } from "@/components/drive/DriveUploads";
 import { useOrg } from "@/components/org-context";
 import { type PendingFile, useComposerFiles } from "@/hooks/useComposerFiles";
+import { useFileDrop } from "@/hooks/useFileDrop";
+import { useToast } from "@/lib/toast";
 
 /** A file of the task and where it came from ("Na criação · ontem às 17:40", "Comentário de Ana · …"). */
 export interface IssueFileEntry {
@@ -57,21 +58,17 @@ export function useIssueFileEntries(issue: Issue, activity: IssueActivity[]): Is
 }
 
 /**
- * "Anexos": every file of the task in a grid (the real preview, as in the Drive) or a list, with where each one
- * came from. "Adicionar arquivos", a drop or a paste here sends them as a comment of their own, so the
- * discussion and the history show who attached what. Empty, one way in: the kit's empty state with its one button
- * (a drop and a paste still work anywhere on it), which also says files sent in the task's conversation land here.
+ * Files added to a task that already exists ("Adicionar arquivos", a drop, a paste anywhere in it): each goes to the
+ * Drive right away and, once all are there, they go as one comment of their own (no text), so the discussion and the
+ * history show who attached what. `onSent` runs after (the details' "Ver anexos" when that tab isn't open).
  */
-export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueActivity[] }) {
-  const { t } = useTranslation();
+export function useIssueFileAdd(issue: Issue, onSent?: (count: number) => void) {
   const { org } = useOrg();
   const action = useIssueAction(org.id);
-  const entries = useIssueFileEntries(issue, activity);
-  const [view, setView] = useState<"grid" | "list">("grid");
-  const picker = useRef<HTMLInputElement>(null);
   const adding = useComposerFiles(issue.channelId);
-  const drop = useFileDrop(adding.onFiles, true);
   const sending = useRef(false);
+  const sentNow = useRef(onSent);
+  sentNow.current = onSent;
   const doneIds = !adding.uploading && adding.attached.length > 0 ? adding.attached.map((f) => f.id).join(",") : "";
   // Once every picked file is in the Drive, they go as one comment (no text): the box empties after.
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires when the uploaded set settles, not on each render
@@ -79,13 +76,15 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
     if (!doneIds || sending.current) return;
     sending.current = true;
     const sent = adding.items.map((f) => f.key);
+    const ids = doneIds.split(",");
     action.mutate(
-      { type: "comment", id: issue.id, text: "", attachmentIds: doneIds.split(",") },
+      { type: "comment", id: issue.id, text: "", attachmentIds: ids },
       {
         // Only what was in the box as it went: a file added meanwhile stays, and goes as the next comment. Refused,
         // they all stay (the failed write has its toast): the next file added sends them again, × takes one out.
         onSuccess: () => {
           for (const key of sent) adding.remove(key);
+          sentNow.current?.(ids.length);
         },
         onSettled: () => {
           sending.current = false;
@@ -93,6 +92,56 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
       },
     );
   }, [doneIds]);
+  return adding;
+}
+
+/**
+ * A file pasted anywhere in the task (its description being edited, the Anexos tab, a click on the page) joins its
+ * attachments, as in the chat. `root` is the task's details: a paste in something beside them (the conversation
+ * panel, a dialog over them) isn't theirs, one on the page around them (nothing focused) is. A field that takes
+ * files itself (a comment's box) takes them first.
+ */
+export function useIssueFilePaste(root: RefObject<HTMLElement | null>, onFiles: (files: File[]) => void) {
+  const filesNow = useRef(onFiles);
+  filesNow.current = onFiles;
+  useEffect(() => {
+    const paste = (e: globalThis.ClipboardEvent) => {
+      const target = e.target;
+      const box = root.current;
+      if (e.defaultPrevented || !box || !(target instanceof Node)) return;
+      if (!box.contains(target) && !target.contains(box)) return;
+      const pasted = pastedFiles(e.clipboardData);
+      if (pasted.length === 0) return;
+      e.preventDefault();
+      filesNow.current(pasted);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [root]);
+}
+
+/**
+ * "Anexos": every file of the task in a grid (the real preview, as in the Drive) or a list, with where each one
+ * came from; × takes one off the task (it stays in the Drive). "Adicionar arquivos", a drop or a paste adds through
+ * `adding` (`useIssueFileAdd`, kept by the details so a paste on any tab lands here). Empty, one way in: the kit's
+ * empty state with its one button (a drop and a paste still work anywhere on it), which also says files sent in the
+ * task's conversation land here.
+ */
+export function IssueFiles({
+  issue,
+  activity,
+  adding,
+}: {
+  issue: Issue;
+  activity: IssueActivity[];
+  adding: ReturnType<typeof useIssueFileAdd>;
+}) {
+  const { t } = useTranslation();
+  const entries = useIssueFileEntries(issue, activity);
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const picker = useRef<HTMLInputElement>(null);
+  const drop = useFileDrop(adding.onFiles, true);
+  const remove = useIssueFileRemove(issue);
   const pick = () => picker.current?.click();
   const empty = entries.length === 0 && adding.items.length === 0;
   return (
@@ -100,12 +149,6 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
       className="issue-files"
       aria-label={t("issues.files.title")}
       data-over={drop.over || undefined}
-      onPaste={(e) => {
-        const pasted = Array.from(e.clipboardData?.files ?? []);
-        if (pasted.length === 0) return;
-        e.preventDefault();
-        adding.onFiles(pasted);
-      }}
       {...drop.props}
     >
       <input
@@ -171,7 +214,7 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
           {view === "grid" ? (
             <div className="issue-files__grid">
               {entries.map((e) => (
-                <IssueFileTile key={e.id} entry={e} />
+                <IssueFileTile key={e.id} entry={e} onRemove={() => remove(e)} />
               ))}
               {adding.items.map((f) => (
                 <PendingTile key={f.key} file={f} onRemove={() => adding.remove(f.key)} />
@@ -180,7 +223,7 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
           ) : (
             <ul className="issue-files__list">
               {entries.map((e) => (
-                <IssueFileRow key={e.id} entry={e} />
+                <IssueFileRow key={e.id} entry={e} onRemove={() => remove(e)} />
               ))}
             </ul>
           )}
@@ -190,32 +233,59 @@ export function IssueFiles({ issue, activity }: { issue: Issue; activity: IssueA
   );
 }
 
-/** A saved file in the grid: its real preview, name and where it came from; a click opens the viewer. */
-function IssueFileTile({ entry }: { entry: IssueFileEntry }) {
+/**
+ * × on a file of the task: takes it off the task (an `artifact_unlinked` in the history), never out of the Drive;
+ * the toast says where it still is.
+ */
+function useIssueFileRemove(issue: Issue) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const action = useIssueAction(org.id);
+  const toast = useToast();
+  return (entry: IssueFileEntry) =>
+    action.mutate(
+      { type: "update", id: issue.id, patch: { removeFiles: [entry.id] } },
+      { onSuccess: () => toast.show(t("issues.files.removed", { name: entry.title }), "info") },
+    );
+}
+
+/** A saved file in the grid: its real preview, name and where it came from; a click opens the viewer, × takes it off. */
+function IssueFileTile({ entry, onRemove }: { entry: IssueFileEntry; onRemove: () => void }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const viewer = useArtifactViewer();
   const a = useArtifact(org.id, entry.id).data;
   return (
-    <button
-      type="button"
-      className="issue-file"
-      onClick={() => viewer.open(entry.id)}
-      aria-label={t("artifacts.open", { title: entry.title })}
-    >
-      <span className="issue-file__thumb">{a ? <DrivePreview artifact={a} /> : <Icon name="file" />}</span>
-      <span className="issue-file__text">
-        <span className="issue-file__name" title={entry.title}>
-          {entry.title}
+    <div className="issue-file issue-file--saved">
+      <button
+        type="button"
+        className="issue-file__main"
+        onClick={() => viewer.open(entry.id)}
+        aria-label={t("artifacts.open", { title: entry.title })}
+      >
+        <span className="issue-file__thumb">{a ? <DrivePreview artifact={a} /> : <Icon name="file" />}</span>
+        <span className="issue-file__text">
+          <span className="issue-file__name" title={entry.title}>
+            {entry.title}
+          </span>
+          <span className="issue-file__meta">{entry.origin}</span>
         </span>
-        <span className="issue-file__meta">{entry.origin}</span>
-      </span>
-    </button>
+      </button>
+      <button
+        type="button"
+        className="issue-file__remove"
+        aria-label={t("issues.files.remove", { name: entry.title })}
+        title={t("issues.files.removeShort")}
+        onClick={onRemove}
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </div>
   );
 }
 
-/** A saved file in the list: small preview and name (opens it), where it came from, size, download. */
-function IssueFileRow({ entry }: { entry: IssueFileEntry }) {
+/** A saved file in the list: small preview and name (opens it), where it came from, size, download, ×. */
+function IssueFileRow({ entry, onRemove }: { entry: IssueFileEntry; onRemove: () => void }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const viewer = useArtifactViewer();
@@ -246,6 +316,15 @@ function IssueFileRow({ entry }: { entry: IssueFileEntry }) {
         title={t("artifacts.download")}
         disabled={!a}
         onClick={() => a && void download.save(a, undefined, a.shownVersion, a.content)}
+      />
+      <Button
+        size="sm"
+        variant="ghost"
+        iconOnly
+        icon="close"
+        aria-label={t("issues.files.remove", { name: entry.title })}
+        title={t("issues.files.removeShort")}
+        onClick={onRemove}
       />
     </li>
   );

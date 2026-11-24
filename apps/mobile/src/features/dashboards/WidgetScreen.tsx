@@ -35,8 +35,10 @@ import {
   LineIcon,
   Locked,
   PressScale,
+  padPastFold,
   systemText,
   Text,
+  useFoldRoom,
   useTheme,
   useToast,
 } from "@/ui";
@@ -46,7 +48,7 @@ import { openAgentAi } from "../ai/AgentAiScreen";
 import { openComputer } from "../computer/AgentComputerRow";
 import { boardHref, routineHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
-import { useDirectory, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
+import { useDirectory, useOrgId, useOwnsAgent, usePullRefresh } from "../shared/hooks";
 import { FocusLive, goBack, PushedHeader, successHaptic } from "../shared/parts";
 import { useAgentLook, useWidgetAiWay, useWidgetWords } from "./hooks";
 import { HOME, shownWidgetTitle } from "./logic";
@@ -389,8 +391,9 @@ function WaitFix({ agentId, wait }: { agentId: string; wait: WidgetWait }) {
   const { t } = useTranslation();
   const { orgId } = useOrg();
   const dir = useDirectory();
-  const meId = useMeId();
-  const owner = dir.anyAgent(agentId)?.ownerUserId === meId;
+  // Its owner, or one who holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const owns = useOwnsAgent();
+  const owner = owns(dir.anyAgent(agentId));
   // Its budget for who manages the agent (the server's `canManage`); its AI for them and its owner.
   const fix = widgetWaitFix(wait, { admin: managesAgent(dir.agentById.get(agentId)), owner });
   const watches = useDesktopStatus(orgId, agentId, { enabled: fix === "openComputer" }).isSuccess;
@@ -410,12 +413,14 @@ function WaitFix({ agentId, wait }: { agentId: string; wait: WidgetWait }) {
 
 /**
  * "Ask Theo for a change": a field at the bottom; what is sent goes to the agent, who redoes the widget in place. While
- * the workspace is being deleted it says why it takes none, as a conversation does (ADR 0088 §7).
+ * the workspace is being deleted it says why it takes none, as a conversation does (ADR 0088 §7). Folded like a book,
+ * the field keeps to the half past the fold, never across it (ADR 0212); its fade still spans the screen.
  */
 function AskChange({ widget: w, name }: { widget: WidgetDetail; name: string }) {
   const { t } = useTranslation();
   const { colors: c, shadows } = useTheme();
   const insets = useSafeAreaInsets();
+  const foldSide = useFoldRoom();
   const { orgId, org } = useOrg();
   const toast = useToast();
   const failed = useFailed();
@@ -439,7 +444,7 @@ function AskChange({ widget: w, name }: { widget: WidgetDetail; name: string }) 
   const ready = text.trim().length > 0 && !ask.isPending;
   return (
     <KeyboardStickyView offset={{ opened: insets.bottom }} style={styles.dock}>
-      <View style={[styles.box, { paddingBottom: insets.bottom + 8 }]}>
+      <View style={[styles.box, { paddingBottom: insets.bottom + 8 }, foldSide && padPastFold(foldSide, 12)]}>
         <LinearGradient
           pointerEvents="none"
           colors={[`${c.grouped}00`, c.grouped]}

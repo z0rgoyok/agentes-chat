@@ -31,6 +31,9 @@ services:
   postgres:
     # pgvector: the first migration creates the vector extension.
     image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    # Docker gives a container 64 MB of /dev/shm, where Postgres keeps its statistics and parallel queries' memory;
+    # past that, any statement can fail with "could not resize shared memory segment". A ceiling, not an allocation.
+    shm_size: 1gb
     environment:
       POSTGRES_USER: agentes
       POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}

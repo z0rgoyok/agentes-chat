@@ -4,7 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { NEW_CHANNEL_EVENT } from "@/components/Sidebar";
+import { NEW_CHANNEL_EVENT } from "@/components/sidebar-state";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, GENERAL_ID, meWithRole, ORG_ID, seedDm, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 

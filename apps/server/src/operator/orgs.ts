@@ -1,10 +1,14 @@
 import { isWorkAreaAnswer, WORK_AREA_ANSWERS } from "@agenteschat/client/lib/work-area";
 import { eq, schema } from "@agenteschat/db";
 import {
+  liveProcesses,
   operatorListOrgs,
   operatorOrg,
   operatorUser,
+  PROCESS_LIVE_MS,
+  RUN_CLAIM_WINDOW_MS,
   removeOrgLogo,
+  runClaimWaits,
   setOrgAccent,
   setOrgLogo,
 } from "@agenteschat/engine";
@@ -65,6 +69,88 @@ const Health = z
       }),
   })
   .openapi("OperatorHealth");
+
+const ms = (description: string) => z.number().int().nullable().openapi({ description });
+
+/** One measure across the apps' reports of a minute. */
+const ClientVitalStat = z
+  .object({ n: z.number().int(), p50: z.number(), p95: z.number(), max: z.number() })
+  .openapi("OperatorClientVitalStat");
+
+const Vitals = z
+  .object({
+    at: z.string(),
+    processes: z
+      .array(
+        z.object({
+          id: z.uuid(),
+          role: z.string().openapi({ description: "`SERVER_ROLE`: `all` (the app and jobs) or `worker`." }),
+          version: z.string(),
+          startedAt: z.string(),
+          seenAt: z.string().openapi({ description: "When it last wrote these, about once a minute." }),
+          rssBytes: z.number().int(),
+          heapUsedBytes: z.number().int(),
+          heapTotalBytes: z.number().int(),
+          eventLoopP99Ms: z.number().nullable().openapi({
+            description: "How late its event loop ran what was due over its last minute; null before one ended.",
+          }),
+          eventLoopMaxMs: z.number().nullable(),
+          heapSnapshot: z
+            .object({ at: z.string(), file: z.string() })
+            .nullable()
+            .openapi({ description: "The heap snapshot it wrote (`HEAP_SNAPSHOT_MB`), in `HEAP_SNAPSHOT_DIR`." }),
+          routes: z
+            .array(
+              z.object({
+                route: z.string().openapi({ description: "Method and route as registered, ids left out." }),
+                count: z.number().int(),
+                p95Ms: z.number().int(),
+                maxMs: z.number().int(),
+                totalMs: z.number().int(),
+              }),
+            )
+            .openapi({
+              description:
+                "The HTTP routes that took it the most time over its last minute, the most first. Empty for a worker.",
+            }),
+          clientVitals: z
+            .record(
+              z.string(),
+              z.object({
+                reports: z.number().int(),
+                coldStartMs: ClientVitalStat.optional(),
+                firstRowsMs: ClientVitalStat.optional(),
+                jsLagP95Ms: ClientVitalStat.optional(),
+                jsLagMaxMs: ClientVitalStat.optional(),
+                heapBytes: ClientVitalStat.optional(),
+                getsPerReturn: ClientVitalStat.optional(),
+                reconnects: ClientVitalStat.optional(),
+              }),
+            )
+            .nullable()
+            .openapi({
+              description:
+                "What the apps that reported to it over its last minute measured, by platform (`ios`, `android`, `web`): cold start to the first frame and to the first rows, JavaScript stalls, heap, reads after each return to the app, socket reconnects. Null: no report.",
+            }),
+        }),
+      )
+      .openapi({
+        description: `Every process on this database that wrote its vitals in the last ${PROCESS_LIVE_MS / 60_000} minutes (the app's and every worker's), the newest first.`,
+      }),
+    runClaims: z
+      .object({
+        windowSeconds: z.number().int(),
+        runs: z.number().int().openapi({ description: "Runs claimed in the window plus runs still waiting." }),
+        queued: z.number().int().openapi({ description: "Runs still waiting for a worker." }),
+        p50Ms: ms("Of `runs`: how long each waited from its creation to its claim, or until now if still waiting."),
+        p95Ms: ms("The same, 95th percentile. Null: no run."),
+        oldestQueuedMs: ms("How long the run waiting longest has waited. Null: none waits."),
+      })
+      .openapi({
+        description: `How long agents' runs for people wait for a worker (routines' background runs, which wait behind them by design, left out): those claimed in the last ${RUN_CLAIM_WINDOW_MS / 60_000} minutes and those still waiting (created in the last hour). Growing while every process looks idle: jobs aren't being claimed.`,
+      }),
+  })
+  .openapi("OperatorVitals");
 
 const OrgSummary = z
   .object({
@@ -237,6 +323,45 @@ export function registerOperatorOrgs(
           version,
           botCheck: { ...check, since: check.since.toISOString() },
           eventLoopLag: eventLoopLag?.() ?? null,
+        },
+        200,
+      );
+    },
+  );
+
+  api.openapi(
+    createRoute({
+      method: "get",
+      path: "/vitals",
+      tags,
+      summary: "Each server process's memory and event loop delay, and how long runs wait to be claimed",
+      responses: { 200: json(Vitals), 401: errors[401] },
+    }),
+    async (c) => {
+      const now = new Date();
+      const [processes, claims] = await Promise.all([liveProcesses(db, now), runClaimWaits(db, now)]);
+      return c.json(
+        {
+          at: now.toISOString(),
+          processes: processes.map((p) => ({
+            id: p.id,
+            role: p.role,
+            version: p.version,
+            startedAt: p.startedAt.toISOString(),
+            seenAt: p.seenAt.toISOString(),
+            rssBytes: p.rssBytes,
+            heapUsedBytes: p.heapUsedBytes,
+            heapTotalBytes: p.heapTotalBytes,
+            eventLoopP99Ms: p.eventLoopP99Ms,
+            eventLoopMaxMs: p.eventLoopMaxMs,
+            heapSnapshot:
+              p.heapSnapshotAt && p.heapSnapshotFile
+                ? { at: p.heapSnapshotAt.toISOString(), file: p.heapSnapshotFile }
+                : null,
+            routes: p.routes ?? [],
+            clientVitals: p.clientVitals ?? null,
+          })),
+          runClaims: claims,
         },
         200,
       );

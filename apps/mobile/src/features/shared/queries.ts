@@ -118,8 +118,9 @@ export function useConversations() {
   const lists = [channels, dms];
   return {
     rows,
-    // The directory too: before it names the agents a member doesn't see, their DMs would flash in.
-    loading: channels.isLoading || dms.isLoading || agentsLoading,
+    // The directory too: before it names the agents a member doesn't see, their DMs would flash in. And the threads:
+    // drawn without them, they came in a moment later between the channels and DMs, moving every row under them.
+    loading: channels.isLoading || dms.isLoading || threads.isLoading || agentsLoading,
     // The server didn't answer: nothing to show (`failed`), or the kept rows weren't loaded again (`stale`).
     failed: lists.some((q) => q.isError && !q.data),
     stale: lists.some((q) => q.isError && q.data),

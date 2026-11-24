@@ -179,7 +179,11 @@ describe("feedback about what was clicked", () => {
     const { state } = await open(seedState({ authConfig: { feedback: true, feedbackRelay: true } }));
     await click(screen().getByRole("button", { name: "Enviar feedback" }));
     const form = screen().getByRole("dialog", { name: "O que faltou, quebrou ou incomodou?" });
-    expect(within(form).getByText("O que você escrever vai por e-mail para o time do agentes.chat.")).toBeTruthy();
+    expect(
+      within(form).getByText(
+        "O que você escrever vai por e-mail para o time do agentes.chat, que pode usar um assistente de IA para analisar.",
+      ),
+    ).toBeTruthy();
     expect(within(form).getByRole("button", { name: "Anexar foto" })).toBeTruthy();
     expect(within(form).getByText("Até 3 fotos de 5 MB.")).toBeTruthy();
     const picker = form.querySelector('input[type="file"]') as HTMLInputElement;

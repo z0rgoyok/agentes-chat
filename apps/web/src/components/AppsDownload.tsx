@@ -4,18 +4,13 @@ import { useTranslation } from "react-i18next";
 import { DownloadButtons, useDesktopDownloads } from "@/components/devices/parts";
 import { useDesktopHere } from "@/hooks/useDesktopHere";
 import { inDesktopApp } from "@/lib/desktop";
+import { usePhoneStores } from "@/lib/phone-apps";
 import "./apps-download.css";
 
 /**
- * Where the phone apps are, once each store lists them for everyone. Until then (null) the phone part stays out: a link
- * to an app still in testing opens "not found" for whoever taps it.
- */
-const PHONE_STORES: { appStore: string | null; googlePlay: string | null } = { appStore: null, googlePlay: null };
-
-/**
  * Configurações › Apps do agentes.chat: the desktop app for the computer this page is open on (its build, version and
- * size, the other systems in a menu, the public `/download` page for the install steps), and the phone apps once the
- * stores list them. Inside the desktop app, the computer part says so instead of offering it again.
+ * size, the other systems in a menu, the public `/download` page for the install steps), and the phone apps
+ * (`usePhoneStores`). Inside the desktop app, the computer part says so instead of offering it again.
  */
 export function AppsDownloadSection() {
   const { t, i18n } = useTranslation();
@@ -24,10 +19,7 @@ export function AppsDownloadSection() {
   const release = mine ? latest[mine.id].data : null;
   const kind: PortraitKind = here?.target === "windows" ? "windows" : here?.target === "linux" ? "linux" : "mac";
   const inApp = inDesktopApp();
-  const stores = [
-    { id: "appStore", href: PHONE_STORES.appStore, mark: "apple" },
-    { id: "googlePlay", href: PHONE_STORES.googlePlay, mark: "android" },
-  ].filter((s): s is { id: "appStore" | "googlePlay"; href: string; mark: string } => Boolean(s.href));
+  const stores = usePhoneStores();
   return (
     <div className="gapps">
       <Card padded aria-labelledby="gapps-computer">
@@ -63,7 +55,7 @@ export function AppsDownloadSection() {
         <Card padded aria-labelledby="gapps-phone">
           <div className="ac-faceline">
             <span className="gapps__phones" aria-hidden="true">
-              <ComputerPortrait kind="iphone" state="online" />
+              {stores.some((s) => s.mark === "apple") && <ComputerPortrait kind="iphone" state="online" />}
               <ComputerPortrait kind="android" state="online" />
             </span>
             <div className="gapps__main">

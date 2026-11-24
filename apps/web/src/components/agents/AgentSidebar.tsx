@@ -19,6 +19,7 @@ import {
   pictureWhen,
   surfaceOf,
 } from "@agenteschat/client/lib/agent-computer";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent, seesDetails } from "@agenteschat/client/lib/audience";
 import { computerName } from "@agenteschat/client/lib/computer";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
@@ -309,7 +310,7 @@ function ComputerSection({ agent }: { agent: Agent }) {
           </Button>
         ) : button === "choose" ? (
           !isRightHand(agent) &&
-          (managesAgent(agent) || agent.ownerUserId === me.user.id) && (
+          (managesAgent(agent) || ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id))) && (
             <Button
               size="sm"
               onClick={() =>
@@ -410,7 +411,8 @@ function ThinksSection({ agent }: { agent: Agent }) {
   const thinks = useAgentThinks(agent);
   const detail = useAgentDetail(org.id, agent.id);
   const admin = managesAgent(agent);
-  const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
+  // A person's name or, when a role answers for it, the role's (ADR 0085, addendum of 2026-11-21).
+  const owner = dir.ownerName(agent);
   const usage = useUsage(org.id);
   const used = detail.data?.budgetUsedPercent ?? 0;
   const spent = usage.data?.find((u) => u.agentId === agent.id)?.costUsd;
@@ -429,7 +431,7 @@ function ThinksSection({ agent }: { agent: Agent }) {
         )}
         <div>
           <dt>{t("agentSide.owner")}</dt>
-          <dd>{owner?.name ?? t("newAgent.noOwnerOption")}</dd>
+          <dd>{owner ?? t("newAgent.noOwnerOption")}</dd>
         </div>
         {detail.data && usageShown(agent.brain, used).budget && (
           <div>

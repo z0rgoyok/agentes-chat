@@ -5,6 +5,7 @@ import { type AiStatusDeps, backgroundAiState, rightHandWorkAi } from "../ai-sta
 import type { ModelScope } from "../brains/select";
 import { getMembership, type Membership } from "../organizations";
 import { isRightHand, ownAiPerson, RIGHT_HAND } from "../right-hand";
+import { runState } from "../run-state";
 import { waitModel } from "../task-manager";
 import { mayContinuePause } from "../usage-pause";
 import { dashboardRights, viewerOf } from "./access";
@@ -29,6 +30,7 @@ export interface WidgetRunWait extends WidgetWaitView {
   agentId: string;
   triggerMessageId: string;
   ownerUserId: string | null;
+  ownerRoleId: string | null;
   routineId: string;
   routineCreatorId: string | null;
 }
@@ -43,8 +45,7 @@ const SCOPES: readonly string[] = ["model", "region", "off", "inactive"];
 export async function widgetRunWaits(db: Executor, routineIds: readonly string[]): Promise<Map<string, WidgetRunWait>> {
   const out = new Map<string, WidgetRunWait>();
   if (routineIds.length === 0) return out;
-  const wait = (field: string) =>
-    sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>${sql.raw(`'${field}'`)}`;
+  const wait = (field: string) => sql<string | null>`${runState}->'waitingForBrain'->>${sql.raw(`'${field}'`)}`;
   const rows = await db
     .select({
       routineId: routineRuns.routineId,
@@ -54,6 +55,7 @@ export async function widgetRunWaits(db: Executor, routineIds: readonly string[]
       agentId: agentRuns.agentId,
       triggerMessageId: agentRuns.triggerMessageId,
       ownerUserId: agents.ownerUserId,
+      ownerRoleId: agents.ownerRoleId,
       status: agentRuns.status,
       machineId: agentRuns.waitingMachineId,
       code: wait("code"),
@@ -63,8 +65,8 @@ export async function widgetRunWaits(db: Executor, routineIds: readonly string[]
       scope: wait("scope"),
       plan: wait("plan"),
       model: wait("model"),
-      roomSince: sql<string | null>`${agentRuns.transcript}->>'roomWaitSince'`,
-      outageAt: sql<string | null>`${agentRuns.transcript}->'outage'->>'at'`,
+      roomSince: sql<string | null>`${runState}->>'roomWaitSince'`,
+      outageAt: sql<string | null>`${runState}->'outage'->>'at'`,
     })
     .from(routineRuns)
     .innerJoin(agentRuns, eq(agentRuns.id, routineRuns.agentRunId))
@@ -110,6 +112,7 @@ export async function widgetRunWaits(db: Executor, routineIds: readonly string[]
         agentId: r.agentId,
         triggerMessageId: r.triggerMessageId,
         ownerUserId: r.ownerUserId,
+        ownerRoleId: r.ownerRoleId,
         routineId: r.routineId,
         routineCreatorId: r.routineCreatorId,
       });
@@ -124,6 +127,7 @@ export const mayContinueWidgetWait = (db: Executor, userId: string, membership: 
     // A routine's run is asked by its brief, its creator's: `mayStopRun` reads that message itself.
     requester: null,
     ownerUserId: wait.ownerUserId,
+    ownerRoleId: wait.ownerRoleId,
     routineId: wait.routineId,
     routineCreatorId: wait.routineCreatorId,
   });

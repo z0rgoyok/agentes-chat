@@ -26,7 +26,7 @@ export const channelVisibilityEnum = pgEnum("channel_visibility", ["public", "pr
  * `forum` is unused: the forum was removed (migration 0216), and Postgres drops an enum value only by recreating the
  * type, which would rewrite `channels` under a lock.
  */
-export const channelKindEnum = pgEnum("channel_kind", ["channel", "dm", "forum", "task", "file"]);
+export const channelKindEnum = pgEnum("channel_kind", ["channel", "dm", "forum", "task", "file", "code"]);
 /** The kinds a channel has: no row is `forum` since migration 0216. */
 export type ChannelKind = Exclude<(typeof channelKindEnum.enumValues)[number], "forum">;
 
@@ -83,6 +83,12 @@ export const channels = pgTable(
     categoryId: uuid().references(() => channelCategories.id, { onDelete: "set null" }),
     /** Order inside its category (or among the channels with none), from 0. */
     position: integer().notNull().default(0),
+    /**
+     * Agents asked in the main timeline answer in the thread under the message that called them (ADR 0214). On by
+     * default; read for regular channels only, so the value on other kinds means nothing. Each run keeps the value it
+     * was created with (`agent_runs.reply_in_thread`).
+     */
+    replyInThreads: boolean().notNull().default(true),
   },
   (t) => [unique().on(t.orgId, t.name), unique().on(t.orgId, t.id), unique().on(t.orgId, t.dmKey)],
 );

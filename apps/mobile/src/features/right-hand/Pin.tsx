@@ -1,11 +1,11 @@
 import { previewBody } from "@agenteschat/client/lib/message-body";
 import { useTranslation } from "react-i18next";
-import { Pressable, type StyleProp, StyleSheet, type ViewStyle } from "react-native";
-import Animated, { type AnimatedStyle } from "react-native-reanimated";
+import { Pressable, StyleSheet } from "react-native";
 import type { AgentMode } from "@/agent/poses";
 import { Text } from "@/ui";
 import { router } from "@/ui/navigation";
 import type { ConversationRow } from "../chats/logic";
+import { useChatOpener } from "../chats/split";
 import { chatHref } from "../links/logic";
 import { AgentFace } from "../shared/Face";
 import { useSurface } from "../shared/parts";
@@ -21,17 +21,16 @@ export function RightHandAsk({
   row,
   onStart,
   faceMode = "idle",
-  faceStyle,
 }: {
   row: ConversationRow;
   onStart: (agentId: string) => void;
   /** The face's mode: asleep under the splash, it wakes as Conversas arrives (`useWake`). */
   faceMode?: AgentMode;
-  /** The face's own motion (the hop as it wakes). */
-  faceStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
 }) {
   const { t } = useTranslation();
   const surface = useSurface();
+  // Beside the list (ADR 0212) its conversation opens in the split's pane.
+  const opener = useChatOpener();
   if (row.kind !== "dm") return null;
   const invite = t("mobile.chat.messageTo", { name: row.with.name });
   // Its own last words, unread: shown in place of the invitation (a reply from you keeps the invitation).
@@ -42,6 +41,7 @@ export function RightHandAsk({
   const words = theirs ? `${row.with.name}: ${theirs}` : invite;
   const open = () => {
     if (!row.channelId) onStart(row.with.id);
+    else if (opener) opener.open({ channelId: row.channelId, threadId: null });
     else router.push(chatHref(row.channelId));
   };
   return (
@@ -52,9 +52,7 @@ export function RightHandAsk({
       accessibilityHint={theirs ? invite : undefined}
       style={({ pressed }) => [styles.field, surface, pressed && styles.pressed]}
     >
-      <Animated.View style={faceStyle}>
-        <AgentFace agentId={row.with.id} size={FACE} mode={faceMode} />
-      </Animated.View>
+      <AgentFace agentId={row.with.id} size={FACE} mode={faceMode} />
       <Text variant="body" tone={theirs ? "ink" : "faint"} numberOfLines={1} style={styles.grow}>
         {words}
       </Text>

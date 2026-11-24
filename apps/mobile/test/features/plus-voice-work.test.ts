@@ -8,7 +8,9 @@ const src = (file: string) => readFileSync(join(import.meta.dir, "../../src", fi
 describe('the composer\'s "+"', () => {
   test("offers what goes with a message and two things to start; starting a mission isn't one of them", () => {
     const sheets = src("features/chat/sheets.tsx");
-    expect(sheets).toContain('export type PlusPick = "camera" | "photos" | "file" | "media" | "summary" | "remind";');
+    expect(sheets).toContain(
+      'export type PlusPick = "camera" | "photos" | "file" | "paste" | "media" | "summary" | "remind";',
+    );
     expect(sheets).not.toContain("mobile.plus.mission");
     expect(src("features/i18n/keys.en.ts")).not.toContain("missionHint");
   });

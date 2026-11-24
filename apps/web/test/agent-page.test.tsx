@@ -73,14 +73,14 @@ const updates = (state: ReturnType<typeof seedState>) =>
   state.calls.filter((c) => c.method === "agents.update").map((c) => c.args[2]);
 
 describe("agent page: tabs and the URL", () => {
-  test("four tabs and More; the chosen one goes to ?tab=; a link opens a tab; the memory tab counts the proposal", async () => {
+  test("four tabs and More; the chosen one goes to ?tab=; a link opens a tab", async () => {
     const { router } = await go();
     const tabs = screen().getByRole("tablist", { name: "Seções da Ada" });
     expect(
       within(tabs)
         .getAllByRole("tab")
         .map((t) => t.textContent),
-    ).toEqual(["Visão geral", "Instruções", "Memória1", "Atividade"]);
+    ).toEqual(["Visão geral", "Instruções", "Skills", "Memória", "Atividade"]);
     // The rest are in More; the one opened from there shows in the bar, and More keeps the others.
     await openTab(/^Uso/);
     expect(router.state.location.search).toMatchObject({ tab: "usage" });
@@ -88,7 +88,7 @@ describe("agent page: tabs and the URL", () => {
       within(screen().getByRole("tablist", { name: "Seções da Ada" }))
         .getAllByRole("tab")
         .map((t) => t.textContent),
-    ).toEqual(["Visão geral", "Instruções", "Memória1", "Atividade", "Uso"]);
+    ).toEqual(["Visão geral", "Instruções", "Skills", "Memória", "Atividade", "Uso"]);
     await act(async () =>
       fireEvent.pointerDown(
         within(screen().getByRole("tablist", { name: "Seções da Ada" })).getByRole("button", { name: /^Mais/ }),
@@ -581,6 +581,9 @@ describe("agent page: inline editing and the save bar", () => {
     const row = github.closest("li") as HTMLElement;
     expect(row.textContent).toContain("Alterado");
     expect(row.textContent).toContain("Antes: Sem acesso");
+    // The skills' own level is on the Skills tab, with the skills.
+    expect(screen().queryByRole("radiogroup", { name: "Nível em Skills" })).toBeNull();
+    await openTab(/^Skills/);
     const skills = screen().getByRole("radiogroup", { name: "Nível em Skills" });
     const other = within(skills)
       .getAllByRole("radio")
@@ -716,7 +719,7 @@ describe("agent page: inline editing and the save bar", () => {
     const { router } = await go("?tab=instructions");
     await type(screen().getByRole("textbox", { name: "Instruções" }), "Outra coisa.");
     await act(async () => {
-      router.history.push(`/org/${ORG_ID}/approvals`);
+      router.history.push(`/org/${ORG_ID}/notifications`);
     });
     await settle(4);
     const ask = screen().getByRole("dialog", { name: "Sair sem salvar?" });
@@ -725,7 +728,7 @@ describe("agent page: inline editing and the save bar", () => {
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/agents/${ADA_ID}`);
     expect(screen().getByRole("textbox", { name: "Instruções" })).toBeTruthy();
     await act(async () => {
-      router.history.push(`/org/${ORG_ID}/approvals`);
+      router.history.push(`/org/${ORG_ID}/notifications`);
     });
     await settle(4);
     await click(
@@ -734,32 +737,39 @@ describe("agent page: inline editing and the save bar", () => {
       }),
     );
     await settle(4);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/approvals`);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
   });
 });
 
 describe("agent page: memory and proposals", () => {
-  test("Aceitar mudança uses the proposals API", async () => {
+  /** Nobody decides a proposal any more (ADR 0219): none of the old decision's calls. */
+  const decided = (state: ReturnType<typeof seedState>) =>
+    state.calls.filter((c) => ["proposals.accept", "proposals.refuse", "proposals.ask"].includes(c.method));
+  /** No Accept, Refuse or Edit on a card. */
+  const noDecision = (card: HTMLElement) => {
+    for (const name of [/^Aceitar/, /^Recusar/, /^Editar antes/])
+      expect(within(card).queryByRole("button", { name })).toBeNull();
+  };
+
+  test("a change its review is weighing says so, with why and the change, and nothing to decide", async () => {
     const { state } = await go("?tab=memory");
     const card = screen().getByRole("article", { name: "Atualizar as instruções da Ada" });
-    expect(card.textContent).toContain("Aguardando você");
-    await click(within(card).getByRole("button", { name: "Aceitar mudança" }));
-    await settle(4);
-    expect(state.calls.find((c) => c.method === "proposals.accept")?.args).toEqual([ORG_ID, "prop-1", undefined]);
-    expect(document.body.textContent).toContain("Mudança aceita. As instruções foram atualizadas.");
+    expect(card.querySelector(".agp-mem__state")?.textContent).toBe("Avaliando…");
+    expect(card.textContent).toContain("Por quê: O João corrigiu a Ada três vezes pelo mesmo motivo.");
+    expect(card.querySelectorAll(".ac-diff__line--add").length).toBeGreaterThan(0);
+    noDecision(card);
+    expect(decided(state)).toEqual([]);
   });
 
-  test("a skill it asked to change counts on its page, and is decided there as proposed", async () => {
+  test("a skill it asked to change shows there too while its review weighs it", async () => {
     const state = seedState();
     const prop = state.proposals.find((p) => p.id === "prop-1");
     if (!prop) throw new Error("no proposal");
     prop.target = { type: "skill", agentId: prop.agentId, skillId: "sk-1", name: "relatorios" };
     await go("?tab=memory", state);
     const card = screen().getByRole("article", { name: "Corrigir a skill relatorios" });
-    expect(within(card).queryByRole("button", { name: "Editar antes" })).toBeNull();
-    await click(within(card).getByRole("button", { name: "Aceitar mudança" }));
-    await settle(4);
-    expect(state.calls.find((c) => c.method === "proposals.accept")?.args).toEqual([ORG_ID, "prop-1", undefined]);
+    expect(card.textContent).toContain("Avaliando…");
+    noDecision(card);
   });
 
   test("a reason the server wrote reads in the person's language on the agent's page too", async () => {
@@ -771,42 +781,23 @@ describe("agent page: memory and proposals", () => {
     expect(card.textContent).toContain("O agente notou isso mais de uma vez.");
   });
 
-  test("Editar antes de aceitar sends the final text; Recusar refuses", async () => {
-    const { state } = await go("?tab=memory");
-    const card = screen().getByRole("article", { name: "Atualizar as instruções da Ada" });
-    await click(within(card).getByRole("button", { name: "Editar antes de aceitar" }));
-    await type(within(card).getByLabelText("Texto final das instruções"), "Só PRs pequenos.");
-    await click(within(card).getByRole("button", { name: "Aceitar com ajustes" }));
-    await settle(4);
-    expect(state.calls.find((c) => c.method === "proposals.accept")?.args).toEqual([
-      ORG_ID,
-      "prop-1",
-      "Só PRs pequenos.",
-    ]);
-    cleanup();
-    const second = await go("?tab=memory");
-    await click(
-      within(screen().getByRole("article", { name: "Atualizar as instruções da Ada" })).getByRole("button", {
-        name: "Recusar",
-      }),
-    );
-    await settle(4);
-    expect(second.state.calls.find((c) => c.method === "proposals.refuse")?.args).toEqual([ORG_ID, "prop-1"]);
-  });
-
-  test("a proposal someone else decides names who: the person, or an admin", async () => {
+  test("once its review applied it, it leaves the list and counts among the improvements; left out, it doesn't", async () => {
+    const stat = () =>
+      [...document.querySelectorAll(".agp-memstat")]
+        .find((p) => p.textContent?.includes("Melhorias"))
+        ?.querySelector("b")?.textContent;
     const state = seedState();
     const prop = state.proposals.find((p) => p.id === "prop-1");
     if (!prop) throw new Error("no prop-1");
-    prop.canDecide = false;
+    Object.assign(prop, { status: "accepted", reviewed: true, decidedByAgent: { agentId: ADA_ID, name: "Ada" } });
     await go("?tab=memory", state);
-    const card = () => screen().getByRole("article", { name: "Atualizar as instruções da Ada" });
-    expect(within(card()).queryByRole("button", { name: "Aceitar mudança" })).toBeNull();
-    expect(within(card()).getByText("João decide.")).toBeTruthy();
+    expect(screen().queryByRole("article", { name: "Atualizar as instruções da Ada" })).toBeNull();
+    expect(stat()).toBe("1");
     cleanup();
-    prop.decider = { type: "admins" };
+    Object.assign(prop, { status: "refused" });
     await go("?tab=memory", state);
-    expect(within(card()).getByText("Um admin decide.")).toBeTruthy();
+    expect(screen().queryByRole("article", { name: "Atualizar as instruções da Ada" })).toBeNull();
+    expect(stat()).toBe("0");
   });
 
   test("one column, and under its cards one link to how memory works", async () => {
@@ -817,7 +808,7 @@ describe("agent page: memory and proposals", () => {
     expect(link.closest(".agp-cols")?.querySelectorAll(".agp-col")).toHaveLength(1);
     expect(link.closest(".page__note")?.textContent).toBe("Como a memória funciona");
     const card = screen().getByRole("article", { name: "Atualizar as instruções da Ada" });
-    expect(card.textContent).toContain("Recusar ensina a Ada a não propor isso de novo.");
+    expect(card.closest(".agp-cols")).toBe(link.closest(".agp-cols"));
   });
 
   test("what it knows: kinds and search", async () => {
@@ -850,8 +841,9 @@ describe("agent page: memory and proposals", () => {
     );
     const row = screen().getByText("GET the models with the key.").closest("li") as HTMLElement;
     expect(row.textContent).toContain("Como fazer");
-    // Not verified is the lack of a chip, with Confirmar to change it.
+    // Not verified is the lack of a chip; nobody is asked to confirm it (ADR 0219).
     expect(row.querySelector(".ac-chip")).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Confirmar" })).toBeNull();
     await click(within(row).getByRole("button", { name: "Esquecer" }));
     expect(state.memories.find((m) => m.id === mine.id)?.archived).toBe(true);
   });

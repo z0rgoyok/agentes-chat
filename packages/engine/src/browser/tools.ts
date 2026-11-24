@@ -53,8 +53,10 @@ import {
   resolveTarget,
   runPlan,
   type ScreenImage,
+  type ScreenJudgmentShadow,
   type ScreenStep,
   type ScreenVerb,
+  screenJudgmentsData,
   screenRef,
   screenStepOf,
   type TargetCache,
@@ -135,7 +137,7 @@ export {
 import { publishChannelEvent } from "../events";
 import { cutText } from "../format";
 import { outboundRefusal } from "../outbound";
-import { releaseProfileTurns } from "../runs";
+import { releaseProfileTurns, replyThreadOf } from "../runs";
 import { neutralizeUntrusted } from "../untrusted";
 
 const { agents, agentRuns, secretRequests, users } = schema;
@@ -766,7 +768,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
     publishChannelEvent(deps.pubsub, {
       type: "agent.browser.waiting",
       channelId: ctx.channelId,
-      threadId: ctx.threadRootId === ctx.triggerMessageId ? null : ctx.threadRootId,
+      threadId: replyThreadOf(ctx),
       runId: ctx.runId,
       agentId: ctx.agentId,
       wait,
@@ -1207,6 +1209,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
     // A take over that begins and ends within one step leaves no open handoff to see: it is checked too.
     const started = new Date();
     let handedBack = false;
+    const shadow: ScreenJudgmentShadow[] = [];
     const report = await runPlan(
       {
         judge,
@@ -1239,6 +1242,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
         before: seen.within(key, KNOWN_LOOK_MS),
         vision: deps.vision?.() === true && linked.status.protocol >= BROWSER_FAST_PROTOCOL,
         now,
+        shadow,
       },
       steps,
     );
@@ -1263,6 +1267,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
       ...(options.trail ? { browserTrail: trailOf(report) } : {}),
       ...profileData(linked.profile),
       timing,
+      ...screenJudgmentsData(shadow),
     };
     const waiting = paused as ToolOutput | null;
     if (waiting) {
@@ -1645,6 +1650,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
         const sized = emulatedLine(linked.emulated()).slice(1);
         const head = `${url ? `Page: ${neutralizeUntrusted(url)}\n` : ""}${sized ? `${sized}\n` : ""}`;
         if (question && page && deps.judge) {
+          const shadow: ScreenJudgmentShadow[] = [];
           const found = await findInPage({
             judge,
             orgId: ctx.orgId,
@@ -1652,6 +1658,7 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
             runId: ctx.runId,
             question,
             observation: page,
+            shadow,
           }).catch(() => null);
           const part = found?.searched
             ? ` (searched ${found.searched.lines} of the page's ${found.searched.of} lines)`
@@ -1660,13 +1667,13 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
             const partly = found.answered === "partly" ? " (it may only partly answer it)" : "";
             return {
               content: `${head}Where the page answers "${question}"${partly}${part}:\n${wrapPage(found.text)}`,
-              data: { ...(url ? { url } : {}), ...profileData(linked.profile) },
+              data: { ...(url ? { url } : {}), ...profileData(linked.profile), ...screenJudgmentsData(shadow) },
             };
           }
           if (found) {
             return {
               content: `${head}Nothing on the page answers "${question}"${part}. Read the whole page (no \`find\`) to look yourself, or go where it would be.`,
-              data: { ...(url ? { url } : {}), ...profileData(linked.profile) },
+              data: { ...(url ? { url } : {}), ...profileData(linked.profile), ...screenJudgmentsData(shadow) },
             };
           }
         }

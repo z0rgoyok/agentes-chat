@@ -4,7 +4,7 @@ import {
   type ForeignMailbox,
   type Message,
   useAddChannelMember,
-  useChannels,
+  useChannelName,
   useWidenAudience,
 } from "@agenteschat/client";
 import {
@@ -25,6 +25,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { ConsultPairRow, useConsultById } from "@/components/ConsultGroup";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useMyRoleIds } from "@/hooks/useMyRoleIds";
 import { useToast } from "@/lib/toast";
 import "./agent-actions.css";
 
@@ -37,11 +38,11 @@ import "./agent-actions.css";
 export function ReachLines({ message }: { message: Message }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const channel = useChannels(org.id).data?.find((c) => c.id === message.channelId);
+  const channelName = useChannelName(org.id, message.channelId);
   const list = reachOf(message.meta);
   if (message.author.type !== "agent" || list.length === 0) return null;
   // A DM isn't in the channel list: "in this conversation", and nobody can be added to it.
-  const place = channel ? t("reach.inChannel", { name: channel.name }) : t("reach.inHere");
+  const place = channelName !== undefined ? t("reach.inChannel", { name: channelName }) : t("reach.inHere");
   return (
     // biome-ignore lint/a11y/useSemanticElements: a labelled group inside a message, not a fieldset
     <div className="ag-rcs ag-rcs--stack" role="group" aria-label={t("reach.group")}>
@@ -52,7 +53,7 @@ export function ReachLines({ message }: { message: Message }) {
           authorId={message.author.id ?? ""}
           channelId={message.channelId}
           place={place}
-          addable={!!channel}
+          addable={channelName !== undefined}
         />
       ))}
     </div>
@@ -152,7 +153,8 @@ export function AllowTalkButton({ agent, userId, className }: { agent: Agent; us
   const asks = useWidenAsk(agent);
   const person = dir.memberById.get(userId)?.name;
   const audience = audienceWith(agent, userId);
-  if (!person || !audience || modeOf(agent) === "everyone" || !canEditAudience(org, agent, me.user.id)) return null;
+  const mine = canEditAudience(org, agent, me.user.id, dir.rolesOf(me.user.id));
+  if (!person || !audience || modeOf(agent) === "everyone" || !mine) return null;
   const g = agentGrammar(agent.name);
   return (
     <>
@@ -179,10 +181,11 @@ export function AllowTalkButton({ agent, userId, className }: { agent: Agent; us
 export function LetMeTalkButton({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
+  const myRoleIds = useMyRoleIds();
   const toast = useToast();
   const save = useWidenAudience(org.id, agent.id);
   const asks = useWidenAsk(agent);
-  const audience = audienceWithMe(org, agent, me.user.id);
+  const audience = audienceWithMe(org, agent, me.user.id, myRoleIds);
   if (!audience) return null;
   const g = agentGrammar(agent.name);
   return (

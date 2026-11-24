@@ -21,7 +21,8 @@ import { useFailed } from "../routines/hooks";
 import { usePersonalView } from "../settings/hooks";
 import { Gap, SettingsPage, useUnsavedGuard } from "../settings/parts";
 import { Face } from "../shared/Face";
-import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useDirectory, useMeId, useMyRoleIds, useOrgId } from "../shared/hooks";
+import { ownerRoleOf } from "../shared/owner";
 import { goBack, successHaptic, tapHaptic } from "../shared/parts";
 
 /** Opens an agent's "Who can edit" (ADR 0085 addendum of 2026-11-17). */
@@ -53,6 +54,7 @@ export function AgentEditorsScreen({ agentId }: { agentId: string }) {
   const { org } = useOrg();
   const dir = useDirectory();
   const meId = useMeId();
+  const myRoleIds = useMyRoleIds();
   const agent = dir.agentById.get(agentId);
   const rightHand = isRightHand(agent);
   // Opened for the right hand by its address alone: nothing to set, back where it came from.
@@ -70,7 +72,8 @@ export function AgentEditorsScreen({ agentId }: { agentId: string }) {
       </SettingsPage>
     );
   }
-  if (!canEditAudience(org ?? undefined, agent, meId ?? "")) return <EditorsRead agent={agent} />;
+  // Who holds the role that answers for it changes it too (ADR 0085, addendum of 2026-11-21).
+  if (!canEditAudience(org ?? undefined, agent, meId ?? "", myRoleIds)) return <EditorsRead agent={agent} />;
   return <EditorsForm agent={agent} />;
 }
 
@@ -122,8 +125,11 @@ function EditorsForm({ agent }: { agent: Agent }) {
   const leave = useUnsavedGuard(changed && !update.isPending);
   const g = agentGrammar(agent.name);
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId)?.name : undefined;
-  // The workspace's own roles, top first: "everyone" would be every member (the server takes only its own roles).
-  const roleList = sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r)));
+  // A role that answers for it (ADR 0085, addendum of 2026-11-21): whoever holds it always edits it.
+  const ownerRole = ownerRoleOf(agent, roles.data?.roles);
+  // The workspace's own roles, top first: "everyone" would be every member (the server takes only its own roles). The
+  // role that answers for it always edits, as its owner person does: neither is a pick.
+  const roleList = sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r) && r.id !== agent.ownerRoleId));
   const people = [...dir.memberById.values()].filter((m) => m.userId !== agent.ownerUserId);
   const pick = (mode: EditorsMode) => {
     tapHaptic();
@@ -193,7 +199,13 @@ function EditorsForm({ agent }: { agent: Agent }) {
         <GroupedRow
           label={t("editors.mode.owner", g)}
           labelLines={2}
-          sub={owner ? t("editors.modeText.owner", { ...g, owner }) : t("editors.modeText.noOwner", g)}
+          sub={
+            ownerRole
+              ? t("editors.modeText.ownerRole", { ...g, role: ownerRole.name })
+              : owner
+                ? t("editors.modeText.owner", { ...g, owner })
+                : t("editors.modeText.noOwner", g)
+          }
           subLines={0}
           checked={draft.mode === "owner"}
           onPress={() => pick("owner")}
@@ -209,7 +221,11 @@ function EditorsForm({ agent }: { agent: Agent }) {
       </GroupedList>
       {draft.mode === "people" ? (
         <>
-          {owner ? <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter> : null}
+          {ownerRole ? (
+            <GroupedFooter>{t("audience.ownerRoleAlways", { role: ownerRole.name })}</GroupedFooter>
+          ) : owner ? (
+            <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter>
+          ) : null}
           {/* A personal workspace's family picks people first (ADR 0159), as on the web. */}
           {personal ? peopleGroup : roleGroup}
           {personal ? roleGroup : peopleGroup}

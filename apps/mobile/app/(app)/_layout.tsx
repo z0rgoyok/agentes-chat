@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { NoticeIsland } from "@/features/island/NoticeIsland";
 import { noteWorkspaceOnScreen } from "@/features/links/on-screen";
+import { LiveActivityWork } from "@/features/live-activity/LiveActivityWork";
 import { ShareInbox } from "@/features/share/ShareInbox";
 import { useConnection, useRememberAgentLooks } from "@/features/shared/hooks";
 import { useAppIconBadge } from "@/features/shared/queries";
@@ -42,6 +43,8 @@ export default function AppLayout() {
     <>
       <AppSheets />
       <AppWork />
+      {/* The agents at work in the iPhone's Dynamic Island and on its Lock Screen (ADR 0210). */}
+      <LiveActivityWork />
       {/* What reaches me while the app is open, out of the camera's island (ADR 0071 §9). */}
       <NoticeIsland />
       {/* What other apps share through the system's share sheet opens "Compartilhar com…". */}
@@ -89,7 +92,6 @@ function AppSheets() {
       full: sheet([1]),
       newMessage: sheet([0.66, 1]),
       shareTo: sheet([0.72, 1]),
-      approval: sheet([0.64, 1]),
       switchComputer: sheet([0.8, 1]),
       computerSetup: sheet([0.7, 1]),
       workspaces: sheet([0.76, 1]),
@@ -108,8 +110,6 @@ function AppSheets() {
       {/* "New" over the tabs as the system's new message: two thirds at rest, the whole screen once typing. */}
       <Sheet.Screen name="new" options={o.newMessage} />
       <Sheet.Screen name="share-to" options={o.shareTo} />
-      {/* A request reads as grouped facts (its white groups on the sheet's gray), as the system's own sheets do. */}
-      <Sheet.Screen name="approval/[id]" options={o.approval} />
       <Sheet.Screen name="switch-computer/[machineId]" options={o.switchComputer} />
       <Sheet.Screen name="computer-setup" options={o.computerSetup} />
       {/* The workspaces as a sheet, from a long press on the workspace's mark in the bar (ADR 0154). */}

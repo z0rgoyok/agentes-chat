@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { AppNotification } from "../api/types";
+import type { AgentStatus, AppNotification } from "../api/types";
 import { namesText } from "./format";
 import { teamWatchOf } from "./notifications";
 
@@ -18,4 +18,14 @@ export function teamWatchLine(t: TFunction, n: Pick<AppNotification, "kind" | "c
     count: found.count,
     defaultValue: found.text,
   });
+}
+
+/** The agents whose work waits on their monthly budget now, as the agents' statuses say: the team-stalled line's. */
+export const budgetPausedIds = (statuses: Pick<AgentStatus, "agentId" | "budgetPaused">[] | undefined) =>
+  (statuses ?? []).filter((s) => s.budgetPaused).map((s) => s.agentId);
+
+/** The team-stalled line's sentence: who is out of budget, their names as a list in words. */
+export function budgetStalledText(t: TFunction, names: string[]) {
+  const say = t as unknown as (key: string, values: Record<string, unknown>) => string;
+  return say("notifications.teamWatch.budget_out", { names: namesText(t, names, 3), count: names.length });
 }

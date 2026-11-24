@@ -414,6 +414,8 @@ export function applyWorkspaceEvent(qc: QueryClient, orgId: string, event: { typ
   if (event.type === "agents.changed") {
     // Under `agents`: the former ones. The DMs name each agent as the server knows it.
     readList(qc, `${orgId}:agents`, { queryKey: keys.agents(orgId) });
+    // A new agent's face: the statuses' own poll waits minutes while the socket is open.
+    readList(qc, `${orgId}:status:agents`, { queryKey: keys.agentStatus(orgId) });
     readList(qc, `${orgId}:dms`, { queryKey: keys.dms(orgId) });
     readList(qc, `${orgId}:team`, { queryKey: keys.team(orgId) });
     readList(qc, `${orgId}:overview`, { queryKey: keys.overview(orgId) });

@@ -174,4 +174,62 @@ describe("a task's Anexos", () => {
     expect(within(files).getByRole("button", { name: "Abrir print.png" })).not.toBeNull();
     expect(files.querySelector(".ac-empty")).toBeNull();
   });
+
+  const shot = () => new File(["png"], "image.png", { type: "image/png" });
+  const uploads = (state: ReturnType<typeof seedState>) =>
+    state.calls.filter((call) => call.method === "artifacts.upload").map((call) => call.args[1]);
+
+  test("a print pasted on the tab, nothing focused, joins Anexos", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    await renderApp(`/org/${ORG_ID}/issues/131`, { api });
+    await settle(6);
+    const files = await openFiles();
+    await act(async () => fireEvent.paste(document.body, { clipboardData: { files: [shot()] } }));
+    await settle(6);
+    expect(uploads(state)).toEqual(["image.png"]);
+    const [file] = (await api.issues.get(ORG_ID, 131)).artifacts;
+    if (!file) throw new Error("The pasted file isn't on the task");
+    expect(within(files).getByRole("button", { name: `Abrir ${file.title}` })).not.toBeNull();
+    // On the tab already: no toast pointing there.
+    expect(screen().queryByRole("button", { name: "Ver anexos" })).toBeNull();
+  });
+
+  test("a print pasted in the description being edited goes to Anexos, the text stays as it was", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    await renderApp(`/org/${ORG_ID}/issues/131`, { api });
+    await settle(6);
+    await act(async () => fireEvent.click(screen().getByRole("button", { name: "Editar a descrição" })));
+    const text = screen().getByRole("textbox", { name: "Descrição" }) as HTMLTextAreaElement;
+    const before = text.value;
+    await act(async () => fireEvent.paste(text, { clipboardData: { files: [shot()] } }));
+    await settle(6);
+    expect(uploads(state)).toEqual(["image.png"]);
+    expect(text.value).toBe(before);
+    expect((await api.issues.get(ORG_ID, 131)).artifacts).toHaveLength(1);
+    expect(screen().getByRole("tab", { name: /Anexos/ }).textContent).toContain("1");
+    await act(async () => fireEvent.click(screen().getByRole("button", { name: "Ver anexos" })));
+    await settle(4);
+    expect(
+      screen()
+        .getByRole("tab", { name: /Anexos/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  test("× takes a file off the task, never to the trash", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    const t = await api.issues.get(ORG_ID, 131);
+    await api.issues.comment(ORG_ID, t.id, "", ["print.png"]);
+    await renderApp(`/org/${ORG_ID}/issues/131`, { api });
+    await settle(6);
+    const files = await openFiles();
+    await act(async () => fireEvent.click(within(files).getByRole("button", { name: "Tirar print.png da tarefa" })));
+    await settle(4);
+    expect(within(files).queryByRole("button", { name: "Abrir print.png" })).toBeNull();
+    expect((await api.issues.get(ORG_ID, 131)).artifacts).toEqual([]);
+    expect(state.calls.some((call) => call.method === "artifacts.remove")).toBe(false);
+  });
 });

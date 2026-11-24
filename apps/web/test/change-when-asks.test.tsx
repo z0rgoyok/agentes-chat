@@ -5,6 +5,7 @@ setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle, showIn } from "./render";
 
 /** "Mudar quando perguntar" on a waiting approval, and Settings → Aprovações (ADR 0173, addendum 2026-11-15). */
@@ -116,14 +117,26 @@ describe("Mudar quando perguntar", () => {
     expect(card().querySelector(".rq__under")).toBeNull();
   });
 
-  test("on the approvals page: in the open request's decision bar", async () => {
-    const state = following();
-    await renderApp(`/org/${ORG_ID}/approvals`, { api: createFakeApi(state) });
+  test("in the inbox: under the open request's decision, as on its card in the conversation", async () => {
+    const state = following(
+      seedState({
+        notifications: [
+          notification({
+            id: "n-merge",
+            kind: "approval",
+            waiting: true,
+            actors: [{ type: "agent", id: ADA_ID }],
+            source: { approvalId: "ap-merge", channelId: ENG_ID },
+          }),
+        ],
+      }),
+    );
+    await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(4);
-    const row = document.querySelector('.ap-li[data-id="ap-merge"]') as HTMLElement;
-    await click(row);
-    const bar = document.querySelector(".ap-bar--acts") as HTMLElement;
-    const dialog = await openChoices(bar);
+    const open = document.querySelector(".ib-read .rq") as HTMLElement;
+    expect(open.querySelector("[data-approve]")?.getAttribute("data-approve")).toBe("ap-merge");
+    expect(within(open).getByRole("button", { name: "Mudar quando perguntar" }).closest(".rq__under")).toBeTruthy();
+    const dialog = await openChoices(open);
     await click(within(dialog).getByRole("radio", { name: /Sempre perguntar/ }));
     expect(calls(state, "agents.update")).toEqual([[ORG_ID, ADA_ID, { approvalsLevel: "always" }]]);
   });

@@ -20,6 +20,7 @@ import {
   createOrganization,
   type DeletionDeps,
   deriveSecret,
+  emailConfirmation,
   getOrganization,
   HOST_LOGO_PATH,
   hasPassword,
@@ -172,6 +173,10 @@ const Me = z
       emailVerified: z.boolean().openapi({
         description: "The person opened the link that confirms their email address.",
       }),
+      emailConfirmation: z.enum(["required", "reminder"]).nullable().openapi({
+        description:
+          "On a server that sends email, an address never confirmed (ADR 0006, addendum 2026-11-22): `required` while the account is in no workspace, which then makes none (403 `org.create_unconfirmed`) until the link is opened, so the apps show only “check your inbox”; `reminder` for one already in a workspace, which keeps working under a line that asks for it. Null otherwise.",
+      }),
       confirmsOnThisMac: z.boolean().openapi({
         description:
           "A sign-in in the last 10 minutes is their proof before a deletion, with no password or code: the installation's owner on the desktop app's own server (an owner key, no email), whom the app signs in again with Continue on this Mac.",
@@ -251,6 +256,11 @@ export function accountRoutes(deps: AppDeps) {
         image: account.image,
         hasPassword: password,
         emailVerified: verified,
+        emailConfirmation: emailConfirmation({
+          emailDelivers: deps.adapters.email.delivers === true,
+          verified,
+          workspaces: memberships.length,
+        }),
         confirmsOnThisMac: onThisMac,
         locale: account.locale,
         localeAuto: account.localeAuto,
@@ -278,6 +288,7 @@ export function accountRoutes(deps: AppDeps) {
           accent: m.orgAccent ?? null,
           ...(m.orgCreatedAt ? { createdAt: m.orgCreatedAt.toISOString() } : {}),
           ...(m.start ? { start: m.start } : {}),
+          ...(m.paysPlan ? { paysPlan: true as const } : {}),
           showActivity: m.showActivity ?? false,
           agentStyle: m.agentStyle ?? null,
           chatPrefs: m.chatPrefs ?? {},
@@ -1109,7 +1120,7 @@ export function accountRoutes(deps: AppDeps) {
       security,
       summary: "Change your account's email address",
       description:
-        "The same account under `newEmail` (ADR 0088 §2, addendum 2026-11-13), the only way to change it: Better Auth's `/api/auth/change-email` is off. Refused for the address it has (400 `email.same`) and for one another account just left (409 `email.held`, held 7 days for its “This wasn't me”). On a server that sends email it takes the 6-digit `code` emailed to the account's current address for this new one, with every emailed code's rules (`reauth.code_wrong`, `reauth.code_expired`, `reauth.code_tries`, 429 `reauth.code_wait` with `retryIn` and `reauth.code_limit`), or a sign-in in the last 10 minutes instead. Without either it emails that code and answers 202 `code`, except to an address the account never confirmed, which gets no code (403 `reauth.sign_in`: a fresh sign-in is the proof there). With the proof, 200 `sent`: a link goes to `newEmail` and the address changes once it is opened, when the old one, only if the account had confirmed it, gets a notice with “This wasn't me” (`POST /email-undo`). 5 links an hour and 10 a day per account (429 `rate_limited`). On a server that sends no email, 200 `changed` at once, as an unconfirmed address only (409 `email.no_mail` for a confirmed one, 409 `email.taken` when another account has it).",
+        "The same account under `newEmail` (ADR 0088 §2, addendum 2026-11-13), the only way to change it: Better Auth's `/api/auth/change-email` is off. Refused for the address it has (400 `email.same`) and for one another account just left (409 `email.held`, held 7 days for its “This wasn't me”). On a server that sends email it takes the 6-digit `code` emailed to the account's current address for this new one, with every emailed code's rules (`reauth.code_wrong`, `reauth.code_expired`, `reauth.code_tries`, 429 `reauth.code_wait` with `retryIn` and `reauth.code_limit`), or a sign-in in the last 10 minutes instead. Without either it emails that code and answers 202 `code`, except to an address the account never confirmed, which gets no code (403 `reauth.sign_in`: a fresh sign-in is the proof there). With the proof, 200 `sent`: a link goes to `newEmail` and the address changes once it is opened, when the old one, only if the account had confirmed it, gets a notice with “This wasn't me” (`POST /email-undo`). An address never confirmed changes at once instead (200 `changed`, 409 `email.taken` when another account has it), and the link that confirms it goes to the new one. 5 links an hour and 10 a day per account (429 `rate_limited`). On a server that sends no email, 200 `changed` at once, as an unconfirmed address only (409 `email.no_mail` for a confirmed one, 409 `email.taken` when another account has it).",
       request: {
         body: body(
           z.object({
@@ -1477,7 +1488,7 @@ export function accountRoutes(deps: AppDeps) {
       security,
       summary: "Create an organization (you become its owner)",
       description:
-        "Its owner sets it up in the onboarding, already past its first step (`onboarding` in `GET /me` until `PATCH …/onboarding` says it's finished, or `finished` here). While they have one they haven't finished, that one comes back (200) instead of a new one, so a stale tab or a second press makes no other, even one waiting for its first plan; `timezone`, `memberTimezone` and `finished` apply to it as they would to a new one. The answer says where it opens (`rightHandId`) and carries `GET /me` as it is now, so an app opens it without asking again. 403 `org.create_refused` while your account is blocked or you are in a workspace suspended or on a hold the billing service didn't set; 403 `org.create_unpaid` (`params.orgId`) while you own a workspace waiting for its first plan; 403 `org.create_invite_only` on agentes.chat Cloud while sign-up is by invitation, unless early access allowed the person's account and its address is confirmed (ADR 0078). With BILLING_HOLD_NEW_WORKSPACES it starts on the `payment` hold (ADR 0079). 429 after 10 tries in a day; 401 once your account is deleted.",
+        "Its owner sets it up in the onboarding, already past its first step (`onboarding` in `GET /me` until `PATCH …/onboarding` says it's finished, or `finished` here). While they have one they haven't finished, that one comes back (200) instead of a new one, so a stale tab or a second press makes no other, even one waiting for its first plan; `timezone`, `memberTimezone` and `finished` apply to it as they would to a new one. The answer says where it opens (`rightHandId`) and carries `GET /me` as it is now, so an app opens it without asking again. 403 `org.create_refused` while your account is blocked or you are in a workspace suspended or on a hold the billing service didn't set; 403 `org.create_unpaid` (`params.orgId`) while you own a workspace waiting for its first plan; 403 `org.create_invite_only` on agentes.chat Cloud while sign-up is by invitation, unless early access allowed the person's account and its address is confirmed (ADR 0078). 403 `org.create_unconfirmed` on a server that sends email, for an account in no workspace whose address was never confirmed (`emailConfirmation` `required` in `GET /me`, ADR 0006). With BILLING_HOLD_NEW_WORKSPACES it starts on the `payment` hold (ADR 0079). 429 after 10 tries in a day; 401 once your account is deleted.",
       request: {
         body: body(
           z.object({
@@ -1510,6 +1521,16 @@ export function accountRoutes(deps: AppDeps) {
       const { teamSize, timezone, memberTimezone, finished, ...input } = c.req.valid("json");
       const user = c.get("user");
       const userId = user.id;
+      if (deps.adapters.email.delivers === true) {
+        const [verified, memberships] = await Promise.all([isEmailVerified(db, userId), listMemberships(db, userId)]);
+        const asked = emailConfirmation({
+          emailDelivers: true,
+          verified: verified === true,
+          workspaces: memberships.length,
+        });
+        if (asked === "required")
+          return apiError(c, 403, "org.create_unconfirmed", "Open the link we sent to your email first.");
+      }
       if (!(await deps.adapters.rateLimiter.consume(`new-workspace:${userId}`, WORKSPACES_PER_DAY)).allowed) {
         return apiError(c, 429, "rate_limited", "Too many new workspaces today. Try again tomorrow.");
       }

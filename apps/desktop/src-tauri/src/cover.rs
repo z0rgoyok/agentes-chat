@@ -13,7 +13,6 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use std::io::Write;
 use std::path::PathBuf;
 
 use tauri::window::Color;
@@ -248,7 +247,7 @@ fn pending_path(app: &AppHandle) -> Option<PathBuf> {
 pub fn opening(app: &AppHandle) {
     let Some(path) = pending_path(app) else { return };
     if path.exists() {
-        note(app, "the last opening never painted: clearing the web cache");
+        crate::health::note(app, "the last opening never painted: clearing the web cache");
         let handle = app.clone();
         clear_http_cache(app, move || load_again(&handle));
     }
@@ -262,19 +261,6 @@ pub fn opening(app: &AppHandle) {
 fn load_again(app: &AppHandle) {
     if let (Some(page), Some(site)) = (app.get_webview(main_window::LABEL), main_window::site(app)) {
         let _ = page.navigate(site);
-    }
-}
-
-/// One line in the window's log: what the cover did to bring a stuck page back, to learn why it got stuck.
-fn note(app: &AppHandle, what: &str) {
-    let Ok(dir) = app.path().app_log_dir() else { return };
-    let _ = std::fs::create_dir_all(&dir);
-    let at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or_default();
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("window.log")) {
-        let _ = writeln!(file, "{at} {} {what}", app.package_info().version);
     }
 }
 
@@ -337,7 +323,7 @@ pub fn cover_retry(
     let site = main_window::site(&app).ok_or("no server chosen")?;
     if let Some(why) = why.as_deref().filter(|w| w.len() <= 80) {
         let how = if fresh == Some(true) { " with the web cache cleared" } else { "" };
-        note(&app, &format!("{why}: loading again{how}"));
+        crate::health::note(&app, &format!("{why}: loading again{how}"));
     }
     if fresh == Some(true) {
         let handle = app.clone();
@@ -357,20 +343,24 @@ pub fn cover_server(app: AppHandle, webview: tauri::Webview) -> Result<Option<St
 }
 
 /// The cover's Copy details over a server other than the one here: the window's own story (the app's version, the
-/// server it opens, what the cover did, from `window.log`), never the server here's.
+/// server it opens, what the cover did, from `window.log`), never the server here's. Async: it reads files.
 #[tauri::command]
-pub fn cover_details(app: AppHandle, webview: tauri::Webview) -> Result<String, String> {
+pub async fn cover_details(app: AppHandle, webview: tauri::Webview) -> Result<String, String> {
     if webview.label() != LABEL {
         return Err("only the cover asks this".into());
     }
-    let server = main_window::site(&app).map(|s| s.origin().ascii_serialization()).unwrap_or_default();
-    let log = app
-        .path()
-        .app_log_dir()
-        .ok()
-        .and_then(|d| std::fs::read_to_string(d.join("window.log")).ok())
-        .unwrap_or_default();
-    Ok(window_details(&crate::graphics::details(&app), &server, &log))
+    tauri::async_runtime::spawn_blocking(move || {
+        let server = main_window::site(&app).map(|s| s.origin().ascii_serialization()).unwrap_or_default();
+        let log = app
+            .path()
+            .app_log_dir()
+            .ok()
+            .and_then(|d| std::fs::read_to_string(d.join(crate::health::FILE)).ok())
+            .unwrap_or_default();
+        window_details(&crate::graphics::details(&app), &server, &log)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// What the window's Copy details says: the system details line, the server, the last lines of `window.log`.
@@ -386,7 +376,7 @@ pub fn cover_hide(app: AppHandle, webview: tauri::Webview) -> Result<(), String>
     if webview.label() != LABEL {
         return Err("only the cover asks this".into());
     }
-    note(&app, "the page never painted: shown as it is, by hand");
+    crate::health::note(&app, "the page never painted: shown as it is, by hand");
     hide(&app);
     Ok(())
 }

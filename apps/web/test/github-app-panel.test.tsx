@@ -6,7 +6,7 @@ setupDom();
 import type { Connection, GitHubAppInstallation, GitHubAppSetup } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { setNavigateAway } from "@/lib/navigate";
-import { rowMenu } from "./catalog";
+import { backToList, connectedNames, connectionLine, openConnection, openStore, pick, rowMenu } from "./catalog";
 import { createFakeApi, type FakeState, meAsAdmin, meWithRole, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
@@ -129,13 +129,17 @@ describe("Conectores › GitHub with the agentes.chat app", () => {
       githubApp: { installable: true, installations: [ACME, OCTO] },
     });
     await go(state);
-    const conectores = screen().getByRole("region", { name: "Conectores" });
-    expect(conectores.textContent).toContain("Pelo app agentes.chat em acme e octo-labs");
-    expect(conectores.textContent).not.toContain("Conectado como");
+    // Its page: the accounts the app is on take the Account line, which has no Reconnect (nothing to sign in again).
+    const page = await openConnection("GitHub");
+    expect(page.textContent).toContain("Pelo app agentes.chat em acme e octo-labs");
+    expect(page.textContent).not.toContain("Conectado como");
+    expect(within(page).queryByRole("button", { name: "Reconectar GitHub" })).toBeNull();
+    await backToList();
     const menu = await rowMenu("GitHub");
     expect(within(menu).queryByRole("menuitem", { name: "Reconectar" })).toBeNull();
     await act(async () => fireEvent.keyDown(menu, { key: "Escape" }));
     await settle(2);
+    await backToList();
     await click(within(panel()).getByRole("button", { name: "Conectar uma conta do GitHub" }));
     await settle(2);
     const flow = screen().getByRole("dialog", { name: "Conectar GitHub" });
@@ -155,13 +159,14 @@ describe("Conectores › GitHub with the agentes.chat app", () => {
 
   test("Desconectar says what happens to the app: the app alone is uninstalled, an account goes and the app stays", async () => {
     await go(seedState({ connections: [appOnly("acme")], githubApp: { installable: true, installations: [ACME] } }));
-    await click(within(await rowMenu("GitHub")).getByRole("menuitem", { name: "Desconectar" }));
+    // Disconnect is the last link of the connection's page.
+    await click(within(await openConnection("GitHub")).getByRole("button", { name: "Desconectar GitHub" }));
     expect(screen().getByRole("dialog", { name: "Desconectar GitHub?" }).textContent).toContain(
       "O app agentes.chat também é desinstalado de acme no GitHub.",
     );
     cleanup();
     const { state } = await go(seedState({ githubApp: { installable: true, installations: [ACME, OCTO] } }));
-    await click(within(await rowMenu("GitHub")).getByRole("menuitem", { name: "Desconectar" }));
+    await click(within(await openConnection("GitHub")).getByRole("button", { name: "Desconectar GitHub" }));
     const ask = screen().getByRole("dialog", { name: "Desconectar GitHub?" });
     expect(ask.textContent).toContain("Os agentes continuam no GitHub pelo app agentes.chat em acme e octo-labs.");
     await click(within(ask).getByRole("button", { name: "Desconectar" }));
@@ -176,7 +181,7 @@ describe("Conectores › GitHub with the agentes.chat app", () => {
     await go(admin);
     expect(panel().textContent).toContain("O dono deste servidor pode criar o app do GitHub aqui em Conectores.");
     expect(within(panel()).queryByRole("button", { name: /Instalar/ })).toBeNull();
-    expect(screen().queryByRole("region", { name: "App do GitHub deste servidor" })).toBeNull();
+    expect(connectedNames()).not.toContain("App do GitHub deste servidor");
     cleanup();
     const member = seedState({ githubApp: { installable: false, installations: [], ownerCreates: true } });
     meWithRole(member, []);
@@ -186,14 +191,10 @@ describe("Conectores › GitHub with the agentes.chat app", () => {
 });
 
 describe("Conectar GitHub: the agentes.chat app first", () => {
+  /** Browse connectors, then GitHub's own Connect in the store. */
   const connect = async (state: FakeState) => {
     const r = await go(state);
-    await click(screen().getAllByRole("button", { name: "Adicionar conector" })[0] as HTMLElement);
-    const add = screen().getByRole("dialog", { name: "Adicionar conector" });
-    await click(within(add).getByRole("button", { name: "GitHub" }));
-    await click(
-      within(screen().getByRole("dialog", { name: "GitHub" })).getByRole("button", { name: "Conectar GitHub" }),
-    );
+    await pick(await openStore(), "GitHub");
     await settle(4);
     return { ...r, flow: screen().getByRole("dialog", { name: "Conectar GitHub" }) };
   };
@@ -238,25 +239,34 @@ describe("Conectar GitHub: the agentes.chat app first", () => {
 });
 
 describe("Conectores › App do GitHub deste servidor (its owner, off agentes.chat)", () => {
-  const card = () => screen().getByRole("region", { name: "App do GitHub deste servidor" });
+  const NAME = "App do GitHub deste servidor";
 
-  test("none yet: Criar o app no GitHub opens this server's page that sends GitHub the manifest", async () => {
+  test("none yet: a line that needs the owner, and Create the app on GitHub opens this server's page that sends GitHub the manifest", async () => {
     const left: string[] = [];
     setNavigateAway((url) => left.push(url));
     const { state } = await go(seedState({ githubApp: { installable: false, installations: [], setup: NO_APP } }));
-    expect(card().textContent).toContain("Desligado");
-    expect(card().textContent).toContain(
-      "O GitHub cria o app na sua conta com tudo preenchido e volta para cá. Para ele ficar numa organização, transfira depois no GitHub.",
+    const line = connectionLine(NAME);
+    expect(line.textContent).toContain("Falta criar o app do servidor");
+    expect(line.textContent).toContain(
+      "Com ele, os agentes aparecem no GitHub como o app, não como a conta de alguém.",
     );
+    // What needs a person comes first in the list.
+    expect(connectedNames()[0]).toBe(NAME);
     // The owner makes it: the admins' hint isn't for them, and nothing can be installed yet.
     expect(screen().queryByRole("region", { name: "Repositórios do GitHub" })).toBeNull();
-    await click(within(card()).getByRole("button", { name: "Criar o app no GitHub" }));
+    // Its page says how GitHub makes it.
+    const page = await openConnection(NAME);
+    expect(page.textContent).toContain(
+      "O GitHub cria o app na sua conta com tudo preenchido e volta para cá. Para ele ficar numa organização, transfira depois no GitHub.",
+    );
+    await backToList();
+    await click(within(connectionLine(NAME)).getByRole("button", { name: "Criar o app no GitHub" }));
     await settle(4);
     expect(state.calls.find((c) => c.method === "githubApp.startManifest")?.args).toEqual([CONNECTORS]);
     expect(left).toEqual(["https://chat.example.com/api/app/github-app/manifest/start?state=s"]);
   });
 
-  test("made here: its name and page, and Remover o app after asking", async () => {
+  test("made here: a quiet line with its name; its page has its link on GitHub, and Remove the app after asking", async () => {
     const setup: GitHubAppSetup = {
       source: "settings",
       slug: "agentes-chat-example",
@@ -265,30 +275,46 @@ describe("Conectores › App do GitHub deste servidor (its owner, off agentes.ch
       canCreate: false,
     };
     const { state } = await go(seedState({ githubApp: { installable: true, installations: [], setup } }));
-    expect(card().textContent).toContain("Ligado");
-    expect(card().textContent).toContain("agentes-chat-example");
-    expect(within(card()).getByRole("link", { name: "Abrir no GitHub" }).getAttribute("href")).toBe(setup.htmlUrl);
-    await click(within(card()).getByRole("button", { name: "Remover o app" }));
+    const line = connectionLine(NAME);
+    expect(line.textContent).toContain("agentes-chat-example");
+    // Nothing needs the owner: no state and no button on the line.
+    expect(line.querySelector(".store-state")).toBeNull();
+    expect(
+      within(line)
+        .queryAllByRole("button")
+        .map((b) => b.className),
+    ).not.toContain("ac-btn--primary");
+    const page = await openConnection(NAME);
+    expect(page.textContent).toContain("Conectado");
+    expect(page.textContent).toContain("agentes-chat-example");
+    expect(within(page).getByRole("link", { name: "Abrir no GitHub" }).getAttribute("href")).toBe(setup.htmlUrl);
+    await click(within(page).getByRole("button", { name: "Remover o app" }));
     const ask = screen().getByRole("dialog", { name: "Remover o app do GitHub deste servidor?" });
     expect(ask.textContent).toContain("Todos os workspaces daqui deixam de alcançar o GitHub por ele na hora.");
     await click(within(ask).getByRole("button", { name: "Remover o app" }));
     await settle(6);
     expect(state.calls.some((c) => c.method === "githubApp.removeSettings")).toBe(true);
     expect(toasts()).toContain("App do GitHub removido deste servidor.");
-    expect(within(card()).getByRole("button", { name: "Criar o app no GitHub" })).toBeTruthy();
+    // Gone from the server: the page says it is missing again, with the way to create it.
+    const after = document.querySelector(".store-page") as HTMLElement;
+    expect(after.textContent).toContain("Falta criar o app do servidor");
+    expect(within(after).getAllByRole("button", { name: "Criar o app no GitHub" }).length).toBeGreaterThan(0);
   });
 
   test("from the server's settings: said where, nothing to change here; one it can't open says the way out", async () => {
     const env: GitHubAppSetup = { source: "env", slug: "agentes-chat", htmlUrl: null, state: "ok", canCreate: false };
     await go(seedState({ githubApp: { installable: true, installations: [], setup: env } }));
-    expect(card().textContent).toContain("Definido nas configurações deste servidor (GITHUB_APP_ID).");
-    expect(within(card()).queryByRole("button")).toBeNull();
+    const page = await openConnection(NAME);
+    expect(page.textContent).toContain("Definido nas configurações deste servidor (GITHUB_APP_ID).");
+    expect(within(page).queryByRole("button", { name: "Remover o app" })).toBeNull();
+    expect(within(page).queryByRole("link")).toBeNull();
     cleanup();
     const broken: GitHubAppSetup = { ...env, source: "settings", slug: "agentes-chat-example", state: "invalid" };
     await go(seedState({ githubApp: { installable: false, installations: [], setup: broken } }));
-    expect(card().textContent).toContain("Inválido");
-    expect(card().textContent).toContain("Este servidor não consegue abrir o app salvo. Remova e crie de novo.");
-    expect(within(card()).getByRole("button", { name: "Remover o app" })).toBeTruthy();
+    expect(connectionLine(NAME).textContent).toContain("Inválido");
+    const brokenPage = await openConnection(NAME);
+    expect(brokenPage.textContent).toContain("Este servidor não consegue abrir o app salvo. Remova e crie de novo.");
+    expect(within(brokenPage).getByRole("button", { name: "Remover o app" })).toBeTruthy();
   });
 });
 
@@ -320,9 +346,7 @@ describe("worst case (break-ui)", () => {
     );
     expect(within(panel()).getAllByRole("link", { name: /^Gerenciar / })).toHaveLength(12);
     expect(panel().textContent).toContain("Suspenso no GitHub");
-    expect(screen().getByRole("region", { name: "App do GitHub deste servidor" }).textContent).toContain(
-      "agentes-chat-a-very-long-host-name",
-    );
+    expect(connectionLine("App do GitHub deste servidor").textContent).toContain("agentes-chat-a-very-long-host-name");
     cleanup();
     // The account line with a long login.
     const state = seedState({ githubApp: { installable: true, installations: [] } });

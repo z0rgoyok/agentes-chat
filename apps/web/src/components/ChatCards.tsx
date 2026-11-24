@@ -1,11 +1,5 @@
 import type { AgentQuestion, MemoryUpdate, Proposal, SecretRequest, SecretToVaultInput } from "@agenteschat/client";
-import {
-  useCardProposals,
-  useDecideProposal,
-  useDecideProposals,
-  useModelLabel,
-  useSaveSecretToVault,
-} from "@agenteschat/client";
+import { useCardProposals, useModelLabel, useSaveSecretToVault, useUndoProposal } from "@agenteschat/client";
 import { questionWaitsOn } from "@agenteschat/client/lib/agent-questions";
 import { formatTime, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -14,20 +8,14 @@ import { messagePath } from "@agenteschat/client/lib/message-links";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   appLabel,
-  cardDecidedBy,
   cardHead,
-  cardOutcome,
   cardProposalIds,
-  chosenRows,
   firstChange,
-  isOpen,
   proposalSections,
   proposalTarget,
   proposalTitle,
   proposerOf,
-  rowStatus,
   settingLineText,
-  staleCount,
 } from "@agenteschat/client/lib/proposals";
 import { sealSecret, secretAad } from "@agenteschat/client/lib/secret-box";
 import {
@@ -39,7 +27,7 @@ import {
   secretWhere,
 } from "@agenteschat/client/lib/secret-requests";
 import { secretEndedAt, secretOutcome } from "@agenteschat/client/lib/secret-words";
-import { Button, Chip, CodeInput, diffLines, Field, Icon, Input, overLimit, Switch, Textarea } from "@agenteschat/ui";
+import { Button, Chip, CodeInput, diffLines, Icon, Input, overLimit, Textarea } from "@agenteschat/ui";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
@@ -176,42 +164,100 @@ export function SettingChange({ p }: { p: Proposal }) {
 }
 
 export const isText = (p: Proposal) => p.target.type === "agent_instructions" || p.target.type === "org_context";
-/** What shows a diff: a text, or a skill's, which is taken as proposed (it has no Editar). */
+/** What shows a diff: a text, or a skill's. */
 const hasDiff = (p: Proposal) => isText(p) || p.target.type === "skill";
 
+/** Still being weighed by the agent's review (ADR 0219): nothing is applied yet, for a few seconds. */
+export const isReviewing = (p: Pick<Proposal, "status" | "stale">) => p.status === "pending" && !p.stale;
+
 /**
- * A proposal the agent made in the chat (`message.meta.proposalId`, or a card of one): the Propostas diff with
- * Aceitar / Editar / Recusar; a role or an app is taken as proposed, so it has no Editar.
+ * How a proposal ended, in words (ADR 0219): the agent's review applied it ("Applied by Ada", or automatically for a
+ * workspace-wide lesson no agent holds) or left it out, someone put it back, or a person decided it. While the review
+ * weighs it, "Reviewing…".
+ */
+export function proposalOutcome(t: TFunction, p: Proposal, meId: string): string {
+  if (p.stale) return t("proposals.stale");
+  if (p.status === "pending") return t("proposals.reviewing");
+  if (p.status === "undone") {
+    if (!p.undoneBy) return t("rightHand.card.undone");
+    return p.undoneBy.userId === meId ? t("proposals.undoneByYou") : t("proposals.undoneBy", { name: p.undoneBy.name });
+  }
+  const agent = p.decidedByAgent ? p.decidedByAgent.name || t("channel.unknownAgent") : null;
+  if (p.reviewed) {
+    if (p.status === "accepted")
+      return agent ? t("proposals.appliedByAgent", agentGrammar(agent)) : t("proposals.appliedAuto");
+    return agent ? t("proposals.leftOutBy", agentGrammar(agent)) : t("proposals.leftOut");
+  }
+  const by = p.decidedBy;
+  if (!by) return t(p.status === "accepted" ? "proposals.accepted" : "proposals.refused");
+  const mine = by.userId === meId;
+  if (p.status === "accepted")
+    return mine ? t("rightHand.card.appliedByYou") : t("rightHand.card.appliedBy", { name: by.name });
+  return mine ? t("rightHand.card.declinedByYou") : t("rightHand.card.declinedBy", { name: by.name });
+}
+
+/** A card's rows in one line: how they ended when they all read the same, else how many were applied. */
+export function proposalsOutcome(t: TFunction, rows: Proposal[], meId: string): string {
+  const words = [...new Set(rows.map((p) => proposalOutcome(t, p, meId)))];
+  if (words.length === 1 && words[0]) return words[0];
+  const done = rows.filter((p) => p.status === "accepted" && !p.stale).length;
+  return t("proposals.appliedSome", { done, total: rows.length });
+}
+
+/** When it ended: put back, else decided. */
+export const proposalEndedAt = (p: Pick<Proposal, "undoneAt" | "decidedAt">) => p.undoneAt ?? p.decidedAt;
+
+/**
+ * "Undo" on a change that was applied (ADR 0219), for whoever may make that change: put back as them, the row then
+ * reads undone. A failure (it changed since) is the app's toast in their words. Nothing when it can't be undone.
+ */
+export function ProposalUndo({
+  p,
+  variant = "ghost",
+  className,
+}: {
+  p: Proposal;
+  variant?: "ghost" | "link";
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const undo = useUndoProposal(org.id);
+  if (!p.undoable) return null;
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      className={className}
+      loading={undo.isPending}
+      onClick={() => undo.mutate(p.id)}
+    >
+      {t("proposals.undo")}
+    </Button>
+  );
+}
+
+/**
+ * A change an agent proposed in the chat (`message.meta.proposalId`, or a card of one), and how it ended: nobody
+ * decides it here (ADR 0219). While the agent's review weighs it the header says so; then the footer says whether it
+ * was applied or left out, and why, with Undo while it may be put back. The change is behind "See the change".
  */
 export function InlineProposal({ proposalId }: { proposalId: string }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const [p] = useCardProposals(org.id, [proposalId]);
-  const decide = useDecideProposal(org.id);
-  const toast = useToast();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<string | null>(null);
   if (!p) return null;
   const agentName = (id: string) => dir.anyAgent(id)?.name ?? t("channel.unknownAgent");
   const name = agentName(proposerOf(p));
   const target = proposalTarget(t, p, agentName, org);
-  const text = draft ?? p.after;
-  const pending = p.status === "pending" && !p.stale;
-  const onError = (e: unknown) =>
-    toast.show(
-      e instanceof Error && "status" in e && e.status === 409
-        ? t(isText(p) ? "proposals.staleError" : "proposals.staleErrorAgent")
-        : t("common.unknownError"),
-      "error",
-    );
-  const edited = draft !== null && draft !== p.after;
+  const reviewing = isReviewing(p);
   const diff = (
-    <ProseDiff label={t("proposals.changeLabel")} lines={diffLines(p.before.split("\n"), text.split("\n"))} />
+    <ProseDiff label={t("proposals.changeLabel")} lines={diffLines(p.before.split("\n"), p.after.split("\n"))} />
   );
 
-  // A request card, the change behind "Ver a mudança" (a text is edited there before accepting). Decided, or
-  // overtaken by a newer text, it is the same card: how it ended where its buttons were.
+  // A request card, the change behind "See the change". Decided, or overtaken by a newer text, it is the same card: how
+  // it ended in its footer.
   const before = new Set(p.before.split("\n"));
   const firstNew = hasDiff(p)
     ? p.after
@@ -225,9 +271,9 @@ export function InlineProposal({ proposalId }: { proposalId: string }) {
       kind="proposal"
       agent={dir.anyAgent(proposerOf(p))}
       label={t("inlineProposal.group", { name })}
-      mine={p.canDecide}
-      waitingFor={rowStatus(t, p) ?? undefined}
-      answer={pending ? undefined : proposalAnswer(t, i18n.language, [p], me.user.id)}
+      mine={false}
+      waitingFor={reviewing ? t("proposals.reviewing") : undefined}
+      answer={reviewing ? undefined : proposalAnswer(t, i18n.language, [p], me.user.id)}
       lead={proposalTitle(t, p, org, agentName)}
       object={{
         logo: (
@@ -242,19 +288,8 @@ export function InlineProposal({ proposalId }: { proposalId: string }) {
       details={
         hasDiff(p) ? (
           <>
-            {editing && pending ? (
-              <Field label={t("proposals.finalText")} id={`inline-prop-${p.id}`}>
-                <Textarea rows={6} value={text} onChange={(e) => setDraft(e.target.value)} />
-              </Field>
-            ) : (
-              diff
-            )}
+            {diff}
             <div className="ac-acts">
-              {pending && p.canDecide && isText(p) && (
-                <Button variant="ghost" size="sm" onClick={() => setEditing((v) => !v)}>
-                  {editing ? t("proposals.viewDiff") : t("inlineProposal.edit")}
-                </Button>
-              )}
               <ProposalsLink agentId={p.agentId} />
             </div>
           </>
@@ -268,51 +303,28 @@ export function InlineProposal({ proposalId }: { proposalId: string }) {
           </div>
         ) : undefined
       }
-      actions={
-        pending && p.canDecide ? (
-          <>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={decide.isPending || (isText(p) && !text.trim())}
-              loading={decide.isPending && decide.variables?.decision === "accept"}
-              onClick={() =>
-                decide.mutate(
-                  { id: p.id, decision: "accept", text: edited ? (draft ?? undefined) : undefined },
-                  { onError },
-                )
-              }
-            >
-              {edited ? t("proposals.acceptEdited") : t("proposals.accept")}
-            </Button>
-            <Button
-              size="sm"
-              disabled={decide.isPending}
-              loading={decide.isPending && decide.variables?.decision === "refuse"}
-              onClick={() => decide.mutate({ id: p.id, decision: "refuse" }, { onError })}
-            >
-              {t("proposals.refuse")}
-            </Button>
-          </>
-        ) : undefined
-      }
       what={target}
-      locked={decide.isPending}
     />
   );
 }
 
-/** How a card of proposals ended, for its footer: who decided it, and when the last row was decided. */
+/**
+ * How a card of proposals ended, for its footer: how its rows ended, when the last one did and, for a card of one, the
+ * review's why under it and Undo (a card of several says those on each row).
+ */
 function proposalAnswer(t: TFunction, locale: string, rows: Proposal[], meId: string): RequestAnswer {
   // A row overtaken by a newer text was never decided.
   const at = rows
-    .flatMap((p) => p.decidedAt ?? [])
+    .flatMap((p) => proposalEndedAt(p) ?? [])
     .sort()
     .at(-1);
+  const only = rows.length === 1 ? rows[0] : undefined;
   return {
-    done: cardOutcome(t, rows).accepted,
-    text: cardDecidedBy(t, rows, meId),
+    done: rows.some((p) => p.status === "accepted" && !p.stale),
+    text: proposalsOutcome(t, rows, meId),
+    note: only?.review ?? undefined,
     time: at ? whenAt(t, locale, at) : undefined,
+    action: only ? <ProposalUndo p={only} /> : undefined,
   };
 }
 
@@ -329,46 +341,21 @@ function ProposalsLink({ agentId }: { agentId: string }) {
 }
 
 /**
- * One change proposed for several agents (or several changes for one): each change shown once, then a row per
- * agent and kind of change with its switch, and "Aceitar para todos" / "Aceitar para N" and Recusar on the rows
- * the viewer may decide and left on. Each row applies on its own, so one that went stale never stops the rest.
+ * One change proposed for several agents (or several changes for one): each change shown once, then a row per agent
+ * and kind of change saying how it ended (ADR 0219): while the agent's review weighs them, the header says so; then
+ * each row applied or left out, its why under it, and Undo on the ones that may be put back.
  */
 export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const rows = useCardProposals(org.id, proposalIds);
-  const decide = useDecideProposals(org.id);
-  const toast = useToast();
-  const [off, setOff] = useState<ReadonlySet<string>>(new Set());
   const [first] = rows;
   if (!first) return null;
   const agentName = (id: string) => dir.anyAgent(id)?.name ?? t("channel.unknownAgent");
   const proposer = agentName(proposerOf(first));
   const head = cardHead(t, rows, proposer, agentName, org);
   const agents = new Set(rows.map((p) => p.agentId)).size;
-  const { chosen, all } = chosenRows(rows, off);
-  const decides = rows.some((p) => isOpen(p) && p.canDecide);
-  const toggle = (id: string, on: boolean) =>
-    setOff((prev) => {
-      const next = new Set(prev);
-      if (on) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const run = (decision: "accept" | "refuse") =>
-    decide.mutate(
-      { ids: chosen.map((p) => p.id), decision },
-      {
-        onSuccess: ({ failed }) => {
-          const stale = staleCount(failed);
-          const agentRows = failed.some((f) => rows.find((p) => p.id === f.id && !isText(p)));
-          if (stale > 0)
-            toast.show(t(agentRows ? "proposals.staleSomeAgent" : "proposals.staleSome", { count: stale }), "error");
-          if (failed.length > stale) toast.show(t("common.unknownError"), "error");
-        },
-      },
-    );
 
   const label = t("inlineProposal.groupMany", { name: proposer, count: agents });
   const who = <Trans i18nKey={head.key} values={head.values} components={{ b: <b /> }} {...TYPED_VALUES} />;
@@ -376,7 +363,6 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
     <ul className="proposal-rows">
       {list.map((p) => {
         const name = p.target.type === "org_context" ? org.name : agentName(p.agentId);
-        const status = rowStatus(t, p);
         return (
           <li key={p.id} className="proposal-row ac-mediarow ac-mediarow--row">
             <span className="ac-mediarow__face">
@@ -390,19 +376,13 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
               <b className="proposal-row__name">{name}</b>
             </span>
             <span className="ac-mediarow__end">
-              {status && <span className="proposal-row__status">{status}</span>}
-              {isOpen(p) && (
-                <Switch
-                  checked={p.canDecide && !off.has(p.id)}
-                  disabled={!p.canDecide || decide.isPending}
-                  onCheckedChange={(on) => toggle(p.id, on)}
-                  aria-label={t("proposals.include", { name })}
-                />
-              )}
+              <span className="proposal-row__status">{proposalOutcome(t, p, me.user.id)}</span>
+              <ProposalUndo p={p} />
             </span>
-            {!isText(p) && (
+            {(!isText(p) || p.review) && (
               <span className="ac-mediarow__body">
-                <SettingChange p={p} />
+                {!isText(p) && <SettingChange p={p} />}
+                {p.review && <span className="proposal-change proposal-row__why">{p.review}</span>}
               </span>
             )}
           </li>
@@ -412,9 +392,9 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
   );
   const groups = proposalSections(rows);
 
-  // A request card like every other, the rows and their switches above its decision. Decided, the same card: each
-  // row says how it ended, and the footer who decided and when.
-  const waiting = rows.some(isOpen);
+  // A request card like every other, the rows under its change. Decided, the same card: each row says how it ended,
+  // and the footer how the card did and when.
+  const reviewing = rows.some(isReviewing);
   const tt = t as unknown as (key: string, options: Record<string, unknown>) => string;
   const texts = groups.flatMap((g) => (g.kind === "text" && g.lines.length > 0 ? [g] : []));
   const firstLine = firstChange(texts[0]?.lines);
@@ -424,8 +404,9 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
       kind="proposal"
       agent={dir.anyAgent(proposerOf(first))}
       label={label}
-      mine={decides}
-      answer={waiting ? undefined : proposalAnswer(t, i18n.language, rows, me.user.id)}
+      mine={false}
+      waitingFor={reviewing ? t("proposals.reviewing") : undefined}
+      answer={reviewing ? undefined : proposalAnswer(t, i18n.language, rows, me.user.id)}
       lead={who}
       object={
         firstLine
@@ -453,31 +434,7 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
         ) : undefined
       }
       body={rowList(groups.flatMap((g) => g.rows))}
-      actions={
-        waiting && decides ? (
-          <>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={decide.isPending || chosen.length === 0}
-              loading={decide.isPending && decide.variables?.decision === "accept"}
-              onClick={() => run("accept")}
-            >
-              {all ? t("proposals.acceptAll") : t("proposals.acceptSome", { count: chosen.length })}
-            </Button>
-            <Button
-              size="sm"
-              disabled={decide.isPending || chosen.length === 0}
-              loading={decide.isPending && decide.variables?.decision === "refuse"}
-              onClick={() => run("refuse")}
-            >
-              {t("proposals.refuse")}
-            </Button>
-          </>
-        ) : undefined
-      }
       what={tt(head.key, head.values).replace(/<\/?b>/g, "")}
-      locked={decide.isPending}
     />
   );
 }
@@ -505,27 +462,51 @@ export function QuestionCard({ question, asker }: { question: AgentQuestion; ask
   const reopen = useRef<HTMLButtonElement>(null);
   // Refused because it ended (someone answered, its run stopped): the card closes here, even if no event came.
   const [ended, setEnded] = useState(false);
-  const refused = (err: unknown, fallback: "question.failed" | "question.skipFailed") => {
+  // `base`: the question as it was before this answer showed.
+  const refused = (
+    err: unknown,
+    fallback: "question.failed" | "question.skipFailed",
+    base: AgentQuestion = current,
+  ) => {
     if ((err as { status?: number }).status !== 409) return setError(t(fallback));
     setText("");
     setEnded(true);
-    live.answered({ ...current, status: "answered", answer: null, answeredByUserId: null });
+    live.answered({ ...base, status: "answered", answer: null, answeredByUserId: null });
+  };
+  // The card shows the answer (or the skip) at once; a refusal opens the question again, said on the card.
+  const settle = (patch: Pick<AgentQuestion, "answer"> & Partial<AgentQuestion>) => {
+    setError(null);
+    const before = current;
+    live.answered({
+      ...current,
+      ...patch,
+      status: "answered",
+      answeredByUserId: me.user.id,
+      answeredAt: new Date().toISOString(),
+    });
+    return { before };
   };
   const answer = useMutation({
     mutationFn: (input: { choice: string } | { text: string }) => api.questions.answer(org.id, question.id, input),
     // Errors are explained on the card.
     meta: { silent: true },
-    onMutate: () => setError(null),
+    onMutate: (input) => settle({ answer: "choice" in input ? input.choice : input.text }),
     onSuccess: (res, input) =>
       live.answered({ ...res, answer: res.answer ?? ("choice" in input ? input.choice : input.text) }),
-    onError: (err) => refused(err, "question.failed"),
+    onError: (err, _input, context) => {
+      if (context) live.answered(context.before);
+      refused(err, "question.failed", context?.before);
+    },
   });
   const skip = useMutation({
     mutationFn: () => api.questions.dismiss(org.id, question.id),
     meta: { silent: true },
-    onMutate: () => setError(null),
+    onMutate: () => settle({ answer: null, dismissed: true }),
     onSuccess: (res) => live.answered(res),
-    onError: (err) => refused(err, "question.skipFailed"),
+    onError: (err, _input, context) => {
+      if (context) live.answered(context.before);
+      refused(err, "question.skipFailed", context?.before);
+    },
   });
   const busy = answer.isPending || skip.isPending;
   const agent = dir.anyAgent(question.agentId);

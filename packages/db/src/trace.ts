@@ -31,3 +31,19 @@ export async function countQueries<T>(fn: () => Promise<T>): Promise<{ result: T
 
 /** Current count in this async context (0 outside a traced unit). */
 export const currentQueryCount = () => queryTrace.getStore()?.count ?? 0;
+
+const transactionScope = new AsyncLocalStorage<true>();
+
+/** Whether this code runs inside a transaction's callback, on a database `trackTransactions` marked. */
+export const inTransaction = () => transactionScope.getStore() === true;
+
+/**
+ * Marks each transaction of `db` for `inTransaction` (its savepoints run inside it). A transaction holds a connection,
+ * and the built-in database has only one: code inside it must never wait for work outside it that needs another.
+ */
+export function trackTransactions<D extends object>(db: D): D {
+  const target = db as unknown as { transaction: (run: (tx: unknown) => unknown, config?: unknown) => unknown };
+  const begin = target.transaction.bind(db);
+  target.transaction = (run, config) => begin((tx) => transactionScope.run(true, () => run(tx)), config);
+  return db;
+}

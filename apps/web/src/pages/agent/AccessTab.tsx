@@ -1,9 +1,9 @@
-import { useAgentAccess, useAgentSkills, useCatalog, useTakeConnectionOffAgent } from "@agenteschat/client";
+import { useAgentAccess, useCatalog, useTakeConnectionOffAgent } from "@agenteschat/client";
 import { type AccessResource, asksAt, LEVELS, type Level } from "@agenteschat/client/lib/access-levels";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { can as orgCan } from "@agenteschat/client/lib/permissions";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
-import { Button, Card, Chip, EmptyState, Icon, Menu, MenuItem, SearchField, Segmented, Toolbar } from "@agenteschat/ui";
+import { Button, Card, EmptyState, Icon, Menu, MenuItem, SearchField, Segmented, Toolbar } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,13 +16,13 @@ import {
   toolLabel,
   useConnectedById,
 } from "@/components/AccessLevels";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { LoadingLine } from "@/components/Loading";
 import { PersonalOf } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
-import { SkillPicker } from "@/components/Skills";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useFocusHome } from "@/hooks/useFocusHome";
+import { SKILLS_AREA } from "@/lib/agent-edit";
 import { lookOf } from "@/lib/look";
 import { useToast } from "@/lib/toast";
 import { ApprovalRulesCard } from "./ApprovalRulesCard";
@@ -32,20 +32,24 @@ import { DatabaseAccessCard } from "./DatabaseAccess";
 import { MailAccessCard } from "./MailAccess";
 import { ReadOnlyNote } from "./pieces";
 import { MergeReposBlock, ReposBlock } from "./Repos";
+import { SkillsCard } from "./SkillsTab";
 
 type AccessFilter = "all" | "on" | "ask";
 
 /**
- * Ferramentas e acesso: one level per connector and built-in area, and the skills. Saved with the save bar. In a
- * personal workspace (ADR 0159 §3) it comes in two parts: `basic` (its apps and mailboxes, the "Can use" tab) and
- * `advanced` (built-in areas, databases, rules and skills, in the Advanced tab). Connections: the team's, then the
+ * Ferramentas e acesso: one level per connector and built-in area. Saved with the save bar. The skills, and the
+ * level of their built-in area, have a tab of their own (`SkillsTab`). In a personal workspace (ADR 0159 §3) it comes
+ * in two parts: `basic` (its apps and mailboxes, the "Can use" tab) and `advanced` (built-in areas, databases, rules
+ * and skills, in the Advanced tab). Connections: the team's, then the
  * viewer's own personal ones; another person's personal one the agent holds shows, for who may take it off, with
  * only Desligar (ADR 0099 addendum).
  */
 export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced" }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
-  const { agent, g, viewer, draft, setLevel, set, can, changeOf, resources, accessState } = useAgentEdit();
+  const { agent, g, viewer, draft, setLevel, can, changeOf, resources: every, accessState } = useAgentEdit();
+  // The skills' own level is on the Skills tab; Advanced, which holds the skills too, keeps it with the other areas.
+  const resources = part === "advanced" ? every : every.filter((r) => r.id !== SKILLS_AREA);
   // Other people's personal connections this agent holds, for who may take them off (`seesOthersOnAgent`).
   const seesOthers = viewer !== "member" || orgCan(org, "manage_connectors");
   const othersTree = useAgentAccess(org.id, agent.id, seesOthers, { others: true });
@@ -54,7 +58,6 @@ export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced
     : [];
   const items = useConnectedById();
   const personalOf = (r: AccessResource) => Boolean(r.connectionId && items.get(r.connectionId)?.ownerUserId);
-  const skills = useAgentSkills(org.id, agent.id);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<AccessFilter>("all");
   const editable = can("levels");
@@ -143,9 +146,6 @@ export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced
   // It holds the viewer's own connections too: not "da <org>" (a personal workspace's own words stay).
   const connectorsTitle = isPersonal(org) ? t("agentPage.access.connectorsPersonal") : t("connectors.title");
   useFocusHome("ac-connectors-card", ["ac-connectors"]);
-  const library = skills.data ?? [];
-  const enabled = new Set(draft.skills ?? []);
-  const skillsEditable = can("skills") && draft.skills !== undefined;
   const basic = part !== "advanced";
   const advanced = part !== "basic";
   return (
@@ -262,75 +262,7 @@ export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced
         <div className="agp-col">
           {basic && <ApprovalsLevelCard />}
           {advanced && <ApprovalRulesCard />}
-          {advanced && (
-            <Card
-              as="section"
-              className="agp-card"
-              data-changed={changeOf("skills") ? true : undefined}
-              aria-labelledby="ac-skills"
-            >
-              <CardHead
-                id="ac-skills"
-                icon="book"
-                title={t("skills.agentTitle")}
-                changeKeys={["skills"]}
-                lock="skills"
-              />
-              <span className="small muted">{t("newAgent.skillsHelp", g)}</span>
-              {skills.isLoading ? (
-                <LoadingLine width={200} />
-              ) : skills.isError ? (
-                <span className="muted">{t("skills.unavailable")}</span>
-              ) : library.length === 0 ? (
-                <EmptyState
-                  size="panel"
-                  agent={lookOf(agent) ?? true}
-                  title={t("skills.emptyTitle")}
-                  actions={
-                    can("skills") && (
-                      <Button asChild variant="primary" icon="plus">
-                        <Link to="/org/$orgId/settings/$section" params={{ orgId: org.id, section: "skills" }}>
-                          {t("skills.install")}
-                        </Link>
-                      </Button>
-                    )
-                  }
-                >
-                  {t("skills.emptyText")}
-                </EmptyState>
-              ) : skillsEditable ? (
-                <SkillPicker
-                  skills={library}
-                  selected={enabled}
-                  onChange={(next) => set("skills", [...next].sort())}
-                  idPrefix="agp-skill"
-                />
-              ) : enabled.size > 0 ? (
-                <span className="agp-chips">
-                  {library
-                    .filter((s) => enabled.has(s.id))
-                    .map((s) => (
-                      <Chip key={s.id} icon="book">
-                        {s.name}
-                      </Chip>
-                    ))}
-                </span>
-              ) : (
-                <span className="small muted">{t("skills.agentEmpty", { name: agent.name })}</span>
-              )}
-              <WasLine changeKey="skills" />
-              {can("skills") && library.length > 0 && (
-                <Link
-                  className="agp-more"
-                  to="/org/$orgId/settings/$section"
-                  params={{ orgId: org.id, section: "skills" }}
-                >
-                  <Icon name="book" size={14} />
-                  {t("agentPage.access.library")}
-                </Link>
-              )}
-            </Card>
-          )}
+          {part === "advanced" && <SkillsCard />}
         </div>
       </div>
     </>

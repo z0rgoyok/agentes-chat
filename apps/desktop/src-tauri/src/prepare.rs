@@ -93,26 +93,35 @@ fn main_page(app: &AppHandle) -> Option<String> {
     crate::servers::get(app).servers.contains(&origin).then(|| url.to_string())
 }
 
+/// Async, as the other commands that read or write files: a sync command runs on the main thread.
 #[tauri::command]
-pub fn setup_state_get(app: AppHandle) -> Option<Value> {
-    let mut state = read(&app)?;
-    resume_of(&state, now())?;
-    state["resumed"] = Value::Bool(app.state::<Resumed>().0.load(Ordering::Relaxed));
-    Some(state)
+pub async fn setup_state_get(app: AppHandle) -> Result<Option<Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut state = read(&app)?;
+        resume_of(&state, now())?;
+        state["resumed"] = Value::Bool(app.state::<Resumed>().0.load(Ordering::Relaxed));
+        Some(state)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Keeps the setup on screen (with the time and the main window's page), or, null, forgets it.
 #[tauri::command]
-pub fn setup_state_set(app: AppHandle, state: Option<Value>) -> Result<(), String> {
+pub async fn setup_state_set(app: AppHandle, state: Option<Value>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || keep_setup(&app, state)).await.map_err(|e| e.to_string())?
+}
+
+fn keep_setup(app: &AppHandle, state: Option<Value>) -> Result<(), String> {
     app.state::<Resumed>().0.store(false, Ordering::Relaxed);
     let Some(mut state) = state else {
-        forget(&app);
+        forget(app);
         return Ok(());
     };
     let Some(fields) = state.as_object_mut() else { return Err("not a setup".into()) };
     fields.remove("resumed");
     fields.insert("at".into(), now().into());
-    match main_page(&app) {
+    match main_page(app) {
         Some(page) => fields.insert("page".into(), page.into()),
         None => fields.remove("page"),
     };
@@ -120,7 +129,7 @@ pub fn setup_state_set(app: AppHandle, state: Option<Value>) -> Result<(), Strin
     if bytes.len() > MAX_BYTES {
         return Err("setup too large".into());
     }
-    let path = file(&app).ok_or("no data folder")?;
+    let path = file(app).ok_or("no data folder")?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -175,13 +184,14 @@ fn opens_first(files: &[PathBuf]) -> bool {
 /// Full Disk Access has no prompt and no call that reads it. The privacy database opens only with it, and a refused
 /// open is "operation not permitted", never a prompt: the user's copy, or the system's on an account without one yet.
 #[tauri::command]
-pub fn disk_access(app: AppHandle) -> bool {
+pub async fn disk_access(app: AppHandle) -> Result<bool, String> {
     if !cfg!(target_os = "macos") {
-        return true;
+        return Ok(true);
     }
     let tcc = Path::new("Library/Application Support/com.apple.TCC/TCC.db");
-    let user = app.path().home_dir().ok().map(|home| home.join(tcc));
-    opens_first(&user.into_iter().chain([Path::new("/").join(tcc)]).collect::<Vec<_>>())
+    let files: Vec<PathBuf> =
+        app.path().home_dir().ok().map(|home| home.join(tcc)).into_iter().chain([Path::new("/").join(tcc)]).collect();
+    tauri::async_runtime::spawn_blocking(move || opens_first(&files)).await.map_err(|e| e.to_string())
 }
 
 /// macOS's version (`15.1`), which says whether Local Network is a permission there (15 and later).
@@ -280,9 +290,11 @@ fn pane_url(pane: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn privacy_open(app: AppHandle, pane: String) -> Result<(), String> {
+pub async fn privacy_open(app: AppHandle, pane: String) -> Result<(), String> {
     let url = pane_url(&pane).ok_or("unknown pane")?;
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

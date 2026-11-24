@@ -660,8 +660,13 @@ html:not([data-pointer]) .roles-names__more:focus-visible {
   flex-wrap: nowrap;
   padding-block: var(--space-3);
 }
-.roles-mail__row > .ac-icon {
-  flex: none;
+/* The icon on the address's 20px line, not on the middle of the address and its owner. */
+.roles-mail__line {
+  gap: var(--space-3);
+  min-width: 0;
+  line-height: 20px;
+}
+.roles-mail__line > .ac-icon {
   color: var(--muted);
 }
 .roles-mail__text {

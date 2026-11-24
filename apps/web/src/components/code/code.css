@@ -1,0 +1,1729 @@
+/*
+ * The Code page (ADR 0215): the list, the home and a session as surfaces on the app's background with 8 px gutters
+ * between them; corners 14 px with the cut corner (4 px) like every card; heights on the 56/40/36 rule.
+ */
+
+/* The page's surfaces stand on the sidebar's paper, each one a sheet as the work area is elsewhere: no sheet round
+   them, so white never meets white. */
+.shell__work .shell__pages:has(.code-page) {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.code-page {
+  overflow: hidden;
+  background: none;
+}
+.code {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* The list's width is the person's (its gutter, `CodeGutter`); the gutter is the 8 px between the surfaces. */
+  grid-template-columns: var(--code-list, 296px) 8px minmax(0, 1fr);
+}
+/* The work sheet's edge (`.shell__pages`): a hairline in both themes, a soft lift in light. A border, not an inset
+   shadow: what fills a surface (a screen's sky, the terminal, the home's sky) paints over an inset shadow, which then
+   showed on the top edge only. */
+.code-list,
+.code-pane,
+.code-home {
+  background: var(--pane);
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 14px 4px;
+}
+[data-theme="light"] :is(.code-list, .code-pane, .code-home) {
+  box-shadow: 0 1px 3px rgba(9, 20, 34, 0.05);
+}
+.code-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── the list ── */
+.code-list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.code-list__h {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  /* The title on the line the rows' faces start: the list's own 8 and a row's 10. */
+  padding: 0 8px 0 18px;
+}
+.code-list__t {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.code-list__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+.code-list__empty {
+  margin: 12px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.code-group__h {
+  margin: 14px 10px 4px;
+  color: var(--faint);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.code-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 10px 10px 10px 3px;
+  color: var(--ink2);
+  text-decoration: none;
+}
+.code-row:hover {
+  background: var(--plate-soft);
+}
+.code-row.is-on {
+  background: var(--chosen-bg);
+  color: var(--ink);
+}
+.code-row__face {
+  display: flex;
+  padding-top: 2px;
+}
+/* "Nova sessão": its plus where the sessions' faces are, their size, no box of its own (the row is the button). */
+.code-row__plus {
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.code-row--new {
+  align-items: center;
+}
+.code-row--new .code-row__plus {
+  padding-top: 0;
+}
+.code-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.code-row__title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.code-row.is-waiting .code-row__title {
+  font-weight: 650;
+}
+.code-n {
+  padding-top: 2px;
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.code-add {
+  color: var(--ok);
+}
+.code-del {
+  color: var(--danger);
+}
+.code-n .code-add,
+.code-n .code-del {
+  color: inherit;
+}
+
+/* state in words, in its color (never a pill) */
+.code-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.code-st > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-st--wait {
+  color: var(--warn);
+  font-weight: 600;
+}
+.code-st--ok {
+  color: var(--ok);
+}
+.code-st--fail {
+  color: var(--danger);
+}
+
+/* ── the home: the field in the middle of the sky, the agents on its horizon ── */
+.code-home {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.code-stage {
+  position: absolute;
+  inset: 0;
+}
+.code-stage > .ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.code-mid {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 2;
+  width: min(820px, calc(100% - 64px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transform: translate(-50%, -50%);
+}
+.code-mid__t {
+  margin: 0;
+  color: var(--ink);
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  text-align: center;
+  text-wrap: balance;
+}
+/* The mode's name and its Beta mark on one line, in the middle (the name is one short line, so the mark sits on it). */
+.code-mid__head {
+  /* The field stands this far under the title's block. */
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+/* Opening the home: the agent builds itself (`CodeHomeAgent`) while its words rise into place under it, the title
+   first, then the field, overlapping by less each time; nothing waits for the build and the field
+   takes the caret at once. Until the home knows its agent (their place depends on it) the words wait, unseen. */
+.code-mid:not(.is-in) > :not(.code-agent) {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .code-mid.is-in > .code-mid__head {
+    --rise: 10px;
+    animation: code-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms both;
+  }
+  .code-mid.is-in > :is(.code-start, .code-mid__none) {
+    --rise: 6px;
+    animation: code-rise 460ms cubic-bezier(0.2, 0.8, 0.2, 1) 240ms both;
+  }
+}
+@keyframes code-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise, 8px));
+  }
+}
+/* The title as a line of a diff, in the agent's own material (ADR 0215 §4): a block with a top and a side, each face
+   in two tones through a 4 px checker, as the agent's cubes are. As the home opens the line it replaces ("− Chat
+   mode") stands there, the title's block drops on it from above, lands with a squash and knocks it off; Beta comes in
+   last. With reduced motion the title's block is simply there. */
+.code-title {
+  position: relative;
+  display: inline-flex;
+  --blk-d: 9px;
+  --blk-px: 4px;
+  --add-a: #c9efd6;
+  --add-b: #d9f6e3;
+  --add-top-a: #e9fbef;
+  --add-top-b: #f6fff9;
+  --add-side-a: #7cc79a;
+  --add-side-b: #8fd3aa;
+  --add-ink: #151514;
+  --add-sig: #1a7f45;
+  --del-a: #f7ccc7;
+  --del-b: #fcdcd8;
+  --del-top-a: #fdeae7;
+  --del-top-b: #fff5f3;
+  --del-side-a: #d98980;
+  --del-side-b: #e39a92;
+  --del-ink: #b3261e;
+}
+[data-theme="dark"] .code-title {
+  --add-a: #17482c;
+  --add-b: #1c5535;
+  --add-top-a: #2a7a4c;
+  --add-top-b: #328a57;
+  --add-side-a: #0d2c1a;
+  --add-side-b: #113722;
+  --add-ink: #eef7f1;
+  --add-sig: #6fd69a;
+  --del-a: #4a1f1b;
+  --del-b: #582621;
+  --del-top-a: #7a3832;
+  --del-top-b: #88413a;
+  --del-side-a: #2c110e;
+  --del-side-b: #371612;
+  --del-ink: #f2a79f;
+}
+.code-block {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 10px;
+  white-space: nowrap;
+  background: repeating-conic-gradient(var(--f-a) 0 25%, var(--f-b) 0 50%) 0 0 / var(--blk-px) var(--blk-px);
+}
+.code-block::before,
+.code-block::after {
+  content: "";
+  position: absolute;
+}
+.code-block::before {
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--blk-d);
+  transform-origin: bottom;
+  transform: skewX(-45deg);
+  background: repeating-conic-gradient(var(--t-a) 0 25%, var(--t-b) 0 50%) 0 0 / var(--blk-px) var(--blk-px);
+}
+.code-block::after {
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--blk-d);
+  transform-origin: left;
+  transform: skewY(-45deg);
+  background: repeating-conic-gradient(var(--s-a) 0 25%, var(--s-b) 0 50%) 0 0 / var(--blk-px) var(--blk-px);
+}
+.code-block--add {
+  --f-a: var(--add-a);
+  --f-b: var(--add-b);
+  --t-a: var(--add-top-a);
+  --t-b: var(--add-top-b);
+  --s-a: var(--add-side-a);
+  --s-b: var(--add-side-b);
+}
+.code-block--add .code-mid__t {
+  color: var(--add-ink);
+}
+.code-block--add .code-block__sig {
+  color: var(--add-sig);
+}
+.code-block--del {
+  --f-a: var(--del-a);
+  --f-b: var(--del-b);
+  --t-a: var(--del-top-a);
+  --t-b: var(--del-top-b);
+  --s-a: var(--del-side-a);
+  --s-b: var(--del-side-b);
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  /* Its own width: placed from the title's middle, it would otherwise be squeezed into half of it and wrap. */
+  width: max-content;
+  color: var(--del-ink);
+  display: none;
+}
+.code-block .code-mid__t {
+  white-space: nowrap;
+}
+.code-block--del .code-mid__t {
+  color: inherit;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.code-block__sig {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 40px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .code-block--del {
+    display: inline-flex;
+  }
+  .code-mid.is-in .code-block--add {
+    animation: code-drop 640ms 760ms both;
+  }
+  .code-mid.is-in .code-block--del {
+    animation: code-knock 640ms cubic-bezier(0.45, 0, 0.9, 0.55) 1110ms forwards;
+  }
+  .code-mid.is-in .code-mid__beta {
+    animation: code-rise 320ms ease 1500ms both;
+    --rise: 0px;
+  }
+}
+@keyframes code-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-280px);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.6);
+  }
+  8% {
+    opacity: 1;
+  }
+  58% {
+    transform: translateY(0) scale(1.05, 0.86);
+    animation-timing-function: ease-out;
+  }
+  76% {
+    transform: translateY(-12px) scale(0.98, 1.04);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes code-knock {
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-20%, 360px) rotate(26deg);
+  }
+}
+/* Beta, as a tag of the title's own: its face in capitals, on a line of the info color, the sky showing through. */
+.code-mid__beta {
+  align-self: center;
+  padding: 3px 7px 2px;
+  border: 1.5px solid color-mix(in srgb, var(--info) 45%, transparent);
+  border-radius: 6px;
+  color: var(--info);
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+/* The title in the brand's face, in today's title box (40 tall), so the field stays where it is; the question under it. */
+.code-mid__t--brand {
+  font-family: var(--font-brand);
+  font-size: 31px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+/* With the agent over the title, the three (agent, title and field) stand in the middle of the sky: the agent takes
+   about 150 over the title, so the form's middle sits that much under the home's. A window too short for them shows
+   the title and the field alone. */
+.code-mid--agent {
+  top: calc(50% + 60px);
+}
+@media (max-height: 600px) {
+  .code-mid--agent {
+    top: 46%;
+  }
+  .code-agent {
+    display: none;
+  }
+}
+/* The picked agent in cubes (`CodeHomeAgent`): a point 12 over the title's box, on the field's middle, where the
+   figure's drawn foot stands; the canvas and the cursor are placed from it. Never in the way of a click. */
+.code-agent {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  --cursor-shadow: rgba(10, 20, 40, 0.38);
+}
+.code-agent__art {
+  position: absolute;
+  width: 260px;
+  height: 240px;
+}
+.code-agent__flat {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
+.code-mid__none,
+.code-mid__error {
+  margin: 0;
+  text-align: center;
+  color: var(--ink2);
+}
+.code-mid__error {
+  color: var(--danger);
+}
+.code-start {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 10px;
+  border-radius: 18px 18px 18px 5px;
+  background: var(--raised);
+  box-shadow: var(--e3), var(--top);
+}
+.code-start__text {
+  min-height: 56px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 26px;
+  resize: none;
+  outline: none;
+}
+.code-start__opts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+}
+.code-start__hint {
+  flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* ── a session ── */
+.code-session {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-session--missing {
+  align-items: center;
+  justify-content: center;
+}
+/* The conversation card's top row: as tall as the panel's tabs, on a hairline like theirs. */
+.code-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 56px;
+  /* On the conversation's column: its messages and its composer start and end 24 in. */
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.code-head__t {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 22px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-head__r {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Who is in the session: its faces, a quiet button beside the git button. */
+.code-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-btn);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.code-who:hover,
+.code-who[aria-expanded="true"] {
+  background: var(--plate-soft);
+  color: var(--ink2);
+}
+.code-whopop {
+  min-width: 280px;
+}
+.code-whopop__row {
+  min-height: 36px;
+}
+.code-whopop__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-whopop__act {
+  margin-left: auto;
+}
+.code-whopop__note {
+  margin: 4px 6px 2px;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 16px;
+}
+/* Under the composer, as a coding CLI's status line: the agent's model (its picker) and its plan's limits. */
+.code-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* The plan's windows inside the model's field, after a dot, in the meter's colors (`planLevel`): amber from 80%,
+   red from 90% and at the limit; the whole of it on hover and in the picker. */
+.code-status__limit {
+  flex: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The value's own gap (8) before the dot, the same after it. */
+.code-status__limit::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--faint);
+}
+/* The status line under the composer: its plate where the composer's buttons have theirs (8 in), so its mark sits
+   under the attach button's. */
+.ac-composer__hint:has(> .code-status) {
+  margin-inline: 8px 0;
+}
+.code-status__limit[data-level="almost"] {
+  color: var(--warn);
+}
+.code-status__limit:is([data-level="critical"], [data-level="limited"]) {
+  color: var(--danger);
+}
+.code-failed {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 10px 0;
+  padding: 10px 12px;
+  border-radius: 12px 12px 12px 4px;
+  background: color-mix(in srgb, var(--danger) 9%, var(--pane));
+  color: var(--ink);
+  font-size: 13px;
+}
+.code-failed > .ac-icon {
+  color: var(--danger);
+}
+.code-failed__t {
+  flex: 1;
+  min-width: 0;
+}
+.code-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.code-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* As wide as the person dragged it, giving way to the panel's least where the window is narrow. */
+.code-pane--talk {
+  flex: 0 1 var(--code-talk, 620px);
+  min-width: 320px;
+}
+.code-tabview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-tabview > .code-vcs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-tabview[hidden] {
+  display: none;
+}
+.code-tabview > .shell__main {
+  flex: 1;
+  min-height: 0;
+}
+/* The session's tabs, under its header: the conversation, then each open file and terminal. A row that scrolls
+   sideways when they don't fit; the tab on screen is the page's own ground, the others the sunken one. */
+.code-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--sunken);
+  /* Its hairline runs under every tab, the one on screen too: the row ends where what it shows begins. */
+  border-bottom: 1px solid var(--line);
+}
+.code-tabs::-webkit-scrollbar {
+  display: none;
+}
+.code-tabs__tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+/* A file's or a terminal's tab: the name opens it, the x closes it. */
+span.code-tabs__tab {
+  padding: 0 4px 0 0;
+  gap: 0;
+}
+.code-tabs__open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.code-tabs__tab:is([aria-selected="true"], [data-selected]) {
+  background: var(--bg);
+  color: var(--ink);
+}
+.code-tabs__tab:not([aria-selected="true"], [data-selected]):hover {
+  color: var(--ink);
+}
+.code-tabs__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-tabs__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+/* The x: a small plate of its own, the size and corner of the kit's icon buttons scaled to the tab's row. */
+.code-tabs__x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 2px;
+  /* None of a button's own padding: it left the glyph a column narrower than itself, a pixel off the plate's middle. */
+  padding: 0;
+  border: 0;
+  border-radius: 30%;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.code-tabs__x:hover {
+  /* Seen on both grounds: the tab on screen's and the row's sunken one. */
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink);
+}
+html:not([data-pointer]) .code-tabs :is(.code-tabs__tab, .code-tabs__open, .code-tabs__x):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.code-tabs__new {
+  flex: none;
+  align-self: center;
+  margin: 0 6px;
+  color: var(--muted);
+}
+/* Under a terminal's tab: the agent's model and its plan's limits, as under the conversation's composer. */
+.code-termfoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+}
+.code-tabview > .code-term {
+  height: auto;
+}
+/* A file's tab: its editor fills it, its foot says the path and holds "Save". */
+.code-ftab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  --code-editor-line: rgba(127, 127, 120, 0.08);
+  --code-editor-sel: rgba(90, 140, 240, 0.24);
+}
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.code-ftab__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px 0 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.code-ftab__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.code-ftab__n {
+  flex: none;
+}
+.code-ftab__r {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.code-ftab__note {
+  color: var(--warn);
+}
+/* Asked over the editor: a file that changed on the computer, or a tab closing with something unsaved. */
+.code-ftab__ask {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--warn-soft);
+  font-size: var(--text-sm);
+}
+.code-ftab__askt {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+/* The editor's tokens, in the colors code has in messages (`.code-tok--*`). */
+.code-editor :is(.tok-keyword, .tok-operatorKeyword, .tok-modifier, .tok-atom, .tok-bool) {
+  color: var(--code-keyword);
+}
+.code-editor :is(.tok-string, .tok-string2, .tok-url) {
+  color: var(--code-string);
+}
+.code-editor :is(.tok-number, .tok-literal) {
+  color: var(--code-number);
+}
+.code-editor :is(.tok-propertyName, .tok-typeName, .tok-className, .tok-namespace, .tok-macroName, .tok-labelName),
+.code-editor .tok-variableName.tok-definition {
+  color: var(--code-function);
+}
+.code-editor :is(.tok-comment, .tok-meta) {
+  color: var(--faint);
+  font-style: italic;
+}
+.code-editor .tok-heading {
+  font-weight: 650;
+}
+.code-editor .tok-inserted {
+  color: var(--ok);
+}
+.code-editor .tok-deleted {
+  color: var(--danger);
+}
+.code-editor .tok-invalid {
+  color: var(--danger);
+}
+/* The tree's row of the file on screen in a tab. */
+.code-tree__row[aria-current="true"] {
+  background: var(--line);
+}
+/* The side panel: the tabs and the terminal's switch on one row, the tab under them, the terminal's drawer at the
+   foot (its height drags). */
+.code-pane--side {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 300px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 56px minmax(0, 1fr) auto auto;
+}
+/* The row's hairline under the tabs and the switch, at the height of the conversation's own (`.code-head`). */
+.code-pane--side::before {
+  content: "";
+  grid-area: 1 / 1 / 2 / 3;
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}
+/*
+ * The kit's segmented tabs, small as the conversation head's buttons, centered on the row as that head's content is.
+ * They sit in a `display: contents` root: its list and panels are this grid's items.
+ */
+.code-pane--side > * > .ac-tabs--seg {
+  --seg-h: var(--control-h-sm);
+  --seg-r: var(--control-r-sm);
+  --seg-in: 3px;
+  grid-area: 1 / 1 / 2 / 2;
+  align-self: center;
+  justify-self: start;
+  max-width: calc(100% - 12px);
+  margin-left: 12px;
+}
+.code-pane--side > * > .ac-tabs--seg > .ac-seg__item {
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+/* On the same line as the tabs, its edge where the screen bar's last button has its own (8 in). */
+.code-pane--side > .code-ptoggle {
+  grid-area: 1 / 2 / 2 / 3;
+  align-self: center;
+  margin: 0 8px;
+}
+.code-pane--side > * > .ac-tabpanel {
+  grid-area: 2 / 1 / 3 / 3;
+  position: relative;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.code-pane--side > .code-gutter--y {
+  grid-area: 3 / 1 / 4 / 3;
+}
+.code-drawer {
+  grid-area: 4 / 1 / 5 / 3;
+  height: var(--code-term, 280px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-drawer[hidden] {
+  display: none;
+}
+.code-gutter {
+  position: relative;
+  flex: 0 0 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.code-gutter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 36px;
+  border-radius: 1px;
+  background: var(--line2);
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.code-gutter:hover::after,
+.code-gutter:focus-visible::after {
+  opacity: 1;
+}
+.code-gutter--y {
+  height: 8px;
+  cursor: row-resize;
+}
+.code-gutter--y::after {
+  top: 3px;
+  left: 50%;
+  width: 36px;
+  height: 2px;
+  transform: translateX(-50%);
+}
+
+/* ── the side panel: tabs, and the sky rising from its foot behind what it shows ── */
+/* A session's foot: a light sky from the conversation's floor behind the composer and the line over it
+   (`CodeDockSky`), inside their own box (never over the messages); the pane's own corners at its foot. */
+.channel__composer:has(> .code-dock-sky) {
+  isolation: isolate;
+}
+.code-dock-sky {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: 0 0 13px 3px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.code-dock-sky > .ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.code-hz {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  height: 340px;
+  pointer-events: none;
+}
+.code-hz > .ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.code-hz__row {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 18px;
+  z-index: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+.code-hz__row .ac-avatar {
+  width: 48px;
+  height: 48px;
+}
+.code-hz__w {
+  padding-bottom: 8px;
+  color: var(--ink2);
+  font-size: 13px;
+  line-height: 18px;
+}
+.code-hz__w b {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* The diff's size in its tab, after its name (the segment's own gap sets it apart). */
+.code-ptab__n {
+  color: var(--faint);
+  font-weight: 500;
+  font-size: 12px;
+}
+.code-empty {
+  margin: 24px 16px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.code-fhead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px 0 10px;
+}
+.code-fhead__n {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.code-fhead__r {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+/* The change dissolves into the sky at the panel's foot, where its agent stands; its end scrolls above it. */
+.code-dscroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px 160px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 150px), transparent calc(100% - 40px)), var(--scroll-strip);
+}
+.code-files {
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+/* The screen stands in the agents' sky, which fills the tab behind its bar and its stage. */
+.code-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-ssky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.code-ssky > .ac-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.code-sbar {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 8px 0 12px;
+}
+/* Where the bar is narrow its live line would read cut ("Ao vivo · vo…"): it leaves the eye (a screen reader still
+   has it) and the buttons keep their words. */
+.code-sbar {
+  container: code-sbar / inline-size;
+}
+@container code-sbar (max-width: 460px) {
+  .code-sbar__sub {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+/* The live line takes the room the buttons leave, on one line cut at its end: a face in it never breaks it. */
+.code-sbar__sub {
+  flex: 1 1 0;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-sbar__sub * {
+  white-space: nowrap;
+}
+.code-sbar__sub :where(div, p) {
+  display: inline;
+}
+.code-sbar__r {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.code-sstage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The computer dialog's stage draws its own ground: here the sky is the ground. */
+.code-sstage .brw-ac__stage {
+  background: none;
+}
+/*
+ * A cover keeps the screen's own shape and place (1280×900, as large as the stage allows), so the screen opens exactly
+ * where its cover was: in the dialog a cover takes the whole stage, which here is a tall panel, not a window cut to the
+ * screen. The box, the cover and a question over the live screen share the one cell, under the bar: the foot's height
+ * (one line, or more in a narrow panel) never moves the screen.
+ */
+.code-sstage .cmp-body > .cmp-stage > *,
+.code-sstage .cmp-body > .dsk > .dsk-stage > * {
+  grid-area: 1 / 1;
+}
+.code-sstage .cmp-body > .cmp-stage,
+.code-sstage .cmp-body > .dsk > .dsk-stage {
+  place-items: start center;
+}
+.code-sstage .cmp-body > .cmp-stage > .cmp-stage__box,
+.code-sstage .cmp-body > .dsk:not([data-state="live"]) .dsk-screen,
+.code-sstage .cmp-body > .cmp-stage > .brw-dim,
+.code-sstage .cmp-body > .dsk > .dsk-stage > .brw-dim {
+  position: relative;
+  inset: auto;
+  place-self: start center;
+  box-sizing: border-box;
+  width: min(100cqw, 100cqh * 1280 / 900);
+  aspect-ratio: 1280 / 900;
+}
+/*
+ * Under the screen, what programs there can see is an ⓘ at the panel's bottom right (`notice: "hint"`): the panel has no
+ * room for a sentence, and words never sit on the sky's pixels. The agent's steps and the keys' line in control are the
+ * panel's foot, on the panel's own ground from side to side, reaching through the body's 20 px.
+ */
+.code-sstage .cmp-body .dsk-line--hint {
+  justify-content: flex-end;
+  align-items: center;
+}
+.code-sstage:not(.is-full) .cmp-body .dsk-line:not(.dsk-line--hint),
+.code-sstage:not(.is-full) .cmp-body:has(> .dsk) > .cmp-steps-row:has(> .cmp-steps) {
+  margin: 12px -20px -20px;
+  padding: 9px 16px;
+  height: auto;
+  min-height: 0;
+  background: var(--pane);
+  box-shadow: 0 -1px 0 var(--line);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.code-sstage .cmp-body:has(> .dsk) > .cmp-steps-row > .cmp-steps {
+  margin-top: 0;
+}
+.code-sstage--phone {
+  align-items: center;
+  justify-content: center;
+}
+.code-sstage.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--sunken);
+}
+.code-sstage__exit {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+@media (max-width: 960px) {
+  .code {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .code-list {
+    display: none;
+  }
+  .code-panes {
+    flex-direction: column;
+  }
+  .code-pane--talk {
+    flex: 1 1 auto;
+  }
+  .code-gutter {
+    display: none;
+  }
+}
+.code-group__where {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+/* The pickers (the composer's agent and repository, the diff's scope, the screen): the kit's small select, as wide as
+   what it shows. */
+.code-select {
+  flex: none;
+  max-width: 260px;
+}
+/* The repository picker: the wiki's folder picker's search and rows. */
+.code-repopop {
+  min-width: 280px;
+}
+.code-repopop__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+.code-repopop__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.code-repopop__row:hover {
+  background: var(--plate);
+}
+.code-repopop__row[aria-selected="true"] {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+  color: var(--ink);
+  font-weight: 600;
+}
+.code-repopop__row .ac-icon {
+  flex: none;
+  color: var(--faint);
+}
+.code-repopop__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-repopop__where {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 500;
+}
+.code-repopop__note {
+  margin: 6px 10px 2px;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* ── the panel's Git and Files tabs (ADR 0215): one row of head, rows like the list's, a diff or a file in place ── */
+.code-vcs,
+.code-tree {
+  /* Over the sky that rises behind the Git tab from the panel's foot. */
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.code-vcs > .code-fhead,
+.code-tree > .code-fhead {
+  height: 44px;
+  gap: 8px;
+  /* The panel's column: 12 in, as its tabs, the screen's bar, the files' tree and the terminal. */
+  padding: 0 8px 0 12px;
+}
+/* A head that starts with "back": the button at the edge, its glyph where the rows' text starts. */
+.code-vcs > .code-fhead:has(> .ac-btn:first-child),
+.code-tree > .code-fhead:has(> .ac-btn:first-child) {
+  padding-left: 6px;
+}
+.code-vcs__where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+.code-vcs__where > .ac-icon {
+  flex: none;
+}
+/* The branch gives way first, down to a few letters of its name; then where it came from is cut too (a base as long
+   as a branch's own name), never drawn over the head's button. */
+.code-vcs__branch {
+  flex: 0 1000 auto;
+  min-width: 8ch;
+  overflow: hidden;
+  color: var(--ink2);
+  font: 600 12.5px / 18px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-vcs__base {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-vcs__scroll {
+  padding: 0 6px 160px;
+}
+.code-vcs__list,
+.code-tree__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.code-vcs__h {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 16px 6px 4px;
+  color: var(--faint);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.code-vcs__count {
+  font-weight: 500;
+}
+.code-vcs__none {
+  margin: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* A row as the session list's: the cut corner, the plate on hover. */
+.code-vcs__row,
+.code-tree__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px 10px 10px 3px;
+  background: none;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+.code-vcs__row:hover,
+.code-tree__row:hover {
+  background: var(--plate-soft);
+}
+/* Its text on the panel's column (the list's own 6, then 6 inside the row's plate), as the files' tree. */
+.code-vcs__row {
+  padding: 0 10px 0 6px;
+}
+html:not([data-pointer]) .code-vcs__row:focus-visible,
+html:not([data-pointer]) .code-tree__row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.code-vcs__row > .ac-icon,
+.code-tree__row > .ac-icon {
+  flex: none;
+  color: var(--faint);
+}
+.code-vcs__name,
+.code-tree__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-vcs__name[data-status="deleted"],
+.code-tree__name[data-status="deleted"] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.code-vcs__dir,
+.code-tree__dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-vcs__n {
+  flex: none;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* What a change is, as `git status` letters it, in its color: the words are its title and for screen readers. */
+.code-vcs__letter {
+  flex: none;
+  width: 14px;
+  color: var(--warn);
+  font: 700 11.5px / 1 var(--font-mono);
+  text-align: center;
+}
+.code-vcs__letter[data-status="added"],
+.code-vcs__letter[data-status="untracked"] {
+  color: var(--ok);
+}
+.code-vcs__letter[data-status="deleted"] {
+  color: var(--danger);
+}
+.code-vcs__letter[data-status="renamed"] {
+  color: var(--info);
+}
+/* Everything since the base: the change as a whole, above its parts. */
+.code-vcs__row--all {
+  margin-top: 4px;
+}
+.code-vcs__row--all .code-vcs__name {
+  font-weight: 600;
+}
+.code-vcs__go {
+  margin-right: -4px;
+}
+/* The commits as a line through their nodes, the newest (HEAD) filled. */
+.code-vcs__row--commit .code-vcs__name {
+  flex: 1;
+}
+.code-vcs__node {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  width: 14px;
+}
+.code-vcs__node::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  left: 6px;
+  width: 2px;
+  background: var(--line2);
+}
+.code-vcs__node::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pane);
+  box-shadow: inset 0 0 0 2px var(--muted);
+  transform: translateY(-50%);
+}
+.code-vcs__graph > li:first-child .code-vcs__node::before {
+  top: 50%;
+}
+.code-vcs__graph > li:last-child .code-vcs__node::before {
+  bottom: 50%;
+}
+.code-vcs__graph > li:only-child .code-vcs__node::before {
+  display: none;
+}
+.code-vcs__graph > li:first-child .code-vcs__node::after {
+  background: var(--ink2);
+  box-shadow: none;
+}
+.code-vcs__sha {
+  flex: none;
+  color: var(--faint);
+  font: 12px / 18px var(--font-mono);
+}
+.code-vcs__when {
+  flex: none;
+  min-width: 52px;
+  color: var(--faint);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+/* An opened diff's or file's head: what it is, its counts, its own switch. */
+.code-vcs__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.code-vcs__title > code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 12.5px / 18px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.code-vcs__subject {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Files: the search takes the head; the tree is an explorer's, a row per name, folders opening in place. */
+.code-fscroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 6px 24px;
+}
+.code-tree__row {
+  --depth: 0;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 calc(6px + var(--depth) * 16px);
+  border-radius: 8px 8px 8px 3px;
+}
+.code-tree__chev {
+  flex: none;
+  width: 14px;
+  color: var(--faint);
+}
+.code-tree__row--dir > .ac-icon:not(.code-tree__chev) {
+  color: var(--muted);
+}
+/* A folder holding changes reads in the changed color; a changed file, in the ink with its letter. */
+.code-tree__row--dir[data-changed] .code-tree__name {
+  color: var(--warn);
+}
+.code-tree__name {
+  color: var(--ink2);
+}
+.code-tree__name[data-status] {
+  color: var(--ink);
+  font-weight: 500;
+}
+.code-tree__row > .code-vcs__letter {
+  margin-left: auto;
+}
+.code-tree__note {
+  margin: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The beta notice (`CodeBetaDialog`): the home's sky and its title's block at the top, then what the mode is as a
+   diff. Its pieces come in one after another, the block first. */
+.ac-dialog.code-beta {
+  overflow: hidden;
+}
+.code-beta__hero {
+  position: relative;
+  height: 168px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.code-beta__hero > .code-title {
+  position: relative;
+  margin-top: 12px;
+}
+.code-beta__hero .code-mid__t {
+  margin: 0;
+}
+/* On the sky: white, whatever the theme. */
+.code-beta__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  color: #fff;
+}
+.code-beta__close:hover {
+  background: #ffffff2e;
+  color: #fff;
+}
+.code-beta__lede {
+  padding: 20px var(--dialog-pad) 8px;
+}
+.code-beta__title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+}
+.code-beta__text {
+  margin: 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.code-beta__diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.code-beta__diff li {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: var(--text-md);
+  line-height: 20px;
+}
+.code-beta__diff li > span {
+  flex: none;
+  width: 10px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.code-beta__diff li[data-kind="add"] {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.code-beta__diff li[data-kind="del"] {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.code-beta__diff li[data-kind="add"] > span,
+.code-beta__count b[data-kind="add"] {
+  color: var(--ok);
+}
+.code-beta__diff li[data-kind="del"] > span,
+.code-beta__count b[data-kind="del"] {
+  color: var(--danger);
+}
+.code-beta__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .code-beta__hero .code-block--add {
+    animation: code-drop 640ms 260ms both;
+  }
+  .code-beta__lede > p,
+  .code-beta__diff > li {
+    animation: code-beta-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: calc(700ms + var(--step, 0) * 90ms);
+  }
+}
+@keyframes code-beta-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

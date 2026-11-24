@@ -173,7 +173,11 @@ describe("which messages may ask something", () => {
   test("an agent's message with a request's key", () => {
     expect(mayAsk({ author: agent, meta: { approvalId: "a1" } })).toBe(true);
     expect(mayAsk({ author: agent, meta: { secretRequest: { id: "s1" } } })).toBe(true);
-    expect(mayAsk({ author: agent, meta: { proposalId: "p1" } })).toBe(true);
+  });
+
+  test("a change an agent proposed asks nobody: its review applies it or leaves it out (ADR 0219)", () => {
+    expect(mayAsk({ author: agent, meta: { proposalId: "p1" } })).toBe(false);
+    expect(mayAsk({ author: agent, meta: { memoryUpdates: [{ action: "proposed", proposalId: "p1" }] } })).toBe(false);
   });
 
   test("no such key, or a person's message", () => {

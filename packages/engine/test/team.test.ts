@@ -47,6 +47,7 @@ test("a big team is only a count with a pointer to find_agent", () => {
     role: "",
     instructions: "",
     ownerUserId: null,
+    ownerRoleId: null,
     audienceMode: "everyone" as const,
     audienceUserIds: [],
     audienceRoleIds: [],

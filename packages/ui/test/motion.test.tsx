@@ -4,7 +4,7 @@ import { setupDom } from "../testing/dom";
 setupDom();
 
 import { act, cleanup, render } from "@testing-library/react";
-import { LIST_STAGGER_MS, List } from "../src";
+import { List } from "../src";
 
 afterEach(() => cleanup());
 
@@ -38,7 +38,7 @@ describe("motion", () => {
     }
   });
 
-  test("a list staggers its rows only when it first appears", async () => {
+  test("a list's first rows show at once; only rows added later rise in", async () => {
     const { container } = render(
       <List>
         <div>Ada</div>
@@ -46,8 +46,9 @@ describe("motion", () => {
       </List>,
     );
     const list = container.querySelector(".ac-list") as HTMLElement;
-    expect(list.classList.contains("ac-list--stagger")).toBe(true);
-    await wait(LIST_STAGGER_MS + 30);
-    expect(list.classList.contains("ac-list--stagger")).toBe(false);
+    expect(list.classList.contains("ac-list--settled")).toBe(false);
+    await wait(50);
+    expect(list.classList.contains("ac-list--settled")).toBe(true);
+    expect(await css()).not.toContain("ac-list--stagger");
   });
 });

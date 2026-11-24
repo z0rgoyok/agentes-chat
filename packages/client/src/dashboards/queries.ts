@@ -1,9 +1,10 @@
-import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type Query, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useApi } from "../api/context";
 import { ApiError } from "../api/http";
 import { keys } from "../api/keys";
 import { useAiStatusSince } from "../api/queries";
+import { type CacheEdit, edit, editWhere, optimistic } from "../lib/optimistic";
 import { busyWidgets, widgetAiReady, widgetNeedsAi, widgetStoppedForAi } from "./lib";
 import type {
   ConfirmWidgetInput,
@@ -13,6 +14,7 @@ import type {
   DashboardLayoutInput,
   DashboardList,
   DashboardProposalDecision,
+  DashboardSummary,
   PinWidgetInput,
   ShareDashboardInput,
   UpdateDashboardInput,
@@ -20,6 +22,7 @@ import type {
   Widget,
   WidgetDetail,
   WidgetSchedule,
+  WidgetSize,
 } from "./types";
 
 /**
@@ -70,6 +73,63 @@ export function dropWidget(qc: QueryClient, orgId: string, widgetId: string) {
   qc.setQueryData<Dashboard>(keys.dashboardHome(orgId), (board) => drop(board));
   qc.removeQueries({ queryKey: keys.widget(orgId, widgetId) });
   void qc.invalidateQueries({ queryKey: keys.dashboardList(orgId) });
+}
+
+/**
+ * One change to a board made before the server answers, wherever it shows: its own query, the home board when it is
+ * it, and its row in the list. The answer (`cacheDashboard`) replaces it.
+ */
+function boardEdits(
+  orgId: string,
+  dashboardId: string,
+  patch: (board: DashboardSummary) => Partial<DashboardSummary>,
+): CacheEdit[] {
+  const apply = <B extends DashboardSummary>(board: B): B =>
+    board.id === dashboardId ? { ...board, ...patch(board) } : board;
+  return [
+    edit<Dashboard>(keys.dashboard(orgId, dashboardId), apply),
+    // Only when it is that board: a read of another home board isn't cut short.
+    editWhere<Dashboard>(
+      keys.dashboardHome(orgId),
+      (q) => (q.state.data as Dashboard | undefined)?.id === dashboardId,
+      apply,
+    ),
+    edit<DashboardList>(keys.dashboardList(orgId), (list) => ({
+      ...list,
+      home: list.home ? apply(list.home) : list.home,
+      dashboards: list.dashboards.map(apply),
+    })),
+  ];
+}
+
+/** S, M or L as a board's width and height (as the widget spec's `sizeToLayout`). */
+const SIZE_LAYOUT: Record<WidgetSize, { w: 1 | 2; h: 1 | 2 }> = {
+  s: { w: 1, h: 1 },
+  m: { w: 2, h: 1 },
+  l: { w: 2, h: 2 },
+};
+
+/**
+ * One change to a widget made before the server answers, on every cached board that holds it (and only those: a read
+ * of another board isn't cut short). `change` answering null (removed), or a widget on another board (moved), takes it
+ * off the boards it was on; the answer (`cacheWidget`) puts it on the one it moved to.
+ */
+function widgetBoardEdits(orgId: string, widgetId: string, change: (widget: Widget) => Widget | null): CacheEdit[] {
+  const holds = (q: Query) => Boolean((q.state.data as Dashboard | undefined)?.widgets?.some((w) => w.id === widgetId));
+  const onBoard = (board: Dashboard): Dashboard => {
+    const at = board.widgets.find((w) => w.id === widgetId);
+    if (!at) return board;
+    const next = change(at);
+    const kept = next && next.dashboardId === board.id ? next : null;
+    const widgets = kept
+      ? board.widgets.map((w) => (w.id === widgetId ? kept : w))
+      : board.widgets.filter((w) => w.id !== widgetId);
+    return { ...board, widgets, widgetCount: widgets.length };
+  };
+  return [
+    editWhere<Dashboard>([...keys.dashboards(orgId), "one"], holds, onBoard),
+    editWhere<Dashboard>(keys.dashboardHome(orgId), holds, onBoard),
+  ];
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
@@ -188,6 +248,9 @@ export function useSetHomeDashboard(orgId: string) {
   return useMutation({
     meta: { silent: true },
     mutationFn: (dashboardId: string | null) => api.dashboards.setHome(orgId, dashboardId),
+    ...optimistic(qc, (dashboardId: string | null) => [
+      edit<DashboardList>(keys.dashboardList(orgId), (list) => ({ ...list, homeDashboardId: dashboardId })),
+    ]),
     onSuccess: ({ homeDashboardId }) => {
       qc.setQueryData<DashboardList>(keys.dashboardList(orgId), (list) => (list ? { ...list, homeDashboardId } : list));
       void qc.invalidateQueries({ queryKey: keys.dashboardList(orgId) });
@@ -235,6 +298,14 @@ export function useUpdateDashboard(orgId: string) {
     meta: { silent: true },
     mutationFn: ({ dashboardId, ...patch }: UpdateDashboardInput & { dashboardId: string }) =>
       api.dashboards.update(orgId, dashboardId, patch),
+    // A rename or a pin shows at once; the answer replaces it.
+    ...optimistic(qc, ({ dashboardId, title, about, pinned }: UpdateDashboardInput & { dashboardId: string }) =>
+      boardEdits(orgId, dashboardId, () => ({
+        ...(title !== undefined ? { title } : {}),
+        ...(about !== undefined ? { about } : {}),
+        ...(pinned !== undefined ? { pinned } : {}),
+      })),
+    ),
     onSuccess: (board) => cacheDashboard(qc, orgId, board),
   });
 }
@@ -246,6 +317,15 @@ export function useShareDashboard(orgId: string) {
     meta: { silent: true },
     mutationFn: ({ dashboardId, ...input }: ShareDashboardInput & { dashboardId: string }) =>
       api.dashboards.share(orgId, dashboardId, input),
+    // Who sees it shows at once; what that lets each viewer do comes with the answer.
+    ...optimistic(qc, ({ dashboardId, ...input }: ShareDashboardInput & { dashboardId: string }) =>
+      boardEdits(orgId, dashboardId, () => ({
+        audience: input.audience,
+        roleIds: input.roleIds,
+        editPolicy: input.editPolicy,
+        ...(input.editRoleIds !== undefined ? { editRoleIds: input.editRoleIds } : {}),
+      })),
+    ),
     onSuccess: (board) => cacheDashboard(qc, orgId, board),
   });
 }
@@ -256,6 +336,14 @@ export function useDeleteDashboard(orgId: string) {
   return useMutation({
     meta: { silent: true },
     mutationFn: (dashboardId: string) => api.dashboards.remove(orgId, dashboardId),
+    // Out of the list at once (and off Início when it was shown there); a refusal puts it back.
+    ...optimistic(qc, (dashboardId: string) => [
+      edit<DashboardList>(keys.dashboardList(orgId), (list) => ({
+        ...list,
+        dashboards: list.dashboards.filter((d) => d.id !== dashboardId),
+        homeDashboardId: list.homeDashboardId === dashboardId ? null : list.homeDashboardId,
+      })),
+    ]),
     onSuccess: (_, dashboardId) => {
       qc.removeQueries({ queryKey: keys.dashboard(orgId, dashboardId) });
       void qc.invalidateQueries({ queryKey: keys.dashboardList(orgId) });
@@ -274,25 +362,22 @@ export function useSaveLayout(orgId: string) {
     meta: { silent: true },
     mutationFn: ({ dashboardId, ...input }: DashboardLayoutInput & { dashboardId: string; home?: boolean }) =>
       api.dashboards.saveLayout(orgId, dashboardId, { widgets: input.widgets, tiles: input.tiles }),
-    onMutate: ({ dashboardId, home, widgets, tiles }) => {
-      const key = home ? keys.dashboardHome(orgId) : keys.dashboard(orgId, dashboardId);
-      const before = qc.getQueryData<Dashboard>(key);
-      if (before) {
+    ...optimistic(
+      qc,
+      ({ dashboardId, home, widgets, tiles }: DashboardLayoutInput & { dashboardId: string; home?: boolean }) => {
         const at = new Map(widgets.map((w) => [w.id, w]));
-        qc.setQueryData<Dashboard>(key, {
-          ...before,
-          widgets: before.widgets.map((w) => {
-            const next = at.get(w.id);
-            return next ? { ...w, layout: { position: next.position, w: next.w, h: next.h } } : w;
-          }),
-          tiles: tiles ?? before.tiles,
-        });
-      }
-      return { key, before };
-    },
-    onError: (_error, _input, context) => {
-      if (context?.before) qc.setQueryData(context.key, context.before);
-    },
+        return [
+          edit<Dashboard>(home ? keys.dashboardHome(orgId) : keys.dashboard(orgId, dashboardId), (board) => ({
+            ...board,
+            widgets: board.widgets.map((w) => {
+              const next = at.get(w.id);
+              return next ? { ...w, layout: { position: next.position, w: next.w, h: next.h } } : w;
+            }),
+            tiles: tiles ?? board.tiles,
+          })),
+        ];
+      },
+    ),
     onSuccess: (board) => cacheDashboard(qc, orgId, board),
   });
 }
@@ -305,6 +390,14 @@ export function useDecideDashboardProposal(orgId: string) {
     meta: { silent: true },
     mutationFn: ({ dashboardId, decision }: { dashboardId: string; decision: DashboardProposalDecision }) =>
       api.dashboards.decideProposal(orgId, dashboardId, decision),
+    // The request goes at once; published, the board shows the audience it asked for.
+    ...optimistic(qc, ({ dashboardId, decision }: { dashboardId: string; decision: DashboardProposalDecision }) =>
+      boardEdits(orgId, dashboardId, (board) =>
+        decision === "publish" && board.proposal
+          ? { audience: board.proposal.audience, roleIds: board.proposal.roleIds, proposal: null }
+          : { proposal: null },
+      ),
+    ),
     onSuccess: (board) => cacheDashboard(qc, orgId, board),
   });
 }
@@ -373,6 +466,22 @@ export function useUpdateWidget(orgId: string) {
     meta: { silent: true },
     mutationFn: ({ widgetId, ...patch }: UpdateWidgetInput & { widgetId: string }) =>
       api.dashboards.updateWidget(orgId, widgetId, patch),
+    // Its name, schedule, alert, size or board show at once; what a new prompt makes comes with the answer.
+    ...optimistic(qc, ({ widgetId, ...patch }: UpdateWidgetInput & { widgetId: string }) => {
+      const change = (w: Widget): Widget => ({
+        ...w,
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
+        ...(patch.schedule !== undefined ? { schedule: patch.schedule } : {}),
+        ...(patch.alert !== undefined ? { alert: patch.alert } : {}),
+        ...(patch.size !== undefined ? { layout: { ...w.layout, ...SIZE_LAYOUT[patch.size] } } : {}),
+        ...(patch.dashboardId !== undefined ? { dashboardId: patch.dashboardId } : {}),
+      });
+      return [
+        ...widgetBoardEdits(orgId, widgetId, change),
+        edit<WidgetDetail>(keys.widget(orgId, widgetId), (detail) => ({ ...detail, ...change(detail) })),
+      ];
+    }),
     onSuccess: (widget) => cacheWidget(qc, orgId, widget),
   });
 }
@@ -383,6 +492,8 @@ export function useRemoveWidget(orgId: string) {
   return useMutation({
     meta: { silent: true },
     mutationFn: (widgetId: string) => api.dashboards.removeWidget(orgId, widgetId),
+    // Off every board at once; a refusal puts it back where it was.
+    ...optimistic(qc, (widgetId: string) => widgetBoardEdits(orgId, widgetId, () => null)),
     onSuccess: (_, widgetId) => dropWidget(qc, orgId, widgetId),
   });
 }

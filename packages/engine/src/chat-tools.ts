@@ -62,6 +62,9 @@ const origin = (ctx: ToolContext) => ({
 
 /** Posting where the run already is: a reply. */
 const SAME_CONVERSATION = "That is this conversation: just reply.";
+/** `move_here` refused where a channel replies in threads (ADR 0214): the run's own, or the one it would move to. */
+const threadsOnlyText = (own: boolean, channel: string) =>
+  `${own ? "Agents reply in threads here: this work stays in the thread under the message that asked you" : `Agents reply in threads in #${channel}: no work moves to its top level`}. Post without \`move_here\`.`;
 
 /**
  * A run answering another agent, asked to post where that agent speaks (`askerSpeaksIn`): the agent that asked
@@ -183,7 +186,7 @@ export function createChatToolSource(deps: {
     {
       name: POST_MESSAGE_TOOL,
       description:
-        'Post a new message in another channel, e.g. "manda no #geral". `channel`: its name. `move_here`: asked to continue in a channel or out of a thread (its own channel too): your replies and background work go on at its top level, and a line here links there. Files: `artifact_ids`; one from a DM goes as a copy. Only channels the person who asked is in (when nobody asked, yours). Then say where you posted. For this conversation, just reply.',
+        'Post a new message in another channel, e.g. "manda no #geral". `channel`: its name. `move_here`: asked to continue in a channel or out of a thread (its own channel too): your replies and background work go on at its top level, and a line here links there. Files: `artifact_ids`; one from a DM goes as a copy. Only channels the person who asked is in (when nobody asked, yours). Then say where you posted. From a thread, its own channel posts at its top level.',
       scope: "",
       inputSchema: {
         type: "object",
@@ -214,7 +217,13 @@ export function createChatToolSource(deps: {
           const name = str(input.channel).trim().replace(/^#/, "").toLowerCase();
           const { channels, channelMembers } = schema;
           const [found] = await ctx.db
-            .select({ id: channels.id, name: channels.name, visibility: channels.visibility, dmKey: channels.dmKey })
+            .select({
+              id: channels.id,
+              name: channels.name,
+              visibility: channels.visibility,
+              dmKey: channels.dmKey,
+              replyInThreads: channels.replyInThreads,
+            })
             .from(channels)
             .where(
               and(
@@ -254,12 +263,14 @@ export function createChatToolSource(deps: {
           }
           const moving = input.move_here === true;
           const [run] = await ctx.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, ctx.runId));
+          // A channel that replies in threads keeps a run there (ADR 0214): it never moves to a main timeline.
+          const threadsOnly = Boolean(run?.replyInThread || channel.replyInThreads);
+          if (moving && threadsOnly)
+            return { content: threadsOnlyText(Boolean(run?.replyInThread), channel.name), isError: true };
           const inThread = replyThreadOf(ctx) !== null;
-          const movable = (moving || (here && inThread)) && !!run && (await movableRun(ctx.db, run));
-          if (here && !(moving && inThread && movable)) {
-            const out = inThread && movable ? " To continue at this channel's top level instead, set `move_here`." : "";
-            return { content: `${SAME_CONVERSATION}${out}`, isError: true };
-          }
+          const movable = (moving || (here && inThread)) && !threadsOnly && !!run && (await movableRun(ctx.db, run));
+          // From a thread of the same channel, a post there is a new message at its top level: what was asked.
+          if (here && !inThread) return { content: SAME_CONVERSATION, isError: true };
           if (moving && !movable) {
             return { content: "This work stays where it is: post without `move_here`.", isError: true };
           }
@@ -552,11 +563,12 @@ const REACT_LOOKBACK = 50;
 
 /**
  * The run's conversation, newest first, with who wrote each message as the agent sees them: its thread when the run
- * is in one (`threadRootId` is the root), else the channel's main timeline. `id`: that one message only.
+ * is in one (`threadRootId` is the root) or answers under its trigger (ADR 0214), else the channel's main timeline.
+ * `id`: that one message only.
  */
 function conversationMessages(ctx: ToolContext, id?: string) {
   const m = schema.messages;
-  const inThread = ctx.threadRootId !== ctx.triggerMessageId;
+  const inThread = ctx.threadRootId !== ctx.triggerMessageId || ctx.replyInThread === true;
   return ctx.db
     .select({
       id: m.id,

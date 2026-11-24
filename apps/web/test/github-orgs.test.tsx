@@ -6,7 +6,7 @@ setupDom();
 import { focusManager } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { setNavigateAway } from "@/lib/navigate";
-import { service } from "./catalog";
+import { openConnection } from "./catalog";
 import { createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { hintOf, shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
@@ -34,15 +34,11 @@ const open = async (state = seedState(), search = "") => {
   await settle(10);
   return state;
 };
+/** Reconnect from GitHub's page in Settings › Connectors (its line opened): the Account line's Reconnect. */
 const openReconnect = async (state: ReturnType<typeof seedState>) => {
   await open(state);
-  await click(screen().getByRole("button", { name: "Adicionar conector" }));
-  await click(
-    within(screen().getByRole("dialog", { name: "Adicionar conector" })).getByRole("button", {
-      name: "GitHub, conectado",
-    }),
-  );
-  await click(within(service("GitHub")).getByRole("button", { name: "Reconectar GitHub" }));
+  const page = await openConnection("GitHub");
+  await click(within(page).getByRole("button", { name: "Reconectar GitHub" }));
   await settle(4);
 };
 

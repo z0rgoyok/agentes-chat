@@ -143,6 +143,16 @@ test("the list: the workspace's computer first, each computer's status, its phon
     mayManage: false,
   });
   expect(labBox).toMatchObject({ cpus: 8, memoryGb: 16, status: { kind: "paused", until: null } });
+  // A runner that says its limit (`TASK_LIMIT_PROTOCOL`): the busy pill counts against it, and the page shows it.
+  expect(macbook?.maxTasks).toBeNull();
+  await f.db
+    .update(schema.machines)
+    .set({ size: { cpus: 12, memoryGb: 32, diskGb: 1000, maxTasks: 6 } })
+    .where(eq(schema.machines.id, mac));
+  expect((await listDevices(f.db, f.org.id, rui.id)).devices[1]).toMatchObject({
+    maxTasks: 6,
+    status: { kind: "busy", running: 1, max: 6 },
+  });
   expect(macbook?.phones).toMatchObject([
     {
       name: "Pixel 8",
@@ -235,6 +245,10 @@ test("who can use it: the owner sets it; an admin renames, marks it the workspac
   await expect(updateComputerDevice(deps(), other.id, f.org.id, laptop, { name: "Mine" })).rejects.toThrow(
     ForbiddenError,
   );
+  // How many tasks it runs at once is its owner's: an admin can't, not even down.
+  await expect(updateComputerDevice(deps(), sam.id, f.org.id, laptop, { maxTasks: 1 })).rejects.toMatchObject({
+    code: "device.tasks_owner_only",
+  });
 
   expect(await updateComputerDevice(deps(), rui.id, f.org.id, laptop, { audience: everyone })).toMatchObject({
     audience: everyone,

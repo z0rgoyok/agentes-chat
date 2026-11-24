@@ -1,9 +1,8 @@
-import type { AiAccounts as AiAccountsView } from "@agenteschat/client";
-import { keys, useAiAccounts, useAiStatus, useApi, useMachines } from "@agenteschat/client";
+import type { AiAccounts as AiAccountsView, AiHubAccount } from "@agenteschat/client";
+import { keys, useAiAccounts, useApi, useMachines } from "@agenteschat/client";
 import {
   accountTitle,
   againLogin,
-  agentsToGive,
   endsOnClaude,
   groupPlans,
   identityUnknown,
@@ -13,9 +12,8 @@ import {
   unusedCopies,
 } from "@agenteschat/client/lib/ai-accounts";
 import { computerNameOf } from "@agenteschat/client/lib/computer";
+import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames } from "@agenteschat/client/lib/format";
-import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { agentAi, aiStateOf } from "@agenteschat/client/lib/no-ai";
 import { isPlanId, planOf, signInProviderOf } from "@agenteschat/client/lib/plans";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import {
@@ -33,175 +31,126 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { PlanHold, usePlanHold } from "@/components/ai/plan-hold";
 import { useOrg } from "@/components/org-context";
-import { useDirectory } from "@/hooks/useDirectory";
 import { useToast } from "@/lib/toast";
 import { AddAccount } from "./AddAccountFlow";
-import { PlanHold, usePlanHold } from "./ConnectAiSteps";
-import { UseKeyForAll } from "./UseKeyForAll";
+import { UseOnAgentsDialog } from "./UseOnAgents";
 
 /*
- * What the owner of a plan account does with it (ADR 0059), where Configurações › IA e uso opens the account: what its
- * sign-in needs, then giving it to one more agent where it thinks for all of them (`shared`), renaming it, signing in
- * again (a new key for a coding plan, to every login) and disconnecting it. Its logins (one per agent) act as one.
+ * What can be done with an AI account in "Contas de IA" (ADR 0059), as its detail's ⋯ menu: renaming it and
+ * disconnecting it (whoever manages it), signing in again and dropping copies (its owner), giving a coding plan's key
+ * to every agent. Its logins (one per agent) act as one.
  */
 
 type Row = AiAccountsView["accounts"][number];
-type Open = { type: "rename" | "again" | "remove" | "all"; account: PlanAccount<Row> };
+type Open = "rename" | "again" | "remove" | "all";
 
-/** The viewer's own account's notes and actions, by one of its logins; nothing for an account that isn't theirs. */
-export function AccountActions({ machineId, accountId }: { machineId: string; accountId: string }) {
+/** The ⋯ of an account's detail; nothing when the viewer can do nothing with it. */
+export function AccountMenu({
+  logins,
+  canManage,
+  label,
+}: {
+  logins: readonly AiHubAccount[];
+  canManage: boolean;
+  /** The menu's name ("Mais ações"). */
+  label: string;
+}) {
   const { t } = useTranslation();
-  const { org, me } = useOrg();
+  const { org } = useOrg();
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
   const ai = useAiAccounts(org.id);
   const machines = useMachines(org.id);
-  const dir = useDirectory(org.id);
-  const status = useAiStatus(org.id);
   const [open, setOpen] = useState<Open | null>(null);
   const [busy, setBusy] = useState(false);
-  const account = groupPlans(ai.data?.accounts ?? []).find((g) =>
-    g.logins.some((l) => l.id === accountId && l.machineId === machineId),
-  );
+  const account = groupPlans(logins)[0];
   const a = account?.logins.find((l) => l.shared === true) ?? account?.logins[0];
   if (!account || !a) return null;
-  const { logins } = account;
   const names = (list: string[]) => joinNames(list, t);
   const refetch = () => {
-    for (const key of [keys.aiAccounts(org.id), keys.planUsage(org.id)]) void qc.invalidateQueries({ queryKey: key });
+    for (const key of [keys.aiAccounts(org.id), keys.planUsage(org.id), keys.agents(org.id)])
+      void qc.invalidateQueries({ queryKey: key });
   };
-  const machine = machines.data?.find((m) => m.id === a.machineId);
   const computer = computerNameOf(t, org.name, a.computer, isPersonal(org));
-
-  // One more of the person's agents thinks with an account made for all of them there: no sign-in.
-  const giveTo = async (agent: { id: string; name: string }) => {
-    setBusy(true);
-    try {
-      await api.agents.setBrain(org.id, agent.id, { brain: a.kind, account: a.id });
-      toast.show(t("aiAccounts.done.savedAgent", { agent: agent.name, label: accountTitle(t, a) }));
-      refetch();
-      for (const key of [keys.agents(org.id), keys.aiStatus(org.id), keys.agentBrain(org.id, agent.id)])
-        void qc.invalidateQueries({ queryKey: key });
-    } catch {
-      toast.show(t("agentPage.work.failed"), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const give = agentsToGive({
-    account: a,
-    agents: dir.agents,
-    machine,
-    viewerId: me.user.id,
-    onKey: (id) => agentAi(dir.agentById.get(id), aiStateOf(status.data, id)) === "key",
-  });
-
   // Every login of the account goes; `copies`: only those that think for no agent, each a sign-in made again.
-  const remove = async (gone: Row[], done: string) => {
+  const remove = async (gone: readonly Row[], done: string) => {
     setBusy(true);
     try {
       for (const l of gone) await api.machines.removeAccount(org.id, l.machineId, l.id);
       toast.show(done);
       setOpen(null);
-      void qc.invalidateQueries({ queryKey: keys.agents(org.id) });
-    } catch {
-      toast.show(t("agentPage.work.failed"), "error");
+    } catch (e) {
+      toast.show(errorText(t, e), "error");
     } finally {
       refetch();
       setBusy(false);
     }
   };
-
-  const copies = unusedCopies(account);
+  const copies = a.mine ? unusedCopies(account) : [];
   const plan = planOf(a.provider);
-  const note = signInNote(t, account, Boolean(plan));
-  // The email is the account's own line: here only what stands for it.
-  const identity = a.email
-    ? null
-    : a.keyHint
-      ? t("aiAccounts.page.keyEnds", { hint: a.keyHint })
-      : identityUnknown(a, machine)
-        ? t("aiAccounts.page.identityUnknown")
-        : null;
+  const again = a.mine && (account.logins.some(offersSignInAgain) || Boolean(plan));
+  const all = Boolean(plan) && a.status === "active" && a.rights.canUse;
+  if (!canManage && !again && !all && copies.length === 0) return null;
   return (
-    <div className="ai-accounts__own">
-      {identity && <span className="small muted">{identity}</span>}
-      {note && <SettingNote icon={note.state === "out" ? "alert" : "info"}>{note.text}</SettingNote>}
-      {copies.length > 0 && (
-        <SettingNote icon="repeat">{t("aiAccounts.page.copies", { count: copies.length })}</SettingNote>
-      )}
-      <div className="ac-acts ai-accounts__acts">
-        {give.length === 1 && give[0] ? (
-          <Button variant="link" disabled={busy} onClick={() => give[0] && void giveTo(give[0])}>
-            {t("aiAccounts.page.useFor", agentGrammar(give[0].name))}
-          </Button>
-        ) : (
-          give.length > 1 && (
-            <Menu
-              label={t("aiAccounts.page.useForMenu")}
-              trigger={
-                <Button variant="link" disabled={busy}>
-                  {t("aiAccounts.page.useForMenu")}
-                </Button>
-              }
-            >
-              {give.map((g) => (
-                <MenuItem key={g.id} onSelect={() => void giveTo(g)}>
-                  {g.name}
-                </MenuItem>
-              ))}
-            </Menu>
-          )
+    <>
+      <Menu
+        align="end"
+        label={label}
+        trigger={<Button variant="ghost" size="sm" iconOnly icon="more" aria-label={label} disabled={busy} />}
+      >
+        {canManage && (
+          <MenuItem icon="edit" onSelect={() => setOpen("rename")}>
+            {t("aiAccounts.page.rename")}
+          </MenuItem>
         )}
-        {plan && a.status === "active" && (
-          <Button variant="link" disabled={busy} onClick={() => setOpen({ type: "all", account })}>
-            {t("aiAccounts.page.useAll")}
-          </Button>
-        )}
-        <Button variant="link" disabled={busy} onClick={() => setOpen({ type: "rename", account })}>
-          {t("aiAccounts.page.rename")}
-        </Button>
-        {(logins.some(offersSignInAgain) || plan) && (
-          <Button variant="link" disabled={busy} onClick={() => setOpen({ type: "again", account })}>
+        {again && (
+          <MenuItem icon="key" onSelect={() => setOpen("again")}>
             {plan ? t("aiAccounts.page.newKey") : t("aiAccounts.page.signInAgain")}
-          </Button>
+          </MenuItem>
+        )}
+        {all && (
+          <MenuItem icon="members" onSelect={() => setOpen("all")}>
+            {t("aiAccounts.page.useAll")}
+          </MenuItem>
         )}
         {copies.length > 0 && (
-          <Button
-            variant="link"
-            disabled={busy}
-            onClick={() => void remove(copies, t("aiAccounts.page.copiesRemoved", { count: copies.length }))}
+          <MenuItem
+            icon="repeat"
+            onSelect={() => void remove(copies, t("aiAccounts.page.copiesRemoved", { count: copies.length }))}
           >
             {t("aiAccounts.page.removeCopies")}
-          </Button>
+          </MenuItem>
         )}
-        <Button
-          variant="link"
-          className="ac-link--danger"
-          disabled={busy}
-          onClick={() => setOpen({ type: "remove", account })}
-        >
-          {t("aiAccounts.page.disconnect")}
-        </Button>
-      </div>
-
-      {open?.type === "all" && <UseKeyForAll account={a} onClose={() => setOpen(null)} />}
-      {open?.type === "rename" && open.account.logins[0] && (
-        <RenameDialog
-          account={open.account.logins[0]}
+        {canManage && (
+          <MenuItem icon="trash" danger onSelect={() => setOpen("remove")}>
+            {t("aiAccounts.page.disconnect")}
+          </MenuItem>
+        )}
+      </Menu>
+      {open === "all" && (
+        <UseOnAgentsDialog
+          initial={{ brain: a.kind, account: a.id, machineId: a.machineId, model: null }}
+          allPicked
           onClose={() => setOpen(null)}
-          onSaved={(label) => {
-            toast.show(t("aiAccounts.page.renamed", { label }));
+        />
+      )}
+      {open === "rename" && (
+        <RenameDialog
+          account={a}
+          onClose={() => setOpen(null)}
+          onSaved={(name) => {
+            toast.show(t("aiAccounts.page.renamed", { label: name }));
             setOpen(null);
             refetch();
           }}
         />
       )}
-      {open?.type === "again" && (
+      {open === "again" && (
         <AgainDialog
-          account={open.account}
+          account={account}
           local={ai.data?.computers.find((c) => c.machineId === a.machineId)?.mine}
           onClose={() => setOpen(null)}
           onDone={() => {
@@ -210,7 +159,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
           }}
         />
       )}
-      {open?.type === "remove" && (
+      {open === "remove" && (
         <Dialog
           open
           onOpenChange={(o) => !o && !busy && setOpen(null)}
@@ -223,7 +172,7 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
                   computer,
                 })
               : t("aiAccounts.page.disconnectNone", { computer }),
-            ...(logins.some((l) =>
+            ...(account.logins.some((l) =>
               endsOnClaude(
                 l,
                 machines.data?.find((m) => m.id === l.machineId),
@@ -243,12 +192,50 @@ export function AccountActions({ machineId, accountId }: { machineId: string; ac
               variant="danger"
               loading={busy}
               disabled={busy}
-              onClick={() => void remove(logins, t("aiAccounts.page.disconnected", { label: accountTitle(t, a) }))}
+              onClick={() =>
+                void remove(account.logins, t("aiAccounts.page.disconnected", { label: accountTitle(t, a) }))
+              }
             >
               {t("aiAccounts.page.disconnect")}
             </Button>
           </DialogFooter>
         </Dialog>
+      )}
+    </>
+  );
+}
+
+/**
+ * What an account's detail says before its limits: what its sign-in needs (signed out, or not checked), how many of its
+ * logins are copies nobody thinks with, and what stands for it when there is no email (a key's end).
+ */
+export function AccountNotes({ logins }: { logins: readonly AiHubAccount[] }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const machines = useMachines(org.id);
+  const account = groupPlans(logins)[0];
+  const a = account?.logins.find((l) => l.shared === true) ?? account?.logins[0];
+  if (!account || !a) return null;
+  const note = signInNote(t, account, Boolean(planOf(a.provider)));
+  const copies = a.mine ? unusedCopies(account) : [];
+  const identity = a.email
+    ? a.email
+    : a.keyHint
+      ? t("aiAccounts.page.keyEnds", { hint: a.keyHint })
+      : a.mine &&
+          identityUnknown(
+            a,
+            machines.data?.find((m) => m.id === a.machineId),
+          )
+        ? t("aiAccounts.page.identityUnknown")
+        : null;
+  if (!note && copies.length === 0 && !identity) return null;
+  return (
+    <div className="aa-notes">
+      {identity && <span className="small muted">{identity}</span>}
+      {note && <SettingNote icon={note.state === "out" ? "alert" : "info"}>{note.text}</SettingNote>}
+      {copies.length > 0 && (
+        <SettingNote icon="repeat">{t("aiAccounts.page.copies", { count: copies.length })}</SettingNote>
       )}
     </div>
   );

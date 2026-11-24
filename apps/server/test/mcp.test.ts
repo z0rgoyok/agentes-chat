@@ -93,7 +93,7 @@ describe("protocol", () => {
     expect(client.getServerVersion()).toMatchObject({ name: "agentes-chat", title: "agentes.chat" });
     expect(client.getInstructions()).toContain('This connection acts as owner in the workspace "Acme"');
     const { tools } = await client.listTools();
-    expect(tools.map((x) => x.name)).toEqual([...APP_TOOL_NAMES]);
+    expect(tools.map((x) => x.name)).toEqual([...APP_TOOL_NAMES, "list_wiki_pages", "read_wiki_page"]);
     await client.close();
   });
 
@@ -160,9 +160,11 @@ describe("protocol", () => {
   test("a read-only grant doesn't list send_to_agent", async () => {
     const { b, orgId } = await setup();
     const app = await connectApp(t, b, orgId, { access: "read" });
-    expect((await listTools(app.access)).map((x) => x.name)).toEqual(
-      APP_TOOL_NAMES.filter((n) => n !== "send_to_agent"),
-    );
+    expect((await listTools(app.access)).map((x) => x.name)).toEqual([
+      ...APP_TOOL_NAMES.filter((n) => n !== "send_to_agent"),
+      "list_wiki_pages",
+      "read_wiki_page",
+    ]);
   });
 
   test("one app on two computers: each connection keeps the access it was given, refreshes included", async () => {

@@ -77,16 +77,6 @@ export function consultLineKey(state: ConsultLineState, c: Pick<RunConsultation,
 export const consultAskedKey = (c: Pick<RunConsultation, "kind">) =>
   isNote(c) ? ("chat.consultation.wrote" as const) : ("chat.consultation.asked" as const);
 
-/** Where the opened conversation came from, in a channel or a DM. */
-export const consultOriginKey = (c: Pick<RunConsultation, "kind">, inChannel: boolean) =>
-  isNote(c)
-    ? inChannel
-      ? ("chat.consultPanel.originNote" as const)
-      : ("chat.consultPanel.originNoteDm" as const)
-    : inChannel
-      ? ("chat.consultPanel.origin" as const)
-      : ("chat.consultPanel.originDm" as const);
-
 /**
  * Questions and hand-offs between the same two agents, either way, this close are one exchange: one asked before the
  * last one ended, or within this after it. An exchange draws one row and opens one conversation.

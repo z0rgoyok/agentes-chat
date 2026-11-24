@@ -17,6 +17,7 @@ import {
   SkeletonList,
   useReducedMotion,
 } from "@/ui";
+import { noteCardsScrolled } from "../files/pdf-preview";
 import { LIVE_ICON, LIVE_KINDS_MADE, LIVE_SF } from "../live-files/routes";
 import { useCreateLive } from "../live-files/shared/useCreateLive";
 import { chooseAction } from "../settings/parts";
@@ -189,6 +190,8 @@ function DriveBody({ highlightId = null, folderId = null }: { highlightId?: stri
           }
         : {})}
       refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+      // The grid draws every card at once: a PDF's card downloads its first page only once it comes in sight.
+      onScrollEnd={noteCardsScrolled}
     >
       {here ? <FolderPath trail={trail} /> : null}
       <View style={styles.search}>

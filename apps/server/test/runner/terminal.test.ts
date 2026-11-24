@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentScope } from "@agenteschat/adapters/machine-protocol";
@@ -84,7 +84,7 @@ const USER: TerminalUser = {
 
 function setup(
   limits: Partial<TerminalLimits> = {},
-  user: (agent: AgentScope) => Promise<TerminalUser> = async () => USER,
+  user: (agent: AgentScope, cwd?: string) => Promise<TerminalUser> = async () => USER,
 ) {
   const fake = fakeShells();
   const logs: string[] = [];
@@ -180,7 +180,7 @@ test("the agent's login shell in its folder, through its launcher, with TERM and
   expect(shell.argv).toEqual([...prefix, "/bin/sh", "-l"]);
 });
 
-test("system mode's terminal: root starts it in the agent's home, the agent's own user moves to its folder", () => {
+test("system mode's terminal: root starts it in the agent's home, the agent's own user moves to its folder", async () => {
   const home = tempDir("term-home-");
   dirs.push(home);
   const launcher = {
@@ -196,12 +196,62 @@ test("system mode's terminal: root starts it in the agent's home, the agent's ow
   expect(user.env).toEqual(launcher.env);
   expect(user.prefix.slice(0, launcher.prefix.length)).toEqual(launcher.prefix);
   // What runs after the launcher, here as this test's user: in the folder once made, else in the home.
-  const pwd = (agent: AgentScope) => {
-    const rest = systemTerminalUser(launcher, agent).prefix.slice(launcher.prefix.length);
+  const pwd = (agent: AgentScope, cwd?: string) => {
+    const rest = systemTerminalUser(launcher, agent, cwd).prefix.slice(launcher.prefix.length);
     return Bun.spawnSync([...rest, "/bin/sh", "-c", "pwd -P"], { cwd: home, env: launcher.env }).stdout.toString();
   };
   expect(pwd(dev).trim()).toBe(realpathSync(folder));
   expect(pwd(ops).trim()).toBe(realpathSync(home));
+
+  // A code session's worktree (ADR 0215): the agent's own user changes into it after its folder.
+  const worktree = path.join(folder, ".worktrees", "c-1a2b3c4d");
+  mkdirSync(worktree, { recursive: true });
+  expect(pwd(dev, ".worktrees/c-1a2b3c4d").trim()).toBe(realpathSync(worktree));
+  // Not there: the agent's folder. A name like one of `cd`'s options is still a folder's name.
+  expect(pwd(dev, ".worktrees/c-gone").trim()).toBe(realpathSync(folder));
+  mkdirSync(path.join(folder, "-P"));
+  expect(pwd(dev, "-P").trim()).toBe(realpathSync(path.join(folder, "-P")));
+  // No folder for the agent yet: its home, whatever was asked.
+  expect(pwd(ops, ".worktrees/c-1a2b3c4d").trim()).toBe(realpathSync(home));
+  // Words that leave the folder are refused before anything runs.
+  expect(await errorCode(() => systemTerminalUser(launcher, dev, "../ops-9f00aa11"))).toBe("outside_workspace");
+  expect(await errorCode(() => systemTerminalUser(launcher, dev, "/etc"))).toBe("outside_workspace");
+});
+
+test("a code session's terminal starts in its worktree inside the agent's folder; one gone in the folder; never outside it", async () => {
+  const folder = tempDir("term-cwd-");
+  const outside = tempDir("term-out-");
+  dirs.push(folder, outside);
+  const worktree = path.join(folder, ".worktrees", "c-1a2b3c4d");
+  mkdirSync(worktree, { recursive: true });
+  writeFileSync(path.join(folder, "notes.txt"), "x");
+  symlinkSync(outside, path.join(folder, "away"));
+  const at = async (cwd?: string) => (await runnerTerminalUser(folder, cwd)).cwd;
+  expect(await at()).toBe(folder);
+  expect(await at(".worktrees/c-1a2b3c4d")).toBe(worktree);
+  // Gone (the session was closed), or not a folder: the agent's folder.
+  expect(await at(".worktrees/c-gone")).toBe(folder);
+  expect(await at("notes.txt")).toBe(folder);
+  // Never outside it, by its words or through a link.
+  expect(await errorCode(() => at("../"))).toBe("outside_workspace");
+  expect(await errorCode(() => at("/etc"))).toBe("outside_workspace");
+  expect(await errorCode(() => at("away"))).toBe("outside_workspace");
+
+  // The folder asked reaches who says where the shell runs, and the log says where it opened.
+  const asked: (string | undefined)[] = [];
+  const t = setup({}, async (_agent, cwd) => {
+    asked.push(cwd);
+    return runnerTerminalUser(folder, cwd);
+  });
+  await t.terminals.open(dev, SIZE, async () => memoryDataSocket().socket, ".worktrees/c-1a2b3c4d");
+  expect(asked).toEqual([".worktrees/c-1a2b3c4d"]);
+  expect(t.fake.shells.at(-1)?.opts.cwd).toBe(worktree);
+  expect(t.logs[0]).toBe("a terminal as dev opened in .worktrees/c-1a2b3c4d (80×24)");
+  // Refused before any shell starts.
+  const refused = () => t.terminals.open(dev, SIZE, async () => memoryDataSocket().socket, "../../etc");
+  expect(await errorCode(refused)).toBe("outside_workspace");
+  expect(t.fake.shells).toHaveLength(1);
+  expect(t.terminals.count()).toBe(1);
 });
 
 test("what the shell prints before the data socket is ready waits for it; keys and a resize reach the shell", async () => {
@@ -328,4 +378,60 @@ test.skipIf(!hasBunTerminal())("a real shell in a PTY: its size, a resize, its o
   await waitFor(() => data.closed !== null, 5000);
   expect(data.bytes().toString()).toContain(`SIZE=40 132 in ${folder}`);
   expect(exitFrames(data)).toEqual([{ type: "exit", code: 7 }]);
+});
+
+test("a named terminal keeps its shell when its viewer leaves, and the same name comes back to it", async () => {
+  const { terminals, fake, logs } = setup({ keptMs: 60, replayMax: 64 });
+  const first = memoryDataSocket();
+  await terminals.open(dev, SIZE, async () => first.socket, undefined, "person.tab-0001");
+  const shell = fake.shells[0] as FakePty;
+  shell.print("one\r\n");
+  expect(first.bytes().toString()).toBe("one\r\n");
+  // The page is read again: the socket drops, the shell stays and goes on printing.
+  first.end();
+  expect(shell.hungUp).toBe(false);
+  shell.print("two\r\n");
+  expect(terminals.count(dev.id)).toBe(1);
+
+  const second = memoryDataSocket();
+  await terminals.open(dev, { cols: 100, rows: 30 }, async () => second.socket, undefined, "person.tab-0001");
+  // The same shell, shown what it printed, and told to draw itself at the new size.
+  expect(fake.shells).toHaveLength(1);
+  expect(second.bytes().toString()).toBe("one\r\ntwo\r\n");
+  expect(shell.sizes.at(-1)).toEqual([100, 30]);
+  second.send("ls\n");
+  expect(Buffer.concat(shell.written).toString()).toBe("ls\n");
+  expect(logs.some((l) => l.includes("opened again"))).toBe(true);
+
+  // Another name, or another agent with this name, is a shell of its own.
+  await terminals.open(dev, SIZE, async () => memoryDataSocket().socket, undefined, "person.tab-0002");
+  await terminals.open(ops, SIZE, async () => memoryDataSocket().socket, undefined, "person.tab-0001");
+  expect(fake.shells).toHaveLength(3);
+
+  // A third viewer takes it from the second, which closes without ending the shell.
+  const third = memoryDataSocket();
+  await terminals.open(dev, SIZE, async () => third.socket, undefined, "person.tab-0001");
+  expect(second.closed).not.toBeNull();
+  expect(second.texts().map((t) => JSON.parse(t))).toEqual([{ type: "moved" }]);
+  expect(shell.hungUp).toBe(false);
+  // The person closes its tab: the shell ends now.
+  third.control({ type: "end" });
+  expect(shell.hungUp).toBe(true);
+});
+
+test("a named terminal nobody comes back to ends; one without a name ends with its viewer", async () => {
+  const { terminals, fake } = setup({ keptMs: 30 });
+  const kept = memoryDataSocket();
+  await terminals.open(dev, SIZE, async () => kept.socket, undefined, "person.tab-0003");
+  const plain = memoryDataSocket();
+  await terminals.open(dev, SIZE, async () => plain.socket);
+  plain.end();
+  expect((fake.shells[1] as FakePty).hungUp).toBe(true);
+  kept.end();
+  expect((fake.shells[0] as FakePty).hungUp).toBe(false);
+  await waitFor(() => (fake.shells[0] as FakePty).hungUp);
+  // Its name is free again: the next open is a new shell.
+  await waitFor(() => terminals.count(dev.id) === 0);
+  await terminals.open(dev, SIZE, async () => memoryDataSocket().socket, undefined, "person.tab-0003");
+  expect(fake.shells).toHaveLength(3);
 });

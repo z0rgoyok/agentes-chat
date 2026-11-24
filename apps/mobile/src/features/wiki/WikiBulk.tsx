@@ -17,9 +17,11 @@ import {
   LIST_AVATAR,
   ListRow,
   Locked,
+  padPastFold,
   SCREEN_X,
   SkeletonList,
   Text,
+  useFoldRoom,
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
@@ -92,6 +94,8 @@ export function WikiTrashScreen() {
   const pull = usePullRefresh(trash.refetch);
   const bulk = useWikiBulk(orgId);
   const writes = can(org, "edit_wiki");
+  // Folded like a book (ADR 0212), the bar's buttons keep to the half past the fold, never across it.
+  const foldSide = useFoldRoom();
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const pages = trash.data ?? [];
   const busy = bulk.isPending;
@@ -139,7 +143,13 @@ export function WikiTrashScreen() {
   // Pages chosen: what to do with them stays at the screen's foot, over the list.
   const bar =
     picked.size > 0 ? (
-      <View style={[styles.bar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}>
+      <View
+        style={[
+          styles.bar,
+          { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line },
+          foldSide && padPastFold(foldSide, 16),
+        ]}
+      >
         <Button variant="secondary" label={t("wiki.trash.purge")} disabled={busy} onPress={() => purge([...picked])} />
         <View style={styles.grow}>
           <Button

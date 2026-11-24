@@ -60,28 +60,29 @@ function ShareBody({ board, onClose }: { board: DashboardSummary; onClose: () =>
   const people = [...(members.data ?? [])].sort(
     (a, b) => Number(b.userId === me.user.id) - Number(a.userId === me.user.id) || a.name.localeCompare(b.name),
   );
-  const save = () =>
-    share.mutate(
-      {
+  const save = () => {
+    // Who sees it changes at once and the dialog closes; the answer is said in a toast, a refusal puts it back (the
+    // call's own promise: this form is gone by then).
+    void share
+      .mutateAsync({
         dashboardId: board.id,
         audience: draft.audience,
         roleIds: draft.audience === "roles" ? draft.roleIds : [],
         ...editorsInput(draft),
-      },
-      {
-        onSuccess: (saved) => {
+      })
+      .then(
+        (saved) =>
           toast.show(
             saved.audience === "workspace"
               ? t("dashboards.share.nowWorkspace", { title: saved.title })
               : saved.audience === "private"
                 ? t("dashboards.share.nowPrivate", { title: saved.title })
                 : t("dashboards.share.nowRoles", { title: saved.title, roles: roleNames(roles, saved.roleIds) }),
-          );
-          onClose();
-        },
-        onError: (error) => toast.show(errorText(t, error), "error"),
-      },
-    );
+          ),
+        (error: unknown) => toast.show(errorText(t, error), "error"),
+      );
+    onClose();
+  };
   return (
     <>
       <Locked when={share.isPending}>

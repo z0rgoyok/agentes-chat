@@ -1,4 +1,6 @@
-import type { Credential, Member } from "@agenteschat/client";
+import type { Credential, Member, OrgRole } from "@agenteschat/client";
+import { useRoles } from "@agenteschat/client";
+import { ownerRoles, roleOfOwnerValue, roleOwnerValue } from "@agenteschat/client/lib/agent-owner";
 import { apiPickOptions, type BrainPickOption, brainPickText } from "@agenteschat/client/lib/brain-picker";
 import { keyLine, keySource, type ModelChoice } from "@agenteschat/client/lib/providers";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
@@ -22,6 +24,7 @@ import {
   matchesWords,
   Popover,
   ProviderLogo,
+  RoleMark,
   SearchSelect,
   Select,
   type SelectOption,
@@ -49,7 +52,10 @@ import { QUICK_BUDGETS, ROLE_IDS, ROLE_PRESETS, readBudget } from "@/lib/new-age
  * the budget and the instruction tips; the role as a tag and text edited in place.
  */
 
-/** Select value for "Sem responsável" (the API takes `ownerUserId: null`). */
+/**
+ * Select value for "Admins", an agent with no owner (the API takes `ownerUserId: null` and `ownerRoleId: null`). A person's value is their
+ * id, a role's `role:<id>` (`roleOwnerValue`, ADR 0085, addendum of 2026-11-21).
+ */
 export const NO_OWNER = "__none__";
 /** Value of the "Chave padrão do workspace" option (the API takes `credentialId: null`). */
 export const DEFAULT_KEY = "__default__";
@@ -429,8 +435,10 @@ export function LookRows({
 }
 
 /**
- * "Responsável": a member (you marked) or "Sem responsável". Each with their role under the name, which a personal
- * workspace leaves out (ADR 0159): a family knows who is who.
+ * "Owner": a role (whoever holds it at the time, ADR 0085, addendum of 2026-11-21), a member (you marked) or
+ * "Admins" (no owner: the admins answer for it). The roles come first under "Roles", the people under "People"; with no role to offer (`ownerRoles`: the
+ * workspace's own, none holding `administrator`) the list has no headings, as before. Each person with their role
+ * under the name, which a personal workspace leaves out (ADR 0159): a family knows who is who.
  */
 export function OwnerSelect({
   value,
@@ -445,18 +453,38 @@ export function OwnerSelect({
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const roles = !isPersonal(org);
+  const roles = useRoles(org.id).data?.roles ?? [];
+  const showsRole = !isPersonal(org);
+  // The role it has now stays offered even if it no longer could be (it got `administrator`): the trigger shows it.
+  const picked = roleOfOwnerValue(value);
+  const allowed = new Set(ownerRoles(roles).map((r) => r.id));
+  const offered = roles.filter((r) => allowed.has(r.id) || r.id === picked);
+  const grouped = offered.length > 0;
   return (
     <Select
       aria-label={t("newAgent.owner")}
       value={value}
       onValueChange={onChange}
+      renderValue={(o) => {
+        // In the trigger a role's mark is a face's size there (20px).
+        const role = offered.find((r) => roleOwnerValue(r.id) === o.value);
+        const leading = role ? <RoleMark color={role.color} icon={role.icon} size={20} /> : o.leading;
+        return <ChosenValue option={{ ...o, leading }} />;
+      }}
       options={[
+        ...offered.map((r) => ({
+          value: roleOwnerValue(r.id),
+          label: r.name,
+          description: t("audience.roleMembers", { count: r.people }),
+          leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
+          group: t("audience.roles"),
+        })),
         ...members.map((m) => ({
           value: m.userId,
           label: m.userId === meId ? t("newAgent.you", { name: m.name }) : m.name,
-          ...(roles ? { description: t(`roles.${m.role}`) } : {}),
+          ...(showsRole ? { description: t(`roles.${m.role}`) } : {}),
           leading: <Avatar kind="person" size="sm" name={m.name} imageUrl={m.image} />,
+          ...(grouped ? { group: t("audience.people") } : {}),
         })),
         {
           value: NO_OWNER,
@@ -474,12 +502,23 @@ export function OwnerSelect({
 }
 
 /**
- * "Responsável" where it can't be changed: the person and their role (a team's workspace), or "Sem responsável".
+ * "Owner" where it can't be changed: the person and their role (a team's workspace), the role that answers for it and
+ * how many hold it (ADR 0085, addendum of 2026-11-21), or "Admins" (no owner).
  */
-export function OwnerValue({ member, meId }: { member: Member | undefined; meId: string }) {
+export function OwnerValue({ member, meId, role }: { member: Member | undefined; meId: string; role?: OrgRole }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const role = member && !isPersonal(org) ? t(`roles.${member.role}`) : null;
+  if (role)
+    return (
+      <div className="agp-person">
+        <RoleMark color={role.color} icon={role.icon} size={36} />
+        <span className="agp-person__t">
+          <b className="ac-captop">{role.name}</b>
+          <span>{t("audience.roleMembers", { count: role.people })}</span>
+        </span>
+      </div>
+    );
+  const roleName = member && !isPersonal(org) ? t(`roles.${member.role}`) : null;
   return (
     <div className="agp-person">
       {member ? (
@@ -491,14 +530,14 @@ export function OwnerValue({ member, meId }: { member: Member | undefined; meId:
       )}
       <span className="agp-person__t">
         {/* With the role under it the name takes the face's top; alone, it centres on the tile. */}
-        <b className={role ? "ac-captop" : undefined}>
+        <b className={roleName ? "ac-captop" : undefined}>
           {member
             ? member.userId === meId
               ? t("newAgent.you", { name: member.name })
               : member.name
             : t("newAgent.noOwnerOption")}
         </b>
-        {role && <span>{role}</span>}
+        {roleName && <span>{roleName}</span>}
       </span>
     </div>
   );

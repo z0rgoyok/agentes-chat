@@ -20,14 +20,10 @@ import {
   humanCheckStays,
   humanCheckUrl,
   loadsAgain,
+  SHEET_INSET,
+  SHEET_PADDING,
+  widgetBox,
 } from "./human-check";
-
-/** Turnstile's checkbox: 65 px tall, and at least 300 px wide at its `flexible` size. */
-const WIDGET_HEIGHT = 65;
-const WIDGET_MIN_WIDTH = 300;
-/** The open sheet's gap to the window's sides, and its padding. */
-const SHEET_INSET = 8;
-const SHEET_PADDING = 18;
 
 /**
  * The bot check of a public form (ADR 0075), when the server has a site key: Cloudflare Turnstile in a WebView on
@@ -98,8 +94,7 @@ export function useHumanCheck(action: HumanAction | null): { check: HumanCheck |
 
   // Only while a call waits on Cloudflare's click: a page that asks before anyone presses stays out of the way.
   const open = asking && waiting > 0;
-  // A narrower phone would cut the checkbox at the sheet's padding: there it spans the sheet (304 px at 320 pt).
-  const narrow = width - 2 * (SHEET_INSET + SHEET_PADDING) < WIDGET_MIN_WIDTH;
+  const { narrow, ...widget } = widgetBox(width);
   // biome-ignore lint/correctness/useExhaustiveDependencies: only while the sheet is open
   useEffect(() => {
     if (!open) return;
@@ -165,8 +160,13 @@ export function useHumanCheck(action: HumanAction | null): { check: HumanCheck |
           thirdPartyCookiesEnabled
           sharedCookiesEnabled
           scrollEnabled={false}
+          // Android: the page's own width and scale, never zoomed, and its words at the page's size whatever the
+          // phone's font size (the widget's box is a fixed 65 px).
+          scalesPageToFit={false}
+          setBuiltInZoomControls={false}
+          textZoom={100}
           style={styles.web}
-          containerStyle={open ? [styles.widget, narrow && styles.edgeToEdge] : styles.pixel}
+          containerStyle={[styles.widget, widget, open && narrow && styles.edgeToEdge]}
         />
         {open ? <Button variant="secondary" wide label={t("mobile.common.cancel")} onPress={stop} /> : null}
       </View>
@@ -177,7 +177,7 @@ export function useHumanCheck(action: HumanAction | null): { check: HumanCheck |
 
 const styles = StyleSheet.create({
   // One invisible pixel in the window, so the page runs the challenge while the person types.
-  hidden: { position: "absolute", left: 0, top: 0, width: 1, height: 1, opacity: 0 },
+  hidden: { position: "absolute", left: 0, top: 0, width: 1, height: 1, opacity: 0, overflow: "hidden" },
   pixel: { flex: 0, width: 1, height: 1 },
   sheet: {
     position: "absolute",
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     padding: SHEET_PADDING,
     gap: 14,
   },
-  widget: { flex: 0, height: WIDGET_HEIGHT, alignSelf: "stretch" },
+  widget: { flex: 0 },
   edgeToEdge: { marginHorizontal: -SHEET_PADDING },
   web: { backgroundColor: "transparent" },
 });

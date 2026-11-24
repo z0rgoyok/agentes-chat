@@ -6,11 +6,9 @@ import {
   consultChoiceOf,
   consultChoices,
   consultLineState,
-  consultOriginKey,
   openableConsultation,
 } from "@agenteschat/client/lib/consult-group";
-import { consultSubject } from "@agenteschat/client/lib/consultations";
-import { dayLabel, formatTime, joinNames, namesText } from "@agenteschat/client/lib/format";
+import { dayLabel, joinNames, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { buildTimeline } from "@agenteschat/client/lib/timeline";
 import { AvatarStack, Button, DayDivider, Dialog, DialogFooter, Icon, PixelSpinner, Segmented } from "@agenteschat/ui";
@@ -21,6 +19,7 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { consultLineLabel } from "@/components/ConsultGroup";
 import { type ChannelActions, ChannelActionsContext } from "@/components/channel-actions";
 import { ErrorState, LoadingConversation } from "@/components/Loading";
+import { MetaLine } from "@/components/MetaLine";
 import { useNow } from "@/components/missions/MissionBits";
 import { useOrg } from "@/components/org-context";
 import { colorOf } from "@/components/Sky";
@@ -94,7 +93,6 @@ export function ConsultationDialog({
     from: from.name,
     to: to.name,
   });
-  const subject = consultSubject(c?.question);
   const nameOf = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const state = c ? consultLineState(c, now) : null;
   // The cards keep their buttons (a question answers in its own field); nothing else acts
@@ -152,20 +150,12 @@ export function ConsultationDialog({
           </span>
         }
         subtitle={
-          <>
-            {subject && <span className="thread-head__subject">{subject}</span>}
-            <span className="thread-head__meta">
-              <span className="thread-head__where">
-                {channelName ? t("chat.consultPanel.where", { channel: channelName }) : t("chat.consultPanel.whereDm")}
-              </span>
-              {list && list.length > 0 && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{t("chat.consultPanel.messages", { count: list.length })}</span>
-                </>
-              )}
-            </span>
-          </>
+          <MetaLine
+            where={
+              channelName ? t("chat.consultPanel.where", { channel: channelName }) : t("chat.consultPanel.whereDm")
+            }
+            parts={list && list.length > 0 ? [t("chat.consultPanel.messages", { count: list.length })] : []}
+          />
         }
         leading={
           c && (
@@ -219,19 +209,6 @@ export function ConsultationDialog({
           {query.isLoading && <LoadingConversation />}
           {query.isError && !query.data && <ErrorState error={query.error} onRetry={() => void query.refetch()} />}
           {query.isSuccess && !query.data && <p className="thread-origin">{t("chat.consultPanel.missing")}</p>}
-          {c && (
-            <p className="thread-origin ac-iconline">
-              <Icon name="agent" size={14} />
-              <span>
-                {t(consultOriginKey(c, Boolean(channelName)), {
-                  from: from.name,
-                  to: to.name,
-                  channel: channelName,
-                  time: formatTime(i18n.language, c.createdAt),
-                })}
-              </span>
-            </p>
-          )}
           {rows}
           {c?.status === "answered" && c.answer && !said && (
             <div className="ac-consult__body ac-consult__body--inline consult-answer">

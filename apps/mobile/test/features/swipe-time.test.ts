@@ -60,7 +60,7 @@ describe("a pull to the left shows the times", () => {
     // Someone else's has its time there too, and gives way, face and body together, only when too wide.
     expect(row).toMatch(/\{inBubble \|\| compact \? \(\s+<SwipeTime>/);
     expect(row).toContain("<View onLayout={inBubble ? giveWay.onArea : undefined}>");
-    expect(row).toContain("onLayout={giveWay.onBubble}");
+    expect(row).toContain("giveWay.onBubble(e);");
     expect(row).toContain(
       "<Animated.View style={[styles.body, { gap: rhythm.part }, inBubble && giveWay.style, compact && slide]}>",
     );

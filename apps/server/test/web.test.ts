@@ -39,6 +39,25 @@ describe("web app serving", () => {
     expect(res.headers.get("cross-origin-resource-policy")).toBeNull();
   });
 
+  test("a script goes compressed when the build wrote it so and the browser takes it; the page never does", async () => {
+    writeFileSync(join(dir, "assets", "app.js.br"), "brotli bytes");
+    writeFileSync(join(dir, "assets", "app.js.gz"), "gzip bytes");
+    const br = await app.request("/assets/app.js", { headers: { "accept-encoding": "gzip, deflate, br" } });
+    expect(br.headers.get("content-encoding")).toBe("br");
+    expect(br.headers.get("content-type")).toContain("text/javascript");
+    expect(br.headers.get("vary")).toContain("Accept-Encoding");
+    expect(await br.text()).toBe("brotli bytes");
+    const gz = await app.request("/assets/app.js", { headers: { "accept-encoding": "gzip" } });
+    expect(gz.headers.get("content-encoding")).toBe("gzip");
+    const plain = await app.request("/assets/app.js");
+    expect(plain.headers.get("content-encoding")).toBeNull();
+    expect(await plain.text()).toBe("console.log(1)");
+    const page = await app.request("/org/abc", { headers: { "accept-encoding": "br" } });
+    expect(page.headers.get("content-encoding")).toBeNull();
+    rmSync(join(dir, "assets", "app.js.br"));
+    rmSync(join(dir, "assets", "app.js.gz"));
+  });
+
   test("hashed assets open from disk; index.html is always revalidated", async () => {
     const asset = await app.request("/assets/app.js");
     expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");

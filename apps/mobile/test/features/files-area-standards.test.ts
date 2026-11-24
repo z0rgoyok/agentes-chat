@@ -174,7 +174,9 @@ describe("a file's screen and its share sheet", () => {
   test("a page, a PDF or a text loads in a page's shape, never a spinner", () => {
     const viewer = src("features/files/DocumentViewer.tsx");
     expect(viewer).not.toContain("ActivityIndicator");
-    expect(viewer.match(/renderLoading=\{\(\) => <PageBones cover \/>\}/g)?.length).toBe(2);
+    expect(viewer.match(/renderLoading=\{\(\) => <PageBones cover \/>\}/g)?.length).toBe(1);
+    // A PDF's pages come in its own shape too, while its copy loads (ADR 0208).
+    expect(src("features/files/PdfPages.tsx")).toContain("if (!copy.data) return <PageBones />;");
     expect(src("features/files/PageBones.tsx")).toContain("const pulse = usePulse();");
   });
 
@@ -229,7 +231,7 @@ describe("the search tab", () => {
     const results = src("features/search/SearchResults.tsx");
     expect(results).toContain("const failed = words && hits.isError && !hits.data;");
     expect(results).toContain("{failed ? <LoadFailed onRetry={() => void hits.refetch()} /> : null}");
-    expect(results).toContain("{words && !failed && isEmpty(r) && !hits.isFetching ? (");
+    expect(results).toContain("{words && !failed && isEmpty(r) && settingItems.length === 0 && !hits.isFetching ? (");
   });
 
   test("taking the filters off is the kit's button, not a press drawn by hand", () => {

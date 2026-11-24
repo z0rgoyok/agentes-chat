@@ -1,6 +1,6 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, eq, inArray, isNull, schema } from "@agenteschat/db";
-import { proposeSettings, type SettingsProposalCard } from "./context/proposals";
+import { proposeSettings, queueSettle, type SettingsProposalCard } from "./context/proposals";
 import { openPersonAgentDm } from "./dms";
 import { NotFoundError, ValidationError } from "./errors";
 import { publishMessageCreated } from "./events";
@@ -98,5 +98,13 @@ export async function proposeChannelMove(
     meta: { ...bodyCode(SETTINGS_PROPOSAL_CARD, { names: who }), actionCard: card },
   });
   if (deps.pubsub) await publishMessageCreated(deps.pubsub, messageView(message));
+  // The person moved it on the map: the review applies it in a moment (ADR 0219), as a change they can't make
+  // themselves when that is so.
+  await queueSettle(
+    db,
+    orgId,
+    proposals.map((p) => p.id),
+    proposals.some((p) => !p.canDecide) ? "asked_other" : "asked",
+  );
   return { channelId: dm.id, messageId: message.id, rightHandId };
 }

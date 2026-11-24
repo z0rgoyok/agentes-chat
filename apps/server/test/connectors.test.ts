@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { createFakeComposioClient, createFakeErrorReporter, createFakeMailConnector } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
 import { type McpConnect, mcpPreset } from "@agenteschat/engine";
-import { browser, createTestServer, seedOrg, signUp, type TestServer } from "./harness";
+import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
 afterEach(() => t.close());
@@ -428,6 +428,88 @@ test("one-click servers that haven't approved agentes.chat: `soon`, refused by i
     detail: "invalid_redirect_uri: One or more redirect URIs are not allowed",
   });
   expect(asked).toContain("https://mcp.asana.com/register");
+});
+
+test("Meta Ads without this server's Meta app: one click, refused registration, then the admin's own app (its secret never returned)", async () => {
+  const ADS = "https://mcp.facebook.com/ads";
+  const http = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === ADS && init?.method === "POST") {
+      return new Response("", {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer resource_metadata="https://mcp.facebook.com/.well-known/oauth-protected-resource/ads"',
+        },
+      });
+    }
+    if (url === "https://mcp.facebook.com/.well-known/oauth-protected-resource/ads") {
+      return Response.json({
+        resource: ADS,
+        authorization_servers: ["https://www.facebook.com/ads"],
+        scopes_supported: ["ads_read"],
+      });
+    }
+    if (url === "https://www.facebook.com/.well-known/oauth-authorization-server/ads") {
+      return Response.json({
+        issuer: "https://www.facebook.com/ads",
+        authorization_endpoint: "https://www.facebook.com/v27.0/dialog/oauth",
+        token_endpoint: "https://graph.facebook.com/v27.0/oauth/access_token",
+        registration_endpoint: "https://mcp.facebook.com/.well-known/register/ads",
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["none"],
+      });
+    }
+    if (url === "https://mcp.facebook.com/.well-known/register/ads") {
+      return Response.json({ error: "invalid_client_metadata" }, { status: 400 });
+    }
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
+  t = await createTestServer({ http, resolveHost: async () => ["93.184.216.34"] });
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const { connectors } = (await (await owner("/api/app/connectors/catalog")).json()) as { connectors: Listed[] };
+  expect(connectors.find((c) => c.id === "meta-ads")).toMatchObject({
+    kind: "remote_mcp",
+    available: true,
+    soon: false,
+  });
+  const connect = () => owner(`/api/app/organizations/${orgId}/connectors/presets/meta-ads/connect`, { json: {} });
+  expect(await (await connect()).json()).toEqual({
+    status: "needs_key",
+    reason: "not_approved",
+    detail: "invalid_client_metadata",
+  });
+
+  const path = `/api/app/organizations/${orgId}/connector-oauth-clients`;
+  const member = await joinByInvitation(t, owner, orgId, "ada@example.com", { role: "member" });
+  const refused = await member(path, { method: "PUT", json: { serverUrl: ADS, clientId: "1234567890" } });
+  expect(refused.status).toBe(403);
+  expect((await member(`${path}?serverUrl=${encodeURIComponent(ADS)}`)).status).toBe(403);
+
+  const saved = await owner(path, {
+    method: "PUT",
+    json: { serverUrl: ADS, clientId: "1234567890", clientSecret: "fake-app-secret" },
+  });
+  expect(saved.status).toBe(200);
+  const body = await saved.text();
+  expect(body).not.toContain("fake-app-secret");
+  expect(JSON.parse(body)).toEqual({
+    redirectUri: `${t.config.PUBLIC_URL.replace(/\/$/, "")}/api/app/connectors/oauth/callback`,
+    issuer: "https://www.facebook.com/ads",
+    client: { clientId: "1234567890", hasSecret: true, scopes: null },
+  });
+  expect(await (await owner(`${path}?serverUrl=${encodeURIComponent(ADS)}`)).text()).not.toContain("fake-app-secret");
+  const started = (await (await connect()).json()) as { status: string; authorizeUrl: string };
+  expect(started.status).toBe("oauth");
+  expect(new URL(started.authorizeUrl).searchParams.get("client_id")).toBe("1234567890");
+
+  const removed = await owner(`${path}?issuer=${encodeURIComponent("https://www.facebook.com/ads")}`, {
+    method: "DELETE",
+  });
+  expect(removed.status).toBe(204);
+  expect(await (await connect()).json()).toMatchObject({ status: "needs_key", reason: "not_approved" });
 });
 
 test("catalog: with its OAuth app configured, our Linear connector replaces the one-click server", async () => {

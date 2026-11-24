@@ -193,7 +193,7 @@ describe("no fake back anywhere in the flow", () => {
     expect(submit.indexOf("finishNewAgent();")).toBeLessThan(submit.indexOf("void openDm("));
     // What it thinks with, in the toast, is the AI chosen, not the apps' levels saved a few lines above.
     expect(submit).toContain("const grants = Object.fromEntries(");
-    expect(submit).toContain("const thinksLabel = chosen?.title ??");
+    expect(submit).toContain("const thinksLabel = pickRow ? choiceText(t, pickRow, i18n.language).label : startsOn;");
   });
 
   test("a step opened from Revisar says Pronto and goes back there once; the next step's Continuar waits on its rules", () => {

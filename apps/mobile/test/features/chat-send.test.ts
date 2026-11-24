@@ -72,6 +72,10 @@ describe("typing in the composer", () => {
   test("sending empties the field with its caret at the start, and keeps the focus", () => {
     // As words set from code: with no selection set, iOS kept the height of the lines the sent words had.
     expect(box).toContain('const clear = () => put("", 0);');
+    // And an empty field is one line high on iOS, whatever height the native side last measured for the words that
+    // went (a long message left a field five lines tall).
+    expect(box).toContain('const emptyCap = Platform.OS === "ios" ? { maxHeight: oneLineIos(fontScale) } : null;');
+    expect(box).toContain("style={[inputText, styles.inputFill, { color: colors.ink }, text ? null : emptyCap]}");
     const put = between(box, "const put = (next: string", "const clear = ");
     expect(put).toContain("setText(next);");
     expect(put).toContain("setSelection({ start: at, end: at });");

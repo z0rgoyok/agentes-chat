@@ -6,7 +6,6 @@ import {
   consolidateItem,
   createAgent,
   createJobHandlers,
-  decideProposal,
   drainOutbox,
   ForbiddenError,
   insertMessage,
@@ -22,7 +21,7 @@ import {
   revertMemoryChange,
   undoAgentAction,
 } from "../src";
-import { addMember, type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, setup, withReview } from "./fixtures";
 
 let f: Fixture;
 afterEach(() => f?.close());
@@ -456,8 +455,11 @@ describe("memory changes on request", () => {
     expect(receipt?.messageId).not.toBeNull();
   });
 
-  test("who can't decide gets a proposal inline, and the owner accepts it", async () => {
-    f = await setup({ contextTools: true, reply: instructionsModel() });
+  test("who can't decide gets a card inline, and the review applies it as the owner", async () => {
+    f = await setup({
+      contextTools: true,
+      reply: withReview({ apply: true, why: "A lasting preference." }, instructionsModel()),
+    });
     const member = await addMember(f.db, f.org.id, "member");
     await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: member.id });
     const events = f.listen(f.general.id);
@@ -472,10 +474,21 @@ describe("memory changes on request", () => {
     ).update;
     expect(update).toMatchObject({ canDecide: false });
     expect(update.undo).toBeUndefined();
-    const [agentBefore] = await f.db.select().from(schema.agents).where(eq(schema.agents.id, f.agent.id));
-    expect(agentBefore?.instructions).toBe("Answer briefly.");
-    await decideProposal(f.db, f.owner.id, f.org.id, update.proposalId, "accept");
+    // Nobody is asked to accept it: the review applied it, as who looks after the agent, for the member.
     const [agent] = await f.db.select().from(schema.agents).where(eq(schema.agents.id, f.agent.id));
     expect(agent?.instructions).toContain("- Sempre responda em português.");
+    const [row] = await f.db
+      .select()
+      .from(schema.contextProposals)
+      .where(eq(schema.contextProposals.id, update.proposalId));
+    expect(row).toMatchObject({
+      status: "accepted",
+      requestedByUserId: member.id,
+      decidedByUserId: null,
+      decidedByAgentId: f.agent.id,
+      review: "A lasting preference.",
+    });
+    const audit = await f.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "proposal.accepted"));
+    expect(audit.map((a) => [a.actorType, a.actorId, a.onBehalfOfUserId])).toEqual([["agent", f.agent.id, f.owner.id]]);
   });
 });

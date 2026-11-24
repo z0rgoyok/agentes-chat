@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
-import { changeMemberRole, enableCaches, getMembership, setUserBlocked } from "../src";
+import {
+  changeMemberRole,
+  enableCaches,
+  getMembership,
+  LAST_SEEN_EVERY_MS,
+  setUserBlocked,
+  touchLastSeen,
+} from "../src";
 import { addMember, addUser, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -51,4 +58,24 @@ test("a read inside a transaction that rolls back is not kept", async () => {
     })
     .catch(() => {});
   expect(await roleOf(caio.id)).toBeNull();
+});
+
+test("a person's last seen is written at most every LAST_SEEN_EVERY_MS per workspace", async () => {
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  const seen = async () =>
+    (
+      await f.db
+        .select({ at: schema.organizationMembers.lastSeenAt })
+        .from(schema.organizationMembers)
+        .where(and(eq(schema.organizationMembers.orgId, f.org.id), eq(schema.organizationMembers.userId, bia.id)))
+    )[0]?.at ?? null;
+  const t0 = new Date("2026-01-01T10:00:00Z");
+  await touchLastSeen(f.db, f.org.id, bia.id, t0);
+  expect(await seen()).toEqual(t0);
+  // Another socket a minute later: not written again.
+  await touchLastSeen(f.db, f.org.id, bia.id, new Date(t0.getTime() + 60_000));
+  expect(await seen()).toEqual(t0);
+  const later = new Date(t0.getTime() + LAST_SEEN_EVERY_MS);
+  await touchLastSeen(f.db, f.org.id, bia.id, later);
+  expect(await seen()).toEqual(later);
 });

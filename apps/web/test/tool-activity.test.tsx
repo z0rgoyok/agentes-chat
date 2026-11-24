@@ -4,9 +4,10 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import type { LiveWork, Message } from "@agenteschat/client";
+import { CodeConversation } from "@agenteschat/client/lib/work-context";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { useState } from "react";
-import { LiveTools } from "@/components/ToolCalls";
+import { LiveTools, SavedTools } from "@/components/ToolCalls";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, renderPage, screen, settle } from "./render";
 
@@ -126,6 +127,49 @@ describe("what agents did under each reply (a person's own setting, off by defau
     await renderPage(<Live work={work} />, { api: createFakeApi(state), org: true });
     expect(document.querySelector(".ac-tools")).not.toBeNull();
     await act(async () => finish());
+    await settle(2);
+    expect(document.querySelector(".ac-tools")).toBeNull();
+  });
+
+  test("off, in a code session's conversation: the agent's work stays, live and saved, whatever its brain", async () => {
+    const state = seedState();
+    const org = state.me?.organizations[0];
+    if (org) org.showActivity = false;
+    const work = [
+      {
+        kind: "call",
+        id: "1",
+        tool: "write_file",
+        connector: null,
+        detail: null,
+        code: null,
+        output: [],
+        running: true,
+      },
+    ] as unknown as LiveWork[];
+    const meta = { work: { steps: 2, calls: [{ name: "write_file" }, { name: "run_code" }], durationMs: 4000 } };
+    await renderPage(
+      <CodeConversation.Provider value>
+        <Live work={work} />
+        <SavedTools runId="r-saved" meta={meta} agentName="Ada" />
+      </CodeConversation.Provider>,
+      { api: createFakeApi(state), org: true },
+    );
+    await act(async () => finish());
+    await settle(2);
+    expect(document.querySelectorAll(".ac-tools").length).toBe(2);
+    expect(document.body.textContent).toContain("Usou 2 ferramentas");
+  });
+
+  test("off, anywhere else: the same saved work stays out of the conversation", async () => {
+    const state = seedState();
+    const org = state.me?.organizations[0];
+    if (org) org.showActivity = false;
+    const meta = { work: { steps: 2, calls: [{ name: "write_file" }, { name: "run_code" }], durationMs: 4000 } };
+    await renderPage(<SavedTools runId="r-saved" meta={meta} agentName="Ada" />, {
+      api: createFakeApi(state),
+      org: true,
+    });
     await settle(2);
     expect(document.querySelector(".ac-tools")).toBeNull();
   });

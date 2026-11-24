@@ -312,7 +312,7 @@ const connectorDeps = (): ConnectorDeps => ({
 const TO_GET =
   "Connectors you don't have yet. If the person wants one, offer it with offer_connect_app (a card that opens the app's own connect dialog) or say how to get it, never that it doesn't exist.";
 const SENTRY = "- Sentry: Sentry errors, issues and releases.";
-const CONNECT_SENTRY = `${SENTRY} Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Add connector › Sentry (in Portuguese, Configurações › Conectores e MCPs › Adicionar conector › Sentry).`;
+const CONNECT_SENTRY = `${SENTRY} Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › Sentry (in Portuguese, Configurações › Conectores e MCPs › Ver conectores › Sentry).`;
 
 test("a search for an app the workspace hasn't connected says it exists and how an admin connects it, after any other match", async () => {
   f = await setup({ artifactTools: true, catalog: { oauthApps: {} } });
@@ -327,7 +327,7 @@ test("a search for an app the workspace hasn't connected says it exists and how 
     `\n\n${TO_GET}\n- Google Drive: Google Drive files and folders: search, read, create and share. Not available on this installation: whoever runs the installation has to turn it on first.`,
   );
   expect(await findTools(ctx, "set up github")).toContain(
-    "- GitHub: Repositories, pull requests, issues and Actions. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Add connector › GitHub",
+    "- GitHub: Repositories, pull requests, issues and Actions. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › GitHub",
   );
   expect(await findTools(ctx, "create an issue")).not.toContain(TO_GET);
 });
@@ -395,10 +395,10 @@ test("an app this installation can't connect says whoever runs it turns it on; o
     `No other tool matches "gmail". Try other words (Issues).\n\n${TO_GET}\n- Gmail: Read, organize and answer Gmail email. Not available on this installation: whoever runs the installation has to turn it on first.`,
   );
   expect(await findTools(ctx, "icloud")).toEndWith(
-    "\n- iCloud: iCloud email, custom domains included. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Add connector › iCloud (in Portuguese, Configurações › Conectores e MCPs › Adicionar conector › iCloud).",
+    "\n- iCloud: iCloud email, custom domains included. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › iCloud (in Portuguese, Configurações › Conectores e MCPs › Ver conectores › iCloud).",
   );
   expect(await findTools(ctx, "send an e-mail")).toContain(
-    "\n- Email: A mailbox: Gmail, Outlook, iCloud or another provider. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Add connector › Email",
+    "\n- Email: A mailbox: Gmail, Outlook, iCloud or another provider. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › Email",
   );
 });
 

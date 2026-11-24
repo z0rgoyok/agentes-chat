@@ -99,8 +99,36 @@ fn local_ports(home: &Path) -> Vec<u16> {
 /// Whether `origin` is a server on this computer that people reach at another address (Tailscale, a domain): a
 /// server answering on a loopback port here gives it as its own. Its own computer is set up on its own, as a
 /// loopback server's is, so the app doesn't pair this computer with it a second time. An SSH tunnel to that server
-/// on one of those ports reads the same while it is open: "This Mac" hides then, the safe way round.
+/// on one of those ports reads the same while it is open: "This Mac" hides then, the safe way round. Each answer is
+/// kept `SERVED_FOR` (every status the site asks and every pass over the servers asked again, a request to each
+/// server here), and forgotten when the server here changes (`forget_served`).
 pub fn served_here(home: &Path, origin: &str) -> bool {
+    let now = std::time::Instant::now();
+    if let Some(&(at, served)) = served().get(origin) {
+        if now.duration_since(at) < SERVED_FOR {
+            return served;
+        }
+    }
+    let answer = asks_served_here(home, origin);
+    served().insert(origin.to_string(), (now, answer));
+    answer
+}
+
+/// How long a `served_here` answer is kept.
+const SERVED_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn served() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, (std::time::Instant, bool)>> {
+    static SERVED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, bool)>>> =
+        std::sync::LazyLock::new(Default::default);
+    SERVED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The server here started, stopped or moved: `served_here` asks again.
+pub fn forget_served() {
+    served().clear();
+}
+
+fn asks_served_here(home: &Path, origin: &str) -> bool {
     local_ports(home).into_iter().any(|port| {
         crate::local_server::http_within(port, "GET", "/api/instance", None, PROBE_WAIT)
             .filter(|(status, _)| *status == 200)

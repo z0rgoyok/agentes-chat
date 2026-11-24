@@ -304,7 +304,9 @@ describe("where a message's words would show", () => {
     await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(8);
     // Where it happened leads the line, then the sticker's word.
-    expect(document.querySelector('[data-n="n-sticker"] .nt-snip')?.textContent).toBe("Mensagem direta · Figurinha");
+    expect(document.querySelector('[data-n="n-sticker"] .ib-row__sub')?.textContent).toBe(
+      "Mensagem direta · Figurinha",
+    );
   });
 
   test("a message list's preview: the word for a GIF or a sticker with no text, in the person's language", () => {

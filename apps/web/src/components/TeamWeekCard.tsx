@@ -6,7 +6,6 @@ import {
   useApprovals,
   useCardProposals,
   useChannels,
-  useDecideProposal,
   useModelLabel,
   useSetTeamWeekPrefs,
   useTeamWeekPrefs,
@@ -43,6 +42,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { isReviewing, ProposalUndo, proposalOutcome } from "@/components/ChatCards";
 import { useOrg } from "@/components/org-context";
 import { WaitMark } from "@/components/RequestCard";
 import { CardApproval } from "@/components/RightHandApprovalsCard";
@@ -73,11 +73,11 @@ export function useTeamWeekNames(): TeamWeekNames {
 
 /**
  * Lodi's weekly card (ADR 0137 §9) in the admin's DM: four numbers and what worked, then its rows. A row that opens a
- * place (approvals, what waits on its reader, an agent that stopped) is one tap with a chevron. Every other row is a
- * suggestion, marked as the card shows (archiving an agent starts unmarked) and grouped under its agent's face; the
- * footer's one button applies the marked ones, each as whoever clicks through its own card's path (a settings proposal
- * with Undo, a routine, a message), and the day and hour sit at its end. The day's card (ADR 0177 §2) is the same, led
- * by what waits on its reader and what is stuck.
+ * place (approvals, what waits on its reader, an agent that stopped) is one tap with a chevron. A fix to an agent's
+ * settings is the agents' own to weigh and apply (ADR 0219): its row says how it ended, with Undo. Every other row is a
+ * suggestion, marked as the card shows and grouped under its agent's face; the footer's one button applies the marked
+ * ones, each as whoever clicks through its own card's path (a routine, a message), and the day and hour sit at its
+ * end. The day's card (ADR 0177 §2) is the same, led by what waits on its reader and what is stuck.
  */
 export function TeamWeekCardView({ message, card }: { message: Message; card: TeamWeekCard }) {
   const { t, i18n } = useTranslation();
@@ -86,7 +86,6 @@ export function TeamWeekCardView({ message, card }: { message: Message; card: Te
   const names = useTeamWeekNames();
   const proposals = useCardProposals(org.id, card.proposalIds);
   const approvals = useApprovals(org.id);
-  const decide = useDecideProposal(org.id);
   const act = useActOnTeamWeek(org.id);
   const waiting = useWaitingOnMe(org.id);
   const navigate = useNavigate();
@@ -100,7 +99,9 @@ export function TeamWeekCardView({ message, card }: { message: Message; card: Te
   const states = new Map(card.rows.map((row) => [row.id, teamWeekRowState(card, row, live)]));
   const stateOf = (row: TeamWeekRow) => states.get(row.id) ?? "open";
   const isMarked = (row: TeamWeekRow) => marks[row.id] ?? markedAtFirst(row);
-  const open = card.rows.filter((row) => stateOf(row) === "open");
+  // A fix to an agent's settings is a proposal the agents weigh and apply (ADR 0219): nothing for the reader to mark.
+  const isChange = (row: TeamWeekRow) => "proposalId" in row;
+  const open = card.rows.filter((row) => stateOf(row) === "open" && !isChange(row));
   // What waits or is stuck is opened, not applied: the head counts only what the card suggests.
   const suggested = open.filter((row) => !teamWeekRowPlace(row));
   const marked = open.filter((row) => !opensPlace(row) && isMarked(row));
@@ -115,14 +116,11 @@ export function TeamWeekCardView({ message, card }: { message: Message; card: Te
         : place.to === "dm"
           ? navigate({ to: "/org/$orgId/dm/agent/$agentId", params: { ...params, agentId: place.agentId } })
           : navigate({ to: "/org/$orgId/c/$channelId", params: { ...params, channelId: place.channelId } });
-  const apply = async (row: TeamWeekRow) => {
-    if ("proposalId" in row) await decide.mutateAsync({ id: row.proposalId, decision: "accept" });
-    else
-      await act.mutateAsync({
-        messageId: message.id,
-        act: { rowId: row.id, text: teamWeekRowMessage(t, row, names) },
-      });
-  };
+  const apply = (row: TeamWeekRow) =>
+    act.mutateAsync({
+      messageId: message.id,
+      act: { rowId: row.id, text: teamWeekRowMessage(t, row, names) },
+    });
   const applyMarked = async () => {
     setApplying(true);
     try {
@@ -225,6 +223,7 @@ export function TeamWeekCardView({ message, card }: { message: Message; card: Te
                           line={text.line}
                           marked={isMarked(row)}
                           onMark={(on) => setMarks((m) => ({ ...m, [row.id]: on }))}
+                          change={isChange(row)}
                           proposal={proposals.find((p) => "proposalId" in row && p.id === row.proposalId)}
                           doneText={doneText(row)}
                           onSkip={skipsAlone(row) ? () => skip(row) : undefined}
@@ -414,7 +413,8 @@ function MarkGroup({
 /**
  * One suggestion: its round check, then its title over its line, the whole line its label. Unmarked, one the reader
  * can put away for good says "Dismiss" at its end. Ended, the check (or its room) and how it ended, with Undo
- * while its receipt allows.
+ * while its receipt allows. A fix the agents weigh and apply (`change`, ADR 0219) has no check: "Reviewing…", then
+ * how it ended and why, with Undo while it may be put back.
  */
 function MarkRow({
   message,
@@ -423,6 +423,7 @@ function MarkRow({
   line,
   marked,
   onMark,
+  change,
   proposal,
   doneText,
   onSkip,
@@ -435,6 +436,8 @@ function MarkRow({
   line: string;
   marked: boolean;
   onMark: (on: boolean) => void;
+  /** A proposal the agents weigh and apply, never marked. */
+  change: boolean;
   proposal: Proposal | undefined;
   doneText: string;
   /** "Dismiss": puts this one suggestion away for good. Absent on a row that has none. */
@@ -445,12 +448,31 @@ function MarkRow({
   busy: boolean;
 }) {
   const { t } = useTranslation();
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const actions = useAgentActions(org.id, message.channelId);
   const qc = useQueryClient();
   const toast = useToast();
   const [skipping, setSkipping] = useState(false);
   const id = useId();
+  // Weighed by the agents, or put back since (a row a person applied keeps its receipt's Undo, below).
+  if (change && (!proposal || isReviewing(proposal) || proposal.reviewed || proposal.status === "undone")) {
+    const applied = proposal?.status === "accepted" && !proposal.stale;
+    return (
+      <div className="tw__item" data-ended={proposal && !isReviewing(proposal) ? "" : undefined}>
+        <div className="tw__mark">
+          <span className="tw__ok">{applied && <Icon name="check" size={16} />}</span>
+          <span className="tw__text">
+            <span className="tw__title">{title}</span>
+            <span className="tw__line" data-ok={applied || undefined}>
+              {proposal ? proposalOutcome(t, proposal, me.user.id) : t("proposals.reviewing")}
+            </span>
+            {proposal?.review && <span className="tw__line">{proposal.review}</span>}
+          </span>
+        </div>
+        {proposal && <ProposalUndo p={proposal} variant="link" className="tw__end" />}
+      </div>
+    );
+  }
   if (state === "open")
     return (
       <div className="tw__item" data-off={marked ? undefined : ""}>

@@ -6,7 +6,7 @@ setupDom();
 import type { AiStatus } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { COMPACT_QUERY, DESKTOP_QUERY } from "@/components/NavDrawer";
-import { TABLET_QUERY } from "@/components/Sidebar";
+import { TABLET_QUERY } from "@/components/sidebar-state";
 import { STORAGE_KEYS } from "@/lib/storage";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, type FakeState, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { renderApp, screen, settle } from "./render";

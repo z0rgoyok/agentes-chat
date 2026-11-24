@@ -43,6 +43,8 @@ test("every case is well formed: known presets, connectors and tools", () => {
     "start_poll",
     "hand_off",
     "pass",
+    "remember",
+    "request_secret",
   ]);
   const ids = new Set<string>();
   for (const c of all) {
@@ -380,4 +382,21 @@ test("another agent's note as the trigger: the real tell_agent, and whether what
   expect(run.handOffs).toEqual({ "chefe>diogo": 1 });
   expect(run.reported).toBe(false);
   expect(deterministicChecks(c.expect, run).filter((k) => !k.pass)).toEqual([]);
+});
+
+test("a firstTurn case is judged at its turn's end as in production: a nudge fails it", async () => {
+  const c = byId("first-turn-rule-saved-now");
+  const promised = (verdict: string) =>
+    runCase(c, {
+      apiKey: "sk-ant-fake-key-1234",
+      provider: script([{ chunks: ["Anotado, vou registrar essa regra."] }, { chunks: ["Salvei."] }]),
+      maxToolTurns: 4,
+      judge: createFakeJudge((kind, id) => (kind === "follow_through" && id === "verdict" ? verdict : undefined)),
+    });
+  const sentBack = await promised("continue");
+  expect(sentBack.nudged?.[0]).toBe("promise");
+  expect(deterministicChecks(c.expect, sentBack).find((k) => k.id === "first_turn")?.pass).toBe(false);
+  const right = await promised("done");
+  expect(right.nudged).toEqual([]);
+  expect(deterministicChecks(c.expect, right).find((k) => k.id === "first_turn")?.pass).toBe(true);
 });

@@ -1,18 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { en } from "@agenteschat/i18n";
 import type { TFunction } from "i18next";
 import type { Proposal } from "../src/api/types";
 import {
   appLabel,
-  cardDecidedBy,
   cardHead,
-  cardOutcome,
   cardProposalIds,
   changedLines,
-  chosenRows,
   memoryLine,
   messageProposalCards,
-  onlyKey,
   pendingOnAgent,
   proposalSections,
   proposalTarget,
@@ -20,10 +15,7 @@ import {
   proposalWhy,
   proposerOf,
   removalOf,
-  rowStatus,
   settingLineText,
-  sortProposals,
-  staleCount,
 } from "../src/lib/proposals";
 
 const t = ((key: string, o?: Record<string, unknown>) =>
@@ -49,6 +41,12 @@ const row = (id: string, patch: Partial<Proposal> = {}): Proposal => ({
   decider: { type: "admins" },
   createdAt: "2026-10-31T12:00:00.000Z",
   decidedBy: null,
+  decidedByAgent: null,
+  review: null,
+  reviewed: false,
+  undoable: false,
+  undoneBy: null,
+  undoneAt: null,
   decidedAt: null,
   ...patch,
 });
@@ -75,6 +73,8 @@ describe("what waits on an agent's page", () => {
       row("c", { agentId: "ada", target: { type: "agent_role", agentId: "ada" } }),
       row("d", { agentId: "theo", target: { type: "agent_instructions", agentId: "theo" } }),
       { ...skill, id: "e", status: "accepted" as const },
+      // Applied and then put back (ADR 0219): nothing for the review to weigh.
+      { ...skill, id: "f", status: "undone" as const },
     ];
     expect(pendingOnAgent(list, "ada").map((p) => p.id)).toEqual(["b", "a"]);
   });
@@ -110,6 +110,16 @@ describe("a name and a look on a settings card", () => {
     expect(line.from).toBe("rightHand.value.lookDefault");
     expect(line.to).toBe("#123456 · look.eyesNames.happy · look.accessories.crown");
   });
+  test("an effort reads as its level; none as the model's own, auto as Automático", () => {
+    expect(settingLineText(t, "pt-BR", { field: "effort", from: null, to: "xhigh" }, names)).toEqual({
+      field: "rightHand.field.effort",
+      from: "agentPage.work.brain.efforts.none",
+      to: "agentPage.work.brain.efforts.high",
+    });
+    expect(settingLineText(t, "pt-BR", { field: "effort", from: "auto", to: "low" }, names).from).toBe(
+      "agentPage.work.brain.efforts.auto",
+    );
+  });
   test("Responde a reads the agents' names the server gave, or none", () => {
     expect(
       settingLineText(
@@ -124,11 +134,8 @@ describe("a name and a look on a settings card", () => {
       from: "rightHand.value.none",
       to: "rightHand.value.anAgent",
     });
-    expect(onlyKey({ settings: [{ field: "reports_to", from: null, to: "a-bea" }] })).toBe(
-      "rightHand.card.only.reports_to",
-    );
   });
-  test("a department reads by its name, or none, and only admins move an agent", () => {
+  test("a department reads by its name, or none", () => {
     expect(settingLineText(t, "pt-BR", { field: "group", from: "Operações", to: "Vendas" }, names)).toEqual({
       field: "rightHand.field.group",
       from: "Operações",
@@ -139,13 +146,12 @@ describe("a name and a look on a settings card", () => {
       from: "Vendas",
       to: "rightHand.value.none",
     });
-    expect(onlyKey({ settings: [{ field: "group", from: "Vendas", to: null }] })).toBe("rightHand.card.only.group");
   });
 });
 
 describe("a skill line on a settings card", () => {
   const names = { model: (id: string) => id, person: () => undefined, channel: () => undefined, role: () => undefined };
-  test("reads as the skill by its name, off to on, and only whoever can edit the agent changes it, as on its page", () => {
+  test("reads as the skill by its name, off to on", () => {
     expect(
       settingLineText(
         t,
@@ -158,10 +164,6 @@ describe("a skill line on a settings card", () => {
       from: "rightHand.value.skillOff",
       to: "rightHand.value.skillOn",
     });
-    const key = onlyKey({ settings: [{ field: "skill", skillId: "s-excel", from: true, to: false }] });
-    expect(key).toBe("rightHand.card.only.skill");
-    // Its owner, who manages it and the people its "Who can edit" names (ADR 0085 addendum of 2026-11-17).
-    expect(en.rightHand.card.only.skill).toBe("Only whoever can edit an agent changes its skills");
   });
 });
 
@@ -201,28 +203,6 @@ describe("a card of proposals", () => {
       { kind: "del", text: "- Preços em $." },
       { kind: "add", text: "- Preços em R$." },
     ]);
-  });
-
-  test("Aceitar acts on the open rows the viewer may decide and left on: 'todos' only when that is every open row", () => {
-    const rows = [row("1"), row("2"), row("3", { canDecide: false }), row("4", { status: "accepted" })];
-    expect(chosenRows(rows.slice(0, 2), new Set())).toMatchObject({ all: true });
-    const some = chosenRows(rows, new Set(["2"]));
-    expect(some.chosen.map((p) => p.id)).toEqual(["1"]);
-    expect(some.all).toBe(false);
-    // A row waiting for someone else keeps the count honest even with every switch on.
-    expect(chosenRows(rows, new Set())).toMatchObject({ all: false });
-    expect(chosenRows([row("1", { stale: true })], new Set()).chosen).toEqual([]);
-  });
-
-  test("a row says whom it waits for, or how it ended; only stale failures count as stale", () => {
-    expect(rowStatus(t, row("1"))).toBeNull();
-    expect(rowStatus(t, row("1", { canDecide: false }))).toBe("proposals.waitingAdmin");
-    expect(rowStatus(t, row("1", { canDecide: false, decider: { type: "user", userId: "u", name: "Heitor" } }))).toBe(
-      'proposals.waitingFor {"name":"Heitor"}',
-    );
-    expect(rowStatus(t, row("1", { stale: true }))).toBe("proposals.stale");
-    expect(rowStatus(t, row("1", { status: "refused", canDecide: false }))).toBe("proposals.refused");
-    expect(staleCount([{ error: { status: 409 } }, { error: { status: 403 } }, { error: null }])).toBe(1);
   });
 
   test("apps in the person's language: a built-in scope translated, a connection by its own name", () => {
@@ -269,56 +249,6 @@ describe("a card of proposals", () => {
   });
 });
 
-describe("how a decided card ended", () => {
-  const accepted = { status: "accepted" } as const;
-  const refused = { status: "refused" } as const;
-
-  test("rows that agree say their status", () => {
-    expect(cardOutcome(t, [row("1", accepted), row("2", accepted)])).toEqual({
-      accepted: true,
-      label: "proposals.accepted",
-    });
-    expect(cardOutcome(t, [row("1", refused)])).toEqual({ accepted: false, label: "proposals.refused" });
-    expect(cardOutcome(t, [row("1", { stale: true })])).toEqual({ accepted: false, label: "proposals.stale" });
-  });
-
-  test("rows that differ say how many were accepted", () => {
-    expect(cardOutcome(t, [row("1", accepted), row("2", { stale: true })])).toEqual({
-      accepted: true,
-      label: 'proposals.acceptedSome {"done":1,"total":2}',
-    });
-  });
-});
-
-describe("who decided a card", () => {
-  const ana = { userId: "u-ana", name: "Ana" };
-
-  test("one person deciding every row the same way is named, the viewer as you", () => {
-    const rows = [row("1", { status: "accepted", decidedBy: ana }), row("2", { status: "accepted", decidedBy: ana })];
-    expect(cardDecidedBy(t, rows, "u-me")).toBe('rightHand.card.appliedBy {"name":"Ana"}');
-    expect(cardDecidedBy(t, rows, "u-ana")).toBe("rightHand.card.appliedByYou");
-    expect(cardDecidedBy(t, [row("1", { status: "refused", decidedBy: ana })], "u-me")).toBe(
-      'rightHand.card.declinedBy {"name":"Ana"}',
-    );
-    expect(cardDecidedBy(t, [row("1", { status: "refused", decidedBy: ana })], "u-ana")).toBe(
-      "rightHand.card.declinedByYou",
-    );
-  });
-
-  test("rows that ended apart, a newer text or nobody on record say only how the card ended", () => {
-    const bia = { userId: "u-bia", name: "Bia" };
-    expect(
-      cardDecidedBy(
-        t,
-        [row("1", { status: "accepted", decidedBy: ana }), row("2", { status: "accepted", decidedBy: bia })],
-        "u-me",
-      ),
-    ).toBe("proposals.accepted");
-    expect(cardDecidedBy(t, [row("1", { stale: true })], "u-me")).toBe("proposals.stale");
-    expect(cardDecidedBy(t, [row("1", { status: "accepted" })], "u-me")).toBe("proposals.accepted");
-  });
-});
-
 describe("the server's reasons", () => {
   test("a code reads in the person's language, an agent's words as they are", () => {
     expect(proposalWhy(t, { why: "Fica mais claro.", whyCode: null })).toBe("Fica mais claro.");
@@ -326,17 +256,6 @@ describe("the server's reasons", () => {
     expect(proposalWhy(t, { why: "Remover", whyCode: "refused" })).toBe('proposals.whyCode.refused {"text":"Remover"}');
     expect(proposalWhy(t, { why: "", whyCode: "seen" })).toBe("proposals.whyCode.seen");
     expect(proposalWhy(t, { why: "", whyCode: "no_channel" })).toBe("proposals.whyCode.noChannel");
-  });
-  test("what waits on me first, then on someone else, then what ended", () => {
-    const row = (id: string, status: Proposal["status"], canDecide: boolean, createdAt: string) =>
-      ({ id, status, canDecide, createdAt }) as Proposal;
-    const sorted = sortProposals([
-      row("ended", "accepted", false, "2026-11-05"),
-      row("other", "pending", false, "2026-11-04"),
-      row("old", "pending", true, "2026-11-01"),
-      row("new", "pending", true, "2026-11-02"),
-    ]);
-    expect(sorted.map((p) => p.id)).toEqual(["new", "old", "other", "ended"]);
   });
   test("a lesson from a refusal says so", () => {
     expect(memoryLine(t, { text: "Remover", how: "refused" })).toBe('memory.fromRefusal {"text":"Remover"}');

@@ -13,6 +13,15 @@ export interface Point {
   y: number;
 }
 
+/**
+ * A tap on a picture: where, in fractions of the picture (outside 0…1: on the black around it), and the picture's size
+ * as it shows now, its zoom included (a comment's pin is found by it, ADR 0208).
+ */
+export interface PictureTap extends Point {
+  width: number;
+  height: number;
+}
+
 /** A double tap zooms in at least this far, or as far as it takes for the picture to fill the screen. */
 export const DOUBLE_TAP_ZOOM = 2;
 /** Zooming stops at twice the picture's own pixels (past its sharpness, never mush), and never past 10×. */
@@ -103,6 +112,35 @@ export function zoomInAt(picture: Size, screen: Size, focal: Point, max: number)
     scale,
     x: clamp(focal.x * (1 - scale), -room.x, room.x),
     y: clamp(focal.y * (1 - scale), -room.y, room.y),
+  };
+}
+
+/**
+ * Where a tap at `at` (on the screen) falls on the picture with iOS's own zoom: the scroll view zoomed to `zoom` and
+ * scrolled to `offset`; on an axis where the zoomed picture is smaller than the screen it sits centered.
+ */
+export function tapOnZoomed(at: Point, picture: Size, screen: Size, zoom: number, offset: Point): PictureTap {
+  "worklet";
+  const width = picture.width * zoom;
+  const height = picture.height * zoom;
+  const left = width < screen.width ? (screen.width - width) / 2 : -offset.x;
+  const top = height < screen.height ? (screen.height - height) / 2 : -offset.y;
+  return { x: (at.x - left) / width, y: (at.y - top) / height, width, height };
+}
+
+/**
+ * Where a tap at `at` (on the screen) falls on the picture with Android's zoom of ours: the picture centered on the
+ * screen, moved by `placed` and scaled around its own center.
+ */
+export function tapOnPlaced(at: Point, picture: Size, screen: Size, placed: { scale: number } & Point): PictureTap {
+  "worklet";
+  const width = picture.width * placed.scale;
+  const height = picture.height * placed.scale;
+  return {
+    x: 0.5 + (at.x - screen.width / 2 - placed.x) / width,
+    y: 0.5 + (at.y - screen.height / 2 - placed.y) / height,
+    width,
+    height,
   };
 }
 

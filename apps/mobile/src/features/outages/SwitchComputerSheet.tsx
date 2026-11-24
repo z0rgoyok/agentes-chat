@@ -1,6 +1,7 @@
 import {
   moveErrorOf,
   pickedTargetKey,
+  planDroppedText,
   type TargetOption,
   targetOptions,
 } from "@agenteschat/client/lib/machine-outages";
@@ -22,6 +23,7 @@ import {
   Text,
   useToast,
 } from "@/ui";
+import { openConnectAi } from "../ai/NoAiCard";
 import { AgentFace } from "../shared/Face";
 import { LoadFailed } from "../shared/FirstUse";
 import { SheetTitle } from "../shared/PromptForm";
@@ -103,11 +105,23 @@ function SwitchForm({
       {
         onSuccess: (r) => {
           const said = moveToast(t, r, o.name);
+          const nameOf = (agentId: string) => o.agents.find((a) => a.agentId === agentId)?.name ?? "";
+          const plans = planDroppedText(t, r, { from: o.name, to: target.name, nameOf });
+          const subtitle = [...plans.lines, said.subtitle].filter(Boolean).join(" · ");
+          const signIn = plans.signIn;
           if (said.ok) successHaptic();
           toast({
             title: said.title,
-            ...(said.subtitle ? { subtitle: said.subtitle } : {}),
+            ...(subtitle ? { subtitle } : {}),
             icon: said.ok ? "check" : "x",
+            ...(signIn
+              ? {
+                  action: {
+                    label: t("outage.done.signIn", { name: target.name }),
+                    onPress: () => openConnectAi({ agentId: signIn.agentId, plan: signIn.plan }),
+                  },
+                }
+              : {}),
           });
           onClose();
         },

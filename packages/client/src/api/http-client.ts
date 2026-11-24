@@ -1,3 +1,4 @@
+import { createCodeApi } from "../code/api";
 import { createDashboardsApi } from "../dashboards/api";
 import type { ChatPrefs } from "../lib/chat-look";
 import { humanCheckHeaders } from "../lib/human-check";
@@ -22,6 +23,7 @@ import type {
   AccountLoginStart,
   AccountLoginStatus,
   AccountOrderGroup,
+  AccountPermissions,
   ActiveRun,
   Agent,
   AgentAccess,
@@ -193,6 +195,7 @@ import type {
   OrgPlanUsage,
   OrgRoles,
   OrgSettings,
+  OwnOAuthClient,
   PageTarget,
   PendingReturn,
   PeopleUsage,
@@ -593,6 +596,7 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
       instance: () => request<Instance>("/api/instance"),
       telemetry: () => nullOn(404, () => request<ServerTelemetry>("/api/app/telemetry")),
       setTelemetry: (enabled) => request<ServerTelemetry>("/api/app/telemetry", { method: "PUT", json: { enabled } }),
+      reportVitals: (report) => request<void>("/api/app/client-vitals", { json: report }),
       previewProblemReport: (input) =>
         request<ProblemReportPreview>("/api/app/problem-reports/preview", { json: input }),
       sendProblemReport: (input) => request<{ id: string }>("/api/app/problem-reports/send", { json: input }),
@@ -667,6 +671,9 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         (await nullOn(404, () => request<{ publicKey: string }>("/api/app/push/web")))?.publicKey ?? null,
       register: (input) => request<void>("/api/app/push/devices", { json: input }),
       unregister: (token) => request<void>("/api/app/push/devices/forget", { json: { token } }),
+      liveActivity: (input) => request<void>("/api/app/push/live-activity", { json: input }),
+      liveActivityOff: (installId) =>
+        request<void>("/api/app/push/live-activity", { method: "DELETE", json: { installId } }),
       stale: async (ids) => (await request<{ stale: string[] }>("/api/app/push/stale", { json: { ids } })).stale,
     },
     orgs: {
@@ -700,6 +707,9 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         request<{ url: string; expiresAt: string }>(`${org(orgId)}/billing-link`, {
           json: { from, returnTo, ...(plan ? { plan } : {}) },
         }),
+      movePlan: async (orgId, to) => {
+        await request(`${org(orgId)}/plan-move`, { json: { to } });
+      },
       limits: (orgId) => request<WorkspaceLimits>(`${org(orgId)}/limits`),
       updateMe: (orgId, input) => request<Person>(`${org(orgId)}/me`, { method: "PATCH", json: input }),
       setStatus: (orgId, input) => request<Person>(`${org(orgId)}/me/status`, { method: "PUT", json: input }),
@@ -1452,7 +1462,17 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
           method: "PUT",
           json: { serves },
         }),
-      accountOrder: (orgId) => request<{ groups: AccountOrderGroup[] }>(`${org(orgId)}/ai-accounts/order`),
+      accountOrder: (orgId) =>
+        request<{ groups: AccountOrderGroup[]; keyFallback?: boolean; canConfigure?: boolean }>(
+          `${org(orgId)}/ai-accounts/order`,
+        ),
+      setAccountPermissions: (orgId, accountId, input) =>
+        request<{ permissions: AccountPermissions; agentIds: string[] }>(
+          `${org(orgId)}/ai-accounts/${enc(accountId)}/permissions`,
+          { method: "PUT", json: input },
+        ),
+      setKeyFallback: (orgId, on) =>
+        request<{ on: boolean }>(`${org(orgId)}/ai-accounts/key-fallback`, { method: "PUT", json: { on } }),
       moveAccountInOrder: (orgId, accountId, index) =>
         request<AccountOrderGroup>(`${org(orgId)}/ai-accounts/${enc(accountId)}/order`, {
           method: "PUT",
@@ -1612,14 +1632,16 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         const qs = params.toString();
         return `${base}${org(orgId)}/artifacts/${enc(id)}/file${qs ? `?${qs}` : ""}`;
       },
-      upload: (orgId, file, options = {}) => {
+      thumbUrl: (orgId, id, { version, width }) =>
+        `${base}${org(orgId)}/artifacts/${enc(id)}/thumb?version=${version}&w=${width}`,
+      upload: (orgId, file, options = {}, upload) => {
         const form = new FormData();
         form.append("file", file, file.name);
         if (options.title) form.append("title", options.title);
         if (options.channelId) form.append("channelId", options.channelId);
         if (options.threadId) form.append("threadId", options.threadId);
         if (options.folderId) form.append("folderId", options.folderId);
-        return files.upload<ArtifactDetail>(`${org(orgId)}/artifacts/files`, form);
+        return files.upload<ArtifactDetail>(`${org(orgId)}/artifacts/files`, form, upload);
       },
       uploadVersion: (orgId, id, file, options = {}) => {
         const form = new FormData();
@@ -1632,8 +1654,8 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
       create: (orgId, input) => request<ArtifactDetail>(`${org(orgId)}/artifacts`, { json: input }),
       update: (orgId, id, input) =>
         request<ArtifactDetail>(`${org(orgId)}/artifacts/${enc(id)}/versions`, { json: input }),
-      setSharing: (orgId, id, sharing) =>
-        request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}/sharing`, { method: "PUT", json: sharing }),
+      setAccess: (orgId, id, access) =>
+        request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}/access`, { method: "PUT", json: access }),
       remove: (orgId, id) => request<void>(`${org(orgId)}/artifacts/${enc(id)}`, { method: "DELETE" }),
       rename: (orgId, id, title) =>
         request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}`, { method: "PATCH", json: { title } }),
@@ -1723,6 +1745,7 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
     },
     dashboards: createDashboardsApi(request),
     live: createLiveApi(request, { upload: files.upload, base }),
+    code: createCodeApi(request),
     missions: ((): HttpApi["missions"] => {
       const one = (orgId: string, missionId: string) => `${org(orgId)}/missions/${enc(missionId)}`;
       return {
@@ -1990,6 +2013,12 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         }),
       disconnect: (orgId, serverId) =>
         request<void>(`${org(orgId)}/connectors/custom/${enc(serverId)}`, { method: "DELETE" }),
+      ownClient: (orgId, serverUrl) =>
+        request<OwnOAuthClient>(`${org(orgId)}/connector-oauth-clients?serverUrl=${enc(serverUrl)}`),
+      setOwnClient: (orgId, input) =>
+        request<OwnOAuthClient>(`${org(orgId)}/connector-oauth-clients`, { method: "PUT", json: input }),
+      removeOwnClient: (orgId, issuer) =>
+        request<void>(`${org(orgId)}/connector-oauth-clients?issuer=${enc(issuer)}`, { method: "DELETE" }),
     },
     questions: {
       answer: (orgId, questionId, input) =>
@@ -2024,6 +2053,7 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         request<Proposal>(`${org(orgId)}/proposals/${enc(id)}/accept`, { json: text === undefined ? {} : { text } }),
       refuse: (orgId, id) => request<Proposal>(`${org(orgId)}/proposals/${enc(id)}/refuse`, { json: {} }),
       ask: (orgId, id) => request<Proposal>(`${org(orgId)}/proposals/${enc(id)}/ask`, { json: {} }),
+      undo: (orgId, id) => request<Proposal>(`${org(orgId)}/proposals/${enc(id)}/undo`, { json: {} }),
     },
     repositories: {
       get: async (orgId, agentId) =>

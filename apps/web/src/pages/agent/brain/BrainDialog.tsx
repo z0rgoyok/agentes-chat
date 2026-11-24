@@ -1,27 +1,19 @@
-import type { AgentBrain, AgentBrainInput, AgentSetup, BrainKind, MachineAccount } from "@agenteschat/client";
-import { keys, useAgents, useApi, useSetComputerTarget, useUpdateAgent } from "@agenteschat/client";
+import type { AgentBrain, AgentBrainInput, BrainKind, MachineAccount } from "@agenteschat/client";
+import { useAgents, useAiChoice, useApi, useSetComputerTarget, useUpdateAgent } from "@agenteschat/client";
 import type { BrainScreen } from "@agenteschat/client/lib/agent-edit";
-import { autonomyWords, setupOutcome } from "@agenteschat/client/lib/agent-setup";
-import { accountInLine, signInPlan } from "@agenteschat/client/lib/ai-accounts";
-import { EVERYONE_AUDIENCE, setupPlanQuestion } from "@agenteschat/client/lib/audience";
-import { thinksWith } from "@agenteschat/client/lib/brain";
-import {
-  type Advanced,
-  advancedDefaults,
-  advancedParts,
-  effortLevelsOf,
-  effortTextOf,
-  isAdvancedDefault,
-} from "@agenteschat/client/lib/brain-advanced";
-import { brainModelLine, brainPickText } from "@agenteschat/client/lib/brain-picker";
+import { accountInLine } from "@agenteschat/client/lib/ai-accounts";
+import type { AiChoiceRow, AiChoice as AiChoiceValue } from "@agenteschat/client/lib/ai-choice";
+import { EVERYONE_AUDIENCE } from "@agenteschat/client/lib/audience";
+
+import { type Advanced, advancedDefaults } from "@agenteschat/client/lib/brain-advanced";
 import { contextSize } from "@agenteschat/client/lib/context-limits";
 import { keyRefusal } from "@agenteschat/client/lib/errors";
 import { namesText, rosterText } from "@agenteschat/client/lib/format";
-import { brainTool, installableCli } from "@agenteschat/client/lib/machines";
+import { brainTool, cliCommandWayOut, installableCli } from "@agenteschat/client/lib/machines";
 import { type AiChoice, planMark } from "@agenteschat/client/lib/no-ai";
 import { usageWhen } from "@agenteschat/client/lib/plan-usage";
-import { geminiPersonal, isPlanId, planFreeHint, signInProviderOf } from "@agenteschat/client/lib/plans";
-import { AUTO, isAuto, modelOnKey, providerLabel } from "@agenteschat/client/lib/providers";
+import { geminiPersonal, isPlanId, signInProviderOf } from "@agenteschat/client/lib/plans";
+import { AUTO, isAuto, modelOnKey } from "@agenteschat/client/lib/providers";
 import { sceneTeam } from "@agenteschat/client/lib/right-hand";
 import {
   AvatarStack,
@@ -30,14 +22,13 @@ import {
   Dialog,
   DialogBody,
   DialogFooter,
-  EffortPixels,
   Icon,
   type IconName,
   ProviderLogo,
   planState,
   SettingNote,
 } from "@agenteschat/ui";
-import { useQueryClient } from "@tanstack/react-query";
+
 import { Link } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -45,33 +36,23 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { NO_COMPUTER } from "@/components/AgentComputer";
 import { DEFAULT_KEY } from "@/components/AgentFields";
 import { AddAccount, OpenPage } from "@/components/ai/AddAccountFlow";
+import { AiChoiceFields } from "@/components/ai/AiChoice";
 import { CliMissing } from "@/components/ai/CliMissing";
-import { PlanHold } from "@/components/ai/ConnectAiSteps";
-import { PlanReplies } from "@/components/ai/PlanReplies";
+import { PlanHold } from "@/components/ai/plan-hold";
+import { UseOnAgentsDialog } from "@/components/ai/UseOnAgents";
 import { AudienceCard } from "@/components/arrival/AudienceCard";
 import { HaveList, HaveRow, sortHave } from "@/components/arrival/ConnectHave";
 import { TeamScene, useDawn } from "@/components/arrival/TeamScene";
-import { useConnectAi } from "@/components/ConnectAi";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { ToolOffWayOut } from "@/components/devices/ToolOneClick";
 import { useOrg } from "@/components/org-context";
 import { useWidenAsk } from "@/components/ReachLines";
 import { ToolsOffHereNote, useIsThisMac } from "@/components/ThisMac";
 import { useAdminsLock } from "@/hooks/usePersonalView";
-import { modelLimitText, notSharedText } from "@/lib/plan-usage";
+import { modelLimitText } from "@/lib/plan-usage";
 import { useToast } from "@/lib/toast";
 import { useAgentEdit } from "../context";
-import {
-  BrainLine,
-  ContextField,
-  Fold,
-  PickList,
-  type PickOption,
-  PinAccount,
-  PlanWindows,
-  SpeedField,
-  useGlide,
-} from "./pieces";
-import { SetupCopyDialog } from "./SetupCopyDialog";
+import { BrainLine, ContextField, Fold, PickList, PinAccount, SpeedField, useGlide } from "./pieces";
 import { type BrainRow, useBrainState } from "./state";
 import { useRefresh, useWork } from "./work";
 import "./brain-dialog.css";
@@ -86,7 +67,7 @@ import "./brain-dialog.css";
  * glides between them.
  */
 
-type Screen = "glance" | "switch" | "all" | "team" | "limit" | "model" | "more" | "computer" | "add" | "done";
+type Screen = "glance" | "switch" | "all" | "team" | "limit" | "more" | "computer" | "add" | "done";
 
 /** What this agent thought with before a switch, for "Desfazer". */
 interface Before {
@@ -114,22 +95,40 @@ interface Switched {
  * `at`: a screen to open on, past the first one, which "back" leads to (a link's, e.g. the notification "Escolher
  * outro modelo" opens the model). One this person can't change opens the first screen.
  */
-export function BrainDialog({ onClose, at }: { onClose: () => void; at?: BrainScreen }) {
+export function BrainDialog({
+  onClose,
+  at,
+  onReopen,
+}: {
+  onClose: () => void;
+  at?: BrainScreen;
+  /** Opens it again: Connect, which it closes for, comes back to it by its Back. */
+  onReopen?: () => void;
+}) {
   const work = useWork();
   // Every screen starts from what is saved: the dialog mounts once it is loaded.
   if (!work.brain.data || !work.computer.data) return null;
-  return <BrainFlow view={work.brain.data} onClose={onClose} at={at} />;
+  return <BrainFlow view={work.brain.data} onClose={onClose} at={at} onReopen={onReopen} />;
 }
 
-function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => void; at?: BrainScreen }) {
+function BrainFlow({
+  view,
+  onClose,
+  at,
+  onReopen,
+}: {
+  view: AgentBrain;
+  onClose: () => void;
+  at?: BrainScreen;
+  onReopen?: (() => void) | undefined;
+}) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
   const toast = useToast();
   const refresh = useRefresh();
-  const qc = useQueryClient();
   const adminsOnly = useAdminsLock();
-  const { agent, g, saved, can, draft, ownerFirst } = useAgentEdit();
+  const { agent, g, saved, can, ownerFirst } = useAgentEdit();
   const work = useWork();
   const update = useUpdateAgent(org.id, agent.id);
   const setTarget = useSetComputerTarget(org.id);
@@ -140,14 +139,12 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   const [added, setAdded] = useState<MachineAccount[]>([]);
   const [signingIn, setSigningIn] = useState(false);
   const s = useBrainState(view, { added, signingIn });
-  const notShared = notSharedText(t, s.currentAccount?.provider);
 
-  const mayModel = s.kind === "model" ? can("model") : can("brain");
   // The way through the screens: back pops one, a save lands on the first again. At its limit it opens on the way out,
-  // unless a link asked for a screen of its own.
+  // unless a link asked for a screen of its own (the account and the model are the first screen's).
   const [trail, setTrail] = useState<Screen[]>(() => {
-    const asked = at === "model" ? mayModel : at === "switch" ? can("brain") : at === "more";
-    return at && asked ? ["glance", at] : [s.waitsAtLimit ? "limit" : "glance"];
+    const asked = at === "switch" ? can("brain") : at === "more";
+    return at && asked ? ["glance", at === "switch" ? "switch" : "more"] : [s.waitsAtLimit && !at ? "limit" : "glance"];
   });
   const screen: Screen = trail[trail.length - 1] ?? "glance";
   const [dir, setDir] = useState<"fwd" | "back">("fwd");
@@ -165,16 +162,15 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   };
 
   const [picked, setPicked] = useState<string>();
+  const choice = useAiChoice(org.id, { kind: "agent", agentId: agent.id });
   const [aim, setAim] = useState<BrainRow>();
   const [teamToo, setTeamToo] = useState(true);
   const [adding, setAdding] = useState<{ row: BrainRow; again?: MachineAccount; also?: MachineAccount }>();
   const [arrived, setArrived] = useState<MachineAccount | null>(null);
-  const [modelPick, setModelPick] = useState<string>();
   const [more, setMore] = useState<Advanced | null>(null);
   const [fold, setFold] = useState<"effort" | "speed" | "context" | null>(null);
   const [machinePick, setMachinePick] = useState<string>();
   const [copying, setCopying] = useState(false);
-  const [withAutonomy, setWithAutonomy] = useState(true);
   const [switched, setSwitched] = useState<Switched | null>(null);
   const [busy, setBusy] = useState(false);
   const [footAt, setFootAt] = useState<HTMLElement | null>(null);
@@ -407,73 +403,12 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
     view.canUsePlans && connect && !s.hold
       ? () => {
           onClose();
-          connect.open({ agentId: agent.id, chat: true });
+          connect.open({ agentId: agent.id, chat: true, ...(onReopen ? { onBack: onReopen } : {}) });
         }
       : null;
 
-  // ── the model ──
-  const modelValue = modelPick ?? (s.kind === "model" ? saved.model : s.shownModel || AUTO);
-  const modelSaved = s.kind === "model" ? saved.model : s.shownModel || AUTO;
-  const cursorPlanSays = s.kind === "cursor" && s.planModels.some((m) => m.inPlan);
-  const autoPick: PickOption = { value: AUTO, label: t("brain.auto.label"), description: t("brain.auto.hint") };
-  const modelOptions: PickOption[] =
-    s.kind === "model"
-      ? [
-          autoPick,
-          // The model it has stays a choice when its list is out of reach (OpenRouter's) or no longer has it.
-          ...(isAuto(saved.model) || s.keyModels.some((o) => o.value === saved.model)
-            ? []
-            : [{ value: saved.model, label: saved.model }]),
-          ...s.keyModels.map((o) => ({
-            value: o.value,
-            label: o.label,
-            ...(typeof o.description === "string" ? { description: o.description } : {}),
-            ...(o.group ? { group: o.group } : {}),
-            ...(o.disabled ? { disabled: true } : {}),
-            keywords: brainPickText(o),
-          })),
-        ]
-      : [
-          autoPick,
-          ...(!s.shownModel || isAuto(s.shownModel) || s.planModels.some((m) => m.value === s.shownModel)
-            ? []
-            : [{ value: s.shownModel, label: s.shownModel }]),
-          ...s.planModels.map((m) => {
-            const line = brainModelLine(t, s.kind, s.plan, m, cursorPlanSays);
-            return {
-              value: m.value,
-              label: m.label,
-              ...(line ? { description: line } : {}),
-              ...(m.needs ? { hint: t(`brain.modelNeeds.${m.needs}`) } : {}),
-              ...(m.maker ? { group: providerLabel(m.maker) } : {}),
-            };
-          }),
-        ];
-  const modelChosen = modelOptions.find((o) => o.value === modelValue);
-  const needs = s.planModels.find((m) => m.value === modelValue)?.needs;
-  const saveModel = async () => {
-    setBusy(true);
-    try {
-      if (s.kind === "model") await update.mutateAsync({ model: modelValue });
-      else {
-        // An automatic model picks the effort too; a fixed one takes the ramp's level.
-        const next = isAuto(modelValue) ? AUTO : s.effort;
-        const was = isAuto(view.effort) ? AUTO : s.effort;
-        await api.agents.setBrain(org.id, agent.id, {
-          brain: s.kind,
-          model: modelValue === s.option?.defaultModel ? null : modelValue,
-          ...(next !== was ? { effort: next } : {}),
-        });
-      }
-      refresh();
-      setModelPick(undefined);
-      home();
-    } catch (e) {
-      failed(e);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // What a chosen model needs from its plan's account, with where to give it.
+  const needs = s.planModels.find((m) => m.value === s.shownModel)?.needs;
 
   // ── how it thinks ──
   // "Só esta conta" where its account could move on, or where it is on: a right hand's own plan never moves.
@@ -549,20 +484,14 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   };
 
   // ── "Usar em outros agentes" (ADR 0094): what is saved, each agent taking it by its own rules ──
-  const brainName = s.savedCard === "key" ? s.modelName : thinksWith(t, s.savedCard, s.modelName);
   const where = s.homeOf(s.savedCard);
-  const carried = withAutonomy ? view.autonomy : undefined;
-  const autonomy = carried ? { autonomy: carried } : {};
-  const setup: AgentSetup | null =
+  const copyFrom: AiChoiceValue | null =
     s.kind === "model"
       ? {
           brain: "model",
           model: saved.model,
-          // Only admins see and change the key: anyone else's leaves each agent's own.
           // The workspace's default key is the picker's placeholder, not a key id: it goes as null.
-          ...(can("key") ? { key: saved.key === DEFAULT_KEY ? null : (saved.key ?? null) } : {}),
-          contextTokens: s.shownContext,
-          ...autonomy,
+          key: saved.key === DEFAULT_KEY ? null : (saved.key ?? null),
         }
       : where
         ? {
@@ -571,55 +500,34 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
             account: view.accountsSupported && view.computer ? view.account : null,
             model: view.effectiveModel === s.option?.defaultModel ? null : view.effectiveModel,
             effort: isAuto(view.effectiveModel) ? AUTO : s.effort,
-            ...(s.speedOn ? { speed: view.speed } : {}),
-            contextTokens: s.shownContext,
-            onlyOwner: view.onlyOwner,
-            ...autonomy,
           }
         : null;
-  const setupText = [
-    brainName,
-    ...advancedParts(t, i18n.language, {
-      kind: s.kind,
-      autoModel: isAuto(s.modelNow),
-      now: {
-        // The workspace's setup for a key carries no effort yet (ADR 0041, amended 2026-11-12): its line names none.
-        effort: s.kind === "model" ? null : s.effort,
-        speed: s.speedOn ? view.speed : "standard",
-        contextTokens: s.shownContext,
-        onlyOwner: view.onlyOwner,
-      },
-    }),
-    ...(carried ? [autonomyWords(t, carried)] : []),
-  ].join(" · ");
   // It thinks with nothing yet (a plan with no sign-in there): nothing to take elsewhere.
   const thinksWithNothing =
     s.kind !== "model" && s.currentRow?.kind === "plan" && view.accountsSupported && view.computer !== null;
-  const copyOn = setup !== null && hasOthers && !thinksWithNothing;
-  const copyTo = async (agentIds: string[], opens: { agent: string; owner: string }[]) => {
-    if (!setup) return;
-    // Letting more people talk to agents on other people's plans asks once, before anything saves.
-    if (
-      !(await asks.confirm(setupPlanQuestion(t, { kind: s.kind, provider: s.currentAccount?.provider ?? null }, opens)))
-    )
-      return;
+  const copyOn = copyFrom !== null && hasOthers && !thinksWithNothing;
+
+  /** An account picked in the "Conta" select: the way a switch goes here (who else moves, signing in, undo). */
+  const pickAccount = (row: AiChoiceRow) => {
+    const match = s.rows.find((r) =>
+      row.type === "plan"
+        ? r.kind === "account" &&
+          (r.account?.id === row.account?.id || (!!r.account?.sameAs && r.account.sameAs === row.account?.sameAs))
+        : row.type === "key" &&
+          r.kind === "key" &&
+          (r.keyId === row.apiKey?.id ||
+            (row.apiKey?.isDefault === true && (r.keyId === undefined || r.keyId === DEFAULT_KEY))),
+    );
+    if (match?.current) return;
+    if (match) return confirm(match);
     setBusy(true);
-    try {
-      const results = await api.agents.applySetup(org.id, { setup, agentIds });
-      refresh(agentIds);
-      // Nova missão starts from each agent's Autonomia.
-      void qc.invalidateQueries({ queryKey: [...keys.missions(org.id), "eligible"] });
-      const { done, autonomyOnly, missed } = setupOutcome(results, agentIds.length);
-      if (done > 0) toast.show(t("agentPage.work.brain.copy.done", { count: done, setup: setupText }));
-      if (autonomyOnly > 0) toast.show(t("agentPage.work.brain.copy.autonomyOnly", { count: autonomyOnly }));
-      if (missed > 0) toast.show(t("agentPage.work.brain.copy.missed", { count: missed }), "error");
-      setCopying(false);
-    } catch {
-      toast.show(t("agentPage.work.failed"), "error");
-      refresh();
-    } finally {
-      setBusy(false);
-    }
+    choice
+      .save(choice.choose(row))
+      .then(
+        () => refresh(),
+        (e: unknown) => failed(e),
+      )
+      .finally(() => setBusy(false));
   };
 
   // ── what the screens say ──
@@ -646,9 +554,9 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
   const missingCli =
     view.brain !== "model" &&
     (missingReason === "not_installed" || missingReason === "cant_start") &&
-    installableCli(view.brain) &&
     offOn &&
-    offOn.kind !== "managed"
+    offOn.kind !== "managed" &&
+    (installableCli(view.brain) || cliCommandWayOut(t, view.brain, offOn, missingReason, offOn.name))
       ? { kind: view.brain, reason: missingReason, machine: offOn }
       : null;
   const lendsAny = view.canUseOthersPlans === true && s.listed.some((a) => !a.mine && a.ownerId !== agent.ownerUserId);
@@ -687,19 +595,17 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           ? t("agentPage.work.brain.v2.teamTitle")
           : screen === "limit"
             ? t("agentPage.work.brain.v2.limitTitle", g)
-            : screen === "model"
-              ? t("agentPage.work.brain.v2.modelTitle", g)
-              : screen === "more"
-                ? t("agentPage.work.brain.v2.moreTitle", g)
-                : screen === "computer"
-                  ? t("agentPage.work.computer.title", g)
-                  : screen === "add"
-                    ? adding?.again
-                      ? t(isPlanId(adding.row.choice) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")
-                      : t(`agentPage.work.brain.add.title.${addAcc?.kind ?? "claude_code"}`)
-                    : screen === "done"
-                      ? t("agentPage.work.brain.v2.doneTitle")
-                      : t("agentPage.work.brain.v2.title", g);
+            : screen === "more"
+              ? t("agentPage.work.brain.v2.moreTitle", g)
+              : screen === "computer"
+                ? t("agentPage.work.computer.title", g)
+                : screen === "add"
+                  ? adding?.again
+                    ? t(isPlanId(adding.row.choice) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")
+                    : t(`agentPage.work.brain.add.title.${addAcc?.kind ?? "claude_code"}`)
+                  : screen === "done"
+                    ? t("agentPage.work.brain.v2.doneTitle")
+                    : t("agentPage.work.brain.v2.title", g);
 
   const body = (): ReactNode => {
     if (screen === "glance")
@@ -709,21 +615,7 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           {s.hold && s.savedCard === "key" && can("brain") && (
             <SettingNote icon="clock">{t("connectAi.key.closed")}</SettingNote>
           )}
-          <div className="bd-use">
-            <p className="arrival-opts__label">{t("agentPage.work.brain.account")}</p>
-            {s.currentRow && <HaveRow item={s.currentRow} checked still />}
-            {s.moves && !s.waitsAtLimit && (
-              <p className="bd-moves ac-iconline">
-                <Icon name="layers" size={16} />
-                <span>{t("agentPage.work.brain.movesOn")}</span>
-              </p>
-            )}
-            {s.usage ? (
-              <PlanWindows usage={s.usage} provider={s.currentAccount?.provider ?? null} />
-            ) : (
-              notShared && <p className="plan-models__none">{notShared}</p>
-            )}
-          </div>
+          <AiChoiceFields state={choice} onAccount={pickAccount} disabled={busy || !can("brain")} />
           {arrived && (
             <SettingNote icon="check" live>
               {t("agentPage.work.brain.add.done", { account: accountInLine(t, arrived), computer: s.computerName })}
@@ -751,27 +643,22 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
             <SettingNote icon="alert">{t("connectAi.plan.gemini.warning")}</SettingNote>
           )}
           {offTool && offOn ? <ToolOffWayOut machine={offOn} tool={offTool} /> : toolOffHere && <ToolsOffHereNote />}
+          {needs && s.plan && (
+            <SettingNote icon="info" live>
+              {t(`brain.modelHow.${needs}`)}
+              <span style={{ display: "block", marginTop: 8 }}>
+                <OpenPage href={s.plan.site}>
+                  {t("aiAccounts.add.openKeys", { site: new URL(s.plan.site).host })}
+                </OpenPage>
+              </span>
+            </SettingNote>
+          )}
           <div className="bd-lines">
             <BrainLine
-              label={t("agentPage.work.brain.planModel")}
-              lead={
-                isAuto(s.modelNow) ? (
-                  <Icon name="bulb" size={16} />
-                ) : s.modelMaker ? (
-                  <ProviderLogo id={s.modelMaker} size="xs" />
-                ) : undefined
-              }
-              value={s.modelName}
-              onOpen={
-                mayModel
-                  ? () => {
-                      setModelPick(undefined);
-                      go("model");
-                    }
-                  : undefined
-              }
+              label={t("agentPage.work.brain.v2.more")}
+              value={s.speedOn ? t("aiHub.moreSpeed") : t("agentPage.work.brain.advanced.contents.model")}
+              onOpen={openMore}
             />
-            <BrainLine label={t("agentPage.work.brain.v2.more")} value={s.moreLine} onOpen={openMore} />
           </div>
           {s.kind === "model" && !can("model") && <SettingNote icon="lock">{adminsOnly}</SettingNote>}
         </>
@@ -900,35 +787,10 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
         </>
       );
     }
-    if (screen === "model")
-      return (
-        <>
-          <PickList
-            options={modelOptions}
-            value={modelValue}
-            onChange={setModelPick}
-            label={title}
-            {...(s.kind === "model" ? { searchLabel: t("models.search") } : {})}
-          />
-          {/* What a chosen model needs from its plan's account, with where to give it. */}
-          {needs && s.plan && (
-            <SettingNote icon="info" live>
-              {t(`brain.modelHow.${needs}`)}
-              <span style={{ display: "block", marginTop: 8 }}>
-                <OpenPage href={s.plan.site}>
-                  {t("aiAccounts.add.openKeys", { site: new URL(s.plan.site).host })}
-                </OpenPage>
-              </span>
-            </SettingNote>
-          )}
-          {planFreeHint(t, s.plan) && <SettingNote icon="info">{planFreeHint(t, s.plan)}</SettingNote>}
-        </>
-      );
     if (screen === "more") {
-      const autoModel = isAuto(s.modelNow);
       const shownContext =
         m.contextTokens !== null && s.contextOptions.includes(m.contextTokens) ? m.contextTokens : null;
-      const line = (key: "effort" | "speed" | "context", label: string, value: string, content: ReactNode) => (
+      const line = (key: "speed" | "context", label: string, value: string, content: ReactNode) => (
         <>
           <BrainLine
             label={label}
@@ -945,25 +807,6 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
       );
       return (
         <div className="bd-lines">
-          {line(
-            "effort",
-            t("agentPage.work.brain.effort"),
-            autoModel ? t("brain.auto.label") : t(`agentPage.work.brain.efforts.${m.effort ?? "none"}`),
-            autoModel ? (
-              // "Automático" picks the effort too: said where the ramp would be.
-              <p className="bd-fold__hint">{t("agentPage.work.brain.effortText.auto")}</p>
-            ) : (
-              <EffortPixels
-                label={t("agentPage.work.brain.effort")}
-                value={m.effort}
-                onValueChange={(e) => setMore({ ...m, effort: e })}
-                color={draft.look.color}
-                steps={effortLevelsOf(s.kind).map((e) => ({ value: e, label: t(`agentPage.work.brain.efforts.${e}`) }))}
-                hint={(e) => t(`agentPage.work.brain.effortText.${effortTextOf(s.kind, e)}`)}
-                unset={t("agentPage.work.brain.efforts.none")}
-              />
-            ),
-          )}
           {s.speedOn &&
             line(
               "speed",
@@ -981,19 +824,6 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
               kind={s.kind}
               onChange={(n) => setMore({ ...m, contextTokens: n })}
             />,
-          )}
-          {s.kind !== "model" && agent.ownerUserId && (
-            <div className="bd-row">
-              <PlanReplies
-                agent={agent.name}
-                owner={view.canUsePlans ? undefined : (ownerFirst ?? undefined)}
-                on={!m.onlyOwner}
-                onChange={(on) => setMore({ ...m, onlyOwner: !on })}
-                brain={s.kind}
-                plan={signInPlan(view, s.agentRow, s.kind)}
-                coding={s.plan}
-              />
-            </div>
           )}
           {m.accountPinned !== undefined && (
             <div className="bd-row">
@@ -1200,20 +1030,6 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
           </Button>
         ),
       });
-    if (screen === "model")
-      return footer({
-        second: cancel,
-        main: (
-          <Button
-            variant="primary"
-            disabled={modelValue === modelSaved || busy}
-            loading={busy}
-            onClick={() => void saveModel()}
-          >
-            {t("connectAi.use", { label: modelChosen?.label ?? modelValue })}
-          </Button>
-        ),
-      });
     if (screen === "more") {
       const now: Advanced = {
         effort: m.effort,
@@ -1222,11 +1038,18 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
         onlyOwner: m.onlyOwner,
         ...(m.accountPinned !== undefined ? { accountPinned: m.accountPinned } : {}),
       };
+      // The effort is the first screen's and whom it answers the account's: only what this screen holds goes back.
+      const reset: Advanced = { ...m, ...advancedDefaults(s.kind, now), effort: m.effort, onlyOwner: m.onlyOwner };
       return footer({
         second: (
           <Button
-            disabled={isAdvancedDefault(s.kind, now) || busy}
-            onClick={() => setMore({ ...m, ...advancedDefaults(s.kind, now) })}
+            disabled={
+              (reset.speed === m.speed &&
+                reset.contextTokens === m.contextTokens &&
+                reset.accountPinned === m.accountPinned) ||
+              busy
+            }
+            onClick={() => setMore(reset)}
           >
             {t("agentPage.work.brain.advanced.defaults")}
           </Button>
@@ -1347,16 +1170,16 @@ function BrainFlow({ view, onClose, at }: { view: AgentBrain; onClose: () => voi
         </div>
         {foot()}
       </div>
-      {copying && setup && (
-        <SetupCopyDialog
-          setup={setup}
-          setupText={setupText}
+      {copying && copyFrom && (
+        <UseOnAgentsDialog
+          initial={copyFrom}
+          extra={{ contextTokens: s.shownContext, ...(s.speedOn ? { speed: view.speed } : {}) }}
+          exclude={agent.id}
           autonomy={view.autonomy}
-          withAutonomy={withAutonomy}
-          onWithAutonomy={setWithAutonomy}
-          busy={busy}
-          onClose={() => setCopying(false)}
-          onUse={(agentIds, opens) => void copyTo(agentIds, opens)}
+          onClose={() => {
+            setCopying(false);
+            refresh();
+          }}
         />
       )}
       {asks.dialog}

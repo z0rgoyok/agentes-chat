@@ -106,6 +106,11 @@ export function ShareScreen() {
   }));
 
   const picked = agents.find((a) => a.id === to) ?? null;
+  // Picked among the share sheet's suggestions (ADR 0213): that agent, chosen already, unless the person chose another.
+  const suggested = shared?.to?.orgId === orgId ? shared.to.agentId : null;
+  useEffect(() => {
+    if (suggested && agents.some((a) => a.id === suggested)) setTo((now) => now ?? suggested);
+  }, [suggested, agents]);
   // Cancelled or swiped away while the conversation opened: nothing is handed over, nothing replaces the screen.
   const left = useRef(false);
   useEffect(() => {

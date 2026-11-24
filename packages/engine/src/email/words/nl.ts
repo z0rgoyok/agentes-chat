@@ -504,6 +504,36 @@ export const words: EmailWords = {
     table: (day) => `De hele tabel: bun run report:autonomy --day ${day}`,
     why: "Je krijgt deze e-mail omdat dit adres in OPS_REPORT_EMAIL op deze server staat. We sturen hem één keer per dag.",
   },
+  accountOpened: {
+    subject: (plan) => `Meer mensen kunnen je ${plan}-account gebruiken`,
+    preheader: (plan) => `Wat ze ermee doen, gebruikt je ${plan}-abonnement en de limieten ervan.`,
+    headline: "Iemand heeft gewijzigd wie je AI-account mag gebruiken",
+    body: (by, account, plan) => [
+      { b: by },
+      ` heeft gewijzigd wie je ${plan}-account `,
+      { b: account },
+      ` mag gebruiken. Wat ze ermee doen, gebruikt je abonnement en de limieten ervan.`,
+    ],
+    account: "Account",
+    by: "Gewijzigd door",
+    setting: "Recht",
+    use: "Gebruiken in agents",
+    reply: "Iedereen antwoorden",
+    was: "Eerst",
+    now: "Nu",
+    everyone: "Iedereen in de workspace",
+    admins: "Jij en beheerders",
+    onlyYou: "Alleen jij",
+    agentOwner: "Alleen de eigenaar van de agent",
+    note: "Ongedaan maken? Open het account bij AI en gebruik en wijzig de rechten.",
+    button: "AI-accounts openen",
+    why: (org) =>
+      `Je krijgt deze e-mail omdat je dit AI-account in ${org} hebt gekoppeld en iemand anders heeft gewijzigd wie het mag gebruiken.`,
+    personal: {
+      why: () =>
+        "Je krijgt deze e-mail omdat je dit AI-account hebt gekoppeld en iemand anders heeft gewijzigd wie het mag gebruiken.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Meer mensen kunnen met je agent praten via je ${plan}-abonnement`,
     preheader: (plan) => `Hun gesprekken gebruiken je ${plan}-abonnement en de limieten ervan.`,

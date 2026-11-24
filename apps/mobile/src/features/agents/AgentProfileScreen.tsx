@@ -37,41 +37,57 @@ import { isRightHand, tellsNameStory } from "@agenteschat/client/lib/right-hand"
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { planLine } from "@agenteschat/ui/plan-state";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Children, Fragment, isValidElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { readValueSync, STORED, writeValue } from "@/lib/storage";
 import { useOrg } from "@/providers/org";
 import {
   AgentAvatar,
+  type AgentLookInput,
+  type BadgePresence,
   Button,
   EmptyState,
+  GROUPED_ROW,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
+  haptics,
   Icon,
   type IconName,
   LivePause,
   Locked,
   PixelOrbit,
   ProviderLogo,
+  RoleMark,
   SCREEN_X,
   Segmented,
+  SkeletonOver,
   Sky,
   SwipeRow,
   Text,
+  useFirstLoad,
+  useTheme,
   useToast,
   WithPresence,
 } from "@/ui";
-import { CoverParallax, useCoverScroll, useScrollFade } from "@/ui/cover";
+import { CoverBarBackdrop, CoverParallax, useCoverScroll, useScrollFade } from "@/ui/cover";
 import { router } from "@/ui/navigation";
 import { openAgentAi } from "../ai/AgentAiScreen";
 import { openConnectAi } from "../ai/NoAiCard";
 import { usePlanHold } from "../ai/parts";
 import { LetMeTalkButton } from "../chat/ReachLines";
+import { LandRow } from "../chats/HomeSection";
 import { AgentComputerCard } from "../computer/AgentComputerRow";
 import { KeptRunningList } from "../computer/KeptRunning";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
@@ -87,12 +103,16 @@ import {
   useDirectory,
   useErrorToast,
   useMeId,
+  useMyRoleIds,
   useNow,
   useOrgId,
+  useOwnerRoles,
+  useOwnsAgent,
   usePushEnded,
   useWhen,
 } from "../shared/hooks";
 import { agentLook, genderOf } from "../shared/logic";
+import { ownerNameIn, ownerRoleOf } from "../shared/owner";
 import { SheetTitle } from "../shared/PromptForm";
 import { PushedHeader } from "../shared/parts";
 import { useWaitingApprovals, useWorkingNow } from "../shared/queries";
@@ -195,7 +215,6 @@ function Profile({ id }: { id: string }) {
   // The cover's sky lags behind the scroll and stretches on pull; the agent fades as it nears the bar.
   const { y, onScroll } = useCoverScroll();
   const underBar = AVATAR_TOP - (insets.top + BAR_HEIGHT);
-  const avatarFade = useScrollFade(y, underBar - 30, underBar + 70);
   const agent = dir.agentById.get(id);
   const models = useModels();
   // Someone it doesn't answer (not its owner, not an admin) sees only its public card: no tools, memory or month.
@@ -232,13 +251,19 @@ function Profile({ id }: { id: string }) {
   const look = agentLook(agent);
   const name = agent?.name ?? detail.data?.name ?? "";
   const g = genderOf(name);
+  // The person asked for access; a role that answers for it (ADR 0085, addendum of 2026-11-21) has nobody to write
+  // to, and its name stands where the person's would.
   const ownerId = agent?.ownerUserId ?? null;
-  const owner = ownerId ? dir.memberById.get(ownerId)?.name : undefined;
-  const mine = Boolean(meId && ownerId === meId);
+  const ownerRoles = useOwnerRoles();
+  const ownerRole = ownerRoleOf(agent, ownerRoles);
+  const owner = ownerNameIn(agent, dir.memberById, ownerRoles);
+  const myRoleIds = useMyRoleIds();
+  const owns = useOwnsAgent();
+  const mine = owns(agent);
   const roleName = (agent?.role || detail.data?.role || "").trim();
   const plain = plainRole(agent?.instructions || detail.data?.instructions);
   const busy = work.length > 0;
-  const editable = canEditMemories(agent, { id: meId, org });
+  const editable = canEditMemories(agent, { id: meId, org, roleIds: myRoleIds });
   // Its presence (ADR 0084): the badge, and the card with what it does where nothing else here says it.
   const status = useAgentProfileStatus(id, name);
   const statusLine = usePresenceOf().agent(id)?.status?.status ?? null;
@@ -385,9 +410,10 @@ function Profile({ id }: { id: string }) {
     );
   };
 
+  // A role is named even to who holds it: others answer for it too.
   const ownerLine = rightHand
     ? null
-    : mine
+    : mine && !agent?.ownerRoleId
       ? t("mobile.intentAgents.ownerYou")
       : owner
         ? t("mobile.intentAgents.owner", { name: owner })
@@ -526,8 +552,9 @@ function Profile({ id }: { id: string }) {
     </>
   );
 
+  // Each view's sections keep their place while its data loads the first time (`TabPage`), then arrive one by one.
   const todayView = (
-    <>
+    <TabPage loading={forYou.isLoading} bones={3}>
       {nowBlock}
       {/* What it thinks with and how much of it is used this month, one row (ADR 0063 §5): the plan or key as its
           name, the usage under it. The usage page has the rest. */}
@@ -591,12 +618,13 @@ function Profile({ id }: { id: string }) {
           )}
         </>
       ) : null}
-    </>
+    </TabPage>
   );
 
   // The approval rule under what it can use: in one sentence, naming whoever decides for it.
   const asksNote = () => {
     if (decides) return t("mobile.intentAgents.uses.asksYou");
+    if (ownerRole) return t("mobile.intentAgents.uses.asksOwnerRole", { role: ownerRole.name });
     return owner ? t("mobile.intentAgents.uses.asksOwner", { name: owner }) : t("mobile.intentAgents.uses.asksAdmins");
   };
   const usesNote =
@@ -607,7 +635,7 @@ function Profile({ id }: { id: string }) {
         : null;
   // The right hand's AI is each person's, on its settings ("Sua IA"): its access shows only what it may use.
   const accessView = (
-    <>
+    <TabPage loading={access.isLoading} bones={2}>
       {thinks && !rightHand ? (
         <>
           <GroupedHeader>{t("mobile.intentAgents.thinks")}</GroupedHeader>
@@ -751,21 +779,35 @@ function Profile({ id }: { id: string }) {
           {ownerLine ? (
             <View style={styles.apart}>
               <GroupedList>
-                <GroupedRow icon="person" label={ownerLine} />
+                {/* A role that answers for it shows its mark, and under it who that means (ADR 0085, addendum of
+                    2026-11-21). */}
+                <GroupedRow
+                  {...(ownerRole
+                    ? { leading: <RoleMark color={ownerRole.color} icon={ownerRole.icon} size={22} /> }
+                    : { icon: "person" as const })}
+                  label={ownerLine}
+                />
               </GroupedList>
+              {ownerRole ? (
+                <GroupedFooter>
+                  {t("newAgent.ownerRoleHelp", { ...agentGrammar(name), role: ownerRole.name })}
+                </GroupedFooter>
+              ) : null}
             </View>
           ) : null}
         </>
       )}
-    </>
+    </TabPage>
   );
 
   // Who may correct what it knows, said once under the memories (a tap corrects, a swipe forgets).
   const editFoot = editable
     ? t("mobile.intentAgents.knows.footSwipe")
-    : owner
-      ? t("mobile.intentAgents.knows.footOwner", { name: owner })
-      : t("mobile.intentAgents.knows.footAdmins");
+    : ownerRole
+      ? t("mobile.intentAgents.knows.footOwnerRole", { role: ownerRole.name })
+      : owner
+        ? t("mobile.intentAgents.knows.footOwner", { name: owner })
+        : t("mobile.intentAgents.knows.footAdmins");
   const memoryKnows = (
     <>
       <GroupedHeader>{t("mobile.intentAgents.knows.title", agentGrammar(name))}</GroupedHeader>
@@ -797,11 +839,11 @@ function Profile({ id }: { id: string }) {
     </>
   );
   const memoryView = (
-    <>
+    <TabPage loading={knows.isLoading} bones={2}>
       {knows.data ? memoryKnows : knows.isError ? memoryFailed : null}
       {/* What people told it to always do, under what it learned, as the web's Memória. */}
       <GivenRules agentId={id} name={name} rightHand={rightHand} />
-    </>
+    </TabPage>
   );
 
   return (
@@ -819,20 +861,15 @@ function Profile({ id }: { id: string }) {
             <CoverParallax y={y} style={StyleSheet.absoluteFill}>
               <Sky color={look.color} depth={1} style={StyleSheet.absoluteFill} />
             </CoverParallax>
-            {/* Its presence is the badge; a screen reader hears it in words, with why. */}
-            <Animated.View
-              style={avatarFade}
-              {...(status ? { accessible: true, accessibilityLabel: status.line } : {})}
-            >
-              <WithPresence size={FACE} presence={status?.presence} inset={agentBadgeInset(look, FACE)}>
-                <AgentAvatar
-                  agent={look}
-                  size={FACE}
-                  mode={busy ? "run" : "idle"}
-                  {...(hello && !busy ? { expression: "happy" as const } : {})}
-                />
-              </WithPresence>
-            </Animated.View>
+            <CoverFace
+              look={look}
+              busy={busy}
+              hello={hello}
+              presence={status?.presence}
+              label={status?.line}
+              y={y}
+              underBar={underBar}
+            />
           </LivePause>
         </View>
         <View style={styles.prof}>
@@ -941,20 +978,185 @@ function Profile({ id }: { id: string }) {
           <View style={styles.page}>{nowBlock}</View>
         )}
       </Animated.ScrollView>
+      {/* What the clear bar becomes behind the name once the cover is under it (the system draws it on iOS 26). */}
+      <CoverBarBackdrop
+        y={y}
+        from={underBar - 30}
+        to={underBar + 70}
+        height={insets.top + BAR_HEIGHT}
+        tone={c.grouped}
+      />
       {/* Its person changes its look; who edits it, its role and instructions; who manages it, everything ("Editar",
           as the web's Configurações). The right hand's settings open for everyone: each person has their own there. */}
       <PushedHeader
+        // The bar has no title while the cover shows: the face and the name fade in as the cover's leave under it.
+        title={<BarName look={look} name={name} y={y} from={underBar - 30} to={underBar + 70} />}
         plate
         solid={false}
         {...(rightHand
-          ? { action: { label: t("rightHand.profile.configure"), onPress: openRightHandSettings } }
+          ? { action: { label: t("rightHand.profile.configure"), onPress: openRightHandSettings, opens: true } }
           : (decides || editsAgent(agent)) && agent
-            ? { action: { label: t("agent.edit"), onPress: () => openAgentEdit(id) } }
+            ? { action: { label: t("agent.edit"), onPress: () => openAgentEdit(id), opens: true } }
             : {})}
       />
     </View>
   );
 }
+
+/**
+ * The agent on its cover, smiling once as the profile opens unless it is at work (`hello`). It answers a touch:
+ * startled for a moment, a small hop, then a smile, and back to itself. Its presence is the badge; a screen reader
+ * hears it in words, with why. It fades as the cover scrolls under the bar.
+ */
+function CoverFace({
+  look,
+  busy,
+  hello,
+  presence,
+  label,
+  y,
+  underBar,
+}: {
+  look: AgentLookInput;
+  busy: boolean;
+  hello: boolean;
+  presence: BadgePresence | null | undefined;
+  label: string | undefined;
+  /** The cover's scroll, and how far it goes before the face reaches the bar: it fades there. */
+  y: SharedValue<number>;
+  underBar: number;
+}) {
+  const { motion: m, reducedMotion } = useTheme();
+  const fade = useScrollFade(y, underBar - 30, underBar + 70);
+  const [mood, setMood] = useState<"surprised" | "happy" | null>(null);
+  const hop = useSharedValue(1);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(
+    () => () => {
+      for (const timer of timers.current) clearTimeout(timer);
+    },
+    [],
+  );
+  const hopped = useAnimatedStyle(() => ({ transform: [{ scale: hop.get() }] }));
+  const touch = () => {
+    haptics.light();
+    for (const timer of timers.current) clearTimeout(timer);
+    setMood("surprised");
+    if (!reducedMotion)
+      hop.set(withSequence(withTiming(0.9, { duration: m.fast, easing: m.easeOut }), withSpring(1, m.bounce)));
+    timers.current = [
+      setTimeout(() => setMood("happy"), STARTLED_MS),
+      setTimeout(() => setMood(null), STARTLED_MS + HELLO_MS),
+    ];
+  };
+  const expression = mood ?? (hello && !busy ? "happy" : undefined);
+  return (
+    <Animated.View style={fade} {...(label ? { accessible: true, accessibilityLabel: label } : {})}>
+      <Pressable accessible={false} onPress={touch}>
+        <Animated.View style={hopped}>
+          <WithPresence size={FACE} presence={presence} inset={agentBadgeInset(look, FACE)}>
+            <AgentAvatar
+              agent={look}
+              size={FACE}
+              mode={busy ? "run" : "idle"}
+              {...(expression ? { expression } : {})}
+            />
+          </WithPresence>
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** In the bar once the cover has scrolled under it: the agent's small face and its name, fading in with the scroll. */
+function BarName({
+  look,
+  name,
+  y,
+  from,
+  to,
+}: {
+  look: AgentLookInput;
+  name: string;
+  y: SharedValue<number>;
+  from: number;
+  to: number;
+}) {
+  const fade = useScrollFade(y, from, to, true);
+  return (
+    <Animated.View
+      style={[styles.barName, fade]}
+      pointerEvents="none"
+      // The name is the page's heading under the cover: said once, there.
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <AgentAvatar agent={look} size={BAR_FACE} framed={false} live={false} />
+      <Text variant="body" numberOfLines={1} style={[styles.bold, styles.shrink]}>
+        {name}
+      </Text>
+    </Animated.View>
+  );
+}
+
+/**
+ * One view of the profile (Today, Access, Memory), its sections as children. While its data loads the first time,
+ * grouped lists stand in for them, so nothing pops in; then the stand-ins fade and the sections rise in, one after
+ * the other. A view that opens with its data just shows, and so does a refetch.
+ */
+function TabPage({ loading, bones, children }: { loading: boolean; bones: number; children: ReactNode }) {
+  const first = useFirstLoad(loading);
+  const sections = Children.toArray(children).filter(isValidElement);
+  return (
+    <View>
+      {first.skeleton ? (
+        <SkeletonOver leaving={first.landing}>
+          <GroupBones groups={bones} />
+        </SkeletonOver>
+      ) : null}
+      {loading
+        ? null
+        : sections.map((section, i) => (
+            // A section that grows moves the ones under it as its own rows move (`GroupedList`).
+            <LandRow key={section.key ?? i} land={first.landing} index={i} moves>
+              {section}
+            </LandRow>
+          ))}
+    </View>
+  );
+}
+
+/** Stand-ins shaped as grouped lists: a header's bar, then a group of one or two rows. */
+function GroupBones({ groups }: { groups: number }) {
+  const c = useColors();
+  const bone = { backgroundColor: c.sunken };
+  return (
+    <View>
+      {BONES.slice(0, groups).map((rows, g) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed shapes, never reordered
+        <View key={g}>
+          <View style={styles.boneHead}>
+            <View style={[styles.boneBar, bone]} />
+          </View>
+          <View style={[styles.boneList, { backgroundColor: c.raised }]}>
+            {rows.map((width, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed shapes, never reordered
+              <View key={i} style={styles.boneRow}>
+                <View style={[styles.boneTile, bone]} />
+                <View style={styles.grow}>
+                  <View style={[styles.boneLabel, bone, { width: `${width}%` }]} />
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** The stand-in groups: each one's rows, as the label's width in percent of its column. */
+const BONES: number[][] = [[52, 38], [44], [58, 36]];
 
 /**
  * "Aprovado sempre", as on the web's Ferramentas e acesso: what the agent runs without asking, approved for good
@@ -1195,8 +1397,10 @@ export function MemoryFix({
 /** A saved tab, or Hoje. */
 const profileTabOf = (v: string | null): ProfileTab => (v === "access" || v === "memory" ? v : "today");
 
-/** How long the face holds its smile when the profile opens. */
+/** How long the face holds its smile when the profile opens, and after a touch. */
 const HELLO_MS = 900;
+/** How long a touched face stays startled before it smiles. */
+const STARTLED_MS = 280;
 
 /** True for a moment after the profile has come in (`arrived`): the face's hello. */
 function useHello(arrived: boolean) {
@@ -1217,6 +1421,8 @@ const COVER_FOOT = 14;
 /** Where the agent's top sits in the cover, and the bar's height. */
 const AVATAR_TOP = COVER_HEIGHT - COVER_FOOT - FACE;
 const BAR_HEIGHT = 44;
+/** The face beside the name in the bar. */
+const BAR_FACE = 24;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -1240,4 +1446,20 @@ const styles = StyleSheet.create({
   pixels: { marginBottom: 12 },
   apart: { marginTop: 24 },
   src: { flexDirection: "row", alignItems: "center", gap: 6 },
+  barName: { flexDirection: "row", alignItems: "center", gap: 8 },
+  shrink: { flexShrink: 1 },
+  // A grouped header's room (20 above its 18 line, 8 under), the bar in the line's middle.
+  boneHead: { height: 46, paddingTop: 24, paddingHorizontal: GROUPED_ROW.padX },
+  boneBar: { width: 96, height: 10, borderRadius: 5 },
+  boneLabel: { height: 12, borderRadius: 6 },
+  // As `GroupedList`'s card.
+  boneList: { borderRadius: 14, overflow: "hidden" },
+  boneRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: GROUPED_ROW.minHeight,
+    paddingHorizontal: GROUPED_ROW.padX,
+  },
+  boneTile: { width: 28, height: 28, borderRadius: 8 },
 });

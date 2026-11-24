@@ -15,7 +15,7 @@ import type { Judge } from "../judge";
 import { callWhenBack, type MachineCaller, MachineRequestError } from "../machine-hub";
 import { MachineOfflineError, MachinePausedError } from "../machines";
 import { machineScope, screenKey } from "../right-hand-seats";
-import { getSandboxSettings, SANDBOX_SCOPE, SandboxUnavailableError } from "../sandbox";
+import { codeRunning, RUN_CODE_TOOL, SandboxUnavailableError } from "../sandbox";
 import {
   actsBeforeOpening,
   createLookMemory,
@@ -27,13 +27,15 @@ import {
   MAX_WAIT_MS,
   type PlanReport,
   runPlan,
+  type ScreenJudgmentShadow,
   type ScreenStep,
   type ScreenVerb,
+  screenJudgmentsData,
   screenStepOf,
   type TargetCache,
 } from "../screen";
 import type { JsonSchema } from "../tools/json-schema";
-import { accessWithNeeds, grantedScopeKeys, isAllowed, toolAccess } from "../tools/scopes";
+import { accessWithNeeds, grantedScopeKeys, isAllowed } from "../tools/scopes";
 import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "../tools/types";
 import { untrustedBlock } from "../untrusted";
 import { SHARE_HINT, SHARE_INPUT, shareSavedFile } from "../uploads";
@@ -67,7 +69,7 @@ export interface DesktopToolDeps {
 }
 
 /** Driving a desktop runs commands (a terminal window, "Open Terminal Here"): only for agents that may run code. */
-const RUN_CODE = { name: "run_code", scope: SANDBOX_SCOPE };
+const RUN_CODE = RUN_CODE_TOOL;
 /** The longest one action may take: starting an app waits for its window, long text is typed key by key. */
 const ACT_MS = 240_000;
 const MAX_WAIT_SECONDS = MAX_WAIT_MS / 1000;
@@ -268,21 +270,14 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
     ctx: ToolContext,
     granted?: Set<string>,
   ): Promise<{ refused: string } | { approvals: boolean }> {
-    const keys = granted ?? (await grantedScopeKeys(ctx.db, ctx.orgId, ctx.agentId));
-    if (!isAllowed(toolAccess(keys, RUN_CODE))) {
-      return {
-        refused:
-          "Using your desktop runs commands on your computer, and you may not run code. An admin or your owner can give you Run code; say so.",
-      };
-    }
-    const settings = await getSandboxSettings(ctx.db, ctx.orgId);
-    if (!settings.enabled) {
-      return {
-        refused:
-          "Using your desktop runs commands on your computer, and running code is turned off for this organization. Tell the people.",
-      };
-    }
-    return { approvals: settings.requireApproval };
+    const running = await codeRunning(ctx.db, ctx.orgId, ctx.agentId, granted);
+    if (running.refused === null) return { approvals: running.approvals };
+    return {
+      refused:
+        running.refused === "grant"
+          ? "Using your desktop runs commands on your computer, and you may not run code. An admin or your owner can give you Run code; say so."
+          : "Using your desktop runs commands on your computer, and running code is turned off for this organization. Tell the people.",
+    };
   }
 
   /** The agent's desktop for this call (its computer and agent bound), or why it can't be used. */
@@ -357,6 +352,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
     const started = new Date();
     let handedBack = false;
     const acted: DesktopAction[] = [];
+    const shadow: ScreenJudgmentShadow[] = [];
     const report = await runPlan(
       {
         judge,
@@ -391,6 +387,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
         // What covers a target on a desktop is usually a real dialog ("Save changes?"): never closed on a guess.
         dismiss: false,
         now,
+        shadow,
       },
       steps,
     );
@@ -404,6 +401,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
     const data: Record<string, unknown> = {
       desktopTrail: trailOf(report),
       timing: { ms: report.ms, steps: report.steps.map((s) => s.ms) },
+      ...screenJudgmentsData(shadow),
     };
     const waiting = paused as ToolOutput | null;
     if (waiting) {
@@ -491,6 +489,7 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
         await markPageRead(ctx.db, ctx, "desktop");
         const question = typeof input.find === "string" ? input.find.trim() : "";
         if (question && deps.judge) {
+          const shadow: ScreenJudgmentShadow[] = [];
           const found = await findInPage({
             judge,
             orgId: ctx.orgId,
@@ -498,17 +497,22 @@ export function createDesktopToolSource(deps: DesktopToolDeps): ToolSource {
             runId: ctx.runId,
             question,
             observation: screen,
+            shadow,
           }).catch(() => null);
           const part = found?.searched
             ? ` (searched ${found.searched.lines} of the screen's ${found.searched.of} lines)`
             : "";
           if (found && found.answered !== "no") {
             const partly = found.answered === "partly" ? " (it may only partly answer it)" : "";
-            return { content: `Where the screen answers "${question}"${partly}${part}:\n${screenBlock(found.text)}` };
+            return {
+              content: `Where the screen answers "${question}"${partly}${part}:\n${screenBlock(found.text)}`,
+              data: screenJudgmentsData(shadow),
+            };
           }
           if (found) {
             return {
               content: `Nothing on the screen answers "${question}"${part}. Read the whole screen (no \`find\`) to look yourself, or open where it would be.`,
+              data: screenJudgmentsData(shadow),
             };
           }
         }

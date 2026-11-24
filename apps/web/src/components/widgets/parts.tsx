@@ -8,6 +8,7 @@ import {
   widgetWaiting,
   widgetWaitText,
 } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { maySetAgentAi, noAiLockedLine, planKeyIntent } from "@agenteschat/client/lib/no-ai";
@@ -17,9 +18,9 @@ import type { TFunction } from "i18next";
 import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
-import { useConnectAi } from "@/components/ConnectAi";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { useOpenComputer } from "@/components/computer/open";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { useOrg } from "@/components/org-context";
 import { colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -231,7 +232,8 @@ function WaitFix({ agentId, wait }: { agentId: string; wait: WidgetWait }) {
   const dir = useDirectory(org.id);
   const openComputer = useOpenComputer();
   const agent = dir.anyAgent(agentId);
-  const owner = agent?.ownerUserId === me.user.id;
+  // Its owner: the person, or whoever holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const owner = !!agent && ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id));
   const fix = widgetWaitFix(wait, { admin: managesAgent(agent), owner });
   const watches = useDesktopStatus(org.id, agentId, { enabled: fix === "openComputer" }).isSuccess;
   const stop = (e: MouseEvent) => e.stopPropagation();

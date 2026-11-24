@@ -5,6 +5,7 @@ import {
   ASKS_PROTOCOL,
   BRAIN_PROFILES_PROTOCOL,
   BRAIN_PROTOCOL,
+  BRAIN_WARM_PROTOCOL,
   type BrainTurnRequest,
   brainTopic,
   CLI_GIT_MISSING,
@@ -103,6 +104,9 @@ export interface ClaudeCodeBrainDeps {
   /** How long a `brain.steer` may take (default `STEER_CALL_MS`). */
   steerTimeoutMs?: number;
 }
+
+/** A `brain.warm` answers once the CLI started, or a cold worker came up first; past this nobody waits on it. */
+export const WARM_CALL_MS = 30_000;
 
 /** A `brain.steer` answers at once (it only writes to the CLI's stdin): longer means the computer is in trouble. */
 export const STEER_CALL_MS = 2000;
@@ -381,6 +385,43 @@ class Queue {
 export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
   return {
     kind: "claude_code",
+    // The launch the turn below sends (its folder before `prepare` moves it to a checkout), without its words.
+    async warm(turn: BrainTurn) {
+      const session = turn.session;
+      if (!session || deps.keepAlive === false) return;
+      const status = await deps.hub.status(session.machineId).catch(() => null);
+      if (!status || status.protocol < BRAIN_WARM_PROTOCOL || claudeCodeAvailability(status, turn.account)) return;
+      try {
+        const [agent, personalMcp, asked] = await Promise.all([
+          deps.agentScope(turn),
+          Promise.resolve(deps.personalMcp?.(turn) ?? false),
+          deps.permissions?.(turn),
+        ]);
+        const permissions = askingPermissions(asked, true);
+        if (permissions?.mode === "chat") return;
+        await deps.hub.call<"brain.warm">(
+          session.machineId,
+          {
+            op: "brain.warm",
+            kind: "claude_code",
+            session: { id: session.id, resume: session.resume },
+            cwd: session.cwd,
+            ...(turn.model ? { model: turn.model } : {}),
+            personalMcp,
+            // A code session's turn starts with its own tools (ADR 0215 §6): the warm process the same, or it isn't
+            // the one the turn takes.
+            ...(session.codeSession ? { codeSession: true } : {}),
+            ...(permissions ? { permissions } : {}),
+            ...accountFields(status.protocol, turn),
+            ...contextFields(status.protocol, turn, "claude_code"),
+            agent,
+          },
+          { timeoutMs: WARM_CALL_MS },
+        );
+      } catch {
+        // the turn starts its CLI itself
+      }
+    },
     async *run(turn: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent> {
       const session = turn.session;
       if (!session) {
@@ -446,6 +487,7 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
           mcp: { token: deps.mcpToken?.(turn) ?? randomBytes(24).toString("base64url") },
           keepAlive: deps.keepAlive !== false,
           personalMcp: personalMcp && !chat,
+          ...(session.codeSession && !chat ? { codeSession: true } : {}),
           ...(permissions ? { permissions } : {}),
           ...accountFields(status?.protocol, turn),
           ...contextFields(status?.protocol, turn, "claude_code"),

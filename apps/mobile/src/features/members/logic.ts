@@ -554,7 +554,10 @@ export function agentPicks(
   const pick = (a: Agent): AgentPick => {
     const owners = args.mailboxOwners(a.id);
     const kind = inviteAgentCase(a, viewer, own, owners ?? []);
-    const owner = args.ownerName(a.ownerUserId);
+    // A role that answers for it is named as its owner (ADR 0085, addendum of 2026-11-21).
+    const owner = a.ownerRoleId
+      ? (roles.find((r) => r.id === a.ownerRoleId)?.name ?? null)
+      : args.ownerName(a.ownerUserId);
     const sub =
       kind === "everyone"
         ? a.role

@@ -1,5 +1,6 @@
 import type { AgentGroup, AgentLineChange, TeamAgent } from "../api/types";
 import { groupOf } from "./agent-groups";
+import { hasAgentOwner, ownsAgentAs, roleOfOwnerValue, roleOwnerValue } from "./agent-owner";
 
 /**
  * Equipe's views (ADR 0148): the list's filters and sort, the org chart's columns and the team map's columns, from
@@ -16,6 +17,8 @@ export function filterTeam(
     filter: TeamFilter;
     q: string;
     meId: string;
+    /** The roles I hold: an agent one of them answers for is mine too (ADR 0085, addendum of 2026-11-21). */
+    myRoleIds?: readonly string[];
     /** Agents with a request waiting for me (`waiting`). */
     waitingIds?: ReadonlySet<string>;
     channelName?: (id: string) => string | undefined;
@@ -23,10 +26,10 @@ export function filterTeam(
 ): TeamAgent[] {
   const q = opts.q.trim().toLowerCase();
   return agents.filter((a) => {
-    if (opts.filter === "mine" && a.ownerUserId !== opts.meId) return false;
+    if (opts.filter === "mine" && !ownsAgentAs(a, opts.meId, opts.myRoleIds ?? [])) return false;
     if (opts.filter === "working" && !a.busy) return false;
     if (opts.filter === "waiting" && !opts.waitingIds?.has(a.id)) return false;
-    if (opts.filter === "noOwner" && a.ownerUserId) return false;
+    if (opts.filter === "noOwner" && hasAgentOwner(a)) return false;
     if (!q) return true;
     const words = [a.name, a.handle, a.role, ...(a.channelIds ?? []).map((id) => opts.channelName?.(id) ?? "")];
     return words.some((w) => w.toLowerCase().includes(q));
@@ -38,10 +41,17 @@ export function sortTeam(
   agents: readonly TeamAgent[],
   by: TeamSort,
   desc: boolean,
-  names: { sector: (agentId: string) => string; owner: (userId: string | null) => string },
+  /** `owner`: the person's name, or the role's when a role answers for it (`ownerRoleId`). */
+  names: { sector: (agentId: string) => string; owner: (userId: string | null, roleId?: string | null) => string },
 ): TeamAgent[] {
   const value = (a: TeamAgent) =>
-    by === "name" ? a.name : by === "role" ? a.role : by === "sector" ? names.sector(a.id) : names.owner(a.ownerUserId);
+    by === "name"
+      ? a.name
+      : by === "role"
+        ? a.role
+        : by === "sector"
+          ? names.sector(a.id)
+          : names.owner(a.ownerUserId, a.ownerRoleId ?? null);
   return [...agents].sort((a, b) => {
     const x = value(a);
     const y = value(b);
@@ -75,8 +85,8 @@ export function lineTop<A extends Pick<TeamAgent, "id" | "reportsToAgentId">>(ag
 }
 
 /**
- * Who an agent reports to among people on the org chart: its line's top agent's owner, else that agent's setor's lead;
- * null for neither (or one who left).
+ * Who an agent reports to among people on the org chart: its line's top agent's owner (a person's id, or `role:<id>`
+ * for a role that answers for it, `roleOwnerValue`), else that agent's setor's lead; null for neither (or one who left).
  */
 export function reportsTo(
   agent: TeamAgent,
@@ -86,6 +96,7 @@ export function reportsTo(
 ) {
   const top = lineTop(agent, agents);
   if (top.ownerUserId && members.has(top.ownerUserId)) return top.ownerUserId;
+  if (top.ownerRoleId) return roleOwnerValue(top.ownerRoleId);
   const lead = groupOf(groups, top.id)?.leadUserId;
   return lead && members.has(lead) ? lead : null;
 }
@@ -111,8 +122,8 @@ function nodeOf(top: TeamAgent, shown: readonly TeamAgent[], seen: Set<string>):
 export const lineSize = (node: ChartNode): number => node.reports.reduce((n, r) => n + 1 + lineSize(r), 0);
 
 /**
- * The org chart by person: one column per person someone reports to, in the order their first agent was made, and
- * the agents with nobody last (`personId` null). A supervisor sits in its person's column with its reports under it
+ * The org chart by person: one column per person someone reports to, or per role that answers for agents (`roleId`,
+ * with `personId` null), in the order their first agent was made, and the agents with nobody last (both null). A supervisor sits in its person's column with its reports under it
  * (`nodes`); `agents` is every agent of the column, flat. `skip` leaves agents out (the right hand, drawn on its own).
  */
 export function chartByPerson(
@@ -120,7 +131,7 @@ export function chartByPerson(
   groups: readonly AgentGroup[],
   members: ReadonlySet<string>,
   skip: (a: TeamAgent) => boolean = () => false,
-): { personId: string | null; agents: TeamAgent[]; nodes: ChartNode[] }[] {
+): { personId: string | null; roleId: string | null; agents: TeamAgent[]; nodes: ChartNode[] }[] {
   const shown = agents.filter((a) => !skip(a));
   const columns = new Map<string | null, TeamAgent[]>();
   for (const a of shown) {
@@ -128,11 +139,12 @@ export function chartByPerson(
     columns.set(to, [...(columns.get(to) ?? []), a]);
   }
   const seen = new Set<string>();
-  const col = (personId: string | null, list: TeamAgent[]) => {
+  const col = (key: string | null, list: TeamAgent[]) => {
     const nodes = list.filter((a) => lineTop(a, shown).id === a.id).map((a) => nodeOf(a, shown, seen));
     // A line that loops in storage has no top: each of its agents is drawn on its own, once.
     for (const a of list) if (!seen.has(a.id)) nodes.push(nodeOf(a, shown, seen));
-    return { personId, agents: list, nodes };
+    const roleId = key ? roleOfOwnerValue(key) : null;
+    return { personId: roleId ? null : key, roleId, agents: list, nodes };
   };
   const none = columns.get(null);
   columns.delete(null);

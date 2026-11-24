@@ -46,7 +46,8 @@ export const Route = createFileRoute("/org/$orgId/settings_/$section")({
   },
   component: function SettingsSectionRoute() {
     const { section } = Route.useParams();
-    const { connected, outcome, review, mail, account, install, skill, agent, person, create } = Route.useSearch();
+    const { connected, outcome, review, mail, account, install, skill, agent, person, create, service } =
+      Route.useSearch();
     if (section === RIGHT_HAND_SECTION) return <RightHandRedirect />;
     return (
       <Main>
@@ -62,6 +63,7 @@ export const Route = createFileRoute("/org/$orgId/settings_/$section")({
           agent={agent}
           person={person}
           create={create !== undefined}
+          service={service}
         />
       </Main>
     );

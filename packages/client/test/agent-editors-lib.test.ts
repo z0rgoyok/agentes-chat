@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resources } from "@agenteschat/i18n";
 import i18next, { type TFunction } from "i18next";
-import type { Agent, OrgRole, OrgSummary, Proposal, ProposalSettingField } from "../src/api/types";
+import type { Agent, OrgSummary } from "../src/api/types";
 import { ADVANCED_SECTIONS, AGENT_SECTIONS, sameEditors } from "../src/lib/agent-edit";
 import {
   canEditAudience,
@@ -18,7 +18,6 @@ import {
   managesRoutinesOf,
   opensDm,
 } from "../src/lib/audience";
-import { decidersOf } from "../src/lib/proposals";
 import { managesTeamAgents } from "../src/lib/team-plan";
 import { mayUndoLines } from "../src/lib/team-views";
 
@@ -265,88 +264,5 @@ describe("undoing a team someone else created", () => {
     expect(managesTeamAgents(keyHolder, ["a-iara", "a-zed"], here, former)).toBe(false);
     expect(managesTeamAgents(keyHolder, ["a-iara", "a-zed"], here, undefined)).toBe(false);
     expect(managesTeamAgents(admin, ["a-iara", "a-zed"], here, undefined)).toBe(true);
-  });
-});
-
-describe("decidersOf: whom a row sent with Ask an admin went to", () => {
-  const role = (id: string, permissions: string[], kind: OrgRole["kind"] = "custom") =>
-    ({ id, name: id, kind, position: 1, color: "amber", icon: "shield", permissions }) as unknown as OrgRole;
-  const roles = [
-    role("r-makers", ["manage_agents"]),
-    role("r-support", ["post"]),
-    role("r-everyone", ["post", "talk_to_agents"], "everyone"),
-  ];
-  // Ana owns Iara; Bruno owns the workspace; Carla holds "Edit agents"; Davi is in Support; Eva holds no role.
-  const people = [
-    { userId: "u-ana", name: "Ana Souza", role: "member" as const, roleIds: [] },
-    { userId: "u-bruno", name: "Bruno Lima", role: "owner" as const, roleIds: [] },
-    { userId: "u-carla", name: "Carla", role: "member" as const, roleIds: ["r-makers"] },
-    { userId: "u-davi", name: "Davi", role: "member" as const, roleIds: ["r-support"] },
-    { userId: "u-eva", name: "Eva", role: "member" as const, roleIds: [] },
-  ];
-  const row = (field: ProposalSettingField, decider: Proposal["decider"] = { type: "admins" }) => ({
-    decider,
-    settings: [{ field, from: false, to: true, ...(field === "skill" ? { skillId: "s-sheets" } : {}) }],
-  });
-  const ownerOnly = { mode: "owner" as const, userIds: [], roleIds: [] };
-  const editors = { userIds: ["u-eva"], roleIds: ["r-support"] };
-  /** No other agent known: a row that names none. */
-  const none = () => undefined;
-
-  test("a skill row goes to who manages it, its owner and the people and roles its Who can edit names", () => {
-    const privateIara = iara({ audience: ownerOnly, editors });
-    expect(decidersOf(row("skill"), people, roles, privateIara, none)).toEqual([
-      "Ana Souza",
-      "Bruno Lima",
-      "Davi",
-      "Eva",
-    ]);
-    // Sent to someone who doesn't see how it works, `editors` comes empty: only the rest.
-    expect(
-      decidersOf(row("skill"), people, roles, { ...privateIara, editors: { userIds: [], roleIds: [] } }, none),
-    ).toEqual(["Ana Souza", "Bruno Lima"]);
-  });
-
-  test("any other row: who manages it alone, its owner where they decide too; never its named editors", () => {
-    const privateIara = iara({ audience: ownerOnly, editors });
-    // "Edit agents" doesn't reach a private agent: Carla isn't asked.
-    expect(decidersOf(row("model"), people, roles, privateIara, none)).toEqual(["Bruno Lima"]);
-    expect(decidersOf(row("audience"), people, roles, privateIara, none)).toEqual(["Ana Souza", "Bruno Lima"]);
-    // Answering everyone, the key reaches it.
-    expect(decidersOf(row("model"), people, roles, iara({ editors }), none)).toEqual(["Bruno Lima", "Carla"]);
-    // A row of its owner's: their name first.
-    expect(
-      decidersOf(
-        row("audience", { type: "user", userId: "u-ana", name: "Ana Souza" }),
-        people,
-        roles,
-        privateIara,
-        none,
-      ),
-    ).toEqual(["Ana Souza", "Bruno Lima"]);
-  });
-
-  test("a Reports to row goes only to who manages the agent and the one it goes under (the server's settingsDeciders)", () => {
-    const line = (to: string | null): Pick<Proposal, "decider" | "settings"> => ({
-      decider: { type: "admins" },
-      settings: [{ field: "reports_to", from: null, to }],
-    });
-    // Nina is Davi's and answers only him: the key doesn't reach her, so Carla can't put Iara under her.
-    const nina = iara({ id: "a-nina", name: "Nina", ownerUserId: "u-davi", audience: ownerOnly });
-    const agentOf = (id: string) => (id === nina.id ? nina : undefined);
-    expect(decidersOf(line(nina.id), people, roles, iara(), agentOf)).toEqual(["Bruno Lima"]);
-    // Under an agent the key reaches, everyone who manages Iara.
-    const open = iara({ id: "a-nina", name: "Nina", ownerUserId: "u-davi" });
-    expect(decidersOf(line(open.id), people, roles, iara(), () => open)).toEqual(["Bruno Lima", "Carla"]);
-    // Out of any line, or under an agent no longer known: who manages Iara.
-    expect(decidersOf(line(null), people, roles, iara(), agentOf)).toEqual(["Bruno Lima", "Carla"]);
-    expect(decidersOf(line("a-gone"), people, roles, iara(), agentOf)).toEqual(["Bruno Lima", "Carla"]);
-  });
-
-  test("an AI account's row goes to its owner alone; an agent no longer here, to nobody", () => {
-    expect(decidersOf(row("ai_account", { type: "account_owner" }), people, roles, iara({ editors }), none)).toEqual([
-      "Ana Souza",
-    ]);
-    expect(decidersOf(row("skill"), people, roles, undefined, none)).toEqual([]);
   });
 });

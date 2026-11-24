@@ -16,7 +16,7 @@ import {
 } from "@agenteschat/db";
 import { setsCredential } from "@agenteschat/ui/names";
 import { getAgent } from "../agents";
-import { agentIdsSeen, isPlaybook, readsPlaybook, seesAgentDetails } from "../audience";
+import { agentIdsSeen, isPlaybook, ownsAgent, readsPlaybook, seesAgentDetails } from "../audience";
 import { caches, rulesPresenceKey } from "../cache";
 import { isAgentOnlyDm } from "../dms";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
@@ -109,14 +109,25 @@ export function checkContent(text: string) {
  * scopes, "you are authorized to…"), in any language: the judge decides.
  * Permissions only ever come from scopes and approvals in the database, so
  * this only keeps such text out of memory; if the judge is unavailable, the
- * text is stored (it can't grant anything anyway).
+ * text is stored (it can't grant anything anyway). `writer`: the person the
+ * text comes from. An administrator may decide what agents do: text one typed
+ * is never refused, and an agent's text from one's message (`words`) is
+ * refused only for what that message doesn't say.
  */
-export async function checkPermissionText(judge: Judge | undefined, orgId: string, text: string) {
+export async function checkPermissionText(
+  judge: Judge | undefined,
+  orgId: string,
+  text: string,
+  writer?: { db: Executor; userId: string | null | undefined; words?: string },
+) {
   if (!judge || !text.trim()) return;
-  const changes = await triesToChangePermissions(judge, { orgId, text }).catch(() => false);
+  const admin = writer?.userId ? can(await getMembership(writer.db, writer.userId, orgId), "administrator") : false;
+  if (admin && writer?.words === undefined) return;
+  const adminWords = admin ? writer?.words : undefined;
+  const changes = await triesToChangePermissions(judge, { orgId, text, adminWords }).catch(() => false);
   if (changes) {
     throw new ValidationError(
-      "Context can't change permissions or approvals. Ask an admin to change scopes instead.",
+      "Not saved: this reads as a change to what agents may do, and memory can't change permissions or approvals (an admin changes those on the agent's Access tab). Tell the person here, in one line, that it wasn't saved and why. If it is only a decision about the work, save it again worded as that decision.",
       "context.changes_permissions",
     );
   }
@@ -400,6 +411,8 @@ export interface MemoryJudging {
    * may hold a permission ("no need to ask me before each send"), so the permission check is skipped.
    */
   personsRule?: boolean;
+  /** The person whose own message the item comes from, and its words (`checkPermissionText`'s `writer`). */
+  writtenBy?: { userId: string; words: string };
 }
 
 /**
@@ -416,7 +429,12 @@ export async function consolidateItem(
   judging: MemoryJudging = {},
 ): Promise<ConsolidateResult> {
   const { judge } = judging;
-  if (!judging.personsRule) await checkPermissionText(judge, input.orgId, `${input.title ?? ""}\n${input.content}`);
+  if (!judging.personsRule)
+    await checkPermissionText(judge, input.orgId, `${input.title ?? ""}\n${input.content}`, {
+      db,
+      userId: judging.writtenBy?.userId,
+      words: judging.writtenBy?.words,
+    });
   // By meaning first (outside the transaction: the judge is a network call); words when it can't.
   if (judge && judging.semantic) {
     const plan = await planConsolidation(db, judge, input);
@@ -697,7 +715,7 @@ async function requireEdit(db: Database, actorId: string, item: ContextItem) {
   if (item.kind === "rule" && item.createdByKind === "person" && item.createdById === actorId) return;
   if (item.agentId) {
     const agent = await getAgent(db, item.orgId, item.agentId);
-    if (agent?.ownerUserId === actorId) {
+    if (agent && ownsAgent(agent, actorId, membership.roleIds)) {
       if (item.channelIds?.length && !itemVisibleIn(item, await userVisibleChannels(db, item.orgId, actorId)))
         throw new NotFoundError("Item not found");
       return;
@@ -765,7 +783,10 @@ export async function editContextItem(
   if (!onlyConfirms || !(await saidBy(db, actorId, item))) await requireEdit(db, actorId, item);
   // A rule passes `requireEdit` only for its giver, the agent's owner or an admin: people who may give it anyway.
   if (input.content !== undefined && input.content !== item.content && item.kind !== "rule") {
-    await checkPermissionText(judge, orgId, `${input.title ?? item.title ?? ""}\n${input.content}`);
+    await checkPermissionText(judge, orgId, `${input.title ?? item.title ?? ""}\n${input.content}`, {
+      db,
+      userId: actorId,
+    });
   }
   let current = item;
   if (input.content !== undefined && input.content !== item.content) {
@@ -857,7 +878,11 @@ export async function addContextItemByPerson(
   if (input.viaApp && !input.agentId) throw new ValidationError("An app writes only an agent's own memory");
   const fake = { orgId, agentId: input.agentId ?? null } as ContextItem;
   await requireEdit(db, actorId, fake);
-  await checkPermissionText(judge, orgId, `${input.title ?? ""}\n${input.content}`);
+  // Through an AI app the words are outside content, whoever connected it (ADR 0119).
+  await checkPermissionText(judge, orgId, `${input.title ?? ""}\n${input.content}`, {
+    db,
+    userId: input.viaApp ? null : actorId,
+  });
   if (input.agentId && !(await getAgent(db, orgId, input.agentId))) throw new NotFoundError("Agent not found");
   return db.transaction((tx) =>
     insertContextItem(tx, {

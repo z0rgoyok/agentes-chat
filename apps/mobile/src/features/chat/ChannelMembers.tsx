@@ -44,7 +44,7 @@ import { router } from "@/ui/navigation";
 import { chooseAction, confirmAction, Gap, SettingsPage } from "../settings/parts";
 import { AgentFace, Face, OpensAgent } from "../shared/Face";
 import { LoadFailed } from "../shared/FirstUse";
-import { useColors, useDirectory, useMeId, useNow, useOrgId, usePullRefresh } from "../shared/hooks";
+import { useColors, useDirectory, useMeId, useNow, useOrgId, useOwnsAgent, usePullRefresh } from "../shared/hooks";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { goBack, Loaded, successHaptic, tapHaptic, useLatest } from "../shared/parts";
 import { usePresenceOf } from "../status/hooks";
@@ -384,16 +384,16 @@ function ChannelOwnActions({ channel }: { channel: Channel }) {
   const leave = useLeaveChannel(orgId);
   const roster = useRoster(orgId, channel.id);
   const failed = (e: unknown) => toast({ title: errorText(t, e, i18n.language), icon: "x" });
-  const go = () =>
-    leave.mutate(channel.id, {
-      onSuccess: () => {
-        successHaptic();
-        toast({ title: t("channel.left", { channel: channel.name }), icon: "check" });
-        // This screen and the conversation under it.
-        router.dismiss(2);
-      },
-      onError: failed,
-    });
+  // The channel leaves my lists before the server answers: this screen and the conversation under it go at once, and
+  // the answer arrives as a toast (a refusal puts the lists back). The promise, not per-call callbacks: they don't run
+  // once this screen is gone.
+  const go = () => {
+    successHaptic();
+    router.dismiss(2);
+    leave
+      .mutateAsync(channel.id)
+      .then(() => toast({ title: t("channel.left", { channel: channel.name }), icon: "check" }), failed);
+  };
   const ask = () => {
     if (channel.visibility !== "private") return go();
     const alone = (roster.data ?? []).filter((m) => m.type !== "agent").length === 1;
@@ -570,7 +570,7 @@ export function AddChannelMembersScreen({ channelId }: { channelId: string }) {
   const api = useApi();
   const toast = useToast();
   const dir = useDirectory();
-  const meId = useMeId();
+  const owns = useOwnsAgent();
   const { org } = useOrg();
   const roster = useRoster(orgId, channelId);
   const refresh = useRefresh(channelId);
@@ -597,11 +597,12 @@ export function AddChannelMembersScreen({ channelId }: { channelId: string }) {
     new Set((roster.data ?? []).map((m) => `${m.type === "agent" ? "agent" : "person"}:${m.id}`)),
     add.isPending || add.isSuccess,
   );
-  // Only the agents this person may place here, as the server's `requirePlacesAgent`: their own, or one they manage
-  // (ADR 0085 addendum of 2026-11-17). Editing an agent, or talking to it, doesn't move it between channels.
+  // Only the agents this person may place here, as the server's `requirePlacesAgent`: their own (or their role's, ADR
+  // 0085, addendum of 2026-11-21), or one they manage (ADR 0085 addendum of 2026-11-17). Editing an agent, or talking
+  // to it, doesn't move it between channels.
   const candidates = [
     ...dir.agents
-      .filter((a) => joinsChannels(a) && ((meId !== null && a.ownerUserId === meId) || managesAgent(a)))
+      .filter((a) => joinsChannels(a) && (owns(a) || managesAgent(a)))
       .map((a) => ({ kind: "agent" as const, id: a.id, name: a.name, line: `@${a.handle}` })),
     ...[...dir.memberById.values()].map((m) => ({
       kind: "person" as const,

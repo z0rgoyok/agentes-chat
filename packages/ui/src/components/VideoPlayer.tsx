@@ -1,7 +1,16 @@
-import { type KeyboardEvent, type PointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { cx } from "../cx";
 import { Icon } from "../icons/Icon";
-import { claimPlayback, releasePlayback } from "./media-playback";
+import { claimPlayback, type PlaybackState, playbackOf, releasePlayback, seatTile, takeOver } from "./media-playback";
 import { PixelSpinner } from "./PixelSpinner";
 
 export interface VideoPlayerLabels {
@@ -39,12 +48,33 @@ export interface VideoPlayerProps {
   /** Over the picture's top left (the viewer's own buttons). */
   children?: ReactNode;
   className?: string;
+  /** Where it is now and how long it is, as it plays, seeks and stops (a file's comments follow it, ADR 0208). */
+  onTime?: (seconds: number, duration: number) => void;
+  /** The video element, to seek or pause from outside and take a frame of it. */
+  onVideo?: (video: HTMLVideoElement | null) => void;
+  /**
+   * `anonymous`: loaded under CORS, so a frame drawn into a canvas can be read back (`onVideo`'s frames). The server
+   * then sends the bytes itself, where an element without it may be sent on to the file store, another origin.
+   */
+  crossOrigin?: "anonymous";
+  /** Over the timeline (a file's comments as marks, ADR 0208): placed by the caller, in fractions of its length. */
+  marks?: ReactNode;
+  /**
+   * The file it shows, to hand playback over: a viewer opened over a chat tile of the same file goes on from the
+   * tile's moment (playing if it played, same speed and sound) and gives its own moment back to the tile when it
+   * closes.
+   */
+  handoff?: string;
 }
 
 const SPEEDS = [1, 1.5, 2];
 /** The controls hide this long after the pointer stops, while it plays. */
 const IDLE_MS = 2000;
 const STEP_S = 5;
+/** `MediaError.MEDIA_ERR_NETWORK`: the bytes stopped coming after the video had loaded. */
+const MEDIA_ERR_NETWORK = 2;
+/** A fresh signed link lives an hour: failing again sooner than this after asking for one is no expired link. */
+const RELOAD_GAP_MS = 60_000;
 const clock = (seconds: number) => {
   const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const h = Math.floor(s / 3600);
@@ -167,12 +197,19 @@ export function VideoPlayer({
   onFailed,
   children,
   className,
+  onTime,
+  onVideo,
+  marks,
+  handoff,
+  crossOrigin,
 }: VideoPlayerProps) {
   const root = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const reloadedAt = useRef(Number.NEGATIVE_INFINITY);
   const frame = useRef(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTouch = useRef(false);
+  const playButton = useRef<HTMLButtonElement>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [waiting, setWaiting] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -185,6 +222,18 @@ export function VideoPlayer({
   const [full, setFull] = useState(false);
 
   const pause = useCallback(() => video.current?.pause(), []);
+  const placeVideo = useCallback(
+    (el: HTMLVideoElement | null) => {
+      video.current = el;
+      onVideo?.(el);
+    },
+    [onVideo],
+  );
+  // Whoever follows it hears where it is (the comments' marks, a frame to take). A block body: whatever the callback
+  // returns must never reach React as the effect's clean-up.
+  useEffect(() => {
+    onTime?.(time, duration);
+  }, [onTime, time, duration]);
   useEffect(
     () => () => {
       cancelAnimationFrame(frame.current);
@@ -194,6 +243,45 @@ export function VideoPlayer({
     },
     [pause],
   );
+  /**
+   * Goes on from another player's moment. Browsers may refuse to start it with sound outside a click: then it plays
+   * muted; refused even so, it waits at that moment with its play button focused.
+   */
+  const resume = useCallback((state: PlaybackState) => {
+    const v = video.current;
+    if (!v) return;
+    const go = () => {
+      v.currentTime = Math.min(state.time, Number.isFinite(v.duration) ? v.duration : state.time);
+      v.playbackRate = state.speed;
+      setSpeed(state.speed);
+      v.volume = state.volume;
+      v.muted = state.muted;
+      setTime(v.currentTime);
+      if (!state.playing) {
+        setPhase(v.ended ? "ended" : "paused");
+        return;
+      }
+      const refused = (e: unknown) => (e as Error | undefined)?.name === "NotAllowedError";
+      v.play().catch((e) => {
+        if (!refused(e)) return;
+        v.muted = true;
+        return v.play().catch((again) => {
+          if (!refused(again)) return;
+          v.muted = state.muted;
+          setPhase("paused");
+          requestAnimationFrame(() => playButton.current?.focus());
+        });
+      });
+    };
+    if (v.readyState >= 1) go();
+    else v.addEventListener("loadedmetadata", go, { once: true });
+  }, []);
+  // Before paint: the tile stops as the viewer shows up.
+  useLayoutEffect(() => {
+    const el = video.current;
+    if (!handoff || !el) return;
+    return variant === "tile" ? seatTile(handoff, { video: el, take: resume }) : takeOver(handoff, el, resume);
+  }, [handoff, variant, resume]);
   useEffect(() => {
     const changed = () => setFull(document.fullscreenElement === root.current);
     document.addEventListener("fullscreenchange", changed);
@@ -304,10 +392,11 @@ export function VideoPlayer({
     >
       {/* biome-ignore lint/a11y/useMediaCaption: people's own uploads carry no captions track */}
       <video
-        ref={video}
+        ref={placeVideo}
         className="ac-video__media"
         // `#t`: the first frame shows before it plays (Safari shows nothing otherwise).
         src={`${src}${src.includes("#") ? "" : "#t=0.001"}`}
+        crossOrigin={crossOrigin}
         preload="metadata"
         playsInline
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
@@ -346,7 +435,20 @@ export function VideoPlayer({
           setMuted(e.currentTarget.muted);
           setVolume(e.currentTarget.volume);
         }}
-        onError={() => onFailed?.()}
+        onError={(e) => {
+          const v = e.currentTarget;
+          // Our address may send it on to the file store's signed link, which can expire while the page stays open
+          // (hours, for a conversation left open): it asks our address again for a fresh one and goes on from where
+          // it was, each time that link has had the time to expire too.
+          if (v.error?.code !== MEDIA_ERR_NETWORK || Date.now() - reloadedAt.current < RELOAD_GAP_MS) {
+            onFailed?.();
+            return;
+          }
+          reloadedAt.current = Date.now();
+          const state = playbackOf(v);
+          v.load();
+          if (state.playing || state.time > 0) resume(state);
+        }}
       />
 
       {phase === "idle" && (
@@ -385,7 +487,8 @@ export function VideoPlayer({
               aria-label={labels.open}
               title={labels.open}
               onClick={() => {
-                video.current?.pause();
+                // A viewer of the same file takes the playback over from here.
+                if (!handoff) video.current?.pause();
                 onOpen();
               }}
             >
@@ -401,6 +504,7 @@ export function VideoPlayer({
       {/* `inert` while hidden: the keys stay on the player, the bar's buttons leave the tab order. */}
       <div className="ac-video__bar" inert={phase === "idle" || undefined}>
         <button
+          ref={playButton}
           type="button"
           className="ac-video__btn ac-video__play"
           data-ended={phase === "ended" || undefined}
@@ -410,18 +514,37 @@ export function VideoPlayer({
         >
           <Icon name={phase === "ended" ? "replay" : phase === "playing" ? "pause" : "play"} size={18} />
         </button>
-        <Rail
-          className="ac-video__seek"
-          value={progress}
-          buffered={buffered}
-          label={labels.seek}
-          valueText={clock(time)}
-          max={duration}
-          now={time}
-          onChange={(v) => seekTo(v * duration)}
-          onStep={(d) => seekTo(time + d * STEP_S)}
-          tip={(at) => clock(at * duration)}
-        />
+        {marks ? (
+          // A file's comments over the timeline (ADR 0208): beside the slider, never inside it.
+          <span className="ac-video__seekbox">
+            <Rail
+              className="ac-video__seek"
+              value={progress}
+              buffered={buffered}
+              label={labels.seek}
+              valueText={clock(time)}
+              max={duration}
+              now={time}
+              onChange={(v) => seekTo(v * duration)}
+              onStep={(d) => seekTo(time + d * STEP_S)}
+              tip={(at) => clock(at * duration)}
+            />
+            <span className="ac-video__marks">{marks}</span>
+          </span>
+        ) : (
+          <Rail
+            className="ac-video__seek"
+            value={progress}
+            buffered={buffered}
+            label={labels.seek}
+            valueText={clock(time)}
+            max={duration}
+            now={time}
+            onChange={(v) => seekTo(v * duration)}
+            onStep={(d) => seekTo(time + d * STEP_S)}
+            tip={(at) => clock(at * duration)}
+          />
+        )}
         <span className="ac-video__time tabular">
           {clock(time)}
           <span className="ac-video__total"> / {clock(duration)}</span>

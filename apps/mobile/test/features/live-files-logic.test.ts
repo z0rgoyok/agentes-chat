@@ -298,7 +298,7 @@ describe("the phone's connection to a live file (ADR 0196 §3)", () => {
   test("open while a screen shows it with the app in front; the background lets it go at once", () => {
     expect(hook).toContain("want(room, who, focused && active, active ? awayMs : 0)");
     expect(hook).toContain("useIsFocused()");
-    expect(hook).toContain("useAppActive()");
+    expect(hook).toContain("useAppActive(INACTIVE_GRACE_MS)");
   });
 
   test("changes the server hasn't stored are kept per server in the app's documents and put back next time", () => {

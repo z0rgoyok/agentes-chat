@@ -1,3 +1,4 @@
+import { TASK_LIMIT_BOUNDS } from "@agenteschat/adapters/machine-protocol";
 import type { ControlConfig, ControlConfigPatch } from "@agenteschat/adapters/runner-control";
 import { Button, Segmented } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
@@ -12,17 +13,21 @@ import { shortPath } from "../../ui/time";
 
 /**
  * The runner's defaults (the same numbers `agentes-runner`'s `DEFAULT_LIMITS` uses when the config has none): on
- * Linux, where it reads free memory and closes idle conversations for a turn that needs room, they stay open longer.
+ * Linux, where it reads free memory and closes idle conversations once memory runs short, they stay open longer. Its
+ * task limit is sized to the computer: `config.get` says it (`defaultMaxConcurrentTasks`), 3 from an older runner.
  */
-export const defaultLimits = (platform: Platform): Required<Omit<ControlConfigPatch, "name">> => ({
-  maxConcurrentTasks: 3,
+export const defaultLimits = (
+  platform: Platform,
+  maxConcurrentTasks = 3,
+): Required<Omit<ControlConfigPatch, "name">> => ({
+  maxConcurrentTasks,
   taskMaxSeconds: 4 * 3600,
-  brainMaxProcesses: platform === "linux" ? 2 : 1,
-  brainIdleMinutes: platform === "linux" ? 20 : 3,
+  brainMaxProcesses: platform === "linux" ? 8 : 1,
+  brainIdleMinutes: platform === "linux" ? 60 : 3,
 });
 
 const TASK_MAX = ["3600", "14400", "28800"] as const;
-const idleChoices = (platform: Platform) => (platform === "linux" ? ["3", "10", "20", "30"] : ["3", "5", "10", "30"]);
+const idleChoices = (platform: Platform) => (platform === "linux" ? ["10", "20", "30", "60"] : ["3", "5", "10", "30"]);
 
 export function Advanced() {
   const { t } = useTranslation();
@@ -46,7 +51,7 @@ export function Advanced() {
     };
   }, [store, first]);
 
-  const defaults = defaultLimits(host.platform);
+  const defaults = defaultLimits(host.platform, config?.defaultMaxConcurrentTasks);
   const idle = idleChoices(host.platform);
   const limits = { ...defaults, ...(config ?? {}) };
 
@@ -88,8 +93,8 @@ export function Advanced() {
             <Stepper
               label={t("desktop.prefs.advanced.concurrent")}
               value={limits.maxConcurrentTasks}
-              min={1}
-              max={8}
+              min={TASK_LIMIT_BOUNDS[0]}
+              max={TASK_LIMIT_BOUNDS[1]}
               onChange={(v) => void change({ maxConcurrentTasks: v })}
             />
           }

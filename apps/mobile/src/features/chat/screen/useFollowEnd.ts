@@ -1,6 +1,7 @@
 import { useWaitingOnMe } from "@agenteschat/client";
 import { mentionsReader } from "@agenteschat/client/lib/everyone";
 import { isMediaAfterReply } from "@agenteschat/client/lib/media";
+import { answerIds, shownWhole } from "@agenteschat/client/lib/message-length";
 import { lastPostedId } from "@agenteschat/client/lib/timeline";
 import { waitingAway, waitingNotification } from "@agenteschat/client/lib/waiting";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -14,7 +15,7 @@ import type { useAwayAsk } from "../asks";
 import type { OpenedMessages } from "../ClippedMessage";
 import { composerLift, createDockHeight } from "../dock-height";
 import { timesOnPull } from "../look";
-import { appendedKeys, bandAim, lastSeenKey, type ScrollRow, type Unseen, unseenBelow } from "../scroll";
+import { appendedKeys, arrivesNow, bandAim, lastSeenKey, type ScrollRow, type Unseen, unseenBelow } from "../scroll";
 import { useSwipeTimePan } from "../swipe-time";
 import { FRESH_MS } from "./constants";
 import { createValueStore, useLatest } from "./hooks";
@@ -119,17 +120,32 @@ export function useFollowEnd({
   // Outside the screen's state (`ValueStore`): that touch, often the first scroll's, redraws the greeting alone.
   const [touched] = useState(() => createValueStore(false));
   const markTouched = useCallback(() => touched.set(true), [touched]);
-  // The messages "Ver mais" opened in place: they stay open while the screen lives (rows unmount off screen).
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  // The messages "Ver mais" opened in place: they stay open while the screen lives (rows unmount off screen), and while
+  // the app runs (`shownWhole`), so a screen opened again starts with them.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set(shownWhole));
+  // The newest message and the reader's answer (`answerIds`), or one that mentions them: shown whole however long.
+  const answers = useMemo(() => {
+    const messages = scrollRows.flatMap((r) =>
+      r.kind === "message" && r.id ? [{ id: r.id, mine: r.mine === true }] : [],
+    );
+    const ids = answerIds(messages);
+    for (const r of scrollRows) if (r.mentionsMe && r.id) ids.add(r.id);
+    return ids;
+  }, [scrollRows]);
+  // Read as each row draws, not a change of the screen's context: a row joins the answers only as it first draws (the
+  // newest, or one after the reader's latest), and stays whole after (`shownWhole`).
+  const answer = useLatest((id: string) => answers.has(id));
   const openedMessages = useMemo<OpenedMessages>(
     () => ({
       has: (id) => opened.has(id),
       open: (id) => {
+        shownWhole.add(id);
         setOpened((s) => new Set(s).add(id));
         if (atEndRef.current) setReadHold(true);
       },
+      answer,
     }),
-    [opened],
+    [opened, answer],
   );
   // The last row the person saw at the end, and the message posted last then (one posted since in a place above the
   // last row they saw, `PLACE_KEPT_MS`, is new to them too). Taken as the screen draws while it is at the end: set in
@@ -220,15 +236,23 @@ export function useFollowEnd({
     if (href) router.push(href);
   }, [waitingFirst]);
 
-  // Rows that arrive at the bottom while the screen is open rise in; older pages and the first load don't.
+  // Rows that arrive at the bottom while the screen is open rise in; older pages, the first load and what the server
+  // sends right after opening (messages written before it opened, `arrivesNow`) don't.
   const prevKeysRef = useRef<string[]>([]);
   const freshRef = useRef(new Map<string, number>());
+  const openedAt = useRef(Date.now());
   const rowKeys = useMemo(() => rows.map(rowKey), [rows]);
   useMemo(() => {
     const now = Date.now();
-    for (const key of appendedKeys(prevKeysRef.current, rowKeys)) freshRef.current.set(key, now);
+    const appended = appendedKeys(prevKeysRef.current, rowKeys);
+    const byKey = appended.length > 0 ? new Map(rows.map((r) => [rowKey(r), r])) : null;
+    for (const key of appended) {
+      const row = byKey?.get(key);
+      if (row?.kind === "message" && !arrivesNow(row.message.createdAt, openedAt.current)) continue;
+      freshRef.current.set(key, now);
+    }
     for (const [key, t0] of freshRef.current) if (now - t0 > FRESH_MS) freshRef.current.delete(key);
-  }, [rowKeys]);
+  }, [rowKeys, rows]);
   useEffect(() => {
     prevKeysRef.current = rowKeys;
   }, [rowKeys]);

@@ -1,4 +1,4 @@
-import { keys, type OrgRole, useChannels, useRoles } from "@agenteschat/client";
+import { type Channel, keys, type OrgRole, useChannels, useRoles } from "@agenteschat/client";
 import {
   accessInput,
   accessValid,
@@ -280,7 +280,11 @@ export function NewChannelDialog({
       return channel;
     },
     onSuccess: async (channel) => {
-      await qc.invalidateQueries({ queryKey: keys.channels(org.id) });
+      // In the list at once, so its page opens on it without waiting for the list to be read again.
+      qc.setQueryData<Channel[]>(keys.channels(org.id), (list) =>
+        list && !list.some((c) => c.id === channel.id) ? [...list, channel] : list,
+      );
+      void qc.invalidateQueries({ queryKey: keys.channels(org.id) });
       void qc.invalidateQueries({ queryKey: keys.channelCategories(org.id) });
       onOpenChange(false);
       await navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: channel.id } });

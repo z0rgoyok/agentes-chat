@@ -76,6 +76,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -108,6 +109,7 @@ import { Cover } from "./Cover";
 import { LivePicture } from "./LivePicture";
 import { requestBrowserCard, useBrowserCardRequest } from "./open";
 import { SiteIcon } from "./SiteIcon";
+import { ScreenLine, ScreenPanelContext } from "./screen-panel";
 import "./browser.css";
 
 // The card's title, shared with the phone.
@@ -210,6 +212,23 @@ function newest(a: BrowserHandoff | null, b: BrowserHandoff | null): BrowserHand
  * stopped keeps it only for the person still in control (they hand back from it).
  */
 export function RunBrowserCard({ run, name }: { run: LiveRun; name: string }) {
+  const panel = useContext(ScreenPanelContext);
+  return panel ? <RunScreenLine run={run} panel={panel} /> : <RunBrowser run={run} name={name} />;
+}
+
+/** Where the screen has a panel of its own: the run's last step there, as a line; the panel turns to it once. */
+function RunScreenLine({ run, panel }: { run: LiveRun; panel: { show: () => void } }) {
+  const { t } = useTranslation();
+  const last = browserSteps(run.work).at(-1);
+  const started = last !== undefined;
+  useEffect(() => {
+    if (started) panel.show();
+  }, [started, panel]);
+  if (!last) return null;
+  return <ScreenLine icon={iconOf(last.tool)} text={stepText(t, last)} detail={last.detail} onShow={panel.show} />;
+}
+
+function RunBrowser({ run, name }: { run: LiveRun; name: string }) {
   const { org, me } = useOrg();
   const steps = browserSteps(run.work);
   // In a shared profile (ADR 0110) the card shows the profile, to those who may watch it.
@@ -262,8 +281,11 @@ export function HeldBrowserCard({
   /** Ask the server (a recent message); otherwise only what the realtime events said. */
   enabled?: boolean;
 }) {
+  const panel = useContext(ScreenPanelContext);
   const held = useHeldTakeover(agentId, runId, enabled);
+  const { t } = useTranslation();
   if (!held) return null;
+  if (panel) return <ScreenLine icon="computer" text={t("codeSessions.screenLine.held")} onShow={panel.show} />;
   return <BrowserCard agentId={agentId} name={name} runId={runId} handoff={held} />;
 }
 

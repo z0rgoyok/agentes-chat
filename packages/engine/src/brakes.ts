@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { PubSub } from "@agenteschat/adapters";
 import { PERMISSION_TOOL } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, gt, inArray, isNull, or, schema, sql } from "@agenteschat/db";
-import { managesAgent, REACH_COLUMNS } from "./audience";
+import { managesAgent, ownsAgent, REACH_COLUMNS } from "./audience";
 import { accountablePerson, messageRoot, type RunAuthority } from "./authority";
 import {
   AUTONOMY_DEFAULTS,
@@ -198,6 +198,8 @@ export async function costlyGate(
     return null;
   }
   if (signals.some((s) => s.state === "open")) return waitingRefusal(cost);
+  // The card names one person: with a role answering for the agent it names nobody, and the role's holders hear it
+  // and decide it as its owners (`notifyMessage`, `decideCostlyProposal`; ADR 0085, addendum of 2026-11-21).
   await proposeCostly(
     deps,
     run,
@@ -323,8 +325,9 @@ export async function decideCostlyProposal(
     .from(organizationMembers)
     .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, actorId)));
   if (!card || !agent || !member) throw new NotFoundError("Proposal not found");
-  // Its owner, or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17).
-  const manages = actorId === agent.ownerUserId || managesAgent(agent, actorId, membership);
+  // Its owner (or who holds its owner role, ADR 0085, addendum of 2026-11-21), or who manages it (`managesAgent`, ADR
+  // 0085 addendum of 2026-11-17).
+  const manages = ownsAgent(agent, actorId, membership.roleIds) || managesAgent(agent, actorId, membership);
   if (actorId !== card.forUserId && !manages) throw new NotFoundError("Proposal not found");
   // "Always" and "never" change the agent for everyone's work: only who may change the agent.
   if ((decision === "always" || decision === "never") && !manages)
@@ -726,7 +729,10 @@ async function unrequestedAtCap(db: Executor, orgId: string, agentId: string) {
   return Number(row?.working ?? 0) >= max || Number(row?.open ?? 0) >= max * UNREQUESTED_OPEN_PER_SLOT;
 }
 
-/** The person who hears about an agent's unrequested work: its owner. */
+/**
+ * The person who hears about an agent's unrequested work: its owner. A role answering for it names nobody here, and
+ * its holders hear the note instead (`notifyMessage`, ADR 0085, addendum of 2026-11-21).
+ */
 async function ownerOfAgent(db: Executor, orgId: string, agentId: string) {
   const [a] = await db
     .select({ ownerUserId: agents.ownerUserId })
@@ -896,7 +902,7 @@ export type { AgentRun };
  */
 export async function askStillOpen(
   db: Executor,
-  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
 ) {
   const thread = replyThreadOf(run);
   const [last] = await db

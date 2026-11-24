@@ -1,7 +1,7 @@
 import { useAiStatus } from "@agenteschat/client";
 import { teamThinks } from "@agenteschat/client/lib/no-ai";
 import { useEffect, useState } from "react";
-import { useConnectAi, useMayConnectAi } from "@/components/ConnectAi";
+import { useConnectAi, useMayConnectAi } from "@/components/connect-ai-context";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { ARRIVAL_BETA_ONLY, ARRIVAL_PARAM } from "@/lib/arrival";

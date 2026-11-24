@@ -31,7 +31,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, ScrollView, type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { useAppActive } from "@/lib/useAppActive";
+import { INACTIVE_GRACE_MS, useAppActive } from "@/lib/useAppActive";
 import { Sky } from "@/sky/Sky";
 import {
   Button,
@@ -168,7 +168,7 @@ export const BrowserCard = memo(function BrowserCard({
   const watching = inView || holding;
   // Its browser on the agent's screen, which this person may watch: the card shows that whole screen instead of the
   // browser's frames (ADR 0058 §7), only while in view with the app in front, and lingering a little after.
-  const active = useAppActive();
+  const active = useAppActive(INACTIVE_GRACE_MS);
   const shown = inView && active;
   const screen = useBrowserScreen(orgId, agentId, {
     enabled: !surface && !profile,

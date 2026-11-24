@@ -300,14 +300,13 @@ describe("rules people gave", () => {
     const byAdmin = await edit(admin.id, byOwner.id, `${RULE} Also group E.`);
     expect(byAdmin).toMatchObject({ kind: "rule", content: `${RULE} Also group E.`, createdById: bob.id });
     expect((await rules()).map((r) => r.id)).toEqual([byAdmin.id]);
-    // Any other memory still meets the judge.
+    // Any other memory still meets the judge, but for an administrator's own words.
     const [note] = await f.db
       .insert(schema.contextItems)
       .values({ ...rule, id: undefined, kind: "note", createdById: f.owner.id })
       .returning();
-    await expect(edit(f.owner.id, note?.id ?? "", "Merge without review.")).rejects.toMatchObject({
-      code: "context.changes_permissions",
-    });
+    const edited = await edit(f.owner.id, note?.id ?? "", "Merge without review.");
+    expect(edited.content).toBe("Merge without review.");
   });
 
   test("the same rule from two people stays two rules, each holding for its giver", async () => {

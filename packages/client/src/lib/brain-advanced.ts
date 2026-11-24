@@ -14,7 +14,7 @@ import { isAuto } from "./providers";
 /** The effort levels the apps offer (a stored `xhigh` shows as high). */
 export type EffortLevel = "low" | "medium" | "high" | "max";
 export const EFFORT_LEVELS: readonly EffortLevel[] = ["low", "medium", "high", "max"];
-/** An API key's: the API takes low, medium and high (`apiEffort` sends a stored `xhigh` or `max` as high). */
+/** An API key's: low, medium and high, which every provider takes (a stored `xhigh` or `max` goes as set where the model takes it, else as high). */
 export const KEY_EFFORT_LEVELS: readonly EffortLevel[] = ["low", "medium", "high"];
 export const effortLevelsOf = (kind: BrainKind | undefined) => (kind === "model" ? KEY_EFFORT_LEVELS : EFFORT_LEVELS);
 
@@ -31,7 +31,10 @@ export const viewSpeedFits = (view: Pick<AgentBrain, "brain" | "account" | "acco
   });
 
 export interface Advanced {
-  /** Null only on an API key with none chosen: the provider's own default. */
+  /**
+   * Null only on an API key with none chosen: high where the model takes an effort and its output limit is known
+   * (`turnEffort`), else the provider's default.
+   */
   effort: EffortLevel | null;
   /** Always `standard` where Velocidade doesn't show (`viewSpeedFits`). */
   speed: BrainSpeed;
@@ -52,7 +55,7 @@ export const ADVANCED_DEFAULTS: Advanced = {
 
 /**
  * "Voltar ao padrão": the API brain has only the effort and the context limit there, so the rest stays as it is; its
- * effort goes back to none, the provider's default.
+ * effort goes back to none (high where the model takes an effort, else the provider's default).
  */
 export const advancedDefaults = (kind: BrainKind, now: Advanced): Advanced =>
   kind === "model"

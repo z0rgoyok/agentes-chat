@@ -30,11 +30,15 @@ import { type AgentDeletionDeps, deleteAgent } from "../agent-deletion";
 import { type Agent, getAgent, updateAgent } from "../agents";
 import {
   agentEditorIds,
+  agentKeeperIds,
   agentManagerIds,
+  agentOwnerIds,
   audienceNotice,
   canTalkTo,
   editsAgent,
   managesAgent,
+  OWNER_COLUMNS,
+  ownsAgent,
   seesAgentDetails,
   speakerFor,
 } from "../audience";
@@ -60,10 +64,12 @@ import {
   maySettle,
   type ReceiptLine,
   recordSettingsReceipt,
+  revertSettings,
   type SettingLine,
   settingLines,
   settingsDeciders,
   settingsGroup,
+  settingsHold,
   settingsRows,
   type WantedLine,
 } from "../settings-proposals";
@@ -95,6 +101,27 @@ const {
 } = schema;
 
 export type Proposal = typeof contextProposals.$inferSelect;
+
+export const SETTLE_JOB = "proposals.settle";
+
+/** Why a change reached the review and wasn't applied when it was made: the review weighs it by this. */
+export type SettleOrigin =
+  /** A lesson the team's memory kept seeing (`proposeFromItem`). */
+  | "memory"
+  /** The agent on its own: no person behind the run, or a fix to a skill it used. */
+  | "agent"
+  /** A person asked, but the run read outside content or what others wrote before making it. */
+  | "outside"
+  /** A person asked for a change they can't make themselves. */
+  | "asked_other"
+  /** A person asked for it (a settings card that wasn't applied at once). */
+  | "asked";
+
+/** Queues the review of new proposals (after the caller's commit, through the outbox; retried on a rate limit). */
+export async function queueSettle(db: Executor, orgId: string, ids: string[], origin: SettleOrigin) {
+  if (ids.length === 0) return;
+  await enqueue(db, { orgId, kind: SETTLE_JOB, payload: { ids, origin }, dedupeKey: `${SETTLE_JOB}:${ids[0]}` });
+}
 
 /** The reason of a proposal whose agent gave none. */
 export const ASKED_IN_CONVERSATION = "Asked in conversation.";
@@ -173,11 +200,15 @@ export function lineDiff(before: string, after: string): string {
 
 const LEARNED = "## Learned";
 
-/** Text with one more bullet, under a "Learned" heading (deterministic, no model). */
-export function withLearnedBullet(text: string, bullet: string) {
+/**
+ * Text with one more bullet (deterministic, no model): the org context's under a "Learned" heading; an agent's
+ * instructions at their end, as one more instruction (its lessons are memory: `moveLearnedSections`).
+ */
+export function withLearnedBullet(text: string, bullet: string, heading = true) {
   const line = `- ${bullet.replace(/\s+/g, " ").trim()}`;
   if (text.includes(line)) return text;
   const base = text.trimEnd();
+  if (!heading) return base ? `${base}${/(^|\n)[-*] [^\n]*$/.test(base) ? "\n" : "\n\n"}${line}` : line;
   return base.includes(LEARNED) ? `${base}\n${line}` : `${base}${base ? "\n\n" : ""}${LEARNED}\n${line}`;
 }
 
@@ -217,7 +248,7 @@ export async function proposeFromItem(
     target = "org_context";
     current = org.context;
   }
-  const proposedText = withLearnedBullet(current, itemWords(item).text);
+  const proposedText = withLearnedBullet(current, itemWords(item).text, target === "org_context");
   if (proposedText === current) return null;
   const diff = lineDiff(current, proposedText);
   const baseHash = sha256(current);
@@ -252,7 +283,8 @@ export async function proposeFromItem(
       .returning();
   });
   if (!proposal) return null;
-  await announce(deps, [proposal]);
+  // The review rewrites the lesson as one short rule and applies it, or leaves it in memory (ADR 0219).
+  await queueSettle(db, item.orgId, [proposal.id], "memory");
   return proposal;
 }
 
@@ -321,10 +353,15 @@ export const editorDecides = (p: Pick<Proposal, "target" | "settings">) =>
  * Who decides: who reviews memory (instructions), configures the workspace (org context) or manages the team's
  * skills; for an agent's role who edits it (`agentEditorIds`), for its access who manages it (`agentManagerIds`), never
  * who merely holds "Editar qualquer agente" over a private agent (ADR 0085 addendum of 2026-11-17). Plus who edits the
- * agent for its instructions, and its owner when `ownerDecides`.
+ * agent for its instructions, and its owner when `ownerDecides`. An agent's instructions wait only on who looks after
+ * it (`agentKeeperIds`) while someone does (ADR 0085, addendum of 2026-11-24).
  */
 async function deciders(db: Database, p: Proposal) {
   if (p.target === "agent_settings") return settingsDeciders(db, p);
+  if (p.target === "agent_instructions" && p.agentId) {
+    const keepers = await agentKeeperIds(db, p.orgId, p.agentId);
+    if (keepers.length > 0) return keepers;
+  }
   const ids = new Set<string>();
   if (p.agentId && (p.target === "agent_role" || p.target === "agent_access")) {
     const who = p.target === "agent_role" ? agentEditorIds : agentManagerIds;
@@ -340,8 +377,8 @@ async function deciders(db: Database, p: Proposal) {
   if (p.agentId && p.target === "agent_instructions") {
     for (const id of await agentEditorIds(db, p.orgId, p.agentId)) ids.add(id);
   } else if (p.agentId && ownerDecides(p)) {
-    const [agent] = await db.select({ owner: agents.ownerUserId }).from(agents).where(eq(agents.id, p.agentId));
-    if (agent?.owner) ids.add(agent.owner);
+    const [agent] = await db.select(OWNER_COLUMNS).from(agents).where(eq(agents.id, p.agentId));
+    if (agent) for (const id of await agentOwnerIds(db, p.orgId, agent)) ids.add(id);
   }
   return [...ids];
 }
@@ -402,9 +439,11 @@ async function unsentHidden(db: Database, actorId: string, p: Proposal) {
   return !card || !(await userVisibleChannels(db, p.orgId, actorId)).includes(card.channelId);
 }
 
-async function mayDecide(db: Database, actorId: string, p: Proposal, known?: Membership) {
+async function mayDecide(db: Database, actorId: string, p: Proposal, known?: Membership, byReview = false) {
   const membership = known ?? (await requirePermission(db, actorId, p.orgId, "read"));
-  if (p.target === "agent_settings") return !(await unsentHidden(db, actorId, p)) && maySettle(db, actorId, p);
+  // The review applies a row as someone who may make it, whether or not the person who asked sent it on (ADR 0219).
+  if (p.target === "agent_settings")
+    return (byReview || !(await unsentHidden(db, actorId, p))) && maySettle(db, actorId, p);
   if (isAgentSetting(p)) {
     // A team skill: who manages the team's skills. An agent's role: who edits it; its access: who manages it, its
     // owner only taking access away (ADR 0085 addendum of 2026-11-17). With the agent gone, the workspace's key.
@@ -412,12 +451,19 @@ async function mayDecide(db: Database, actorId: string, p: Proposal, known?: Mem
     if (!agent) return can(membership, "manage_agents");
     if (managesAgent(agent, actorId, membership)) return true;
     if (p.target === "agent_role") return editsAgent(agent, actorId, membership);
-    return ownerDecides(p) && agent.ownerUserId === actorId;
+    return ownerDecides(p) && ownsAgent(agent, actorId, membership.roleIds);
   }
   if (p.target === "org_context") return can(membership, "configure");
   // A file that runs on agents' computers is a skill change of its own: who manages skills, as an update from its
   // link that changes one (`approveSkillUpdate`).
   if (p.target === "skill" && p.skillPath && runsCode(p.skillPath)) return can(membership, "manage_agents");
+  // An agent's instructions come from what it was told, which only who looks after it knows: while its owner or a
+  // named editor is there, nobody else decides them, an admin included (ADR 0085, addendum of 2026-11-24). Who asked
+  // for the change in their own words still does, by the rule below.
+  if (p.target === "agent_instructions" && p.agentId && p.requestedByUserId !== actorId) {
+    const keepers = await agentKeeperIds(db, p.orgId, p.agentId);
+    if (keepers.length > 0 && !keepers.includes(actorId)) return false;
+  }
   if (can(membership, "review_memory")) return true;
   // Its instructions are how it works: who edits it (`editsAgent`), as on its page.
   if (p.target === "agent_instructions" && p.agentId) {
@@ -455,18 +501,48 @@ export async function listProposals(
   const shown = await proposalsShown(db, actorId, membership, all);
   const rows = can(membership, "review_memory") ? shown : await proposalsVisible(db, actorId, orgId, shown);
   const outdated = await outdatedIds(db, orgId, rows);
-  const out: (Proposal & { canDecide: boolean })[] = [];
+  const out: (Proposal & { canDecide: boolean; undoable: boolean })[] = [];
+  // Who may put a change back depends on what kind of change it is and on which agent, not on the row: the history's
+  // 200 rows ask once per kind (a settings row's lines differ, so each asks).
+  const mayUndo = new Map<string, Promise<boolean>>();
+  const undoKey = (r: Proposal) =>
+    r.target === "agent_settings"
+      ? r.id
+      : [
+          r.target,
+          r.agentId,
+          r.requestedByUserId === actorId,
+          ownerDecides(r),
+          r.skillPath ? runsCode(r.skillPath) : "",
+        ].join("|");
   for (const r of rows) {
-    if (await unsentHidden(db, actorId, r)) continue;
-    if (outdated.has(r.id)) out.push({ ...r, status: "stale", canDecide: false });
-    else out.push({ ...r, canDecide: r.status === "pending" && (await mayDecide(db, actorId, r, membership)) });
+    if (r.status === "pending" && (await unsentHidden(db, actorId, r))) continue;
+    // What was applied may be put back by whoever may make it (ADR 0219); a deleted agent can't come back.
+    let undoable = false;
+    if (r.status === "accepted" && !deletes(r)) {
+      const key = undoKey(r);
+      if (!mayUndo.has(key))
+        mayUndo.set(
+          key,
+          mayDecide(db, actorId, r, membership, true).catch(() => false),
+        );
+      undoable = await (mayUndo.get(key) as Promise<boolean>);
+    }
+    if (outdated.has(r.id)) out.push({ ...r, status: "stale", canDecide: false, undoable: false });
+    else
+      out.push({
+        ...r,
+        canDecide: r.status === "pending" && (await mayDecide(db, actorId, r, membership)),
+        undoable,
+      });
   }
   return out;
 }
 
 /**
- * Open rows accepting can only fail: their text changed since, or their agent was archived (a settings row can still
- * delete it). They show as stale, and nobody is asked to decide.
+ * Open rows accepting can only fail: their text or a setting's value changed since, a budget would now stop the agent
+ * without the card saying so, or their agent was archived (a settings row can still delete it). They show as stale,
+ * and nobody is asked to decide.
  */
 async function outdatedIds(db: Database, orgId: string, rows: Proposal[]) {
   const open = rows.filter((r) => r.status === "pending");
@@ -487,7 +563,7 @@ async function outdatedIds(db: Database, orgId: string, rows: Proposal[]) {
     if (r.target === "agent_role") return byId.get(r.agentId ?? "")?.role;
     return undefined;
   };
-  return new Set(
+  const out = new Set(
     open
       .filter((r) => {
         if (r.target !== "agent_settings" && byId.get(r.agentId ?? "")?.archivedAt) return true;
@@ -496,6 +572,12 @@ async function outdatedIds(db: Database, orgId: string, rows: Proposal[]) {
       })
       .map((r) => r.id),
   );
+  for (const r of open) {
+    if (r.target !== "agent_settings" || !r.agentId || deletes(r)) continue;
+    const agent = await getAgent(db, orgId, r.agentId);
+    if (agent && !agent.archivedAt && !(await settingsHold(db, agent, r.settings ?? []))) out.add(r.id);
+  }
+  return out;
 }
 
 /**
@@ -522,6 +604,11 @@ export async function decideProposal(
     via?: string;
     /** What deleting an agent from a card stops: its computer's work, its routines' mail. */
     deletion?: Omit<AgentDeletionDeps, "db" | "pubsub">;
+    /**
+     * Decided by the review (ADR 0219): `actorId` is who it is applied as, `agentId` the agent that applied it (null:
+     * a workspace-wide lesson no agent holds), `why` the review's line.
+     */
+    review?: { agentId: string | null; why: string | null };
   } = {},
 ): Promise<Proposal> {
   const [p] = await db
@@ -529,7 +616,8 @@ export async function decideProposal(
     .from(contextProposals)
     .where(and(eq(contextProposals.id, proposalId), eq(contextProposals.orgId, orgId)));
   if (!p) throw new NotFoundError("Proposal not found");
-  if (!(await mayDecide(db, actorId, p)))
+  const review = options.review;
+  if (!(await mayDecide(db, actorId, p, undefined, !!review)))
     throw new ForbiddenError("Only the agent's owner or an admin can decide this");
   if (p.status !== "pending") throw new ConflictError("This proposal was already decided");
   if (options.finalText !== undefined && isAgentSetting(p))
@@ -538,7 +626,7 @@ export async function decideProposal(
   const finalText = options.finalText ?? p.proposedText;
   if (options.finalText !== undefined) {
     checkContent(options.finalText);
-    await checkPermissionText(options.judge, orgId, options.finalText);
+    await checkPermissionText(options.judge, orgId, options.finalText, { db, userId: actorId });
   }
   const blobs = options.blobs && p.skillPath ? await pinBlobs(options.blobs, orgId) : options.blobs;
   const events = holdEvents(options.pubsub);
@@ -587,7 +675,9 @@ export async function decideProposal(
       .update(contextProposals)
       .set({
         status,
-        decidedByUserId: actorId,
+        decidedByUserId: review ? null : actorId,
+        decidedByAgentId: review?.agentId ?? null,
+        review: review?.why ?? null,
         decidedAt: new Date(),
         ...(status === "accepted" ? { proposedText: finalText } : {}),
       })
@@ -598,13 +688,15 @@ export async function decideProposal(
     if (status !== "stale")
       await recordAudit(tx, {
         orgId,
-        actor: { type: "person", id: actorId },
+        actor: review?.agentId ? { type: "agent", id: review.agentId } : { type: "person", id: actorId },
+        ...(review ? { onBehalfOfUserId: actorId } : {}),
         action: status === "accepted" ? "proposal.accepted" : "proposal.refused",
         target: p.agentId ? { type: "agent", id: p.agentId } : { type: "organization", id: orgId },
         details: {
           proposalId: p.id,
           target: p.target,
           proposedByAgentId: p.proposedByAgentId,
+          ...(review ? { review: review.why } : {}),
           // "Ver o que o Lodi fez": what a person applied from its cards (ADR 0137).
           ...(p.target === "agent_settings" ? { via: p.proposedByAgentId, settings: p.settings } : {}),
         },
@@ -661,6 +753,8 @@ export async function decideProposal(
   // Also for a row gone stale: it may be the card's last open one.
   await tellProposer({ db, pubsub: options.pubsub }, decided, options.via).catch(() => {});
   await settled({ db, pubsub: options.pubsub }, decided).catch(() => {});
+  if (review && decided.status === "accepted")
+    await appliedNotice({ db, pubsub: options.pubsub }, decided).catch(() => {});
   if (decided.status === "stale")
     throw new ConflictError("What this was proposed against changed since, so it can't be applied.");
   return decided;
@@ -691,7 +785,10 @@ async function carryOpenRows(tx: Executor, p: Proposal, text: string) {
   for (const r of open) {
     const lines = r.diff.split("\n").filter((l) => /^[+-]/.test(l) && l.slice(1).trim() && l.slice(1) !== LEARNED);
     if (!lines.every((l) => l.startsWith("+- "))) continue;
-    const proposedText = lines.reduce((next, l) => withLearnedBullet(next, l.slice(3)), text);
+    const proposedText = lines.reduce(
+      (next, l) => withLearnedBullet(next, l.slice(3), p.target === "org_context"),
+      text,
+    );
     if (proposedText === text || proposedText.length > max) continue;
     await tx
       .update(contextProposals)
@@ -794,6 +891,8 @@ export async function proposeSkillChange(
     file?: { path: string; text: string };
     /** The person behind the run: the card is in front of them, so their inbox row isn't needed. */
     requesterId?: string | null;
+    /** Why it wasn't applied when made, for the review (ADR 0219); the agent on its own by default. */
+    origin?: SettleOrigin;
   },
 ): Promise<Proposal | null> {
   checkContent(input.body);
@@ -829,7 +928,7 @@ export async function proposeSkillChange(
     })
     .returning();
   if (!proposal) return null;
-  await announce(deps, [proposal]);
+  await queueSettle(deps.db, input.orgId, [proposal.id], input.origin ?? "agent");
   return proposal;
 }
 
@@ -998,8 +1097,19 @@ async function cardResult(db: Executor, proposerId: string, rows: Proposal[], vi
       p.target === "org_context" ? "org context: " : p.target === "agent_instructions" ? "instructions: " : "";
     return `${whose} ${what}${cutText(changeLine(p), NOTICE_ROW_CHARS)}${adjusted ? " (with the wording a person adjusted)" : ""}`;
   };
+  // What the review decided (ADR 0219) reads apart from what people did.
+  const reviewed = rows.filter((r) => !r.decidedByUserId && r.status !== "stale" && r.status !== "pending");
+  const reviewLine = (p: Proposal) => `${line(p)}${p.review ? ` (${cutText(p.review, 200)})` : ""}`;
+  const reviewedAccepted = reviewed
+    .filter((r) => r.status === "accepted")
+    .map(reviewLine)
+    .join("; ");
+  const reviewedLeft = reviewed
+    .filter((r) => r.status === "rejected")
+    .map(reviewLine)
+    .join("; ");
   const decided = (status: Proposal["status"]) => {
-    const those = rows.filter((r) => r.status === status);
+    const those = rows.filter((r) => r.status === status && (status === "stale" || r.decidedByUserId));
     const who = ids(those.map((r) => r.decidedByUserId)).map((id) => names.get(id) ?? "A person");
     const people = who.join(" and ") || "A person";
     return { who: via ? `${via}, on behalf of ${people},` : people, lines: those.map(line).join("; ") };
@@ -1008,6 +1118,10 @@ async function cardResult(db: Executor, proposerId: string, rows: Proposal[], vi
   const refused = decided("rejected");
   const stale = decided("stale");
   return [
+    reviewedAccepted &&
+      `Applied after review: ${reviewedAccepted}. It is in effect now, even if your instructions above still show the old text (this notice wins until they refresh): say it is done in a line, without checking it.`,
+    reviewedLeft &&
+      `Left out after review, not applied: ${reviewedLeft}. Don't propose it again unless someone asks; if a person asked for it, tell them why in a line.`,
     accepted.lines &&
       `${accepted.who} accepted: ${accepted.lines}. It is already applied and in effect now, even if your instructions above still show the old text (this notice wins until they refresh): don't propose or check it, say so here in a line.`,
     refused.lines && `${refused.who} refused: ${refused.lines}. Don't propose it again unless someone asks.`,
@@ -1109,11 +1223,11 @@ const CURRENT_CHARS = 2000;
 const TEXT_MAX = { instructions: 50_000, context: 20_000 };
 
 /**
- * `text` with a change: a rule added under "Learned", or `replaces` swapped for `change`, only when it appears
+ * `text` with a change: a rule added (`withLearnedBullet`), or `replaces` swapped for `change`, only when it appears
  * exactly once (else null). Removing a whole line (`change` empty) takes the line, its bullet included.
  */
-export function changedText(text: string, change: string, replaces?: string): string | null {
-  if (replaces === undefined) return withLearnedBullet(text, change);
+export function changedText(text: string, change: string, replaces?: string, heading = true): string | null {
+  if (replaces === undefined) return withLearnedBullet(text, change, heading);
   const at = text.indexOf(replaces);
   if (at < 0 || text.includes(replaces, at + 1)) return null;
   let start = at;
@@ -1191,7 +1305,7 @@ async function cardAgents(
 /**
  * Proposals an agent makes because a person asked it in conversation: a
  * rule added to its own or other agents' instructions or to the org context
- * (or exact text swapped or removed there), and other agents' roles and apps.
+ * (or exact text swapped or removed there, or the whole text rewritten), and other agents' roles and apps.
  * One row per agent and kind of change, for one card; the agent never edits
  * any of them, a person who may make that change accepts each, or with `atOnce`
  * the person who asked, as it is made (`applyAsked`). Only agents the person who
@@ -1210,6 +1324,8 @@ export async function proposeChange(
     /** The rule to add, or what takes the place of `replaces` (empty: removes it). */
     change: string;
     replaces?: string;
+    /** The whole new text, in place of `change` and `replaces`: a rewrite the person asked for. */
+    whole?: string;
     roles?: { agentId: string; role: string }[];
     access?: { agentId: string; lines: AccessLine[] }[];
     rationale: string;
@@ -1230,8 +1346,8 @@ export async function proposeChange(
   };
   const rows: (typeof contextProposals.$inferInsert)[] = [];
   const skipped: string[] = [];
-  const textChange = (current: string, what: string, max: number) => {
-    const next = changedText(current, change, replaces);
+  const textChange = (current: string, what: string, max: number, heading: boolean) => {
+    const next = input.whole ?? changedText(current, change, replaces, heading);
     if (next === null) {
       const where = current.includes(replaces ?? "") ? "appears more than once in" : "isn't in";
       skipped.push(`The text to swap ${where} ${what}. It reads: """${cutText(current, CURRENT_CHARS)}"""`);
@@ -1243,7 +1359,7 @@ export async function proposeChange(
   if (input.target === "org_context") {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
     if (!org) throw new NotFoundError("Organization not found");
-    const text = textChange(org.context, "the org context", TEXT_MAX.context);
+    const text = textChange(org.context, "the org context", TEXT_MAX.context, true);
     if (text) rows.push({ ...base, target: "org_context", agentId: null, ...text });
   } else {
     const instructed = input.agentIds ?? [input.agentId];
@@ -1253,7 +1369,7 @@ export async function proposeChange(
       const agent = team.get(id) as Agent;
       const who = `@${agent.handle}`;
       if (instructed.includes(id)) {
-        const text = textChange(agent.instructions, `${who}'s instructions`, TEXT_MAX.instructions);
+        const text = textChange(agent.instructions, `${who}'s instructions`, TEXT_MAX.instructions, false);
         if (text) rows.push({ ...base, target: "agent_instructions", agentId: id, ...text });
       }
       const role = roles
@@ -1323,7 +1439,20 @@ export async function proposeChange(
     if (canDecide && input.atOnce && (await applyAsked(deps, input.atOnce, input.requesterId, p))) applied.push(p);
     else out.push({ ...p, canDecide });
   }
-  await announce(deps, out);
+  // The rest is the agent's to weigh (ADR 0219): what the person may decide waited only for their words, the rest for
+  // someone who may make it.
+  await queueSettle(
+    db,
+    orgId,
+    out.filter((p) => p.canDecide).map((p) => p.id),
+    "outside",
+  );
+  await queueSettle(
+    db,
+    orgId,
+    out.filter((p) => !p.canDecide).map((p) => p.id),
+    "asked_other",
+  );
   return { proposals: out, applied, skipped };
 }
 
@@ -1427,4 +1556,208 @@ export async function proposeSettings(
   const out: (Proposal & { canDecide: boolean })[] = [];
   for (const p of proposals) out.push({ ...p, canDecide: await mayDecide(db, input.requesterId, p) });
   return { proposals: out, skipped };
+}
+
+// ── Applied by the agents (ADR 0219) ─────────────────────────────────────────
+
+/**
+ * Who a change the review applies is applied as: the person who asked when they may make it, else who looks after the
+ * agent, else whoever else may (an admin). Null when nobody may.
+ */
+export async function actingPerson(db: Database, p: Proposal): Promise<string | null> {
+  const keepers = p.agentId ? await agentKeeperIds(db, p.orgId, p.agentId) : [];
+  const candidates = [p.requestedByUserId, ...keepers, ...(await deciders(db, p))];
+  for (const id of new Set(candidates.filter((c): c is string => !!c)))
+    if (await mayDecide(db, id, p, undefined, true).catch(() => false)) return id;
+  return null;
+}
+
+/**
+ * The review left a change out (ADR 0219): it is not applied, its why stays on it, and the agent that proposed it in a
+ * conversation hears why. A memory lesson stays in memory, never proposed again (`proposedAt`).
+ */
+export async function declineByAgent(
+  deps: { db: Database; pubsub?: PubSub },
+  p: Proposal,
+  agentId: string | null,
+  why: string,
+) {
+  const [row] = await deps.db
+    .update(contextProposals)
+    .set({ status: "rejected", decidedByAgentId: agentId, review: cutText(why, 500), decidedAt: new Date() })
+    .where(and(eq(contextProposals.id, p.id), eq(contextProposals.status, "pending")))
+    .returning();
+  if (!row) return;
+  await recordAudit(deps.db, {
+    orgId: p.orgId,
+    actor: agentId ? { type: "agent", id: agentId } : { type: "system", id: null },
+    action: "proposal.left_out",
+    target: p.agentId ? { type: "agent", id: p.agentId } : { type: "organization", id: p.orgId },
+    details: { proposalId: p.id, target: p.target, review: row.review },
+  });
+  await tellProposer(deps, row).catch(() => {});
+  await settled(deps, row).catch(() => {});
+}
+
+/**
+ * Who looks after what the review changed hears it once a day in their inbox, with the change and Desfazer one tap
+ * away (ADR 0219). Not the person who asked: its card is in front of them.
+ */
+async function appliedNotice(deps: { db: Database; pubsub?: PubSub }, p: Proposal) {
+  const people = new Set(await deciders(deps.db, p));
+  if (p.requestedByUserId) people.delete(p.requestedByUserId);
+  if (people.size === 0) return;
+  const target = p.agentId ? await getAgent(deps.db, p.orgId, p.agentId) : null;
+  await notify(deps, {
+    orgId: p.orgId,
+    userIds: [...people],
+    kind: "proposal_applied",
+    groupKey: `proposal_applied:${new Date().toISOString().slice(0, 10)}`,
+    actor: p.decidedByAgentId ? { type: "agent", id: p.decidedByAgentId } : undefined,
+    source: { proposalId: p.id, ...(target ? { agentId: target.id, label: target.name } : {}) },
+    latest: { title: cutText(p.review || changeLine(p), 200) },
+  });
+}
+
+/** The text a text change was made against: the lines its diff keeps or removes. */
+export const beforeOf = (diff: string) =>
+  diff
+    .split("\n")
+    .filter((l) => l.startsWith(" ") || l.startsWith("-"))
+    .map((l) => l.slice(1))
+    .join("\n");
+
+/** Puts a skill (or its file) back to `before` while it is still what the change left; false when it moved since. */
+async function revertedSkill(deps: { db: Database; blobs?: BlobStoreResolver }, p: Proposal, before: string) {
+  const { db } = deps;
+  const id = proposalSkillId(p);
+  if (!id) return false;
+  const [skill] = await db
+    .select()
+    .from(schema.skills)
+    .where(and(eq(schema.skills.id, id), eq(schema.skills.orgId, p.orgId), isNull(schema.skills.deletedAt)))
+    .for("update");
+  if (!skill) return false;
+  if (!p.skillPath) {
+    if (skill.body !== p.proposedText) return false;
+    await writeSkillBody(db, skill, before);
+    return true;
+  }
+  if (!deps.blobs) throw new ValidationError("Skill files can't be changed on this server (no storage)");
+  const [kept] = await skillFolderFiles({ db, blobs: deps.blobs }, skill, [p.skillPath]);
+  if ((kept ? new TextDecoder().decode(kept.data) : "") !== p.proposedText) return false;
+  await writeSkillChange(deps, skill, {
+    body: skill.body,
+    files: [{ path: p.skillPath, data: new TextEncoder().encode(before) }],
+  });
+  return true;
+}
+
+/**
+ * Desfazer on an applied change (ADR 0219), by whoever may make that change: puts back what it changed while that is
+ * still what it left (409 `proposal.changed` otherwise), as that person, through the same editors. A deleted agent
+ * can't come back. The agent that proposed it learns not to make it again (as from a refusal), and a lesson that had
+ * become a rule goes back to memory.
+ */
+export async function undoProposal(
+  deps: { db: Database; pubsub?: PubSub; blobs?: BlobStoreResolver },
+  actorId: string,
+  orgId: string,
+  proposalId: string,
+): Promise<Proposal> {
+  const { db } = deps;
+  const [p] = await db
+    .select()
+    .from(contextProposals)
+    .where(and(eq(contextProposals.id, proposalId), eq(contextProposals.orgId, orgId)));
+  if (!p) throw new NotFoundError("Proposal not found");
+  if (!(await mayDecide(db, actorId, p, undefined, true)))
+    throw new ForbiddenError("Only who may make this change can undo it", "proposal.not_allowed");
+  if (p.status === "undone") throw new ConflictError("Already undone", "proposal.undone");
+  if (p.status !== "accepted")
+    throw new ConflictError("Only a change that was applied can be undone", "proposal.not_applied");
+  if (deletes(p)) throw new ConflictError("A deleted agent can't come back", "proposal.not_undoable");
+  const before = beforeOf(p.diff);
+  const changed = () => new ConflictError("It changed since it was applied: change it by hand.", "proposal.changed");
+  const events = holdEvents(deps.pubsub);
+  const undone = await db.transaction(async (tx) => {
+    const as = tx as unknown as Database;
+    if (p.target === "org_context") {
+      const [org] = await tx.select().from(organizations).where(eq(organizations.id, orgId)).for("update");
+      if (!org || org.context !== p.proposedText) throw changed();
+      await tx.update(organizations).set({ context: before }).where(eq(organizations.id, orgId));
+    } else if (p.target === "skill") {
+      if (!(await revertedSkill({ db: as, blobs: deps.blobs }, p, before))) throw changed();
+    } else {
+      const [agent] = await tx
+        .select()
+        .from(agents)
+        .where(and(eq(agents.orgId, orgId), eq(agents.id, p.agentId ?? ""), isNull(agents.deletedAt)))
+        .for("update");
+      if (!agent) throw new NotFoundError("The agent is gone", "action.target_gone");
+      if (p.target === "agent_instructions") {
+        if (agent.instructions !== p.proposedText) throw changed();
+        await tx.update(agents).set({ instructions: before, updatedAt: new Date() }).where(eq(agents.id, agent.id));
+      } else if (p.target === "agent_role") {
+        if (agent.role !== p.proposedText) throw changed();
+        await updateAgent(as, actorId, orgId, agent.id, { role: before });
+      } else if (p.target === "agent_access") {
+        const grants = await replaceableGrants(as, orgId, agent.id);
+        const lines = p.access ?? [];
+        if (lines.some((l) => hasApp(grants, l.id, !l.on) !== l.on)) throw changed();
+        const back = withAccessLines(
+          grants,
+          lines.map((l) => ({ ...l, on: !l.on })),
+        );
+        await setAgentAccess(as, actorId, orgId, agent.id, accessInputOf(back));
+      } else {
+        // A settings row: each line back to its `from`, as its receipt's Desfazer does.
+        const receipt = { orgId, targetId: agent.id, before: { lines: p.settings ?? [] }, params: {} };
+        await revertSettings(
+          { db: as, pubsub: events.pubsub },
+          receipt as unknown as typeof schema.agentActions.$inferSelect,
+          actorId,
+          "undo",
+          changed,
+        );
+      }
+    }
+    const [row] = await tx
+      .update(contextProposals)
+      .set({ status: "undone", undoneByUserId: actorId, undoneAt: new Date() })
+      .where(and(eq(contextProposals.id, p.id), eq(contextProposals.status, "accepted")))
+      .returning();
+    if (!row) throw new ConflictError("Already undone", "proposal.undone");
+    await recordAudit(tx, {
+      orgId,
+      actor: { type: "person", id: actorId },
+      action: "proposal.undone",
+      target: p.agentId ? { type: "agent", id: p.agentId } : { type: "organization", id: orgId },
+      details: { proposalId: p.id, target: p.target, decidedByAgentId: p.decidedByAgentId },
+    });
+    if (p.itemIds.length > 0) {
+      const back = await tx
+        .update(contextItems)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(
+          and(eq(contextItems.orgId, orgId), inArray(contextItems.id, p.itemIds), eq(contextItems.status, "archived")),
+        )
+        .returning({ id: contextItems.id });
+      for (const item of back)
+        await enqueue(tx, { orgId, kind: "search.index", payload: { kind: "context_item", sourceId: item.id } });
+    }
+    return row;
+  });
+  invalidateOrg(orgId);
+  if (undone.agentId) {
+    caches.agents.delete(`${orgId}:${undone.agentId}`);
+    caches.agents.delete(`${orgId}:team`);
+    caches.scopes.deletePrefix(`${orgId}:${undone.agentId}`);
+    await publishAgentsChanged(events.pubsub, orgId);
+  }
+  caches.orgs.delete(`${orgId}:`);
+  await events.flush();
+  if (!isRightHand(await proposerOf(db, undone))) await recordRefusal(db, actorId, undone);
+  await settled({ db, pubsub: deps.pubsub }, undone).catch(() => {});
+  return undone;
 }

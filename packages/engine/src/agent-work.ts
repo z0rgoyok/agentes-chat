@@ -1,5 +1,8 @@
 import { type Executor, rowsOf, type SQL, schema, sql } from "@agenteschat/db";
 import { decidableBySql } from "./approvals";
+import { managesAgentSql, ownsAgentSql } from "./audience";
+import { caches } from "./cache";
+import { replyThreadOf } from "./runs";
 import { MAX_HANDOFF_LINKS } from "./stretch";
 import { channelReaderSql } from "./task-access";
 
@@ -28,7 +31,7 @@ export interface AgentWork {
   runId: string;
   /** Where it shows, when the viewer reads that conversation; null otherwise (and for a routine's work). */
   channelId: string | null;
-  channelKind: "channel" | "dm" | "task" | "file" | null;
+  channelKind: "channel" | "dm" | "task" | "file" | "code" | null;
   /** A channel's name; null for a DM or a task's conversation. */
   channelName: string | null;
   /** Null: the conversation's main timeline. */
@@ -82,8 +85,8 @@ export const agentsOnlyIn = (c: string) =>
 
 /** Parked on its AI provider's outage (`outageParkedSql`), over the run alias `r`. */
 export const outageIn = (r: string) =>
-  sql.raw(`(${r}.status = 'waiting_input' and ${r}.transcript -> 'outage' is not null
-    and ${r}.waiting_machine_id is null and ${r}.transcript -> 'waitingForBrain' is null)`);
+  sql.raw(`(${r}.status = 'waiting_input' and coalesce(${r}.state, ${r}.transcript) -> 'outage' is not null
+    and ${r}.waiting_machine_id is null and coalesce(${r}.state, ${r}.transcript) -> 'waitingForBrain' is null)`);
 
 /**
  * Since when a run waits, over `r`: in line for room, on its computer, plan or provider, by that wait's own clock; on a
@@ -91,8 +94,8 @@ export const outageIn = (r: string) =>
  * when none says: a message queued on a waiting run moves `updated_at`, and the wait goes on.
  */
 export const waitSinceIn = (r: string) =>
-  sql.raw(`coalesce(to_timestamp(coalesce((${r}.transcript->>'roomWaitSince')::bigint,
-    (${r}.transcript->'waitingForBrain'->>'since')::bigint, (${r}.transcript->'outage'->>'since')::bigint) / 1000.0),
+  sql.raw(`coalesce(to_timestamp(coalesce((coalesce(${r}.state, ${r}.transcript)->>'roomWaitSince')::bigint,
+    (coalesce(${r}.state, ${r}.transcript)->'waitingForBrain'->>'since')::bigint, (coalesce(${r}.state, ${r}.transcript)->'outage'->>'since')::bigint) / 1000.0),
     case ${r}.status
       when 'waiting_approval' then (select min(pa.created_at) from approvals pa
         where pa.org_id = ${r}.org_id and pa.run_id = ${r}.id and pa.status = 'pending')
@@ -138,15 +141,59 @@ type Row = {
   anchored: boolean | string;
   anchor_background: boolean | string;
   channel_id: string;
-  channel_kind: "channel" | "dm" | "task" | "file";
+  channel_kind: "channel" | "dm" | "task" | "file" | "code";
   channel_name: string;
   thread_root_id: string;
   trigger_message_id: string;
+  reply_in_thread: boolean | string;
   reply_message_id: string | null;
-  readable: boolean | string;
-  you: boolean | string;
+  /** Its place may show to whoever reads it: not archived, not two agents' DM (`readable` then asks the viewer). */
+  placeable: boolean | string;
+  /** Its last sign of life (`heartbeat_at`, else its start or last change), for `aliveAfter`. */
+  alive_at: string | Date;
   right_hand: boolean | string | null;
 };
+
+const uuids = (ids: readonly string[]) => sql`${`{${ids.join(",")}}`}::uuid[]`;
+
+/**
+ * What one person may see of a workspace's kept reads (`caches.orgReads`), asked only for the ids given, in one
+ * statement: the channels they read (`channelReaderSql`), the runs that wait on them (`waitsOnViewerIn`), the agents
+ * they answer for (`ownsAgentSql`) and the ones they manage (`managesAgentSql`). Never kept: who may see what is read
+ * fresh at every request, by the same rules the per-person statements used.
+ */
+export async function viewerFacts(
+  db: Executor,
+  viewerId: string,
+  orgId: string,
+  ask: { channelIds?: readonly string[]; runIds?: readonly string[]; agentIds?: readonly string[] },
+) {
+  const facts = {
+    reads: new Set<string>(),
+    waitsOn: new Set<string>(),
+    owns: new Set<string>(),
+    manages: new Set<string>(),
+  };
+  const channelIds = [...new Set(ask.channelIds ?? [])];
+  const runIds = [...new Set(ask.runIds ?? [])];
+  const agentIds = [...new Set(ask.agentIds ?? [])];
+  const viewer = sql`${viewerId}::text`;
+  const parts: SQL[] = [];
+  if (channelIds.length > 0)
+    parts.push(sql`select 'reads' as fact, c.id from channels c
+      where c.org_id = ${orgId}::uuid and c.id = any(${uuids(channelIds)}) and ${channelReaderSql(sql`c.id`, viewer)}`);
+  if (runIds.length > 0)
+    parts.push(sql`select 'waitsOn' as fact, r.id from agent_runs r
+      where r.org_id = ${orgId}::uuid and r.id = any(${uuids(runIds)}) and ${waitsOnViewerIn("r", viewerId)}`);
+  if (agentIds.length > 0)
+    parts.push(sql`select f.fact, g.id from agents g
+      cross join lateral (values ('owns', ${ownsAgentSql("g", viewer)}), ('manages', ${managesAgentSql("g", viewer)})) f(fact, yes)
+      where g.org_id = ${orgId}::uuid and g.id = any(${uuids(agentIds)}) and f.yes`);
+  if (parts.length === 0) return facts;
+  const rows = rowsOf<{ fact: keyof typeof facts; id: string }>(await db.execute(sql.join(parts, sql` union all `)));
+  for (const r of rows) facts[r.fact].add(r.id);
+  return facts;
+}
 
 const truthy = (v: boolean | string | null | undefined) => v === true || v === "t";
 const iso = (v: string | Date) => new Date(v).toISOString();
@@ -199,30 +246,18 @@ export async function agentWorkFor(
   /** A running run with no heartbeat since lost its worker: it doesn't count (`loadAgentStatuses`' rule). */
   aliveAfter: Date,
 ): Promise<Map<string, AgentWork>> {
-  const viewer = sql`${viewerId}::text`;
-  const rows = rowsOf<Row>(
-    await db.execute(sql`with ${anchorsSql(orgId)}
-      select r.id as run_id, r.agent_id, r.status, r.waiting_machine_id is not null as on_machine,
-        ${outageIn("r")} as outage, r.transcript->'waitingForBrain'->>'code' as wait_code,
-        coalesce(t.handed_at, r.started_at, r.created_at) as work_since, ${waitSinceIn("r")} as wait_since,
-        t.for_agent, a.id <> r.id as anchored, a.background as anchor_background,
-        c.id as channel_id, c.kind as channel_kind, c.name as channel_name, a.thread_root_id, a.trigger_message_id,
-        a.reply_message_id,
-        (c.archived_at is null and not ${agentsOnlyIn("c")} and ${channelReaderSql(sql`c.id`, viewer)}) as readable,
-        ${waitsOnViewerIn("r", viewerId)} as you,
-        g.builtin = 'right_hand' as right_hand
-      from anchors t
-      join agent_runs r on r.id = t.run_id
-      join agents g on g.id = r.agent_id
-      join agent_runs a on a.id = t.anchor_id
-      join channels c on c.id = a.channel_id
-      where not (r.status = 'running'
-        and coalesce(r.heartbeat_at, r.started_at, r.updated_at) < ${aliveAfter.toISOString()}::timestamptz)`),
+  const rows = (await orgWork(db, orgId)).filter(
+    (r) => !(r.status === "running" && new Date(r.alive_at).getTime() < aliveAfter.getTime()),
   );
+  const facts = await viewerFacts(db, viewerId, orgId, {
+    channelIds: rows.flatMap((r) => (truthy(r.placeable) ? [r.channel_id] : [])),
+    runIds: rows.flatMap((r) => (r.status === "waiting_approval" || r.status === "waiting_input" ? [r.run_id] : [])),
+  });
   const out = new Map<string, AgentWork & { rank: number }>();
   for (const r of rows) {
-    if (truthy(r.right_hand) && !truthy(r.readable)) continue;
-    const you = truthy(r.you);
+    const readable = truthy(r.placeable) && facts.reads.has(r.channel_id);
+    if (truthy(r.right_hand) && !readable) continue;
+    const you = facts.waitsOn.has(r.run_id);
     const state = workStateOf({
       status: r.status,
       onMachine: truthy(r.on_machine),
@@ -232,7 +267,7 @@ export async function agentWorkFor(
     });
     if (!state) continue;
     const routine = truthy(r.anchor_background);
-    const placed = truthy(r.readable) && !routine;
+    const placed = readable && !routine;
     const work: AgentWork & { rank: number } = {
       state,
       ask: state !== "you" ? null : r.status === "waiting_approval" ? "approval" : "answer",
@@ -241,7 +276,13 @@ export async function agentWorkFor(
       channelId: placed ? r.channel_id : null,
       channelKind: placed ? r.channel_kind : null,
       channelName: placed && r.channel_kind === "channel" ? r.channel_name : null,
-      threadId: placed && r.thread_root_id !== r.trigger_message_id ? r.thread_root_id : null,
+      threadId: placed
+        ? replyThreadOf({
+            threadRootId: r.thread_root_id,
+            triggerMessageId: r.trigger_message_id,
+            replyInThread: truthy(r.reply_in_thread),
+          })
+        : null,
       messageId: placed && truthy(r.anchored) ? r.reply_message_id : null,
       forAgentId: placed && truthy(r.anchored) ? r.for_agent : null,
       routine,
@@ -259,6 +300,29 @@ export async function agentWorkFor(
   }
   return new Map([...out].map(([id, { rank: _rank, ...work }]) => [id, work]));
 }
+
+/**
+ * The workspace's runs still on, each with the run people see it from (`anchorsSql`), before anything about the
+ * viewer: one statement kept a moment for every member (`caches.orgReads`), forgotten when a status is announced.
+ */
+const orgWork = (db: Executor, orgId: string) =>
+  caches.orgReads.getOrLoad(`${orgId}:work`, async () =>
+    rowsOf<Row>(
+      await db.execute(sql`with ${anchorsSql(orgId)}
+        select r.id as run_id, r.agent_id, r.status, r.waiting_machine_id is not null as on_machine,
+          ${outageIn("r")} as outage, coalesce(r.state, r.transcript)->'waitingForBrain'->>'code' as wait_code,
+          coalesce(t.handed_at, r.started_at, r.created_at) as work_since, ${waitSinceIn("r")} as wait_since,
+          t.for_agent, a.id <> r.id as anchored, a.background as anchor_background,
+          c.id as channel_id, c.kind as channel_kind, c.name as channel_name, a.thread_root_id, a.trigger_message_id,
+          a.reply_in_thread, a.reply_message_id, (c.archived_at is null and not ${agentsOnlyIn("c")}) as placeable,
+          coalesce(r.heartbeat_at, r.started_at, r.updated_at) as alive_at, g.builtin = 'right_hand' as right_hand
+        from anchors t
+        join agent_runs r on r.id = t.run_id
+        join agents g on g.id = r.agent_id
+        join agent_runs a on a.id = t.anchor_id
+        join channels c on c.id = a.channel_id`),
+    ),
+  ) as Promise<Row[]>;
 
 /** The work without where it is: what an agent hidden from the viewer, or a place they don't read, shows. */
 export const bareWork = (w: AgentWork): AgentWork => ({

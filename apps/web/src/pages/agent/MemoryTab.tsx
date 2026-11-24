@@ -1,26 +1,14 @@
 import type { LearnedSkill, Memory, Proposal } from "@agenteschat/client";
-import {
-  ApiError,
-  useDecideProposal,
-  useLearnedSkills,
-  useMemory,
-  useMemoryAction,
-  useProposals,
-  useSkillAction,
-} from "@agenteschat/client";
-import { errorText } from "@agenteschat/client/lib/errors";
+import { useLearnedSkills, useMemory, useMemoryAction, useProposals, useSkillAction } from "@agenteschat/client";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { formatShortDate } from "@agenteschat/client/lib/format";
-import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
 import { memoryLine, pendingOnAgent, proposalTitle, proposalWhy } from "@agenteschat/client/lib/proposals";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import {
-  Alert,
   Button,
   Card,
   CardHeader,
-  Chip,
   Diff,
   diffLines,
   EmptyState,
@@ -58,102 +46,31 @@ import {
 } from "@/pages/MemoryPage";
 import { CardHead, useAgentEdit } from "./context";
 
-/** A proposal to change this agent's instructions: why, the diff, and Aceitar / Editar antes / Recusar. */
+/**
+ * A change to this agent's instructions (or a skill) the agent's review is weighing (ADR 0219): why and the diff, and
+ * "Reviewing…" in its head. Nobody decides it: it is applied or left out in a moment, and then it leaves this list.
+ */
 function ProposalCard({ proposal }: { proposal: Proposal }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const toast = useToast();
   const { agent } = useAgentEdit();
-  const decide = useDecideProposal(org.id);
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(proposal.after);
-  const [stale, setStale] = useState(false);
-  const g = agentGrammar(agent.name);
-  const onError = (error: unknown) => {
-    if (error instanceof ApiError && error.status === 409) setStale(true);
-    else toast.show(errorText(t, error), "error");
-  };
-  const accept = () =>
-    decide.mutate(
-      { id: proposal.id, decision: "accept", text: editing && text !== proposal.after ? text : undefined },
-      { onSuccess: () => toast.show(t("agentPage.memory.accepted")), onError },
-    );
-  const refuse = () =>
-    decide.mutate(
-      { id: proposal.id, decision: "refuse" },
-      { onSuccess: () => toast.show(t("agentPage.memory.refused", g)), onError },
-    );
-  const canDecide = proposal.canDecide && !proposal.stale;
   return (
     <Card as="article" className="agp-card agp-prop" aria-labelledby={`prop-${proposal.id}`}>
       <CardHeader
         id={`prop-${proposal.id}`}
         icon="document"
         title={proposalTitle(t, proposal, org, () => agent.name)}
-        action={
-          proposal.stale ? (
-            <Chip icon="close">{t("proposals.stale")}</Chip>
-          ) : (
-            <Chip icon="waiting" tone="waiting">
-              {proposal.canDecide
-                ? t("approval.waitingYou")
-                : proposal.decider.type === "user"
-                  ? t("proposals.waitingFor", { name: proposal.decider.name })
-                  : t("proposals.waitingAdmin")}
-            </Chip>
-          )
-        }
+        action={<State icon="waiting">{t("proposals.reviewing")}</State>}
       />
       <p className="agp-why">
         <b>{t("proposals.why")}:</b> {proposalWhy(t, proposal)}
       </p>
-      {editing ? (
-        <Locked when={decide.isPending || stale || proposal.stale}>
-          <Field label={t("proposals.finalText")} id={`prop-edit-${proposal.id}`}>
-            <Textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
-          </Field>
-        </Locked>
-      ) : (
-        <Diff
-          aria-label={t("proposals.changeLabel")}
-          addedLabel={t("proposals.added")}
-          removedLabel={t("proposals.removed")}
-          lines={diffLines(proposal.before.split("\n"), proposal.after.split("\n"))}
-        />
-      )}
-      {(stale || proposal.stale) && <Alert>{t("proposals.staleNote")}</Alert>}
-      {canDecide && !stale ? (
-        <>
-          <div className="agp-row">
-            <Button
-              size="sm"
-              variant="primary"
-              icon="check"
-              disabled={decide.isPending || !text.trim()}
-              onClick={accept}
-            >
-              {editing ? t("proposals.acceptEdited") : t("proposals.accept")}
-            </Button>
-            {proposal.target.type !== "skill" && (
-              <Button size="sm" icon="edit" disabled={decide.isPending} onClick={() => setEditing((v) => !v)}>
-                {editing ? t("proposals.viewDiff") : t("proposals.editFirst")}
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" disabled={decide.isPending} onClick={refuse}>
-              {t("proposals.refuse")}
-            </Button>
-          </div>
-          <span className="small muted">{t("proposals.refuseNote", g)}</span>
-        </>
-      ) : (
-        !proposal.canDecide && (
-          <span className="small muted">
-            {proposal.decider.type === "user"
-              ? t("agentPage.memory.decides", { who: proposal.decider.name })
-              : t("agentPage.memory.adminDecides")}
-          </span>
-        )
-      )}
+      <Diff
+        aria-label={t("proposals.changeLabel")}
+        addedLabel={t("proposals.added")}
+        removedLabel={t("proposals.removed")}
+        lines={diffLines(proposal.before.split("\n"), proposal.after.split("\n"))}
+      />
     </Card>
   );
 }
@@ -247,18 +164,6 @@ function LearnedRow({ m }: { m: Memory }) {
       <span className="agp-row">
         {draft === null ? (
           <>
-            {(m.lowTrust || !m.verified) && (
-              <Button
-                variant="link"
-                title={t("memory.confirmTitle")}
-                disabled={act.isPending}
-                onClick={() =>
-                  act.mutate({ type: "confirm", id: m.id }, { onSuccess: () => toast.show(t("memory.confirmed")) })
-                }
-              >
-                {t("memory.confirm")}
-              </Button>
-            )}
             {/* Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived. */}
             {can(org, "review_memory") && !m.howTo && !m.playbook && m.kind !== "lesson" && (
               <Button
@@ -354,7 +259,6 @@ function LearnedSkillRow({ s }: { s: LearnedSkill }) {
             )}
             <Button
               variant="link"
-              disabled={act.isPending}
               onClick={() => act.mutate({ type: "update", id: s.id, patch: { locked: !s.locked } })}
             >
               {s.locked ? t("agentPage.memory.unlock") : t("agentPage.memory.lock")}
@@ -409,7 +313,6 @@ function RulesCard({ rules }: { rules: Memory[] }) {
               {m.removable && (
                 <Button
                   variant="link"
-                  disabled={act.isPending}
                   onClick={() =>
                     act.mutate(
                       { type: "archive", id: m.id, archived: true },
@@ -494,8 +397,8 @@ function LearnedList({ list }: { list: Memory[] }) {
 }
 
 /**
- * Memória: proposals waiting, then what the agent knows (facts and decisions, lessons, archived) with search. `item`:
- * the memory or skill a link opened it at.
+ * Memory: changes the agent's review is weighing, then what the agent knows (facts and decisions, lessons, archived)
+ * with search. `item`: the memory or skill a link opened it at.
  */
 export function MemoryTab({ item }: { item?: string }) {
   const { t, i18n } = useTranslation();
@@ -516,6 +419,8 @@ export function MemoryTab({ item }: { item?: string }) {
   const cols = useRef<HTMLDivElement>(null);
   useLandOn(cols, item, Boolean(linked) || linkedSkill);
   const pending = pendingOnAgent(proposals.data ?? [], agent.id);
+  // What the agents (or people) applied to it (ADR 0219), in Agent improvements.
+  const applied = (proposals.data ?? []).filter((p) => p.agentId === agent.id && p.status === "accepted" && !p.stale);
   const learned = list
     .filter(
       (m) =>
@@ -545,9 +450,9 @@ export function MemoryTab({ item }: { item?: string }) {
             sub: t(isRightHand(agent) ? "agentPage.memory.fromTeamRightHand" : "agentPage.memory.fromTeam"),
           },
           {
-            label: t("agentPage.memory.proposals"),
-            value: pending.length,
-            sub: pending.length ? t("agentPage.memory.waiting") : t("agentPage.memory.noneWaiting"),
+            label: t("agentPage.memory.improvements"),
+            value: applied.length,
+            sub: t("agentPage.memory.improvementsApplied"),
           },
         ].map((stat) => (
           <p key={stat.label} className="agp-memstat">

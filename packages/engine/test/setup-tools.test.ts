@@ -253,9 +253,9 @@ test("offer_connect_app: a mailbox or a database says where it's connected; a se
   };
   const gmail = await run({ app: "Gmail", why: "x" });
   expect(gmail).toMatchObject({ isError: true });
-  expect(gmail.content).toContain("Add connector › Email");
+  expect(gmail.content).toContain("Browse connectors › Email");
   expect(gmail.content).not.toContain("https address");
-  expect((await run({ app: "Postgres", why: "x" })).content).toContain("Add connector › Database");
+  expect((await run({ app: "Postgres", why: "x" })).content).toContain("Browse connectors › Database");
   const listing = connectorListing(server);
   const soon = listing.find((e) => e.soon);
   const off = listing.find((e) => !e.available && !e.soon);

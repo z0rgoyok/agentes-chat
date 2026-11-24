@@ -46,6 +46,7 @@ import { useTranslation } from "react-i18next";
 import { ActorAvatar, AgentAvatar } from "@/components/AgentAvatar";
 import { DetailsLink } from "@/components/details-link";
 import { ErrorState, LoadingList } from "@/components/Loading";
+import { MetaLine } from "@/components/MetaLine";
 import { useOrg } from "@/components/org-context";
 import { SidePanel } from "@/components/SidePanel";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -309,11 +310,7 @@ function AuditPanel({ row, onClose }: { row: AuditRow; onClose: () => void }) {
           <h1 className="channel__title thread-title">
             <span className="thread-title__text">{auditHint(t, row) ?? auditPhrase(t, row, i18n.language)}</span>
           </h1>
-          <span className="channel__topic thread-head__meta">
-            <span className="thread-head__where">{name}</span>
-            <span>·</span>
-            <span>{whenAt(t, i18n.language, row.at)}</span>
-          </span>
+          <MetaLine where={name} parts={[whenAt(t, i18n.language, row.at)]} />
         </div>
         <Menu
           align="end"

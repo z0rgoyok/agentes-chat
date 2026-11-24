@@ -25,8 +25,9 @@ describe("a conversation of bubbles breathes", () => {
     const look = src("features/chat/look.ts");
     expect(look).toContain("bubblesRow: { paddingLeft: BUBBLES_INSET, paddingRight: BUBBLES_END, gap: 8 },");
     // One line is 40 tall: 24 and 8 above and under, 14 at the sides.
+    expect(src("features/chat/bubble-cap.ts")).toContain("export const BUBBLE_PAD_V = 8;");
     expect(look).toMatch(
-      /bubble: \{\s+alignSelf: "flex-start",\s+maxWidth: "100%",\s+paddingVertical: 8,\s+paddingHorizontal: 14,/,
+      /bubble: \{\s+alignSelf: "flex-start",\s+maxWidth: "100%",\s+paddingVertical: BUBBLE_PAD_V,\s+paddingHorizontal: 14,/,
     );
   });
 

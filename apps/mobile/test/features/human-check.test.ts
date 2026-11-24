@@ -21,6 +21,7 @@ import {
   signUpClosed,
   socialRefusalText,
   socialReturnText,
+  widgetBox,
 } from "../../src/features/auth/human-check";
 import { signUpLinkTarget } from "../../src/features/auth/links";
 import { translator } from "./fixtures";
@@ -84,6 +85,11 @@ describe("the check's WebView", () => {
       language: "pt-BR",
     });
     expect(url).toBe("https://app.agentes.chat/human-check.html?k=1x00000000000000000000AA&a=ask-code&t=dark&l=pt-BR");
+  });
+
+  test("one box for the widget hidden or open, inside the sheet's padding, spanning the sheet on a narrow phone", () => {
+    expect(widgetBox(390)).toEqual({ narrow: false, width: 338, height: 65 });
+    expect(widgetBox(320)).toEqual({ narrow: true, width: 304, height: 65 });
   });
 
   test("reads the server page's messages, and nothing else", () => {

@@ -18,6 +18,7 @@ import { answersOthers, audienceOf, managesAgent } from "./audience";
 import { type BillingHold, billingHoldOf } from "./billing";
 import { type SetupView, setupPending } from "./computer";
 import { firstName } from "./format";
+import { CLI_HOME_ONLY } from "./machines";
 import { can } from "./permissions";
 import { CODING_PLANS, isPlanId, loginPerAgent, PLAN_IDS, type PlanId } from "./plans";
 import { isRightHand } from "./right-hand";
@@ -46,6 +47,8 @@ export interface NoAiCard {
    * way is an account of that CLI's plan (`planOfKind`), connected on the agent's page or from the card.
    */
   own?: MachineAccountKind;
+  /** With `own`: the computer it isn't signed in on, by name. */
+  computer?: string;
   /**
    * The team's right hand on a plan (ADR 0137 §7): why that plan can't think now, said as one line with the way to an
    * API key (its computer away or with a problem, the plan at its limit or its model's own, the region that model needs, commands off
@@ -154,6 +157,7 @@ export function noAiCardOf(meta: Record<string, unknown> | null | undefined): No
     ...(typeof o.provider === "string" ? { provider: o.provider } : {}),
     ...(o.autoOpen === true ? { autoOpen: true } : {}),
     ...(own ? { own } : signedOut ? { signedOut: true } : {}),
+    ...(own && typeof o.computer === "string" && o.computer ? { computer: o.computer } : {}),
     ...(typeof o.reason === "string" && RIGHT_HAND_PLAN_LINES.has(o.reason)
       ? { planLine: o.reason as RightHandPlanLine }
       : {}),
@@ -211,9 +215,11 @@ export const planLinePasses = (line: RightHandPlanLine | undefined) =>
  * The key of a card's line while the agent still can't think (`agentGrammar(name)` fills it): the computer's own
  * sign-in of that CLI missing, its sign-in ended, its computer with no such CLI, no computer, else no AI at all.
  */
-export const noAiLineKey = (card: Pick<NoAiCard, "own" | "signedOut" | "missing">) =>
+export const noAiLineKey = (card: Pick<NoAiCard, "own" | "computer" | "signedOut" | "missing">) =>
   card.own
-    ? (`noAi.notSignedIn.${card.own}` as const)
+    ? card.computer
+      ? (`noAi.notSignedInOn.${card.own}` as const)
+      : (`noAi.notSignedIn.${card.own}` as const)
     : card.signedOut
       ? "noAi.signedOut"
       : card.missing === "cli_missing"
@@ -640,7 +646,7 @@ export function gateLine(
     edition: Edition | null;
     kind: MachineAccountKind;
     computer: string;
-    machine?: Partial<Pick<Machine, "lastSeenAt" | "kind">> | null;
+    machine?: Partial<Pick<Machine, "lastSeenAt" | "kind" | "cliErrors">> | null;
     hold?: string | null;
     now?: number;
   },
@@ -676,6 +682,8 @@ export function gateLine(
     };
   if (gate.reason === "keys") return { text: t("aiAccounts.connect.needs.keys"), rechecks };
   if (gate.reason === "tool_off") return { text: t("brain.reasons.tool_offOne", { computer, program }), rechecks };
+  if (gate.reason === "cant_start" && machine?.cliErrors?.[kind] === CLI_HOME_ONLY)
+    return { text: t("brain.reasons.home_only", { computer, program }), rechecks };
   return { text: t(`brain.reasons.${gate.reason}`, { computer, program }), rechecks };
 }
 

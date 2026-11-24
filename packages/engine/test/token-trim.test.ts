@@ -10,6 +10,7 @@ import {
   createAgent,
   createBlockToolSource,
   createContextToolSource,
+  createCredential,
   createJobHandlers,
   createWorkToolSource,
   drainOutbox,
@@ -363,25 +364,67 @@ test("B12: a compaction that removes old results keeps every cut one's text whol
   expect([...(fitted?.removed ?? [])].some((id) => results.get(id)?.content.startsWith("[Result removed"))).toBe(true);
 });
 
+/** Fixture @dev thinking with an OpenAI model (`f.openaiProvider` answers). */
+async function devOnOpenAi(fx: Fixture) {
+  const key = await createCredential(fx.db, fx.keyWrapper, fx.owner.id, fx.org.id, {
+    provider: "openai",
+    label: "openai",
+    apiKey: "sk-proj-openai-9999",
+  });
+  await fx.db
+    .update(schema.agents)
+    .set({ model: "gpt-6-sol", credentialId: key.id })
+    .where(eq(schema.agents.id, fx.agent.id));
+}
+
+const logPage = (i: number) => `log ${i}: ${"erro de conexão ".repeat(300)}`;
+
+/** An agent with a tool that reads long deploy log pages. */
+const logReads = () => ({
+  contextTools: true,
+  toolSources: [
+    {
+      name: "logs",
+      tools: async () => [
+        {
+          name: "read_log",
+          description: "Read a deploy log page.",
+          inputSchema: { type: "object", properties: { page: { type: "number" } }, additionalProperties: false },
+          scope: "context:read",
+          execute: async (input: Record<string, unknown>) => ({ content: logPage(Number(input.page)) }),
+        },
+      ],
+    },
+  ],
+});
+
+test("B12: on Claude's own API a run's history stays as sent: each call starts with the one before, nothing cut", async () => {
+  const reads = 14;
+  f = await setup({
+    ...logReads(),
+    reply: (_r, n) =>
+      n <= reads
+        ? { chunks: [], toolUses: [{ id: `toolu_read_${n}`, name: "read_log", input: { page: n } }] }
+        : { chunks: ["ok"] },
+  });
+  await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev lê os logs",
+  });
+  await drainOutbox(f.db, f.handlers);
+  const calls = agentCalls(f);
+  expect(calls.length).toBe(reads + 1);
+  // A thinking block reads back only after the same bytes: a cut moving every few steps dropped them all.
+  for (let i = 1; i < calls.length; i++) {
+    const before = JSON.stringify((calls[i - 1] as ModelRequest).messages).slice(0, -1);
+    expect(JSON.stringify((calls[i] as ModelRequest).messages).startsWith(before), `call ${i}`).toBe(true);
+  }
+  expect(JSON.stringify(calls.at(-1)?.messages)).not.toContain("reopens it whole");
+});
+
 test("B12: an agent that needs a cut tool result calls expand and reads it whole", async () => {
-  const log = (i: number) => `log ${i}: ${"erro de conexão ".repeat(300)}`;
   const reads = 9;
   f = await setup({
-    contextTools: true,
-    toolSources: [
-      {
-        name: "logs",
-        tools: async () => [
-          {
-            name: "read_log",
-            description: "Read a deploy log page.",
-            inputSchema: { type: "object", properties: { page: { type: "number" } }, additionalProperties: false },
-            scope: "context:read",
-            execute: async (input) => ({ content: log(Number(input.page)) }),
-          },
-        ],
-      },
-    ],
+    ...logReads(),
     reply: (_r, n) =>
       n <= reads
         ? { chunks: [], toolUses: [{ id: `toolu_read_${n}`, name: "read_log", input: { page: n } }] }
@@ -389,11 +432,15 @@ test("B12: an agent that needs a cut tool result calls expand and reads it whole
           ? { chunks: [], toolUses: [{ id: "toolu_expand", name: "expand", input: { item_id: "toolu_read_1" } }] }
           : { chunks: ["ok"] },
   });
+  // Claude's own API never cuts (above): another provider's does.
+  await devOnOpenAi(f);
   await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
     body: "@dev lê os logs",
   });
   await drainOutbox(f.db, f.handlers);
-  const calls = agentCalls(f);
+  const calls = f.openaiProvider.calls
+    .map((c) => c.request)
+    .filter((r) => (r.tools?.length ?? 0) > 0 && r.maxTokens > 0);
   const results = (r: ModelRequest) =>
     r.messages
       .flatMap((m) => (typeof m.content === "string" ? [] : m.content))
@@ -403,7 +450,7 @@ test("B12: an agent that needs a cut tool result calls expand and reads it whole
   expect(results(before)[0]?.content).toContain("expand toolu_read_1 reopens it whole");
   const last = calls.at(-1) as ModelRequest;
   const reopened = results(last).find((b) => b.toolUseId === "toolu_expand");
-  expect(reopened?.content).toBe(`Tool call read_log {"page":1}\n\nResult:\n${log(1)}`);
+  expect(reopened?.content).toBe(`Tool call read_log {"page":1}\n\nResult:\n${logPage(1)}`);
   // The run's transcript keeps every result whole; the request reads the old ones cut.
   const [row] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, f.agent.id));
   const kept = (row?.transcript as { messages: ModelMessage[] } | undefined)?.messages.slice(0, last.messages.length);

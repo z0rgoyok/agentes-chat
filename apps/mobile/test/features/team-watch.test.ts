@@ -27,7 +27,7 @@ test("a cause this build does not know opens nothing, here or on the web", () =>
   expect(notificationWebPath(n, "o1")).toBeNull();
 });
 
-test("the phone says the problem itself, once, and its card's button names the way out", () => {
+test("the phone says the problem itself, once, and its row opens the way out", () => {
   const read = (f: string) => readFileSync(new URL(`../../src/features/${f}`, import.meta.url), "utf8");
   // The title of the row, the card and the island: the cause's sentence in the reader's language, the server's own
   // for a cause this build doesn't know.
@@ -35,9 +35,19 @@ test("the phone says the problem itself, once, and its card's button names the w
   expect(title).toContain("const problem = teamWatchLine(t, n);");
   // Nothing under the title says it again, in the list or on the island.
   const screen = read("activity/ActivityScreen.tsx");
-  expect(screen).toMatch(/n\.kind === "team_watch"\s+\? ""/);
-  expect(read("island/NoticeIsland.tsx")).toContain('n.kind === "team_watch" ? "" : noticeLine(');
-  // The waiting card's one button is the cause's own ("Entrar de novo", "Reconectar"), "Abrir" only without one.
-  expect(screen).toContain("const button = found?.act");
-  expect(screen).toContain('card.kind === "limit" || found');
+  // An agent paused on its budget says its line in the title too.
+  expect(screen).toMatch(/n\.kind === "team_watch" \|\| n\.kind === "budget_paused"\s+\? ""/);
+  expect(read("island/NoticeIsland.tsx")).toContain(
+    'n.kind === "team_watch" || n.kind === "budget_paused" ? "" : noticeLine(',
+  );
+  // What waits is a row of the list with no button of its own (ADR 0218 §6): the row says the cause's sentence and a
+  // tap opens where it is fixed, on the web when the app has no screen for it.
+  const row = screen.slice(screen.indexOf("function WaitingRow("), screen.indexOf("function DecidedRequests("));
+  expect(row).toContain("const found = teamWatchOf(n);");
+  expect(row).toContain('card.kind === "limit" || found');
+  expect(row).toContain("notificationHref(n, ai)");
+  expect(row).toContain("const web = href ? null : notificationWebPath(n, orgId);");
+  expect(row).toContain("onPress={href || web ? open : undefined}");
+  expect(row).not.toContain("<Button");
+  expect(row).not.toContain("found?.act");
 });

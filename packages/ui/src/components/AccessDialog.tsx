@@ -62,6 +62,8 @@ export interface AccessDialogProps<L extends string = string> {
   labels: AccessDialogLabels;
   /** Before the buttons: another way to go ("Definir para a pasta…"). */
   footerStart?: ReactNode;
+  /** Who may only look: the list as it is, no way to add or change anyone, and Fechar alone. */
+  readOnly?: boolean;
   saving?: boolean;
   onSave: () => void;
   onClose: () => void;
@@ -75,6 +77,7 @@ function AccessRow({
   onChange,
   onRemove,
   removeLabel,
+  disabled,
 }: {
   subject: AccessSubject;
   value: string;
@@ -83,6 +86,7 @@ function AccessRow({
   onChange: (value: string) => void;
   onRemove?: () => void;
   removeLabel?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="ac-access__row ac-actrow">
@@ -91,7 +95,14 @@ function AccessRow({
         <span className="ac-access__name">{subject.name}</span>
         {subject.detail && <span className="ac-access__detail">{subject.detail}</span>}
       </span>
-      <Select size="sm" aria-label={label} value={value} onValueChange={onChange} options={options} />
+      <Select
+        size="sm"
+        aria-label={label}
+        value={value}
+        onValueChange={onChange}
+        options={options}
+        disabled={disabled || options.length < 2}
+      />
       {/* A slot in every row, so the levels line up whether or not this one can be taken out. */}
       <span className="ac-access__remove">
         {onRemove && (
@@ -118,6 +129,7 @@ export function AccessDialog<L extends string = string>({
   onLevelChange,
   labels,
   footerStart,
+  readOnly,
   saving,
   onSave,
   onClose,
@@ -137,31 +149,33 @@ export function AccessDialog<L extends string = string>({
       <Locked when={Boolean(saving)}>
         <DialogBody className="ac-access">
           {note && <p className="ac-access__note">{note}</p>}
-          <SearchSelect
-            value={undefined}
-            placeholder={labels.add}
-            aria-label={labels.add}
-            labels={{
-              search: labels.addSearch,
-              searchPlaceholder: labels.addSearch,
-              noResults: labels.noResults,
-              list: labels.addList,
-            }}
-            options={() =>
-              addable.map((s) => ({
-                value: s.id,
-                label: s.name,
-                description: s.detail,
-                leading: s.lead,
-                group: s.group,
-              }))
-            }
-            onValueChange={(id) => {
-              const subject = addable.find((s) => s.id === id);
-              const level = subject && levelsFor(subject).at(-1);
-              if (subject && level) onLevelChange(subject, level.value);
-            }}
-          />
+          {!readOnly && (
+            <SearchSelect
+              value={undefined}
+              placeholder={labels.add}
+              aria-label={labels.add}
+              labels={{
+                search: labels.addSearch,
+                searchPlaceholder: labels.addSearch,
+                noResults: labels.noResults,
+                list: labels.addList,
+              }}
+              options={() =>
+                addable.map((s) => ({
+                  value: s.id,
+                  label: s.name,
+                  description: s.detail,
+                  leading: s.lead,
+                  group: s.group,
+                }))
+              }
+              onValueChange={(id) => {
+                const subject = addable.find((s) => s.id === id);
+                const level = subject && levelsFor(subject).at(-1);
+                if (subject && level) onLevelChange(subject, level.value);
+              }}
+            />
+          )}
           <div className="ac-access__list">
             {base.map((b) => (
               <AccessRow
@@ -171,6 +185,7 @@ export function AccessDialog<L extends string = string>({
                 options={b.levels}
                 label={labels.levelOf(b.name)}
                 onChange={(v) => b.onChange(v as L)}
+                disabled={readOnly}
               />
             ))}
             {listed.map((s) => (
@@ -181,8 +196,9 @@ export function AccessDialog<L extends string = string>({
                 options={levelsFor(s)}
                 label={labels.levelOf(s.name)}
                 onChange={(v) => onLevelChange(s, v as L)}
-                onRemove={() => onLevelChange(s, null)}
+                onRemove={readOnly ? undefined : () => onLevelChange(s, null)}
                 removeLabel={labels.removeOf(s.name)}
+                disabled={readOnly}
               />
             ))}
           </div>
@@ -190,10 +206,18 @@ export function AccessDialog<L extends string = string>({
       </Locked>
       {/* Another way to go is the footer's note: Cancelar and Salvar stay one group, never split by it. */}
       <DialogFooter note={footerStart || undefined}>
-        <Button onClick={onClose}>{labels.cancel}</Button>
-        <Button variant="primary" loading={saving} disabled={saving} onClick={onSave}>
-          {labels.save}
-        </Button>
+        {readOnly ? (
+          <Button variant="primary" onClick={onClose}>
+            {labels.close}
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>{labels.cancel}</Button>
+            <Button variant="primary" loading={saving} disabled={saving} onClick={onSave}>
+              {labels.save}
+            </Button>
+          </>
+        )}
       </DialogFooter>
     </Dialog>
   );

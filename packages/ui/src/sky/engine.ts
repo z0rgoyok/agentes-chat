@@ -121,9 +121,17 @@ const REDUCE = "(prefers-reduced-motion: reduce)";
 export const prefersReducedMotion = () =>
   typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(REDUCE).matches;
 
-/** Every sky held still (`holdSkies`), and what each live sky does when that changes. */
+/** Every sky held still (`holdSkies`, or nobody looking: `holdSkiesWhileAway`), and what each live sky does then. */
 let held = false;
+let away = false;
 const onHold = new Set<() => void>();
+
+const setHeld = (next: { held?: boolean; away?: boolean }) => {
+  const before = held || away;
+  held = next.held ?? held;
+  away = next.away ?? away;
+  if (before !== (held || away)) for (const changed of onHold) changed();
+};
 
 /**
  * Holds every sky still, as with reduced motion: drawn once, and again on a resize or a theme change. For the Linux
@@ -132,12 +140,56 @@ const onHold = new Set<() => void>();
  * busy and made clicks slow.
  */
 export function holdSkies(hold = true) {
-  if (held === hold) return;
-  held = hold;
-  for (const changed of onHold) changed();
+  setHeld({ held: hold });
 }
 
-export const skiesHeld = () => held;
+export const skiesHeld = () => held || away;
+
+/** No key, click, touch or pointer move for this long: nobody is looking, the skies stand still. */
+export const SKY_IDLE_MS = 2 * 60_000;
+
+/**
+ * Holds the skies still while nobody looks: the page hidden, the window in the background, or no input for
+ * `SKY_IDLE_MS`. The first input, or the window coming forward, moves them again. A hidden desktop window keeps
+ * running its page (no throttling there), where each frame of a sky costs a core's time for nothing. Returns the stop.
+ */
+export function holdSkiesWhileAway(idleMs = SKY_IDLE_MS) {
+  let last = Date.now();
+  let idle = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const update = () => setHeld({ away: idle || document.hidden || !document.hasFocus() });
+  const check = () => {
+    const left = idleMs - (Date.now() - last);
+    if (left > 0) timer = setTimeout(check, left);
+    else {
+      idle = true;
+      timer = undefined;
+      update();
+    }
+  };
+  const active = () => {
+    last = Date.now();
+    if (timer === undefined) timer = setTimeout(check, idleMs);
+    if (!idle) return;
+    idle = false;
+    update();
+  };
+  const inputs = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"];
+  for (const name of inputs) window.addEventListener(name, active, { capture: true, passive: true });
+  window.addEventListener("focus", update);
+  window.addEventListener("blur", update);
+  document.addEventListener("visibilitychange", update);
+  active();
+  update();
+  return () => {
+    clearTimeout(timer);
+    for (const name of inputs) window.removeEventListener(name, active, { capture: true });
+    window.removeEventListener("focus", update);
+    window.removeEventListener("blur", update);
+    document.removeEventListener("visibilitychange", update);
+    setHeld({ away: false });
+  };
+}
 
 interface Sky {
   dirty: boolean;
@@ -190,7 +242,7 @@ export function startSky(canvas: HTMLCanvasElement, get: () => SkyOptions): () =
   if (!ctx || !parent) return () => {};
   const host: HTMLElement = parent;
   const motion = typeof window.matchMedia === "function" ? window.matchMedia(REDUCE) : null;
-  let reduced = held || motion?.matches === true;
+  let reduced = skiesHeld() || motion?.matches === true;
   let w = 0;
   let h = 0;
   let px = 0;
@@ -417,7 +469,7 @@ export function startSky(canvas: HTMLCanvasElement, get: () => SkyOptions): () =
   watchTheme();
   // The setting can change while the page is open: a still sky starts moving, a moving one stops.
   const onMotion = () => {
-    reduced = held || motion?.matches === true;
+    reduced = skiesHeld() || motion?.matches === true;
     sky.dirty = true;
     wake();
   };

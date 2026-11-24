@@ -4,7 +4,9 @@ import { atRule, builtCss, declarations } from "./built-css";
 
 const WIDE = "@media (min-width: 941px) and (min-height: 560px)";
 const NARROW = "@media (max-width: 940px)";
-const SPLIT_PAGES = ["src/pages/ApprovalsPage.tsx", "src/pages/ProposalsPage.tsx", "src/pages/SettingsPage.tsx"];
+// The pages with a list or a nav beside what it opens (requests are decided in the inbox, which has its own columns:
+// ADR 0218).
+const SPLIT_PAGES = ["src/pages/ProposalsPage.tsx", "src/pages/SettingsPage.tsx"];
 
 test("a list beside what it opens: each column scrolls on its own, and under half the work area the columns keep its height and the page scrolls to them; narrower the columns stack, and shorter the page scrolls", async () => {
   const css = await builtCss("src/styles.css", "src/pages/approvals.css");
@@ -24,7 +26,7 @@ test("a list beside what it opens: each column scrolls on its own, and under hal
   expect(column).toContainEqual(["overscroll-behavior-x", "contain"]);
   expect(column.filter(([p]) => p === "overscroll-behavior" || p === "overscroll-behavior-y")).toEqual([]);
   expect(declarations(wide, ".shell__main .page-split>*>*")).toContainEqual(["flex-shrink", "0"]);
-  // The open request's column runs out over the page's side room to the work area's edge, by the page's own token.
+  // The open proposal's column runs out over the page's side room to the work area's edge, by the page's own token.
   const review = declarations(wide, ".page-split>.ap-review");
   expect(review).toContainEqual(["margin-right", "calc(-1 * var(--page-x))"]);
   expect(review).toContainEqual(["padding-right", "var(--page-x)"]);

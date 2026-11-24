@@ -26,6 +26,8 @@ export interface DeliverNoticeInput {
   readOutside?: boolean;
   /** The run it is for or about: a notice of a confidential thread's run is that thread's (ADR 0190). */
   forRunId?: string;
+  /** The run the agent goes on from, the notice coming back where it answered: its run answers there (`placeAfter`). */
+  after?: Pick<AgentRun, "threadRootId" | "replyInThread">;
 }
 
 /**
@@ -57,7 +59,15 @@ export async function deliverNotice(
     meta: { notice: input.notice, ...(input.readOutside ? { readOutside: true } : {}) },
   });
   const wake = input.wake !== false && !SELF_REPORT_NOTICES.includes(input.notice.kind);
-  const runs = wake ? await createAgentRuns(tx, message, [input.agentId], input.trigger ?? "mention") : [];
+  const runs = wake
+    ? await createAgentRuns(
+        tx,
+        message,
+        [input.agentId],
+        input.trigger ?? "mention",
+        input.after ? { after: input.after } : {},
+      )
+    : [];
   return { message, runs };
 }
 

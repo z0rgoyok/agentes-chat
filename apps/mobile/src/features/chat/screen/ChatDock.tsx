@@ -1,4 +1,3 @@
-import type { ConnectionStatus } from "@agenteschat/client";
 import { canTalk } from "@agenteschat/client/lib/audience";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ComponentProps, ComponentRef, RefObject } from "react";
@@ -6,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { KeyboardStickyView, type useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { type SharedValue } from "react-native-reanimated";
-import { Button, Text } from "@/ui";
+import { Button, padPastFold, Text, useFoldRoom } from "@/ui";
 import { ComposerFloat, type ComposerFloatSlot } from "@/ui/Composer";
 import { useColors } from "../../shared/hooks";
 import { type useAwayAsk, WaitingHereBar } from "../asks";
@@ -17,10 +16,11 @@ import { insertRef, refQuery } from "../mentions";
 import { NoAiBanner } from "../NoAiBanner";
 import type { noAiBanner } from "../no-ai-banner";
 import { AgentLocked, UnavailableLines } from "../ReachLines";
+import { TeamStalledLine } from "../TeamStalledLine";
 import { withOpacity } from "../turn";
 import type { ListPlacement } from "./ChatList";
 import { DOCK_SIDE } from "./constants";
-import { ChatComposer, Connection, FarGate, ToLatest } from "./parts";
+import { ChatComposer, FarGate, ToLatest } from "./parts";
 import type { ChatData } from "./useChatData";
 import type { ChatRows } from "./useChatRows";
 import type { ChatSend } from "./useChatSend";
@@ -36,7 +36,9 @@ type AnimatedViewStyle = ComponentProps<typeof Animated.View>["style"];
 /**
  * The conversation's dock, riding the keyboard: the agent peeking from behind it, the way back to the latest messages,
  * the "@" picker, and the composer's box with what stands over the field (the connection, a missing AI, who won't
- * answer, a request out of view, who works while there is no conversation yet) or what stands in its place.
+ * answer, a request out of view, who works while there is no conversation yet) or what stands in its place. A
+ * conversation shown over the whole window folded like a book keeps the picker and what is in the box to the half past
+ * the fold, the box's background still across the screen (ADR 0212); in a pane they stay as they are.
  */
 export function ChatDock({
   lift,
@@ -61,7 +63,6 @@ export function ChatDock({
   wallSize,
   backdrop,
   keyboardAt,
-  realtime,
   banner,
   org,
   notices,
@@ -173,7 +174,6 @@ export function ChatDock({
     bottomPad: number;
     wallSize: { width: number; height: number } | null;
     keyboardAt: ReturnType<typeof useReanimatedKeyboardAnimation>;
-    realtime: ConnectionStatus;
     banner: ReturnType<typeof noAiBanner>;
     awayAsk: ReturnType<typeof useAwayAsk>;
     meId: string | null;
@@ -185,6 +185,7 @@ export function ChatDock({
   }) {
   const { t } = useTranslation();
   const c = useColors();
+  const room = useFoldRoom();
   return (
     <KeyboardStickyView offset={{ opened: lift }} style={styles.composerDock} pointerEvents="box-none">
       {/* First in the dock, so everything in it draws over the face. Unseen until a pull past the end: it
@@ -207,10 +208,17 @@ export function ChatDock({
       ) : null}
       {/* The "@" picker, right above the box and outside it: the box's height insets the list, and the picker
           comes and goes with each key typed. */}
-      <Animated.View style={[styles.float, floatRest]} pointerEvents="box-none">
-        <ComposerFloat slot={composerFloat} />
-      </Animated.View>
-      <View ref={composerRef} onLayout={onComposerBoxLayout} style={[styles.composer, { paddingBottom: bottomPad }]}>
+      {/* Its rest padding moves on the UI thread with the keyboard; the fold's room is added around it. */}
+      <View pointerEvents="box-none" style={room && padPastFold(room, 0)}>
+        <Animated.View style={[styles.float, floatRest]} pointerEvents="box-none">
+          <ComposerFloat slot={composerFloat} />
+        </Animated.View>
+      </View>
+      <View
+        ref={composerRef}
+        onLayout={onComposerBoxLayout}
+        style={[styles.composer, { paddingBottom: bottomPad }, room && padPastFold(room, DOCK_SIDE)]}
+      >
         {/* The conversation fades under the box: no hard edge above it. Over a background, into the
             background itself. */}
         {walled && wallSize ? (
@@ -230,8 +238,8 @@ export function ChatDock({
             <View style={[styles.grow, { backgroundColor: c.bg }]} />
           </View>
         )}
-        <Connection status={realtime} />
         {banner && !org?.deletion ? <NoAiBanner banner={banner} /> : null}
+        {channel?.name === "general" && !threadId && !dmAgentId && !org?.deletion ? <TeamStalledLine /> : null}
         <UnavailableLines notices={notices} />
         {/* A request waiting out of view, with "Ver" (and the working line's stop while one agent works).
             Who is working sits here only while there is no conversation yet: once there is one, it is the

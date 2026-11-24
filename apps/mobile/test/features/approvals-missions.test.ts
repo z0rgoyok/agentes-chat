@@ -559,18 +559,34 @@ describe("several requests on one card", () => {
   });
 });
 
-describe("a request's sheet on the phone", () => {
+describe("a request's screen on the phone", () => {
   const read = (path: string) => readFileSync(join(import.meta.dir, "../../src/features", path), "utf8");
+  /** The request's screen cut between two of its own lines, both of which must be there. */
+  const between = (sheet: string, from: string, to: string) => {
+    const start = sheet.indexOf(from);
+    const end = sheet.indexOf(to, start);
+    expect({ from, found: start >= 0 }).toEqual({ from, found: true });
+    expect({ to, found: end > start }).toEqual({ to, found: true });
+    return sheet.slice(start, end);
+  };
 
   test("whether it can be undone is a chip after the title, not a line in the foot; what it touches stays there", () => {
     const sheet = read("approvals/ApprovalSheet.tsx");
-    const who = sheet.slice(sheet.indexOf("const who = ("), sheet.indexOf("const refusal = ("));
+    const who = between(sheet, "const who = (", "// The decision stays at the screen's foot");
     // The title, then the chip on its last line while it fits (a wrapping line), never cut.
+    expect(who).toContain('<Text variant="title2" style={styles.shrink}>');
     expect(who.indexOf("<ApprovalUndoChip approval={a} />")).toBeGreaterThan(who.indexOf("approvalTitleText(t, a)"));
     expect(who).not.toContain("numberOfLines");
     expect(sheet).toContain('titleLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8');
-    // Where and the fuse go under the face and the title at the sheet's width: never a column beside them.
-    expect(who.indexOf("<View style={styles.whereRow}>")).toBeGreaterThan(who.indexOf("</View>\n        </View>"));
+    // The agent stands on its sky over the page (ADR 0218 §6); where and the fuse, then the title, each at the
+    // screen's width: never a column beside a face.
+    expect(who.indexOf("<View style={styles.whereRow}>")).toBeGreaterThan(-1);
+    expect(who.indexOf("<View style={styles.whereRow}>")).toBeLessThan(who.indexOf("<View style={styles.titleLine}>"));
+    expect(who).toContain("{pending ? <ExpiryLine createdAt={a.createdAt} expiresAt={a.expiresAt} /> : null}");
+    expect(who).not.toContain("Face");
+    const page = sheet.slice(sheet.lastIndexOf("return ("));
+    expect(page.indexOf("<OpenItemHead agentId={a?.agentId ?? null} grouped />")).toBeGreaterThan(-1);
+    expect(page.indexOf("<OpenItemHead")).toBeLessThan(page.indexOf("{body}"));
     expect(sheet).toContain(".filter((tr) => tr !== undo)");
     const parts = read("approvals/parts.tsx");
     expect(parts).toContain("const { undo } = approvalEffects(a);");
@@ -578,12 +594,50 @@ describe("a request's sheet on the phone", () => {
     expect(parts).toContain("label={t(`mobile.approval.trait.${undo}`)}");
   });
 
-  test("Aprovar sempre's switch says what it covers behind its ⓘ: no paragraph under it, the sheet ends on its buttons", () => {
+  test("Aprovar sempre's switch says what it covers behind its ⓘ: no paragraph under it, the request ends on its rows", () => {
     const sheet = read("approvals/ApprovalSheet.tsx");
-    const next = sheet.slice(sheet.indexOf('t("mobile.approval.sheet.nextTime")'), sheet.indexOf("{pending ? ("));
+    const next = between(sheet, 't("mobile.approval.sheet.nextTime")', "const dock = decision ? (");
     expect(next).toContain("toggle={always}");
     expect(next).toContain('text: approveAlwaysHint(t, a, name || t("channel.unknownAgent"))');
     expect(next).not.toContain("GroupedFooter");
+    // The buttons are no longer the content's last lines: they stay at the screen's foot (the next test).
+    expect(next).not.toContain("<Button");
+    expect(next).not.toContain("<HoldButton");
+  });
+
+  test("the decision stays at the screen's foot while the request scrolls: Recusar and Aprovar, held for high risk", () => {
+    const sheet = read("approvals/ApprovalSheet.tsx");
+    // A pushed screen with the system's back, never a sheet (ADR 0218 §6); its dock is pinned over what scrolls, and
+    // the content ends clear of it.
+    expect(sheet).toContain(
+      '<PushedLargeTitle title="" collapsed grouped keyboard bottomInset={dock ? 140 : 24} dock={dock}>',
+    );
+    expect(sheet).toMatch(/dock: \{\s*position: "absolute",\s*left: 0,\s*right: 0,\s*bottom: 0,/);
+    expect(sheet).toContain("paddingBottom: insets.bottom + 12");
+    const decision = between(sheet, "if (!refusing)", "body = refusing ? (");
+    expect(decision.indexOf('label={t("mobile.approval.refuse")}')).toBeGreaterThan(-1);
+    expect(decision.indexOf('label={t("mobile.approval.refuse")}')).toBeLessThan(decision.indexOf("<HoldButton"));
+    expect(decision).toMatch(/\{high \? \(\s*<HoldButton\s+label=\{t\("mobile\.approval\.hold"\)\}/);
+    expect(decision).toContain('onConfirm={() => done("approve", always)}');
+    expect(decision).toContain('onPress={() => done("approve", always)}');
+    // Who may not decide reads who can; a request already decided, how it ended; one scheduled, when it runs.
+    expect(decision).toContain('t("mobile.approval.onlyAdmins")');
+    expect(decision).toContain('aheadPhase(a) === "scheduled" && runAt');
+    expect(decision).toContain("cancelAhead.cancel(a.id, onClose)");
+    // Writing a refusal's reason, the dock leaves: the field's own buttons are under it.
+    expect(sheet).toContain("let decision: ReactNode = null;");
+    expect(sheet).toContain("const dock = decision ? (");
+  });
+
+  test("the foot shows one ending at a time: the choice between them is code, never words on the screen", () => {
+    const sheet = read("approvals/ApprovalSheet.tsx");
+    const decision = between(sheet, "if (!refusing)", "body = refusing ? (");
+    // Pending or not, who may decide, scheduled or over: each a condition in braces or the assignment itself. Written
+    // as a fragment's own text, every ending would draw at once with the conditions as loose words between them.
+    expect(decision).toMatch(/(decision =|\{)\s*pending \? \(/);
+    expect(decision).not.toMatch(/<>\s*pending \?/);
+    // What it asks with is imported, as on the conversation's cards.
+    expect(sheet).toMatch(/import \{[^}]*\baheadPhase\b[^}]*\} from "@agenteschat\/client\/lib\/approval-kind";/);
   });
 
   test("the undo trait it shows: a merge can be undone, a delete can't, and the foot keeps what it touches", () => {

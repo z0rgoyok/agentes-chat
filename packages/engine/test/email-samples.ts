@@ -416,6 +416,19 @@ export const EMAIL_SAMPLES: Record<string, EmailTemplate> = {
     now: { mode: "everyone", names: [] },
     url: `${APP}/org/${ORG}/agents/${ORG}?tab=settings&sec=audience`,
   },
+  /** An admin let everyone be answered on a teammate's Claude account that answered only its agents' owners. */
+  "account_opened.pt-BR": {
+    kind: "account_opened",
+    locale: "pt-BR",
+    orgName: "Padaria Souza",
+    byName: "Carlos Souza",
+    account: "Trabalho",
+    plan: "Claude",
+    right: "reply",
+    was: { mode: "owner", names: [] },
+    now: { mode: "everyone", names: [] },
+    url: `${APP}/org/${ORG}/settings/usage`,
+  },
   /** An admin gave an agent a teammate's Claude plan (`use_others_plans`). */
   "plan_lent.pt-BR": {
     kind: "plan_lent",

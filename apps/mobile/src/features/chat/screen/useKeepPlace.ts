@@ -161,6 +161,8 @@ export function useKeepPlace({
   return {
     freeze,
     leavePlace,
+    // Where the person is, for the same conversation opened on the other display (ADR 0212, `reading-place.ts`).
+    placeNow,
     stickers,
   };
 }

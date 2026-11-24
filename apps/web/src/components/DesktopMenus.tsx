@@ -4,7 +4,7 @@ import { MenuAt, MenuHeading, MenuItem, MenuReactions, MenuSeparator } from "@ag
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { NEW_AGENT_EVENT } from "@/components/new-agent/NewAgentDialog";
+import { NEW_AGENT_EVENT } from "@/components/new-agent/events";
 import {
   copyText,
   keepsSystemMenu,
@@ -16,10 +16,10 @@ import {
 } from "@/lib/context-menu";
 import { inDesktopApp, thisMac } from "@/lib/desktop";
 import { useToast } from "@/lib/toast";
-import { openPalette } from "./CommandMenu";
 import { useNavDrawer } from "./NavDrawer";
 import { useOrg } from "./org-context";
-import { NEW_CHANNEL_EVENT, toggleSidebar } from "./Sidebar";
+import { openPalette } from "./palette";
+import { NEW_CHANNEL_EVENT, toggleSidebar } from "./sidebar-state";
 
 /**
  * The right click: draws our menu when a screen opens one (a message, a channel). In the desktop app links and empty

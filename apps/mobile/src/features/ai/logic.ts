@@ -31,6 +31,7 @@ import {
   signInOf,
   unnamedAccount,
 } from "@agenteschat/client/lib/ai-accounts";
+import { type AiChoice, aiChoiceBrainInput } from "@agenteschat/client/lib/ai-choice";
 import { thinksWith } from "@agenteschat/client/lib/brain";
 import { type Advanced, advancedDefaults, advancedParts } from "@agenteschat/client/lib/brain-advanced";
 import {
@@ -404,7 +405,8 @@ export function newAgentAi(thinks: NewAgentStart | null): {
   model: string;
   credentialId: string | null;
   contextTokens: number | null;
-  plan: { machineId: string; input: AgentBrainInput } | null;
+  /** Saved right after (on `machineId` first, when there is one). */
+  plan: { machineId: string | null; input: AgentBrainInput } | null;
   autonomy: NewAgentStart["autonomy"] | undefined;
   /** A plan to connect once the agent exists (`pickedAi`). */
   connect: PlanChoice | null;
@@ -447,6 +449,53 @@ export function pickedAi(
     model: AUTO,
     plan: { machineId: pick.machineId, input: brainPickInput(pick) },
     connect: needsOwnSignIn(computers, pick) ? planOfKind(pick.kind) : null,
+  };
+}
+
+/**
+ * What Criar agente's "Quem pensa" shows before anything is picked there, as the web's: a plan account it starts on
+ * (`plan`), else the last setup, else Automático on the API when something runs it (`anyModel`); null: nothing thinks.
+ */
+export function newAgentChoice(
+  plan: BrainPick | undefined,
+  start: NewAgentStart | null,
+  anyModel: boolean,
+): AiChoice | null {
+  if (plan && "machineId" in plan)
+    return { brain: plan.kind, machineId: plan.machineId, account: plan.accountId ?? null, model: null };
+  if (start?.brain === "model") return { brain: "model", model: start.model, key: start.key };
+  if (start)
+    return {
+      brain: start.brain,
+      machineId: start.machineId,
+      account: start.account?.id ?? null,
+      model: start.input.model ?? null,
+      ...(start.input.effort !== undefined ? { effort: start.input.effort } : {}),
+    };
+  return anyModel ? { brain: "model", model: AUTO, key: null } : null;
+}
+
+/**
+ * What a choice made in Criar agente's "Quem pensa" sends, as the web's: the API's model and key at creation (its
+ * effort right after); or Automático there and the plan saved right after, on its computer.
+ */
+export function chosenAi(
+  choice: AiChoice,
+  autonomy: NewAgentStart["autonomy"] | undefined,
+): ReturnType<typeof newAgentAi> {
+  const none = { contextTokens: null, autonomy, connect: null };
+  if (choice.brain === "model")
+    return {
+      ...none,
+      model: choice.model ?? AUTO,
+      credentialId: choice.key ?? null,
+      plan: choice.effort != null ? { machineId: null, input: { effort: choice.effort } } : null,
+    };
+  return {
+    ...none,
+    model: AUTO,
+    credentialId: null,
+    plan: { machineId: choice.machineId ?? null, input: aiChoiceBrainInput(choice) },
   };
 }
 

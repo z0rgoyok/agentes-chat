@@ -6,6 +6,7 @@ import { caches } from "../cache";
 import { type ConnectorEventId, connectorEventsOf } from "../connector-triggers";
 import { randomToken, sealSecret, sha256 } from "../crypto";
 import { ConflictError, isUniqueViolation, NotFoundError, ValidationError } from "../errors";
+import { valueAtPath } from "../format";
 import type { Judge } from "../judge";
 import { oneLine } from "../mail/text";
 import { assertPublicHttpsUrl } from "../net-guard";
@@ -382,11 +383,6 @@ export interface ProviderAccount {
   name: string | null;
 }
 
-const at = (value: unknown, path: string) =>
-  path
-    .split(".")
-    .reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), value);
-
 /**
  * What a preset's account tool answers (JSON), as one account: the ids of all it lists, sorted and joined, and their
  * names in that order on one line; without `list`, the one account it answers (Composio's answer may hold it in
@@ -400,15 +396,15 @@ export function accountFrom(spec: AccountSpec, result: McpCallResult): ProviderA
   } catch {
     return null;
   }
-  const list = spec.list ? at(data, spec.list) : [at(data, "response_data") ?? data];
+  const list = spec.list ? valueAtPath(data, spec.list) : [valueAtPath(data, "response_data") ?? data];
   if (!Array.isArray(list) || list.length === 0) return null;
   const accounts = new Map<string, string>();
   for (const entry of list) {
-    const parts = spec.id.map((path) => at(entry, path));
+    const parts = spec.id.map((path) => valueAtPath(entry, path));
     if (typeof parts[0] !== "string" || !parts[0].trim() || parts.some((v) => v === undefined || v === null)) {
       return null;
     }
-    const name = at(entry, spec.name);
+    const name = valueAtPath(entry, spec.name);
     accounts.set(parts.map((v) => String(v).trim()).join(":"), typeof name === "string" ? name.trim() : "");
   }
   const ids = [...accounts.keys()].sort();
@@ -828,6 +824,7 @@ export async function syncCustomTools(deps: CustomDeps, c: ConnectorConnection) 
     .set({ updatedAt: new Date(), ...(c.status === "needs_reconnect" ? {} : { lastError: null }) })
     .where(eq(connectorConnections.id, c.id));
   caches.connections.delete(`${c.orgId}:active`);
+  caches.connections.delete(toolsKey(c));
   await refreshServerIcon(deps, c, info).catch(() => {});
 }
 
@@ -977,12 +974,14 @@ export async function beginMcpOAuth(
   const redirectUri = oauthRedirectUri(deps.publicUrl);
   // Worked out again each time: a client still in use keeps the scope it was registered with, maybe without
   // offline_access.
-  const scope = oauthScope(meta, input.scopes);
-  const client = await ensureOAuthClient(deps, orgId, input.issuer, meta, { redirectUri, scope });
+  const asked = oauthScope(meta, input.scopes);
+  const client = await ensureOAuthClient(deps, orgId, input.issuer, meta, { redirectUri, scope: asked });
   if (client && "notApproved" in client) {
     return { status: "needs_key", reason: "not_approved", ...(client.detail ? { detail: client.detail } : {}) };
   }
   if (!client) return { status: "needs_key" };
+  // An admin's own app asks for the scopes they typed, when they typed any.
+  const scope = (client.providedByPerson && client.scope) || asked;
   const state = randomToken(32);
   const verifier = randomToken(48);
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -1100,15 +1099,24 @@ export async function saveCustomTools(
     });
   });
   caches.connections.delete(`${orgId}:active`);
+  caches.connections.delete(toolsKey(c));
   caches.scopes.deletePrefix(`${orgId}:`);
   return serverView(deps.db, orgId, id);
 }
 
-/** Classified, still-listed tools of a custom connection (the tool source exposes only these). */
-export async function classifiedTools(db: Database, connectionId: string) {
-  const rows = await toolRows(db, [connectionId]);
+/**
+ * Classified, still-listed tools of a custom connection (the tool source exposes only these), read for every run's
+ * tool list: kept as `caches.connections`' `orgId:tools:id`, forgotten by a listing that stores new tools
+ * (`syncCustomTools`) and by an admin's classification (`saveCustomTools`).
+ */
+export async function classifiedTools(db: Database, connection: { id: string; orgId: string }) {
+  const rows = (await caches.connections.getOrLoad(toolsKey(connection), () =>
+    toolRows(db, [connection.id]),
+  )) as ToolRow[];
   return rows.filter((t) => ACCESS.includes(t.access as ToolAccess));
 }
+
+const toolsKey = (c: { id: string; orgId: string }) => `${c.orgId}:tools:${c.id}`;
 
 /**
  * Applies our suggestion to every tool not classified yet (admins), in one

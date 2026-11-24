@@ -1,36 +1,21 @@
-import { type ConnectionStatus, useMarkChannelRead, useMarkThreadRead, useThreadActivity } from "@agenteschat/client";
+import { useMarkChannelRead, useMarkThreadRead, useThreadActivity } from "@agenteschat/client";
 import { listNames } from "@agenteschat/client/lib/activity";
-import { type ComponentProps, memo, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
+import { type ComponentProps, memo, type ReactNode, useEffect, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { KeyboardGestureArea } from "react-native-keyboard-controller";
-import Animated, { FadeIn, FadeInDown, FadeOut } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useAppActive } from "@/lib/useAppActive";
-import {
-  Composer,
-  type ComposerProps,
-  Count,
-  Icon,
-  LineIcon,
-  PressScale,
-  Text,
-  useReducedMotion,
-  useTheme,
-} from "@/ui";
-import { useColors, useDirectory } from "../../shared/hooks";
+import { Composer, type ComposerProps, Count, Icon, PressScale, useTheme } from "@/ui";
+import { usePane } from "@/ui/pane";
+import { useDirectory } from "../../shared/hooks";
 import { useVoiceComposer } from "../../voice/useVoiceComposer";
 import type { VoiceTarget } from "../../voice/useVoiceTake";
 import { ChannelWelcome } from "../ChannelWelcome";
 import type { DockHeight } from "../dock-height";
 import { readMark } from "../logic";
 import type { Unseen } from "../scroll";
-import { withOpacity } from "../turn";
 import { useValueOf, type ValueStore } from "./hooks";
-
-/** A dropped connection shows only past this long (a quick reconnect says nothing). */
-const OFFLINE_AFTER_MS = 1200;
-/** "Conectado de novo" stays this long. */
-const BACK_ONLINE_MS = 1600;
 
 /** The dock's height where it is drawn (`DockHeight`): what reads it redraws, not the conversation around it. */
 const useDockHeight = (dock: DockHeight) => useSyncExternalStore(dock.subscribe, dock.get, dock.get);
@@ -39,12 +24,14 @@ const useDockHeight = (dock: DockHeight) => useSyncExternalStore(dock.subscribe,
  * The keyboard's gesture area around the conversation and its dock, its offset the dock's room above the keys: on
  * Android the keyboard starts following a drag there. No `textInputNativeID`: with it the composer could stay down while
  * the keyboard was up (iOS 26); without it iOS takes no offset (the keyboard follows the finger from its own top edge).
- * The offset is whole points: a fractional one made the overscroll glitch.
+ * The offset is whole points: a fractional one made the overscroll glitch. In a pane whose foot stands above the
+ * window's (ADR 0212), `lift` holds that distance too, which is no part of the dock.
  */
 export function DockGestureArea({ dock, lift, children }: { dock: DockHeight; lift: number; children: ReactNode }) {
   const height = useDockHeight(dock);
+  const below = usePane()?.below ?? 0;
   return (
-    <KeyboardGestureArea style={styles.grow} interpolator="ios" offset={Math.round(Math.max(0, height - lift))}>
+    <KeyboardGestureArea style={styles.grow} interpolator="ios" offset={Math.round(Math.max(0, height - lift + below))}>
       {children}
     </KeyboardGestureArea>
   );
@@ -202,47 +189,6 @@ export function ToLatest({ unseen, onPress }: { unseen: Unseen; onPress: () => v
 }
 
 /**
- * The connection, above the composer: "No connection. What you send goes out on its own when it's back." while it is
- * down (a quick reconnect says nothing), then "Connected again" for a moment.
- */
-export function Connection({ status }: { status: ConnectionStatus }) {
-  const { t } = useTranslation();
-  const c = useColors();
-  const reduced = useReducedMotion();
-  const down = status === "reconnecting" || status === "closed";
-  const [shown, setShown] = useState<"down" | "back" | null>(null);
-  useEffect(() => {
-    if (down) {
-      const id = setTimeout(() => setShown("down"), OFFLINE_AFTER_MS);
-      return () => clearTimeout(id);
-    }
-    if (status === "open") setShown((s) => (s === "down" ? "back" : s));
-  }, [down, status]);
-  useEffect(() => {
-    if (shown !== "back") return;
-    const id = setTimeout(() => setShown(null), BACK_ONLINE_MS);
-    return () => clearTimeout(id);
-  }, [shown]);
-  if (!shown) return null;
-  const back = shown === "back";
-  return (
-    <Animated.View
-      key={shown}
-      entering={reduced ? undefined : FadeInDown.duration(220)}
-      exiting={reduced ? undefined : FadeOut.duration(160)}
-      accessibilityLiveRegion="polite"
-      style={[styles.conn, { backgroundColor: back ? withOpacity(c.ok, 0.14) : c.warnSoft }]}
-    >
-      {/* On the first line: the offline sentence wraps, and centred on both lines the icon floated between them. */}
-      <LineIcon variant="small" name={back ? "check" : "wifi"} size={15} color={back ? c.ok : c.warn} />
-      <Text variant="small" style={[styles.connText, { color: back ? c.ok : c.warn }]}>
-        {back ? t("mobile.chat.connection.back") : t("mobile.chat.connection.down")}
-      </Text>
-    </Animated.View>
-  );
-}
-
-/**
  * The round button's place (`ToLatest`): shown when the screen says so (`shown`), or away from the end and more than a
  * screen up (`far`, read here: crossing that line redraws this alone).
  */
@@ -274,18 +220,4 @@ const styles = StyleSheet.create({
   jump: { width: 40, height: 40, borderRadius: 20 },
   jumpIcon: { flex: 1, alignItems: "center", justifyContent: "center" },
   jumpCount: { position: "absolute", top: -6, right: -6, borderWidth: 2, borderRadius: 999 },
-  conn: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    marginHorizontal: 4,
-    marginBottom: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    borderBottomRightRadius: 10,
-    borderBottomLeftRadius: 3,
-  },
-  connText: { flexShrink: 1, fontWeight: "600" },
 });

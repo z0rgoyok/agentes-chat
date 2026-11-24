@@ -1,6 +1,6 @@
 import { TrueSheetOverlay } from "@lodev09/react-native-true-sheet";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { type AccessibilityActionEvent, StyleSheet, View } from "react-native";
+import { type AccessibilityActionEvent, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,12 +8,14 @@ import { scheduleOnRN } from "react-native-worklets";
 import { AgentAvatar } from "@/agent/AgentAvatar";
 import { type AgentLookInput, lookOf } from "@/agent/looks";
 import { CodeWords } from "./CodeWords";
+import { activeWindowFold, toastInsets } from "./fold-room";
 import { Glass } from "./Glass";
 import { haptics } from "./haptics";
 import { Icon, type IconName } from "./Icon";
 import { PRESS_DELAY } from "./PressScale";
 import { type ToastTone, toastToneOf, toneColor } from "./palette";
 import { Text } from "./Text";
+import { useWindowFold } from "./TwoPane";
 import { motion, useTheme } from "./theme";
 import { CHROME_MAX_SCALE, weights } from "./type-scale";
 
@@ -110,14 +112,21 @@ export function ToastHost({ children }: { children?: ReactNode }) {
  * presents (the app's sheets are all TrueSheet) and that VoiceOver still reaches while a sheet is up. Mounted only
  * while a toast shows, so it is put on top of whatever is on screen then (a screen presented whole included); touches
  * that miss the toast go through to what is under it. Gestures need a root of their own there, as tall as the toast
- * alone: on Android a touch passes through only where no view of the layer is.
+ * alone: on Android a touch passes through only where no view of the layer is. The overlay fills the window, so the
+ * window's fold applies as it is: folded like a book, the toast keeps to the half past the fold (ADR 0212).
  */
 function ToastLayer({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const sides = toastInsets(width, activeWindowFold(useWindowFold()));
   return (
     <TrueSheetOverlay>
-      {/* As wide as the screen, the capsule centered in it: only the capsule takes a touch, the sides let it through. */}
-      <GestureHandlerRootView pointerEvents="box-none" style={[styles.layer, { top: insets.top + 6 }]}>
+      {/* As wide as the screen (or the half past the fold), the capsule centered in it: only the capsule takes a
+          touch, the sides let it through. */}
+      <GestureHandlerRootView
+        pointerEvents="box-none"
+        style={[styles.layer, { top: insets.top + 6, left: sides.left, right: sides.right }]}
+      >
         {children}
       </GestureHandlerRootView>
     </TrueSheetOverlay>
@@ -333,9 +342,9 @@ function rubberband(overshoot: number, dimension = 80, constant = 0.55) {
 }
 
 const styles = StyleSheet.create({
-  // Under the status bar, 12 from the screen's sides; as tall as the toast.
-  layer: { position: "absolute", left: 12, right: 12, alignItems: "center" },
-  // As wide as its words (a one-line toast is a pill), up to the screen's width.
+  // Under the status bar, 12 from the screen's sides (`toastInsets`); as tall as the toast.
+  layer: { position: "absolute", alignItems: "center" },
+  // As wide as its words (a one-line toast is a pill), up to the layer's width.
   box: { borderRadius: TOAST_R, maxWidth: "100%" },
   glass: {
     borderRadius: TOAST_R,

@@ -17,7 +17,7 @@ import {
   planState,
   planWindows,
 } from "../src";
-import { planBinding } from "../src/plan-state";
+import { aroundOwnSignIn, planBinding } from "../src/plan-state";
 
 afterEach(() => cleanup());
 
@@ -383,6 +383,24 @@ test("at the limit, the owner's other free accounts of the same kind and maker, 
     account("m2", { usage: usage(30), sameAs: "m1" }),
   ];
   expect(limitOffers(team, "claude_code", "t1", NOW).map((o) => o.account.id)).toEqual(["m1"]);
+});
+
+test("OpenCode's free models sit after the accounts with room and before those at their limit; another kind's lead", () => {
+  const usage = (used: number): PlanMeterUsage => ({
+    windows: [{ kind: "five_hour", usedPercent: used, resetsAt: at(HOUR) }],
+    at: at(0),
+  });
+  const rows = [
+    { id: "full", usage: usage(100) },
+    { id: "room", usage: usage(20) },
+    { id: "unknown", usage: null },
+  ];
+  const ids = ([before, after]: [{ id: string }[], { id: string }[]]) => [
+    before.map((r) => r.id),
+    after.map((r) => r.id),
+  ];
+  expect(ids(aroundOwnSignIn("opencode", rows, NOW))).toEqual([["room", "unknown"], ["full"]]);
+  expect(ids(aroundOwnSignIn("claude_code", rows, NOW))).toEqual([[], ["full", "room", "unknown"]]);
 });
 
 test("a model group's own quota (Antigravity's Claude and GPT week at 0%) binds only its models, never the account", () => {

@@ -193,9 +193,22 @@ export function createMockArtifacts(
     const drive = audience.kind === "workspace";
     const viewer = await me();
     const mine = s.meta.createdBy.type === "person" && s.meta.createdBy.id === viewer.id;
+    const sharing = s.meta.sharing ?? { mode: drive ? "everyone" : "conversation", userIds: [], roleIds: [] };
+    // As the server's `accessOf` (ADR 0202): a file nobody set levels on, whoever sees it edits, an agent where it lives.
+    const access = s.meta.access ?? {
+      place: "edit" as const,
+      workspace: sharing.mode === "everyone" ? ("edit" as const) : ("none" as const),
+      users: sharing.mode === "people" ? sharing.userIds.map((id) => ({ id, level: "edit" as const })) : [],
+      roles: sharing.mode === "people" ? sharing.roleIds.map((id) => ({ id, level: "edit" as const })) : [],
+      agents: !drive || sharing.mode === "everyone" ? ("edit" as const) : ("none" as const),
+      agentRows: [],
+      limited: false,
+    };
     return {
       canDelete: true,
-      sharing: { mode: drive ? "everyone" : "conversation", userIds: [], roleIds: [] },
+      sharing,
+      access,
+      myAccess: "edit" as const,
       ...clone(s.meta),
       canEdit: editable(s.meta.kind),
       untrusted: s.meta.kind === "html" || s.meta.kind === "file",
@@ -294,17 +307,22 @@ export function createMockArtifacts(
       },
       messageId: mockId("msg"),
     }),
-    setSharing: async (orgId, id, sharing) => {
-      record("artifacts.setSharing", orgId, id, sharing);
+    setAccess: async (orgId, id, access) => {
+      record("artifacts.setAccess", orgId, id, access);
       const s = await find(orgId, id);
-      const listed = [...(sharing.userIds ?? []), ...(sharing.roleIds ?? [])];
-      if (sharing.mode === "people" && listed.length === 0) {
-        throw new ApiError(400, "artifact.sharing_empty", "Choose who sees it");
-      }
+      const limited =
+        access.workspace !== "edit" &&
+        (access.place === "view" ||
+          access.workspace === "view" ||
+          [...access.users, ...access.roles].some((r) => r.level === "view"));
+      s.meta.access = { ...clone(access), limited };
+      // Who sees, as the server keeps it beside the levels (ADR 0157).
       s.meta.sharing =
-        sharing.mode === "people"
-          ? { mode: "people", userIds: sharing.userIds ?? [], roleIds: sharing.roleIds ?? [] }
-          : { mode: sharing.mode, userIds: [], roleIds: [] };
+        access.workspace !== "none"
+          ? { mode: "everyone", userIds: [], roleIds: [] }
+          : access.users.length + access.roles.length > 0
+            ? { mode: "people", userIds: access.users.map((u) => u.id), roleIds: access.roles.map((r) => r.id) }
+            : { mode: "conversation", userIds: [], roleIds: [] };
       return view(orgId, s);
     },
     versions: async (orgId, id) =>
@@ -316,6 +334,8 @@ export function createMockArtifacts(
       const qs = params.toString();
       return `/api/app/organizations/${orgId}/artifacts/${id}/file${qs ? `?${qs}` : ""}`;
     },
+    thumbUrl: (orgId, id, { version, width }) =>
+      `/api/app/organizations/${orgId}/artifacts/${id}/thumb?version=${version}&w=${width}`,
     download: async (orgId, id, version) => {
       const { text, type } = serializeContent((await detail(orgId, await find(orgId, id), version)).content);
       return {

@@ -1,6 +1,5 @@
-import { useAgentDetail, useChannels, useProposals, useRuns } from "@agenteschat/client";
+import { useAgentDetail, useChannels, useRuns } from "@agenteschat/client";
 import { whenAt } from "@agenteschat/client/lib/format";
-import { pendingOnAgent, proposalTitle } from "@agenteschat/client/lib/proposals";
 import { excerpt } from "@agenteschat/client/lib/text";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { Button, Card, Icon } from "@agenteschat/ui";
@@ -8,7 +7,6 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { AgentSetupCard } from "@/components/AgentSetup";
 import { useOrg } from "@/components/org-context";
-import { useDirectory } from "@/hooks/useDirectory";
 import { ownsOrManages } from "@/lib/agent-edit";
 import { CardHead, useAgentEdit } from "./context";
 import { Ficha } from "./Ficha";
@@ -28,13 +26,10 @@ export function OverviewTab() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const { org } = useOrg();
-  const dir = useDirectory(org.id);
-  const { agent, g, viewer, goTo, can, ownerFirst } = useAgentEdit();
+  const { agent, g, viewer, goTo, can, ownerLabel } = useAgentEdit();
   const detail = useAgentDetail(org.id, agent.id);
-  const proposals = useProposals(org.id);
   const runs = useRuns(org.id, agent.id, ownsOrManages(viewer));
   const channels = useChannels(org.id);
-  const pending = pendingOnAgent(proposals.data ?? [], agent.id);
   const approvals = detail.data?.pendingApprovals ?? 0;
   const recent = (runs.data ?? []).slice(0, RECENT);
   const decides = ownsOrManages(viewer);
@@ -44,55 +39,28 @@ export function OverviewTab() {
       {/* A new agent's checklist (ADR 0155 §2), while something is left. */}
       <AgentSetupCard agent={agent} place="profile" />
       <div className="agp-overview">
-        {(approvals > 0 || pending.length > 0) && (
+        {approvals > 0 && (
           <div className="agp-attns">
-            {approvals > 0 && (
-              <div className="agp-attn ac-mediarow">
-                <span className="ac-mediarow__face">
-                  <span className="agp-ib agp-ib--warn">
-                    <Icon name="lock" size={16} />
-                  </span>
+            <div className="agp-attn ac-mediarow">
+              <span className="ac-mediarow__face">
+                <span className="agp-ib agp-ib--warn">
+                  <Icon name="lock" size={16} />
                 </span>
-                <span className="ac-mediarow__head">
-                  <b>{t("agentPage.overview.approvals", { count: approvals })}</b>
-                </span>
-                <span className="ac-mediarow__end ac-mediarow__end--wrap">
-                  <Button asChild size="sm">
-                    <Link to="/org/$orgId/approvals" params={{ orgId: org.id }}>
-                      {t("agentPage.overview.seeApprovals")}
-                    </Link>
-                  </Button>
-                </span>
-                <span className="ac-mediarow__body agp-attn__sub">
-                  {decides ? t("agentPage.overview.approvalsYou") : t("agentPage.overview.approvalsWait")}
-                </span>
-              </div>
-            )}
-            {pending.map((p) => (
-              <div key={p.id} className="agp-attn ac-mediarow">
-                <span className="ac-mediarow__face">
-                  <span className="agp-ib agp-ib--warn">
-                    <Icon name="document" size={16} />
-                  </span>
-                </span>
-                <span className="ac-mediarow__head">
-                  <b>{t("agentPage.overview.proposes", g)}</b>
-                </span>
-                <span className="ac-mediarow__end ac-mediarow__end--wrap">
-                  <Button size="sm" onClick={() => goTo("memory")}>
-                    {t("agentPage.overview.review")}
-                  </Button>
-                </span>
-                <span className="ac-mediarow__body agp-attn__sub">
-                  {proposalTitle(t, p, org, (id) => dir.agentById.get(id)?.name ?? agent.name)} ·{" "}
-                  {p.canDecide
-                    ? t("approval.waitingYou")
-                    : p.decider.type === "user"
-                      ? t("proposals.waitingFor", { name: p.decider.name })
-                      : t("proposals.waitingAdmin")}
-                </span>
-              </div>
-            ))}
+              </span>
+              <span className="ac-mediarow__head">
+                <b>{t("agentPage.overview.approvals", { count: approvals })}</b>
+              </span>
+              <span className="ac-mediarow__end ac-mediarow__end--wrap">
+                <Button asChild size="sm">
+                  <Link to="/org/$orgId/approvals" params={{ orgId: org.id }}>
+                    {t("agentPage.overview.seeApprovals")}
+                  </Link>
+                </Button>
+              </span>
+              <span className="ac-mediarow__body agp-attn__sub">
+                {decides ? t("agentPage.overview.approvalsYou") : t("agentPage.overview.approvalsWait")}
+              </span>
+            </div>
           </div>
         )}
 
@@ -137,7 +105,7 @@ export function OverviewTab() {
           />
           {!decides ? (
             <p className="small muted">
-              {t("agentPage.activity.hidden", { owner: ownerFirst ?? t("roles.adminLower") })}
+              {t("agentPage.activity.hidden", { owner: ownerLabel ?? t("roles.adminLower") })}
             </p>
           ) : recent.length === 0 ? (
             <p className="small muted">{t("agent.runsNone")}</p>

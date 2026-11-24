@@ -375,7 +375,11 @@ export async function secretFilePaths(db: Database, orgId: string, agentId: stri
 /** The run's context, rebuilt for actions people take on a request (deliver, remove). */
 async function runContext(db: Database, row: SecretRequestRow): Promise<ToolContext> {
   const [run] = await db
-    .select({ threadRootId: agentRuns.threadRootId, triggerMessageId: agentRuns.triggerMessageId })
+    .select({
+      threadRootId: agentRuns.threadRootId,
+      triggerMessageId: agentRuns.triggerMessageId,
+      replyInThread: agentRuns.replyInThread,
+    })
     .from(agentRuns)
     .where(eq(agentRuns.id, row.runId));
   return {
@@ -386,6 +390,7 @@ async function runContext(db: Database, row: SecretRequestRow): Promise<ToolCont
     channelId: row.channelId,
     threadRootId: run?.threadRootId ?? row.channelId,
     triggerMessageId: run?.triggerMessageId ?? row.channelId,
+    replyInThread: run?.replyInThread ?? false,
   };
 }
 

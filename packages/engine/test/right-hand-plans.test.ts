@@ -91,7 +91,10 @@ async function world() {
   /** Nothing can stand in for Lodi's plan (ADR 0137 §7, amended): no API key, and Caio's plan serves only him. */
   const noStandIn = async () => {
     await fx.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
-    await fx.db.update(schema.machineAccounts).set({ serves: "owner" }).where(eq(schema.machineAccounts.id, CAIOS));
+    await fx.db
+      .update(schema.machineAccounts)
+      .set({ serves: "owner", useMode: "owner" })
+      .where(eq(schema.machineAccounts.id, CAIOS));
   };
   return { fx, deps: { db: fx.db }, machineId, bia, caio, lodi, account, noStandIn };
 }
@@ -144,9 +147,8 @@ test("a plan given to Lodi starts with its switch off, whatever was set before i
   await setAgentBrain(deps, fx.owner.id, fx.org.id, id, { onlyOwner: false });
   await setAgentBrain(deps, caio.id, fx.org.id, id, { account: CAIOS });
   expect(await lodi()).toMatchObject({ brainAccountId: CAIOS, planForOthers: false });
-  // Its long work never spends a plan's paid extra usage, nor on the previous release, which reads the column.
+  // Its long work never spends a plan's paid extra usage.
   expect(paysExtraUsage(await lodi())).toBe(false);
-  expect((await lodi()).brainExtraUsage).toBe(false);
 });
 
 test("its turns think on the plan's computer and owner; another person's DM while a plan serves them", async () => {

@@ -1,7 +1,7 @@
 import { useDesktopLatest } from "@agenteschat/client";
 import { formatBytes } from "@agenteschat/client/lib/files";
 import { downloadHref } from "@agenteschat/client/lib/machines";
-import { Button, Icon, Logo, Segmented } from "@agenteschat/ui";
+import { Button, Icon, Logo, ProviderLogo, Segmented } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,11 +11,13 @@ import { LanguageSelect } from "@/components/LanguageSelect";
 import { DownloadSky } from "@/components/Sky";
 import { useDesktopHere } from "@/hooks/useDesktopHere";
 import { useDocumentTitle } from "@/lib/desktop";
+import { usePhoneStores } from "@/lib/phone-apps";
 
 /**
  * `/download`, public on every server (ADR 0036 §10): the app's newest build for this computer's system, why the
  * system asks the first time while the app is in beta, and each step with its drawing. The system switch shows the
- * other systems' steps and download; Windows and Linux also come for ARM64 (a link switches). `initial` and
+ * other systems' steps and download; Windows and Linux also come for ARM64 (a link switches). The phone apps close
+ * the page (`usePhoneStores`). `initial` and
  * `initialArm` come from `?system=` and `?arch=arm64`; otherwise the computer's own.
  */
 export function DownloadPage({ initial, initialArm }: { initial?: InstallSystem; initialArm?: boolean }) {
@@ -32,6 +34,7 @@ export function DownloadPage({ initial, initialArm }: { initial?: InstallSystem;
   const release = build.data ?? null;
   const name = buildName({ target: target.target, arm });
   const hero = useRef<HTMLElement>(null);
+  const stores = usePhoneStores();
   useDocumentTitle(t("install.page.docTitle"));
   const origin = typeof window === "undefined" ? "" : window.location.origin;
 
@@ -137,6 +140,24 @@ export function DownloadPage({ initial, initialArm }: { initial?: InstallSystem;
             />
           </div>
           <InstallSteps key={`${system}-${arm}`} build={{ system, arm }} release={release} />
+        </section>
+
+        <section className="dlp__why dlp__phone" aria-labelledby="dlp-phone">
+          <Icon name="phone" size={20} />
+          <div>
+            <h2 id="dlp-phone">{t("appsDownload.phone")}</h2>
+            <p>{t("appsDownload.phoneText")}</p>
+            <div className="dlp__stores">
+              {stores.map((s) => (
+                <Button key={s.id} asChild size="sm">
+                  <a href={s.href} target="_blank" rel="noopener noreferrer">
+                    <ProviderLogo id={s.mark} size="xs" />
+                    {t(`appsDownload.${s.id}`)}
+                  </a>
+                </Button>
+              ))}
+            </div>
+          </div>
         </section>
       </main>
     </div>

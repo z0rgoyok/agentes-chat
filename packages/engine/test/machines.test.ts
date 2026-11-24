@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   createFakeErrorReporter,
+  listenResumedTopic,
   MACHINE_PROTOCOL_VERSION,
   orgTopic,
+  type PubSub,
   RUNNER_STOPPED_CLOSE,
   type ServerFrame,
   sealSecret,
@@ -20,6 +22,7 @@ import {
   deleteMachine,
   deliverSecret,
   drainOutbox,
+  enableCaches,
   executeRun,
   expireSecretRequests,
   ForbiddenError,
@@ -1118,6 +1121,49 @@ describe("hub", () => {
 
     await runner.disconnect();
     await expect(hubB.call(paired.machineId, { op: "list", path: "", depth: 1 })).rejects.toThrow(MachineOfflineError);
+  });
+
+  test("a reply whose signal was lost waits for the caller's next read, which a pub/sub that missed events brings now", async () => {
+    f = await setup({ machines: true });
+    const hubA = f.machineHub as MachineHub;
+    // B never hears replies: only its own read of the row can see one.
+    const deaf: PubSub = {
+      publish: (topic, event) => f.pubsub.publish(topic, event),
+      subscribe: (topic, handler) =>
+        topic.startsWith("machine-rpc-reply:") ? () => {} : f.pubsub.subscribe(topic, handler),
+    };
+    const hubB = createMachineHub({ db: f.db, pubsub: deaf, replicaId: "replica-b" });
+    hubs.push(hubB);
+    const paired = await pair();
+    const runner = fakeRunner(hubA);
+    await runner.hello(paired.token);
+    runner.files.set("notes.txt", new TextEncoder().encode("hi"));
+
+    const read = hubB.call(paired.machineId, { op: "read", path: "notes.txt", maxBytes: 100 });
+    await until(async () => (await f.db.select().from(schema.machineRpc))[0]?.status === "done", "the reply");
+    // While the pub/sub delivers, B reads its row only every RPC_QUIET_POLL_MS.
+    expect(await within(read, 1000)).toBe("pending");
+    await f.pubsub.publish(listenResumedTopic, { type: "pubsub.resumed", full: false });
+    expect(await within(read, 500)).toBe("resolved");
+  });
+
+  test("a computer that left this replica for another reads as online here at once, its kept row dropped", async () => {
+    f = await setup({ machines: true });
+    const hubA = f.machineHub as MachineHub;
+    const hubB = createMachineHub({ db: f.db, pubsub: f.pubsub, replicaId: "replica-b" });
+    hubs.push(hubB);
+    const paired = await pair();
+    enableCaches();
+    try {
+      const first = fakeRunner(hubA);
+      await first.hello(paired.token);
+      expect(await hubA.status(paired.machineId)).toMatchObject({ online: true });
+      await first.disconnect();
+      await fakeRunner(hubB).hello(paired.token);
+      expect(await hubA.status(paired.machineId)).toMatchObject({ online: true });
+    } finally {
+      enableCaches(false);
+    }
   });
 
   test("a row left online by a replica that died is offline once stale", async () => {

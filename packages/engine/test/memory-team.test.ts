@@ -11,7 +11,7 @@ import {
   type ToolContext,
   teamMemoryForPrompt,
 } from "../src";
-import { addMember, type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, queuedReviews, settleQueued, setup, withReview } from "./fixtures";
 
 let f: Fixture;
 afterEach(async () => {
@@ -123,18 +123,23 @@ describe("team memory every agent reads (ADR 0167)", () => {
     expect(memory.text).toContain("In #general, answers stay short.");
   });
 
-  test("a member's team save waits as a card for who reviews memory", async () => {
-    f = await setup({ contextTools: true });
+  test("a member's team save is a card the review adds to the team context", async () => {
+    f = await setup({ contextTools: true, reply: withReview({ apply: true, why: "A fact the team relies on." }) });
     const bia = await addMember(f.db, f.org.id, "member", "bia");
     const out = await remember(await runOn({ userId: bia.id }, "pessoal, lembrem: a reunião é às 9"), {
       for: "team",
       kind: "fact",
       content: "The weekly meeting is at 9.",
     });
-    expect(out.content).toContain("Proposed for the team");
+    expect(out.content).toContain("Sent for the team: a quick review adds it");
     expect(await f.db.select().from(schema.contextItems)).toEqual([]);
     const [card] = await f.db.select().from(schema.contextProposals);
     expect([card?.target, card?.requestedByUserId, card?.status]).toEqual(["org_context", bia.id, "pending"]);
+    // Bia can't change the team context herself: the review weighs it for whoever may.
+    expect(await queuedReviews(f)).toEqual([{ ids: [card?.id ?? ""], origin: "asked_other" }]);
+    expect((await settleQueued(f)).applied).toEqual([card?.id ?? ""]);
+    const [org] = await f.db.select().from(schema.organizations).where(eq(schema.organizations.id, f.org.id));
+    expect(org?.context).toContain("The weekly meeting is at 9.");
   });
 
   test("asked by another agent, a save points to the team save instead of a copy only that DM reads", async () => {

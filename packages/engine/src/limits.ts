@@ -5,6 +5,7 @@ import { formatBytes } from "./format";
 import type { Judge } from "./judge";
 import { recordOperatorEvent } from "./operator-events";
 import { can, requirePermission } from "./organizations";
+import { RouterSkip, type RouterStrategy } from "./router";
 import { storedBytes, usesOwnBucket } from "./storage";
 import { monthStartUtc } from "./usage";
 
@@ -20,6 +21,8 @@ import { monthStartUtc } from "./usage";
  * - `storageBytes`: the files kept on this server's storage, files in the trash and the workspace's own bucket left out.
  * - `uploadBytesPerDay`: what was written to that storage in the last 24 hours.
  * - `platformUsdPerMonth`: what the platform's own AI (Jev) may cost for the workspace in a UTC calendar month.
+ * - `connectorUsdPerMonth`: what vendors that bill this server per call (X) may charge for the workspace in a UTC
+ *   calendar month, as estimated from their price lists (`connectorSpendThisMonth`).
  */
 export interface OrgLimits {
   members: number | null;
@@ -28,9 +31,18 @@ export interface OrgLimits {
   storageBytes: number | null;
   uploadBytesPerDay: number | null;
   platformUsdPerMonth: number | null;
+  connectorUsdPerMonth: number | null;
 }
 
-const { organizations, organizationMembers, artifactVersions, skillFiles, usageRecords, liveAssets } = schema;
+const {
+  organizations,
+  organizationMembers,
+  artifactVersions,
+  skillFiles,
+  usageRecords,
+  liveAssets,
+  connectorUsageDays,
+} = schema;
 
 /** `usage_records.cost_nano_usd`'s unit, in which the platform cap is kept. */
 const NANO_PER_USD = 1e9;
@@ -42,6 +54,7 @@ const LIMIT_COLUMNS = {
   storageBytes: organizations.limitStorageBytes,
   uploadBytesPerDay: organizations.limitUploadBytesPerDay,
   platformNanoUsd: organizations.limitPlatformNanoUsd,
+  connectorNanoUsd: organizations.limitConnectorNanoUsd,
   updatedAt: organizations.limitsUpdatedAt,
 };
 
@@ -52,6 +65,7 @@ const limitsOf = (row: {
   storageBytes: number | null;
   uploadBytesPerDay: number | null;
   platformNanoUsd: number | null;
+  connectorNanoUsd: number | null;
   updatedAt: Date | null;
 }) => ({
   members: row.members,
@@ -60,6 +74,7 @@ const limitsOf = (row: {
   storageBytes: row.storageBytes,
   uploadBytesPerDay: row.uploadBytesPerDay,
   platformUsdPerMonth: row.platformNanoUsd === null ? null : row.platformNanoUsd / NANO_PER_USD,
+  connectorUsdPerMonth: row.connectorNanoUsd === null ? null : row.connectorNanoUsd / NANO_PER_USD,
   updatedAt: row.updatedAt,
 });
 
@@ -75,21 +90,24 @@ export async function getOrgLimits(db: Executor, orgId: string): Promise<OrgLimi
         storageBytes: null,
         uploadBytesPerDay: null,
         platformUsdPerMonth: null,
+        connectorUsdPerMonth: null,
         updatedAt: null,
       };
 }
 
 /**
- * Sets all the limits (the operator API), whatever the workspace's standing. Setting what is already set changes
+ * Sets all the limits (the operator API), whatever the workspace's standing; one left out is none. Setting what is already set changes
  * nothing, `updatedAt` included. A new platform cap applies at once in this process, within a minute in the others.
  * Null when there is no such workspace.
  */
 export async function setOrgLimits(
   db: Database,
   orgId: string,
-  limits: OrgLimits,
+  limits: Omit<OrgLimits, "connectorUsdPerMonth"> & { connectorUsdPerMonth?: number | null },
 ): Promise<(OrgLimits & { updatedAt: Date | null }) | null> {
-  const nanoUsd = limits.platformUsdPerMonth === null ? null : Math.round(limits.platformUsdPerMonth * NANO_PER_USD);
+  const nanoOf = (usd: number | null | undefined) => (usd == null ? null : Math.round(usd * NANO_PER_USD));
+  const nanoUsd = nanoOf(limits.platformUsdPerMonth);
+  const connectorNano = nanoOf(limits.connectorUsdPerMonth);
   const [row] = await db
     .update(organizations)
     .set({
@@ -99,12 +117,14 @@ export async function setOrgLimits(
       limitStorageBytes: limits.storageBytes,
       limitUploadBytesPerDay: limits.uploadBytesPerDay,
       limitPlatformNanoUsd: nanoUsd,
+      limitConnectorNanoUsd: connectorNano,
       // The right side of SET reads the row as it was.
       limitsUpdatedAt: sql`case when (${organizations.limitMembers}, ${organizations.limitMembersMax},
         ${organizations.payerUserId}, ${organizations.limitStorageBytes}, ${organizations.limitUploadBytesPerDay},
-        ${organizations.limitPlatformNanoUsd})
+        ${organizations.limitPlatformNanoUsd}, ${organizations.limitConnectorNanoUsd})
         is not distinct from (${limits.members}::integer, ${limits.membersMax}::integer, ${limits.payerUserId}::text,
-        ${limits.storageBytes}::bigint, ${limits.uploadBytesPerDay}::bigint, ${nanoUsd}::bigint)
+        ${limits.storageBytes}::bigint, ${limits.uploadBytesPerDay}::bigint, ${nanoUsd}::bigint,
+        ${connectorNano}::bigint)
         then ${organizations.limitsUpdatedAt} else now() end`,
     })
     .where(eq(organizations.id, orgId))
@@ -286,20 +306,86 @@ export function platformCapJudge(db: Database, jev: Judge): Judge {
   return {
     name: jev.name,
     async ask(request) {
-      if (await platformCapReached(db, request.orgId)) throw new Error("platform_cap");
+      if (await platformCapReached(db, request.orgId)) throw new Error(PLATFORM_CAP);
       return jev.ask(request);
     },
   };
 }
 
+/**
+ * The router's Jev step, skipped for a workspace past its platform AI for the month: the chain's next step (the
+ * workspace's own small model) picks in its place. With none, `routeMessage` says so (`platform_cap`).
+ */
+export function platformCapRouter(db: Database, jev: RouterStrategy): RouterStrategy {
+  return {
+    get name() {
+      return jev.name;
+    },
+    ...(jev.on ? { on: () => jev.on?.() ?? true } : {}),
+    async decide(input) {
+      if (await platformCapReached(db, input.orgId)) throw new RouterSkip(PLATFORM_CAP);
+      return jev.decide(input);
+    },
+  };
+}
+
+/** What vendors billed this server for the workspace's connector calls this UTC month (`cost_nano_usd`), nano-US$. */
+async function connectorSpendNano(db: Executor, orgId: string, now: Date) {
+  const [row] = await db
+    .select({ total: sql<string>`coalesce(sum(${connectorUsageDays.costNanoUsd}), 0)` })
+    .from(connectorUsageDays)
+    .where(
+      and(
+        eq(connectorUsageDays.orgId, orgId),
+        gte(connectorUsageDays.day, monthStartUtc(now).toISOString().slice(0, 10)),
+      ),
+    );
+  return Number(row?.total ?? 0);
+}
+
+/** That spend in US$. */
+export const connectorSpendThisMonth = async (db: Executor, orgId: string, now = new Date()) =>
+  (await connectorSpendNano(db, orgId, now)) / NANO_PER_USD;
+
+/**
+ * Refuses a connector call that could take the workspace past `connectorUsdPerMonth`: `most`, the most it may cost
+ * (nano-US$), added to what the month already cost. Its words go to the agent, to pass on.
+ * ponytail: calls at the same moment are read against the same spend, so they can pass the line together by at most
+ * their own prices (cents); a lock would serialize every paid call of a workspace.
+ */
+export async function connectorBudgetLeft(
+  db: Executor,
+  orgId: string,
+  vendor: string,
+  most: number,
+  now = new Date(),
+): Promise<string | null> {
+  const [org] = await db
+    .select({ limit: organizations.limitConnectorNanoUsd })
+    .from(organizations)
+    .where(eq(organizations.id, orgId));
+  if (!org || org.limit === null) return null;
+  const spent = await connectorSpendNano(db, orgId, now);
+  if (spent + most <= org.limit) return null;
+  const usd = (nano: number) => `US$ ${(Math.floor(nano / 1e7) / 100).toFixed(2)}`;
+  return `${vendor} budget for this month used: this workspace's ${vendor} calls cost ${usd(spent)} of its ${usd(org.limit)} this month, and this one could cost up to ${usd(most)}. Nothing was done. It comes back on the 1st (UTC). Tell the person who asked.`;
+}
+
 /** What the operator reads of a workspace's use against its limits (`GET /orgs/{orgId}`). */
 export async function orgMeters(db: Database, orgId: string) {
-  const [usage, ownStorage, platformUsdThisMonth] = await Promise.all([
+  const [usage, ownStorage, platformUsdThisMonth, connectorUsdThisMonth] = await Promise.all([
     storageUsage(db, orgId),
     usesOwnBucket(db, orgId),
     platformSpendThisMonth(db, orgId),
+    connectorSpendThisMonth(db, orgId),
   ]);
-  return { storageBytes: usage.usedBytes, uploadBytes24h: usage.uploadBytes24h, ownStorage, platformUsdThisMonth };
+  return {
+    storageBytes: usage.usedBytes,
+    uploadBytes24h: usage.uploadBytes24h,
+    ownStorage,
+    platformUsdThisMonth,
+    connectorUsdThisMonth,
+  };
 }
 
 /** The payer's name while they are in the workspace, as the members list shows them; else null. */
@@ -319,11 +405,12 @@ async function memberName(db: Executor, orgId: string, userId: string) {
  */
 export async function orgLimitsView(db: Database, actorId: string, orgId: string) {
   const membership = await requirePermission(db, actorId, orgId, "read");
-  const [limits, members, usage, ownStorage] = await Promise.all([
+  const [limits, members, usage, ownStorage, connectorUsd] = await Promise.all([
     getOrgLimits(db, orgId),
     memberCount(db, orgId),
     storageUsage(db, orgId),
     usesOwnBucket(db, orgId),
+    connectorSpendThisMonth(db, orgId),
   ]);
   const payerId = limits.payerUserId;
   const you = payerId === actorId;
@@ -344,5 +431,6 @@ export async function orgLimitsView(db: Database, actorId: string, orgId: string
     },
     storage: { usedBytes: usage.usedBytes, limitBytes: limits.storageBytes, ownStorage },
     uploads: { usedBytes24h: usage.uploadBytes24h, limitBytesPerDay: limits.uploadBytesPerDay },
+    connectors: { usedUsd: connectorUsd, limitUsd: limits.connectorUsdPerMonth },
   };
 }

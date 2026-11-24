@@ -19,7 +19,7 @@ import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, Icon, useToast }
 import { useAgentsAccess } from "../settings/hooks";
 import { confirmAction } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useColors, useDirectory, useMeId, useMyRoleIds, useOrgId } from "../shared/hooks";
 import { errorHaptic, successHaptic } from "../shared/parts";
 import { pickLevel } from "./pick-level";
 
@@ -43,7 +43,11 @@ export function AgentLevelList({
   const dir = useDirectory();
   const { org } = useOrg();
   const me = useMeId();
-  const agents = personal ? dir.agents.filter((a) => canEditAudience(org ?? undefined, a, me ?? "")) : dir.agents;
+  // Mine to change: its owner's, or held through the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const myRoleIds = useMyRoleIds();
+  const agents = personal
+    ? dir.agents.filter((a) => canEditAudience(org ?? undefined, a, me ?? "", myRoleIds))
+    : dir.agents;
   const qc = useQueryClient();
   const orgId = useOrgId();
   // A new connection: every agent's tree must be read again to show it.
@@ -98,6 +102,7 @@ function AgentLevelRow({
   const word = useLevelWord();
   const { org } = useOrg();
   const me = useMeId();
+  const myRoleIds = useMyRoleIds();
   const agent = dir.agentById.get(agentId);
   const access = useAgentAccess(orgId, agentId);
   const [saving, setSaving] = useState<Level | null>(null);
@@ -105,9 +110,8 @@ function AgentLevelRow({
   const current: LevelState = saving ?? (resource ? levelOf(resource) : "none");
   // Giving an agent a connector is for who manages that agent, like its scopes (ADR 0085 addendum of 2026-11-17); one's
   // own personal connection goes on the agents its person may change (the server checks both again).
-  const mayChange =
-    (personal ? Boolean(agent && canEditAudience(org ?? undefined, agent, me ?? "")) : managesAgent(agent)) &&
-    Boolean(resource);
+  const edits = Boolean(agent && canEditAudience(org ?? undefined, agent, me ?? "", myRoleIds));
+  const mayChange = (personal ? edits : managesAgent(agent)) && Boolean(resource);
   const choose = (level: Level) => {
     if (!resource || level === current) return;
     setSaving(level);

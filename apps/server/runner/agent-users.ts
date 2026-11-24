@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -150,6 +151,16 @@ export const agentRuntimeDir = (uid: number) => `/run/user/${uid}`;
 export const containersUnit = (uid: number) => `agentes-containers-${uid}.service`;
 const podmanSocket = (uid: number) => `unix://${agentRuntimeDir(uid)}/podman/podman.sock`;
 
+/**
+ * Docker's own rootless daemon (`docker-ce-rootless-extras`, ADR 0209): where it is, each agent's containers service
+ * runs one under the agent's user, started by the first connection to its socket, and every launch's `DOCKER_HOST`
+ * names that socket. Podman's stays `CONTAINER_HOST`.
+ */
+const DOCKER_TOOLS = ["/usr/bin/docker", "/usr/bin/dockerd", "/usr/bin/dockerd-rootless.sh", "/usr/bin/rootlesskit"];
+export const rootlessDocker = (exists: (file: string) => boolean = existsSync) =>
+  DOCKER_TOOLS.every((file) => exists(file));
+const dockerSocket = (uid: number) => `unix://${agentRuntimeDir(uid)}/docker.sock`;
+
 /** Root, in the agent's namespace before it becomes the agent (`$m` its tmpfs): its runtime dir where XDG puts it. */
 const RUNTIME_DIR = [
   // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own expansion, not JavaScript's.
@@ -198,12 +209,16 @@ const NOSUID_VIEW = [
 /**
  * As the agent, the containers service's start: its own defaults where it has none (`$1` and `$2`, Podman's
  * containers.conf and storage.conf), Podman's socket and its restart of `restart: always` containers switched on,
- * then its user manager. All of it is the agent's to change; none of it keeps it apart from the others. A user manager
+ * Docker's units where the computer has rootless Docker (`$3` to `$5`, `dockerUnits`), then its user manager. All of it is the agent's to change; none of it keeps it apart from the others. A user manager
  * logs to /dev/console, which the agent can't open, unless told the journal; and one that exits at once loses its
  * unit there (journald reads that from the gone process), so the cgroup it needs is checked here first, out loud.
  */
 const CONTAINERS_START = [
   'c="$HOME/.config"',
+  // Docker's units, written at every start in the runtime dir, which systemd reads after ~/.config: a unit of the
+  // agent's own by the same name there takes their place, and `systemctl --user mask docker-api.socket` turns it off.
+  'r="$XDG_RUNTIME_DIR/systemd/user"',
+  'if [ -n "$3" ]; then mkdir -p "$r/sockets.target.wants" && printf %s "$3" > "$r/docker.service" && printf %s "$4" > "$r/docker-api.socket" && printf %s "$5" > "$r/docker-api@.service" && ln -sfn ../docker-api.socket "$r/sockets.target.wants/docker-api.socket" || :; fi',
   'mkdir -p "$c/containers" "$c/systemd/user/sockets.target.wants" "$c/systemd/user/default.target.wants" || :',
   '[ -e "$c/containers/containers.conf" ] || printf %s "$1" > "$c/containers/containers.conf" || :',
   '[ -e "$c/containers/storage.conf" ] || printf %s "$2" > "$c/containers/storage.conf" || :',
@@ -215,6 +230,58 @@ const CONTAINERS_START = [
   '[ -w "$g" ] || { echo "its user manager has no cgroup to run in ($g is not writable)" >&2; exit 1; }',
   "exec /usr/lib/systemd/systemd --user --log-target=journal",
 ].join("\n");
+
+/**
+ * The agent's Docker (ADR 0209), as three user units: rootless dockerd under its user manager, its containers' network
+ * through pasta as the agent's uid in the agent's network, the computer's loopback out of their reach, its API on a
+ * socket of its own; and `DOCKER_HOST`'s socket, whose first connection starts the daemon, so an agent that never uses
+ * Docker never pays its memory. Each connection is `docker system dial-stdio`, which keeps a half-closed stream open
+ * the other way (`docker exec -i … < file`), as systemd-socket-proxyd before systemd 258 doesn't. Absolute paths, no
+ * `%t`: these go through the system manager's ExecStart first, whose specifiers would name root's runtime dir.
+ */
+function dockerUnits(uid: number): string[] {
+  const run = agentRuntimeDir(uid);
+  const engine = `--host=unix://${run}/docker-engine.sock`;
+  return [
+    [
+      "[Unit]",
+      "Description=Docker, rootless, as this agent",
+      "[Service]",
+      "Type=notify",
+      "NotifyAccess=all",
+      "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta",
+      "Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=implicit",
+      "Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true",
+      `ExecStart=/usr/bin/dockerd-rootless.sh ${engine}`,
+      "Restart=on-failure",
+      "RestartSec=5",
+      "KillMode=mixed",
+      "Delegate=yes",
+    ],
+    [
+      "[Unit]",
+      "Description=Docker's API for this agent, its daemon started at the first connection",
+      "[Socket]",
+      `ListenStream=${run}/docker.sock`,
+      "SocketMode=0600",
+      "Accept=yes",
+      "MaxConnections=256",
+    ],
+    [
+      "[Unit]",
+      "Description=A connection to this agent's Docker",
+      "Requires=docker.service",
+      "After=docker.service",
+      "CollectMode=inactive-or-failed",
+      "[Service]",
+      `ExecStart=/usr/bin/docker ${engine} system dial-stdio`,
+      "StandardInput=socket",
+      "StandardOutput=socket",
+      "StandardError=journal",
+    ],
+  ].map((lines) => `${lines.join("\n")}\n`);
+}
 
 /** The identifier of its steps' lines in the journal, where the runner reads why it stopped (`containersFailure`). */
 const CONTAINERS_LOG = "agentes-containers";
@@ -358,6 +425,9 @@ export class AgentUsers {
         ids = err instanceof Error ? err.message : String(err);
       }
       if (ids) this.opts.log?.(`${user.user} has no ids for containers: ${ids}`);
+      // `/dev` beside the `/etc` it was given: a test's scratch root has none.
+      const kvm = joinKvm(user.user, path.join(path.dirname(this.opts.etc ?? "/etc"), "dev/kvm"), this.opts.run);
+      if (kvm) this.opts.log?.(`${user.user} can't use /dev/kvm: ${kvm}`);
       // A computer that can't share still serves the agent, in its own folders.
       const { shared } = this.opts;
       for (const p of shared ? joinShared(user.user, agentHome(user.user), shared, this.opts.run) : []) {
@@ -429,6 +499,24 @@ export function denySchedulers(user: string, etc = "/etc") {
       );
     }
   }
+}
+
+/**
+ * The agent's user in `/dev/kvm`'s group, where the computer has one (a VM with nested virtualization, bare metal), so
+ * its emulators and VMs (Android's emulator, QEMU) run with KVM as the agent itself (ADR 0209). Each open of the device
+ * makes VMs of that opener's alone: no agent reaches another's. Never a group that is root's, nor one the device doesn't
+ * open to. Returns why it can't, or null.
+ */
+export function joinKvm(user: string, device = "/dev/kvm", run: RunCommand = runSync): string | null {
+  let kvm: { gid: number; mode: number };
+  try {
+    kvm = statSync(device);
+  } catch {
+    return null;
+  }
+  if (kvm.gid === 0 || (kvm.mode & 0o060) !== 0o060) return null;
+  const r = run("usermod", ["-aG", String(kvm.gid), user]);
+  return r.code === 0 ? null : `usermod failed (${r.code}): ${r.output.slice(0, 200)}`;
 }
 
 /**
@@ -519,13 +607,14 @@ export function systemLauncher(
   oomPolicy = systemd && scopeOomPolicy(),
   containers = systemd && rootlessContainers(),
   tmpOnDisk = systemd && agentTmpOnDisk(),
+  docker = containers && rootlessDocker(),
 ): Launcher {
   const home = agentHome(u.user);
   const command = [...networkPrefix(u), ...networkRestrictions(u), ...asAgent(u.user)];
   const socket = podmanSocket(u.uid);
   const env = {
     ...agentEnv(u, containers),
-    ...(containers ? { CONTAINER_HOST: socket, DOCKER_HOST: socket } : {}),
+    ...(containers ? { CONTAINER_HOST: socket, DOCKER_HOST: docker ? dockerSocket(u.uid) : socket } : {}),
   };
   if (!systemd) return { prefix: command, env, home };
   return {
@@ -569,8 +658,9 @@ function agentEnv(u: AgentUser, containers: boolean): Record<string, string> {
     LOGNAME: u.user,
     SHELL: AGENT_SHELL,
     // The shared `bin/` is never on it: every agent can write there, and a tool found by name would run as
-    // whichever agent called it, with that agent's files and sign-ins. Agents reach it by full path.
-    PATH: AGENT_PATH,
+    // whichever agent called it, with that agent's files and sign-ins. Agents reach it by full path. Its own
+    // ~/.local/bin is (only it writes there), last: what it installs for itself its subagents find by name too.
+    PATH: `${AGENT_PATH}:${home}/.local/bin`,
     [SHARED_BIN_ENV]: `${home}/${SHARED_LINK}/bin`,
     LANG: "C.UTF-8",
     ANDROID_ADB_SERVER_PORT: String(adbServerPort(u.uid)),
@@ -608,6 +698,7 @@ export function containersCommand(
   u: AgentUser,
   literal = installedSystemd() >= 254,
   tmpOnDisk = agentTmpOnDisk(),
+  docker = rootlessDocker(),
 ): string[] {
   const env = Object.entries(agentEnv(u, true)).map(([name, value]) => `${name}=${value}`);
   const hook = networkPrefix(u);
@@ -641,6 +732,7 @@ export function containersCommand(
     "sh",
     CONTAINERS_CONF,
     storageConf(agentHome(u.user)),
+    ...(docker ? dockerUnits(u.uid) : []),
   ];
   return [
     "/usr/bin/systemd-run",

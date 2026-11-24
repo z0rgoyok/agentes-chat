@@ -1,5 +1,6 @@
 import type {
   AccountDeletionPlan,
+  AccountPermissions,
   ActiveRun,
   Agent,
   AgentAudience,
@@ -108,7 +109,7 @@ import type {
   UsageQueue,
   WorkspaceLimits,
 } from "@agenteschat/client";
-import { ApiError } from "@agenteschat/client";
+import { ApiError, codeSuggestionOf } from "@agenteschat/client";
 import { moveInGroups } from "@agenteschat/client/lib/agent-groups";
 import { answersOthers, audienceOf, listsAllAgents } from "@agenteschat/client/lib/audience";
 import type { ChatPrefs } from "@agenteschat/client/lib/chat-look";
@@ -502,6 +503,8 @@ export interface FakeState {
   idRefs?: Record<string, IdRef>;
   /** The sidebar's tools in my order (`orgs.sidebarToolOrder`); unset = the default. */
   sidebarToolOrder?: SidebarItem[];
+  /** Whether Code has anything for me (`OrgOverview.code`, ADR 0215 §12); unset = no. */
+  codeWork?: boolean;
   /** How my sidebar shows the agents and what I pinned (`orgs.sidebarView`); unset = never changed. */
   sidebarView?: SidebarView;
   /**
@@ -1103,6 +1106,12 @@ function proposal(
     decider,
     createdAt: minutesAgo(minutes),
     decidedBy: null,
+    decidedByAgent: null,
+    review: null,
+    reviewed: false,
+    undoable: false,
+    undoneBy: null,
+    undoneAt: null,
     decidedAt: null,
   };
 }
@@ -1298,7 +1307,8 @@ type FakedParts =
   | "databases"
   | "browser"
   | "desktop"
-  | "live";
+  | "live"
+  | "code";
 
 /** The core of the fake backend, over `FakeState`. Records every call in `state.calls`. */
 /** A member as the signed-in person sees them: hidden reads as offline to everyone else (ADR 0084). */
@@ -1771,6 +1781,12 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
       unregister: async (token) => {
         log("push.unregister", token);
       },
+      liveActivity: async (input) => {
+        log("push.liveActivity", input);
+      },
+      liveActivityOff: async (installId) => {
+        log("push.liveActivityOff", installId);
+      },
       stale: async (ids) => {
         log("push.stale", ids);
         return ids.filter((id) => state.stalePushIds?.includes(id));
@@ -2091,6 +2107,9 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
         if (state.billingLinkError) throw state.billingLinkError;
         return { url: `https://billing.example.com/link?t=${from}`, expiresAt: NOW.toISOString() };
       },
+      movePlan: async (orgId, to) => {
+        log("orgs.movePlan", orgId, to);
+      },
       limits: async () =>
         state.limits ?? {
           members: { used: state.members.length, limit: null },
@@ -2242,6 +2261,7 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
         budgetUsedPercent: workspacePercent(),
         approvalsWaitingForMe: state.approvals.filter((a) => a.status === "pending" && a.canDecide).length,
         proposalsWaitingForMe: state.proposals.filter((p) => p.status === "pending" && !p.stale && p.canDecide).length,
+        code: state.codeWork ?? false,
       }),
       people: async () =>
         state.members.map((m) => ({
@@ -4069,6 +4089,19 @@ export function createFakeHttpApi(state: FakeState): Omit<HttpApi, FakedParts> {
         });
         return structuredClone(p);
       },
+      // As the server's undo (ADR 0219): only an applied row the viewer may put back; 409 once it changed since.
+      undo: async (orgId, id) => {
+        log("proposals.undo", orgId, id);
+        const p = findProposal(id);
+        if (p.status !== "accepted" || !p.undoable) throw new ApiError(409, "proposal.changed", "It changed since");
+        Object.assign(p, {
+          status: "undone",
+          undoable: false,
+          undoneBy: { userId: state.me?.user.id ?? "", name: state.me?.user.name ?? "" },
+          undoneAt: new Date().toISOString(),
+        });
+        return structuredClone(p);
+      },
     },
     actions: {
       undo: async (orgId, actionId) => {
@@ -4587,6 +4620,92 @@ export function createFakeApi(state: FakeState = seedState(), options: { seed?: 
     databases: databases.client,
     dashboards: dashboards.client,
     live: live.client,
+    // Code sessions (ADR 0215): none in these tests.
+    code: {
+      list: async () => [],
+      start: async () => ({ agents: [] }),
+      create: async () => {
+        throw new Error("code sessions aren't faked");
+      },
+      get: async () => {
+        throw new Error("code sessions aren't faked");
+      },
+      rename: async () => {
+        throw new Error("code sessions aren't faked");
+      },
+      retry: async () => {
+        throw new Error("code sessions aren't faked");
+      },
+      close: async () => {},
+      diff: async () => ({
+        scope: "base" as const,
+        base: { branch: null, sha: null },
+        files: [],
+        added: 0,
+        removed: 0,
+        truncated: false,
+      }),
+      git: async () => ({ uncommitted: 0, ahead: 0, upstream: false, local: false, pr: null, next: null }),
+      gitLog: async () => ({
+        branch: null,
+        base: { branch: null, sha: null },
+        changes: [],
+        changesMore: false,
+        commits: [],
+        more: false,
+      }),
+      files: async () => ({ paths: [], truncated: false, changes: [] }),
+      file: async (_orgId: string, _sessionId: string, path: string) => ({
+        path,
+        state: "missing" as const,
+        content: "",
+        size: 0,
+        truncated: false,
+        rev: "",
+      }),
+      saveFile: async (_orgId: string, _sessionId: string, input: { path: string; content: string }) => ({
+        path: input.path,
+        state: "ok" as const,
+        content: input.content,
+        size: input.content.length,
+        truncated: false,
+        rev: "saved",
+      }),
+      // A session an agent suggested in the chat (ADR 0215 §11): opened (just started, preparing) or kept here.
+      openSuggestion: async (orgId: string, messageId: string) => {
+        state.calls.push({ method: "code.openSuggestion", args: [orgId, messageId] });
+        const s = codeSuggestionOf(state.messages.find((m) => m.id === messageId)?.meta);
+        if (s?.status !== "pending") throw new ApiError(409, "code_session.suggestion_gone", "Answered already");
+        const now = new Date().toISOString();
+        return {
+          id: "0193f1a2-7b3c-7d4e-8f90-1a2b3c4d5e6f",
+          channelId: "ch-code-1",
+          rootId: "m-code-root-1",
+          title: s.title,
+          repo: s.repo,
+          branch: null,
+          baseBranch: null,
+          agentId: s.agentId,
+          machineId: null,
+          worktree: { state: "preparing" as const, error: null, errorCode: null },
+          local: !s.repo.includes("/"),
+          pr: null,
+          stat: { files: 0, added: 0, removed: 0, at: null },
+          work: "preparing" as const,
+          createdBy: state.me?.user.id ?? null,
+          createdAt: now,
+          lastAt: now,
+        };
+      },
+      keepHere: async (orgId: string, messageId: string) => {
+        state.calls.push({ method: "code.keepHere", args: [orgId, messageId] });
+        const s = codeSuggestionOf(state.messages.find((m) => m.id === messageId)?.meta);
+        if (s?.status !== "pending") throw new ApiError(409, "code_session.suggestion_gone", "Answered already");
+        return {
+          suggestion: { ...s, status: "here" as const, by: state.me?.user.id ?? "", at: new Date().toISOString() },
+        };
+      },
+    },
     browser: browser.client,
     desktop: browser.desktop,
     // "Trabalhando agora" and the task manager only for a test that gives the task manager (`state.taskManager`).
@@ -4614,6 +4733,71 @@ export function createFakeApi(state: FakeState = seedState(), options: { seed?: 
           },
         }
       : {}),
+  };
+  // "Contas de IA" (`hub`) as the server builds it from the same accounts, the workspace's keys and the order of use,
+  // unless a test's `setAiAccounts` gave one. Permissions start at their defaults (Gerenciar: its owner and admins,
+  // Usar em agentes: as "Quem usa" was, Atender todos: the agent's owner) and keep what a test saved.
+  const permissionsSaved = new Map<string, AccountPermissions>();
+  const seededPermissions = client.machines.setAccountPermissions;
+  client.machines.setAccountPermissions = async (orgId, accountId, input) => {
+    const saved = await seededPermissions(orgId, accountId, input);
+    const was = permissionsSaved.get(accountId);
+    permissionsSaved.set(accountId, { ...(was ?? saved.permissions), ...input } as AccountPermissions);
+    return saved;
+  };
+  const seededAi = client.machines.aiAccounts;
+  client.machines.aiAccounts = async (...args) => {
+    const view = await seededAi(...args);
+    if (view.hub) return view;
+    const nobody = { userIds: [], roleIds: [] };
+    const { groups, keyFallback, canConfigure } = await client.machines.accountOrder(args[0]);
+    return {
+      ...view,
+      hub: {
+        accounts: view.accounts.map((a) => {
+          const ownerOnly = a.serves === "owner";
+          // As the server's `sameAs`: the logins of one account on a computer share its oldest login's id.
+          const same = view.accounts.find(
+            (b) =>
+              b.machineId === a.machineId &&
+              b.kind === a.kind &&
+              b.provider === a.provider &&
+              (a.provider ? b.keyHint === a.keyHint : !!a.email && b.email?.toLowerCase() === a.email.toLowerCase()),
+          );
+          return {
+            ...a,
+            ...(a.sameAs ? {} : { sameAs: same?.id ?? a.id }),
+            permissions: permissionsSaved.get(a.sameAs ?? a.id) ??
+              permissionsSaved.get(a.id) ?? {
+                manage: { mode: "admins", ...nobody },
+                use: { mode: ownerOnly ? "owner" : "everyone", ...nobody },
+                reply: { mode: "owner", ...nobody },
+              },
+            rights: {
+              canManage: a.mine,
+              canSetManage: a.mine,
+              canUse: a.mine || !ownerOnly,
+              ...(!a.mine && ownerOnly ? { useReason: "owner_only" as const } : {}),
+              canReplyAll: a.mine,
+            },
+          };
+        }),
+        keys: state.credentials
+          .filter((c) => !c.revokedAt)
+          .map((c) => ({
+            id: c.id,
+            provider: c.provider,
+            label: c.label,
+            keyHint: c.keyHint,
+            isDefault: c.id === (state.defaultCredentialId ?? null),
+            ...(c.endpoint ? { endpoint: c.endpoint } : {}),
+          })),
+        order: groups,
+        keyFallback: keyFallback ?? false,
+        canManageKeys: true,
+        canConfigure: canConfigure ?? false,
+      },
+    };
   };
   // As the server's: the usage views list every account on a computer, so what `setAiAccounts` set is there too, each
   // the viewer's own with its address, after the computer's own sign-in.

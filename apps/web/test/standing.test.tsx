@@ -157,7 +157,7 @@ describe("a billing hold (ADR 0079): its own words, and its fix for whoever runs
     );
     await settle(4);
     expect(state.calls.find((c) => c.method === "orgs.billingLink")?.args).toEqual([ORG_ID, "hold"]);
-    expect(left).toEqual(["https://billing.example.com/link?t=hold"]);
+    expect(left).toEqual(["https://billing.example.com/link?t=hold&theme=light"]);
 
     await set({ state: "hold", reason: "unpaid" });
     expect(banner().textContent).toContain(

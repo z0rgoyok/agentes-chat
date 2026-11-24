@@ -297,7 +297,8 @@ describe("the bar's CSS", () => {
     expect(sheet).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{\s*\.ac-formatbar,\s*\.ac-formatbar\[data-open\] \{\s*transition: none;/,
     );
-    expect(rule(".ac-formatbar__btn")).toContain("height: var(--control-h-sm)");
+    expect(rule(".ac-formatbar__btn")).toContain("height: var(--fmt-btn)");
+    expect(rule(".ac-formatbar")).toContain("--fmt-btn: 28px");
     // Long unbroken text stays in its column: the text's cell may shrink, the buttons never do.
     expect(rule(".ac-composer__text")).toContain("min-width: 0");
     expect(rule(".ac-composer__tools")).toContain("flex: none");

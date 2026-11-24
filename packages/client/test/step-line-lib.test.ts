@@ -53,6 +53,19 @@ test("a computer brain's own call, which no agent.tool told, says what it did un
   expect(stepAfter([{ ...read, tool: "run_terminal_command" }], 9000)).toBe("rodando um comando…");
 });
 
+test("the computer's permission check keeps the command it lets through as the step, for as long as it runs", () => {
+  const read = { type: "agent.step", ...base, tool: "Read" };
+  const check = [call("p1", "permission_prompt"), ended("p1")];
+  expect(stepAfter([read, ...check], 9000)).toBe("mexendo nos arquivos do PC…");
+  expect(stepAfter([{ ...read, tool: "Bash", said: "Vou rodar os testes" }, ...check], 9000)).toBe(
+    "“Vou rodar os testes”",
+  );
+  // A check with words of its own, or one no call came before, is the step as before.
+  expect(stepAfter([read, call("p1", "permission_prompt", "Vou conferir o deploy"), ended("p1")], 9000)).toBe(
+    "“Vou conferir o deploy”",
+  );
+});
+
 test("a call waiting on a person says so before any words", () => {
   const held = { type: "agent.tool", ...base, tool: null, toolUseId: "q1", held: true };
   expect(stepAfter([call("q1", "ask_user", "Vou perguntar"), held], 9000)).toBe("esperando aprovação…");

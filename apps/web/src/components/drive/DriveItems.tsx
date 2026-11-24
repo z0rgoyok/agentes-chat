@@ -9,7 +9,7 @@ import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { ArtifactMoreMenu, useArtifactEntries } from "@/components/artifacts/ArtifactActions";
-import { useAuthorName } from "@/components/artifacts/ArtifactViewer";
+import { useAuthorName } from "@/components/artifacts/viewer-context";
 import type { MenuEntry } from "@/lib/context-menu";
 import { entityMenu } from "@/lib/entity-menu";
 import { dragOut } from "./DriveFolders";

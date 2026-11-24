@@ -9,7 +9,7 @@ import { IconTile } from "./IconTile";
 import { InfoHint, useInfoHint } from "./InfoHint";
 import { MEDIA_ROW } from "./media-row";
 import { PRESS_DELAY } from "./PressScale";
-import { cardEdge } from "./palette";
+import { cardEdge, withAlpha } from "./palette";
 import { CheckMark, Disclosure, MenuMark, ROW_MARK } from "./RowMarks";
 import { RowPressable } from "./RowPressable";
 import { GROUPED_ROW, TOUCH } from "./rhythm";
@@ -33,6 +33,12 @@ const REMOVE_GLYPH = 16;
  * system's own.
  */
 const LIST_CORNER = 26;
+
+/**
+ * The row whose page stands beside the list (`selected`, ADR 0212): the ink this faint over the row, in both themes, as
+ * the open conversation's row beside Conversations.
+ */
+const SELECTED_TINT = 0.08;
 
 /** How far a nested row (`tree`: a phone under its computer) moves in, and where its branch line runs. */
 const NEST = 24;
@@ -224,6 +230,12 @@ export interface GroupedRowProps {
   menu?: boolean;
   /** A chevron: it opens a screen. */
   chevron?: boolean;
+  /**
+   * A row of a split's list (ADR 0212: two panes on a regular-width window), whose page opens beside the list instead
+   * of over it: lit while that page shows (true), plain otherwise (false), and never a chevron or the held light of a
+   * row that opens a screen. Left out everywhere else.
+   */
+  selected?: boolean;
   /** Three dots: it opens a sheet of actions. */
   more?: boolean;
   /** A checkmark: the chosen option. */
@@ -300,7 +312,8 @@ function Row({
   value,
   valueNote,
   valueLeading,
-  chevron = false,
+  chevron: opensScreen = false,
+  selected,
   menu = false,
   more = false,
   checked,
@@ -320,6 +333,8 @@ function Row({
 }: Omit<GroupedRowProps, "hint"> & { said?: string; labelAfter?: ReactNode }) {
   const { colors: c } = useTheme();
   const fontScale = useFontScale();
+  // A split's row opens its page beside the list: no chevron, it isn't a screen over this one (ADR 0212).
+  const chevron = opensScreen && selected === undefined;
   const tone = danger ? c.danger : faint ? c.faint : c.ink;
   // A switch answers the finger as it flips, as `Toggle` does.
   const press =
@@ -532,13 +547,14 @@ function Row({
       accessibilityState={{
         disabled,
         ...(toggle !== undefined ? { checked: toggle } : {}),
-        ...(checked !== undefined ? { selected: checked } : {}),
+        ...(checked !== undefined ? { selected: checked } : selected !== undefined ? { selected } : {}),
       }}
       style={[
         styles.row,
         flat ? styles.media : tall ? styles.tall : null,
         tree === "mid" || tree === "end" ? styles.nested : null,
         depth > 0 ? { paddingLeft: GROUPED_ROW.padX + depth * NEST } : null,
+        selected ? { backgroundColor: withAlpha(c.ink, SELECTED_TINT) } : null,
         // Off, it looks off: a tap that does nothing never looks like one that should.
         disabled ? styles.off : null,
       ]}
@@ -634,7 +650,7 @@ export function GroupedField({ label, hint, children, onPress, stacked = false }
 }
 
 /**
- * A field whose label has an ⓘ. With `onPress` the row's button lies under the label and the value rather than
+ * A field whose label has an ⓘ, at the row's end (after the value, before the chevron). With `onPress` the row's button lies under the label and the value rather than
  * around them: inside another button the ⓘ would be part of it to VoiceOver, never a button of its own.
  */
 function HintedField({ label, hint, children, onPress }: GroupedFieldProps & { hint: { name: string; text: string } }) {
@@ -652,22 +668,22 @@ function HintedField({ label, hint, children, onPress }: GroupedFieldProps & { h
             style={StyleSheet.absoluteFill}
           />
         ) : null}
-        <View style={[styles.key, styles.keyLine]} pointerEvents="box-none">
-          <View
-            pointerEvents={passive}
-            style={styles.shrink}
-            accessibilityElementsHidden={Boolean(onPress)}
-            importantForAccessibility={onPress ? "no-hide-descendants" : "auto"}
-          >
-            <Text variant="callout" tone="muted">
-              {label}
-            </Text>
-          </View>
-          {info.button}
+        {/* The label has its whole column, as a field's with no ⓘ: sharing it with the ⓘ broke a two-word label in
+            two lines. The ⓘ goes after the value, before the chevron. */}
+        <View
+          pointerEvents={passive}
+          style={styles.key}
+          accessibilityElementsHidden={Boolean(onPress)}
+          importantForAccessibility={onPress ? "no-hide-descendants" : "auto"}
+        >
+          <Text variant="callout" tone="muted">
+            {label}
+          </Text>
         </View>
         <View style={styles.grow} pointerEvents={passive}>
           {children}
         </View>
+        {info.button}
         {onPress ? (
           <View pointerEvents="none">
             <Disclosure />

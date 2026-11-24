@@ -144,6 +144,49 @@ export interface LiveSelection {
   text?: string;
   /** A document's block id. */
   block?: string;
+  /** A picture's, a video frame's or a PDF page's point (no `w`, `h`) or area, in fractions (ADR 0208). */
+  mark?: { x: number; y: number; w?: number; h?: number };
+  /** A video's moment, in seconds. */
+  time?: number;
+  /** A PDF's page, from 1. */
+  page?: number;
+  /** The file's version the mark was made on. */
+  version?: number;
+  /** The app's picture of what was marked (a file's picture, `…/marks`). */
+  crop?: string;
+  /** The app's picture of the whole picture, frame or page with the mark drawn. */
+  frame?: string;
+}
+
+/** Uploaded files with a page and a conversation of their own (ADR 0208): a picture, a video, a PDF. */
+export type FileMediaKind = "image" | "video" | "pdf";
+/** What a file's conversation is about: a live file's kind, or a `FileMediaKind`. */
+export type TalkKind = LiveKind | FileMediaKind;
+
+const MEDIA_KIND_NAMES: readonly string[] = ["image", "video", "pdf"] satisfies readonly FileMediaKind[];
+export const isMediaKind = (kind: unknown): kind is FileMediaKind =>
+  typeof kind === "string" && MEDIA_KIND_NAMES.includes(kind);
+
+/** A comment that points at a place in a picture, a video or a PDF: it has a numbered pin there (ADR 0208). */
+export const isPinnedSelection = (s: LiveSelection | undefined | null): boolean =>
+  Boolean(s && (s.mark || s.time !== undefined || s.page !== undefined));
+
+/** Who resolved a comment, and when (`meta.resolved`, ADR 0208). */
+export interface ResolvedMark {
+  by: { type: "person" | "agent"; id: string };
+  at: string;
+}
+
+/** `meta.resolved` of a comment, when it reads right; null: open. */
+export function resolvedOf(meta: Record<string, unknown> | null | undefined): ResolvedMark | null {
+  const r = meta?.resolved;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const o = r as Record<string, unknown>;
+  const by = o.by as Record<string, unknown> | undefined;
+  if (typeof o.at !== "string" || !by || (by.type !== "person" && by.type !== "agent") || typeof by.id !== "string") {
+    return null;
+  }
+  return { by: { type: by.type, id: by.id }, at: o.at };
 }
 
 /** "Perguntar a um agente" from inside a file (ADR 0196 §6). */
@@ -166,7 +209,7 @@ export interface AskAgentResult {
  */
 export interface LiveRef {
   artifactId: string;
-  kind: LiveKind;
+  kind: TalkKind;
   title: string;
   selection?: LiveSelection;
 }
@@ -183,7 +226,7 @@ export interface LiveRefInput {
  */
 export interface FileConversationRoot {
   artifactId: string;
-  kind: LiveKind;
+  kind: TalkKind;
   title: string;
 }
 
@@ -198,6 +241,9 @@ const LIVE_KIND_NAMES: readonly string[] = [
 /** Whether an artifact kind is a live file's (`isLiveKind` of `@agenteschat/live`, without importing its code). */
 export const isLiveFileKind = (kind: unknown): kind is LiveKind =>
   typeof kind === "string" && LIVE_KIND_NAMES.includes(kind);
+
+/** Whether a conversation's kind is one the apps know (`TalkKind`). */
+export const isTalkKind = (kind: unknown): kind is TalkKind => isLiveFileKind(kind) || isMediaKind(kind);
 
 const text = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.length > 0 ? v.slice(0, max) : undefined;
@@ -227,6 +273,22 @@ export function liveSelectionOf(raw: unknown): LiveSelection | undefined {
   const block = text(o.block, 64);
   if (quote) sel.text = quote;
   if (block) sel.block = block;
+  const frac = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined);
+  const mark = o.mark && typeof o.mark === "object" ? (o.mark as Record<string, unknown>) : null;
+  const mx = frac(mark?.x);
+  const my = frac(mark?.y);
+  if (mx !== undefined && my !== undefined) {
+    const w = frac(mark?.w);
+    const h = frac(mark?.h);
+    sel.mark = w && h ? { x: mx, y: my, w, h } : { x: mx, y: my };
+  }
+  if (typeof o.time === "number" && Number.isFinite(o.time) && o.time >= 0) sel.time = o.time;
+  if (Number.isInteger(o.page) && (o.page as number) >= 1) sel.page = o.page as number;
+  if (Number.isInteger(o.version) && (o.version as number) >= 1) sel.version = o.version as number;
+  const crop = text(o.crop, 64);
+  const frame = text(o.frame, 64);
+  if (crop) sel.crop = crop;
+  if (frame) sel.frame = frame;
   return sel;
 }
 
@@ -236,7 +298,7 @@ export function fileConversationOf(meta: Record<string, unknown> | null | undefi
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const artifactId = text(o.artifactId, 100);
-  if (!artifactId || !isLiveFileKind(o.kind)) return null;
+  if (!artifactId || !isTalkKind(o.kind)) return null;
   return { artifactId, kind: o.kind, title: typeof o.title === "string" ? o.title.slice(0, 200) : "" };
 }
 
@@ -253,7 +315,7 @@ export function liveRefOf(meta: Record<string, unknown> | null | undefined): Liv
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const artifactId = text(o.artifactId, 100);
-  if (!artifactId || !isLiveFileKind(o.kind)) return null;
+  if (!artifactId || !isTalkKind(o.kind)) return null;
   const ref: LiveRef = { artifactId, kind: o.kind, title: typeof o.title === "string" ? o.title.slice(0, 200) : "" };
   const selection = liveSelectionOf(o.selection);
   if (selection) ref.selection = selection;

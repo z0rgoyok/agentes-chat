@@ -339,6 +339,7 @@ export function createArtifactToolSource(deps: ArtifactDeps): ToolSource {
           },
           since: { type: "string", maxLength: 40, description: "ISO date: only files updated since then." },
           folder: { type: "string", maxLength: 500, description: 'Only files in this Drive folder ("Reports/2026").' },
+          limit: { type: "number" },
         },
         additionalProperties: false,
       },
@@ -357,7 +358,7 @@ export function createArtifactToolSource(deps: ArtifactDeps): ToolSource {
             since: since && !Number.isNaN(since.getTime()) ? since : undefined,
             requesterUserId: requester,
             folderId,
-            limit: 30,
+            limit: typeof input.limit === "number" && input.limit >= 1 ? Math.min(30, Math.floor(input.limit)) : 30,
           });
           if (list.length === 0) {
             return {

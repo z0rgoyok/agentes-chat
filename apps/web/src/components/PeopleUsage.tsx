@@ -110,28 +110,32 @@ const agentName = (t: TFunction, dir: Dir, id: string) => dir.anyAgent(id)?.name
  * personal workspace, only Resumo, without tabs (ADR 0159): an owner has no limit and nobody else uses it. A link to a
  * person still opens Pessoas.
  */
-export function UsageTabs({ summary, person }: { summary: ReactNode; person?: string }) {
+export function UsageTabs({ accounts, summary, person }: { accounts: ReactNode; summary: ReactNode; person?: string }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const { solo } = usePersonalView();
   const money = can(org, "view_usage");
-  const [tab, setTab] = useState<"summary" | "people">(person ? "people" : "summary");
+  const [tab, setTab] = useState<"accounts" | "summary" | "people">(person ? "people" : "accounts");
   useEffect(() => {
     if (person) setTab("people");
   }, [person]);
-  if (solo && !person) return <>{summary}</>;
+  const people = !solo || Boolean(person);
   return (
     <Tabs
       value={tab}
       onValueChange={setTab}
       label={t(settingsSectionNameKey(org, "usage"))}
       items={[
-        { value: "summary", label: t("peopleUsage.tabs.summary") },
-        { value: "people", label: money ? t("peopleUsage.tabs.people") : t("peopleUsage.tabs.mine") },
+        { value: "accounts", label: t("aiHub.tab") },
+        { value: "summary", label: t("aiHub.usageTab") },
+        ...(people
+          ? [{ value: "people" as const, label: money ? t("peopleUsage.tabs.people") : t("peopleUsage.tabs.mine") }]
+          : []),
       ]}
     >
+      <TabPanel value="accounts">{accounts}</TabPanel>
       <TabPanel value="summary">{summary}</TabPanel>
-      <TabPanel value="people">{money ? <PeopleTab person={person} /> : <MyUsage />}</TabPanel>
+      {people && <TabPanel value="people">{money ? <PeopleTab person={person} /> : <MyUsage />}</TabPanel>}
     </Tabs>
   );
 }

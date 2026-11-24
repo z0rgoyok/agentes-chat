@@ -1,9 +1,9 @@
 import { frozenBoard, useHomeBoard, type Widget } from "@agenteschat/client";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Icon, RowPressable, Text, useTheme } from "@/ui";
+import { Icon, RowPressable, SideScroll, Text, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
 import { newWidgetHref } from "../dashboards/BoardScreen";
 import { HOME, widgetsInOrder } from "../dashboards/logic";
@@ -43,13 +43,7 @@ export const HomeWidgets = memo(function HomeWidgets({
   return (
     <CollapsibleSection title={title} count={widgets.length} collapsed={collapsed} onToggle={onToggle}>
       {widgets.length > 0 || !canAdd ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          snapToInterval={STRIP_WIDGET + GAP}
-          decelerationRate="fast"
-          contentContainerStyle={styles.strip}
-        >
+        <SideScroll snapToInterval={STRIP_WIDGET + GAP} decelerationRate="fast" contentContainerStyle={styles.strip}>
           {widgets.map((w) => (
             <View key={w.id} style={styles.item}>
               <WidgetPeek widget={w} canEdit={canAdd} board={where} compact />
@@ -74,7 +68,7 @@ export const HomeWidgets = memo(function HomeWidgets({
               {t("dashboards.seeAll")}
             </Text>
           </Pressable>
-        </ScrollView>
+        </SideScroll>
       ) : canAdd ? (
         <RowPressable
           // A full-width row: it lights a beat after the finger lands, as the list's rows do.

@@ -10,9 +10,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { Button, IconButton, SCREEN_X, Sky, Text, useTheme, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useMessageCardCorners } from "../chat/look";
+import { useMessageCardFrame } from "../chat/look";
 import { useRowDirectory } from "../chat/row-data";
+import { withOpacity } from "../chat/turn";
 import { PageBones } from "../files/PageBones";
+import { useBubblePart } from "../shared/bubble-part";
 import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useErrorToast, useOrgId, useWhen } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
@@ -187,6 +189,8 @@ export function LiveBlock({
   const { t } = useTranslation();
   const when = useWhen();
   const c = useColors();
+  // What the tall block fades into: the bubble's fill where its card is a bubble of the message.
+  const fill = useBubblePart()?.fill ?? c.raised;
   const orgId = useOrgId();
   const dir = useRowDirectory();
   const toast = useToast();
@@ -313,7 +317,7 @@ export function LiveBlock({
           </Pressable>
         )}
         {tall && !open ? (
-          <LinearGradient pointerEvents="none" colors={[`${c.raised}00`, c.raised]} style={styles.fade} />
+          <LinearGradient pointerEvents="none" colors={[withOpacity(fill, 0), fill]} style={styles.fade} />
         ) : null}
       </View>
       {tall && !open ? (
@@ -351,7 +355,7 @@ export function LiveBlock({
 
 /** A block on its message: the agent's card, its title, and the block itself. */
 export function LiveBlockCard({ id, version }: { id: string; version?: number }) {
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const { t } = useTranslation();
   const c = useColors();
   const orgId = useOrgId();
@@ -360,7 +364,7 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
   const a = query.data;
   if (a?.content.kind !== "block") {
     return (
-      <View style={[styles.card, styles.loading, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
+      <View style={[styles.card, styles.loading, card.style]}>
         <ActivityIndicator color={c.faint} />
         <Text variant="footnote" tone="muted">
           {t("mobile.blocks.building")}
@@ -371,14 +375,17 @@ export function LiveBlockCard({ id, version }: { id: string; version?: number })
   const agentId = a.createdBy.id;
   const open = () => router.push({ pathname: "/block/[id]", params: { id: a.id, v: String(a.shownVersion) } });
   return (
-    <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
-      <Sky
-        color={agentLook(dir.agentById.get(agentId)).color}
-        surface="raised"
-        depth={0.95}
-        fade={0}
-        style={styles.sky}
-      />
+    <View style={[styles.card, card.style]}>
+      {/* A bubble of the message has no sky across its top (as a request's card there). */}
+      {card.bubble ? null : (
+        <Sky
+          color={agentLook(dir.agentById.get(agentId)).color}
+          surface="raised"
+          depth={0.95}
+          fade={0}
+          style={styles.sky}
+        />
+      )}
       <View style={styles.head}>
         <View style={styles.titles}>
           <Text variant="subhead" style={styles.bold} numberOfLines={2}>

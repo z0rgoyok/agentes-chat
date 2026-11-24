@@ -118,10 +118,14 @@ export function waitingLast<S extends Pick<RunSlot, "runId">>(
   return [...slots.filter((s) => !waiting(s.runId)), ...slots.filter((s) => waiting(s.runId))];
 }
 
+/** A subagent or a workflow its brain started, with its progress (a code session's, ADR 0215): its card shows. */
+const subagentsShown = (r: LiveRun) => (r.work ?? []).some((w) => w.kind === "call" && w.progress !== undefined);
+
 /**
  * Its block is in the conversation: it ended badly, or it has something to show while it works (its browser card, the
- * picture it is making, "sem notícias · Atualizar" on a run gone quiet). Otherwise the bar above the composer speaks for it: its face, what it
- * does now, for how long, and its stop. Its words show whole, once its message is posted.
+ * picture it is making, its subagents at work, "sem notícias · Atualizar" on a run gone quiet). Otherwise the bar above
+ * the composer speaks for it: its face, what it does now, for how long, and its stop. Its words show whole, once its
+ * message is posted.
  */
 export const rowShows = (r: LiveRun, now: number) =>
-  !waitsForWords(r) || browserSteps(r.work).length > 0 || makingImage(r) || isQuiet(r, now);
+  !waitsForWords(r) || browserSteps(r.work).length > 0 || makingImage(r) || subagentsShown(r) || isQuiet(r, now);

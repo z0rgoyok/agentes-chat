@@ -156,8 +156,7 @@
 .ac-msg--own.ac-msg--wide[data-look="bubbles"] > .ac-msg__body {
   --own-max: min(76%, 680px);
 }
-.ac-msg--own[data-look="bubbles"][data-tone="strong"] .ac-msg__text,
-.ac-msg--own[data-look="bubbles"][data-tone="strong"].ac-msg--pending .ac-msg__text {
+.ac-msg--own[data-look="bubbles"][data-tone="strong"] .ac-msg__text {
   color: var(--on-dark);
 }
 .ac-msg--own[data-look="bubbles"][data-tone="strong"]

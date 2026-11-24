@@ -207,6 +207,8 @@ describe("Gemini adapter (Interactions API, scripted transport)", () => {
     expect(await levelOf({ model: "gemini-4-argon", effort: "none" })).toBe("low");
     expect(await levelOf({ model: "gemini-3.5-flash-lite", effort: "medium" })).toBe("medium");
     expect(await levelOf({})).toBeUndefined();
+    // Gemini's levels stop at high.
+    expect(await levelOf({ model: "gemini-4-argon", effort: "xhigh" })).toBe("high");
   });
 
   test("a blocked reply is a refusal, as an error event or a failed interaction", async () => {

@@ -1,19 +1,26 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, type Executor, eq, gte, schema, sql } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, gte, schema, sql } from "@agenteschat/db";
+import { runAuthority } from "./authority";
 import { threadIsConfidential } from "./confidential";
+import { getChannelCached } from "./context";
+import { inAgentOnlyDm } from "./dms";
 import { publishMessageCreated } from "./events";
+import { plainWords } from "./format";
 import { insertMessage, messageView } from "./messages";
+import { missionOfThread } from "./missions";
 import { runReadOutside } from "./outside";
 import { endsWithSentinel, isSentinelOnly } from "./reply-policy";
 import { personAmong } from "./run-inbox";
+import { type RunRow, runColumns } from "./run-state";
 import { type AgentRun, isTerminal, replyThreadOf } from "./runs";
 import { runStretchOf } from "./stretch";
 import { maskCredentials, scrubSignIns } from "./tool-detail";
+import { listsEveryTool } from "./tools/directory";
 import type { ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./tools/types";
 import { withWikiLinks } from "./wiki-links";
 import { movableRun } from "./works";
 
-const { agentRuns, messages } = schema;
+const { agentRuns, agentRunSteps, messages } = schema;
 
 /**
  * Before work that takes a while, the agent tells the person in one short line what it will do, at once, in the
@@ -36,14 +43,31 @@ export interface SaidNow {
 }
 
 /**
- * Where the line may go: a person's run, in a conversation people read as it goes (a channel or a DM; not an agents'
- * DM, a mission's thread, background work, a routine's run or a confidential thread). Elsewhere the tool refuses with
- * the reason, and the prompt doesn't speak of it.
+ * Where the line may go: a person's run, in a conversation people read as it goes (a channel, a DM or a code session;
+ * a task's or a file's conversation when a person wrote the message the run answers, addendum of 2026-11-24; not an
+ * agents' DM, a mission's thread, background work, a routine's run or a confidential thread). Elsewhere the tool
+ * refuses with the reason, and the prompt doesn't speak of it.
  */
-export async function sayNowApplies(db: Executor, run: AgentRun, confidential?: boolean) {
+export async function sayNowApplies(db: Executor, run: RunRow, confidential?: boolean) {
   if (run.background || run.workId) return false;
   // Known to the run already (`sealedAtClaim`): no read of the thread's row on its way to the model.
   if (confidential ?? (await threadIsConfidential(db, run.orgId, run.threadRootId))) return false;
+  // A code session (ADR 0215) is read as it goes, though its runs never move to the background.
+  const channel = await getChannelCached(db as Database, run.orgId, run.channelId);
+  if (channel?.kind === "code") return (await runAuthority(db, run)).kind === "person";
+  // A task's or a file's conversation never moves its work elsewhere (`movableRun`), but the person who wrote there
+  // reads it as it goes. Work an agent was handed there (a delegate's) has no reader: its trigger is no person's.
+  if (channel?.kind === "task" || channel?.kind === "file") {
+    const [trigger] = await db
+      .select({ authorType: messages.authorType })
+      .from(messages)
+      .where(and(eq(messages.orgId, run.orgId), eq(messages.id, run.triggerMessageId)))
+      .limit(1);
+    if (trigger?.authorType !== "person") return false;
+    const thread = replyThreadOf(run);
+    if (thread && (await missionOfThread(db, run.orgId, thread))) return false;
+    return (await runAuthority(db, run)).kind === "person";
+  }
   return movableRun(db, run);
 }
 
@@ -58,7 +82,7 @@ export function sayNowText(raw: unknown): string {
 }
 
 /** What a line for a person never holds: code-ish names (a tool, a function), a file path on a computer, backticks. */
-const NOT_FOR_PEOPLE =
+export const NOT_FOR_PEOPLE =
   /`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|(?:^|\s)(?:~\/|\/(?:Users|home|tmp|var|etc|opt)\/|[A-Za-z]:\\)/;
 
 const REFUSED = {
@@ -79,7 +103,7 @@ const refused = (content: string, isError = true): ToolOutput => ({ content, isE
 async function runOf(ctx: ToolContext) {
   if (!ctx.runId || ctx.background || ctx.bridge?.taskId) return null;
   const [run] = await ctx.db
-    .select()
+    .select(runColumns)
     .from(agentRuns)
     .where(and(eq(agentRuns.id, ctx.runId), eq(agentRuns.orgId, ctx.orgId), eq(agentRuns.agentId, ctx.agentId)));
   return run ?? null;
@@ -91,9 +115,9 @@ type LinesRun = Pick<AgentRun, "id" | "orgId" | "channelId" | "agentId" | "creat
  * The lines this run posted on the way (`meta.sayNow.runId`), oldest first: the conversation's record, for the paths
  * that post what a run wrote before its transcript took in a computer turn's lines (a stop, a cut turn, a restart).
  */
-export async function linesSaid(db: Executor, run: LinesRun, limit = 5): Promise<{ text: string }[]> {
+export async function linesSaid(db: Executor, run: LinesRun, limit = 5): Promise<{ text: string; took: string[] }[]> {
   const rows = await db
-    .select({ body: messages.body })
+    .select({ body: messages.body, meta: messages.meta })
     .from(messages)
     .where(
       and(
@@ -107,14 +131,39 @@ export async function linesSaid(db: Executor, run: LinesRun, limit = 5): Promise
     )
     .orderBy(messages.createdAt)
     .limit(limit);
-  return rows.map((r) => ({ text: r.body }));
+  return rows.map((r) => {
+    const took = (r.meta.sayNow as { took?: unknown } | undefined)?.took;
+    return { text: r.body, took: Array.isArray(took) ? took.filter((id): id is string => typeof id === "string") : [] };
+  });
+}
+
+/**
+ * The messages the run may still answer with a line of its own (addendum of 2026-11-24): a person wrote while it
+ * worked and the triage was sure the message corrects or adds to the task (`steerTriage.line` on the run's trail,
+ * `steering.ts`), and no line took it yet (`meta.sayNow.took`). One line takes all that wait.
+ */
+async function linesOwed(db: Executor, run: LinesRun, said: { took: string[] }[]): Promise<string[]> {
+  const steps = await db
+    .select({ data: agentRunSteps.data })
+    .from(agentRunSteps)
+    .where(
+      and(
+        eq(agentRunSteps.runId, run.id),
+        eq(agentRunSteps.kind, "context"),
+        sql`${agentRunSteps.data}->'steerTriage'->'line' = 'true'::jsonb`,
+      ),
+    );
+  const taken = new Set(said.flatMap((line) => line.took));
+  const ids = steps.map((step) => (step.data.steerTriage as { messageId?: unknown } | undefined)?.messageId);
+  return [...new Set(ids.filter((id): id is string => typeof id === "string" && !taken.has(id)))];
 }
 
 /**
  * `say_now` (ADR 0207): one short line to the person, posted at once in the conversation the run answers, before work
  * that takes a while ("Bora! Vou abrir o navegador e já te mando."). Listed in every run with an id but background ones
  * (the run policy keeps it from a routine's, `HERE`), so the tool list stays the same from run to run; where it doesn't
- * apply it refuses with the reason. Once per run: a second call answers what was said. The line is the agent's own
+ * apply it refuses with the reason. Once per run, and once more for each message a person sends meanwhile that corrects
+ * or adds to the task (`linesOwed`); any other call answers what was said. The line is the agent's own
  * message with no run of its own (`runId` null, `meta.sayNow`), like the fast reply's: it is never the reply, the run
  * still owes its answer (`answerOwed`), it notifies nobody, routes to nobody, and the working row stays up.
  */
@@ -122,7 +171,7 @@ export function createSayNowToolSource(deps: { pubsub?: PubSub }): ToolSource {
   const tool: ToolDefinition = {
     name: SAY_NOW_TOOL,
     description:
-      'Posts one short line in this conversation at once, before work that takes a while: what you\'ll do, in their language ("Bora! Vou abrir o navegador e já te mando."). Never a result, a time, a question or a request for a key: your final message brings the result.',
+      'Posts one short line in this conversation at once, before work that takes a while: what you\'ll do, in their language ("Bora! Vou abrir o navegador e já te mando."). Once more if they correct or add to the task while you work. Never a result, a time, a question or a request for a key: your final message brings the result.',
     scope: "",
     inputSchema: {
       type: "object",
@@ -147,8 +196,11 @@ export function createSayNowToolSource(deps: { pubsub?: PubSub }): ToolSource {
         // Under the run's lock: two calls at once post one line.
         const [locked] = await tx.select().from(agentRuns).where(eq(agentRuns.id, run.id)).for("update");
         if (!locked || isTerminal(locked.status)) return { kind: "ended" } as const;
-        const [before] = await linesSaid(tx, locked, 1);
-        if (before) return { kind: "already", body: before.text } as const;
+        const said = await linesSaid(tx, locked, 50);
+        // Messages they sent meanwhile that it takes in with this line (one more line for them, then none).
+        const took = await linesOwed(tx, locked, said);
+        const before = said.at(-1);
+        if (before && took.length === 0) return { kind: "already", body: before.text } as const;
         // A person wrote since the run last read: the line would answer a conversation that has moved on.
         if (await personAmong(tx, locked.orgId, locked.pendingMessageIds)) return { kind: "wroteAgain" } as const;
         const message = await insertMessage(tx, {
@@ -165,7 +217,10 @@ export function createSayNowToolSource(deps: { pubsub?: PubSub }): ToolSource {
           },
           body: text,
           // A run that read outside content passes the mark on (ADR 0117): the next agent reads the line as relayed.
-          meta: { sayNow: { runId: locked.id }, ...((await runReadOutside(tx, locked)) ? { readOutside: true } : {}) },
+          meta: {
+            sayNow: { runId: locked.id, ...(took.length > 0 ? { took } : {}) },
+            ...((await runReadOutside(tx, locked)) ? { readOutside: true } : {}),
+          },
         });
         // It promised something: the run can't end quiet now (`pass`, the quiet end read this on the row).
         await tx
@@ -191,20 +246,11 @@ export function createSayNowToolSource(deps: { pubsub?: PubSub }): ToolSource {
   return {
     name: "say-now",
     async tools(ctx) {
-      // The same list in every run but a background one: where it doesn't apply, it says why.
-      return ctx.runId && !ctx.background ? [tool] : [];
+      // The same list in every run but a background one or one between agents: where it doesn't apply, it says why.
+      return ctx.runId && !ctx.background && (listsEveryTool(ctx) || !(await inAgentOnlyDm(ctx))) ? [tool] : [];
     },
   };
 }
-
-/** A sentence's words as they compare: lower case, no accents, no punctuation or emoji. */
-const wordsOf = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
 
 /**
  * A reply without what it already told them on the way (`say_now`): models often write the line again as the first
@@ -215,7 +261,7 @@ const wordsOf = (s: string) =>
  */
 export function withoutSaidNow(text: string, said: readonly Pick<SaidNow, "text">[] | undefined): string {
   if (!said?.length || !text.trim()) return text;
-  const lines = said.map((s) => wordsOf(s.text)).filter(Boolean);
+  const lines = said.map((s) => plainWords(s.text)).filter(Boolean);
   if (lines.length === 0) return text;
   const start = text.trimStart();
   let rest = start;
@@ -226,7 +272,7 @@ export function withoutSaidNow(text: string, said: readonly Pick<SaidNow, "text"
     if (!match) break;
     // A heading that runs into a list ("Os voos mais baratos:") leads the answer: it never repeats the line.
     if (match[2] === "\n" && /:\s*$/.test(match[1] ?? "")) break;
-    const sentence = wordsOf(match[1] ?? "");
+    const sentence = plainWords(match[1] ?? "");
     rest = rest.slice(match[0].length);
     // Punctuation or emoji alone joins the sentences around it.
     if (!sentence) continue;

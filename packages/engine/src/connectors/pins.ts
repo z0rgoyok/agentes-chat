@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, type Database, eq, inArray, schema } from "@agenteschat/db";
 import { recordAudit } from "../audit";
+import { cachesEnabled, TtlCache } from "../cache";
 import { cutText } from "../format";
 import { canonicalJson } from "../tools/json-schema";
 import type { ConnectorConnection } from "./connections";
@@ -8,6 +9,13 @@ import type { McpTool } from "./mcp";
 import { auditLabel } from "./personal";
 
 const pins = schema.connectorToolPins;
+
+/**
+ * Per connection, the fingerprints its pins held the last time a listing matched them all with nothing pending: every
+ * run lists its connections' tools, and a listing like that one is served without reading the pins again.
+ */
+// ponytail: per process; a pin another process moves shows here once this entry expires.
+const pinsSeen = new TtlCache<Map<string, string>>(60_000);
 
 export const toolFingerprint = (t: { description?: string | null; inputSchema?: unknown }) =>
   createHash("sha256")
@@ -32,18 +40,26 @@ export async function applyToolPins(
   tools: McpTool[],
   pinned: (name: string) => boolean,
 ): Promise<McpTool[]> {
-  const names = tools.filter((t) => pinned(t.name)).map((t) => t.name);
-  if (names.length === 0) return tools;
+  const prints = new Map(tools.filter((t) => pinned(t.name)).map((t) => [t.name, toolFingerprint(t)]));
+  if (prints.size === 0) return tools;
+  const seen = cachesEnabled() ? pinsSeen.get(connection.id) : undefined;
+  if (seen && [...prints].every(([name, print]) => seen.get(name) === print)) return tools;
   const rows = await deps.db
     .select()
     .from(pins)
-    .where(and(eq(pins.orgId, connection.orgId), eq(pins.connectionId, connection.id), inArray(pins.toolName, names)));
+    .where(
+      and(
+        eq(pins.orgId, connection.orgId),
+        eq(pins.connectionId, connection.id),
+        inArray(pins.toolName, [...prints.keys()]),
+      ),
+    );
   const byName = new Map(rows.map((r) => [r.toolName, r]));
   const fresh: (typeof pins.$inferInsert)[] = [];
   const changed: { tool: McpTool; pin: typeof pins.$inferSelect; fingerprint: string }[] = [];
   for (const tool of tools) {
-    if (!pinned(tool.name)) continue;
-    const fingerprint = toolFingerprint(tool);
+    const fingerprint = prints.get(tool.name);
+    if (fingerprint === undefined) continue;
     const pin = byName.get(tool.name);
     if (!pin) {
       fresh.push({
@@ -58,7 +74,11 @@ export async function applyToolPins(
     else if (pin.pendingFingerprint) await deps.db.update(pins).set(NOTHING_PENDING).where(eq(pins.id, pin.id));
   }
   if (fresh.length > 0) await deps.db.insert(pins).values(fresh).onConflictDoNothing();
-  if (changed.length === 0) return tools;
+  if (changed.length === 0) {
+    // Every pin holds this very listing and nothing waits: the next listings like it need no read.
+    pinsSeen.set(connection.id, prints);
+    return tools;
+  }
   try {
     // Before the pin moves: a listing that finds the new pin may trust the stored level.
     await deps.reclassify?.();

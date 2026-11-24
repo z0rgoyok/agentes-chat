@@ -237,6 +237,15 @@ export const agentDmKey = (a: string, b: string) => keyOf([`a:${a}`, `a:${b}`]);
 export const isAgentOnlyDm = (channel: { kind: string; dmKey: string | null }) =>
   channel.kind === "dm" && channel.dmKey !== null && !channel.dmKey.includes("u:");
 
+/** The run's conversation is a DM between agents only (`isAgentOnlyDm`). */
+export async function inAgentOnlyDm(ctx: { db: Executor; orgId: string; channelId: string }) {
+  const [channel] = await ctx.db
+    .select({ kind: schema.channels.kind, dmKey: schema.channels.dmKey })
+    .from(schema.channels)
+    .where(and(eq(schema.channels.orgId, ctx.orgId), eq(schema.channels.id, ctx.channelId)));
+  return Boolean(channel && isAgentOnlyDm(channel));
+}
+
 /**
  * Opens the private conversation between two agents (creates it the first
  * time): a `dm` channel with both agents as its only members. Where one
@@ -322,6 +331,34 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
     );
   if (mine.length === 0) return [];
   const ids = mine.map((c) => c.id);
+  // Each DM's newest message that shows, read backwards from its end (`(channel_id, created_at)`): never a DM's whole
+  // history, sorted to keep one row.
+  const newest = db
+    .select({
+      channelId: messages.channelId,
+      id: messages.id,
+      body: messages.body,
+      meta: messages.meta,
+      createdAt: messages.createdAt,
+      authorType: messages.authorType,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, orgId),
+        sql`${messages.channelId} = dm.id`,
+        isNull(messages.deletedAt),
+        // A routine's call is hidden in the chat (only the agent's answer shows), so not the preview either.
+        sql`not (${messages.authorType} = 'person' and ${messages.meta}->'routine' is not null)`,
+        // Nor what only its agent reads, nor a receipt like a stopped task (ADR 0128).
+        sql`not ${quietNoticeSql(sql`${messages.meta}`)}`,
+        // An agent's sticker or GIF after its own reply (ADR 0091) is part of that reply: the reply is the preview.
+        sql`${messages.meta}->>'mediaAfter' is null`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .as("newest");
   const [others, reads, last, unreadRows] = await Promise.all([
     db
       .select({
@@ -346,29 +383,16 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
       .from(channelReads)
       .where(and(inArray(channelReads.channelId, ids), eq(channelReads.userId, actorId))),
     db
-      .selectDistinctOn([messages.channelId], {
-        channelId: messages.channelId,
-        id: messages.id,
-        body: messages.body,
-        meta: messages.meta,
-        createdAt: messages.createdAt,
-        authorType: messages.authorType,
+      .select({
+        channelId: newest.channelId,
+        id: newest.id,
+        body: newest.body,
+        meta: newest.meta,
+        createdAt: newest.createdAt,
+        authorType: newest.authorType,
       })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.orgId, orgId),
-          inArray(messages.channelId, ids),
-          isNull(messages.deletedAt),
-          // A routine's call is hidden in the chat (only the agent's answer shows), so not the preview either.
-          sql`not (${messages.authorType} = 'person' and ${messages.meta}->'routine' is not null)`,
-          // Nor what only its agent reads, nor a receipt like a stopped task (ADR 0128).
-          sql`not ${quietNoticeSql(sql`${messages.meta}`)}`,
-          // An agent's sticker or GIF after its own reply (ADR 0091) is part of that reply: the reply is the preview.
-          sql`${messages.meta}->>'mediaAfter' is null`,
-        ),
-      )
-      .orderBy(messages.channelId, desc(messages.createdAt)),
+      .from(sql`unnest(${`{${ids.join(",")}}`}::uuid[]) as dm(id)`)
+      .crossJoinLateral(newest),
     // Every DM's unread count in one query (each against my own read of it, or the beginning where I never read it),
     // not one query per DM: the list is read on every app load, and has a DM per agent and per person.
     db

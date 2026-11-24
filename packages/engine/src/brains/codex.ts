@@ -35,8 +35,10 @@ import {
   type BrainEvent,
   type BrainIO,
   type BrainTurn,
+  brainRunsOn,
   type SteerMessage,
   type SteerReply,
+  SYSTEM_REFUSED,
 } from "./types";
 
 /**
@@ -356,6 +358,11 @@ export class CodexBrain implements Brain {
         message: `The runner on the computer is too old for agents that think with ${name} on Windows. ${runnerUpdateWay(status)}`,
         retryable: true,
       };
+      return;
+    }
+    // Its runner would refuse every turn there in its own words; refused here, it reads in the person's language.
+    if (!brainRunsOn(this.kind, status.os)) {
+      yield { type: "error", code: SYSTEM_REFUSED, message: `${name} doesn't run on this computer's system yet.` };
       return;
     }
     const missing = this.cli.check(status.executors);

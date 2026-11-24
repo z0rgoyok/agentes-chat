@@ -159,7 +159,7 @@ export function NoticeLine({ message }: { message: Message }) {
     <EventLine
       message={message}
       mark={
-        notice.kind === "github_event" ? (
+        notice.kind === "github_event" || notice.kind === "github_check" ? (
           <ProviderLogo id="github" size="xs" />
         ) : (
           <Icon name={NOTICE_ICON[notice.kind] ?? "info"} size={14} />

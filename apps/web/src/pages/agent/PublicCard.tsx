@@ -3,7 +3,7 @@ import { useAgentDetail } from "@agenteschat/client";
 import { audienceSummary } from "@agenteschat/client/lib/audience";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { tellsNameStory } from "@agenteschat/client/lib/right-hand";
-import { type AgentColor, Avatar, Button, Card, CardHeader, Chip, Icon } from "@agenteschat/ui";
+import { type AgentColor, Avatar, Button, Card, CardHeader, Chip, Icon, RoleMark } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,10 @@ import { AgentCover } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
 import { lookOf } from "@/lib/look";
 
-/** "Pedir acesso": a direct message to the agent's owner (none without one: the note names the admins). */
+/**
+ * "Ask for access": a direct message to the agent's owner (none without one: the note names the admins; none either
+ * when a role answers for it, ADR 0085, addendum of 2026-11-21: there is no one person to write to).
+ */
 export function AskAccessButton({ agent, size = "sm" }: { agent: Pick<Agent, "ownerUserId">; size?: "sm" | "md" }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -44,6 +47,7 @@ export function AgentPublicCard({
   const dir = useDirectory(org.id);
   const detail = useAgentDetail(org.id, agent.id);
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
+  const ownerRole = agent.ownerRoleId ? dir.roleById.get(agent.ownerRoleId) : undefined;
   const channels = detail.data?.channels ?? [];
   const g = agentGrammar(agent.name);
   const look = lookOf(agent);
@@ -78,7 +82,9 @@ export function AgentPublicCard({
             <Card as="section" className="agp-card" aria-labelledby="pub-who">
               <CardHeader id="pub-who" icon="person" title={t("agentPage.overview.who", g)} />
               <div className="agp-person">
-                {owner ? (
+                {ownerRole ? (
+                  <RoleMark color={ownerRole.color} icon={ownerRole.icon} size={56} />
+                ) : owner ? (
                   <Avatar kind="person" size="lg" name={owner.name} imageUrl={owner.image} />
                 ) : (
                   <span className="newag__ib">
@@ -86,8 +92,8 @@ export function AgentPublicCard({
                   </span>
                 )}
                 <span className="agp-person__t">
-                  <b className="ac-captop">{owner ? owner.name : t("newAgent.noOwnerOption")}</b>
-                  <span>{owner ? t("agentPage.overview.ownerRole") : t("newAgent.noOwnerHelp")}</span>
+                  <b className="ac-captop">{ownerRole?.name ?? owner?.name ?? t("newAgent.noOwnerOption")}</b>
+                  <span>{ownerRole || owner ? t("agentPage.overview.ownerRole") : t("newAgent.noOwnerHelp")}</span>
                 </span>
               </div>
               <div className="agp-kv">

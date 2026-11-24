@@ -133,6 +133,9 @@ const KEPT: Record<string, string[]> = {
   db_connections: ["label", "status", "last_error"],
   // A registered host and its look: only this API writes them, never a workspace (ADR 0194).
   hosts: ["host", "name", "accent"],
+  // A server process's own vitals: only the process writes them, from its role, its release, its snapshot's name and
+  // the patterns of its routes (as registered, ids left out).
+  server_processes: ["role", "version", "heap_snapshot_file", "routes.route"],
 };
 
 /** The places the proof is about: each holds a canary before any read, and after every column got one. */
@@ -420,6 +423,18 @@ beforeAll(async () => {
     content: "canary memory",
   });
   await db.insert(schema.hosts).values({ host: "app.northwind.example", name: "Northwind Studio", accent: "#7c3aed" });
+  await db.insert(schema.serverProcesses).values({
+    id: crypto.randomUUID(),
+    role: "all",
+    version: "test",
+    startedAt: new Date(),
+    seenAt: new Date(),
+    rssBytes: 1,
+    heapUsedBytes: 1,
+    heapTotalBytes: 1,
+    heapSnapshotAt: new Date(),
+    heapSnapshotFile: "heap-all.heapsnapshot",
+  });
   await db.insert(schema.auditLog).values({
     orgId,
     actorType: "agent",
@@ -929,6 +944,7 @@ beforeAll(async () => {
   const paths = [
     "/openapi.json",
     "/health",
+    "/vitals",
     "/orgs?limit=200",
     "/orgs?q=acme",
     "/events",
@@ -943,6 +959,8 @@ beforeAll(async () => {
     `/analytics/work?${days}`,
     ...["brain", "model"].map((by) => `/analytics/run-timings?${hours}&by=${by}`),
     `/analytics/run-timings?${hours}&orgId=${orgId}&agentId=${agentId}`,
+    ...["hour", "day"].map((bucket) => `/analytics/reply-times?${hours}&bucket=${bucket}`),
+    `/cli-runs?${hours}`,
     `/analytics/ai-accounts?${days}`,
     "/ai-accounts?limit=200",
     "/claude-auth",
@@ -1053,6 +1071,8 @@ beforeAll(async () => {
     ["/events?after=nope", 400],
     ["/analytics", 400],
     [`/analytics/run-timings?${days}`, 400],
+    [`/analytics/reply-times?${days}`, 400],
+    [`/cli-runs?${days}`, 400],
     ["/nope", 404],
   ];
 });

@@ -12,7 +12,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
-import { managesAgentSql } from "./audience";
+import { managesAgentSql, ownsAgentSql } from "./audience";
 import type { BrainPlan } from "./brains/select";
 import { TtlCache } from "./cache";
 import { NotFoundError } from "./errors";
@@ -20,6 +20,7 @@ import { publishOrgEvent } from "./events";
 import { getMachine } from "./machines";
 import { requirePermission } from "./organizations";
 import { enqueue } from "./outbox";
+import { runState } from "./run-state";
 import { RUN_STALE_MS, replyThreadOf } from "./runs";
 
 const { agentRuns, agents, channelMembers, channels, messages } = schema;
@@ -45,10 +46,7 @@ export const ROOM_BEHIND_RETRY_MS = 10_000;
  */
 export const ROOM_RANK_AGE_MS = 10 * 60_000;
 
-const inLine = and(
-  eq(agentRuns.status, "waiting_input"),
-  sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'busy'`,
-);
+const inLine = and(eq(agentRuns.status, "waiting_input"), sql`${runState}->'waitingForBrain'->>'code' = 'busy'`);
 const waitingForRoom = (machineId: string) => and(eq(agentRuns.waitingMachineId, machineId), inLine);
 /**
  * The line as people read it: also the run asking from it (`computerWaitOf`), which the computer may still refuse.
@@ -56,14 +54,14 @@ const waitingForRoom = (machineId: string) => and(eq(agentRuns.waitingMachineId,
  */
 const shownInLine = (machineId: string) =>
   and(eq(agentRuns.waitingMachineId, machineId), or(inLine, eq(agentRuns.status, "running")));
-const waitIdSql = sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`;
-const peopleSql = sql`coalesce((${agentRuns.transcript}->>'roomPeople')::boolean, false)`;
-const askedSql = sql`coalesce((${agentRuns.transcript}->>'roomAsked')::boolean, false)`;
+const waitIdSql = sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`;
+const peopleSql = sql`coalesce((${runState}->>'roomPeople')::boolean, false)`;
+const askedSql = sql`coalesce((${runState}->>'roomAsked')::boolean, false)`;
 /**
  * Its place in the line: since it started waiting for room, or, a wake that waited outside any run first, since then
  * (`roomOrderSince`). The note after `COMPUTER_QUEUE_NOTE_MS` reads `roomWaitSince` alone.
  */
-const sinceSql = sql`coalesce((${agentRuns.transcript}->>'roomOrderSince')::bigint, (${agentRuns.transcript}->>'roomWaitSince')::bigint, 0)`;
+const sinceSql = sql`coalesce((${runState}->>'roomOrderSince')::bigint, (${runState}->>'roomWaitSince')::bigint, 0)`;
 /** A run's rank in the line: 0 a person waits on it, 1 work a person asked for lately (or waiting long), 2 the rest. */
 const rankSql = (now: number) =>
   sql<number>`(case when ${peopleSql} then 0 when ${askedSql} or ${sinceSql} < ${now - ROOM_RANK_AGE_MS}::bigint then 1 else 2 end)`;
@@ -102,7 +100,7 @@ export function signInSlotOf(plan: Pick<BrainPlan, "kind" | "account">, cap: num
 const ownSignIn = (key: string) => key === "own";
 
 /** The sign-in a run in line waits on (`signInWait`): only runs waiting for that same sign-in hold it back. */
-const signInWaitSql = sql<string | null>`${agentRuns.transcript}->'signInWait'->>'key'`;
+const signInWaitSql = sql<string | null>`${runState}->'signInWait'->>'key'`;
 
 /** The run first in line for room on this computer, with the wait its job must carry. */
 export async function roomHead(
@@ -225,8 +223,8 @@ export async function roomGate(
             eq(agentRuns.orgId, run.orgId),
             eq(agentRuns.status, "running"),
             sql`${agentRuns.id} <> ${run.id}`,
-            ownSignIn(signIn.key) ? sql`${agentRuns.transcript}->'roomAsk'->>'machineId' = ${machineId}` : undefined,
-            sql`${agentRuns.transcript}->'roomAsk'->>'signIn' = ${signIn.key}`,
+            ownSignIn(signIn.key) ? sql`${runState}->'roomAsk'->>'machineId' = ${machineId}` : undefined,
+            sql`${runState}->'roomAsk'->>'signIn' = ${signIn.key}`,
             sql`${agentRuns.heartbeatAt} > ${new Date(now - RUN_STALE_MS).toISOString()}::timestamptz`,
           ),
         );
@@ -235,14 +233,14 @@ export async function roomGate(
     }
     if (rank > 0) {
       const [last] = await tx
-        .select({ at: sql<string>`max((${agentRuns.transcript}->'roomAsk'->>'at')::bigint)` })
+        .select({ at: sql<string>`max((${runState}->'roomAsk'->>'at')::bigint)` })
         .from(agentRuns)
         .where(
           and(
             eq(agentRuns.orgId, run.orgId),
             eq(agentRuns.status, "running"),
             sql`${agentRuns.id} <> ${run.id}`,
-            sql`${agentRuns.transcript}->'roomAsk'->>'machineId' = ${machineId}`,
+            sql`${runState}->'roomAsk'->>'machineId' = ${machineId}`,
           ),
         );
       const at = Number(last?.at ?? 0);
@@ -341,18 +339,19 @@ const agentsOnlySql = (kind: SQL, dmKey: SQL) =>
 /**
  * Who sees a run's work, for a select naming its columns: the members of its conversation and, for work no person is
  * a member of (a routine's background run, two agents' private conversation), who manages the agent (`manages`: a
- * value, or SQL per run such as `managesAgentSql`, ADR 0085 addendum of 2026-11-17) and the agent's owner. Other
- * people's DMs stay theirs. The task manager, a task's steps and the rows of the line read it. Never NULL: an agent
- * with no owner would make it so, and `not` of that drops the run from the hidden counts too.
+ * value, or SQL per run such as `managesAgentSql`, ADR 0085 addendum of 2026-11-17) and the agent's owner (`owns`:
+ * `ownsAgentSql` for the viewer, its owner role's holders too, ADR 0085 addendum of 2026-11-21). Other people's DMs
+ * stay theirs. The task manager, a task's steps and the rows of the line read it. Never NULL: an agent with no owner
+ * would make it so, and `not` of that drops the run from the hidden counts too.
  */
 export const seesRunSql = (
-  run: { channelId: SQL; kind: SQL; dmKey: SQL; background: SQL; ownerUserId: SQL },
+  run: { channelId: SQL; kind: SQL; dmKey: SQL; background: SQL; owns: SQL<boolean> },
   userId: string,
   orgId: string,
   manages: boolean | SQL<boolean>,
 ) => sql<boolean>`coalesce(exists (select 1 from ${channelMembers} cm
     where cm.org_id = ${orgId}::uuid and cm.channel_id = ${run.channelId} and cm.user_id = ${userId})
-  or ((${run.background} or ${agentsOnlySql(run.kind, run.dmKey)}) and (${manages} or ${run.ownerUserId} = ${userId})), false)`;
+  or ((${run.background} or ${agentsOnlySql(run.kind, run.dmKey)}) and (${manages} or ${run.owns})), false)`;
 
 /** A running turn's estimated end is never sooner than this from now: an estimate never reads as "any second". */
 export const QUEUE_END_FLOOR_MS = 30_000;
@@ -418,8 +417,10 @@ export function estimateQueue(
   return { ends, overdue, starts, after };
 }
 
-// ponytail: per-process cache, a minute stale at most; the read touches at most 300 finished runs' transcripts.
-const typicalCache = new TtlCache<TypicalTurns>(60_000, 1000);
+// A median of up to 20 turns over 14 days moves little in 10 minutes; the read touches up to 300 finished runs (their
+// `state`, or the transcript of a run that ended before it).
+// ponytail: per-process cache; a duration column written when the run ends would spare the read.
+const typicalCache = new TtlCache<TypicalTurns>(10 * 60_000, 1000);
 
 /**
  * The median of each agent's latest `TYPICAL_TURNS` finished computer turns, from its ask (`roomAsk.at`) to the
@@ -430,17 +431,17 @@ export async function typicalTurns(db: Database, orgId: string): Promise<Typical
     const rows = rowsOf<{ agent_id: string | null; ms: string | number | null }>(
       await db.execute(sql`
         with recent as (
-          select agent_id, finished_at, transcript from agent_runs
+          select agent_id, finished_at, coalesce(state, transcript) as t from agent_runs
           where org_id = ${orgId}::uuid and status = 'done' and brain is not null and brain <> 'model'
             and finished_at > now() - interval '14 days'
           order by finished_at desc
           limit 300
         ), turns as (
           select agent_id,
-            extract(epoch from finished_at) * 1000 - (transcript->'roomAsk'->>'at')::bigint as ms,
+            extract(epoch from finished_at) * 1000 - (t->'roomAsk'->>'at')::bigint as ms,
             row_number() over (partition by agent_id order by finished_at desc) as n
           from recent
-          where transcript ? 'roomAsk'
+          where t ? 'roomAsk'
         )
         select agent_id, percentile_cont(0.5) within group (order by ms) as ms
         from turns where n <= ${TYPICAL_TURNS} and ms > 0
@@ -486,6 +487,8 @@ export async function computerQueue(
   await requirePermission(db, actorId, orgId, "read");
   // Who manages each run's agent (`managesAgentSql`), never every holder of "Editar qualquer agente".
   const manages = managesAgentSql("agents", sql`${actorId}::text`);
+  // Its owner, or holding its owner role now (ADR 0085, addendum of 2026-11-21).
+  const owns = ownsAgentSql("agents", sql`${actorId}::text`);
   const machine = await getMachine(db, orgId, machineId);
   if (!machine) throw new NotFoundError("Computer not found", "machine.not_found");
   const cols = {
@@ -494,13 +497,14 @@ export async function computerQueue(
     channelId: agentRuns.channelId,
     threadRootId: agentRuns.threadRootId,
     triggerMessageId: agentRuns.triggerMessageId,
+    replyInThread: agentRuns.replyInThread,
     workId: agentRuns.workId,
     background: agentRuns.background,
     authorType: messages.authorType,
     authorUserId: messages.authorUserId,
     authorAgentId: messages.authorAgentId,
     viaRoutine: sql<unknown>`${messages.meta}->'routine'`,
-    ownerUserId: agents.ownerUserId,
+    owns,
     manages,
     sees: seesRunSql(
       {
@@ -508,7 +512,7 @@ export async function computerQueue(
         kind: sql`${channels.kind}`,
         dmKey: sql`${channels.dmKey}`,
         background: sql`${agentRuns.background}`,
-        ownerUserId: sql`${agents.ownerUserId}`,
+        owns,
       },
       actorId,
       orgId,
@@ -524,7 +528,7 @@ export async function computerQueue(
       .innerJoin(agents, eq(agents.id, agentRuns.agentId))
       .leftJoin(channels, eq(channels.id, agentRuns.channelId))
       .leftJoin(messages, trigger);
-  const askAt = sql<string>`(${agentRuns.transcript}->'roomAsk'->>'at')::bigint`;
+  const askAt = sql<string>`(${runState}->'roomAsk'->>'at')::bigint`;
   const [workingRows, waitingRows, typical] = await Promise.all([
     lineRows({ askAt })
       .where(
@@ -532,7 +536,7 @@ export async function computerQueue(
           eq(agentRuns.orgId, orgId),
           eq(agentRuns.status, "running"),
           isNull(agentRuns.waitingMachineId),
-          sql`${agentRuns.transcript}->'roomAsk'->>'machineId' = ${machineId}`,
+          sql`${runState}->'roomAsk'->>'machineId' = ${machineId}`,
         ),
       )
       .orderBy(askAt),
@@ -548,6 +552,7 @@ export async function computerQueue(
     channelId: string;
     threadRootId: string;
     triggerMessageId: string;
+    replyInThread: boolean;
     sees: boolean;
     agentsOnly: boolean;
   }) => ({
@@ -558,11 +563,11 @@ export async function computerQueue(
   const access = (r: {
     sees: boolean;
     manages: boolean | null;
-    ownerUserId: string | null;
+    owns: boolean | null;
     authorUserId: string | null;
   }) => ({
     canOpen: r.sees,
-    canStop: r.manages === true || r.ownerUserId === actorId || r.authorUserId === actorId,
+    canStop: r.manages === true || r.owns === true || r.authorUserId === actorId,
   });
   return {
     machineId,
@@ -603,7 +608,7 @@ export async function agentLineRank(db: Executor, orgId: string, agentId: string
 /** For a select naming an agent: its computer has runs waiting for room (it is full, and work queues on it). */
 export const computerCrowdedSql = (agentId: SQL) => sql<boolean>`exists (select 1 from ${agentRuns} w
   join ${agents} ca on ca.machine_id = w.waiting_machine_id
-  where ca.id = ${agentId} and w.status = 'waiting_input' and w.transcript->'waitingForBrain'->>'code' = 'busy')`;
+  where ca.id = ${agentId} and w.status = 'waiting_input' and coalesce(w.state, w.transcript)->'waitingForBrain'->>'code' = 'busy')`;
 
 /** Of these agents, the ones whose computer has runs waiting for room. */
 export async function crowdedAgents(db: Executor, orgId: string, agentIds: string[]): Promise<Set<string>> {

@@ -1,43 +1,7 @@
 import { fileIcon } from "@agenteschat/client/lib/files";
 import { Button, Icon, Spinner } from "@agenteschat/ui";
-import { type DragEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { UploadItem } from "@/components/artifacts/Upload";
-
-/**
- * Drag files from the computer onto the Drive. `over` while something is
- * dragged over the page (a counter: children fire enter/leave too).
- */
-export function useFileDrop(onFiles: (files: File[]) => void, enabled: boolean) {
-  const [depth, setDepth] = useState(0);
-  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
-  const props = enabled
-    ? {
-        onDragEnter: (e: DragEvent) => {
-          if (!hasFiles(e)) return;
-          e.preventDefault();
-          setDepth((d) => d + 1);
-        },
-        onDragOver: (e: DragEvent) => {
-          if (!hasFiles(e)) return;
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-        },
-        onDragLeave: (e: DragEvent) => {
-          if (!hasFiles(e)) return;
-          setDepth((d) => Math.max(0, d - 1));
-        },
-        onDrop: (e: DragEvent) => {
-          if (!hasFiles(e)) return;
-          e.preventDefault();
-          setDepth(0);
-          const files = Array.from(e.dataTransfer?.files ?? []);
-          if (files.length > 0) onFiles(files);
-        },
-      }
-    : {};
-  return { over: enabled && depth > 0, props };
-}
 
 /** The whole page while files are dragged over it. */
 export function DropOverlay() {

@@ -1064,6 +1064,11 @@ export function createBrowserLive(deps: BrowserLiveDeps) {
         if (!current.viewers.delete(viewer)) return;
         current.unsubscribe.get(viewer)?.();
         current.unsubscribe.delete(viewer);
+        // Their last view of it: what was checked for them goes (one entry per person and agent ever watched, else).
+        if (![...current.viewers].some((v) => v.userId === viewer.userId)) {
+          checked.delete(`${viewer.userId}:${agentId}`);
+          checked.delete(`control:${viewer.userId}:${agentId}`);
+        }
         const controller = current.controllerUserId;
         if (controller === viewer.userId && ![...current.viewers].some((v) => v.userId === controller)) {
           startGrace(agentId, current, controller);

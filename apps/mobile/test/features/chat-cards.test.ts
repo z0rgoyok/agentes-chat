@@ -70,18 +70,24 @@ describe("a reply's tools sit last", () => {
   });
 });
 
-describe("agents it asked first: one pair row right before the reply, never inside it", () => {
-  test("saved: the row sits before the reply's own row (which then shows its face and name), none in its body", () => {
+describe("agents it asked first: quoted at the top of the reply, as a reply quotes a message", () => {
+  test("saved: the quote opens the reply's words, in its bubble or over its words; with none, it stands alone", () => {
     const row = source("MessageRow.tsx");
-    // The pair, then what the message is about in a live file (ADR 0199) and its quote, then the reply's own row.
+    // In the bubble: the name line, the agents' talk, then the reply's own quote and words.
     expect(
-      ascending(at(row, ["const grouped = groupedIn && !pair;", "{pair}\n      {liveRef ? (", "{quote && !inBubble"])),
+      ascending(
+        at(row, ["who(true) : null}", "{quoteInWords}", "{quote ? <QuotePlate reply={quote} onJump={onQuote} />"]),
+      ),
     ).toBe(true);
-    const [bodyAt, endAt] = at(row, [
-      "<Animated.View style={[styles.body, { gap: rhythm.part }, inBubble && giveWay.style, compact && slide]}>",
-      "{foot}\n          </RowParts>\n          {hintNode}\n        </Animated.View>\n",
-    ]);
-    expect(row.slice(bodyAt, endAt)).not.toContain("Consult");
+    // A reply with no words (only cards) shows the quote on its own before it, and its face and name again.
+    expect(row).toContain("const quoteAlone = consultQuote !== null && (!body || Boolean(choiceReply));");
+    expect(row).toContain("const grouped = groupedIn && !quoteAlone;");
+    expect(row).toContain("<ConsultQuote askerId={m.author.id} channelId={m.channelId} items={paired} alone />");
+  });
+
+  test("a face inside a line of words stands in its sky tile, in its middle", () => {
+    const face = readFileSync(join(import.meta.dir, "../../src/features/shared/Face.tsx"), "utf8");
+    expect(face).toContain("<AgentFace agentId={agentId} size={size} live={false} framed />");
   });
 
   test("live: the working line carries the pair, the one asking and the one asked, while the turn works", () => {
@@ -91,42 +97,46 @@ describe("agents it asked first: one pair row right before the reply, never insi
       ascending(
         at(live, [
           "if (asking && e.consult === asking)",
-          '<AgentFace agentId={e.id} size={18} mode="idle" />',
-          '<AgentFace agentId={asking.to} size={18} mode={asking.yours || asking.wait ? "idle" : "think"} />',
+          '<AgentFace agentId={e.id} size={18} framed mode="idle" />',
+          "agentId={asking.to}",
+          'mode={asking.yours || asking.wait ? "idle" : "think"}',
         ]),
       ),
     ).toBe(true);
   });
 
-  test("the row says no answer: only faces, names, a short word and the time", () => {
+  test("the quote says no answer: the agent asked, how it went, the question's subject, a chevron", () => {
     const pair = source("ConsultGroup.tsx");
     expect(pair).not.toContain("previewOf");
     expect(pair).not.toContain(".answer");
-    expect(pair).toContain('<Icon name="swap"');
+    expect(pair).not.toContain("ConsultPairRow");
+    // No colored bar at its left edge: a plate a step off the bubble, the agent's name in its color.
+    expect(pair).not.toContain("quote.bar");
+    expect(pair).toContain('<Text variant="footnote" tone="muted" numberOfLines={2}>');
+    // Standing alone, it says who asked: the asker's name and the arrows.
+    expect(pair).toContain('<Icon name="swap" size={12}');
   });
 
-  test("a notice whose reply isn't here is the same row, not a card with the answer", () => {
+  test("a notice whose reply isn't here is the same quote on its own, not a card with the answer", () => {
     const line = source("EventLine.tsx");
     expect(line).toContain("items={[pairItemOf(consulted.consultation)]}");
     expect(source("cards.tsx")).not.toContain("Consultation");
   });
 
-  test("an answer far below its question is the same row, never a line of words or a pill", () => {
+  test("an answer far below its question is the same quote on its own, never a line of words or a pill", () => {
     const line = source("EventLine.tsx");
     expect(line).toContain("items={[fold.consultation]}");
     expect(line).not.toContain("consultFarKey");
     expect(source("ConsultGroup.tsx")).not.toContain("TalkPill");
   });
 
-  test("a hand-off by direct message is the same row on its reach line, left out of the reply's own row", () => {
+  test("a hand-off by direct message is the same quote on its reach line, left out of the reply's own", () => {
     const reach = source("ReachLines.tsx");
-    expect(reach).toMatch(
-      /<ConsultPairRow\s+askerId=\{authorId\}\s+channelId=\{channelId\}\s+items=\{\[talk\]\}\s+inline\s/,
-    );
+    expect(reach).toContain("<ConsultQuote askerId={authorId} channelId={channelId} items={[talk]} alone />");
     expect(reach).not.toContain("reach.see");
     // One older than the conversation's list goes back is loaded on its own, never the "Entregue ao" text.
     expect(source("ConsultGroup.tsx")).toContain(
-      "useConsultationConversation(orgId, channelId, id && list.loaded && !listed ? id : null)",
+      "useConsultationConversation(orgId, channelId, id && loaded && !listed ? id : null)",
     );
     const row = source("MessageRow.tsx");
     expect(row).toContain("const reached = useMemo(() => reachHandoffs(m.meta), [m.meta]);");
@@ -138,7 +148,16 @@ describe("an exchange between the same two agents", () => {
   test("is one row on its first asking run's reply, and one conversation when opened", () => {
     // Grouped once for the conversation (`RowConsults`), each reply's row reading its run's.
     expect(source("row-data.tsx")).toContain("byRun: groupsByRun(asExchanges(list ?? []))");
-    expect(source("ConsultGroup.tsx")).toContain("const group = runId ? list.byRun.get(runId) : undefined;");
+    expect(source("ConsultGroup.tsx")).toContain(
+      "const group = useRowConsultsPart(where.channelId, (list) => (runId ? list.byRun.get(runId) : undefined), sameItems);",
+    );
+    // Each row follows only its own part of the questions: a reload while one is out (every 10 s, its progress moving)
+    // draws again the rows whose part changed, not every message on screen.
+    expect(source("row-data.tsx")).toContain(
+      "return useSyncExternalStore(store?.subscribe ?? noSubscription, read, read);",
+    );
+    expect(source("MessageRow.tsx")).toContain("const helping = useRowConsultsPart(m.channelId, (list) =>");
+    expect(source("ConsultGroup.tsx")).not.toContain("useRowConsults(");
     expect(source("ConsultGroup.tsx")).toContain("consultPair(items, now, askerId,");
     expect(chatScreenSource()).toContain("asExchanges(consultData)");
     expect(source("ConsultationScreen.tsx")).toContain("useExchangeConversation(");
@@ -158,7 +177,7 @@ describe("one call is its own line", () => {
 describe("nothing more than the message shows", () => {
   test("a lone quick read draws no block; no block opens on nothing or says it used no tools", () => {
     const tools = source("ToolCalls.tsx");
-    expect(tools).toContain("const now = quietWork(items) || (done && !showsActivity(org)) ? null : toolNow(items);");
+    expect(tools).toContain("const now = quietWork(items) || (done && !shows) ? null : toolNow(items);");
     expect(tools).toContain("if (lone && lone.ms !== null && quietLine(lone)) return null;");
     expect(tools).toContain("const shown = compact ? workSteps(compact, onCard) : 0;");
     expect(tools).not.toContain("chat.work.none");
@@ -170,15 +189,20 @@ describe("what agents did under each reply: the person's own setting, off by def
   test("off, a done reply draws nothing and a saved one no block; the live block stays", () => {
     const tools = source("ToolCalls.tsx");
     // Done and off: no call is "now", so nothing shows (the branch for a reply with no call: its words are the reply).
-    expect(tools).toContain("(done && !showsActivity(org)) ? null : toolNow(items);");
+    // The setting is read through `useShowsWork`: in a code session's conversation the work always shows (ADR 0215).
+    expect(tools).toContain("const shows = useShowsWork(org);");
+    expect(tools).toContain("(done && !shows) ? null : toolNow(items);");
     expect(tools).toContain('const said = done ? [] : items.flatMap((i) => (i.kind === "say" ? [i] : []));');
-    expect(tools).toContain("if (!compact || shown === 0 || !showsActivity(org)) return null;");
+    expect(tools).toContain("if (!compact || shown === 0 || !shows) return null;");
     // The cards that carry content or wait for a person aren't the tools' and stay in the row.
     const row = source("MessageRow.tsx");
     expect(row).toContain("<SecretCard");
     // Where it browsed and its desktop are step summaries (no picture): activity, gated like the tools.
-    expect(row).toContain("isAgent && m.author.id && !m.local && showsActivity(org)");
-    expect(row.match(/showsActivity/g)?.length).toBe(2);
+    expect(row).toContain("const shows = useShowsWork(org);");
+    expect(row).toContain("isAgent && m.author.id && !m.local && shows");
+    expect(row).not.toContain("showsActivity");
+    // A code session's conversation says so around its rows.
+    expect(source("ChatScreen.tsx")).toContain("<CodeConversation.Provider value={codeId !== null}>");
   });
 
   test("Você has the row and its page, and a secret request's card shows without its text", () => {
@@ -247,11 +271,12 @@ describe("what an agent changed wraps whole, on a card as wide as its words", ()
     expect(checks).not.toContain("styles.one, ACT_LINE.row");
   });
 
-  test("they wear the tool block's card (the face a step up, a hairline), never the sunken gray of a pressed row", () => {
+  test("they wear the message card's frame (as the tool block), never the sunken gray of a pressed row", () => {
     for (const file of ["Receipts.tsx", "TeamChecks.tsx"]) {
       const text = source(file);
       expect(text).not.toContain("sunken");
-      expect(text).toMatch(/backgroundColor: (c|colors)\.raised, borderColor: (c|colors)\.line2/);
+      // The one frame of a message card (`useMessageCardFrame`): raised with a hairline, a bubble in bubbles.
+      expect(text).toContain("card.style");
     }
   });
 });
@@ -505,5 +530,27 @@ describe("an agent's offer card is done for everyone once it's done", () => {
     // What a pick replaces, as the server marks it: an installed skill, or a removed one.
     expect(screen).toContain('c.replaces === "removed" ? "skills.pickReplacesRemoved" : "skills.pickReplaces"');
     expect(screen).toContain("turnOn && cardLink !== undefined && link.trim() === cardLink ? forAgentId : undefined");
+  });
+});
+
+describe("no colored bar at a left edge: quotes and plates on the scale's corner", () => {
+  test("quotes, reports and opened notices sit on a plate with the plates' room, never a left bar", () => {
+    const fromSrc = (path: string) => readFileSync(join(import.meta.dir, "../../src", path), "utf8");
+    const files = [
+      "features/chat/ConsultGroup.tsx",
+      "features/chat/MessageText.tsx",
+      "features/chat/MessageRow.tsx",
+      "features/chat/QuoteLine.tsx",
+      "ui/EventPill.tsx",
+      "features/live-files/document/DocumentScreen.tsx",
+      "features/wiki/WikiDoc.tsx",
+    ];
+    for (const file of files) {
+      const text = fromSrc(file);
+      // Only the reply's curve to its face draws a left line (a joint, not a bar on a card).
+      const bars = (text.match(/borderLeftWidth: [2-9]/g) ?? []).length;
+      expect({ file, bars }).toEqual({ file, bars: file.endsWith("QuoteLine.tsx") ? 1 : 0 });
+      expect({ file, corner: /borderRadius: RADIUS(\.md)?\b/.test(text) }).toEqual({ file, corner: true });
+    }
   });
 });

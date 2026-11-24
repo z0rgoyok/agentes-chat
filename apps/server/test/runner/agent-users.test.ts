@@ -1,6 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { writeAgents } from "../../runner/access";
 import { accountSelfCheck, REFUSED, type SelfCheck } from "../../runner/account-check";
@@ -20,10 +30,12 @@ import {
   denySchedulers,
   ensureContainers,
   ensureSubids,
+  joinKvm,
   keepContainers,
   readAccountUsers,
   readAgentUsers,
   rootlessContainers,
+  rootlessDocker,
   SUBIDS,
   stopAccountScopes,
   stopContainers,
@@ -306,8 +318,9 @@ test("the launcher: the agent's slice, its own temporary folders, its user, abso
     USER: "ag-a1b2c3d4",
     LOGNAME: "ag-a1b2c3d4",
     SHELL: "/bin/bash",
-    // The shared folder's bin/ (ADR 0115) is named, never on the PATH: every agent can write there.
-    PATH: "/usr/local/bin:/usr/bin:/bin",
+    // The shared folder's bin/ (ADR 0115) is named, never on the PATH: every agent can write there. Its own
+    // ~/.local/bin is, last: only it writes there, and its subagents find what it installed by name.
+    PATH: "/usr/local/bin:/usr/bin:/bin:/home/ag-a1b2c3d4/.local/bin",
     AGENTES_SHARED_BIN: "/home/ag-a1b2c3d4/shared/bin",
     LANG: "C.UTF-8",
     ANDROID_ADB_SERVER_PORT: "31627",
@@ -663,9 +676,100 @@ test("rootlessContainers: Podman and both id-map helpers, or none", () => {
   expect(rootlessContainers(have(["/usr/bin/newuidmap", "/usr/bin/newgidmap"]))).toBe(false);
 });
 
+test("rootlessDocker: the real CLI, dockerd and its rootless helpers, or none", () => {
+  const have = (files: string[]) => (file: string) => files.includes(file);
+  const all = ["/usr/bin/docker", "/usr/bin/dockerd", "/usr/bin/dockerd-rootless.sh", "/usr/bin/rootlesskit"];
+  expect(rootlessDocker(have(all))).toBe(true);
+  // A root daemon's install without docker-ce-rootless-extras: Podman keeps DOCKER_HOST.
+  expect(rootlessDocker(have(all.slice(0, 2)))).toBe(false);
+});
+
+test("with rootless Docker, every launch's docker reaches the agent's own daemon, podman still its Podman", () => {
+  const user = { id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 };
+  expect(systemLauncher(user, true, false, true, false, true).env).toMatchObject({
+    XDG_RUNTIME_DIR: "/run/user/21003",
+    CONTAINER_HOST: "unix:///run/user/21003/podman/podman.sock",
+    DOCKER_HOST: "unix:///run/user/21003/docker.sock",
+  });
+  // No containers service, no daemon of its own.
+  expect(systemLauncher(user, true, false, false, false, true).env.DOCKER_HOST).toBeUndefined();
+});
+
+test.if(process.platform !== "win32")(
+  "the service's start with rootless Docker: its units in the runtime dir, its socket on, rewritten at every start",
+  () => {
+    const home = tempDir("containers-home-");
+    const runtime = tempDir("containers-run-");
+    dirs.push(home, runtime);
+    const argv = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true, undefined, true);
+    const [service = "", socket = "", connection = ""] = argv.slice(-3);
+    // The engine's own socket, never DOCKER_HOST's, and absolute paths: the system manager's ExecStart would read `%t`.
+    expect(service).toContain(
+      "ExecStart=/usr/bin/dockerd-rootless.sh --host=unix:///run/user/21003/docker-engine.sock",
+    );
+    expect(service).toContain("Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta");
+    expect(service).toContain("Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true");
+    expect(service).toContain("Type=notify");
+    expect(socket).toContain("ListenStream=/run/user/21003/docker.sock");
+    expect(socket).toContain("SocketMode=0600");
+    expect(socket).toContain("Accept=yes");
+    expect(connection).toContain("Requires=docker.service");
+    expect(connection).toContain(
+      "ExecStart=/usr/bin/docker --host=unix:///run/user/21003/docker-engine.sock system dial-stdio",
+    );
+    expect(connection).toContain("StandardInput=socket");
+    for (const unit of [service, socket, connection]) expect(unit).not.toContain("%");
+    const lines = (argv.at(-7) ?? "").split("\n");
+    expect(lines.at(-1)).toBe("exec /usr/lib/systemd/systemd --user --log-target=journal");
+    const start = [...lines.slice(0, -3), "exit 0"].join("\n");
+    const sh = (units: string[]) =>
+      spawnSync("/bin/sh", ["-c", start, "sh", "conf", "storage", ...units], {
+        env: { HOME: home, XDG_RUNTIME_DIR: runtime, PATH: "/usr/bin:/bin" },
+      });
+    expect(sh(["one", "two", "three"]).status).toBe(0);
+    const r = path.join(runtime, "systemd/user");
+    expect(readFileSync(path.join(r, "docker.service"), "utf8")).toBe("one");
+    expect(readFileSync(path.join(r, "docker-api.socket"), "utf8")).toBe("two");
+    expect(readFileSync(path.join(r, "docker-api@.service"), "utf8")).toBe("three");
+    expect(readlinkSync(path.join(r, "sockets.target.wants/docker-api.socket"))).toBe("../docker-api.socket");
+    // A runner with other units writes them at the service's next start.
+    expect(sh(["four", "two", "three"]).status).toBe(0);
+    expect(readFileSync(path.join(r, "docker.service"), "utf8")).toBe("four");
+    // Without rootless Docker, nothing of Docker's.
+    rmSync(r, { recursive: true });
+    expect(sh([]).status).toBe(0);
+    expect(existsSync(path.join(r, "docker.service"))).toBe(false);
+  },
+);
+
+test.if(process.platform !== "win32")("joinKvm: the device's group when it opens to it, never root's", () => {
+  const dir = tempDir("kvm-");
+  dirs.push(dir);
+  const device = path.join(dir, "kvm");
+  const calls: string[] = [];
+  const run: RunCommand = (file, args) => {
+    calls.push([file, ...args].join(" "));
+    return { code: 0, output: "" };
+  };
+  // No device: nothing to join.
+  expect(joinKvm("ag-a1b2c3d4", device, run)).toBeNull();
+  writeFileSync(device, "");
+  chmodSync(device, 0o600);
+  expect(joinKvm("ag-a1b2c3d4", device, run)).toBeNull();
+  expect(calls).toEqual([]);
+  chmodSync(device, 0o660);
+  const { gid } = statSync(device);
+  expect(joinKvm("ag-a1b2c3d4", device, run)).toBeNull();
+  expect(calls).toEqual(gid === 0 ? [] : [`usermod -aG ${gid} ag-a1b2c3d4`]);
+  const refused: RunCommand = () => ({ code: 6, output: "usermod: group does not exist" });
+  expect(joinKvm("ag-a1b2c3d4", device, refused)).toBe(
+    gid === 0 ? null : "usermod failed (6): usermod: group does not exist",
+  );
+});
+
 test("every launch with containers: its runtime dir bound in its view, Podman's socket, no_new_privs as before", () => {
   const user = { id: ANA.id, user: "ag-a1b2c3d4", uid: 21003, networkMark: 0x08000000 };
-  const l = systemLauncher(user, true, false, true);
+  const l = systemLauncher(user, true, false, true, undefined, false);
   const socket = "unix:///run/user/21003/podman/podman.sock";
   expect(l.env).toMatchObject({ XDG_RUNTIME_DIR: "/run/user/21003", CONTAINER_HOST: socket, DOCKER_HOST: socket });
   const view = (l.prefix[18] ?? "").split("\n");
@@ -684,7 +788,7 @@ test("every launch with containers: its runtime dir bound in its view, Podman's 
 
 test("the containers service: a delegated unit of the agent's slice, its steps, set-user-ID for the id-map helpers alone", () => {
   const user = { id: ANA.id, user: "ag-a1b2c3d4", uid: 21003, networkLauncher: ROOT_TOOL, networkMark: 0x08000000 };
-  const argv = containersCommand(user, true);
+  const argv = containersCommand(user, true, undefined, false);
   // No --collect: a unit its start limit stopped stays loaded as failed, which is how the runner tells. Its steps'
   // stderr goes to the journal under one identifier, where the runner reads why.
   expect(argv.slice(0, 15)).toEqual([
@@ -708,7 +812,7 @@ test("the containers service: a delegated unit of the agent's slice, its steps, 
   // a `$$` sent there reaches the shell as its own pid. Unexpanded, the scripts go as they are.
   for (const arg of argv) expect(arg).not.toContain("$$");
   // Before 254 there is no switch: each `$` doubled, which systemd reads as one.
-  expect(containersCommand(user, false)).toEqual(
+  expect(containersCommand(user, false, undefined, false)).toEqual(
     argv.filter((a) => a !== "--expand-environment=no").map((a) => a.replaceAll("$", () => "$$")),
   );
   const at = argv.indexOf("/usr/bin/unshare");
@@ -756,7 +860,7 @@ test("the containers service: a delegated unit of the agent's slice, its steps, 
   // Its user manager logs to the journal: the console it would use otherwise is root's.
   expect(argv.at(-4)?.split("\n").at(-1)).toBe("exec /usr/lib/systemd/systemd --user --log-target=journal");
   // Without a network hook, /sys stays the computer's: nothing kept, nothing put back.
-  const plain = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true);
+  const plain = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true, undefined, false);
   expect(plain.join("\n")).not.toContain("/sys/fs/cgroup/cgroup.controllers");
   expect(plain.join("\n")).not.toContain('"$m/cgroup"');
   expect(plain[plain.indexOf("/usr/bin/unshare") + 10]).toBe("/usr/bin/setpriv");
@@ -767,7 +871,7 @@ test.if(process.platform !== "win32")(
   () => {
     const home = tempDir("containers-home-");
     dirs.push(home);
-    const argv = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true);
+    const argv = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true, undefined, false);
     const lines = (argv.at(-4) ?? "").split("\n");
     // Its cgroup checked, then its user manager: neither runs here.
     expect(lines.at(-1)).toBe("exec /usr/lib/systemd/systemd --user --log-target=journal");
@@ -800,7 +904,7 @@ test.if(process.platform !== "win32")(
     writeFileSync(path.join(bin, "sed"), "#!/bin/sh\necho /agents.slice/agents-21003.slice/nowhere.service\n", {
       mode: 0o755,
     });
-    const argv = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true);
+    const argv = containersCommand({ id: ANA.id, user: "ag-a1b2c3d4", uid: 21003 }, true, undefined, false);
     const r = spawnSync("/bin/sh", ["-c", argv.at(-4) ?? "", "sh", "conf", "storage"], {
       env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
       encoding: "utf8",

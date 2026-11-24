@@ -4,8 +4,8 @@ import { createRootRouteWithContext, Link, Outlet, useRouter, useRouterState } f
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { RouterContext } from "@/app/router-context";
+import { DesktopDragStrip } from "@/components/DesktopDragStrip";
 import { ContextMenuHost } from "@/components/DesktopMenus";
-import { DesktopDragStrip } from "@/components/DesktopTitleBar";
 import { ErrorScreen } from "@/components/ErrorScreen";
 import { AccountDeletingScreen } from "@/components/Standing";
 import { useBackCloses } from "@/hooks/useBackCloses";

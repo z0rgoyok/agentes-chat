@@ -162,26 +162,26 @@ export const desktopEn = {
     cloudText: "Always on. We take care of everything, you just use it.",
     here: "On this {{device}}",
     hereText: "Your agents work while the app is open.",
-    box: "On a computer that's always on",
-    boxText: "A Mac mini or an office computer, installed once.",
+    box: "On a server or VPS",
+    boxText: "Always on, even with this app closed. You install it once.",
     goCloud: "Continue in the cloud",
     goHere: "Get this {{device}} ready",
     goBox: "See how to install",
     haveOne: "Have one already?",
     haveOneLink: "Sign in by its address",
   },
-  /** "Num computador sempre ligado": the one-command install, and the instructions to send to whoever installs it. */
+  /** "On a server or VPS": the one-command install, and the instructions to send to whoever installs it. */
   install: {
-    title: "Install on a computer that's always on",
+    title: "Install on a server or VPS",
     lead: "It's done once. Then it keeps running by itself, even with this app closed.",
-    step1: "On the computer that stays on, open the Terminal and paste this",
+    step1: "On the server, open the Terminal (or connect over SSH) and paste this",
     step2: "At the end a link shows up. Open it here and that's it.",
     noLink: "No link?",
     someoneElse: "Someone else will install it?",
     copy: "Copy the instructions",
     copied: "Instructions copied",
     /** What "Copy the instructions" puts on the clipboard, to send to whoever installs it. */
-    text: "To install agentes.chat on a computer that stays on (a Mac mini, an office computer or a server):\n\n1. On that computer, open the Terminal and paste this:\n{{command}}\n\n2. At the end a link shows up. Send it to me: it opens the workspace in the app.",
+    text: "To install agentes.chat on a server or VPS (or a computer that stays on, like a Mac mini):\n\n1. On the server, open the Terminal (or connect over SSH) and paste this:\n{{command}}\n\n2. At the end a link shows up. Send it to me: it opens the workspace in the app.",
   },
   connect: {
     title: "Sign in to a workspace that already exists",

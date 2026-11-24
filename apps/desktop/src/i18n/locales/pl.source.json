@@ -420,10 +420,10 @@
     "value": "Your agents work while the app is open."
   },
   "place.box": {
-    "value": "On a computer that's always on"
+    "value": "On a server or VPS"
   },
   "place.boxText": {
-    "value": "A Mac mini or an office computer, installed once."
+    "value": "Always on, even with this app closed. You install it once."
   },
   "place.goCloud": {
     "value": "Continue in the cloud"
@@ -441,13 +441,13 @@
     "value": "Sign in by its address"
   },
   "install.title": {
-    "value": "Install on a computer that's always on"
+    "value": "Install on a server or VPS"
   },
   "install.lead": {
     "value": "It's done once. Then it keeps running by itself, even with this app closed."
   },
   "install.step1": {
-    "value": "On the computer that stays on, open the Terminal and paste this"
+    "value": "On the server, open the Terminal (or connect over SSH) and paste this"
   },
   "install.step2": {
     "value": "At the end a link shows up. Open it here and that's it."
@@ -465,7 +465,7 @@
     "value": "Instructions copied"
   },
   "install.text": {
-    "value": "To install agentes.chat on a computer that stays on (a Mac mini, an office computer or a server):\n\n1. On that computer, open the Terminal and paste this:\n{{command}}\n\n2. At the end a link shows up. Send it to me: it opens the workspace in the app."
+    "value": "To install agentes.chat on a server or VPS (or a computer that stays on, like a Mac mini):\n\n1. On the server, open the Terminal (or connect over SSH) and paste this:\n{{command}}\n\n2. At the end a link shows up. Send it to me: it opens the workspace in the app."
   },
   "connect.title": {
     "value": "Sign in to a workspace that already exists"

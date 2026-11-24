@@ -90,7 +90,14 @@ export const CodeCard = memo(function CodeCard({ lang, text }: { lang: string; t
           <CodeText lines={shown} wrap />
         </View>
       ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.body}>
+        // Never grows downward (`flexGrow: 0`): in a message a scroll view's own `flexGrow: 1` grew it into the row's
+        // height on every layout, an empty block under the words that never ended (`Table`'s `sideways`).
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.sideways}
+          contentContainerStyle={styles.body}
+        >
           <CodeText lines={shown} />
         </ScrollView>
       )}
@@ -302,6 +309,7 @@ export function CodeSheet() {
 const RAW_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
 
 const styles = StyleSheet.create({
+  sideways: { flexGrow: 0 },
   card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   // The language starts where the code does (the body's 14).
   top: { flexDirection: "row", alignItems: "center", gap: 2, height: 38, paddingLeft: 14, paddingRight: 4 },

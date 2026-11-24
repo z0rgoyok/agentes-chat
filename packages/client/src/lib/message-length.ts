@@ -35,11 +35,33 @@ export function tooLongRefusal(t: TFunction, locale: string, error: unknown, fix
 
 /**
  * How tall a message shows in a conversation before it is clipped, in points (web and phone alike): one taller than
- * `over` shows its first `shows`, faded, and opens whole. The gap between the two keeps "Ver mais" from hiding only
- * a line or two.
+ * `over` (about two screens of text) shows its first `shows`, faded, and opens whole. Once clipped, it opens again only
+ * under `shows`: a measure that moves a few lines with the column's width (a scrollbar showing, a rotated phone) never
+ * flips it between clipped and whole.
  */
-export const LONG_MESSAGE = { over: 520, shows: 360 } as const;
+export const LONG_MESSAGE = { over: 1200, shows: 480 } as const;
 
 /** The height a message of `height` shows at in a conversation: null when it shows whole. */
 export const clippedHeight = (height: number): number | null =>
   height > LONG_MESSAGE.over ? LONG_MESSAGE.shows : null;
+
+/**
+ * The messages shown whole this session however long, by id: opened with "Ver mais", or shown whole as the answer the
+ * reader waited for (`answerIds`). They stay whole while the app runs, on any screen that shows them again, and never
+ * fold under the reader as newer messages arrive.
+ */
+export const shownWhole = new Set<string>();
+
+/**
+ * The messages a conversation shows whole however long, never behind "Ver mais": its newest, and every one after the
+ * reader's own latest (the answer they wait for). `messages` oldest first.
+ */
+export function answerIds(messages: readonly { id: string; mine: boolean }[]): Set<string> {
+  const ids = new Set<string>();
+  // Back from the newest to the reader's own latest; none of theirs here: only the newest.
+  for (let i = messages.length - 1; i >= 0 && !messages[i]?.mine; i--) ids.add(messages[i]?.id as string);
+  if (ids.size === messages.length) ids.clear();
+  const newest = messages.at(-1);
+  if (newest) ids.add(newest.id);
+  return ids;
+}

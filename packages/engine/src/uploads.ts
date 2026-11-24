@@ -379,6 +379,12 @@ export async function shareSavedFile(
   path: string,
   saved: ToolOutput,
 ): Promise<ToolOutput> {
+  // A code session's conversation (ADR 0215): the person sees the agent's screen beside it, in the session's panel.
+  if (ctx.codeSession)
+    return {
+      ...saved,
+      content: `${saved.content} It isn't shown in this conversation: in a code session the person sees your screen beside it.`,
+    };
   const access = toolAccess(await freshGrantedKeys(ctx.db, ctx.orgId, ctx.agentId), DRIVE_FILE);
   if (!isAllowed(access)) {
     const why =

@@ -14,8 +14,11 @@ export interface BlobStore {
   readonly kind: string;
   put(key: string, body: Uint8Array, options: { contentType: string }): Promise<void>;
   get(key: string): Promise<{ body: Uint8Array; contentType: string } | null>;
-  /** The object's bytes as they are read, where the store can; without it, `get`. */
-  stream?(key: string): Promise<ReadableStream<Uint8Array> | null>;
+  /**
+   * The object's bytes as they are read (only `range`'s, both ends included, when given), where the store can;
+   * without it, `get`.
+   */
+  stream?(key: string, range?: ByteRange): Promise<ReadableStream<Uint8Array> | null>;
   delete(key: string): Promise<void>;
   /** Keys under `prefix`, at most `limit` (default 1000). */
   list(prefix: string, limit?: number): Promise<string[]>;
@@ -23,9 +26,27 @@ export interface BlobStore {
   deletePrefix?(prefix: string): Promise<void>;
   /**
    * A short-lived URL that downloads the object, or null when this store
-   * can't sign (the server streams it instead).
+   * can't sign (the server streams it instead). With `filename` it downloads
+   * as an attachment of that name; with `contentType` it says it is that type.
    */
-  signedUrl(key: string, options: { expiresInSeconds: number; filename?: string }): Promise<string | null>;
+  signedUrl(
+    key: string,
+    options: { expiresInSeconds: number; filename?: string; contentType?: string },
+  ): Promise<string | null>;
+}
+
+/** Bytes `start` to `end` of an object, both included (`Range: bytes=start-end`). */
+export interface ByteRange {
+  start: number;
+  end: number;
+}
+
+/** A file name safe in any header: non-ASCII, quotes and separators become `_`. */
+const asciiName = (name: string) => name.replace(/[^\x20-\x7e]|["\\;]/g, "_");
+
+/** `Content-Disposition: attachment` with the name as is (RFC 6266 `filename*`) and an ASCII fallback. */
+export function attachmentDisposition(filename: string) {
+  return `attachment; filename="${asciiName(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 /**

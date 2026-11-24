@@ -1,6 +1,6 @@
 import { useMatchMedia } from "@agenteschat/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { askSidebarRoom, onSidebarChange, sidebarHandToggles } from "@/components/Sidebar";
+import { askSidebarRoom, onSidebarChange, sidebarHandToggles } from "@/components/sidebar-state";
 
 /*
  * The room a live file's page has (ADR 0196 §9, ADR 0199), measured on the page itself, since the window alone doesn't
@@ -19,6 +19,8 @@ const SIDEBAR_KEPT = "(min-width: 1200px)";
 
 interface RoomState {
   docked: boolean;
+  /** The room under which the sidebar folds. */
+  min: number;
   desktop: boolean;
   width: number;
   /** This page asked the sidebar for its room. */
@@ -33,15 +35,17 @@ interface RoomState {
 
 /**
  * Watches the page's width (`page`: its element): `narrow` for the header, and, while the conversation is `docked`,
- * the sidebar folded to its rail when the file would get less than `FILE_ROOM_MIN`, back once it would keep
- * `FILE_ROOM_MIN + FILE_ROOM_SLACK` with it open. Never stored, and never against the person: a sidebar they folded
- * themselves stays folded, and once they use its toggle here the page leaves it alone.
+ * the sidebar folded to its rail when the file would get less than `min` (a live file's toolbars, `FILE_ROOM_MIN`;
+ * a code session's conversation and panel, ADR 0215), back once it would keep `min + FILE_ROOM_SLACK` with it open.
+ * Never stored, and never against the person: a sidebar they folded themselves stays folded, and once they use its
+ * toggle here the page leaves it alone.
  */
-export function usePageRoom(page: HTMLElement | null, docked: boolean): { narrow: boolean } {
+export function usePageRoom(page: HTMLElement | null, docked: boolean, min = FILE_ROOM_MIN): { narrow: boolean } {
   const desktop = useMatchMedia(SIDEBAR_KEPT);
   const [narrow, setNarrow] = useState(false);
   const room = useRef<RoomState>({
     docked,
+    min,
     desktop,
     width: 0,
     asked: false,
@@ -64,7 +68,7 @@ export function usePageRoom(page: HTMLElement | null, docked: boolean): { narrow
     const sideWidth = side.getBoundingClientRect().width;
     if (!s.asked) {
       // Already the rail (the person's choice): nothing to give.
-      if (s.width < FILE_ROOM_MIN && side.dataset.rail !== "true") {
+      if (s.width < s.min && side.dataset.rail !== "true") {
         s.open = sideWidth;
         s.asked = true;
         askSidebarRoom(true);
@@ -73,7 +77,7 @@ export function usePageRoom(page: HTMLElement | null, docked: boolean): { narrow
     }
     // The page's width with the sidebar open again: the same sum while the sidebar changes size, so a check halfway
     // through its change reads the same.
-    if (s.width - Math.max(0, s.open - sideWidth) >= FILE_ROOM_MIN + FILE_ROOM_SLACK) {
+    if (s.width - Math.max(0, s.open - sideWidth) >= s.min + FILE_ROOM_SLACK) {
       s.asked = false;
       askSidebarRoom(false);
     }
@@ -97,9 +101,10 @@ export function usePageRoom(page: HTMLElement | null, docked: boolean): { narrow
   // The conversation docked or closed, the window across the desktop width: the room asked again.
   useEffect(() => {
     room.current.docked = docked;
+    room.current.min = min;
     room.current.desktop = desktop;
     check();
-  }, [docked, desktop, check]);
+  }, [docked, min, desktop, check]);
 
   // The person's own hand on the sidebar while here: theirs from now on (the toggle already undid the page's ask).
   useEffect(

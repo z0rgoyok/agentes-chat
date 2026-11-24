@@ -49,7 +49,8 @@ describe("Who can edit on the phone", () => {
     // A list of names goes under the label, where it is never cut at the row's end.
     expect(row).toContain("sub={summary(agent)} subLines={2}");
     expect(row).toContain('name: t("common.about", { label: t("editors.section") }), text: t("editors.note"');
-    expect(row).toContain('const changes = canEditAudience(org ?? undefined, agent, meId ?? "");');
+    // Who holds the role that answers for it too (ADR 0085, addendum of 2026-11-21).
+    expect(row).toContain('const changes = canEditAudience(org ?? undefined, agent, meId ?? "", myRoleIds);');
     expect(row).toContain("{...(changes ? { chevron: true, onPress: () => openAgentEditors(agent.id) } : {})}");
     // Nobody edits how the right hand works; who doesn't see how an agent works gets no editors from the server (the
     // line would name nobody); alone in a personal workspace, it waits until it names someone.
@@ -84,7 +85,7 @@ describe("Who can edit on the phone", () => {
     );
     // Only its owner and who manages it change it; anyone else who sees how it works reads who edits it.
     expect(screen).toContain(
-      'if (!canEditAudience(org ?? undefined, agent, meId ?? "")) return <EditorsRead agent={agent} />;',
+      'if (!canEditAudience(org ?? undefined, agent, meId ?? "", myRoleIds)) return <EditorsRead agent={agent} />;',
     );
     // The right hand has none: its address alone goes back. A missing agent says so; loading, the rows' shape.
     expect(screen).toContain("if (rightHand) goBack();");
@@ -95,15 +96,18 @@ describe("Who can edit on the phone", () => {
   test("the choices as checked rows; under the second, the roles with their marks and the people but its owner", () => {
     const screen = flat(SCREEN);
     expect(screen).toContain('label={t("editors.mode.owner", g)}');
+    // A role that answers for it is named as whoever holds it (ADR 0085, addendum of 2026-11-21).
     expect(screen).toContain(
-      'sub={owner ? t("editors.modeText.owner", { ...g, owner }) : t("editors.modeText.noOwner", g)}',
+      'sub={ ownerRole ? t("editors.modeText.ownerRole", { ...g, role: ownerRole.name }) : owner ? t("editors.modeText.owner", { ...g, owner }) : t("editors.modeText.noOwner", g) }',
     );
     expect(screen).toContain('checked={draft.mode === "people"} onPress={() => pick("people")}');
     expect(screen).toContain(
-      '{owner ? <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter> : null}',
+      '<GroupedFooter>{t("audience.ownerRoleAlways", { role: ownerRole.name })}</GroupedFooter> ) : owner ? ( <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter> ) : null}',
     );
     // Every role but "everyone", what a role grants here behind its ⓘ.
-    expect(screen).toContain("sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r)))");
+    expect(screen).toContain(
+      "sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r) && r.id !== agent.ownerRoleId))",
+    );
     expect(screen).toContain(
       'hint={{ name: t("common.about", { label: t("audience.roles") }), text: t("editors.rolesHint") }}',
     );

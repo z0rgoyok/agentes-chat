@@ -1,6 +1,7 @@
 import type { CostlyDecision, Message } from "@agenteschat/client";
 import { useApi } from "@agenteschat/client";
 import { type CostlyProposalCard, mayDecideCostly, mayRememberCostly } from "@agenteschat/client/lib/action-cards";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { EventPillAction, Locked } from "@agenteschat/ui";
@@ -24,7 +25,11 @@ export function CostlyProposalCardView({ card }: { message: Message; card: Costl
   const api = useApi();
   const toast = useToast();
   const [pending, setPending] = useState<CostlyDecision | null>(null);
-  const ownerOf = (id: string) => dir.agentById.get(id)?.ownerUserId;
+  // Its owner reads as me when I hold the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const ownerOf = (id: string) => {
+    const a = dir.agentById.get(id);
+    return a && ownsAgentAs(a, me.user.id, dir.rolesOf(me.user.id)) ? me.user.id : a?.ownerUserId;
+  };
   // Who manages this agent (ADR 0085 addendum of 2026-11-17), as its owner does.
   const manages = managesAgent(dir.agentById.get(card.agentId));
   const may = mayDecideCostly(card, me.user.id, ownerOf, manages);

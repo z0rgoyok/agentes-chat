@@ -667,6 +667,43 @@ test.if(posix)("a key sign-in nobody finishes expires and leaves no folder", asy
   await waitFor(() => !existsSync(path.join(root, "claude_code", id)));
 });
 
+test.if(posix)(
+  "a terminal as the agent gets its own sign-in's folder; never one kept for several agents, a plan's key, or another CLI's",
+  async () => {
+    const lent: number[] = [];
+    const chown = async (_file: string, uid: number) => {
+      lent.push(uid);
+    };
+    // One user for every agent: the folder itself.
+    const single = setup();
+    const own = LOGIN(61);
+    mkdirSync(path.join(single.root, "claude_code", own), { recursive: true });
+    expect(await single.m.terminalEnv(own)).toEqual({ CLAUDE_CONFIG_DIR: path.join(single.root, "claude_code", own) });
+    const codex = LOGIN(62);
+    mkdirSync(path.join(single.root, "codex", codex), { recursive: true });
+    expect(await single.m.terminalEnv(codex)).toEqual({ CODEX_HOME: path.join(single.root, "codex", codex) });
+    const other = LOGIN(63);
+    mkdirSync(path.join(single.root, "opencode", other), { recursive: true });
+    expect(await single.m.terminalEnv(other)).toEqual({});
+    expect(await single.m.terminalEnv(LOGIN(64))).toEqual({});
+
+    // System mode: lent to the agent's user first, as for a turn; one root keeps for several agents stays root's.
+    const { m, root } = setup({ lending: { chown } });
+    const id = LOGIN(65);
+    const dir = path.join(root, "claude_code", id);
+    mkdirSync(dir, { recursive: true });
+    expect(await m.terminalEnv(id)).toEqual({});
+    expect(await m.terminalEnv(id, 21001)).toEqual({ CLAUDE_CONFIG_DIR: dir });
+    expect(lent.at(-1)).toBe(21001);
+    const shared = LOGIN(66);
+    mkdirSync(path.join(root, "claude_code", shared), { recursive: true });
+    writeFileSync(path.join(root, "claude_code", `${shared}.shared`), "");
+    const before = lent.length;
+    expect(await m.terminalEnv(shared, 21001)).toEqual({});
+    expect(lent.length).toBe(before);
+  },
+);
+
 // ── System mode: folders lent to agents' users ───────────────────────────────
 
 test.if(posix)(

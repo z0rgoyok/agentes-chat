@@ -14,8 +14,12 @@ export interface ToolBlockLine {
   logo: ReactNode;
   /** "Consultando o GitHub…", "Consultou o GitHub". */
   label: string;
+  /** What it worked on, in mono after the label, on one line: a file, a pattern, a command (a computer's CLI). */
+  target?: string | null;
   /** Grey words after it: the tool's own name or the built-in's label. */
   hint?: string | null;
+  /** What it came to, before its time: "+2 −1", "15 passed". */
+  meta?: string;
   /** "1,2 s". */
   time?: string;
   /** "×5": several calls of the same kind in a row. */
@@ -174,8 +178,14 @@ function Line({
       <span className="ac-tools__logo">{line.logo}</span>
       <span className="ac-tools__label">
         <b className={line.state === "run" ? "ac-tools__shimmer" : undefined}>{line.label}</b>
+        {line.target && (
+          <code className="ac-tools__target" title={line.target}>
+            {line.target}
+          </code>
+        )}
         {line.hint && <small>{line.hint}</small>}
       </span>
+      {line.meta && <span className="ac-tools__time">{line.meta}</span>}
       {line.count && <span className="ac-tools__time">{line.count}</span>}
       {line.time && <span className="ac-tools__time">{line.time}</span>}
       <Mark state={line.state} color={color} />
@@ -207,6 +217,51 @@ function Line({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * A card of one line that leads somewhere instead of opening (a code session's line to its screen, ADR 0215): a tool
+ * line's look and size (`.ac-tools--one`), so it lines up with the tools block beside it; the whole line is the
+ * button, and what it does reads on the right, where a call's time goes.
+ */
+export function ToolLink({
+  logo,
+  label,
+  target,
+  action,
+  onClick,
+  className,
+}: {
+  logo: ReactNode;
+  label: string;
+  /** What it acted on, in mono after the label (an address). */
+  target?: string | null;
+  /** "Ver na Tela". */
+  action: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <section className={cx("ac-tools ac-tools--one", className)} aria-label={target ? `${label} ${target}` : label}>
+      <ol className="ac-tools__lines">
+        <li className="ac-tools__line">
+          <button type="button" className="ac-tools__row" onClick={onClick}>
+            <span className="ac-tools__logo">{logo}</span>
+            <span className="ac-tools__label">
+              <b>{label}</b>
+              {target && (
+                <code className="ac-tools__target" title={target}>
+                  {target}
+                </code>
+              )}
+            </span>
+            <span className="ac-tools__time">{action}</span>
+            <Chevron className="ac-tools__linechev" />
+          </button>
+        </li>
+      </ol>
+    </section>
   );
 }
 

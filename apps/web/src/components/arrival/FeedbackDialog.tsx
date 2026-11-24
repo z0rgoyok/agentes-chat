@@ -14,6 +14,7 @@ import {
   modKey,
   overLimit,
   PixelSpinner,
+  pastedFiles,
   Textarea,
 } from "@agenteschat/ui";
 import { useMutation } from "@tanstack/react-query";
@@ -354,7 +355,7 @@ export function FeedbackDialog({ reported, onClose }: { reported: Reported | nul
               }}
               // A screenshot on the clipboard is added as a file.
               onPaste={(e) => {
-                const pasted = [...e.clipboardData.files];
+                const pasted = pastedFiles(e.clipboardData);
                 if (pasted.length === 0) return;
                 e.preventDefault();
                 add(pasted);

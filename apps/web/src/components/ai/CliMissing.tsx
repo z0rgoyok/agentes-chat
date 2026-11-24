@@ -4,6 +4,7 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { firstName } from "@agenteschat/client/lib/format";
 import {
   CLI_GIT_MISSING,
+  cliCommandWayOut,
   cliInstallFailure,
   cliOneClick,
   GIT_FOR_WINDOWS_URL,
@@ -13,14 +14,16 @@ import { Button, HintLine, Icon, SettingNote, Spinner } from "@agenteschat/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "@/lib/toast";
+import { CommandBlock } from "../machine-bits";
 import { useOrg } from "../org-context";
 
 /**
  * Claude Code or Codex isn't on a computer someone connected (`not_installed`), or is there and won't start
  * (`cant_start`): one line, then the way on. Whoever connected it installs it from here with the vendor's own installer,
  * anyone else asks them; anyone looks again after installing by hand. `useKey`: the panel's "Use an API key now".
- * Null for a computer where nobody installs from here (the workspace's own installs its programs itself) or a program
- * with no installer: the caller keeps its own line there.
+ * A program the apps don't install gets the line to run there instead (`cliCommandWayOut`). Null for a computer where
+ * nobody installs from here (the workspace's own installs its programs itself) or a program with neither: the caller
+ * keeps its own line there.
  */
 export function CliMissing({
   machine,
@@ -43,10 +46,41 @@ export function CliMissing({
   const run = useCliInstall(org.id, machine?.id ?? null, cli ?? "claude", oneClick?.kind === "allow");
   const check = useCheckMachineClis(org.id);
   const [checked, setChecked] = useState(false);
-  if (!machine || !cli || machine.kind === "managed") return null;
+  if (!machine || machine.kind === "managed") return null;
 
   const program = t(`brain.card.${kind}`);
   const words = { program, computer };
+  const fail = (err: unknown) => toast.show(errorText(t, err), "error");
+  const lookAgain = () =>
+    check.mutate(machine.id, {
+      onSuccess: () => setChecked(true),
+      onError: fail,
+    });
+  if (!cli) {
+    const way = cliCommandWayOut(t, kind, machine, reason, computer);
+    if (!way) return null;
+    return (
+      <>
+        <SettingNote icon="alert" live>
+          {checked && reason === "not_installed" ? t("connectAi.cli.checked", words) : way.text}
+        </SettingNote>
+        <CommandBlock command={way.command} />
+        <div className="ac-acts">
+          {machine.cliInstall && (
+            <Button
+              size="sm"
+              disabled={check.isPending || !machine.online}
+              loading={check.isPending}
+              onClick={lookAgain}
+            >
+              {t("connectAi.cli.check")}
+            </Button>
+          )}
+          {useKey}
+        </div>
+      </>
+    );
+  }
   const install = run.install;
   const running = install?.state === "running";
   const pending = run.start.isPending || run.cancel.isPending || run.ask.isPending || check.isPending;
@@ -54,7 +88,6 @@ export function CliMissing({
   const gitMissing =
     (install?.state === "failed" && install.cause === "git_missing") ||
     (broken === CLI_GIT_MISSING && install?.state !== "failed");
-  const fail = (err: unknown) => toast.show(errorText(t, err), "error");
 
   let line: ReactNode;
   if (running) {
@@ -98,11 +131,6 @@ export function CliMissing({
   }
 
   const start = () => run.start.mutate(undefined, { onError: fail });
-  const lookAgain = () =>
-    check.mutate(machine.id, {
-      onSuccess: () => setChecked(true),
-      onError: fail,
-    });
   const failedBefore = install?.state === "failed" || install?.state === "canceled";
   return (
     <>

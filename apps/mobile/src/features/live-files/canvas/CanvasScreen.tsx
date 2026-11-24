@@ -32,6 +32,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import {
+  besideFold,
   EmptyState,
   Glass,
   type HeaderMenuItem,
@@ -42,6 +43,7 @@ import {
   PressScale,
   SCREEN_X,
   Text,
+  useFoldRoom,
   usePulse,
   useReducedMotion,
   useTheme,
@@ -165,6 +167,10 @@ function LiveCanvas({
   const failed = useErrorToast();
   const reduced = useReducedMotion();
   const lineRoom = useTalkLineRoom();
+  // Folded like a book (ADR 0212), the tools and the pen's bar over them stand beside the fold, together, instead of
+  // in its middle.
+  const foldSide = useFoldRoom();
+  const beside = foldSide ? besideFold(foldSide) : null;
   const doc = room.doc;
   const readOnly = live.mode !== "edit";
   const plane = useRef<PlaneHandle>(null);
@@ -615,7 +621,7 @@ function LiveCanvas({
             </GlassBar>
           </Animated.View>
         ) : null}
-        <View style={[styles.dockAt, { bottom: lineRoom }]} pointerEvents="box-none">
+        <View style={[styles.dockAt, { bottom: lineRoom }, beside]} pointerEvents="box-none">
           <View style={Platform.OS === "android" ? { borderRadius: DOCK_H / 2, boxShadow: shadows.e2 } : undefined}>
             <Glass liquid interactive={false} intensity={70} style={[styles.dock, { borderColor: c.line2 }]}>
               <View
@@ -675,7 +681,11 @@ function LiveCanvas({
           </View>
         </View>
         {tool === "pen" && !readOnly ? (
-          <Animated.View {...fade} style={[styles.dockAt, { bottom: lineRoom + DOCK_H + 8 }]} pointerEvents="box-none">
+          <Animated.View
+            {...fade}
+            style={[styles.dockAt, { bottom: lineRoom + DOCK_H + 8 }, beside]}
+            pointerEvents="box-none"
+          >
             <PenBar pen={pen} onPen={setPen} />
           </Animated.View>
         ) : null}

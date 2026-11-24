@@ -1149,6 +1149,73 @@ describe("a person takes control while the agent's pointer and keys are going", 
       relay.server.stop(true);
     }
   });
+
+  test.if(posix)(
+    "a tab the page opens or closes while a person drives: their input and the view follow it there",
+    async () => {
+      // `agent-browser` moves its stream to a new tab, and says so, only after a command; the person's input is none.
+      let tabs = [{ targetId: "AB12CD34", url: "https://dash.example.com/login", active: true }];
+      const relay = fakeRelay((body) => (body.action === "tab_list" ? { success: true, data: { tabs } } : {}));
+      const devtools: FakeSocket[] = [];
+      const pages: FakePage[] = [];
+      const chromes = fakeChromes();
+      const t = setup({
+        startChrome: async (exe, args, profile) => ({
+          ...(await chromes.start(exe, args, profile)),
+          wsPath: "/devtools/browser/tabs",
+        }),
+        connectDevtools: (url) => {
+          const s = new FakeSocket(url);
+          devtools.push(s);
+          queueMicrotask(() => {
+            s.onopen?.();
+            s.push({ id: 1, result: {} });
+          });
+          return s;
+        },
+        connectPage: (url) => {
+          const p = new FakePage(url);
+          pages.push(p);
+          queueMicrotask(() => p.onopen?.());
+          return p;
+        },
+      });
+      try {
+        await t.act("open", ["https://dash.example.com/login"]);
+        t.page({ port: relay.port });
+        await t.manager.streamStart(dev, "control");
+        (t.sockets.at(-1) as FakeSocket).push({ type: "tabs", tabs });
+        const click = [
+          { kind: "mouse", type: "mousePressed", x: 5, y: 6, button: "left", clickCount: 1 },
+          { kind: "mouse", type: "mouseReleased", x: 5, y: 6, button: "left", clickCount: 1 },
+        ];
+        const targetsOfInput = () =>
+          pages.flatMap((p) => p.calls.filter((c) => c.method.startsWith("Input.")).map(() => p.url.split("/").at(-1)));
+        expect(await t.manager.input(dev, click)).toEqual({ accepted: 2 });
+        // The click opened a sign-in popup.
+        tabs = [
+          { targetId: "AB12CD34", url: "https://dash.example.com/login", active: false },
+          { targetId: "EF56", url: "https://id.example.com/", active: true },
+        ];
+        const cdp = devtools[0] as FakeSocket;
+        cdp.push({
+          method: "Target.attachedToTarget",
+          params: { sessionId: "s-pop", targetInfo: { type: "page", targetId: "EF56", openerId: "AB12CD34" } },
+        });
+        expect(await t.manager.input(dev, click)).toEqual({ accepted: 2 });
+        expect(targetsOfInput()).toEqual(["AB12CD34", "AB12CD34", "EF56", "EF56"]);
+        // Signed in, the popup closes itself: back to the tab that opened it.
+        tabs = [{ targetId: "AB12CD34", url: "https://dash.example.com/home", active: true }];
+        cdp.push({ method: "Target.detachedFromTarget", params: { sessionId: "s-pop" } });
+        expect(await t.manager.input(dev, click)).toEqual({ accepted: 2 });
+        expect(targetsOfInput().slice(4)).toEqual(["AB12CD34", "AB12CD34"]);
+        // Only the tab lists went on the relay, each asked once.
+        expect(relay.received.map((r) => r.body.action)).toEqual(["tab_list", "tab_list"]);
+      } finally {
+        relay.server.stop(true);
+      }
+    },
+  );
 });
 
 /** The start of a JPEG of that size, in base64: all a frame's size is read from. */

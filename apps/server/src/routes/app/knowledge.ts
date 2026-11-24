@@ -15,6 +15,7 @@ import {
   listContextItems,
   listMessageReactions,
   memoryJudging,
+  ownsAgent,
   readableChannelIds,
   removeReaction,
   requirePermission,
@@ -418,7 +419,7 @@ export function knowledgeRoutes(deps: AppDeps) {
       const membership = await requirePermission(db, c.get("user").id, orgId, "read");
       if (!can(membership, "view_usage")) {
         const agent = agentId ? await getAgent(db, orgId, agentId) : null;
-        if (agent?.ownerUserId !== c.get("user").id) throw new ForbiddenError();
+        if (!agent || !ownsAgent(agent, c.get("user").id, membership.roleIds)) throw new ForbiddenError();
       }
       const o = schema.outcomes;
       const rows = await db

@@ -1,4 +1,4 @@
-import type { Agent, Artifact, LiveKind } from "@agenteschat/client";
+import type { Agent, Artifact, TalkKind } from "@agenteschat/client";
 import { keys, useFileUnread, useThreadMessages } from "@agenteschat/client";
 import { mayAsk } from "@agenteschat/client/lib/audience";
 import { rightHandOf } from "@agenteschat/client/lib/right-hand";
@@ -19,6 +19,7 @@ import { ThreadPage } from "@/pages/ThreadPage";
 import { useChannelEvents } from "@/realtime/context";
 import "@/components/threads/threads.css";
 import "@/pages/issues.css";
+import "./talk-grip.css";
 
 /*
  * A live file's own conversation (ADR 0199), the task's (ADR 0145) beside a file: "Conversa 4" in the page's header
@@ -128,7 +129,7 @@ export function FileConversationPanel({
   focusMessageId,
   onClose,
 }: {
-  kind: LiveKind;
+  kind: TalkKind;
   rootId: string | null;
   docked: boolean;
   focusMessageId?: string;
@@ -180,9 +181,10 @@ export const clampTalk = (width: number) => Math.round(Math.min(talkMax(), Math.
  * The handle on the docked conversation's left edge (ADR 0199): dragged, the conversation takes that width and the
  * file beside it follows as it moves; ←/→ change it a step, Home and End go to the narrowest and the widest, a double
  * click gives back the default (`--lf-talk-w` in live.css). The width is the person's, kept per person and workspace,
- * and set on the work area, whose right padding keeps the file clear of it.
+ * and set on `work`: the page's work area, whose right padding keeps the file clear of it, or the viewer's body
+ * beside a picture, a video or a PDF (ADR 0208), whose column follows it. `className` places it there.
  */
-function TalkGrip({ work }: { work: HTMLElement }) {
+export function TalkGrip({ work, className }: { work: HTMLElement; className?: string }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const key = `${STORAGE_KEYS.liveTalkWidth}.${me.user.id}.${org.id}`;
@@ -266,7 +268,7 @@ function TalkGrip({ work }: { work: HTMLElement }) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: a separator that moves is a control with a value, which `hr` is not.
     <div
-      className="lf-talk-grip"
+      className={cx("lf-talk-grip", className)}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
@@ -285,9 +287,12 @@ function TalkGrip({ work }: { work: HTMLElement }) {
   );
 }
 
-/** The docked conversation's width on screen now. */
+/** The docked conversation's width on screen now (the page's, or the viewer's). */
 const talkWidth = (work: HTMLElement) =>
-  Math.round(work.querySelector<HTMLElement>(":scope > .lf-talk")?.getBoundingClientRect().width ?? TALK_MIN);
+  Math.round(
+    work.querySelector<HTMLElement>(":scope > .lf-talk, :scope > .viewer-talk")?.getBoundingClientRect().width ??
+      TALK_MIN,
+  );
 
 /** Sets the conversation's width on the work area (`--lf-talk-w`: the panel's width and the room kept for it). */
 function showTalkWidth(work: HTMLElement, width: number | null) {

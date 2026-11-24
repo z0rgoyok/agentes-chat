@@ -365,12 +365,31 @@ export function continuedRunIdOf(message: Pick<Message, "meta">): string | null 
 
 // ── The app's one store ───────────────────────────────────────────────────────
 
+/** Messages each of the store's records keeps: a day-long session hears and lists many. Past it, the oldest half goes. */
+export const STEER_KEPT = 2000;
+
+const latest = <V>(record: Record<string, V>): Record<string, V> => {
+  const ids = Object.keys(record);
+  if (ids.length <= STEER_KEPT) return record;
+  return Object.fromEntries(ids.slice(-STEER_KEPT / 2).map((id) => [id, record[id] as V]));
+};
+
+/** `state` with its records by message held to `STEER_KEPT` (their latest entries); the same object when within it. */
+export function keptSteer(state: SteerStoreState): SteerStoreState {
+  const live = latest(state.live);
+  const seeded = latest(state.seeded);
+  const continued = latest(state.continued);
+  return live === state.live && seeded === state.seeded && continued === state.continued
+    ? state
+    : { ...state, live, seeded, continued };
+}
+
 let current: SteerStoreState = emptySteer;
 const listeners = new Set<() => void>();
 
 function update(next: SteerStoreState) {
   if (next === current) return;
-  current = next;
+  current = keptSteer(next);
   for (const l of [...listeners]) l();
 }
 

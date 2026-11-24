@@ -3,7 +3,6 @@ import type { SidebarItem, SidebarItems, SidebarPlace, SidebarSection } from "..
 /** The tools at the top of the sidebar, in their order (mirrors `SIDEBAR_ITEMS`, packages/engine/src/sidebar-items.ts). */
 export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "waiting",
-  "approvals",
   "proposals",
   "threads",
   "issues",
@@ -13,13 +12,15 @@ export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "calendar",
   "team",
   "dashboards",
+  "code",
   "taskManager",
 ];
 
 /** Where each tool goes for someone who never moved it. */
 export const SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
-  waiting: "auto",
-  approvals: "auto",
+  // The inbox is always in sight: the one place for what waits on the person and what is new.
+  waiting: "always",
+  // Proposals waiting on the person are in the inbox, one by one: the page of all of them is in More.
   proposals: "more",
   threads: "always",
   issues: "always",
@@ -30,6 +31,8 @@ export const SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
   team: "always",
   dashboards: "more",
   taskManager: "more",
+  // Code sessions (ADR 0215): in More, and only where it has anything (`offersCode`).
+  code: "more",
 };
 
 /**
@@ -38,8 +41,9 @@ export const SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
  * click away, and a choice the person made still wins.
  */
 export const PERSONAL_SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
-  waiting: "auto",
-  approvals: "auto",
+  // The inbox is always in sight: the one place for what waits on the person and what is new.
+  waiting: "always",
+  // Proposals waiting on the person are in the inbox, one by one: the page of all of them is in More.
   proposals: "more",
   threads: "more",
   issues: "more",
@@ -50,6 +54,8 @@ export const PERSONAL_SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
   team: "more",
   dashboards: "more",
   taskManager: "more",
+  // Code sessions (ADR 0215): in More, and only where it has anything (`offersCode`).
+  code: "more",
 };
 
 /** Where each tool goes by default in a workspace of this mode (`personal`: ADR 0159). */
@@ -61,7 +67,6 @@ export const sidebarDefaults = (personal = false) => (personal ? PERSONAL_SIDEBA
  */
 export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "waiting",
-  "approvals",
   "proposals",
   "routines",
   "drive",
@@ -71,14 +76,26 @@ export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "team",
   "wiki",
   "dashboards",
+  "code",
   "taskManager",
 ];
 
 /** The tools' default order in a workspace of this mode: the list's and More's. */
 export const sidebarItemOrder = (personal = false) => (personal ? PERSONAL_SIDEBAR_ITEMS : SIDEBAR_ITEMS);
 
+/**
+ * Whether the apps offer Code (ADR 0215 §12): where it has anything for the person (`OrgOverview.code`: an agent that
+ * programs on a computer, or an open session of theirs), or where they put it in the sidebar's list themselves.
+ */
+export const offersCode = (code: boolean | undefined, saved?: SidebarItems) =>
+  code === true || saved?.code === "always";
+
+/** `order` without the tools this workspace doesn't offer the person (Code, `offersCode`). */
+export const offeredTools = (order: readonly SidebarItem[], code: boolean | undefined, saved?: SidebarItems) =>
+  offersCode(code, saved) ? [...order] : order.filter((id) => id !== "code");
+
 /** The tools with a count in the sidebar: only these can wait in More until there is something (`auto`). */
-export const SIDEBAR_COUNTED: readonly SidebarItem[] = ["waiting", "approvals", "proposals", "threads"];
+export const SIDEBAR_COUNTED: readonly SidebarItem[] = ["waiting", "threads"];
 
 /** The sidebar's sections in their default order (mirrors `SIDEBAR_SECTIONS`, packages/engine/src/sidebar-items.ts). */
 export const SIDEBAR_SECTIONS: readonly SidebarSection[] = ["tools", "channels", "agents", "people"];

@@ -10,11 +10,18 @@ import {
   type RunnerInfo,
   type ServerFrame,
 } from "@agenteschat/adapters/machine-protocol";
+import {
+  RECONNECT_BASE_MS,
+  RECONNECT_CAP_MS,
+  RECONNECT_HEALTHY_MS,
+  reconnectDelay,
+  reconnectStep,
+  retryAfterFromReason,
+  waitAfterRetryHint,
+} from "@agenteschat/client/lib/backoff";
 import { type HandlerContext, handleRequest, type RequestObserver, RequestRunner } from "./handlers";
 import type { McpBridge } from "./mcp";
 
-export const BACKOFF_MIN_MS = 1_000;
-export const BACKOFF_MAX_MS = 60_000;
 /** After the server says it is stopping (close 1001), the first dial goes out at a random point within this. */
 export const SERVER_STOP_SPREAD_MS = 30_000;
 
@@ -71,15 +78,15 @@ export const webSocketDial: Dial = (url, handlers) => {
   };
 };
 
-/** 1 s, 2 s, 4 s… up to 60 s, each ±20 %. */
+/** 1 s, 2 s, 4 s… up to 60 s, each ±20 % (the host's and workers' retries; the link itself uses `reconnectDelay`). */
 export function backoffDelay(attempt: number, random: () => number = Math.random): number {
-  const base = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** Math.max(0, Math.min(attempt, 10)));
-  return Math.min(BACKOFF_MAX_MS, Math.round(base * (0.8 + 0.4 * random())));
+  const base = reconnectStep(attempt);
+  return Math.min(RECONNECT_CAP_MS, Math.round(base * (0.8 + 0.4 * random())));
 }
 
 /** A restart drops every runner at once: each comes back at its own moment, not all into the new server's start. */
 export function serverStopDelay(random: () => number = Math.random): number {
-  return Math.round(BACKOFF_MIN_MS + random() * (SERVER_STOP_SPREAD_MS - BACKOFF_MIN_MS));
+  return Math.round(RECONNECT_BASE_MS + random() * (SERVER_STOP_SPREAD_MS - RECONNECT_BASE_MS));
 }
 
 /** Why `run()` ended: the CLI exits with `exitCode`. */
@@ -142,7 +149,10 @@ export interface ConnectionOptions {
 const SUSPENDED_AFTER_MS = 30_000;
 
 interface SessionEnd {
-  welcomed: boolean;
+  /** Welcomed and up `RECONNECT_HEALTHY_MS`: the next drop starts the waits over. */
+  healthy: boolean;
+  /** The wait the server's close asked for (`retry-after=`), in ms. */
+  retryAfterMs: number | null;
   outcome?: ConnectionOutcome;
   /** The server closed it saying it is stopping (1001). */
   serverStop?: boolean;
@@ -200,8 +210,12 @@ export class RunnerConnection {
         this.log("reconnecting now (asked by the app)");
         continue;
       }
-      if (end.welcomed) attempt = 0;
-      const delay = end.serverStop ? serverStopDelay(this.opts.random) : backoffDelay(attempt, this.opts.random);
+      if (end.healthy) attempt = 0;
+      const delay = end.serverStop
+        ? serverStopDelay(this.opts.random)
+        : end.retryAfterMs !== null
+          ? waitAfterRetryHint(end.retryAfterMs, reconnectStep(attempt), this.opts.random)
+          : reconnectDelay(attempt, this.opts.random);
       attempt++;
       this.log(`disconnected; reconnecting in ${(delay / 1000).toFixed(1)} s`);
       await this.sleep(delay);
@@ -268,6 +282,8 @@ export class RunnerConnection {
       const { opts, log } = this;
       let socket: Socket | undefined;
       let welcomed = false;
+      let welcomedAt = 0;
+      let retryAfterMs: number | null = null;
       let finished = false;
       let outcome: ConnectionOutcome | undefined;
       let serverStop = false;
@@ -316,7 +332,8 @@ export class RunnerConnection {
         else socket?.close();
         this.endSession = undefined;
         opts.onState?.("offline");
-        resolve({ welcomed, outcome, serverStop });
+        const healthy = welcomed && Date.now() - welcomedAt >= RECONNECT_HEALTHY_MS;
+        resolve({ healthy, retryAfterMs, outcome, serverStop });
       };
       const arm = () => {
         if (watchdog) clearTimeout(watchdog);
@@ -342,6 +359,7 @@ export class RunnerConnection {
         switch (frame.type) {
           case "welcome": {
             welcomed = true;
+            welcomedAt = Date.now();
             observeEgress = frame.observeEgress === true;
             if (typeof frame.heartbeatMs === "number" && frame.heartbeatMs > 0) heartbeatMs = frame.heartbeatMs;
             log(`connected as ${frame.name}`);
@@ -427,6 +445,7 @@ export class RunnerConnection {
           },
           onClose: (code, reason) => {
             serverStop = code === 1001;
+            retryAfterMs = retryAfterFromReason(reason);
             if (!finished && !welcomed && code !== 1000) {
               log(`could not connect${reason ? ` (${reason})` : code ? ` (code ${code})` : ""}`);
             }

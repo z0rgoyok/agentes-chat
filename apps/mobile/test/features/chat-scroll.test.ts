@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createDockHeight } from "../../src/features/chat/dock-height";
 import {
+  ARRIVING_SLACK_MS,
   appendedKeys,
+  arrivesNow,
   bandAim,
   lastSeenKey,
   type Place,
@@ -196,5 +198,20 @@ describe("bandAim", () => {
       viewPosition: 0,
       viewOffset: 0,
     });
+  });
+});
+
+describe("what rises in at the bottom", () => {
+  const opened = Date.parse("2026-11-21T15:00:00.000Z");
+  test("a message written while the screen is open arrives now; one written before it opened was already there", () => {
+    expect(arrivesNow("2026-11-21T15:00:05.000Z", opened)).toBe(true);
+    // The server's answer right after a launch: written while the app was closed, it doesn't rise in.
+    expect(arrivesNow("2026-11-21T14:40:00.000Z", opened)).toBe(false);
+    // The clocks differ a little: a moment before the screen opened still counts.
+    expect(arrivesNow(new Date(opened - ARRIVING_SLACK_MS + 500).toISOString(), opened)).toBe(true);
+  });
+  test("a row with no date (who is working) or one that doesn't read keeps rising in", () => {
+    expect(arrivesNow(undefined, opened)).toBe(true);
+    expect(arrivesNow("not a date", opened)).toBe(true);
   });
 });

@@ -124,7 +124,6 @@ function PinsPopover({
                   icon="close"
                   aria-label={t("channel.pins.unpin", { name })}
                   title={t("contextMenu.unpin")}
-                  disabled={pin.isPending}
                   onClick={() => pin.mutate({ channelId, messageId: p.messageId, pinned: false })}
                 />
               )}

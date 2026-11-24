@@ -22,6 +22,7 @@ import { StickerStageContext } from "@/agent/StickerCanvas";
 import { Text } from "@/ui";
 import { AgentSetupIntro } from "../../agents/setup/SetupCard";
 import { BrowserCard, BrowserRunCard } from "../../browser/BrowserCard";
+import { CodeOrigin } from "../../coding/Origin";
 import { ImageMaking } from "../../files/ImageMaking";
 import { FileOrigin } from "../../live-files/talk/AboutLine";
 import { QueueWaitRow } from "../../queue/parts";
@@ -498,6 +499,7 @@ export function ChatList({
   isFresh,
   isThread,
   linkThreads,
+  replying,
   quiet,
   rhythm,
   seenBy,
@@ -558,6 +560,7 @@ export function ChatList({
   ChatData,
   | "isThread"
   | "linkThreads"
+  | "replying"
   | "quiet"
   | "rhythm"
   | "seenBy"
@@ -690,6 +693,8 @@ export function ChatList({
           return dayLine(item.text);
         case "origin":
           return <FileOrigin artifactId={item.artifactId} kind={item.fileKind} />;
+        case "codeOrigin":
+          return <CodeOrigin sessionId={item.sessionId} />;
         case "wait":
           return <QueueWaitRow channelId={channelId} wait={item.wait} />;
         case "unseen":
@@ -733,8 +738,11 @@ export function ChatList({
               canReply={canReply}
               canMission={canMission}
               thread={isThread ? undefined : linkThreads.get(item.message.id)}
+              replying={replying.get(item.message.id)?.join(",")}
               menuThread={linkThreads.get(item.message.threadId ?? item.message.id)}
-              aboveThread={item.above && !isThread ? linkThreads.has(item.above.id) : false}
+              aboveThread={
+                item.above && !isThread ? linkThreads.has(item.above.id) || replying.has(item.above.id) : false
+              }
               markReceipt={item.message.id === markAt ? receipt : undefined}
               seenBy={item.message.id === seenId ? seenBy : undefined}
               fanReceipt={receipts[item.message.id]}
@@ -768,6 +776,7 @@ export function ChatList({
       canReply,
       canMission,
       linkThreads,
+      replying,
       offerAt,
       hands,
       dir,

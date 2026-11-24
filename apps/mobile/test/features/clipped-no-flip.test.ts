@@ -55,15 +55,15 @@ function blockLayouts(text: number, keep: (kept: number, measured: number, cappe
 
 describe("a long message near the rule never flips between folded and whole", () => {
   test("measured just under the rule when folded and just over it whole, it stays folded", () => {
-    // The fold changes the room around the words: 515 folded, 530 whole (the rule cuts above 520).
-    const measures = { folded: 515, whole: 530 };
+    // The fold changes the room around the words: just under the rule folded, just over it whole.
+    const measures = { folded: LONG_MESSAGE.over - 5, whole: LONG_MESSAGE.over + 10 };
     let kept = 0;
     const seen: number[] = [];
     for (let i = 0; i < 8; i++) {
       kept = layout(kept, measures);
       seen.push(kept);
     }
-    expect(seen.slice(1).every((h) => h === 530)).toBe(true);
+    expect(seen.slice(1).every((h) => h === measures.whole)).toBe(true);
     expect(clippedHeight(kept)).not.toBeNull();
   });
 
@@ -85,15 +85,15 @@ describe("a long message near the rule never flips between folded and whole", ()
 
 describe("a long paragraph is cut from its first measure, never drawn whole on the way", () => {
   test("under a cap a point past the rule, it reads over the rule and folds once", () => {
-    const drawn = paragraphLayouts(1000, PAST_RULE);
+    const drawn = paragraphLayouts(LONG_MESSAGE.over * 2, PAST_RULE);
     expect(PAST_RULE).toBeGreaterThan(0);
     expect(Math.max(...drawn)).toBe(LONG_MESSAGE.over + PAST_RULE);
     expect(drawn.slice(1).every((h) => h === LONG_MESSAGE.shows)).toBe(true);
   });
 
   test("a cap exactly at the rule read 'not over it': the row drew whole for a layout before folding", () => {
-    // Why the cap stands past the rule: the paragraph measured exactly the rule and showed whole (1000) next.
-    expect(paragraphLayouts(1000, 0)).toContain(1000);
+    // Why the cap stands past the rule: the paragraph measured exactly the rule and showed whole next.
+    expect(paragraphLayouts(LONG_MESSAGE.over * 2, 0)).toContain(LONG_MESSAGE.over * 2);
   });
 
   test("words that fit show whole from their first layout", () => {

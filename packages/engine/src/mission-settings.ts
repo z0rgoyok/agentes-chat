@@ -1,6 +1,6 @@
 import { and, eq, schema, sql } from "@agenteschat/db";
 import { getAgent } from "./agents";
-import { managesAgent } from "./audience";
+import { managesAgent, ownsAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -40,7 +40,7 @@ async function mayManageAgent(deps: Pick<MissionDeps, "db">, userId: string, org
   const membership = await requirePermission(deps.db, userId, orgId, "read");
   const agent = await getAgent(deps.db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  return { agent, allowed: managesAgent(agent, userId, membership) || agent.ownerUserId === userId };
+  return { agent, allowed: managesAgent(agent, userId, membership) || ownsAgent(agent, userId, membership.roleIds) };
 }
 
 export interface MissionSettingsView {

@@ -1,10 +1,10 @@
 import { and, type Database, eq, isNotNull, isNull, schema, sql } from "@agenteschat/db";
 import { recordAudit } from "./audit";
-import { sha256 } from "./crypto";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
+import { dailySlot } from "./format";
 import { notifySkillUpdate, resolveSkillWaiting } from "./notification-producers";
 import { requirePermission } from "./organizations";
-import { enqueue } from "./outbox";
+import { enqueueBatch } from "./outbox";
 import {
   githubFor,
   readSkillSource,
@@ -28,8 +28,6 @@ type SkillPendingUpdate = schema.SkillPendingUpdate;
 
 /** The daily job that updates a workspace's skills that update by themselves ("Atualizar sozinha"). */
 export const SKILL_UPDATES_JOB = "skills.update";
-/** Workspaces' daily updates start at a time of their own within this, so they don't all read GitHub at once. */
-export const SKILL_UPDATES_SPREAD_MS = 6 * 3600_000;
 
 /** What a version held, to bring it back with its files (`lastUpdate.from`). */
 export type SkillSnapshot = NonNullable<SkillRow["lastUpdate"]>["from"];
@@ -307,23 +305,25 @@ const dueForUpdate = and(
 );
 
 /**
- * Every workspace with a skill that updates by itself, queued once a day (the date in its dedupe key), each at a time
- * of its own within `SKILL_UPDATES_SPREAD_MS`.
+ * Every workspace with a skill that updates by itself, queued once a day at its own time of day (`dailySlot`, whose
+ * date is in the dedupe key), so they don't all read GitHub at once. Returns how many workspaces it looked at.
  */
 export async function enqueueSkillUpdates(db: Database, now = new Date()) {
   const orgs = await db.selectDistinct({ orgId: skills.orgId }).from(skills).where(dueForUpdate);
-  const day = now.toISOString().slice(0, 10);
-  for (const { orgId } of orgs) {
-    const offset = Number.parseInt(sha256(orgId).slice(0, 8), 16) % SKILL_UPDATES_SPREAD_MS;
-    await enqueue(db, {
-      orgId,
-      kind: SKILL_UPDATES_JOB,
-      payload: {},
-      dedupeKey: `${SKILL_UPDATES_JOB}:${orgId}:${day}`,
-      runAt: new Date(now.getTime() + offset),
-      maxAttempts: 1,
-    });
-  }
+  await enqueueBatch(
+    db,
+    orgs.map(({ orgId }) => {
+      const slot = dailySlot(orgId, now);
+      return {
+        orgId,
+        kind: SKILL_UPDATES_JOB,
+        payload: {},
+        dedupeKey: `${SKILL_UPDATES_JOB}:${orgId}:${slot.day}`,
+        runAt: slot.at,
+        maxAttempts: 1,
+      };
+    }),
+  );
   return orgs.length;
 }
 

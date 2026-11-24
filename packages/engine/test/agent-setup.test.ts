@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { ACCOUNTS_PROTOCOL } from "@agenteschat/adapters";
 import { and, eq, inArray, schema, sql } from "@agenteschat/db";
 import {
+  ACCOUNT_OPENED_JOB,
   type AgentSetupInput,
   applyAgentSetup,
   createAgent,
@@ -159,7 +160,8 @@ describe("Usar em outros agentes", () => {
         brainAccountId: ANAS,
         brainModel: "opus",
         brainEffort: "high",
-        audienceMode: "owner",
+        // Who it answers stays: on the plan, its "Atender todos" decides.
+        audienceMode: "everyone",
       });
       // Each is its own change in the audit log, saying where it came from.
       const [audit] = await w.brainAudits(id);
@@ -295,8 +297,12 @@ describe("Usar em outros agentes", () => {
 });
 
 describe("Usar em outros agentes on someone else's plan (ADR 0059 §5)", () => {
+  // On a plan account its "Atender todos" opens (`ACCOUNT_OPENED_JOB`); on a computer's own sign-in, the agent.
   const planJobs = (w: Awaited<ReturnType<typeof world>>) =>
-    w.fx.db.select().from(schema.outbox).where(eq(schema.outbox.kind, PLAN_OPENED_JOB));
+    w.fx.db
+      .select()
+      .from(schema.outbox)
+      .where(inArray(schema.outbox.kind, [PLAN_OPENED_JOB, ACCOUNT_OPENED_JOB]));
 
   test("an admin letting more people talk to Ana's agent on her plan: the preview says so, and Ana gets an email", async () => {
     const w = await world();
@@ -330,9 +336,10 @@ describe("new agents start with the last setup", () => {
       model: "opus",
       effort: "high",
     });
+    // Where it thinks carries over; the model and effort start on Automático, never the other agent's pin.
     expect(await getNewAgentSetup(deps, fx.owner.id, fx.org.id)).toEqual({
       brain: "claude_code",
-      model: "opus",
+      model: "auto",
       key: null,
       contextTokens: null,
       computer: { machineId: w.mac, name: "MacBook" },
@@ -347,7 +354,7 @@ describe("new agents start with the last setup", () => {
         free: true,
       },
       ownSignIn: true,
-      effort: "high",
+      effort: "auto",
       autonomy: null,
     });
     // Anyone else sees whose it is: a plan thinks only for its owner's agents.
@@ -358,7 +365,7 @@ describe("new agents start with the last setup", () => {
     await updateAgent(fx.db, fx.owner.id, fx.org.id, w.theo, { model: "claude-haiku-5-5" });
     expect(await getNewAgentSetup(deps, fx.owner.id, fx.org.id)).toEqual({
       brain: "model",
-      model: "claude-haiku-5-5",
+      model: "auto",
       key: null,
       contextTokens: null,
       autonomy: null,

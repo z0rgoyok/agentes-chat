@@ -507,7 +507,7 @@ describe("the agents' computers by role (ADR 0085 §12): none, the browser, the 
 
     // The browser only: its page and its requests, not the screen.
     await everyone([...BASE, "own_browsers"]);
-    expect((await requireBrowserAccess(f.db, dani.id, f.org.id, f.agent.id)).owner).toBe(dani.id);
+    expect((await requireBrowserAccess(f.db, dani.id, f.org.id, f.agent.id)).owns).toBe(true);
     expect(await desktopStatus({ db: f.db }, dani.id, f.org.id, f.agent.id)).toMatchObject({
       reason: "browser_only",
       controlRefusal: "role",

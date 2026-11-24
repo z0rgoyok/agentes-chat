@@ -1,48 +1,31 @@
 import type { Proposal } from "@agenteschat/client";
-import { ApiError, useDecideProposal, useDecideProposals, useProposals } from "@agenteschat/client";
-import { errorText } from "@agenteschat/client/lib/errors";
+import { useProposals } from "@agenteschat/client";
 import { relativeTime, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import {
-  isOpen,
-  proposalTarget,
-  proposalTitle,
-  proposalWhy,
-  proposerOf,
-  sortProposals,
-  staleCount,
-} from "@agenteschat/client/lib/proposals";
+import { proposalTarget, proposalTitle, proposalWhy, proposerOf } from "@agenteschat/client/lib/proposals";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
-import {
-  Alert,
-  Button,
-  Card,
-  CardHeader,
-  cx,
-  diffLines,
-  EmptyState,
-  Field,
-  Icon,
-  Locked,
-  PageHeader,
-  Textarea,
-} from "@agenteschat/ui";
+import { Card, CardHeader, cx, diffLines, EmptyState, Icon, type IconName, PageHeader } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { ApprovalsTabs } from "@/components/ApprovalsTabs";
-import { isText, SettingChange } from "@/components/ChatCards";
+import {
+  isReviewing,
+  isText,
+  ProposalUndo,
+  proposalEndedAt,
+  proposalOutcome,
+  SettingChange,
+} from "@/components/ChatCards";
 import { useOrg } from "@/components/org-context";
 import { ProseDiff } from "@/components/ProseDiff";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
-import { useToast } from "@/lib/toast";
 import "./approvals.css";
 
 /**
- * Proposals, on the requests' own layout (Pedidos): the list's rows, what is open beside them as cards, and the
- * decision in the bar at the bottom.
+ * What the agents changed (ADR 0219), on the requests' own layout (Requests): the list's rows, newest first, and the
+ * one open beside them: how it ended and why, what it changed, and Undo while it may be put back. Nobody decides here.
  */
 export function ProposalsPage({ agentId }: { agentId?: string }) {
   const { t, i18n } = useTranslation();
@@ -50,36 +33,22 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
   const look = useRightHandLook();
   const dir = useDirectory(org.id);
   const proposals = useProposals(org.id);
-  const decide = useDecideProposal(org.id);
   const [selected, setSelected] = useState<string | null>(null);
-  // A stale row asks nothing of anyone and repeats what newer rows say: only the one open here stays, with its note.
+  // A stale row changed nothing and repeats what newer rows say: only the one open here stays, with its note.
   const list = useMemo(
-    () => sortProposals((proposals.data ?? []).filter((p) => !p.stale || p.id === selected)),
+    () =>
+      (proposals.data ?? [])
+        .filter((p) => !p.stale || p.id === selected)
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [proposals.data, selected],
   );
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [staleError, setStaleError] = useState<string | null>(null);
-  const toast = useToast();
-  const onDecideError = (error: unknown) => {
-    if (error instanceof ApiError && error.status === 409)
-      setStaleError(t(current && !isText(current) ? "proposals.staleErrorAgent" : "proposals.staleError"));
-    else toast.show(errorText(t, error, i18n.language), "error");
-  };
 
-  const preferred = list.find((p) => p.agentId === agentId && p.status === "pending") ?? list[0];
+  const preferred = list.find((p) => p.agentId === agentId) ?? list[0];
   const current = list.find((p) => p.id === selected) ?? preferred;
-  // Pin the initial choice so deciding doesn't jump to another proposal.
+  // Pin the initial choice so a row that changes doesn't jump to another.
   useEffect(() => {
     if (!selected && preferred) setSelected(preferred.id);
   }, [selected, preferred]);
-  // Switching proposals (or a new version of one) resets the editor.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the proposal id on purpose
-  useEffect(() => {
-    setStaleError(null);
-    setEditing(false);
-    setDraft(current?.after ?? "");
-  }, [current?.id, current?.after]);
 
   const backAgent = agentId ? dir.agentById.get(agentId) : undefined;
   const agentName = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
@@ -88,32 +57,16 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
   const titleOf = (p: Proposal) => proposalTitle(t, p, org, agentName);
   const whereOf = (e: Proposal["evidence"][number]) =>
     e.type ? tt(`proposals.evidence.${e.type}`, { defaultValue: e.where }) : e.where;
-  const statusText = (p: Proposal) =>
-    p.stale
-      ? t("proposals.stale")
-      : p.status === "pending"
-        ? p.canDecide
-          ? t("approval.waitingYou")
-          : p.decider.type === "user"
-            ? t("proposals.waitingFor", { name: p.decider.name })
-            : t("proposals.waitingAdmin")
-        : p.status === "accepted"
-          ? t("proposals.accepted")
-          : t("proposals.refused");
-  const decisionText = (p: Proposal) => {
-    const when = p.decidedAt ? whenAt(t, i18n.language, p.decidedAt) : t("common.now");
-    const mine = p.decidedBy?.userId === me.user.id;
-    const name = p.decidedBy?.name ?? "";
-    if (p.status === "accepted")
-      return mine ? t("proposals.acceptedByYou", { when }) : t("proposals.acceptedBy", { name, when });
-    return mine ? t("proposals.refusedByYou", { when }) : t("proposals.refusedBy", { name, when });
+  // How it ended and when; still weighed (or overtaken), since when it came.
+  const endText = (p: Proposal) => {
+    const at = proposalEndedAt(p);
+    const outcome = proposalOutcome(t, p, me.user.id);
+    if (isReviewing(p) || p.stale || !at) return `${outcome} · ${relativeTime(t, i18n.language, p.createdAt)}`;
+    return `${outcome} · ${whenAt(t, i18n.language, at)}`;
   };
-
-  const open = (p: Proposal) => p.status === "pending" && !p.stale;
-  // How a closed one ended, for its row's mark and its outcome card: accepted reads as done, the rest plain.
-  const accepted = (p: Proposal) => p.status === "accepted" && !p.stale;
-  // Its row's mark takes the requests' own state class (a decided request's `is-<phase>`).
-  const stateClass = (p: Proposal) => (accepted(p) ? "is-done" : undefined);
+  // How a decided one ended, for its row's mark and its outcome card: applied reads as done, the rest plain.
+  const applied = (p: Proposal) => p.status === "accepted" && !p.stale;
+  const mark = (p: Proposal): IconName => (applied(p) ? "check" : p.status === "undone" ? "undo" : "close");
   const proposer = current ? agentName(proposerOf(current)) : "";
 
   return (
@@ -129,8 +82,7 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
             {t("memory.title", agentGrammar(backAgent.name))}
           </Link>
         )}
-        <PageHeader title={t("approvals.title")} meta={t(modeKey(org, "proposals.subtitle"), { org: org.name })} />
-        <ApprovalsTabs value="proposals" actions={<DecideAll proposals={list} />} />
+        <PageHeader title={t("proposals.title")} meta={t(modeKey(org, "proposals.subtitle"), { org: org.name })} />
 
         {proposals.isSuccess && list.length === 0 && (
           <EmptyState size="page" agent={look} mood="deal" title={t("proposals.emptyTitle")}>
@@ -152,12 +104,7 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
                     onClick={() => setSelected(p.id)}
                   >
                     <span className="ac-mediarow__face">
-                      <AgentAvatar
-                        agentId={proposerOf(p)}
-                        size="sm"
-                        name={agentName(proposerOf(p))}
-                        state={open(p) ? "waiting" : "idle"}
-                      />
+                      <AgentAvatar agentId={proposerOf(p)} size="sm" name={agentName(proposerOf(p))} state="idle" />
                     </span>
                     <span className="ac-mediarow__head">
                       <span className="ap-li__line">
@@ -165,25 +112,23 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
                       </span>
                     </span>
                     <span className="ac-mediarow__end">
-                      {!open(p) && (
+                      {!isReviewing(p) && (
+                        // Its row's mark takes the requests' own state class (a decided request's `is-<phase>`, as
+                        // the approvals list marks one): applied reads in the success color, the rest muted.
                         <span
-                          className={cx("ap-li__state", stateClass(p))}
+                          className={cx("ap-li__state", `is-${applied(p) ? "done" : "off"}`)}
                           role="img"
-                          aria-label={statusText(p)}
-                          title={statusText(p)}
+                          aria-label={proposalOutcome(t, p, me.user.id)}
+                          title={proposalOutcome(t, p, me.user.id)}
                         >
-                          <Icon name={accepted(p) ? "check" : "close"} size={16} />
+                          <Icon name={mark(p)} size={16} />
                         </span>
                       )}
                     </span>
                     <span className="ac-mediarow__body">
                       <span className="ap-li__meta">
                         <span className="ap-li__where">{agentName(proposerOf(p))}</span>
-                        <span className="ap-li__when">
-                          {p.stale || p.status === "pending"
-                            ? `${statusText(p)} · ${relativeTime(t, i18n.language, p.createdAt)}`
-                            : decisionText(p)}
-                        </span>
+                        <span className="ap-li__when">{endText(p)}</span>
                       </span>
                     </span>
                   </button>
@@ -194,12 +139,7 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
             <article className="ap-review" data-scroll-restoration-id="proposals-detail" aria-labelledby="prop-title">
               <header className="ap-review__head ac-mediarow">
                 <span className="ac-mediarow__face">
-                  <AgentAvatar
-                    agentId={proposerOf(current)}
-                    size="md"
-                    name={proposer}
-                    state={open(current) ? "waiting" : "idle"}
-                  />
+                  <AgentAvatar agentId={proposerOf(current)} size="md" name={proposer} state="idle" />
                 </span>
                 <p className="ap-review__by ac-mediarow__head">
                   <b>{proposer}</b>
@@ -215,19 +155,19 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
               </header>
 
               <div className="ap-review__body">
-                {!open(current) && (
-                  <Card className={cx("ap-review__card ap-outcome", accepted(current) && "ap-outcome--done")}>
-                    <CardHeader
-                      icon={accepted(current) ? "check" : "close"}
-                      title={current.stale ? t("proposals.stale") : decisionText(current)}
-                      subtitle={
-                        current.stale
-                          ? t(isText(current) ? "proposals.staleNote" : "proposals.staleNoteAgent")
-                          : undefined
-                      }
-                    />
-                  </Card>
-                )}
+                {/* How it ended (or that the agent's review is weighing it), the review's why, and Undo. */}
+                <Card className={cx("ap-review__card ap-outcome", applied(current) && "ap-outcome--done")}>
+                  <CardHeader
+                    icon={isReviewing(current) ? "waiting" : mark(current)}
+                    title={current.stale ? t("proposals.stale") : endText(current)}
+                    subtitle={
+                      current.stale
+                        ? t(isText(current) ? "proposals.staleNote" : "proposals.staleNoteAgent")
+                        : (current.review ?? undefined)
+                    }
+                    action={<ProposalUndo p={current} />}
+                  />
+                </Card>
 
                 <Card as="section" className="ap-review__card" aria-label={t("proposals.why")}>
                   <CardHeader icon="message" title={t("proposals.why")} />
@@ -250,153 +190,18 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
                   <CardHeader icon="edit" title={t("proposals.change", { target: targetLabel(current) })} />
                   {!isText(current) && current.target.type !== "skill" ? (
                     <SettingChange p={current} />
-                  ) : editing && current.status === "pending" ? (
-                    <Field
-                      label={
-                        current.target.type === "org_context"
-                          ? t("proposals.finalTextContext")
-                          : t("proposals.finalText")
-                      }
-                      id="prop-edit"
-                    >
-                      <Locked when={decide.isPending || current.stale}>
-                        <Textarea rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} />
-                      </Locked>
-                    </Field>
                   ) : (
                     <ProseDiff
                       label={t("proposals.changeLabel")}
-                      lines={diffLines(current.before.split("\n"), (editing ? draft : current.after).split("\n"))}
+                      lines={diffLines(current.before.split("\n"), current.after.split("\n"))}
                     />
                   )}
                 </Card>
-
-                {staleError && <Alert>{staleError}</Alert>}
               </div>
-
-              {open(current) &&
-                (current.canDecide ? (
-                  // The requests' decision bar: what refusing does on its line; editing first, refusing and accepting at its end.
-                  <div className="ap-bar ap-bar--float">
-                    <p className="ap-bar__text">{t("proposals.refuseNote", agentGrammar(proposer))}</p>
-                    <div className="ap-bar__acts">
-                      {isText(current) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={decide.isPending}
-                          onClick={() => setEditing((v) => !v)}
-                        >
-                          {editing ? t("proposals.viewDiff") : t("proposals.editFirst")}
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={decide.isPending}
-                        loading={decide.isPending && decide.variables?.decision === "refuse"}
-                        onClick={() =>
-                          decide.mutate({ id: current.id, decision: "refuse" }, { onError: onDecideError })
-                        }
-                      >
-                        {t("proposals.refuse")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={decide.isPending || (isText(current) && !draft.trim())}
-                        onClick={() =>
-                          decide.mutate(
-                            {
-                              id: current.id,
-                              decision: "accept",
-                              text: editing && draft !== current.after ? draft : undefined,
-                            },
-                            { onError: onDecideError },
-                          )
-                        }
-                      >
-                        {editing ? t("proposals.acceptEdited") : t("proposals.accept")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="ap-bar ap-bar--float">
-                    <p className="ap-bar__text">{statusText(current)}</p>
-                  </div>
-                ))}
             </article>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * "Aceitar todas" / "Recusar todas", small, at the tabs' right: the waiting proposals this person may decide, two or
- * more. A press asks once in the same spot, then decides them oldest first, each on its own, so one gone stale never
- * stops the rest, and says which didn't go.
- */
-function DecideAll({ proposals }: { proposals: Proposal[] }) {
-  const { t, i18n } = useTranslation();
-  const { org } = useOrg();
-  const decide = useDecideProposals(org.id);
-  const toast = useToast();
-  const [asking, setAsking] = useState<"accept" | "refuse" | null>(null);
-  const open = proposals.filter((p) => isOpen(p) && p.canDecide).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  if (open.length < 2) return null;
-  const count = open.length;
-  const run = (decision: "accept" | "refuse") => {
-    setAsking(null);
-    decide.mutate(
-      { ids: open.map((p) => p.id), decision },
-      {
-        onSuccess: ({ failed }) => {
-          const stale = staleCount(failed);
-          const agentRows = failed.some((f) => open.find((p) => p.id === f.id && !isText(p)));
-          if (stale > 0)
-            toast.show(t(agentRows ? "proposals.staleSomeAgent" : "proposals.staleSome", { count: stale }), "error");
-          if (failed.length > stale) toast.show(errorText(t, failed[0]?.error, i18n.language), "error");
-        },
-      },
-    );
-  };
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: a pair of buttons, not form fields
-    <div className="proposals-all" role="group" aria-label={t("proposals.all.label")}>
-      {asking ? (
-        <>
-          <span className="proposals-all__ask">
-            {t(asking === "accept" ? "proposals.all.acceptAsk" : "proposals.all.refuseAsk", { count })}
-          </span>
-          <Button size="sm" variant="primary" onClick={() => run(asking)}>
-            {t(asking === "accept" ? "proposals.all.acceptGo" : "proposals.all.refuseGo", { count })}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setAsking(null)}>
-            {t("common.cancel")}
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button
-            size="sm"
-            disabled={decide.isPending}
-            loading={decide.isPending && decide.variables?.decision === "accept"}
-            onClick={() => setAsking("accept")}
-          >
-            {t("proposals.all.accept")}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={decide.isPending}
-            loading={decide.isPending && decide.variables?.decision === "refuse"}
-            onClick={() => setAsking("refuse")}
-          >
-            {t("proposals.all.refuse")}
-          </Button>
-        </>
-      )}
     </div>
   );
 }

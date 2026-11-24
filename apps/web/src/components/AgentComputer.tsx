@@ -1,5 +1,6 @@
 import type { Agent, ComputerTarget, Machine } from "@agenteschat/client";
 import { useAgents, useComputer, useComputerSetup, useMachines, useSetComputerTarget } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import {
   type NoComputer,
   noComputerChoice,
@@ -39,6 +40,7 @@ import { MachineChip } from "@/components/machine-bits";
 import { useOrg } from "@/components/org-context";
 import { ReconnectThisMacButton, useIsThisMac } from "@/components/ThisMac";
 import { SetupProgress } from "@/components/WorkspaceComputer";
+import { useMyRoleIds } from "@/hooks/useMyRoleIds";
 import { useToast } from "@/lib/toast";
 
 /**
@@ -277,6 +279,7 @@ function AgentComputerRow({
 }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
+  const myRoleIds = useMyRoleIds();
   const toast = useToast();
   const setTarget = useSetComputerTarget(org.id);
   const machines = noComputer.pending ? all.filter((m) => m.kind !== "managed") : all;
@@ -284,7 +287,7 @@ function AgentComputerRow({
   const value = current?.id ?? NO_COMPUTER;
   const none = noComputer.choice(value === NO_COMPUTER);
   const choices = machines.filter((m) => admin || m.pairedBy?.id === me.user.id || m.id === value);
-  const canPick = (admin || agent.ownerUserId === me.user.id) && choices.length > 0;
+  const canPick = (admin || ownsAgentAs(agent, me.user.id, myRoleIds)) && choices.length > 0;
   const iconOf = (id: string) =>
     id === NO_COMPUTER && none ? (
       <NoComputerIcon choice={none} />

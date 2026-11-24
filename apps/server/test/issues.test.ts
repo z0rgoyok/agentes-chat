@@ -256,3 +256,32 @@ test("issues API: several assignees, sent as the whole list; asking an agent put
     ["unassigned", me],
   ]);
 });
+
+test("issues API: a file taken off a task leaves its attachments, stays in the Drive, and the history names it", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const api = (path: string, init?: Parameters<typeof owner>[1]) =>
+    owner(`/api/app/organizations/${orgId}${path}`, init);
+  const file = (await (
+    await api("/artifacts", { json: { title: "print.png", content: { kind: "document", markdown: "print" } } })
+  ).json()) as { id: string };
+  const created = await api("/issues", { json: { title: "Tela quebrada", attachmentIds: [file.id] } });
+  const issue = (await created.json()) as { id: string; artifacts: { id: string }[] };
+  expect(issue.artifacts.map((f) => f.id)).toEqual([file.id]);
+
+  const taken = await api(`/issues/${issue.id}`, { method: "PATCH", json: { removeFiles: [file.id] } });
+  expect(taken.status).toBe(200);
+  expect(((await taken.json()) as { artifacts: unknown[] }).artifacts).toEqual([]);
+  expect((await api(`/artifacts/${file.id}`)).status).toBe(200);
+  const { activity } = (await (await api(`/issues/${issue.id}/activity`)).json()) as {
+    activity: { event?: string; textCode?: string; textParams?: Record<string, string> }[];
+  };
+  expect(activity.find((a) => a.event === "artifact_unlinked")).toMatchObject({
+    textCode: "files_removed",
+    textParams: { names: "print.png" },
+  });
+  expect((await api(`/issues/${issue.id}`, { method: "PATCH", json: { removeFiles: ["not-an-id"] } })).status).toBe(
+    400,
+  );
+});

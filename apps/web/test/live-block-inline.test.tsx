@@ -5,7 +5,7 @@ setupDom();
 
 import { cleanup, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { ArtifactViewerProvider } from "@/components/artifacts/ArtifactViewer";
+import { ArtifactViewerProvider } from "@/components/artifacts/viewer-context";
 import { LiveBlock, LiveBlockCard } from "@/components/blocks/LiveBlock";
 import { ADA_ID, createFakeApi, ORG_ID } from "./fake-api";
 import { onScreen, renderPage, screen, settle } from "./render";

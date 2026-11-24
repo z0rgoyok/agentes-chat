@@ -12,6 +12,7 @@ import {
   useBrowserHandoffMutations,
   useDesktopStatus,
 } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { formatTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { Button, Icon } from "@agenteschat/ui";
@@ -107,7 +108,9 @@ export function BrowserHandoffCard({ handoff }: { handoff: BrowserHandoff }) {
   // it ended and who did it where its button was.
   const asker = current.requestedForUserId;
   // Its buttons only for whom it waits on (the server checks again when they open it).
-  const mine = waiting && handoffIsMine(current, me.user.id, agent?.ownerUserId, org);
+  // Its owner reads as me when I hold the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const owns = !!agent && ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id));
+  const mine = waiting && handoffIsMine(current, me.user.id, owns ? me.user.id : agent?.ownerUserId, org);
   const askedName = asker ? dir.memberById.get(asker)?.name : undefined;
   const answer: RequestAnswer | undefined = settled
     ? {

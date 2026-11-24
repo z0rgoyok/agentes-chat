@@ -23,6 +23,7 @@ import { UUID } from "../authority";
 import { SealedValueError } from "../crypto";
 import { ConflictError, ValidationError } from "../errors";
 import { publishVaultChanged } from "../events";
+import { inSharedSeat } from "../right-hand-seats";
 import { secretLabelOf } from "../secrets";
 import { isPersonalWorkspace } from "../workspace-mode";
 import {
@@ -272,30 +273,63 @@ async function valueForRun(deps: VaultDeps, item: ItemRow, connection: Connectio
 export interface VaultBrowserProfile {
   name: string;
   agentIds: readonly string[];
+  /** The right hand's shared seat (ADR 0175) rather than a browser profile: every run of it there uses it. */
+  seat?: boolean;
+}
+
+/** Where the right hand in its shared seat sends what only a person's own place on the computer may hold. */
+const SEAT_WAY_OUT =
+  "Only what the person asks you themselves in their private conversation with you works in their own place on the computer: say what is waiting so they can ask you there.";
+
+/**
+ * The run's shared place, where a sign-in or a key stays for others: the shared browser profile it uses, else for the
+ * right hand the workspace's shared seat (`inSharedSeat`), where every run of it works whoever it is for, and which
+ * anyone who may open that computer reaches. Null where the agent's own place is.
+ */
+async function sharedPlaceOf(
+  db: Executor,
+  run: VaultRun,
+  profile: VaultBrowserProfile | null,
+): Promise<VaultBrowserProfile | null> {
+  if (profile) return profile;
+  return (await inSharedSeat(db, run)) ? { name: "shared", agentIds: [run.agentId], seat: true } : null;
 }
 
 /**
- * Whether a login may be typed in a shared browser profile (ADR 0144 §2, ADR 0110): the session it opens stays in
- * the profile for every agent granted it, whoever each one works for. So a personal login never is, nor a team login
- * open only to some people (an agent there working for anyone else would act signed in with it); a team login open
- * to everyone, only when it is shared with all agents or with each agent the profile is granted to.
+ * Why an item may not be used in a shared place (ADR 0144 §2, ADR 0110, ADR 0175), or null when it may: the session
+ * a login opens, or a key a command leaves behind, stays there for every agent or run that uses it, whoever each one
+ * works for. So a personal item never may, nor a team item open only to some people (a run there for anyone else
+ * would act with it); a team item open to everyone, only when it is shared with all agents or with each agent the
+ * profile is granted to.
  */
-function assertProfileMay(item: ItemRow, connection: ConnectionRow | undefined, profile: VaultBrowserProfile) {
+function sharedPlaceRefusal(
+  item: ItemRow,
+  connection: ConnectionRow | undefined,
+  profile: VaultBrowserProfile,
+): string | null {
+  const noun = item.kind === "key" ? "key" : "login";
+  if (profile.seat) {
+    const why =
+      "you work on the workspace's shared computer now, where your runs for anyone else and anyone who may open that computer would use it.";
+    if (item.ownerUserId) return `${named(item)} is a personal ${noun}, and ${why} ${SEAT_WAY_OUT}`;
+    if (!effectiveColumns(item, connection).audienceEveryone)
+      return `${named(item)} is open only to some people in the workspace, and ${why} ${SEAT_WAY_OUT}`;
+    return null;
+  }
   if (item.ownerUserId) {
-    throw refuse.notAllowed(
-      `${named(item)} is a personal login, and your browser now is the shared profile "${profile.name}": every agent granted that profile would be signed in as its owner. Switch to your own browser (browser_profile with "own") to sign in with it.`,
-    );
+    return `${named(item)} is a personal login, and your browser now is the shared profile "${profile.name}": every agent granted that profile would be signed in as its owner. Switch to your own browser (browser_profile with "own") to sign in with it.`;
   }
   const columns = effectiveColumns(item, connection);
   if (!columns.audienceEveryone) {
-    throw refuse.notAllowed(
-      `${named(item)} is open only to some people in the workspace, and your browser now is the shared profile "${profile.name}": every agent granted that profile would be signed in with it, whoever they work for. Switch to your own browser (browser_profile with "own") to sign in with it.`,
-    );
+    return `${named(item)} is open only to some people in the workspace, and your browser now is the shared profile "${profile.name}": every agent granted that profile would be signed in with it, whoever they work for. Switch to your own browser (browser_profile with "own") to sign in with it.`;
   }
-  if (columns.allAgents || profile.agentIds.every((id) => columns.agentIds.includes(id))) return;
-  throw refuse.notAllowed(
-    `${named(item)} isn't shared with every agent that uses the browser profile "${profile.name}", so it isn't typed there: they would all be signed in with it. Switch to your own browser (browser_profile with "own"), or ask a person who manages the login to share it with all of them in Settings, Vault.`,
-  );
+  if (columns.allAgents || profile.agentIds.every((id) => columns.agentIds.includes(id))) return null;
+  return `${named(item)} isn't shared with every agent that uses the browser profile "${profile.name}", so it isn't typed there: they would all be signed in with it. Switch to your own browser (browser_profile with "own"), or ask a person who manages the login to share it with all of them in Settings, Vault.`;
+}
+
+function assertProfileMay(item: ItemRow, connection: ConnectionRow | undefined, profile: VaultBrowserProfile | null) {
+  const refusal = profile && sharedPlaceRefusal(item, connection, profile);
+  if (refusal) throw refuse.notAllowed(refusal);
 }
 
 /** An id that names a key or a contact where a login was asked for. */
@@ -317,7 +351,7 @@ export async function checkVaultLogin(
   const { item, connection } = await itemForRun(deps, run, person, itemId, "login");
   if (item.kind !== "login") throw notALogin(item);
   if (!hasValue(item)) throw refuse.noValue(item);
-  if (profile) assertProfileMay(item, connection, profile);
+  assertProfileMay(item, connection, await sharedPlaceOf(deps.db, run, profile));
 }
 
 /**
@@ -337,7 +371,7 @@ export async function releaseVaultLogin(
   const person = await vaultPersonOfRun(deps.db, run);
   const { item, connection, source } = await itemForRun(deps, run, person, itemId, "login");
   if (item.kind !== "login") throw notALogin(item);
-  if (profile) assertProfileMay(item, connection, profile);
+  assertProfileMay(item, connection, await sharedPlaceOf(deps.db, run, profile));
   const rule = item.website ? vaultRule(item.website, item.match === "site" ? "site" : "exact") : null;
   if (!rule) throw refuse.noWebsite();
   if (pageOrigin && !vaultRuleMatches(rule, pageOrigin))
@@ -392,6 +426,7 @@ export async function releaseVaultKeys(
       throw refuse.notAllowed(`${name} is reserved for how agents think. No key uses it.`);
   }
   const person = await vaultPersonOfRun(deps.db, run);
+  const place = await sharedPlaceOf(deps.db, run, null);
   const state = await keysNamed(deps.db, run.orgId, wanted);
   const out: { name: string; value: string; itemId: string }[] = [];
   for (const name of wanted) {
@@ -399,7 +434,10 @@ export async function releaseVaultKeys(
     const access = (item: ItemRow) =>
       runAccess(item.ownerUserId, effectiveColumns(item, connectionOf(state, item)), person, run.agentId);
     const ready = keys.filter((item) => usable(item, connectionOf(state, item), person, run.agentId));
-    const item = ready.sort(keyOrder(person.personId))[0];
+    ready.sort(keyOrder(person.personId));
+    const fits = (key: ItemRow) => !place || !sharedPlaceRefusal(key, connectionOf(state, key), place);
+    const item = ready.find(fits);
+    if (!item && ready[0]) assertProfileMay(ready[0], connectionOf(state, ready[0]), place);
     if (!item) {
       const known = keys.filter((key) => access(key) !== "hidden");
       const notShared = known.find((key) => access(key) === "not_shared");
@@ -698,7 +736,9 @@ function destinationFor(
     }
     if (!fitsProfile(connection, profile)) {
       throw refuse.notAllowed(
-        `A login in ${vaultPlaceName(place)} couldn't be typed in the shared browser profile "${profile?.name}": it isn't open to every agent that uses it. Save it in the Vault instead (\`save_in\`: "vault"), or switch to your own browser (browser_profile with "own").`,
+        profile?.seat
+          ? `A login in ${vaultPlaceName(place)} couldn't be typed on the workspace's shared computer: it isn't open to everyone. Save it in the Vault instead (\`save_in\`: "vault").`
+          : `A login in ${vaultPlaceName(place)} couldn't be typed in the shared browser profile "${profile?.name}": it isn't open to every agent that uses it. Save it in the Vault instead (\`save_in\`: "vault"), or switch to your own browser (browser_profile with "own").`,
       );
     }
     return { connection, why: "as asked" };
@@ -711,7 +751,9 @@ function destinationFor(
       ? { connection: only, why: "the one connected password manager that takes your new logins" }
       : {
           connection: null,
-          why: `${nameOf(only)} isn't open to every agent of the shared browser profile "${profile?.name}", so a login there couldn't be typed in it`,
+          why: profile?.seat
+            ? `${nameOf(only)} isn't open to everyone, so a login there couldn't be typed on the workspace's shared computer`
+            : `${nameOf(only)} isn't open to every agent of the shared browser profile "${profile?.name}", so a login there couldn't be typed in it`,
         };
   }
   if (writable.length > 1) {
@@ -751,11 +793,12 @@ export async function saveMadePassword(
   run: VaultRun,
   target: VaultMadeTarget,
   value: string,
-  profile: VaultBrowserProfile | null = null,
+  browserProfile: VaultBrowserProfile | null = null,
   saveIn?: string,
 ): Promise<VaultAgentResult> {
   const { db } = deps;
   const person = await vaultPersonOfRun(db, run);
+  const profile = await sharedPlaceOf(db, run, browserProfile);
   const fields = await asRefusal(() => {
     if ("keyName" in target) {
       const keyName = cleanKeyName(target.keyName);
@@ -777,6 +820,8 @@ export async function saveMadePassword(
       // A key is the Vault's own; a place the person named holds only its own logins.
       (fields.kind === "key" || asked ? (item.connectionId ?? null) === (destination.connection?.id ?? null) : true) &&
       usable(item, connectionOf(state, item), person, run.agentId) &&
+      // One the shared place may not hold isn't replaced by a value made there.
+      !(profile && sharedPlaceRefusal(item, connectionOf(state, item), profile)) &&
       (fields.website
         ? item.username === fields.username && forSite(item, fields.website)
         : item.keyName === fields.keyName),

@@ -30,17 +30,18 @@ import { Alert, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import { Button, LineIcon, ROW_CARD_INSET, RowAction, Text, useTheme, useToast } from "@/ui";
 import { useOrgId } from "../shared/hooks";
+import { roleIdsOf } from "../shared/owner";
 import { tapHaptic } from "../shared/parts";
 import { boldRuns } from "./actions";
-import { ConsultPairRow, useConsultById } from "./ConsultGroup";
-import { useCardTop, useMessageCardCorners, useRhythm } from "./look";
+import { ConsultQuote, useConsultById } from "./ConsultGroup";
+import { useCardTop, useMessageCardFrame } from "./look";
 import { useRowDirectory, useRowMeId, useRowRoles } from "./row-data";
 
 const LIST_GAP = 8;
 
 /**
  * On the phone, under an agent's message, every agent it @named that its mention didn't wake (`meta.reach`): one
- * outside the conversation got it by direct message (the two agents' pair row, opening their conversation), one it couldn't call
+ * outside the conversation got it by direct message (the quote of the two agents' talk, opening their conversation), one it couldn't call
  * says why, and the agent's owner can let that person talk to it. The receipts' card, as the team actions' rows
  * beside it (TeamChecks.tsx): a sunken fill here stood apart from the raised cards under the same reply.
  */
@@ -51,28 +52,17 @@ export function ReachLines({ message: m }: { message: Message }) {
   if (m.author.type !== "agent" || list.length === 0) return null;
   return (
     <View style={[styles.list, cardTop]}>
-      {list.map((e, i) => (
-        <Row key={e.agentId} entry={e} above={list[i - 1]} channelId={m.channelId} authorId={m.author.id ?? ""} />
+      {list.map((e) => (
+        <Row key={e.agentId} entry={e} channelId={m.channelId} authorId={m.author.id ?? ""} />
       ))}
     </View>
   );
 }
 
-function Row({
-  entry: e,
-  above,
-  channelId,
-  authorId,
-}: {
-  entry: ReachEntry;
-  above: ReachEntry | undefined;
-  channelId: string;
-  authorId: string;
-}) {
+function Row({ entry: e, channelId, authorId }: { entry: ReachEntry; channelId: string; authorId: string }) {
   const { t } = useTranslation();
-  const rhythm = useRhythm();
   const { colors } = useTheme();
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const orgId = useOrgId();
   const api = useApi();
   const dir = useRowDirectory();
@@ -85,7 +75,6 @@ function Row({
   const g = agentGrammar(agent?.name ?? `@${e.handle}`);
   const handed = Boolean(e.consultationId);
   const talk = useConsultById(channelId, reachOpens(e) ? e.consultationId : undefined);
-  const talkAbove = useConsultById(channelId, above && reachOpens(above) ? above.consultationId : undefined);
   const runs = boldRuns(t(reachKey(e) as "reach.handed", { ...g, place }) as string);
   const detail = [
     !handed && e.outside ? t("reach.outside", { place }) : null,
@@ -93,21 +82,11 @@ function Row({
   ]
     .filter(Boolean)
     .join(" · ");
-  // Handed to it by direct message: the two agents talking, as the pair row that opens their conversation.
-  // Under another such line they stack as one group, as the list's quiet lines do: the part gap between them, past
-  // the room the one above keeps under it and the list's own gap.
-  if (talk)
-    return (
-      <ConsultPairRow
-        askerId={authorId}
-        channelId={channelId}
-        items={[talk]}
-        inline
-        gap={talkAbove ? rhythm.part - (rhythm.turn - rhythm.part) - LIST_GAP : undefined}
-      />
-    );
+  // Handed to it by direct message: the two agents talking, quoted as a reply quotes their talk, opening their
+  // conversation. Under another such quote they stack with the list's own gap.
+  if (talk) return <ConsultQuote askerId={authorId} channelId={channelId} items={[talk]} alone />;
   return (
-    <View style={[styles.one, { backgroundColor: colors.raised, borderColor: colors.line2 }, cardCorners]}>
+    <View style={[styles.one, card.style]}>
       <View style={styles.head}>
         <LineIcon name={handed ? "chat" : "info"} size={15} color={colors.muted} variant="small" />
         <View style={styles.words}>
@@ -123,7 +102,7 @@ function Row({
             )}
           </Text>
           {detail ? (
-            <Text variant="caption" tone="faint" numberOfLines={1} style={styles.detail}>
+            <Text variant="footnote" tone="faint" numberOfLines={1} style={styles.detail}>
               {detail}
             </Text>
           ) : null}
@@ -155,8 +134,9 @@ export function AllowTalkAction({ agent, userId }: { agent: Agent; userId: strin
   const ask = useWidenAsk(agent);
   const person = dir.memberById.get(userId)?.name;
   const audience = audienceWith(agent, userId);
-  if (!person || !audience || !me || modeOf(agent) === "everyone" || !canEditAudience(org ?? undefined, agent, me))
-    return null;
+  // Who holds the role that answers for it changes it too (ADR 0085, addendum of 2026-11-21).
+  const mine = me ? canEditAudience(org ?? undefined, agent, me, roleIdsOf(dir.memberById, me)) : false;
+  if (!person || !audience || !me || modeOf(agent) === "everyone" || !mine) return null;
   const g = agentGrammar(agent.name);
   return (
     <RowAction
@@ -185,10 +165,12 @@ export function LetMeTalkButton({ agent }: { agent: Agent }) {
   const orgId = useOrgId();
   const { org } = useOrg();
   const me = useRowMeId();
+  const dir = useRowDirectory();
   const toast = useToast();
   const save = useWidenAudience(orgId, agent.id);
   const ask = useWidenAsk(agent);
-  const audience = me ? audienceWithMe(org ?? undefined, agent, me) : null;
+  // Holding the role that answers for it, I may let myself in as its owner (ADR 0085, addendum of 2026-11-21).
+  const audience = me ? audienceWithMe(org ?? undefined, agent, me, roleIdsOf(dir.memberById, me)) : null;
   if (!audience) return null;
   const g = agentGrammar(agent.name);
   return (

@@ -183,7 +183,9 @@ describe("Agentes", () => {
     expect(said("Apertado")).toEqual(["Quase no limite", "almost"]);
     expect(said("Quase")).toEqual(["Quase no limite", "critical"]);
     expect(said("Cheio")).toEqual(["No limite", "limited"]);
-    expect(agentRow("Sem dono").querySelector(".ac-foldrow__head")?.textContent).toBe("Sem donoSem responsável");
+    expect(agentRow("Sem dono").querySelector(".ac-foldrow__head")?.textContent).toBe(
+      "Sem donoResponsável: administradores",
+    );
     expect(agentRow("Quase").querySelector(".ac-foldrow__head")?.textContent).toBe(
       "Quase · SuporteResponsável: JoãoQuase no limite",
     );

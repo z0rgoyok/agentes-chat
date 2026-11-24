@@ -1,6 +1,14 @@
-import type { ComputerDeviceInput, DeviceAudience, PhoneDeviceInput } from "@agenteschat/client";
+import type {
+  ComputerDevice,
+  ComputerDeviceInput,
+  DeviceAudience,
+  DevicesList,
+  PhoneDevice,
+  PhoneDeviceInput,
+} from "@agenteschat/client";
 import { keys, useApi, useWifiPairState } from "@agenteschat/client";
 import { LINK_POLL_MS, linkPhase, linkPolls } from "@agenteschat/client/lib/devices";
+import { type CacheEdit, edit, optimistic } from "@agenteschat/client/lib/optimistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -20,37 +28,99 @@ export const useDevices = (orgId: string, pollMs: number | false = false) => {
   });
 };
 
-function useDevicesMutation<I, O>(orgId: string, run: (input: I) => Promise<O>) {
+/** `edits`: what the list shows at once, before the server answers (a refusal puts it back). */
+function useDevicesMutation<I, O>(
+  orgId: string,
+  run: (input: I) => Promise<O>,
+  edits: (input: I) => CacheEdit[] = () => [],
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: run,
     meta: { silent: true },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.machines(orgId) }),
+    ...optimistic(qc, edits),
+    // However it went: a read the change cut short is read again too.
+    onSettled: () => void qc.invalidateQueries({ queryKey: keys.machines(orgId) }),
   });
 }
 
+/** The devices list with a computer, or a phone under its computer, changed (null: taken out). */
+const computerEdit = (orgId: string, id: string, change: (c: ComputerDevice) => ComputerDevice | null) =>
+  edit<DevicesList>(keys.devices(orgId), (list) => ({
+    ...list,
+    devices: list.devices.flatMap((c) => {
+      if (c.id !== id) return [c];
+      const next = change(c);
+      return next ? [next] : [];
+    }),
+  }));
+const phoneEdit = (orgId: string, id: string, change: (p: PhoneDevice) => PhoneDevice | null) =>
+  edit<DevicesList>(keys.devices(orgId), (list) => ({
+    ...list,
+    devices: list.devices.map((c) =>
+      c.phones.some((p) => p.id === id)
+        ? {
+            ...c,
+            phones: c.phones.flatMap((p) => {
+              if (p.id !== id) return [p];
+              const next = change(p);
+              return next ? [next] : [];
+            }),
+          }
+        : c,
+    ),
+  }));
+
 export function useUpdateComputer(orgId: string) {
   const api = useApi();
-  return useDevicesMutation(orgId, ({ id, ...input }: ComputerDeviceInput & { id: string }) =>
-    api.devices.updateComputer(orgId, id, input),
+  return useDevicesMutation(
+    orgId,
+    ({ id, ...input }: ComputerDeviceInput & { id: string }) => api.devices.updateComputer(orgId, id, input),
+    // Its name, who may use it, whose it is, its limit and its spill show at once.
+    ({ id, name, audience, belongsToWorkspace, maxTasks, spill }) => [
+      computerEdit(orgId, id, (c) => ({
+        ...c,
+        ...(name !== undefined ? { name } : {}),
+        ...(audience !== undefined ? { audience } : {}),
+        ...(belongsToWorkspace !== undefined ? { belongsToWorkspace } : {}),
+        ...(maxTasks !== undefined ? { maxTasks } : {}),
+        ...(spill ? { spill: { ...c.spill, ...spill } } : {}),
+      })),
+    ],
   );
 }
 
 export function useUpdatePhone(orgId: string) {
   const api = useApi();
-  return useDevicesMutation(orgId, ({ id, ...input }: PhoneDeviceInput & { id: string }) =>
-    api.devices.updatePhone(orgId, id, input),
+  return useDevicesMutation(
+    orgId,
+    ({ id, ...input }: PhoneDeviceInput & { id: string }) => api.devices.updatePhone(orgId, id, input),
+    ({ id, name, audience }) => [
+      phoneEdit(orgId, id, (p) => ({
+        ...p,
+        ...(name !== undefined ? { name } : {}),
+        ...(audience !== undefined ? { audience } : {}),
+      })),
+    ],
   );
 }
 
 export function useRemoveComputer(orgId: string) {
   const api = useApi();
-  return useDevicesMutation(orgId, (id: string) => api.devices.removeComputer(orgId, id));
+  return useDevicesMutation(
+    orgId,
+    (id: string) => api.devices.removeComputer(orgId, id),
+    (id) => [computerEdit(orgId, id, () => null)],
+  );
 }
 
 export function useForgetPhone(orgId: string) {
   const api = useApi();
-  return useDevicesMutation(orgId, (id: string) => api.devices.forgetPhone(orgId, id));
+  return useDevicesMutation(
+    orgId,
+    (id: string) => api.devices.forgetPhone(orgId, id),
+    (id) => [phoneEdit(orgId, id, () => null)],
+  );
 }
 
 export function useStopPhone(orgId: string) {
@@ -67,7 +137,16 @@ export function useApproveRequest(orgId: string) {
 
 export function useDenyRequest(orgId: string) {
   const api = useApi();
-  return useDevicesMutation(orgId, (id: string) => api.devices.denyRequest(orgId, id));
+  return useDevicesMutation(
+    orgId,
+    (id: string) => api.devices.denyRequest(orgId, id),
+    (id) => [
+      edit<DevicesList>(keys.devices(orgId), (list) => ({
+        ...list,
+        requests: list.requests.filter((r) => r.id !== id),
+      })),
+    ],
+  );
 }
 
 export function useDecideAccess(orgId: string) {

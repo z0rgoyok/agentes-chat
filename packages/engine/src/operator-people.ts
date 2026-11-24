@@ -205,6 +205,7 @@ const agentAccess: Explain = async (db, orgId, userId, agentId, member) => {
       audienceUserIds: agents.audienceUserIds,
       audienceRoleIds: agents.audienceRoleIds,
       ownerUserId: agents.ownerUserId,
+      ownerRoleId: agents.ownerRoleId,
       consultable: agents.consultable,
       brain: agents.brain,
       archivedAt: agents.archivedAt,

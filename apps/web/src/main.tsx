@@ -3,10 +3,19 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import "./styles.css";
-import { authConfigQuery, createApiClient, createSnapshot, keys, type Me, meQuery, outbox } from "@agenteschat/client";
+import {
+  authConfigQuery,
+  createApiClient,
+  createSnapshot,
+  instanceQuery,
+  keys,
+  type Me,
+  meQuery,
+  outbox,
+} from "@agenteschat/client";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { holdSkies, installTitleTips, trackInput } from "@agenteschat/ui";
+import { holdSkies, holdSkiesWhileAway, installTitleTips, trackInput } from "@agenteschat/ui";
 import { AppProviders, type AppServices } from "./app/providers";
 import { createQueryClient } from "./app/query-client";
 import { backToSignIn } from "./app/unauthorized";
@@ -63,6 +72,14 @@ catchEarlyErrors();
 tolerateForeignDomEdits();
 const api = createApiClient();
 const authConfig = api.account.authConfig();
+// The session and the server's facts are asked now, beside the language's file, instead of after it, the snapshot
+// and the first route: each answer is a round trip the opening no longer waits for in turn. Not while the desktop app
+// moves this window to the account its address names (below): `me` is asked once that move is done.
+const earlyMe = accountInLink(window.location.search) && inDesktopApp() ? null : api.account.me();
+const earlyInstance = api.system.instance();
+// Handled here too: a failure before the cache takes them (offline) is the queries' to show, not an unhandled error.
+earlyMe?.catch(() => undefined);
+earlyInstance.catch(() => undefined);
 void authConfig.then(
   (config) => startErrorReports(config.errorReports ?? null),
   () => startErrorReports(null),
@@ -97,6 +114,8 @@ if (platform) {
   if (renderer) document.documentElement.dataset.desktopRenderer = renderer;
   if (renderer === "cpu") holdSkies();
 }
+// Nobody looking (hidden, in the background, or no input for a while): the skies stand still, at no cost.
+holdSkiesWhileAway();
 // Focus rings only while the keys move the focus (`data-pointer` on <html>, read by the stylesheet).
 trackInput();
 // Every `title` and icon-only control says its words in the product's tooltip, not the browser's.
@@ -117,9 +136,13 @@ const queryClient = createQueryClient({
 
 // The answer above is the cache's: the sign-in guards don't ask again.
 void queryClient.prefetchQuery({ ...authConfigQuery(api), queryFn: () => authConfig });
+void queryClient.prefetchQuery({ ...instanceQuery(api), queryFn: () => earlyInstance });
+if (earlyMe) void queryClient.prefetchQuery({ ...meQuery(api), queryFn: () => earlyMe });
 
 // The last lists and chats saved on this device show at once; everything revalidates as usual.
-const snapshot = createSnapshot(queryClient, snapshotStore);
+// Saved at most every 30 s while things change (each save turns the kept lists into one string on this thread), and
+// in full whenever the tab is hidden or closed.
+const snapshot = createSnapshot(queryClient, snapshotStore, { saveAfterMs: 30_000 });
 snapshot.start();
 // Another of the browser's accounts took this tab (ADR 0183), by the workspace menu or by the address the desktop app
 // opened (`?as=`): what the one before saved or left waiting to send stays behind.
@@ -136,6 +159,7 @@ outbox.keep(queryClient, {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") void snapshot.flush();
 });
+window.addEventListener("pagehide", () => void snapshot.flush());
 /** Opening never waits longer than this for the snapshot (a slow disk loads from the server instead). */
 const SNAPSHOT_WAIT_MS = 300;
 
@@ -242,8 +266,8 @@ const restored = arrived
     // The saved `me` let the app open without asking: ask now (no session: sign-in, and the snapshot goes).
     if (!found) return;
     outbox.show(queryClient);
-    void queryClient
-      .fetchQuery({ ...meQuery(api), staleTime: 0 })
+    // The read started with the page answers it, when there was one.
+    void (earlyMe ?? queryClient.fetchQuery({ ...meQuery(api), staleTime: 0 }))
       .then((me) => {
         if (!me) onUnauthorized();
       })

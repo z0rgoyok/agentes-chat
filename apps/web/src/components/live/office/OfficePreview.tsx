@@ -7,8 +7,8 @@ import { Button, cx, EmptyState, Icon, type IconName, Skeleton, SkeletonGroup } 
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useMaybeArtifactViewer } from "@/components/artifacts/ArtifactViewer";
 import { HtmlFrame } from "@/components/artifacts/HtmlFrame";
+import { useMaybeArtifactViewer } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { useToast } from "@/lib/toast";
 import { openLivePage } from "../open";

@@ -121,11 +121,13 @@ const KEPT = [
   "list_reminders",
   "list_routines",
   "load_skill",
+  "read_agent",
   "read_artifact",
   "read_conversation",
   "read_file",
   "read_skill_file",
   "read_wiki_page",
+  "review_media",
   "search_context",
   // Every tool of the connection that set the mark, its write too.
   "vault_change_record",

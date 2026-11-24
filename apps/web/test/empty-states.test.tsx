@@ -82,7 +82,7 @@ describe("who can't act gets an honest line and no button that fails", () => {
   test("Conectores without manage_connectors: their own to add on Pessoal, the team's to look at", async () => {
     await go(fresh(["read"]), "settings/connectors");
     expect(title()).toBe("Conecte suas próprias contas");
-    expect(buttons().map((b) => b.textContent)).toEqual(["Adicionar conector"]);
+    expect(buttons().map((b) => b.textContent)).toEqual(["Ver conectores"]);
     await act(async () => fireEvent.click(screen().getByRole("radio", { name: /Equipe/ })));
     await settle(2);
     expect(title()).toBe("Veja o que os agentes podem usar");
@@ -117,11 +117,15 @@ describe("no results: no agent, a line and the way out", () => {
 });
 
 describe("all clear: a calm win, nothing to do", () => {
-  test("Aprovações with nothing waiting", async () => {
+  test("the inbox with nothing waiting, where the requests' old address lands (ADR 0218)", async () => {
     const state = fresh();
+    // No request and no proposal to decide: both are rows of what waits on me.
     state.approvals = [];
-    await go(state, "approvals");
-    expect(title()).toBe("Tudo decidido");
+    state.proposals = [];
+    const { router } = await go(state, "approvals");
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
+    expect(document.querySelector(".ib-filter")?.textContent).toBe("Esperando você");
+    expect(empty().textContent).toBe("Ninguém está esperando você.");
     expect(empty().querySelector(".ac-empty__agent canvas")).not.toBeNull();
     expect(buttons()).toEqual([]);
   });

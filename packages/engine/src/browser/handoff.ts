@@ -21,6 +21,7 @@ import {
   sql,
 } from "@agenteschat/db";
 import { getAgentCached, workspaceHomeId } from "../agents";
+import { agentOwnerIds, OWNER_COLUMNS, ownsAgent } from "../audience";
 import { recordAudit } from "../audit";
 import { isChannelMember } from "../channels";
 import { answersAgentsOnly } from "../consultations";
@@ -54,7 +55,7 @@ import { enqueue } from "../outbox";
 import { isRightHand, isRightHandId } from "../right-hand";
 import {
   machineScope,
-  noSeatMessage,
+  NO_SEAT_MESSAGE,
   SHARED_SEAT,
   screenPersonOf,
   seatUserOf,
@@ -385,12 +386,15 @@ export async function noteComputerTaken(
   },
 ) {
   const [agent] = await deps.db
-    .select({ owner: agents.ownerUserId, name: agents.name, handle: agents.handle, builtin: agents.builtin })
+    .select({ ...OWNER_COLUMNS, name: agents.name, handle: agents.handle, builtin: agents.builtin })
     .from(agents)
     .where(and(eq(agents.id, input.agentId), eq(agents.orgId, input.orgId)));
+  // Its owner, or whoever holds its owner role now (ADR 0085, addendum of 2026-11-21): one of them taking it is no
+  // news to tell.
+  const owners = agent ? await agentOwnerIds(deps.db, input.orgId, agent) : [];
   // On the right hand a person takes their own seat (ADR 0175), nobody else's to be told about, or its shared one,
   // which is told like any agent's computer.
-  if (!agent || agent.owner === input.actorId || (isRightHand(agent) && !input.shared)) return;
+  if (!agent || owners.includes(input.actorId) || (isRightHand(agent) && !input.shared)) return;
   if (input.audit) {
     await recordAudit(deps.db, {
       orgId: input.orgId,
@@ -400,12 +404,12 @@ export async function noteComputerTaken(
       details: input.audit,
     });
   }
-  if (!agent.owner) return;
+  if (owners.length === 0) return;
   await notifyDesktopTaken(deps, {
     orgId: input.orgId,
     agentId: input.agentId,
     agentName: agent.name || agent.handle,
-    ownerUserId: agent.owner,
+    ownerIds: owners,
     actorId: input.actorId,
     at: new Date(),
   }).catch(() => {});
@@ -495,7 +499,7 @@ export async function screenAccess(
   const closed = closedRefusal(membership.standing);
   if (closed) throw closed;
   const [row] = await db
-    .select({ owner: agents.ownerUserId, machineId: agents.machineId, builtin: agents.builtin })
+    .select({ ...OWNER_COLUMNS, machineId: agents.machineId, builtin: agents.builtin })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!row) throw new NotFoundError("Agent not found");
@@ -508,12 +512,16 @@ export async function screenAccess(
   const seat = isRightHand(row);
   const ofShared = seat && (shared || (handoff != null && handoff.seatUserId === null));
   if (seat && !ofShared) {
-    const access = { owner: userId, machineId: await workspaceHomeId(db, orgId), admin: false, seat };
+    const access = { owns: true, machineId: await workspaceHomeId(db, orgId), admin: false, seat };
     if (handoff && handoff.seatUserId !== userId) return { access, refusal: "none" } as const;
     const keyed = admin || can(membership, full ? "own_computers" : "own_browsers");
     return { access, refusal: keyed ? null : "level" } as const;
   }
-  const agent = { owner: row.owner, machineId: seat ? await workspaceHomeId(db, orgId) : row.machineId };
+  // `owns`: its owner, or holding its owner role now (ADR 0085, addendum of 2026-11-21).
+  const agent = {
+    owns: ownsAgent(row, userId, membership.roleIds),
+    machineId: seat ? await workspaceHomeId(db, orgId) : row.machineId,
+  };
   const access = { ...agent, admin, seat };
   if (admin) return { access, refusal: null };
   const theirs = await seesScreenAsTheirs(db, userId, orgId, agentId, agent, handoff, screen, ofShared);
@@ -527,13 +535,13 @@ async function seesScreenAsTheirs(
   userId: string,
   orgId: string,
   agentId: string,
-  agent: { owner: string | null; machineId: string | null },
+  agent: { owns: boolean; machineId: string | null },
   handoff: BrowserHandoffRow | null | undefined,
   screen: ScreenKind,
   /** The right hand's shared seat's screen. */
   shared = false,
 ) {
-  if (agent.owner === userId) return true;
+  if (agent.owns) return true;
   const open =
     handoff === undefined ? await openHandoffOf(db, orgId, agentId, screen, shared ? SHARED_SEAT : userId) : handoff;
   if (open?.requestedForUserId === userId) return true;
@@ -593,7 +601,7 @@ export async function requireBrowserControl(
   if (access.seat && screen === "browser") {
     throw new ForbiddenError("Its browser shows on its desktop: take control of the desktop instead");
   }
-  if (access.admin || access.owner === userId) return access;
+  if (access.admin || access.owns) return access;
   if (open && OPEN.includes(open.status) && open.requestedForUserId === userId) return access;
   if (screen === "desktop" && access.machineId) {
     const machine = await getMachine(db, orgId, access.machineId);
@@ -974,7 +982,7 @@ export function createBrowserHandoffToolSource(
     const person = await screenPersonOf(ctx.db, ctx);
     /** The person whose own seat it is: only they are asked onto it. Null for an agent's screen and the shared seat's. */
     const own = seatUserOf(person);
-    if (person === false) return { content: noSeatMessage(ctx), isError: true };
+    if (person === false) return { content: NO_SEAT_MESSAGE, isError: true };
     if (person && screen === "browser") {
       return {
         content: `Nothing was asked: your browser here shows on your desktop, so ask there with ${DESKTOP_ASK_PERSON_TOOL}.`,
@@ -1348,7 +1356,7 @@ export async function cancelHandoff(deps: HandoffDeps, actorId: string, orgId: s
   // Only the person in control, the one it was asked of, the agent's owner or an admin.
   const mayCancel =
     access.admin ||
-    access.owner === actorId ||
+    access.owns ||
     current.requestedForUserId === actorId ||
     (current.status === "active" && current.controllerUserId === actorId);
   if (!mayCancel) throw new ForbiddenError("Only the person in control or the agent's owner can cancel this");

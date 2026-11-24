@@ -2,7 +2,7 @@ import { dayLabel } from "@agenteschat/client/lib/format";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
-import { Text, useTheme } from "@/ui";
+import { Text, useFoldRoom, useTheme } from "@/ui";
 
 /** How long the floating date stays once the list stops (as the web's `DATE_PILL_IDLE_MS`). */
 export const DATE_PILL_IDLE_MS = 1200;
@@ -10,19 +10,21 @@ export const DATE_PILL_IDLE_MS = 1200;
 /**
  * The day of the messages at the top of the list, floating at its top centre while the person scrolls, so a long
  * scroll always says when it is: "Hoje", "Ontem", a weekday this week, else a date in the person's locale. `shown`
- * fades it; the day lines in the list say it to screen readers.
+ * fades it; the day lines in the list say it to screen readers. A conversation shown over the whole window folded like
+ * a book has it in the middle of the half past the fold, out of the curve (ADR 0212); in a pane it stays put.
  */
 export function DatePill({ day, shown, top }: { day: string | null; shown: SharedValue<number>; top: number }) {
   const { t, i18n } = useTranslation();
   const { colors, shadows } = useTheme();
   const style = useAnimatedStyle(() => ({ opacity: shown.value }));
+  const room = useFoldRoom();
   if (!day) return null;
   return (
     <Animated.View
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.dock, { top }, style]}
+      style={[styles.dock, { top }, room && { left: room.left, right: room.right }, style]}
     >
       <View style={[styles.pill, { backgroundColor: colors.raised, borderColor: colors.line2, boxShadow: shadows.e1 }]}>
         <Text variant="footnote" tone="muted" style={styles.text}>

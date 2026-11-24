@@ -111,14 +111,16 @@ export async function resolveApprovers(
   if (requestedBy && ids.has(requestedBy) && !requesterDecides) ids.delete(requestedBy);
   const approvers: schema.ApprovalApprovers = { userIds: [...ids], label: "", requestedBy, requesterDecides };
   if (labels.length > 0 && ids.size > 0) return { ok: true, approvers: { ...approvers, label: namesLabel(labels) } };
-  // Nobody named (or only the requester): the agent's owner and admins.
+  // Nobody named (or only the requester): the agent's owner (or its owner role's holders, ADR 0085, addendum of
+  // 2026-11-21) and admins.
   const [agent] = await db
-    .select({ ownerUserId: agents.ownerUserId })
+    .select({ ownerUserId: agents.ownerUserId, ownerRoleId: agents.ownerRoleId })
     .from(agents)
     .where(and(eq(agents.orgId, orgId), eq(agents.id, ctx.agentId)));
   const asked = await approverIds(db, {
     orgId,
     ownerUserId: agent?.ownerUserId ?? null,
+    ownerRoleId: agent?.ownerRoleId ?? null,
     tool: REQUEST_APPROVAL_TOOL,
     approvers,
   });

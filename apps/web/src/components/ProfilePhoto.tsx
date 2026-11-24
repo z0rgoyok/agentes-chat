@@ -9,6 +9,7 @@ import {
   DialogFooter,
   Locked,
   LogoMark,
+  transferFiles,
   workspaceSky,
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -286,7 +287,7 @@ export function ImageCropDialog({
               onDrop={(e) => {
                 e.preventDefault();
                 setOver(false);
-                if (!busy) void choose(e.dataTransfer?.files?.[0]);
+                if (!busy) void choose(transferFiles(e.dataTransfer)[0]);
               }}
             >
               {placeholder}

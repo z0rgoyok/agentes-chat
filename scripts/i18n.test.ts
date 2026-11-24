@@ -2,6 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { flatten } from "../packages/i18n/test/check-locale";
 import { outdatedKeys, SURFACES } from "./i18n";
 
+/**
+ * These speak of writing to us and send nobody to a support channel: the beta notice's line names the app's own
+ * feedback form, and a sent report shows the code to quote when writing about it. By surface and key.
+ */
+const WRITTEN_TO: Record<string, string[]> = {
+  app: ["arrival.beta.where", "problemReport.sentText", "problemReport.sentTextReply"],
+  desktop: ["report.sentText", "report.sentTextReply"],
+};
+
 describe("what the apps say", () => {
   test("no surface sends people to write in: there is no support channel to write to", () => {
     const writeIn =
@@ -9,7 +18,7 @@ describe("what the apps say", () => {
     const said = Object.entries(SURFACES).flatMap(([surface, s]) =>
       [...flatten(s.en), ...flatten(s.ptBR)].map(([key, text]) => ({ surface, key, text })),
     );
-    expect(said.filter((s) => writeIn.test(s.text))).toEqual([]);
+    expect(said.filter((s) => writeIn.test(s.text) && !WRITTEN_TO[s.surface]?.includes(s.key))).toEqual([]);
   });
 });
 

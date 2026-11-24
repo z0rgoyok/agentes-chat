@@ -21,6 +21,7 @@ import { type AiStatusDeps, rightHandWorkAi } from "./ai-status";
 import { decidesAgentApprovals, MAX_OWN_ACTIONS, OWN_ACTION_NAME } from "./approval-rules";
 import { cancelRoutineAhead, type RoutineAheadView, routinesAhead } from "./approvals";
 import {
+  type AgentOwnerFields,
   audienceError,
   audienceSql,
   canTalkTo,
@@ -87,6 +88,7 @@ import {
   type HookMethod,
   liveHookUrl,
   type RoutineHookConfig,
+  releaseHookCalls,
   routineHookKeys,
   WEBHOOK_EVENT,
 } from "./routine-hooks";
@@ -102,6 +104,7 @@ import {
   ruleToCron,
   type ScheduleRule,
 } from "./rrule";
+import { runState } from "./run-state";
 import { providerFailure } from "./runs";
 import { describeWhen, parseSchedule, readSchedule, type ScheduleParse } from "./schedule";
 import { assertCanWork, closedRefusal, deletionPending, orgStanding, standingRefusal } from "./standing";
@@ -159,6 +162,8 @@ export const ROUTINE_EVENTS = [
   "email.received",
   /** A call to the routine's own address (only through a `webhook` trigger: ADR 0106). */
   "webhook.received",
+  /** A message to the workspace's Telegram bot: a private chat with it, or one that mentions or answers it (ADR 0170). */
+  "telegram.message",
 ] as const;
 export type RoutineEvent = (typeof ROUTINE_EVENTS)[number];
 /**
@@ -228,7 +233,7 @@ export type RoutineTrigger =
    * A call to its own address (ADR 0106), stored as the event `webhook.received` plus a `routine_hooks` row. `url`
    * only for who may manage it (null for everyone else and for agents); `signed`: calls must carry a signature.
    */
-  | { type: "webhook"; url: string | null; signed: boolean; methods: HookMethod[] }
+  | { type: "webhook"; url: string | null; signed: boolean; methods: HookMethod[]; groupBy: string | null }
   /**
    * A connector's event (ADR 0130): stored as a webhook routine whose address the provider was given through the
    * connection (`routine_hooks.source`). `status` `error`: the provider refused it (`lastError`).
@@ -396,9 +401,10 @@ export type RoutineTriggerInput =
   | { type: "email"; accountId: string; folder?: string; filter?: MailFilter }
   /**
    * A call to an address of its own (made with it, kept while its trigger changes). `methods`: the HTTP methods it
-   * answers (default POST; left out on a change, what it had).
+   * answers (default POST; left out on a change, what it had). `groupBy`: a dot path into a call's data; calls with
+   * the same value run in order, different ones side by side (null: one line; left out on a change, what it had).
    */
-  | { type: "webhook"; methods?: string[] }
+  | { type: "webhook"; methods?: string[]; groupBy?: string | null }
   /** A connector's event (ADR 0130), from a connection the routine's agent may read. */
   | {
       type: "connector";
@@ -467,7 +473,13 @@ export function routineSlots(r: Pick<RoutineRow, "rule" | "cron" | "timezone">, 
 function triggerOf(
   r: RoutineRow,
   watch?: MailWatchRow,
-  hook?: { url: string | null; signed: boolean; methods: HookMethod[]; source?: ConnectorTriggerSource | null },
+  hook?: {
+    url: string | null;
+    signed: boolean;
+    methods: HookMethod[];
+    groupBy?: string | null;
+    source?: ConnectorTriggerSource | null;
+  },
 ): RoutineTrigger {
   if (r.triggerType === "event" && r.event === WEBHOOK_EVENT && hook?.source) {
     const s = hook.source;
@@ -487,6 +499,7 @@ function triggerOf(
       url: hook?.url ?? null,
       signed: hook?.signed ?? false,
       methods: hook?.methods ?? [...DEFAULT_HOOK_METHODS],
+      groupBy: hook?.groupBy ?? null,
     };
   }
   if (r.triggerType === "event" && r.event === "email.received" && watch) {
@@ -610,8 +623,8 @@ async function runDetails(db: Database, orgId: string, runs: RunRow[]): Promise<
           // views use it for), as one value, so other rows never detoast it.
           wait: sql<{ wait: Record<string, unknown> | null; continued: boolean } | null>`case
             when ${agentRuns.status} = 'waiting_input' then jsonb_build_object(
-              'wait', ${agentRuns.transcript}->'waitingForBrain',
-              'continued', (${agentRuns.transcript}->'usagePause'->'override') is not null) end`,
+              'wait', ${runState}->'waitingForBrain',
+              'continued', (${runState}->'usagePause'->'override') is not null) end`,
           updatedAt: agentRuns.updatedAt,
         })
         .from(agentRuns)
@@ -1092,6 +1105,7 @@ async function views(
           url: hidden ? null : (hookUrls.get(r.id) ?? null),
           signed: hookKey.signed,
           methods: hookKey.methods,
+          groupBy: hookKey.groupBy,
           // What its creator typed (filter, inbox) and the provider's refusal go, as its prompt does, to readers only.
           source: hidden
             ? null
@@ -1413,8 +1427,8 @@ export function ownActionsOf(list: readonly string[]): string[] {
 }
 
 /** A routine acts on its own only by the word of someone who could approve those actions themselves. */
-async function requireActionApprover(db: Database, actorId: string, orgId: string, ownerUserId: string | null) {
-  if (await decidesAgentApprovals(db, orgId, actorId, ownerUserId)) return;
+async function requireActionApprover(db: Database, actorId: string, orgId: string, owner: AgentOwnerFields) {
+  if (await decidesAgentApprovals(db, orgId, actorId, owner)) return;
   throw new ForbiddenError(
     "Only the agent's owner or someone who approves its actions can let a routine act on its own",
     "routine.actions_need_approver",
@@ -1449,7 +1463,7 @@ export async function createRoutine(
   if (input.trigger.type === "connector") await checkConnectorTrigger(db, orgId, agent.id, input.trigger, actorId);
   const hooks = input.trigger.type === "webhook" || input.trigger.type === "connector" ? hooksOf(deps) : null;
   const ownActions = ownActionsOf(input.ownActions ?? []);
-  if (ownActions.length > 0) await requireActionApprover(db, actorId, orgId, agent.ownerUserId);
+  if (ownActions.length > 0) await requireActionApprover(db, actorId, orgId, agent);
   const name = input.name?.trim().slice(0, 120) || prompt.split("\n")[0]?.slice(0, 60) || "Routine";
   const [row] = await db
     .insert(routines)
@@ -1475,7 +1489,9 @@ export async function createRoutine(
       db,
       hooks,
       row,
-      input.trigger.type === "webhook" ? input.trigger.methods : DEFAULT_HOOK_METHODS,
+      input.trigger.type === "webhook"
+        ? { methods: input.trigger.methods, groupBy: input.trigger.groupBy }
+        : { methods: DEFAULT_HOOK_METHODS },
     );
   if (input.trigger.type === "connector") await syncConnector(deps, row, connectorSource(input.trigger));
   await recordAudit(db, {
@@ -1585,20 +1601,8 @@ export async function routineSeer(
 ): Promise<(r: Pick<RoutineRow, "agentId" | "createdByUserId">) => boolean> {
   const [membership, agentRows] = await Promise.all([
     getMembership(db, viewerId, orgId),
-    db
-      .select({
-        id: agents.id,
-        ownerUserId: agents.ownerUserId,
-        audienceMode: agents.audienceMode,
-        audienceUserIds: agents.audienceUserIds,
-        audienceRoleIds: agents.audienceRoleIds,
-        consultable: agents.consultable,
-        brain: agents.brain,
-        editorUserIds: agents.editorUserIds,
-        editorRoleIds: agents.editorRoleIds,
-      })
-      .from(agents)
-      .where(eq(agents.orgId, orgId)),
+    // The same rows for every viewer, kept a moment (`caches.orgReads`): any change to an agent forgets them.
+    caches.orgReads.getOrLoad(`${orgId}:seer`, () => seerRows(db, orgId)) as ReturnType<typeof seerRows>,
   ]);
   const talks = speakerOf(membership);
   const listed = new Set(
@@ -1608,6 +1612,23 @@ export async function routineSeer(
   );
   return (r) => r.createdByUserId === viewerId || listed.has(r.agentId);
 }
+
+const seerRows = (db: Database, orgId: string) =>
+  db
+    .select({
+      id: agents.id,
+      ownerUserId: agents.ownerUserId,
+      ownerRoleId: agents.ownerRoleId,
+      audienceMode: agents.audienceMode,
+      audienceUserIds: agents.audienceUserIds,
+      audienceRoleIds: agents.audienceRoleIds,
+      consultable: agents.consultable,
+      brain: agents.brain,
+      editorUserIds: agents.editorUserIds,
+      editorRoleIds: agents.editorRoleIds,
+    })
+    .from(agents)
+    .where(eq(agents.orgId, orgId));
 
 /**
  * The org's routines for an agent's read tool (`list_routines` with `agent`):
@@ -1760,7 +1781,7 @@ export async function updateRoutine(
             "routine.act_take_over",
           );
         }
-        await requireActionApprover(db, actorId, orgId, agent.ownerUserId);
+        await requireActionApprover(db, actorId, orgId, agent);
       }
       set.ownActions = ownActions;
     }
@@ -1860,7 +1881,9 @@ export async function updateRoutine(
       db,
       hooks,
       row,
-      patch.trigger?.type === "webhook" ? patch.trigger.methods : DEFAULT_HOOK_METHODS,
+      patch.trigger?.type === "webhook"
+        ? { methods: patch.trigger.methods, groupBy: patch.trigger.groupBy }
+        : { methods: DEFAULT_HOOK_METHODS },
     );
   if (connectorTrigger || hadConnector) await syncConnector(deps, row, connectorTrigger);
   // Pausing also stops its work in progress (§6.7); resuming clears why it paused itself.
@@ -2313,8 +2336,9 @@ async function fireClaimedRun(deps: RoutineDeps, run: RunRow) {
   const { db } = deps;
   const skip = async (code: string) => {
     const skipped = await skipRoutineRun(db, run.id, code);
-    // The emails it carried wait for the next run (§6.8).
+    // The emails it carried wait for the next run (§6.8), its webhook calls for their group's next call.
     if (skipped && run.event?.type === "email.received") await releaseRoutineEmails(deps, run.id);
+    if (skipped && run.event?.type === WEBHOOK_EVENT) await releaseHookCalls(deps, run.id, skipped);
     return skipped;
   };
   const [routine] = await db.select().from(routines).where(eq(routines.id, run.routineId));
@@ -2526,9 +2550,9 @@ export async function continueRoutineUsagePause(
   const [paused] = await db
     .select({
       runId: agentRuns.id,
-      waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
-      source: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'source'`,
-      resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
+      waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
+      source: sql<string | null>`${runState}->'waitingForBrain'->>'source'`,
+      resetsAt: sql<string | null>`${runState}->'waitingForBrain'->>'resetsAt'`,
     })
     .from(routineRuns)
     .innerJoin(agentRuns, eq(agentRuns.id, routineRuns.agentRunId))
@@ -2537,7 +2561,7 @@ export async function continueRoutineUsagePause(
         eq(routineRuns.orgId, orgId),
         eq(routineRuns.routineId, routine.id),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`,
+        sql`${runState}->'waitingForBrain'->>'code' = 'usage_pause'`,
       ),
     )
     .orderBy(desc(routineRuns.createdAt))

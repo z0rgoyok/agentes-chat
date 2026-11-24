@@ -3,13 +3,14 @@ import { type CantShow, cantShowLine } from "@agenteschat/client/lib/agent-compu
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { commandInReason, oneClickTerminal, toolOnCommand } from "@agenteschat/client/lib/machines";
 import type { AgentColor } from "@agenteschat/ui";
-import { Button } from "@agenteschat/ui";
+import { Button, InfoHint } from "@agenteschat/ui";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Cover } from "../browser/Cover";
 import { MachineToolButtons, useToolOneClick } from "../devices/ToolOneClick";
 import { CommandBlock, TerminalFallback } from "../machine-bits";
 import { Egress } from "./Egress";
+import { useDialogHead } from "./head";
 
 /** The stage with nothing live on it: the screen's shape, and the cover that says why. */
 export function Stage({ children }: { children: ReactNode }) {
@@ -23,10 +24,23 @@ export function Stage({ children }: { children: ReactNode }) {
 
 /**
  * Watching, the line under the screen: what programs there can see. A cover the screen opens from by itself keeps it
- * too, so the screen opens where its cover was; a cover that stays until someone acts takes its room.
+ * too, so the screen opens where its cover was; a cover that stays until someone acts takes its room. Where the stage
+ * asks for it (`notice: "hint"`), an ⓘ at the line's end says it instead, with the address sites see.
  */
 export function ScreenNotice({ name, machine }: { name: string; machine?: Machine | null }) {
   const { t } = useTranslation();
+  const head = useDialogHead();
+  if (head?.notice === "hint") {
+    const ip = machine?.kind === "managed" && machine.online ? machine.egress?.ip : null;
+    return (
+      <div className="dsk-line dsk-line--hint">
+        <InfoHint name={t("common.about", { label: t("agentComputer.screen", agentGrammar(name)) })} align="end">
+          {t("desktop.watch.notice", agentGrammar(name))}
+          {ip ? ` ${t("machines.egress.line", { ip })}.` : null}
+        </InfoHint>
+      </div>
+    );
+  }
   return (
     <div className="dsk-line">
       <span className="dsk-words">

@@ -57,7 +57,7 @@ import { useApi } from "@/api/context";
 import { AddressList } from "@/components/AddressList";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectedRow } from "@/components/ConnectedRow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { FlowTitle } from "@/components/FlowTitle";
 import { LoadingList, useStepText } from "@/components/Loading";
 import { MailRulesPanel } from "@/components/MailRules";
@@ -469,7 +469,7 @@ export function ImapStep({
           )}
         </DialogBody>
       </Locked>
-      <DialogFooter bar note={testing ?? t("connectFlow.nothingYet")}>
+      <DialogFooter bar note={t("connectFlow.nothingYet")} busyNote={testing}>
         <Button type="button" onClick={onClose}>
           {t("common.cancel")}
         </Button>

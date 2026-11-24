@@ -10,6 +10,7 @@ import {
   useSaveLiveVersion,
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { mediaKindOfArtifact } from "@agenteschat/client/lib/files";
 import { clockHour, dayLabel, formatTime } from "@agenteschat/client/lib/format";
 import type { Peer } from "@agenteschat/live/awareness";
 import {
@@ -135,16 +136,19 @@ export function LiveFilePage({
   // The window's title in the desktop app (its Window menu, Mission Control) and the browser's tab: the file's name.
   useDocumentTitle(artifact?.title);
 
-  // Not a live file (an old link, a file that changed kind): the Drive's viewer shows it.
+  // Not a live file (an old link, a file that changed kind): the Drive's viewer shows it, a picture's, a video's or a
+  // PDF's comments open at the message named (ADR 0208).
+  const linkedMessage = search.m;
   useEffect(() => {
     if (!artifact || isLiveFileKind(artifact.kind)) return;
+    const m = linkedMessage && mediaKindOfArtifact(artifact) ? linkedMessage : undefined;
     void navigate({
       to: "/org/$orgId/drive",
       params: { orgId: org.id },
-      search: { artifact: artifact.id },
+      search: { artifact: artifact.id, ...(m ? { m } : {}) },
       replace: true,
     });
-  }, [artifact, navigate, org.id]);
+  }, [artifact, navigate, org.id, linkedMessage]);
 
   // What the server refused while the person edits, said once each time.
   useEffect(() => {
@@ -292,6 +296,15 @@ export function LiveFilePage({
     [dir.agentById, fileAgent, column],
   );
 
+  /** Pedir para editar (ADR 0202): the conversation opens with the words for who made the file, mine to send. */
+  const requestEdit = useCallback(() => {
+    const maker = artifact?.createdBy;
+    const handle = maker?.type === "person" ? dir.memberById.get(maker.id)?.handle : undefined;
+    const text = handle ? `@${handle} ${t("live.shell.requestEditText")}` : t("live.shell.requestEditAnyone");
+    setPrefill({ text, key: Date.now() });
+    if (!column.open) column.toggle();
+  }, [artifact, dir.memberById, column, t]);
+
   const talk = useMemo<FileTalk | null>(
     () =>
       artifact && kind
@@ -400,6 +413,7 @@ export function LiveFilePage({
                 onSave={openSave}
                 onShortcuts={() => setKeysOpen(true)}
                 onDelete={() => artifact && remover.ask(artifact)}
+                onRequestEdit={artifact?.myAccess === "view" ? requestEdit : undefined}
               />
             )}
             <div className="lf-body">

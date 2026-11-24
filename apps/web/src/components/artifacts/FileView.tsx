@@ -1,9 +1,12 @@
 import type { ArtifactFileContent } from "@agenteschat/client";
 import { useArtifactBlob } from "@agenteschat/client";
 import {
+  extensionOf,
   fileIcon,
   formatBytes,
+  isCodeName,
   isJsonFile,
+  isMarkdownFile,
   isOfficePreview,
   MAX_PREVIEW_BYTES,
   previewKind,
@@ -16,6 +19,7 @@ import { useApi } from "@/api/context";
 import { CodeBlock } from "@/components/CodeBlock";
 import { OfficePreview } from "@/components/live/office/OfficePreview";
 import { useOrg } from "@/components/org-context";
+import { Markdown } from "@/lib/markdown";
 import { ImageZoom } from "./ImageZoom";
 
 /** Object URLs for blobs (swappable: test DOMs may lack `URL.createObjectURL`). */
@@ -126,6 +130,7 @@ export function FileVideo({
           onOpen={onOpen}
           actions={actions}
           onFailed={() => setFailed(true)}
+          handoff={artifactId}
         />
       </Tip>
     </div>
@@ -136,7 +141,7 @@ export function FileVideo({
  * An uploaded file in the viewer (its name, size and Baixar are in the viewer's header): an inline preview only for
  * raster images and PDF (a blob of exactly that type, never the file's own origin), videos in our player (a media
  * element never runs the file as a page), and the text of small text files, read-only (JSON formatted, as a code
- * block reads it).
+ * block reads it, code highlighted, Markdown drawn).
  */
 export function FileView({
   content,
@@ -183,6 +188,7 @@ export function FileView({
             name={content.name}
             labels={videoLabels}
             onFailed={() => setVideoFailed(true)}
+            handoff={artifactId}
           />
         )}
       </div>
@@ -214,16 +220,25 @@ export function FileView({
         </div>
       )}
       {kind !== null && !canPreview && <p className="small muted">{t("files.tooBigToPreview")}</p>}
-      {kind === null &&
-        content.text !== undefined &&
-        (isJsonFile(content.name, content.contentType) ? (
-          <CodeBlock lang="json" text={content.text} />
-        ) : (
-          <pre className="file-view__text">
-            <code>{content.text}</code>
-          </pre>
-        ))}
+      {kind === null && content.text !== undefined && <FileText content={content} text={content.text} title={title} />}
       {kind === null && content.text === undefined && <p className="small muted">{t("files.downloadOnly")}</p>}
     </div>
+  );
+}
+
+/** A small text file's text: JSON formatted and code highlighted as a code block reads them, Markdown drawn. */
+function FileText({ content, text, title }: { content: ArtifactFileContent; text: string; title: string }) {
+  if (isJsonFile(content.name, content.contentType)) return <CodeBlock lang="json" text={text} />;
+  if (isMarkdownFile(content.name, content.contentType))
+    return (
+      <div className="file-view__doc">
+        <Markdown source={text} title={title} />
+      </div>
+    );
+  if (isCodeName(content.name)) return <CodeBlock lang={extensionOf(content.name)} text={text} />;
+  return (
+    <pre className="file-view__text">
+      <code>{text}</code>
+    </pre>
   );
 }

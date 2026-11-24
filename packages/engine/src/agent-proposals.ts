@@ -17,7 +17,7 @@ import { orgToolCatalog, setAgentAccess } from "./access";
 import { type Agent, createAgent, getAgent, HANDLE_PATTERN, NEW_AGENT_DEFAULTS, takenHandles } from "./agents";
 import { type AiStatusDeps, agentAiState } from "./ai-status";
 import { type AgentAppearance, setAgentAppearance, validateAppearance } from "./appearance";
-import { canTalkTo, speakerFor } from "./audience";
+import { reachesAgent } from "./audience";
 import { setAgentBrain } from "./brain-settings";
 import { requireChannelAccess } from "./channels";
 import { CONNECTOR_CATALOG } from "./connectors/catalog";
@@ -1106,13 +1106,9 @@ async function giveLines(
   // In words, for the agent that proposed it.
   const mail = draft.mail ?? [];
   // A plan thinks only for its owner's agents: a mailbox's owner who can't talk to it can't give it either, yet.
-  const now = (await getAgent(db, orgId, agent.id)) ?? agent;
   const unheard = new Set<string>();
   for (const m of mail) {
-    if (
-      !mailAccountIds.includes(m.accountId) &&
-      !canTalkTo(now, m.ownerUserId, await speakerFor(db, orgId, m.ownerUserId))
-    )
+    if (!mailAccountIds.includes(m.accountId) && !(await reachesAgent(db, orgId, agent.id, m.ownerUserId)))
       unheard.add(m.ownerUserId);
   }
   const [named, connected, owners] = await Promise.all([

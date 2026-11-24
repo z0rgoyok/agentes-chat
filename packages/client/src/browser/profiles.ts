@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "../api/context";
 import { keys } from "../api/keys";
-import type { BrowserProfile, Machine, PageTarget } from "../api/types";
+import type { AgentBrowserSettings, BrowserProfile, Machine, PageTarget } from "../api/types";
+import { edit, optimistic, patchIn, without } from "../lib/optimistic";
 
 /** The live view's key of a browser profile (ADR 0110): watched where an agent's id would be. */
 export const profileLiveKey = (profileId: string) => `profile:${profileId}`;
@@ -48,7 +49,8 @@ export function useBrowserProfileMutations(orgId: string) {
     if (!a) throw new Error("This server has no browser profiles");
     return a;
   };
-  const refresh = () => qc.invalidateQueries({ queryKey: keys.browserProfiles(orgId) });
+  // Not awaited: a write is done when the server says so, not when the list was read again.
+  const refresh = () => void qc.invalidateQueries({ queryKey: keys.browserProfiles(orgId) });
   const put = (p: BrowserProfile) =>
     qc.setQueryData<BrowserProfile[]>(keys.browserProfiles(orgId), (list) =>
       list ? (list.some((x) => x.id === p.id) ? list.map((x) => (x.id === p.id ? p : x)) : [...list, p]) : [p],
@@ -63,11 +65,24 @@ export function useBrowserProfileMutations(orgId: string) {
       mutationFn: ({ profileId, ...input }: { profileId: string; name?: string; agentIds?: string[] }) =>
         profiles().update(orgId, profileId, input),
       meta: { silent: true },
+      // Its name and agents show at once; a refusal (a name taken) puts them back.
+      ...optimistic(qc, ({ profileId, name, agentIds }: { profileId: string; name?: string; agentIds?: string[] }) => [
+        edit<BrowserProfile[]>(
+          keys.browserProfiles(orgId),
+          patchIn<BrowserProfile>(profileId, {
+            ...(name !== undefined ? { name } : {}),
+            ...(agentIds !== undefined ? { agentIds } : {}),
+          }),
+        ),
+      ]),
       onSuccess: put,
     }),
     remove: useMutation({
       mutationFn: (profileId: string) => profiles().remove(orgId, profileId),
       meta: { silent: true },
+      ...optimistic(qc, (profileId: string) => [
+        edit<BrowserProfile[]>(keys.browserProfiles(orgId), without<BrowserProfile>(profileId)),
+      ]),
       onSuccess: refresh,
     }),
     takeover: useMutation({
@@ -89,7 +104,10 @@ export function useBrowserProfileMutations(orgId: string) {
       mutationFn: ({ agentId, profileId }: { agentId: string; profileId: string | null }) =>
         profiles().setDefault(orgId, agentId, profileId),
       meta: { silent: true },
-      onSuccess: (_v, { agentId }) => qc.invalidateQueries({ queryKey: keys.agentBrowser(orgId, agentId) }),
+      ...optimistic(qc, ({ agentId, profileId }: { agentId: string; profileId: string | null }) => [
+        edit<AgentBrowserSettings>(keys.agentBrowser(orgId, agentId), (settings) => ({ ...settings, profileId })),
+      ]),
+      onSuccess: (_v, { agentId }) => void qc.invalidateQueries({ queryKey: keys.agentBrowser(orgId, agentId) }),
     }),
     request: useMutation({
       mutationFn: (agentId: string) => profiles().request(orgId, agentId),

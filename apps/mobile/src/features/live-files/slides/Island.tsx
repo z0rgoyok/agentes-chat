@@ -1,7 +1,7 @@
 import type { PeerUser } from "@agenteschat/live/awareness";
 import { StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { Button, motion, Text, useReducedMotion } from "@/ui";
+import { Button, besideFold, motion, Text, useFoldRoom, useReducedMotion } from "@/ui";
 import { Face } from "../../shared/Face";
 import { useSurface } from "../../shared/parts";
 
@@ -12,7 +12,8 @@ const ISLAND_OUT = FadeOut.duration(motion.fast).easing(motion.easeOut);
 /**
  * A small island at the top of a live file's screen about someone else in it (ADR 0196 §5), the spreadsheet's look:
  * their face, what they do ("Seguindo Ada", "Ada está apresentando") and one action ("Parar", "Seguir"). It comes and
- * goes with a fade (still with reduced motion: it only appears).
+ * goes with a fade (still with reduced motion: it only appears). The screen it floats over is the window's whole width:
+ * folded like a book, it stands beside the fold instead of in its middle (ADR 0212).
  */
 export function HereIsland({
   who,
@@ -30,11 +31,12 @@ export function HereIsland({
 }) {
   const surface = useSurface("e2");
   const reduced = useReducedMotion();
+  const room = useFoldRoom();
   return (
     <Animated.View
       entering={reduced ? undefined : ISLAND_IN}
       exiting={reduced ? undefined : ISLAND_OUT}
-      style={[styles.at, { top }]}
+      style={[styles.at, { top }, room && besideFold(room)]}
       pointerEvents="box-none"
     >
       <View style={[styles.island, surface]} accessibilityLiveRegion="polite">

@@ -39,7 +39,7 @@ export interface Saved {
   key?: string;
   /** Its own budget (US$); null = the workspace default (admins only). */
   budget?: number | null;
-  /** A user id or `NO_OWNER`. */
+  /** A user id, a role's `role:<id>` (ADR 0085, addendum of 2026-11-21) or `NO_OWNER`. */
   owner: string;
   audience: AgentAudience;
   /** "Quem pode editar" (ADR 0085 addendum of 2026-11-17): who else edits how it works. Absent, nothing to compare. */
@@ -118,6 +118,9 @@ export const canEdit = (viewer: Viewer, field: Field) =>
  */
 export const ownsOrManages = (viewer: Viewer) => viewer === "admin" || viewer === "owner";
 
+/** The built-in area whose level says whether the agent uses its skills: it lives on the Skills tab. */
+export const SKILLS_AREA = "area:skills";
+
 /** Where each field lives: its tab, and its section in Configurações. */
 export const FIELD_PLACE: Record<Field, { tab: AgentTab; sec?: AgentSection }> = {
   name: { tab: "settings", sec: "identity" },
@@ -127,7 +130,7 @@ export const FIELD_PLACE: Record<Field, { tab: AgentTab; sec?: AgentSection }> =
   instructions: { tab: "instructions" },
   levels: { tab: "access" },
   repos: { tab: "access" },
-  skills: { tab: "access" },
+  skills: { tab: "skills" },
   model: { tab: "settings", sec: "brain" },
   key: { tab: "settings", sec: "brain" },
   budget: { tab: "settings", sec: "budget" },

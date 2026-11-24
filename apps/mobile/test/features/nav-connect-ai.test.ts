@@ -26,7 +26,10 @@ describe("the flow's pages are routes of their own", () => {
       expect({ page, exists: existsSync(join(MAIN, "connect-ai", `${page}.tsx`)) }).toEqual({ page, exists: true });
       expect({ page, options: ownOptionsOf(`connect-ai/${page}`, layout) }).toEqual({ page, options: "connectAi," });
     }
-    expect(layout).toContain("const connectAi = { ...page, contentStyle: { backgroundColor: colors.grouped } };");
+    // The grouped gray behind them, their content clear of the side insets as every pushed screen's (ADR 0212).
+    expect(layout).toContain(
+      "const connectAi = { ...page, contentStyle: { backgroundColor: colors.grouped, ...side } };",
+    );
     expect(readFileSync(join(MAIN, "connect-ai", "index.tsx"), "utf8")).toContain("<ConnectAiStart />");
     expect(readFileSync(join(MAIN, "connect-ai", "plan.tsx"), "utf8")).toContain('<ConnectAiPushed page="plan" />');
   });

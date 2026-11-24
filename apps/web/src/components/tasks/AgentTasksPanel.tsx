@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import { AgentAvatar, AgentSpinner } from "@/components/AgentAvatar";
 import { QueueDialog } from "@/components/ComputerQueue";
 import { ErrorState, LoadingList } from "@/components/Loading";
+import { MetaLine } from "@/components/MetaLine";
 import { OpensAgent } from "@/components/OpensAgent";
 import { useOrg } from "@/components/org-context";
 import { WaitMark } from "@/components/RequestCard";
@@ -121,12 +122,6 @@ export function AgentTasksPanel({
   const title = t("taskManager.agentTasks", { name });
   const { waiting } = agentSummary(tasks);
   const done = ended.filter((e) => e.agentId === agentId && e.status === "done").length;
-  const meta = [
-    t("taskManager.agentPanel.now", { count: tasks.length }),
-    waiting > 0 ? t("taskManager.waiting", { count: waiting }) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const stoppable = tasks.filter((task) => task.canStop && !stopping.has(task.runId)).map((task) => task.runId);
   // The page, with this agent's card chosen.
   const openManager = () =>
@@ -149,7 +144,12 @@ export function AgentTasksPanel({
           <h2 className="channel__title thread-title">
             <span className="thread-title__text">{title}</span>
           </h2>
-          <span className="channel__topic thread-head__meta">{meta}</span>
+          <MetaLine
+            parts={[
+              t("taskManager.agentPanel.now", { count: tasks.length }),
+              waiting > 0 && t("taskManager.waiting", { count: waiting }),
+            ]}
+          />
         </div>
         <Button size="sm" variant="ghost" iconOnly icon="close" aria-label={t("common.close")} onClick={onClose} />
       </header>

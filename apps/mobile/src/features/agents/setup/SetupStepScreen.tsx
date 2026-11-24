@@ -24,6 +24,7 @@ import {
   resourcesOf,
 } from "@agenteschat/client/lib/access-levels";
 import { channelsAfter, sameAudience } from "@agenteschat/client/lib/agent-edit";
+import { hasAgentOwner } from "@agenteschat/client/lib/agent-owner";
 import { audienceOf, audiencePatch, managesAgent } from "@agenteschat/client/lib/audience";
 import { firstName } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -64,7 +65,8 @@ import { RowBones } from "../../roles/parts";
 import { useFailed } from "../../routines/hooks";
 import { resourceName, useConnectedById, useSetLevels } from "../../settings/hooks";
 import { SettingsPage } from "../../settings/parts";
-import { useDirectory, useMeId } from "../../shared/hooks";
+import { useDirectory, useMeId, useOwnsAgent } from "../../shared/hooks";
+import { ownerRoleOf } from "../../shared/owner";
 import { pickOne } from "../../shared/PickerSheet";
 import { goBack, successHaptic, tapHaptic } from "../../shared/parts";
 import { TextArea } from "../../shared/TextArea";
@@ -492,27 +494,41 @@ function WhoStep({ agent }: { agent: Agent }) {
   const owner = agent.ownerUserId;
   const ownerName = owner ? dir.memberById.get(owner)?.name : undefined;
   const ownerIsMe = Boolean(meId && owner === meId);
+  // A role that answers for it (ADR 0085, addendum of 2026-11-21): whoever holds it always talks to it, so "only its
+  // owner" names them and the role is no pick of its own.
+  const ownerRole = ownerRoleOf(agent, roles.data?.roles);
   const pickedPeople = new Set(audience.userIds);
   const pickedRoles = new Set(audience.roleIds ?? []);
   const rolesInSight = rolePicksInSight(org, roles.data?.roles ?? [], audience.roleIds ?? []);
-  const roleList = rolesInSight ? sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r))) : [];
+  const roleList = rolesInSight
+    ? sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r) && r.id !== agent.ownerRoleId))
+    : [];
   const people = [...dir.memberById.values()].filter((m) => m.userId !== owner);
   const modeLabel = (mode: AudienceMode) =>
-    mode === "owner" ? t("audience.mode.owner") : t(modeKey(org, `audience.mode.${mode}`));
+    mode === "owner"
+      ? ownerRole
+        ? t("audience.mode.ownerRole", { role: ownerRole.name })
+        : t("audience.mode.owner")
+      : t(modeKey(org, `audience.mode.${mode}`));
   const modeText = (mode: AudienceMode) =>
     mode === "owner"
-      ? ownerName
-        ? t("audience.modeText.owner", { ...g, owner: ownerIsMe ? t("agentSetup.who.you") : ownerName })
-        : t("audience.modeText.noOwner")
+      ? ownerRole
+        ? t("audience.modeText.ownerRole", { ...g, role: ownerRole.name })
+        : ownerName
+          ? t("audience.modeText.owner", { ...g, owner: ownerIsMe ? t("agentSetup.who.you") : ownerName })
+          : t("audience.modeText.noOwner")
       : t(modeKey(org, `audience.modeText.${mode}`), g);
+  const answered = hasAgentOwner(agent);
   const valid =
     audience.mode === "everyone" ||
-    (audience.mode === "owner" ? Boolean(owner) : pickedPeople.size > 0 || pickedRoles.size > 0 || Boolean(owner));
+    (audience.mode === "owner" ? answered : pickedPeople.size > 0 || pickedRoles.size > 0 || answered);
   const shareOn = share ?? (brain ? !brain.onlyOwner : false);
   const planOwner = ownerName ? firstName(ownerName) : undefined;
-  const always = ownerName
-    ? t("audience.ownerAlways", { name: ownerIsMe ? t("agentSetup.who.youCap") : ownerName })
-    : undefined;
+  const always = ownerRole
+    ? t("audience.ownerRoleAlways", { role: ownerRole.name })
+    : ownerName
+      ? t("audience.ownerAlways", { name: ownerIsMe ? t("agentSetup.who.youCap") : ownerName })
+      : undefined;
   const flip = (kind: "userIds" | "roleIds", id: string) => {
     tapHaptic();
     setAudience((a) => {
@@ -606,7 +622,7 @@ function WhoStep({ agent }: { agent: Agent }) {
 function HowStep({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
   const { orgId, org } = useOrg();
-  const meId = useMeId();
+  const owns = useOwnsAgent();
   const update = useUpdateAgent(orgId, agent.id);
   const modelLabel = useModelLabel();
   const { busy, run } = useStepSave(agent, "how");
@@ -617,7 +633,8 @@ function HowStep({ agent }: { agent: Agent }) {
   // from its owner.
   const manages = managesAgent(agent);
   const seesBudget = onApi && manages && agent.monthlyBudgetUsd !== undefined;
-  const picksModel = onApi && (manages || (!!meId && agent.ownerUserId === meId));
+  // Its owner: the person, or one who holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const picksModel = onApi && (manages || owns(agent));
   const [instructions, setInstructions] = useState(agent.instructions);
   const [budget, setBudget] = useState(agent.monthlyBudgetUsd == null ? "" : String(agent.monthlyBudgetUsd));
   const typed = budget.trim().replace(",", ".");

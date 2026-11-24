@@ -75,7 +75,7 @@ export const SCENE_LINES: Record<PurposeKind, readonly string[]> = {
 /** Each answer's color: its horizon. */
 export const SCENE_COLOR: Record<PurposeKind, "violet" | "sky"> = { personal: "violet", team: "sky" };
 
-/** What a card's agents do, as the cluster of pills under its line (ADR 0162). */
+/** What an answer's agents do, each said in a bubble over its face (ADR 0162). */
 export type PurposeActivity =
   | "agenda"
   | "home"
@@ -88,8 +88,8 @@ export type PurposeActivity =
   | "sales";
 
 /**
- * Each pill's agent (its index in `SCENE_FACES`) and words (`onboarding.purpose.activities.<key>`), in the order they
- * light up: round the ring from the top-left for me, down the tree for a team. An agent may have no pill.
+ * Each activity's agent (its index in `SCENE_FACES`) and words (`onboarding.purpose.activities.<key>`), in the order
+ * they wake and speak: round the ring from the top-left for me, down the tree for a team. An agent may have none.
  */
 export const SCENE_ACTIVITIES: Record<PurposeKind, readonly { agent: number; key: PurposeActivity }[]> = {
   personal: [

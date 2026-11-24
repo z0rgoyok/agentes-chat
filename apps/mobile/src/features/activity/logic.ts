@@ -15,8 +15,12 @@ import { daysAgo } from "../shared/logic";
  * says who and how many.
  */
 
-/** `done`: "Concluídas", what I marked done (the last 30 days), by when. */
-export type ActivityFilter = "all" | "waiting" | "done";
+/**
+ * The inbox's filters, the web's own: `requests`, the requests already decided (the approvals' list, not the
+ * notifications'); `done`, what I marked done (the last 30 days), by when.
+ */
+export type ActivityFilter = "all" | "waiting" | "mentions" | "unread" | "requests" | "done";
+export const ACTIVITY_FILTERS: readonly ActivityFilter[] = ["all", "waiting", "mentions", "unread", "requests", "done"];
 
 /**
  * Waiting ones in this order: an agent stuck in its browser or waiting for a secret (both expire in minutes), an

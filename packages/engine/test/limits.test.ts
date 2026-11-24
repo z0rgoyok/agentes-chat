@@ -9,6 +9,7 @@ import {
   createFakeJudge,
   createFileArtifact,
   createInvitation,
+  createLlmJudge,
   deleteArtifact,
   enableOperatorEvents,
   getOrgLimits,
@@ -25,11 +26,13 @@ import {
   parseSkillMarkdown,
   platformCapJudge,
   platformCapReached,
+  platformCapRouter,
   postPersonMessage,
   type RouterStrategy,
   requestOutsideAccess,
   resendInvitation,
   restoreArtifact,
+  routeChain,
   routeMessage,
   SKILL_LIMITS,
   saveSkill,
@@ -58,6 +61,7 @@ const NONE: OrgLimits = {
   storageBytes: null,
   uploadBytesPerDay: null,
   platformUsdPerMonth: null,
+  connectorUsdPerMonth: null,
 };
 const limit = (over: Partial<OrgLimits>) => setOrgLimits(f.db, f.org.id, { ...NONE, ...over });
 const owner = () => ({ type: "person" as const, userId: f.owner.id });
@@ -96,6 +100,7 @@ describe("limits", () => {
       storageBytes: 50 * 1024 ** 3,
       uploadBytesPerDay: 1024,
       platformUsdPerMonth: 3.5,
+      connectorUsdPerMonth: 1.25,
     });
     expect(set).toEqual({
       members: 10,
@@ -104,6 +109,7 @@ describe("limits", () => {
       storageBytes: 50 * 1024 ** 3,
       uploadBytesPerDay: 1024,
       platformUsdPerMonth: 3.5,
+      connectorUsdPerMonth: 1.25,
       updatedAt: expect.any(Date),
     });
     const [row] = await f.db
@@ -122,6 +128,7 @@ describe("limits", () => {
       storageBytes: 50 * 1024 ** 3,
       uploadBytesPerDay: 1024,
       platformUsdPerMonth: 3.5,
+      connectorUsdPerMonth: 1.25,
     });
     expect(again?.updatedAt).toEqual(new Date("2026-01-01T00:00:00Z"));
     const cleared = await limit({});
@@ -277,6 +284,7 @@ describe("storage", () => {
       uploadBytes24h: 170,
       ownStorage: true,
       platformUsdThisMonth: 0,
+      connectorUsdThisMonth: 0,
     });
   });
 
@@ -376,6 +384,16 @@ describe("the platform's AI", () => {
     // A higher cap applies at once.
     await limit({ platformUsdPerMonth: 4 });
     expect((await ask()).stop?.noul).toBe(0.9);
+    // With no small model of its own either, the refusal is what the question fails with: the turn end's self-check
+    // (`uncheckedNudge`) tells it from a server with no judge at all.
+    await limit({ platformUsdPerMonth: 3 });
+    const noModel = withJudgeFallback(
+      platformCapJudge(f.db, jev),
+      createLlmJudge({ gateway: f.gateway, resolveModel: async () => null }),
+    );
+    await expect(
+      noModel.ask({ orgId: f.org.id, kind: "stop_request", state: { message: "para" }, questions: question }),
+    ).rejects.toThrow(PLATFORM_CAP);
   });
 
   test("the router starts nobody past the cap and says so; @mentions still start their agents", async () => {
@@ -422,6 +440,41 @@ describe("the platform's AI", () => {
       });
     expect(router(true)?.platformCapReached).toBeFunction();
     expect(router(false)?.platformCapReached).toBeUndefined();
+  });
+
+  test("past the cap the workspace's own small model still picks who answers: only Jev is skipped", async () => {
+    f = await setup();
+    const asked: string[] = [];
+    const step = (name: string): RouterStrategy => ({
+      name,
+      decide: async () => {
+        asked.push(name);
+        return { agents: [{ agentId: f.agent.id, score: 0.9 }] };
+      },
+    });
+    const deps = (smallModel: string | null) => ({
+      db: f.db,
+      strategy: routeChain([platformCapRouter(f.db, step("jev")), step("llm")]),
+      policy: { minScore: 0.5, maxAgents: 2, maxHops: 3 },
+      platformCapReached: (orgId: string) => platformCapReached(f.db, orgId),
+      routing: { jev: async () => true, smallModel: async () => smallModel, plans: null },
+    });
+    const post = (body: string) =>
+      postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body });
+    await limit({ platformUsdPerMonth: 3 });
+    await spend(3);
+
+    const own = await post("anyone around?");
+    expect((await routeMessage(deps("claude-haiku-5-5"), { orgId: f.org.id, messageId: own.id })).selected).toEqual([
+      f.agent.id,
+    ]);
+    expect(asked).toEqual(["llm"]);
+    // With no model of its own, nobody is picked and the receipt says why.
+    const none = await post("still there?");
+    expect(await routeMessage(deps(null), { orgId: f.org.id, messageId: none.id })).toMatchObject({
+      reason: PLATFORM_CAP,
+    });
+    expect(asked).toEqual(["llm"]);
   });
 
   test("the operator's feed hears 50% and 100% once per month", async () => {
