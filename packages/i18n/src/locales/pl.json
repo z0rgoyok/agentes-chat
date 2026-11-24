@@ -2408,7 +2408,7 @@
     "addAccount": "Dodaj konto",
     "addAccountHint": "Zaloguj się na inne konto bez wylogowywania z tego",
     "yourServer": "Twój serwer",
-    "serverHere": "Tich Rooms.chat na tym urządzeniu ({{device}})",
+    "serverHere": "agentes.chat na tym urządzeniu ({{device}})",
     "serverStopped": "zatrzymany",
     "serverOffline": "offline od {{time}}",
     "serverSignedOut": "niezalogowano",

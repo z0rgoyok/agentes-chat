@@ -2261,7 +2261,7 @@
     "addAccount": "Hesap ekle",
     "addAccountHint": "Bu hesaptan çıkmadan başka bir hesapla giriş yapın",
     "yourServer": "Sunucunuz",
-    "serverHere": "Bu {{device}} üzerindeki Tich Rooms.chat",
+    "serverHere": "Bu {{device}} üzerindeki agentes.chat",
     "serverStopped": "durduruldu",
     "serverOffline": "{{time}} saatinden beri çevrim dışı",
     "serverSignedOut": "giriş yapılmadı",

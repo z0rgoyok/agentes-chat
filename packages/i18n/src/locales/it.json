@@ -2335,7 +2335,7 @@
     "addAccount": "Aggiungi account",
     "addAccountHint": "Accedi a un altro account senza uscire da questo",
     "yourServer": "Il tuo server",
-    "serverHere": "L’Tich Rooms.chat di questo {{device}}",
+    "serverHere": "L’agentes.chat di questo {{device}}",
     "serverStopped": "fermo",
     "serverOffline": "offline dalle {{time}}",
     "serverSignedOut": "senza accesso",

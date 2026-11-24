@@ -2189,7 +2189,7 @@
     "addAccount": "添加账号",
     "addAccountHint": "登录其他账号，无需退出当前账号",
     "yourServer": "你的服务器",
-    "serverHere": "这台 {{device}} 上的 Tich Rooms.chat",
+    "serverHere": "这台 {{device}} 上的 agentes.chat",
     "serverStopped": "已停止",
     "serverOffline": "自 {{time}} 起离线",
     "serverSignedOut": "未登录",

@@ -2261,7 +2261,7 @@
     "addAccount": "Account toevoegen",
     "addAccountHint": "Log in bij een ander account zonder dit te verlaten",
     "yourServer": "Je server",
-    "serverHere": "Tich Rooms.chat op deze {{device}}",
+    "serverHere": "agentes.chat op deze {{device}}",
     "serverStopped": "gestopt",
     "serverOffline": "offline sinds {{time}}",
     "serverSignedOut": "niet aangemeld",

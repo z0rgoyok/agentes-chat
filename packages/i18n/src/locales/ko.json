@@ -2189,7 +2189,7 @@
     "addAccount": "계정 추가",
     "addAccountHint": "이 계정을 유지한 채 다른 계정으로 로그인",
     "yourServer": "내 서버",
-    "serverHere": "이 {{device}}의 Tich Rooms.chat",
+    "serverHere": "이 {{device}}의 agentes.chat",
     "serverStopped": "중지됨",
     "serverOffline": "{{time}}부터 오프라인",
     "serverSignedOut": "로그인 안 됨",

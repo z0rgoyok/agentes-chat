@@ -2189,7 +2189,7 @@
     "addAccount": "Tambah akun",
     "addAccountHint": "Masuk ke akun lain tanpa keluar dari akun ini",
     "yourServer": "Servermu",
-    "serverHere": "Tich Rooms.chat di {{device}} ini",
+    "serverHere": "agentes.chat di {{device}} ini",
     "serverStopped": "berhenti",
     "serverOffline": "offline sejak {{time}}",
     "serverSignedOut": "belum masuk",

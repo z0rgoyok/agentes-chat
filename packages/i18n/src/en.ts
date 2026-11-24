@@ -2401,16 +2401,16 @@ export const en = {
     /** Beside a workspace's name, only when another of the person's has the same name. */
     createdOn: "Created on {{date}}",
     newWorkspace: "New workspace",
-    /** The desktop app's window to add one (ADR 0154): in place of New workspace on Tich Rooms.chat, after it elsewhere. */
+    /** The desktop app's window to add one (ADR 0154): in place of New workspace on agentes.chat, after it elsewhere. */
     addWorkspace: "Add workspace",
     addWorkspaceHint: "Join one you already have, create one, or use your team's server",
     /** Another account on this server, signed in beside the one open (ADR 0183). */
     addAccount: "Add account",
     addAccountHint: "Sign in to another account without leaving this one",
-    /** Beside a server's name above its workspaces, when it isn't Tich Rooms.chat. */
+    /** Beside a server's name above its workspaces, when it isn't agentes.chat. */
     yourServer: "Your server",
     /** A server's line in "Your workspaces" in the desktop app: the one on this computer, and its state (ADR 0158). */
-    serverHere: "The Tich Rooms.chat on this {{device}}",
+    serverHere: "The agentes.chat on this {{device}}",
     serverStopped: "stopped",
     serverOffline: "offline since {{time}}",
     serverSignedOut: "not signed in",
@@ -2559,7 +2559,7 @@ export const en = {
       people: "You already pinned 5 people. Unpin one to pin this one.",
     },
   },
-  /** Settings › Tich Rooms.chat apps (`AppsDownload.tsx`): the desktop app for this computer and the phone apps. */
+  /** Settings › agentes.chat apps (`AppsDownload.tsx`): the desktop app for this computer and the phone apps. */
   appsDownload: {
     computer: "Computer",
     computerText: "Your workspace in a window of its own, with the system's notifications.",
@@ -2567,7 +2567,7 @@ export const en = {
     howTo: "How to install",
     phone: "Phone",
     phoneText: "Notifications in your pocket, to answer from anywhere.",
-    /** The iPhone app's public beta, only on Tich Rooms.chat's own servers. */
+    /** The iPhone app's public beta, only on agentes.chat's own servers. */
     testFlight: "TestFlight",
     androidApk: "Download for Android (APK)",
     googlePlay: "Google Play",

@@ -2189,7 +2189,7 @@
     "addAccount": "アカウントを追加",
     "addAccountHint": "このアカウントのまま、別のアカウントにログイン",
     "yourServer": "自分のサーバー",
-    "serverHere": "この{{device}}の Tich Rooms.chat",
+    "serverHere": "この{{device}}の agentes.chat",
     "serverStopped": "停止中",
     "serverOffline": "{{time}} からオフライン",
     "serverSignedOut": "未サインイン",
