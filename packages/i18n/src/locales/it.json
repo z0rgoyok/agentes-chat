@@ -6776,6 +6776,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Si possono condividere solo fatti, note, decisioni, preferenze e regole attuali. I ricordi personali e le note interne restano privati.",
     "title": "Memoria del team",
     "help": "Ciò che le persone hanno chiesto a tutti gli agenti di tenere, con chi l’ha detto e quando. Ogni agente lo legge in tutto il suo lavoro.",
     "empty": "Ancora niente. Quando qualcuno chiede a tutti gli agenti di ricordare qualcosa, compare qui.",

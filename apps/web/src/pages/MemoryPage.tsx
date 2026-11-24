@@ -86,7 +86,7 @@ export const KIND_ICON: Record<MemoryKind, IconName> = {
 /** "usado 9 vezes", "nunca usado", "sem uso há 40 dias" (archived and stale). */
 export function usageLabel(t: TFunction, m: Memory, now = new Date()) {
   if (m.archived && m.lastUsedAt) return t("memory.unusedFor", { days: daysBetween(m.lastUsedAt, now) });
-  return m.uses === 0 ? t("memory.used_zero") : t("memory.used", { count: m.uses });
+  return t("memory.used", { count: m.uses });
 }
 
 /** An agent's memory: "O que a Ada sabe". `item`: the memory a link opened it at. */

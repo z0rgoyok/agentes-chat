@@ -6766,6 +6766,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Seuls les faits, notes, décisions, préférences et règles en cours peuvent être partagés. Les souvenirs personnels et les notes internes restent privés.",
     "title": "Mémoire de l’équipe",
     "help": "Ce que les gens ont demandé à tous les agents de garder, avec qui l’a dit et quand. Chaque agent le lit dans tout son travail.",
     "empty": "Rien pour l’instant. Quand quelqu’un demande à tous les agents de retenir quelque chose, cela apparaît ici.",

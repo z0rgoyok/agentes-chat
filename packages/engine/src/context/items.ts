@@ -908,6 +908,21 @@ export async function addContextItemByPerson(
 /** What a team memory may be: what every agent keeps for the whole team. */
 export const TEAM_KINDS = ["rule", "preference", "fact", "decision"] as const;
 
+/** Record eligibility, shared by the command and the apps. The caller still needs review_memory. */
+export function teamMemoryKind(item: ContextItem): (typeof TEAM_KINDS)[number] | null {
+  if (
+    !item.agentId ||
+    item.status !== "active" ||
+    item.supersededBy ||
+    item.scopeType === "person" ||
+    isHowTo(item) ||
+    isPlaybook(item)
+  )
+    return null;
+  if (item.kind === "note") return "fact";
+  return TEAM_KINDS.find((kind) => kind === item.kind) ?? null;
+}
+
 /** A team memory: no agent's, in a person's words (theirs, or an admin's who made it the team's). */
 export const teamMemorySql = () =>
   sql`(${contextItems.agentId} is null and ${contextItems.createdByKind} = 'person' and ${contextItems.kind} in ('rule', 'preference', 'fact', 'decision'))`;
@@ -945,19 +960,47 @@ export async function listTeamMemories(db: Database, actorId: string, orgId: str
 }
 
 /**
- * "Tornar do time": an agent's fact, decision, preference or rule becomes the team's, read by every agent, and the
- * copies agents kept of the same thing go (archived behind it, restorable). Who reviews memory. The person who said
- * it stays its author.
+ * "Tornar do time": an agent's note (as a fact), fact, decision, preference or rule becomes the team's.
+ * Copies agents kept of the same thing are archived behind it, restorable. Requires review_memory.
+ * The person who said it stays its author.
  */
 export async function makeTeamMemory(db: Database, actorId: string, orgId: string, itemId: string) {
   await requirePermission(db, actorId, orgId, "review_memory");
-  const item = await loadItem(db, orgId, itemId);
-  if (!item.agentId || item.status !== "active" || !(TEAM_KINDS as readonly string[]).includes(item.kind))
-    throw new ValidationError("Only an agent's current fact, decision, preference or rule can become the team's");
+  const visible = await userVisibleChannels(db, orgId, actorId);
   return db.transaction(async (tx) => {
+    // Two agents' copies can be promoted together. Serialize the copy/archive operation before locking either row.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team-memory:${orgId}`}))`);
+    const [item] = await tx
+      .select()
+      .from(contextItems)
+      .where(and(eq(contextItems.orgId, orgId), eq(contextItems.id, itemId)))
+      .for("update");
+    if (!item || !itemVisibleIn(item, visible)) throw new NotFoundError("Item not found");
+    // A retry of the same promotion returns its result, even after the source was archived.
+    if (
+      item.status === "archived" &&
+      item.supersededBy &&
+      teamMemoryKind({ ...item, status: "active", supersededBy: null })
+    ) {
+      const [existing] = await tx
+        .select()
+        .from(contextItems)
+        .where(
+          and(
+            eq(contextItems.orgId, orgId),
+            eq(contextItems.id, item.supersededBy),
+            eq(contextItems.status, "active"),
+            isNull(contextItems.supersededBy),
+            teamMemorySql(),
+          ),
+        );
+      if (existing && itemVisibleIn(existing, visible)) return existing;
+    }
+    const kind = teamMemoryKind(item);
+    if (!kind) throw new ValidationError("This memory cannot be shared with the team", "memory.team_unavailable");
     const team = await insertContextItem(tx, {
       orgId,
-      kind: item.kind,
+      kind,
       scopeType: "org",
       scopeId: orgId,
       agentId: null,
@@ -987,9 +1030,11 @@ export async function makeTeamMemory(db: Database, actorId: string, orgId: strin
         )
     ).filter(
       (c) =>
-        c.id === item.id ||
-        c.subjectKey === item.subjectKey ||
-        similarity(c.content, item.content) >= SAME_ITEM_SIMILARITY,
+        teamMemoryKind(c) !== null &&
+        itemVisibleIn(c, visible) &&
+        (c.id === item.id ||
+          c.subjectKey === item.subjectKey ||
+          similarity(c.content, item.content) >= SAME_ITEM_SIMILARITY),
     );
     for (const c of copies) {
       await tx

@@ -6553,6 +6553,7 @@
     }
   },
   "teamMemory": {
+    "unavailable": "Alleen actuele feiten, notities, beslissingen, voorkeuren en regels kunnen worden gedeeld. Persoonlijke herinneringen en interne notities blijven privé.",
     "title": "Teamgeheugen",
     "help": "Wat mensen alle agents vroegen te onthouden, met wie het zei en wanneer. Elke agent leest het bij al zijn werk.",
     "empty": "Nog niets. Als iemand alle agents vraagt iets te onthouden, verschijnt het hier.",

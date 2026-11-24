@@ -6929,6 +6929,8 @@ export const ptBR = {
     },
   },
   teamMemory: {
+    unavailable:
+      "Só fatos, notas, decisões, preferências e regras atuais podem ser compartilhados. Memórias pessoais e notas internas ficam privadas.",
     title: "Memória do time",
     help: "O que as pessoas pediram para todos os agentes guardarem, com quem disse e quando. Todo agente lê isso em todo o trabalho.",
     empty: "Nada ainda. Quando alguém pedir para todos os agentes lembrarem de algo, aparece aqui.",

@@ -7030,6 +7030,8 @@ export const en = {
   },
   /** Memória do time (ADR 0167): Settings › General, the agent's memory tab and the phone's memory screen. */
   teamMemory: {
+    unavailable:
+      "Only current facts, notes, decisions, preferences and rules can be shared. Personal memories and internal notes stay private.",
     title: "Team memory",
     help: "What people asked every agent to keep, with who said it and when. Every agent reads it in all its work.",
     empty: "Nothing yet. When someone asks every agent to remember something, it shows here.",
