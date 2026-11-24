@@ -19,7 +19,7 @@ export function AppsDownloadSection() {
               <h2 id="gapps-phone" className="gapps__title ac-captop">
                 {t("appsDownload.phone")}
               </h2>
-              <p className="gapps__text">{t("appsDownload.phoneText")}</p>
+              <p className="gapps__text">{t("appsDownload.androidText")}</p>
               <div className="gapps__acts">
                 {stores.map((s) => (
                   <Button key={s.id} asChild size="sm">
